@@ -32,7 +32,7 @@ from ..types.exceptions import (
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
-from ._strict_schema import ensure_strict_json_schema
+from ._strict_schema import ensure_strict_json_schema, validate_bedrock_strict_constraints
 from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
@@ -268,6 +268,10 @@ class BedrockModel(Model):
                 "cache_prompt is deprecated. Use SystemContentBlock with cachePoint instead.", UserWarning, stacklevel=3
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
+
+        # Validate tool schemas against Bedrock strict-mode constraints before building request
+        if tool_specs and self.config.get("strict_tools"):
+            validate_bedrock_strict_constraints(tool_specs, strict_tools=True)
 
         return {
             "modelId": self.config["model_id"],

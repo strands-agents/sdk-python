@@ -142,3 +142,126 @@ def _resolve_ref(root: dict[str, Any], ref: str) -> dict[str, Any] | None:
         return None
 
     return current
+
+
+def validate_bedrock_strict_constraints(
+    tool_specs: list[dict[str, Any]],
+    strict_tools: bool,
+) -> None:
+    """Validate tool schemas against Bedrock strict-mode constraints.
+
+    Bedrock strict mode enforces two constraints:
+    1. No ``oneOf`` keyword anywhere in any tool schema
+    2. Aggregate optional parameters across all tools must not exceed 24
+
+    This function performs build-time validation to provide clear, actionable errors
+    before the request reaches the Bedrock API, where failures are opaque.
+
+    Args:
+        tool_specs: List of tool specifications to validate.
+        strict_tools: Whether strict tools mode is enabled.
+
+    Raises:
+        ValueError: If any constraint is violated.
+
+    Example:
+        >>> tool_specs = [{"name": "browser", "inputSchema": {"json": {...}}}]
+        >>> validate_bedrock_strict_constraints(tool_specs, strict_tools=True)
+        ValueError: Tool 'browser' contains unsupported 'oneOf' in input schema...
+    """
+    if not strict_tools:
+        return
+
+    # Check for oneOf in any tool schema
+    for tool_spec in tool_specs:
+        schema = tool_spec["inputSchema"]["json"]
+        if _has_oneof(schema):
+            raise ValueError(
+                f"Tool '{tool_spec['name']}' contains unsupported 'oneOf' in input schema. "
+                f"Bedrock strict mode does not support oneOf. Either:\n"
+                f"  - Set strict_tools=False, or\n"
+                f"  - Refactor the tool schema to avoid oneOf"
+            )
+
+    # Check aggregate optional parameter limit
+    total_optional = 0
+    tool_counts: list[tuple[str, int]] = []
+
+    for tool_spec in tool_specs:
+        schema = tool_spec["inputSchema"]["json"]
+        optional_count = _count_optional_params(schema)
+        total_optional += optional_count
+        if optional_count > 0:
+            tool_counts.append((tool_spec["name"], optional_count))
+
+    if total_optional > 24:
+        details = "\n".join(
+            [f"  - {name}: {count} optional" for name, count in sorted(tool_counts, key=lambda x: -x[1])]
+        )
+        raise ValueError(
+            f"Tools collectively have {total_optional} optional parameters (limit: 24). "
+            f"Bedrock strict mode limits optional parameters. Either:\n"
+            f"  - Set strict_tools=False, or\n"
+            f"  - Reduce optional parameters by making some required or removing tools\n"
+            f"Tools contributing optional params:\n{details}"
+        )
+
+
+def _has_oneof(schema: dict[str, Any], visited: set[int] | None = None) -> bool:
+    """Recursively check if a schema contains the oneOf keyword.
+
+    Args:
+        schema: The schema dict to scan.
+        visited: Set of schema object IDs already visited (prevents infinite recursion).
+
+    Returns:
+        True if oneOf is found anywhere in the schema tree, False otherwise.
+    """
+    if visited is None:
+        visited = set()
+
+    schema_id = id(schema)
+    if schema_id in visited:
+        return False
+    visited.add(schema_id)
+
+    # Direct oneOf check
+    if "oneOf" in schema:
+        return True
+
+    # Recurse into nested structures
+    for key in ("properties", "items", "anyOf", "allOf", "$defs", "definitions"):
+        value = schema.get(key)
+        if isinstance(value, dict):
+            if _has_oneof(value, visited):
+                return True
+            # If key is properties or $defs/definitions, recurse into each sub-schema
+            if key in ("properties", "$defs", "definitions"):
+                for sub_schema in value.values():
+                    if isinstance(sub_schema, dict) and _has_oneof(sub_schema, visited):
+                        return True
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and _has_oneof(item, visited):
+                    return True
+
+    return False
+
+
+def _count_optional_params(schema: dict[str, Any]) -> int:
+    """Count optional parameters in a schema.
+
+    An optional parameter is a property that is not listed in the required array.
+
+    Args:
+        schema: The JSON schema to analyze.
+
+    Returns:
+        Number of optional parameters (properties not in required).
+    """
+    if schema.get("type") != "object":
+        return 0
+
+    properties = schema.get("properties", {})
+    required = set(schema.get("required", []))
+    return len(properties) - len(required)
