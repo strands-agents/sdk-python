@@ -129,10 +129,6 @@ dependencies = [
   "ruff>=0.13.0,<0.15.0",
   # Include required package dependencies for mypy
   "strands-agents @ {root:uri}",
-  # Type-check-only boto3 client stubs for the Bedrock Knowledge Base memory store. Imported under
-  # TYPE_CHECKING in vended_memory_stores/bedrock_knowledge_base, so they are not runtime deps.
-  # NOTE: the s3 stub is intentionally omitted; adding it sharpens client("s3") repo-wide and
-  # surfaces a pre-existing typing issue in session/s3_session_manager.py. Tracked as a follow-up.
   "boto3-stubs[bedrock-agent,bedrock-agent-runtime]>=1.26.0,<2.0.0",
 ]
 python = "3.10"
