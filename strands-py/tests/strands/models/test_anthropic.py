@@ -738,19 +738,23 @@ def test_format_chunk_unknown(model):
 async def test_stream(anthropic_client, model, alist):
     mock_event_1 = unittest.mock.Mock(
         type="message_start",
-        dict=lambda: {"type": "message_start"},
-        model_dump=lambda: {"type": "message_start"},
+        message=unittest.mock.Mock(
+            id="msg_123",
+            model="m1",
+            role="assistant",
+            stop_reason=None,
+            stop_sequence=None,
+            type="message",
+            usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 0, "output_tokens": 0}),
+        ),
     )
     mock_event_2 = unittest.mock.Mock(
         type="unknown",
-        dict=lambda: {"type": "unknown"},
-        model_dump=lambda: {"type": "unknown"},
     )
     mock_event_3 = unittest.mock.Mock(
         type="metadata",
         message=unittest.mock.Mock(
             usage=unittest.mock.Mock(
-                dict=lambda: {"input_tokens": 1, "output_tokens": 2},
                 model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
             )
         ),
@@ -791,7 +795,15 @@ async def test_stream_early_termination(anthropic_client, model, alist, caplog):
     caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
     mock_event = unittest.mock.Mock(
         type="message_start",
-        model_dump=lambda: {"type": "message_start"},
+        message=unittest.mock.Mock(
+            id="msg_123",
+            model="m1",
+            role="assistant",
+            stop_reason=None,
+            stop_sequence=None,
+            type="message",
+            usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 0, "output_tokens": 0}),
+        ),
     )
 
     anthropic_client.messages.stream.return_value = generate_mock_stream_context(
@@ -867,46 +879,71 @@ async def test_stream_bad_request_error(anthropic_client, model):
 async def test_structured_output(anthropic_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
+    # message_start event
+    message_usage_mock = unittest.mock.Mock()
+    message_usage_mock.model_dump = lambda: {"input_tokens": 10, "output_tokens": 0}
+
+    message_mock = unittest.mock.Mock()
+    message_mock.id = "msg_123"
+    message_mock.model = "m1"
+    message_mock.role = "assistant"
+    message_mock.stop_reason = None
+    message_mock.stop_sequence = None
+    message_mock.type = "message"
+    message_mock.usage = message_usage_mock
+
+    mock_message_start = unittest.mock.Mock()
+    mock_message_start.type = "message_start"
+    mock_message_start.message = message_mock
+
+    # content_block_start event
+    content_block_mock = unittest.mock.Mock()
+    content_block_mock.type = "tool_use"
+    content_block_mock.id = "123"
+    content_block_mock.name = "TestOutputModel"
+    content_block_mock.input = {}
+
+    mock_content_block_start = unittest.mock.Mock()
+    mock_content_block_start.type = "content_block_start"
+    mock_content_block_start.index = 0
+    mock_content_block_start.content_block = content_block_mock
+
+    # content_block_delta event
+    delta_mock = unittest.mock.Mock()
+    delta_mock.type = "input_json_delta"
+    delta_mock.partial_json = '{"name": "John", "age": 30}'
+
+    mock_content_block_delta = unittest.mock.Mock()
+    mock_content_block_delta.type = "content_block_delta"
+    mock_content_block_delta.index = 0
+    mock_content_block_delta.delta = delta_mock
+
+    # content_block_stop event
+    mock_content_block_stop = unittest.mock.Mock()
+    mock_content_block_stop.type = "content_block_stop"
+    mock_content_block_stop.index = 0
+
+    # message_stop event
+    message_stop_mock = unittest.mock.Mock()
+    message_stop_mock.stop_reason = "tool_use"
+
+    mock_message_stop = unittest.mock.Mock()
+    mock_message_stop.type = "message_stop"
+    mock_message_stop.message = message_stop_mock
+
     events = [
-        unittest.mock.Mock(type="message_start", model_dump=unittest.mock.Mock(return_value={"type": "message_start"})),
-        unittest.mock.Mock(
-            type="content_block_start",
-            model_dump=unittest.mock.Mock(
-                return_value={
-                    "type": "content_block_start",
-                    "index": 0,
-                    "content_block": {"type": "tool_use", "id": "123", "name": "TestOutputModel"},
-                }
-            ),
-        ),
-        unittest.mock.Mock(
-            type="content_block_delta",
-            model_dump=unittest.mock.Mock(
-                return_value={
-                    "type": "content_block_delta",
-                    "index": 0,
-                    "delta": {"type": "input_json_delta", "partial_json": '{"name": "John", "age": 30}'},
-                },
-            ),
-        ),
-        unittest.mock.Mock(
-            type="content_block_stop",
-            model_dump=unittest.mock.Mock(return_value={"type": "content_block_stop", "index": 0}),
-        ),
-        unittest.mock.Mock(
-            type="message_stop",
-            message=unittest.mock.Mock(stop_reason="tool_use"),
-            model_dump=unittest.mock.Mock(
-                return_value={"type": "message_stop", "message": {"stop_reason": "tool_use"}}
-            ),
-        ),
+        mock_message_start,
+        mock_content_block_start,
+        mock_content_block_delta,
+        mock_content_block_stop,
+        mock_message_stop,
     ]
 
     anthropic_client.messages.stream.return_value = generate_mock_stream_context(
         events,
         final_message=unittest.mock.Mock(
             usage=unittest.mock.Mock(
-                model_dump=unittest.mock.Mock(return_value={"input_tokens": 0, "output_tokens": 0})
+                model_dump=lambda: {"input_tokens": 0, "output_tokens": 0}
             ),
         ),
     )
@@ -1186,3 +1223,171 @@ class TestCountTokens:
         anthropic_client.messages.count_tokens.assert_not_called()
         assert isinstance(result, int)
         assert result >= 0
+
+
+@pytest.mark.asyncio
+async def test_stream_text_no_pydantic_warnings(anthropic_client, model, alist):
+    """Verify no Pydantic serialization warnings for text streaming.
+
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1865.
+    Tests all event types: message_start, content_block_start, content_block_delta, content_block_stop, message_stop.
+    """
+    mock_message_start = unittest.mock.Mock(
+        type="message_start",
+        message=unittest.mock.Mock(
+            id="msg_123",
+            model="m1",
+            role="assistant",
+            stop_reason=None,
+            stop_sequence=None,
+            type="message",
+            usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 10, "output_tokens": 0}),
+        ),
+    )
+
+    content_block_mock = unittest.mock.Mock()
+    content_block_mock.type = "text"
+    content_block_mock.text = ""
+
+    mock_content_block_start = unittest.mock.Mock()
+    mock_content_block_start.type = "content_block_start"
+    mock_content_block_start.index = 0
+    mock_content_block_start.content_block = content_block_mock
+
+    delta_mock = unittest.mock.Mock()
+    delta_mock.type = "text_delta"
+    delta_mock.text = "Hello"
+
+    mock_content_block_delta = unittest.mock.Mock()
+    mock_content_block_delta.type = "content_block_delta"
+    mock_content_block_delta.index = 0
+    mock_content_block_delta.delta = delta_mock
+
+    mock_content_block_stop = unittest.mock.Mock()
+    mock_content_block_stop.type = "content_block_stop"
+    mock_content_block_stop.index = 0
+
+    mock_message_stop = unittest.mock.Mock(
+        type="message_stop",
+        message=unittest.mock.Mock(stop_reason="end_turn"),
+    )
+
+    final_message = unittest.mock.Mock(
+        usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 10, "output_tokens": 5}),
+    )
+
+    mock_context = generate_mock_stream_context(
+        [
+            mock_message_start,
+            mock_content_block_start,
+            mock_content_block_delta,
+            mock_content_block_stop,
+            mock_message_stop,
+        ],
+        final_message=final_message,
+    )
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        response = model.stream(messages, None, None)
+        events = await alist(response)
+
+    pydantic_warnings = [w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)]
+    assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+
+    assert {"messageStart": {"role": "assistant"}} in events
+    assert {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}} in events
+    assert {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "Hello"}}} in events
+    assert {"contentBlockStop": {"contentBlockIndex": 0}} in events
+    assert {"messageStop": {"stopReason": "end_turn"}} in events
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_use_no_pydantic_warnings(anthropic_client, model, alist):
+    """Verify no Pydantic serialization warnings for tool-use streaming.
+
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1865.
+    """
+    mock_message_start = unittest.mock.Mock(
+        type="message_start",
+        message=unittest.mock.Mock(
+            id="msg_456",
+            model="m1",
+            role="assistant",
+            stop_reason=None,
+            stop_sequence=None,
+            type="message",
+            usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 15, "output_tokens": 0}),
+        ),
+    )
+
+    content_block_mock = unittest.mock.Mock()
+    content_block_mock.type = "tool_use"
+    content_block_mock.id = "tool_123"
+    content_block_mock.name = "get_weather"
+    content_block_mock.input = {}
+
+    mock_content_block_start = unittest.mock.Mock()
+    mock_content_block_start.type = "content_block_start"
+    mock_content_block_start.index = 0
+    mock_content_block_start.content_block = content_block_mock
+
+    delta_mock = unittest.mock.Mock()
+    delta_mock.type = "input_json_delta"
+    delta_mock.partial_json = '{"location": "SF"}'
+
+    mock_content_block_delta = unittest.mock.Mock()
+    mock_content_block_delta.type = "content_block_delta"
+    mock_content_block_delta.index = 0
+    mock_content_block_delta.delta = delta_mock
+
+    mock_content_block_stop = unittest.mock.Mock()
+    mock_content_block_stop.type = "content_block_stop"
+    mock_content_block_stop.index = 0
+
+    mock_message_stop = unittest.mock.Mock(
+        type="message_stop",
+        message=unittest.mock.Mock(stop_reason="tool_use"),
+    )
+
+    final_message = unittest.mock.Mock(
+        usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 15, "output_tokens": 20}),
+    )
+
+    mock_context = generate_mock_stream_context(
+        [
+            mock_message_start,
+            mock_content_block_start,
+            mock_content_block_delta,
+            mock_content_block_stop,
+            mock_message_stop,
+        ],
+        final_message=final_message,
+    )
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "what's the weather in SF?"}]}]
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        response = model.stream(messages, None, None)
+        events = await alist(response)
+
+    pydantic_warnings = [w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)]
+    assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+
+    assert {"messageStart": {"role": "assistant"}} in events
+    assert {
+        "contentBlockStart": {
+            "contentBlockIndex": 0,
+            "start": {"toolUse": {"name": "get_weather", "toolUseId": "tool_123"}},
+        }
+    } in events
+    assert {
+        "contentBlockDelta": {"contentBlockIndex": 0, "delta": {"toolUse": {"input": '{"location": "SF"}'}}}
+    } in events
+    assert {"contentBlockStop": {"contentBlockIndex": 0}} in events
+    assert {"messageStop": {"stopReason": "tool_use"}} in events

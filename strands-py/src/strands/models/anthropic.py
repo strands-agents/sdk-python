@@ -376,6 +376,80 @@ class AnthropicModel(Model):
             case _:
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
+    @staticmethod
+    def _build_event_dict(event: Any) -> dict[str, Any]:
+        """Build event dict directly from attributes to avoid Pydantic serialization warnings.
+
+        When the Anthropic SDK (>=0.84.0) returns ParsedTextBlock objects, calling model_dump()
+        triggers Pydantic serialization warnings. This method constructs dicts by directly
+        accessing typed attributes instead.
+
+        Args:
+            event: Stream event from Anthropic SDK.
+
+        Returns:
+            Dictionary representation of the event suitable for format_chunk().
+        """
+        if event.type == "message_start":
+            return {
+                "type": "message_start",
+                "message": {
+                    "id": event.message.id,
+                    "model": event.message.model,
+                    "role": event.message.role,
+                    "stop_reason": event.message.stop_reason,
+                    "stop_sequence": event.message.stop_sequence,
+                    "type": event.message.type,
+                    "usage": event.message.usage.model_dump(),
+                },
+            }
+
+        if event.type == "content_block_start":
+            content_block_dict: dict[str, Any] = {"type": event.content_block.type}
+            if event.content_block.type == "tool_use":
+                content_block_dict["id"] = event.content_block.id
+                content_block_dict["name"] = event.content_block.name
+                content_block_dict["input"] = event.content_block.input
+            else:
+                content_block_dict["text"] = getattr(event.content_block, "text", "")
+
+            return {
+                "type": "content_block_start",
+                "index": event.index,
+                "content_block": content_block_dict,
+            }
+
+        if event.type == "content_block_delta":
+            delta_dict: dict[str, Any] = {"type": event.delta.type}
+            if event.delta.type == "text_delta":
+                delta_dict["text"] = event.delta.text
+            elif event.delta.type == "input_json_delta":
+                delta_dict["partial_json"] = event.delta.partial_json
+            elif event.delta.type == "thinking_delta":
+                delta_dict["thinking"] = event.delta.thinking
+            elif event.delta.type == "signature_delta":
+                delta_dict["signature"] = event.delta.signature
+
+            return {
+                "type": "content_block_delta",
+                "index": event.index,
+                "delta": delta_dict,
+            }
+
+        if event.type == "content_block_stop":
+            return {
+                "type": "content_block_stop",
+                "index": event.index,
+            }
+
+        if event.type == "message_stop":
+            return {
+                "type": "message_stop",
+                "message": {"stop_reason": event.message.stop_reason},
+            }
+
+        return event.model_dump()
+
     @override
     async def count_tokens(
         self,
@@ -463,17 +537,7 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        if event.type == "message_stop":
-                            # Build dict directly to avoid Pydantic serialization warnings
-                            # when the message contains ParsedTextBlock objects (issue #1746)
-                            yield self.format_chunk(
-                                {
-                                    "type": "message_stop",
-                                    "message": {"stop_reason": event.message.stop_reason},
-                                }
-                            )
-                        else:
-                            yield self.format_chunk(event.model_dump())
+                        yield self.format_chunk(self._build_event_dict(event))
 
                 try:
                     message_snapshot = await stream.get_final_message()
