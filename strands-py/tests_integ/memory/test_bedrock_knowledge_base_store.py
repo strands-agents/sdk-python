@@ -64,7 +64,7 @@ class TestCustomDataSource:
         ds_id = bedrock_kb_context.custom_data_source_id
 
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="CUSTOM",
                 data_source_id=ds_id,
@@ -100,7 +100,7 @@ class TestCustomDataSource:
 
         scope = unique_marker("scope")
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="CUSTOM",
                 data_source_id=ds_id,
@@ -135,7 +135,7 @@ class TestCustomDataSource:
         marker = unique_marker("isolation")
 
         store_a = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="CUSTOM",
                 data_source_id=ds_id,
@@ -148,7 +148,7 @@ class TestCustomDataSource:
         )
 
         store_b = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="CUSTOM",
                 data_source_id=ds_id,
@@ -180,7 +180,7 @@ class TestCustomDataSource:
         ds_id = bedrock_kb_context.custom_data_source_id
 
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="CUSTOM",
                 data_source_id=ds_id,
@@ -227,7 +227,7 @@ class TestS3DataSource:
         bucket = bedrock_kb_context.s3_bucket
 
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="S3",
                 data_source_id=ds_id,
@@ -267,7 +267,7 @@ class TestS3DataSource:
 
         scope = unique_marker("s3scope")
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="S3",
                 data_source_id=ds_id,
@@ -305,7 +305,7 @@ class TestS3DataSource:
         marker = unique_marker("s3-isolation")
 
         store_a = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="S3",
                 data_source_id=ds_id,
@@ -321,7 +321,7 @@ class TestS3DataSource:
         )
 
         store_b = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="S3",
                 data_source_id=ds_id,
@@ -356,7 +356,7 @@ class TestS3DataSource:
         bucket = bedrock_kb_context.s3_bucket
 
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(
+            config=BedrockKnowledgeBaseConfig(
                 knowledge_base_id=kb_id,
                 data_source_type="S3",
                 data_source_id=ds_id,
@@ -394,7 +394,7 @@ class TestReadOnlyAndErrorHandling:
         kb_id = bedrock_kb_context.knowledge_base_id
 
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(knowledge_base_id=kb_id, runtime_client=kb_clients["runtime"]),
+            config=BedrockKnowledgeBaseConfig(knowledge_base_id=kb_id, runtime_client=kb_clients["runtime"]),
             name="integ-readonly",
         )
 
@@ -406,7 +406,7 @@ class TestReadOnlyAndErrorHandling:
         kb_id = bedrock_kb_context.knowledge_base_id
 
         store = BedrockKnowledgeBaseStore(
-            BedrockKnowledgeBaseConfig(knowledge_base_id=kb_id, runtime_client=kb_clients["runtime"]),
+            config=BedrockKnowledgeBaseConfig(knowledge_base_id=kb_id, runtime_client=kb_clients["runtime"]),
             name="integ-readonly-search",
         )
 
@@ -417,7 +417,7 @@ class TestReadOnlyAndErrorHandling:
         """Pure constructor validation; needs no AWS access."""
         with pytest.raises(ValueError, match="add requires data_source_type 'CUSTOM' or 'S3'"):
             BedrockKnowledgeBaseStore(
-                BedrockKnowledgeBaseConfig(knowledge_base_id="fake-id", data_source_type="OTHER"),
+                config=BedrockKnowledgeBaseConfig(knowledge_base_id="fake-id", data_source_type="OTHER"),
                 name="integ-other",
                 writable=True,
             )
@@ -426,7 +426,7 @@ class TestReadOnlyAndErrorHandling:
         """Pure constructor validation; needs no AWS access."""
         with pytest.raises(ValueError, match="data_source_id is required"):
             BedrockKnowledgeBaseStore(
-                BedrockKnowledgeBaseConfig(knowledge_base_id="fake-id", data_source_type="CUSTOM"),
+                config=BedrockKnowledgeBaseConfig(knowledge_base_id="fake-id", data_source_type="CUSTOM"),
                 name="integ-no-ds",
                 writable=True,
             )
@@ -435,7 +435,7 @@ class TestReadOnlyAndErrorHandling:
         """Pure constructor validation; needs no AWS access."""
         with pytest.raises(ValueError, match="s3 config is required"):
             BedrockKnowledgeBaseStore(
-                BedrockKnowledgeBaseConfig(
+                config=BedrockKnowledgeBaseConfig(
                     knowledge_base_id="fake-id", data_source_type="S3", data_source_id="fake-ds"
                 ),
                 name="integ-no-s3",
