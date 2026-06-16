@@ -2,7 +2,7 @@
 
 Mirrors ``strands-ts/src/sandbox/__tests__/ssh.test.node.ts``. These tests assert
 the ``ssh`` argv the sandbox builds and the SSH-option allowlist; the process
-pump (``stream_process``) is mocked, so no remote host is required.
+pump (``_stream_process``) is mocked, so no remote host is required.
 
 The remote command strings use stdlib ``shlex.quote`` (the core port's choice
 over the oracle's hand-rolled ``shellQuote``). The two render shell-equivalent
@@ -17,6 +17,7 @@ import pytest
 
 from strands.sandbox.ssh import SshSandbox
 from strands.sandbox.types import ExecutionResult
+from strands.vended_tools.bash.types import SANDBOX_BASH_DESCRIPTION
 
 # Leading SSH flags shared by every invocation, with default host-key checking.
 BASE = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-p", "22"]
@@ -24,14 +25,14 @@ BASE = ["-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "-p", "
 
 @pytest.fixture
 def mock_stream_process(agenerator):
-    """Patch ``stream_process`` in the ssh module, returning a no-op result."""
-    with unittest.mock.patch("strands.sandbox.ssh.stream_process") as mock:
+    """Patch ``_stream_process`` in the ssh module, returning a no-op result."""
+    with unittest.mock.patch("strands.sandbox.ssh._stream_process") as mock:
         mock.return_value = agenerator([ExecutionResult(exit_code=0, stdout="", stderr="")])
         yield mock
 
 
 def _args(mock_stream_process) -> list[str]:
-    """The argv passed to ``stream_process`` (its second positional argument)."""
+    """The argv passed to ``_stream_process`` (its second positional argument)."""
     return mock_stream_process.call_args.args[1]
 
 
@@ -184,3 +185,15 @@ async def test_forwards_timeout_and_enoent_message(mock_stream_process):
 async def test_rejects_invalid_env_var_names(mock_stream_process):
     with pytest.raises(ValueError, match="Invalid environment variable name"):
         await SshSandbox("h", working_dir="/w").execute("cmd", env={"FOO=bar BAZ": "val"})
+
+
+def test_get_tools_vends_file_editor_and_bash():
+    tools = SshSandbox("myhost", working_dir="/workspace").get_tools()
+    assert [t.tool_name for t in tools] == ["sandbox_file_editor", "sandbox_bash"]
+
+
+def test_get_tools_bash_description_names_host():
+    tools = SshSandbox("myhost", working_dir="/workspace").get_tools()
+    bash_tool = next(t for t in tools if t.tool_name == "sandbox_bash")
+    assert SANDBOX_BASH_DESCRIPTION in bash_tool.tool_spec["description"]
+    assert "myhost" in bash_tool.tool_spec["description"]

@@ -2,7 +2,7 @@
 
 Mirrors ``strands-ts/src/sandbox/__tests__/docker.test.node.ts``. These tests
 assert the ``docker exec`` argv the sandbox builds; the process pump
-(``stream_process``) is mocked, so no Docker daemon is required.
+(``_stream_process``) is mocked, so no Docker daemon is required.
 """
 
 import unittest.mock
@@ -11,22 +11,23 @@ import pytest
 
 from strands.sandbox.docker import DockerSandbox
 from strands.sandbox.types import ExecutionResult
+from strands.vended_tools.bash.types import SANDBOX_BASH_DESCRIPTION
 
 
 @pytest.fixture
 def mock_stream_process(agenerator):
-    """Patch ``stream_process`` in the docker module, returning a no-op result.
+    """Patch ``_stream_process`` in the docker module, returning a no-op result.
 
     Yields the mock so tests can inspect the ``(program, args, kwargs)`` it was
     called with via ``mock.call_args``.
     """
-    with unittest.mock.patch("strands.sandbox.docker.stream_process") as mock:
+    with unittest.mock.patch("strands.sandbox.docker._stream_process") as mock:
         mock.return_value = agenerator([ExecutionResult(exit_code=0, stdout="", stderr="")])
         yield mock
 
 
 def _args(mock_stream_process) -> list[str]:
-    """The argv passed to ``stream_process`` (its second positional argument)."""
+    """The argv passed to ``_stream_process`` (its second positional argument)."""
     return mock_stream_process.call_args.args[1]
 
 
@@ -96,3 +97,15 @@ async def test_forwards_timeout_and_enoent_message(mock_stream_process):
 async def test_rejects_invalid_env_var_names(mock_stream_process):
     with pytest.raises(ValueError, match="Invalid environment variable name"):
         await DockerSandbox("my-container").execute("cmd", env={"FOO=bar BAZ": "val"})
+
+
+def test_get_tools_vends_file_editor_and_bash():
+    tools = DockerSandbox("my-container").get_tools()
+    assert [t.tool_name for t in tools] == ["sandbox_file_editor", "sandbox_bash"]
+
+
+def test_get_tools_bash_description_names_container():
+    tools = DockerSandbox("my-container").get_tools()
+    bash_tool = next(t for t in tools if t.tool_name == "sandbox_bash")
+    assert SANDBOX_BASH_DESCRIPTION in bash_tool.tool_spec["description"]
+    assert "my-container" in bash_tool.tool_spec["description"]

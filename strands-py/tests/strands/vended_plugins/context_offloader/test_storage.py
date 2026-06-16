@@ -1,5 +1,11 @@
-"""Tests for offload storage backends."""
+"""Tests for offload storage backends.
 
+The ``Storage`` protocol is async (``store``/``retrieve`` are coroutines), so
+these tests await those calls. The thread-safety tests drive the async API from
+real OS threads via ``asyncio.run`` to keep exercising the backends' locks.
+"""
+
+import asyncio
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -12,47 +18,54 @@ from strands.vended_plugins.context_offloader import (
     InMemoryStorage,
     S3Storage,
 )
+from tests.fixtures.sandbox import TestSandbox
 
 
 class TestInMemoryStorage:
-    def test_round_trip(self):
+    @pytest.mark.asyncio
+    async def test_round_trip(self):
         storage = InMemoryStorage()
-        ref = storage.store("key_1", b"hello world")
-        content, content_type = storage.retrieve(ref)
+        ref = await storage.store("key_1", b"hello world")
+        content, content_type = await storage.retrieve(ref)
         assert content == b"hello world"
         assert content_type == "text/plain"
 
-    def test_preserves_content_type(self):
+    @pytest.mark.asyncio
+    async def test_preserves_content_type(self):
         storage = InMemoryStorage()
-        ref = storage.store("key_1", b'{"a": 1}', "application/json")
-        content, content_type = storage.retrieve(ref)
+        ref = await storage.store("key_1", b'{"a": 1}', "application/json")
+        content, content_type = await storage.retrieve(ref)
         assert content == b'{"a": 1}'
         assert content_type == "application/json"
 
-    def test_stores_binary_content(self):
+    @pytest.mark.asyncio
+    async def test_stores_binary_content(self):
         storage = InMemoryStorage()
         img_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        ref = storage.store("key_1", img_bytes, "image/png")
-        content, content_type = storage.retrieve(ref)
+        ref = await storage.store("key_1", img_bytes, "image/png")
+        content, content_type = await storage.retrieve(ref)
         assert content == img_bytes
         assert content_type == "image/png"
 
-    def test_retrieve_missing_raises_key_error(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_missing_raises_key_error(self):
         storage = InMemoryStorage()
         with pytest.raises(KeyError, match="Reference not found"):
-            storage.retrieve("nonexistent_ref")
+            await storage.retrieve("nonexistent_ref")
 
-    def test_unique_references(self):
+    @pytest.mark.asyncio
+    async def test_unique_references(self):
         storage = InMemoryStorage()
-        ref1 = storage.store("key_1", b"content a")
-        ref2 = storage.store("key_1", b"content b")
+        ref1 = await storage.store("key_1", b"content a")
+        ref2 = await storage.store("key_1", b"content b")
         assert ref1 != ref2
-        assert storage.retrieve(ref1)[0] == b"content a"
-        assert storage.retrieve(ref2)[0] == b"content b"
+        assert (await storage.retrieve(ref1))[0] == b"content a"
+        assert (await storage.retrieve(ref2))[0] == b"content b"
 
-    def test_reference_format(self):
+    @pytest.mark.asyncio
+    async def test_reference_format(self):
         storage = InMemoryStorage()
-        ref = storage.store("tool_abc", b"content")
+        ref = await storage.store("tool_abc", b"content")
         assert ref.startswith("mem_")
         assert "tool_abc" in ref
 
@@ -63,7 +76,7 @@ class TestInMemoryStorage:
 
         def store_item(i: int):
             try:
-                ref = storage.store(f"key_{i}", f"content_{i}".encode())
+                ref = asyncio.run(storage.store(f"key_{i}", f"content_{i}".encode()))
                 refs.append(ref)
             except Exception as e:
                 errors.append(e)
@@ -77,17 +90,19 @@ class TestInMemoryStorage:
         assert not errors
         assert len(set(refs)) == 50
 
-    def test_stores_empty_content(self):
+    @pytest.mark.asyncio
+    async def test_stores_empty_content(self):
         storage = InMemoryStorage()
-        ref = storage.store("key_1", b"")
-        assert storage.retrieve(ref) == (b"", "text/plain")
+        ref = await storage.store("key_1", b"")
+        assert await storage.retrieve(ref) == (b"", "text/plain")
 
-    def test_clear(self):
+    @pytest.mark.asyncio
+    async def test_clear(self):
         storage = InMemoryStorage()
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
         storage.clear()
         with pytest.raises(KeyError):
-            storage.retrieve(ref)
+            await storage.retrieve(ref)
 
     def test_clear_empty_storage(self):
         storage = InMemoryStorage()
@@ -101,77 +116,84 @@ class TestInMemoryStorageEviction:
         with pytest.raises(ValueError, match="evict_after_turns must be a positive integer"):
             InMemoryStorage(evict_after_turns=-1)
 
-    def test_eviction_enabled_by_default(self):
+    @pytest.mark.asyncio
+    async def test_eviction_enabled_by_default(self):
         storage = InMemoryStorage()
         assert storage._evict_after_turns == 20
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
         for _ in range(21):
             storage._evict(storage._current_cycle + 1)
         with pytest.raises(KeyError):
-            storage.retrieve(ref)
+            await storage.retrieve(ref)
 
-    def test_eviction_disabled_with_none(self):
+    @pytest.mark.asyncio
+    async def test_eviction_disabled_with_none(self):
         storage = InMemoryStorage(evict_after_turns=None)
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
         for _ in range(100):
             storage._evict(storage._current_cycle + 1)
-        assert storage.retrieve(ref) == (b"content", "text/plain")
+        assert await storage.retrieve(ref) == (b"content", "text/plain")
 
-    def test_entry_evicted_after_n_turns(self):
+    @pytest.mark.asyncio
+    async def test_entry_evicted_after_n_turns(self):
         storage = InMemoryStorage(evict_after_turns=3)
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
 
         storage._evict(storage._current_cycle + 1)  # turn 1
         storage._evict(storage._current_cycle + 1)  # turn 2
         storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
-        assert storage.retrieve(ref) == (b"content", "text/plain")
+        assert await storage.retrieve(ref) == (b"content", "text/plain")
 
         storage._evict(storage._current_cycle + 1)  # turn 4 — refreshed by retrieve to 3, 3 < 1 is false
-        assert storage.retrieve(ref) == (b"content", "text/plain")
+        assert await storage.retrieve(ref) == (b"content", "text/plain")
 
-    def test_entry_evicted_without_access(self):
+    @pytest.mark.asyncio
+    async def test_entry_evicted_without_access(self):
         storage = InMemoryStorage(evict_after_turns=2)
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
 
         storage._evict(storage._current_cycle + 1)  # turn 1
         storage._evict(storage._current_cycle + 1)  # turn 2 — threshold = 2 - 2 = 0, stored at 0, 0 < 0 is false
         # Entry still alive at exact boundary
-        content, _ = storage.retrieve(ref)
+        content, _ = await storage.retrieve(ref)
         assert content == b"content"
 
-    def test_entry_evicted_past_boundary(self):
+    @pytest.mark.asyncio
+    async def test_entry_evicted_past_boundary(self):
         storage = InMemoryStorage(evict_after_turns=2)
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
 
         storage._evict(storage._current_cycle + 1)  # turn 1
         storage._evict(storage._current_cycle + 1)  # turn 2
         storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1, 0 < 1 → evicted
         with pytest.raises(KeyError):
-            storage.retrieve(ref)
+            await storage.retrieve(ref)
 
-    def test_retrieve_refreshes_last_accessed(self):
+    @pytest.mark.asyncio
+    async def test_retrieve_refreshes_last_accessed(self):
         storage = InMemoryStorage(evict_after_turns=2)
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
 
         storage._evict(storage._current_cycle + 1)  # turn 1
-        storage.retrieve(ref)  # refreshes last_accessed to turn 1
+        await storage.retrieve(ref)  # refreshes last_accessed to turn 1
 
         storage._evict(storage._current_cycle + 1)  # turn 2
         storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1, last_accessed = 1, 1 < 1 is false
-        assert storage.retrieve(ref) == (b"content", "text/plain")
+        assert await storage.retrieve(ref) == (b"content", "text/plain")
 
-    def test_multiple_entries_evicted_independently(self):
+    @pytest.mark.asyncio
+    async def test_multiple_entries_evicted_independently(self):
         storage = InMemoryStorage(evict_after_turns=2)
-        ref1 = storage.store("key_1", b"first")
+        ref1 = await storage.store("key_1", b"first")
 
         storage._evict(storage._current_cycle + 1)  # turn 1
-        ref2 = storage.store("key_2", b"second")
+        ref2 = await storage.store("key_2", b"second")
 
         storage._evict(storage._current_cycle + 1)  # turn 2
         storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1. ref1 evicted, ref2 survives
         with pytest.raises(KeyError):
-            storage.retrieve(ref1)
-        assert storage.retrieve(ref2) == (b"second", "text/plain")
+            await storage.retrieve(ref1)
+        assert await storage.retrieve(ref2) == (b"second", "text/plain")
 
     def test_evict_updates_current_cycle(self):
         storage = InMemoryStorage()
@@ -197,7 +219,7 @@ class TestInMemoryStorageEviction:
 
         def store_and_tick(i: int):
             try:
-                ref = storage.store(f"key_{i}", f"content_{i}".encode())
+                ref = asyncio.run(storage.store(f"key_{i}", f"content_{i}".encode()))
                 refs.append(ref)
                 storage._evict(storage._current_cycle + 1)
             except Exception as e:
@@ -213,91 +235,103 @@ class TestInMemoryStorageEviction:
 
 
 class TestFileStorage:
-    def test_round_trip(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_round_trip(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path / "artifacts"))
-        ref = storage.store("key_1", b"hello world")
-        content, content_type = storage.retrieve(ref)
+        ref = await storage.store("key_1", b"hello world")
+        content, content_type = await storage.retrieve(ref)
         assert content == b"hello world"
         assert content_type == "text/plain"
 
-    def test_preserves_content_type(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_preserves_content_type(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
-        ref = storage.store("key_1", b'{"a": 1}', "application/json")
-        content, content_type = storage.retrieve(ref)
+        ref = await storage.store("key_1", b'{"a": 1}', "application/json")
+        content, content_type = await storage.retrieve(ref)
         assert content == b'{"a": 1}'
         assert content_type == "application/json"
 
-    def test_stores_binary_content(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_stores_binary_content(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
         img_bytes = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-        ref = storage.store("key_1", img_bytes, "image/png")
-        content, content_type = storage.retrieve(ref)
+        ref = await storage.store("key_1", img_bytes, "image/png")
+        content, content_type = await storage.retrieve(ref)
         assert content == img_bytes
         assert content_type == "image/png"
 
-    def test_extension_from_content_type(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_extension_from_content_type(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
-        assert storage.store("k", b"text", "text/plain").endswith(".txt")
-        assert storage.store("k", b"{}", "application/json").endswith(".json")
-        assert storage.store("k", b"img", "image/png").endswith(".png")
-        assert storage.store("k", b"pdf", "application/pdf").endswith(".pdf")
+        assert (await storage.store("k", b"text", "text/plain")).endswith(".txt")
+        assert (await storage.store("k", b"{}", "application/json")).endswith(".json")
+        assert (await storage.store("k", b"img", "image/png")).endswith(".png")
+        assert (await storage.store("k", b"pdf", "application/pdf")).endswith(".pdf")
 
-    def test_auto_creates_directory(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_auto_creates_directory(self, tmp_path):
         artifact_dir = tmp_path / "nested" / "dir" / "artifacts"
         assert not artifact_dir.exists()
         storage = FileStorage(artifact_dir=str(artifact_dir))
-        storage.store("key_1", b"content")
+        await storage.store("key_1", b"content")
         assert artifact_dir.exists()
 
-    def test_retrieve_missing_raises_key_error(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_retrieve_missing_raises_key_error(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
         with pytest.raises(KeyError, match="Reference not found"):
-            storage.retrieve("nonexistent.txt")
+            await storage.retrieve("nonexistent.txt")
 
-    def test_unique_references(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_unique_references(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
-        ref1 = storage.store("key_1", b"content a")
-        ref2 = storage.store("key_1", b"content b")
+        ref1 = await storage.store("key_1", b"content a")
+        ref2 = await storage.store("key_1", b"content b")
         assert ref1 != ref2
-        assert storage.retrieve(ref1)[0] == b"content a"
-        assert storage.retrieve(ref2)[0] == b"content b"
+        assert (await storage.retrieve(ref1))[0] == b"content a"
+        assert (await storage.retrieve(ref2))[0] == b"content b"
 
-    def test_sanitizes_path_traversal(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_sanitizes_path_traversal(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
-        ref = storage.store("../../etc/passwd", b"content")
+        ref = await storage.store("../../etc/passwd", b"content")
         assert ".." not in ref
         assert "/" not in Path(ref).name
 
-    def test_reference_includes_artifact_dir(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_reference_includes_artifact_dir(self, tmp_path):
         artifact_dir = str(tmp_path / "artifacts")
         storage = FileStorage(artifact_dir=artifact_dir)
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
         assert Path(ref).parent == Path(artifact_dir)
 
-    def test_relative_artifact_dir_gives_relative_reference(self, tmp_path, monkeypatch):
+    @pytest.mark.asyncio
+    async def test_relative_artifact_dir_gives_relative_reference(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         storage = FileStorage(artifact_dir="./artifacts")
-        ref = storage.store("key_1", b"content")
+        ref = await storage.store("key_1", b"content")
         assert Path(ref).parent == Path("artifacts")
-        content, content_type = storage.retrieve(ref)
+        content, content_type = await storage.retrieve(ref)
         assert content == b"content"
         assert content_type == "text/plain"
 
-    def test_retrieve_accepts_bare_filename(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_retrieve_accepts_bare_filename(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
-        ref = storage.store("key_1", b"hello world")
+        ref = await storage.store("key_1", b"hello world")
         filename = Path(ref).name
-        content, content_type = storage.retrieve(filename)
+        content, content_type = await storage.retrieve(filename)
         assert content == b"hello world"
         assert content_type == "text/plain"
 
-    def test_metadata_survives_across_instances(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_metadata_survives_across_instances(self, tmp_path):
         artifact_dir = str(tmp_path / "artifacts")
         storage1 = FileStorage(artifact_dir=artifact_dir)
-        ref = storage1.store("key_1", b"hello", "image/png")
+        ref = await storage1.store("key_1", b"hello", "image/png")
 
         storage2 = FileStorage(artifact_dir=artifact_dir)
-        content, content_type = storage2.retrieve(ref)
+        content, content_type = await storage2.retrieve(ref)
         assert content == b"hello"
         assert content_type == "image/png"
 
@@ -306,18 +340,20 @@ class TestFileStorage:
         storage = FileStorage(artifact_dir=str(tmp_path))
         assert storage._content_types == {}
 
-    def test_missing_metadata_fallback(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_missing_metadata_fallback(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
-        ref = storage.store("key_1", b"content", "image/png")
+        ref = await storage.store("key_1", b"content", "image/png")
 
         storage._content_types.clear()
-        _, content_type = storage.retrieve(ref)
+        _, content_type = await storage.retrieve(ref)
         assert content_type == "application/octet-stream"
 
-    def test_retrieve_rejects_path_traversal(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_path_traversal(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
         with pytest.raises(KeyError, match="Reference not found"):
-            storage.retrieve("../../etc/passwd")
+            await storage.retrieve("../../etc/passwd")
 
 
 class TestS3Storage:
@@ -352,57 +388,66 @@ class TestS3Storage:
             mock_session_cls.return_value = mock_session
             return S3Storage(bucket="test-bucket", prefix="artifacts")
 
-    def test_round_trip(self, storage):
-        ref = storage.store("key_1", b"hello world")
-        content, content_type = storage.retrieve(ref)
+    @pytest.mark.asyncio
+    async def test_round_trip(self, storage):
+        ref = await storage.store("key_1", b"hello world")
+        content, content_type = await storage.retrieve(ref)
         assert content == b"hello world"
         assert content_type == "text/plain"
 
-    def test_preserves_content_type(self, storage):
-        ref = storage.store("key_1", b"img", "image/png")
-        content, content_type = storage.retrieve(ref)
+    @pytest.mark.asyncio
+    async def test_preserves_content_type(self, storage):
+        ref = await storage.store("key_1", b"img", "image/png")
+        content, content_type = await storage.retrieve(ref)
         assert content == b"img"
         assert content_type == "image/png"
 
-    def test_retrieve_missing_raises_key_error(self, storage):
+    @pytest.mark.asyncio
+    async def test_retrieve_missing_raises_key_error(self, storage):
         with pytest.raises(KeyError, match="Reference not found"):
-            storage.retrieve("nonexistent_key")
+            await storage.retrieve("nonexistent_key")
 
-    def test_unique_references(self, storage):
-        ref1 = storage.store("key_1", b"content a")
-        ref2 = storage.store("key_1", b"content b")
+    @pytest.mark.asyncio
+    async def test_unique_references(self, storage):
+        ref1 = await storage.store("key_1", b"content a")
+        ref2 = await storage.store("key_1", b"content b")
         assert ref1 != ref2
-        assert storage.retrieve(ref1)[0] == b"content a"
-        assert storage.retrieve(ref2)[0] == b"content b"
+        assert (await storage.retrieve(ref1))[0] == b"content a"
+        assert (await storage.retrieve(ref2))[0] == b"content b"
 
-    def test_reference_is_s3_uri(self, storage):
-        ref = storage.store("tool_abc", b"content")
+    @pytest.mark.asyncio
+    async def test_reference_is_s3_uri(self, storage):
+        ref = await storage.store("tool_abc", b"content")
         assert ref.startswith("s3://test-bucket/artifacts/")
 
-    def test_empty_prefix(self, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_empty_prefix(self, mock_s3_client):
         with patch("boto3.Session") as mock_session_cls:
             mock_session = MagicMock()
             mock_session.client.return_value = mock_s3_client
             mock_session_cls.return_value = mock_session
             storage = S3Storage(bucket="test-bucket", prefix="")
 
-        ref = storage.store("tool_abc", b"content")
+        ref = await storage.store("tool_abc", b"content")
         assert ref.startswith("s3://test-bucket/")
-        assert storage.retrieve(ref)[0] == b"content"
+        assert (await storage.retrieve(ref))[0] == b"content"
 
-    def test_retrieve_accepts_raw_key(self, storage, mock_s3_client):
-        ref = storage.store("key_1", b"hello world")
+    @pytest.mark.asyncio
+    async def test_retrieve_accepts_raw_key(self, storage, mock_s3_client):
+        ref = await storage.store("key_1", b"hello world")
         raw_key = ref.removeprefix("s3://test-bucket/")
-        content, content_type = storage.retrieve(raw_key)
+        content, content_type = await storage.retrieve(raw_key)
         assert content == b"hello world"
         assert content_type == "text/plain"
 
-    def test_retrieve_rejects_wrong_bucket_uri(self, storage):
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_wrong_bucket_uri(self, storage):
         with pytest.raises(KeyError, match="Reference not found"):
-            storage.retrieve("s3://wrong-bucket/artifacts/some_key")
+            await storage.retrieve("s3://wrong-bucket/artifacts/some_key")
 
-    def test_put_object_called_with_correct_params(self, storage, mock_s3_client):
-        storage.store("key_1", b"test content", "application/json")
+    @pytest.mark.asyncio
+    async def test_put_object_called_with_correct_params(self, storage, mock_s3_client):
+        await storage.store("key_1", b"test content", "application/json")
 
         mock_s3_client.put_object.assert_called_once()
         call_kwargs = mock_s3_client.put_object.call_args[1]
@@ -411,9 +456,74 @@ class TestS3Storage:
         assert call_kwargs["Body"] == b"test content"
         assert call_kwargs["ContentType"] == "application/json"
 
-    def test_non_nosuchkey_error_propagates(self, storage, mock_s3_client):
+    @pytest.mark.asyncio
+    async def test_non_nosuchkey_error_propagates(self, storage, mock_s3_client):
         error_response = {"Error": {"Code": "AccessDenied", "Message": "Forbidden"}}
         mock_s3_client.get_object.side_effect = ClientError(error_response, "GetObject")
 
         with pytest.raises(ClientError, match="Forbidden"):
-            storage.retrieve("some_key")
+            await storage.retrieve("some_key")
+
+
+class TestFileStorageWithSandbox:
+    """FileStorage routed through a sandbox (the path the plugin uses per agent)."""
+
+    @pytest.fixture
+    def storage(self, tmp_path):
+        return FileStorage(artifact_dir=str(tmp_path / "artifacts"), sandbox=TestSandbox(str(tmp_path)))
+
+    @pytest.mark.asyncio
+    async def test_round_trip_through_sandbox(self, storage):
+        ref = await storage.store("key_1", b"hello sandbox", "text/plain")
+        content, content_type = await storage.retrieve(ref)
+        assert content == b"hello sandbox"
+        assert content_type == "text/plain"
+
+    @pytest.mark.asyncio
+    async def test_preserves_content_type_through_sandbox(self, storage):
+        ref = await storage.store("key_1", b"\x89PNG", "image/png")
+        content, content_type = await storage.retrieve(ref)
+        assert content == b"\x89PNG"
+        assert content_type == "image/png"
+
+    @pytest.mark.asyncio
+    async def test_reference_under_artifact_dir(self, storage, tmp_path):
+        ref = await storage.store("key_1", b"data")
+        assert ref.startswith(f"{tmp_path / 'artifacts'}/")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_path_outside_artifact_dir(self, storage):
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve("/etc/passwd")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_path_traversal(self, storage, tmp_path):
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve(f"{tmp_path / 'artifacts'}/../secret.txt")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_missing_reference(self, storage, tmp_path):
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve(f"{tmp_path / 'artifacts'}/nope.txt")
+
+    @pytest.mark.asyncio
+    async def test_metadata_survives_across_instances(self, tmp_path):
+        artifact_dir = str(tmp_path / "artifacts")
+        sandbox = TestSandbox(str(tmp_path))
+        ref = await FileStorage(artifact_dir=artifact_dir, sandbox=sandbox).store("key_1", b"hello", "image/png")
+
+        # A fresh instance lazily loads the content-type sidecar from the sandbox.
+        _, content_type = await FileStorage(artifact_dir=artifact_dir, sandbox=sandbox).retrieve(ref)
+        assert content_type == "image/png"
+
+    def test_for_sandbox_keeps_explicit_sandbox(self, tmp_path):
+        # An instance constructed with a sandbox is returned unchanged by for_sandbox.
+        sandbox = TestSandbox(str(tmp_path))
+        storage = FileStorage(artifact_dir=str(tmp_path), sandbox=sandbox)
+        assert storage.for_sandbox(TestSandbox(str(tmp_path))) is storage
+
+    def test_for_sandbox_binds_detached_instance(self, tmp_path):
+        # A host instance (no sandbox) produces a new, sandbox-bound instance.
+        host = FileStorage(artifact_dir=str(tmp_path))
+        bound = host.for_sandbox(TestSandbox(str(tmp_path)))
+        assert bound is not host

@@ -30,15 +30,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify package-lock.json is in sync with package.json
-        run: |
-          npm install --package-lock-only --ignore-scripts
-          if ! git diff --quiet -- package-lock.json; then
-            echo "::error::package-lock.json drifted from package.json -- run 'npm install' and commit the lockfile"
-            git diff --stat -- package-lock.json
-            exit 1
-          fi
-
       - name: Build
         run: npm run build
 

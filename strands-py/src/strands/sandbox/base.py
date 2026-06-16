@@ -27,6 +27,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from ..types.tools import AgentTool
 from .types import ExecutionResult, FileInfo, StreamChunk
 
 logger = logging.getLogger(__name__)
@@ -198,6 +199,20 @@ class Sandbox(ABC):
             FileNotFoundError: If the directory does not exist.
         """
         ...
+
+    # ---- Tool vending ----
+
+    def get_tools(self) -> list[AgentTool]:
+        """Tools this sandbox vends to an agent.
+
+        Returned tools are registered when the agent initializes; a tool is
+        skipped if the user already registered one with the same name. The base
+        implementation vends nothing; concrete sandboxes override this.
+
+        Returns:
+            The tools to register, or an empty list.
+        """
+        return []
 
     # ---- Non-streaming convenience methods ----
 
