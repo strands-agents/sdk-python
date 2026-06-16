@@ -33,8 +33,8 @@ DEFAULT_FILE_EDITOR_DESCRIPTION = (
 
 
 def make_file_editor(
-    sandbox: Sandbox | None = None,
     *,
+    sandbox: Sandbox | None = None,
     name: str = "file_editor",
     description: str = DEFAULT_FILE_EDITOR_DESCRIPTION,
 ) -> DecoratedFunctionTool:
@@ -323,8 +323,8 @@ async def _list_directory(sandbox: Sandbox, dir_path: str) -> str:
     async def walk(current_path: str, prefix: str, depth: int) -> None:
         try:
             entries = await sandbox.list_files(current_path)
-        except Exception:
-            # Ignore permission errors and continue.
+        except OSError:
+            # Ignore permission/path errors and continue.
             return
         for entry in entries:
             if entry.name.startswith("."):

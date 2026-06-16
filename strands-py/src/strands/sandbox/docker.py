@@ -105,13 +105,13 @@ class DockerSandbox(PosixShellSandbox):
         cwd = f" Working directory: {self.working_dir}." if self.working_dir else ""
         return [
             make_file_editor(
-                self,
-                name=self._prefixed_name("file_editor", "sandbox"),
+                sandbox=self,
+                name="sandbox_file_editor",
                 description=f'{DEFAULT_FILE_EDITOR_DESCRIPTION} Files are in Docker container "{self.container}".',
             ),
             make_bash(
-                self,
-                name=self._prefixed_name("bash", "sandbox"),
+                sandbox=self,
+                name="sandbox_bash",
                 description=f'{SANDBOX_BASH_DESCRIPTION} Runs in Docker container "{self.container}".{cwd}',
             ),
         ]

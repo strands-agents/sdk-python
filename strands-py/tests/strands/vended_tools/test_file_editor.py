@@ -41,7 +41,7 @@ def _write(path, content: str) -> str:
 @pytest.fixture
 def editor():
     """A file editor bound to a host sandbox, bound to a host sandbox."""
-    return make_file_editor(NotASandboxLocalEnvironment())
+    return make_file_editor(sandbox=NotASandboxLocalEnvironment())
 
 
 @pytest.fixture
@@ -416,7 +416,7 @@ class TestSandboxErrorPropagation:
             raise OSError("EACCES: permission denied")
 
         sandbox.list_files = boom  # type: ignore[method-assign]
-        editor = make_file_editor(sandbox)
+        editor = make_file_editor(sandbox=sandbox)
         with pytest.raises(OSError, match="permission denied"):
             await editor(command="view", path="/tmp/x.txt", tool_context=_tool_context(sandbox))
 

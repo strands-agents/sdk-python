@@ -1,9 +1,4 @@
-"""Shared types and constants for the bash tools.
-
-Shared types and constants for the bash tools. Used by both the
-host-session :data:`~strands.vended_tools.bash.bash.bash` tool and the
-sandbox-routed :func:`~strands.vended_tools.bash.bash.make_bash` factory.
-"""
+"""Shared types and constants for the bash tool."""
 
 from typing import TypedDict
 
@@ -24,12 +19,4 @@ SANDBOX_BASH_DESCRIPTION = (
     "Executes bash shell commands. Each call runs in a fresh shell; "
     "state such as variables and the working directory does not persist across calls."
 )
-"""Description for the sandbox-routed, stateless bash tool."""
-
-
-class BashTimeoutError(Exception):
-    """Raised when a bash command exceeds its timeout."""
-
-
-class BashSessionError(Exception):
-    """Raised when a bash session encounters an error."""
+"""Description for the bash tool."""

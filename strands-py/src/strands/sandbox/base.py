@@ -202,19 +202,12 @@ class Sandbox(ABC):
 
     # ---- Tool vending ----
 
-    @staticmethod
-    def _prefixed_name(name: str, prefix: str | None = "sandbox") -> str:
-        """Build a prefixed tool name (e.g. ``("bash", "sandbox")`` -> ``"sandbox_bash"``)."""
-        return f"{prefix}_{name}" if prefix else name
-
     def get_tools(self) -> list[AgentTool]:
         """Tools this sandbox vends to an agent.
 
         Returned tools are registered when the agent initializes; a tool is
-        skipped if the user already registered one with the same name. Overrides
-        use :meth:`_prefixed_name` to build namespaced tool names. The base
-        implementation vends nothing; concrete sandboxes override this to provide
-        sandbox-routed tools (e.g. bash, file editor).
+        skipped if the user already registered one with the same name. The base
+        implementation vends nothing; concrete sandboxes override this.
 
         Returns:
             The tools to register, or an empty list.
