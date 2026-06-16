@@ -205,11 +205,13 @@ Every authorization request includes a structured context object:
 
 ## Error handling
 
-The <Syntax py="on_error" ts="onError" /> option controls behavior when Cedar evaluation itself fails (malformed context, engine errors):
+Cedar engine failures (malformed policies, evaluation errors) are always fail-closed: the tool call is denied regardless of configuration.
 
-- `'throw'` (default): raises the error to the caller
-- `'deny'`: treats evaluation failure as a denial (fail-closed)
-- `'proceed'`: allows the tool call despite the error (fail-open, use with caution)
+The <Syntax py="on_error" ts="onError" /> option controls what happens when your user-supplied callbacks (<Syntax py="principal_resolver" ts="principalResolver" /> or <Syntax py="context_enricher" ts="contextEnricher" />) raise an exception:
+
+- `'throw'` (default): re-raises the exception to the caller
+- `'deny'`: treats the callback failure as a denial (fail-closed)
+- `'proceed'`: allows the tool call despite the callback error (fail-open, use with caution)
 
 ## Installation
 

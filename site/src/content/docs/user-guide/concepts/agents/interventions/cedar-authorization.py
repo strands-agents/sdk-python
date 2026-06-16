@@ -201,6 +201,7 @@ def schema_validation_example():
         },
     }
 
+    # Valid policies pass schema validation
     cedar = CedarAuthorization(
         policies="""
           permit(
@@ -222,9 +223,14 @@ def schema_validation_example():
             ),
         },
     )
-    # If a policy references Action::"deleet_record"
-    # (typo), construction raises ValueError naming the
-    # unrecognized action
+
+    # A typo in the action name raises at construction:
+    # CedarAuthorization(
+    #     policies='permit(principal, action == Action::"deleet_record", resource);',
+    #     tools=[search_def, delete_def],
+    # )
+    # raises ValueError: Cedar policy validation failed:
+    #   unrecognized action "deleet_record"
     # --8<-- [end:schema_validation]
 
 
