@@ -467,6 +467,24 @@ async def test_stream(ollama_client, model, agenerator, alist, captured_warnings
 
 
 @pytest.mark.asyncio
+async def test_stream_empty_response(ollama_client, model, agenerator, alist):
+    ollama_client.chat = unittest.mock.AsyncMock(return_value=agenerator([]))
+
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
 async def test_tool_choice_not_supported_warns(ollama_client, model, agenerator, alist, captured_warnings):
     """Test that non-None toolChoice emits warning for unsupported providers."""
     tool_choice = {"auto": {}}

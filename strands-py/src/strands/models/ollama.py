@@ -319,6 +319,7 @@ class OllamaModel(Model):
 
         logger.debug("invoking model")
         tool_requested = False
+        event = None
 
         client = ollama.AsyncClient(self.host, **self.client_args)
         response = await client.chat(**request)
@@ -336,11 +337,12 @@ class OllamaModel(Model):
 
             yield self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": event.message.content})
 
+        stop_reason = "tool_use" if tool_requested else (event.done_reason if event else None)
+
         yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
-        yield self.format_chunk(
-            {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else event.done_reason}
-        )
-        yield self.format_chunk({"chunk_type": "metadata", "data": event})
+        yield self.format_chunk({"chunk_type": "message_stop", "data": stop_reason})
+        if event is not None:
+            yield self.format_chunk({"chunk_type": "metadata", "data": event})
 
         logger.debug("finished streaming response from model")
 
