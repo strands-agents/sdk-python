@@ -166,11 +166,7 @@ export class MemoryManager implements Plugin {
     }
 
     this._injectionConfig =
-      config.injection === undefined || config.injection === false
-        ? false
-        : typeof config.injection === 'object'
-          ? config.injection
-          : {}
+      config.injection === false ? false : typeof config.injection === 'object' ? config.injection : {}
   }
 
   /**

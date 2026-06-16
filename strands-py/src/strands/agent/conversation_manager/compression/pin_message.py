@@ -1,6 +1,6 @@
 """Message pinning utilities for protecting messages from context eviction."""
 
-from ...types.content import Message, Messages
+from ....types.content import Message, Messages
 
 
 def _get_tool_use_ids(message: Message) -> set[str]:
@@ -53,7 +53,6 @@ def is_pinned(messages: Messages, index: int) -> bool:
                 return True
 
     return False
-
 
 
 def apply_pin_first(messages: Messages, count: int) -> None:

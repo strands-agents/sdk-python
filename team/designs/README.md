@@ -2,7 +2,7 @@
 
 This folder contains design documents for significant features and changes to Strands Agents. These documents capture the context, decision, and consequences of architectural choices.
 
-For lightweight architecture decision records, see [DECISIONS.md](../team/DECISIONS.md).
+For lightweight architecture decision records, see [DECISIONS.md](../DECISIONS.md).
 
 ## What is a design document?
 

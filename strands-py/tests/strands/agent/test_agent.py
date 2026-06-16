@@ -23,6 +23,7 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
+from strands.memory import MemoryManager, MemoryManagerConfig
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
@@ -534,7 +535,9 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent, tool):
+def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(
+    mock_model, agent, tool, quiet_strands_logging
+):
     conversation_manager = SlidingWindowConversationManager(window_size=500, should_truncate_results=False)
     conversation_manager_spy = unittest.mock.Mock(wraps=conversation_manager)
     agent.conversation_manager = conversation_manager_spy
@@ -560,7 +563,9 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(mock_model, agent, tool):
+def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(
+    mock_model, agent, tool, quiet_strands_logging
+):
     agent.conversation_manager = NullConversationManager()
 
     messages: Messages = [
@@ -2755,7 +2760,85 @@ def test_agent_plugins_can_register_hooks():
     )
 
     agent("test")
+
     assert len(hook_called) == 1
+
+
+class _SearchOnlyStore:
+    """Minimal read-only memory store for exercising Agent's memory_manager wiring."""
+
+    name = "notes"
+    description = None
+    max_search_results = None
+    writable = False
+    extraction = None
+
+    async def search(self, query, options=None):
+        return []
+
+
+def test_agent_memory_manager_instance_registers_tools_and_is_exposed():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    assert agent.memory_manager is memory_manager
+    assert "search_memory" in agent.tool_names
+
+
+def test_agent_memory_manager_config_is_wrapped():
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=MemoryManagerConfig(stores=[_SearchOnlyStore()]),
+    )
+
+    assert isinstance(agent.memory_manager, MemoryManager)
+    assert "search_memory" in agent.tool_names
+
+
+def test_agent_memory_manager_defaults_to_none():
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+
+    assert agent.memory_manager is None
+
+
+def test_agent_memory_manager_passed_via_both_paths_raises():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    with pytest.raises(ValueError, match="pass it through the memory_manager parameter instead"):
+        Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+            plugins=[memory_manager],
+            memory_manager=memory_manager,
+        )
+
+
+def test_agent_sync_call_flushes_memory_manager():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    agent("test")
+
+    memory_manager.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_agent_async_invoke_does_not_flush_memory_manager():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    await agent.invoke_async("test")
+
+    memory_manager.flush.assert_not_awaited()
 
 
 def test_as_tool_returns_agent_tool():

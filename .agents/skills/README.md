@@ -6,7 +6,7 @@ Skills for this repository. See [agentskills.io](https://agentskills.io/home) fo
 
 | Skill | Purpose |
 |-------|---------|
-| **pr-writer** | Generates PR titles and descriptions following our Conventional Commits format, PR template, and `dev-docs/PR.md` writing guidelines. Captures design decisions from the conversation so reviewers get the "why" without reading the full thread. |
+| **pr-writer** | Generates PR titles and descriptions following our Conventional Commits format, PR template, and `team/PR.md` writing guidelines. Captures design decisions from the conversation so reviewers get the "why" without reading the full thread. |
 | **pr-create** | Orchestrates the full PR creation flow: description generation, pre-flight checks from CONTRIBUTING.md, conditional push, and `gh pr create --draft`. Prevents common agent mistakes like creating non-draft PRs or using incompatible flags. |
 | **pr-feedback** | Fetches all unresolved PR comments (inline threads, reviews, issue-level) via a bundled script using GitHub's GraphQL API. Surfaces reaction data and author replies to distinguish "agreed to fix" from "open discussion", then presents a prioritized list for selective addressing. |
 

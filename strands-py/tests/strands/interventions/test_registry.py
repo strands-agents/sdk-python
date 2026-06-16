@@ -761,3 +761,65 @@ class TestUnsupportedActionWarning:
             await hook_registry.invoke_callbacks_async(event)
 
         assert any("has no effect" in record.message for record in caplog.records)
+
+
+class TestSyncAndAsyncOverrides:
+    """Lifecycle overrides may be sync or async; the registry awaits based on
+    the returned value (inspect.isawaitable), not on iscoroutinefunction."""
+
+    @pytest.mark.asyncio
+    async def test_sync_def_override_is_dispatched(self, hook_registry, agent):
+        """A plain sync `def` override returns its action directly."""
+
+        class SyncDeny(InterventionHandler):
+            name = "sync-deny"
+
+            def before_tool_call(self, event):
+                return Deny(reason="sync denial")
+
+        InterventionRegistry([SyncDeny()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert event.cancel_tool == "DENIED: sync denial"
+
+    @pytest.mark.asyncio
+    async def test_async_def_override_is_awaited(self, hook_registry, agent):
+        """An `async def` override returns a coroutine that the registry awaits."""
+
+        class AsyncDeny(InterventionHandler):
+            name = "async-deny-override"
+
+            async def before_tool_call(self, event):
+                return Deny(reason="async denial")
+
+        InterventionRegistry([AsyncDeny()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert event.cancel_tool == "DENIED: async denial"
+
+    @pytest.mark.asyncio
+    async def test_sync_def_returning_coroutine_is_awaited(self, hook_registry, agent):
+        """A sync `def` that hands back a coroutine is still awaited.
+
+        This is the case iscoroutinefunction(method_fn) misses (the *method* is
+        sync) but isawaitable(result) catches (the *value* is awaitable). Guards
+        against the un-awaited-coroutine regression the _MaybeAwaitable annotation
+        would otherwise invite.
+        """
+
+        async def _decide():
+            return Deny(reason="deferred denial")
+
+        class SyncReturnsCoroutine(InterventionHandler):
+            name = "sync-returns-coroutine"
+
+            def before_tool_call(self, event):
+                return _decide()
+
+        InterventionRegistry([SyncReturnsCoroutine()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert event.cancel_tool == "DENIED: deferred denial"

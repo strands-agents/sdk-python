@@ -49,14 +49,24 @@ Write each section following the outline.
 - Match snippet length to the complexity of what's being demonstrated. Bias toward brevity. If setup machinery dwarfs the feature being shown, the snippet is overweight.
 - Snippets must be copy-paste-runnable: imports present, variables defined, no missing context.
 - Prefer prose over a snippet for trivial API surface. A single property, a single method call, or a one-line config change is often clearer as inline backtick code in a sentence than as a dedicated code block. Reach for a snippet when the shape, ordering, or interaction between calls carries the lesson.
+- Diagrams use ` ```mermaid ` fences (flowchart, sequence, etc.). Never use ASCII art or box-drawing characters for diagrams. The site renders mermaid natively.
 
 ### Step 3b: Apply MDX formatting
 
-Apply MDX formatting patterns from `../../references/mdx-authoring.md` — especially Tabs/Tab syntax, the `<Syntax>` component for inline language-specific identifiers, snippet includes, and callout syntax.
+Apply MDX formatting patterns from `../../references/mdx-authoring.md` — especially Tabs/Tab syntax, the `<Syntax>` component for inline language-specific identifiers, snippet includes, and callout syntax (default to inline prose; callouts are rare).
 
 When shared prose needs to reference a language-specific identifier (method name, parameter, class, etc.), use `<Syntax py="..." ts="..." />`. This keeps prose clean and adapts to the reader's language selection. Never spell out both variants manually in prose.
 
-Code examples longer than a few lines live in runnable `.ts`/`.py` source files alongside the MDX page, not inline. Pull them in via the `--8<--` include syntax. See "Snippet Inclusion" and "TypeScript Snippet Scoping" in `mdx-authoring.md` for the imports/body file pattern and naming conventions.
+**TypeScript code is never inlined in MDX.** All TypeScript examples live in runnable `.ts` snippet files alongside the page and are included via `--8<--` directives. Two files per page:
+
+- **`<page>_imports.ts`** — one named snippet region per example's import set. Every example gets its own imports snippet so the rendered block is self-contained.
+- **`<page>.ts`** — body snippets scoped in blocks.
+
+In the MDX, each TypeScript code fence contains two `--8<--` includes (imports + body) inside a single fence so it renders as one copy-pasteable block. Every example must include its imports — a body-only include that omits the import line produces a snippet that isn't runnable.
+
+Read `../../references/mdx-authoring.md` ("Snippet Inclusion" and "TypeScript Snippet Scoping") for the full specification. Look at any existing page with TypeScript tabs in the same directory for the concrete file layout.
+
+Python code may be inlined directly in the MDX since Python files in the docs tree don't go through a type-checker.
 
 ### Step 4: Constrain
 
@@ -71,7 +81,9 @@ Then self-check against hard constraints:
 - Terminology matches the lock file
 - Code examples are contextually complete (imports present, runnable)
 - Code examples use proper backtick formatting
-- Never name the language inside its own tab. The reader selected the tab; they already know. State facts directly without prefixing the language name.
+- All prose outside a `<Tab>` is language-neutral. No Python or TypeScript parameter names, no language-specific syntax (e.g. `preserve_context=False` or `preserveContext: false`). Describe the concept in plain English; the code inside each tab shows the language-specific spelling.
+- Headings describe the concept, never the API. No parameter names or syntax in headings.
+- Never name the language inside its own tab. The reader selected the tab; they already know.
 
 ### Step 4b: Verify code accuracy
 
@@ -123,6 +135,7 @@ Follow the git workflow described in the repo's `AGENTS.md` and `CONTRIBUTING.md
 
 ## Gotchas
 
+- **Never inline TypeScript in MDX.** TypeScript examples live in sibling `.ts` snippet files and are included via `--8<--` directives. Inlined TypeScript fails review. See Step 3b and `mdx-authoring.md`.
 - Always verify code against SDK source. The most common failure mode is plausible imports that don't exist or parameters with wrong names.
 - Terminology lock is strict. "Hook" not "callback." "Plugin" not "middleware." "Tool" not "function." Check before drafting.
 - The constraint overrides table relaxes different rules per content type. Don't apply tutorial constraints to reference pages.

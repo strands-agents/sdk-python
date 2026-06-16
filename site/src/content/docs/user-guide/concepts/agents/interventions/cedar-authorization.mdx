@@ -1,0 +1,140 @@
+---
+title: Cedar Authorization
+description: "Control which tools an agent can invoke using Cedar policies. Enforce identity-aware access control, role-based permissions, and rate limits at the tool-call boundary."
+languages: [typescript]
+tags: [safety, interventions, tool-execution]
+sidebar:
+  badge:
+    text: New
+    variant: tip
+---
+
+Cedar Authorization evaluates [Cedar](https://cedarpolicy.com) policies before each tool call, giving you declarative, identity-aware access control over agent behavior. It ships as a vended intervention in the TypeScript SDK.
+
+## How it works
+
+The handler sits at the tool-call boundary. When the agent attempts to invoke a tool, Cedar Authorization maps the call to a Cedar authorization request and evaluates your policies. If no `permit` statement matches, the tool call is denied and the agent receives feedback explaining the denial.
+
+| Cedar concept | Maps to | Example |
+|---|---|---|
+| **Principal** | User identity | `User::"alice@acme.com"` |
+| **Action** | Tool name | `Action::"search"` |
+| **Resource** | Static (unconstrained) | `Resource::"agent"` |
+| **Context.input** | Tool arguments | `{ query: "quarterly report" }` |
+| **Context.session** | Invocation metadata | `{ hour_utc: 14, call_count: 3, role: "admin" }` |
+
+The design is fail-closed: if principal identity cannot be resolved, all tool calls are denied.
+
+## Basic usage
+
+Permit specific tools and deny everything else:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:basic_example_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:basic_example"
+```
+
+Cedar uses default-deny semantics. Tools without a matching `permit` statement are automatically blocked.
+
+## Role-based access control
+
+For multi-tenant agents where each request carries user identity, use `principalResolver` to extract the principal from `invocationState` and `contextEnricher` to forward role information into Cedar context:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:role_based_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:role_based"
+```
+
+When `principalResolver` returns `undefined` (no identity found), the handler denies all tool calls for that request.
+
+## Rate limiting
+
+Cedar policies can reference `context.session.call_count`, which tracks how many times each tool has been invoked successfully during the session:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:rate_limit_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:rate_limit"
+```
+
+Call counts persist with the agent's `appState` and survive session reloads. Only successful tool calls increment the counter.
+
+## Schema validation
+
+Pass your `tools` array to catch policy typos at construction time. The handler generates a Cedar schema from tool definitions and validates policies against it:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:schema_validation_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:schema_validation"
+```
+
+Schema validation integrates with the [`cedar-for-agents`](https://github.com/cedar-policy/cedar-for-agents) ecosystem via `@cedar-policy/mcp-schema-generator-wasm`.
+
+## Environment gating
+
+Block tools based on deployment context by forwarding environment metadata through `contextEnricher`:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:env_gating_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:env_gating"
+```
+
+## File-based policies
+
+For production deployments, keep policies in `.cedar` files rather than inline strings:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:file_policies_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:file_policies"
+```
+
+The handler reads and parses files at construction time. Invalid syntax throws immediately.
+
+## Hot reload
+
+Update policies without restarting your agent process:
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:hot_reload_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:hot_reload"
+```
+
+`reload()` reads fresh policy, entity, and schema files, validates them, and atomically swaps the active policy set. If validation fails, the previous policies remain in effect and the method throws.
+
+## Context structure
+
+Every authorization request includes a structured context object:
+
+```json
+{
+  "input": { "query": "quarterly report" },
+  "session": {
+    "hour_utc": 14,
+    "call_count": 3,
+    "role": "admin"
+  }
+}
+```
+
+- `context.input` contains the tool's input arguments, accessible in policies via `context.input.fieldName`
+- `context.session.hour_utc` is auto-populated with the current UTC hour (0-23)
+- `context.session.call_count` tracks per-tool invocation count
+- Additional `context.session` fields come from your `contextEnricher`
+
+## Error handling
+
+The `onError` option controls behavior when Cedar evaluation itself fails (malformed context, WASM errors):
+
+- `'throw'` (default): raises the error to the caller
+- `'deny'`: treats evaluation failure as a denial (fail-closed)
+- `'proceed'`: allows the tool call despite the error (fail-open, use with caution)
+
+## Cedar policy syntax
+
+For the full policy language grammar, operators, and built-in functions, see the [Cedar policy language reference](https://docs.cedarpolicy.com/syntax-policy.html).

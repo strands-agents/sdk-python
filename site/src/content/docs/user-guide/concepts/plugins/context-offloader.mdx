@@ -113,27 +113,37 @@ Choose a storage backend based on your needs:
 
 | Backend | Persistence | Best for |
 |---------|-------------|----------|
-| `InMemoryStorage` | Process lifetime only (call `clear()` to free manually) | Development, testing, reducing context without side effects |
+| `InMemoryStorage` | Process lifetime only (auto-evicted after 20 idle cycles by default) | Development, testing, serverless, short-lived agents |
 | `FileStorage` | Disk | Local development, debugging, inspecting stored artifacts |
 | `S3Storage` | Amazon S3 | Production workloads, shared or durable artifact retention |
 
 All backends implement the `Storage` protocol and preserve content type metadata, so you can also build your own.
 
-**In-memory storage** — stores content in process memory, useful for development and testing:
+**In-memory storage**: stores content in process memory. Entries not accessed within `evict_after_turns` agent loop cycles are automatically evicted to prevent unbounded memory growth. The default is 20 cycles. Retrieving content resets the counter for that entry, so frequently accessed content stays alive. To disable eviction and manage memory manually, pass `None`/`null` and call `clear()` when entries are no longer needed.
 
 <Tabs>
 <Tab label="Python">
 
 ```python
+from strands import Agent
 from strands.vended_plugins.context_offloader import (
     ContextOffloader,
     InMemoryStorage,
 )
 
+# Default: entries evicted after 20 cycles of disuse
 agent = Agent(plugins=[
-    ContextOffloader(
-        storage=InMemoryStorage(),
-    )
+    ContextOffloader(storage=InMemoryStorage())
+])
+
+# Custom eviction window
+agent = Agent(plugins=[
+    ContextOffloader(storage=InMemoryStorage(evict_after_turns=50))
+])
+
+# Disable eviction (accumulates until clear() is called)
+agent = Agent(plugins=[
+    ContextOffloader(storage=InMemoryStorage(evict_after_turns=None))
 ])
 ```
 </Tab>
@@ -355,7 +365,7 @@ aws s3 cp s3://my-agent-artifacts/tool-results/mem_1_tool-123_0 - | grep -n "adm
 aws s3 cp s3://my-agent-artifacts/tool-results/mem_1_tool-123_0 - | head -50
 ```
 
-With `InMemoryStorage`, there is no external access path — the built-in retrieval tool is the only way to access offloaded content, so keep it enabled.
+With `InMemoryStorage`, there is no external access path: the built-in retrieval tool is the only way to access offloaded content, so keep it enabled. Entries are automatically evicted after 20 cycles of disuse (configurable via `evict_after_turns` / `evictAfterTurns`). Attempting to retrieve evicted content raises an error.
 
 This approach is often preferable because the agent already knows these tools well and can chain them together for complex queries. To disable the built-in retrieval tool and rely on the agent's own tools:
 
@@ -390,4 +400,5 @@ agent = Agent(
 
 - **Preview vs. full content**: The agent reasons over the preview, not the full result. If the answer is buried deep in a large result, the agent may miss it. Tune `preview_tokens` to balance context usage against information loss for your use case. The `retrieve_offloaded_content` tool is enabled by default so the agent can fetch full offloaded content as a fallback. If the agent already has tools that can access the storage backend directly (file readers, shell, etc.), you can disable it with `include_retrieval_tool=False`.
 - **Storage costs**: `S3Storage` incurs S3 PUT/GET and storage charges. `FileStorage` writes to disk on every large result.
+- **In-memory eviction**: `InMemoryStorage` evicts entries not accessed within 20 agent loop cycles (configurable). Evicted content is permanently deleted: the agent receives an error if it tries to retrieve it later. Increase the value or pass `None`/`null` to disable eviction if your agent revisits offloaded content after many turns.
 - **Not a replacement for conversation management**: This plugin handles individual large results. You still need a conversation manager like `SlidingWindowConversationManager` to handle overall context growth across many turns.

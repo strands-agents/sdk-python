@@ -41,9 +41,9 @@ Also consider the current conversation context. If the author made design decisi
 Read these two files — they work together:
 
 - **PR template** (`.github/PULL_REQUEST_TEMPLATE.md`): The structural skeleton. Fill in every section it defines, in order.
-- **PR guidelines** (`dev-docs/PR.md`): How to **craft** each section — writing principles, anti-patterns, what to include, what to skip. This is the source of truth for content quality. Always defer to it over general conventions.
+- **PR guidelines** (`team/PR.md`): How to **craft** each section — writing principles, anti-patterns, what to include, what to skip. This is the source of truth for content quality. Always defer to it over general conventions.
 
-When the PR introduces or modifies public API surface, `dev-docs/PR.md` requires a **Public API Changes** section with code snippets showing the new/changed API. Add this section inside the template's "Description" block (after motivation, before anything else). Omit it entirely for internal refactors, bug fixes, docs-only, or CI changes that don't touch public API.
+When the PR introduces or modifies public API surface, `team/PR.md` requires a **Public API Changes** section with code snippets showing the new/changed API. Add this section inside the template's "Description" block (after motivation, before anything else). Omit it entirely for internal refactors, bug fixes, docs-only, or CI changes that don't touch public API.
 
 ### 4. Write the PR
 

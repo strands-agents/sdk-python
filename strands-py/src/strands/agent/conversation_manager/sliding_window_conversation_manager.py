@@ -10,8 +10,9 @@ from ...hooks import BeforeModelCallEvent, HookRegistry
 from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import ToolResultContent
+from .compression.context_compression import find_valid_trim_point
+from .compression.pin_message import apply_pin_first, is_pinned
 from .conversation_manager import ConversationManager, ProactiveCompressionConfig
-from .pin_message import apply_pin_first, is_pinned
 
 logger = logging.getLogger(__name__)
 
@@ -221,52 +222,20 @@ class SlidingWindowConversationManager(ConversationManager):
 
         # Try to trim index id when tool result cannot be truncated anymore
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
-        trim_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size
+        start_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size
 
         # Find the next valid trim point that:
         # 1. Starts with a user message (required by most model providers)
         # 2. Does not start with an orphaned toolResult
         # 3. Does not start with a toolUse unless its toolResult immediately follows
-        # Falls back to an assistant(toolUse) + user(toolResult) boundary if no plain user message exists.
-        # This is acceptable because providers treat a complete toolUse/toolResult pair as a valid
-        # conversation continuation, and without this fallback tool-heavy conversations cannot be trimmed.
-        fallback_trim_index = None
+        trim_index = find_valid_trim_point(messages, start_index)
 
-        while trim_index < len(messages):
-            # Prefer starting with a user message
-            if messages[trim_index]["role"] != "user":
-                # Track first valid assistant(toolUse) + user(toolResult) pair as fallback
-                if (
-                    fallback_trim_index is None
-                    and any("toolUse" in content for content in messages[trim_index]["content"])
-                    and trim_index + 1 < len(messages)
-                    and messages[trim_index + 1]["role"] == "user"
-                    and any("toolResult" in content for content in messages[trim_index + 1]["content"])
-                ):
-                    fallback_trim_index = trim_index
-
-                trim_index += 1
-                continue
-
-            if (
-                # Oldest message cannot be a toolResult because it needs a toolUse preceding it
-                any("toolResult" in content for content in messages[trim_index]["content"])
-                or (
-                    # Oldest message can be a toolUse only if a toolResult immediately follows it.
-                    # Note: toolUse content normally appears only in assistant messages, but this
-                    # check is kept as a defensive safeguard for non-standard message formats.
-                    any("toolUse" in content for content in messages[trim_index]["content"])
-                    and not (
-                        trim_index + 1 < len(messages)
-                        and any("toolResult" in content for content in messages[trim_index + 1]["content"])
-                    )
-                )
-            ):
-                trim_index += 1
-            else:
-                break
-        else:
-            # No plain user message found — use assistant+toolResult fallback if available
+        if trim_index >= len(messages):
+            # No plain user message found. Fall back to an assistant(toolUse) + user(toolResult)
+            # boundary if one exists: providers treat a complete toolUse/toolResult pair as a valid
+            # conversation continuation, and without this fallback tool-heavy conversations cannot be
+            # trimmed. (This fallback is Python-specific and has no equivalent in find_valid_trim_point.)
+            fallback_trim_index = self._find_tool_pair_trim_point(messages, start_index)
             if fallback_trim_index is not None:
                 logger.debug(
                     "trim_index=<%s> | no plain user message trim point found, "
@@ -303,6 +272,31 @@ class SlidingWindowConversationManager(ConversationManager):
         # Remove in reverse order to keep indices stable
         for i in reversed(indices_to_remove):
             del messages[i]
+
+    def _find_tool_pair_trim_point(self, messages: Messages, start_index: int) -> int | None:
+        """Find the first assistant(toolUse) + user(toolResult) boundary at or after ``start_index``.
+
+        Used as a fallback when :func:`find_valid_trim_point` finds no plain user message. Providers
+        treat a complete toolUse/toolResult pair as a valid conversation continuation, so trimming to
+        such a boundary keeps tool-heavy conversations trimmable. This has no equivalent in
+        ``find_valid_trim_point`` (whose behavior mirrors the TypeScript SDK).
+
+        Args:
+            messages: The full conversation message history.
+            start_index: The index to begin searching from.
+
+        Returns:
+            The index of the first qualifying assistant(toolUse) message, or ``None`` if none exists.
+        """
+        for index in range(start_index, len(messages)):
+            if (
+                any("toolUse" in content for content in messages[index]["content"])
+                and index + 1 < len(messages)
+                and messages[index + 1]["role"] == "user"
+                and any("toolResult" in content for content in messages[index + 1]["content"])
+            ):
+                return index
+        return None
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
         """Truncate tool results and replace image blocks in a message to reduce context size.

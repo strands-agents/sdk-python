@@ -179,7 +179,7 @@ from .tools import Tool
 - **Variables/Functions**: `snake_case`
 - **Classes**: `PascalCase`
 - **Constants**: `UPPER_SNAKE_CASE`
-- **Private members**: Prefix with `_`
+- **Private members, functions, and modules**: Prefix with `_` (e.g. `_helper()`, `_internal.py`)
 
 ### Error Handling
 
@@ -362,5 +362,5 @@ hatch build                    # Build package
 - [docs/](./docs/) - Developer documentation
   - [STYLE_GUIDE.md](./docs/STYLE_GUIDE.md) - Code style conventions
   - [HOOKS.md](./docs/HOOKS.md) - Hooks system guide
-  - [PR.md](./docs/PR.md) - PR description guidelines
+  - [PR.md](../team/PR.md) - PR description guidelines
   - [MCP_CLIENT_ARCHITECTURE.md](./docs/MCP_CLIENT_ARCHITECTURE.md) - MCP threading design

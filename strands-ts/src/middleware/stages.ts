@@ -84,6 +84,8 @@ export interface InvokeModelContext {
   readonly toolChoice?: ToolChoice
   /** Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult. */
   readonly invocationState: InvocationState
+  /** Estimated input token count for this model call, or undefined if estimation failed. */
+  readonly projectedInputTokens?: number
 }
 
 /**

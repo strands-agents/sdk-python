@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pinMessage, unpinMessage, isPinned } from '../pin-message.js'
+import { pinMessage, unpinMessage, isPinned } from '../compression/pin-message.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
 
 function makeMessage(text: string, metadata?: Record<string, unknown>): Message {

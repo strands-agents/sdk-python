@@ -88,10 +88,12 @@ sidebar:
               - docs/user-guide/concepts/plugins/skills
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
+              - docs/user-guide/concepts/plugins/goal-loop
           - label: Interventions
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
+              - docs/user-guide/concepts/agents/interventions/cedar-authorization
               - docs/user-guide/concepts/agents/interventions/steering
               - docs/user-guide/concepts/agents/interventions/human-in-the-loop
           - label: Streaming
@@ -218,6 +220,7 @@ sidebar:
           - label: Remote Trace Providers
             items:
               - docs/user-guide/evals-sdk/how-to/trace_providers
+          - docs/user-guide/evals-sdk/cli
           - label: How-To Guides
             items:
               - docs/user-guide/evals-sdk/how-to/eval_task

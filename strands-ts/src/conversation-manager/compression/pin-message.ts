@@ -1,4 +1,4 @@
-import { Message, type ToolUseBlock, type ToolResultBlock } from '../types/messages.js'
+import { Message, type ToolUseBlock, type ToolResultBlock } from '../../types/messages.js'
 
 /**
  * Check if a message is pinned, including tool-pair partner protection.

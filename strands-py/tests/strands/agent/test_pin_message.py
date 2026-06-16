@@ -1,6 +1,6 @@
 """Tests for message pinning utilities."""
 
-from strands.agent.conversation_manager.pin_message import is_pinned, pin_message, unpin_message
+from strands.agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
 
 
 def make_message(text, role="user", metadata=None):

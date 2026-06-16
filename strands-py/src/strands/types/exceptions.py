@@ -127,3 +127,22 @@ class CheckpointException(Exception):
     """Exception raised when checkpoint operations fail (e.g., incompatible schema version)."""
 
     pass
+
+
+class AggregateMemoryError(Exception):
+    """Raised when one or more memory store operations fail.
+
+    Attributes:
+        errors: The underlying exceptions that caused this aggregate failure.
+    """
+
+    def __init__(self, message: str, errors: list[BaseException]) -> None:
+        """Initialize the aggregate error.
+
+        Args:
+            message: A human-readable description of the aggregate failure,
+                typically naming the stores that failed.
+            errors: The underlying exceptions that caused this failure.
+        """
+        super().__init__(message)
+        self.errors = errors

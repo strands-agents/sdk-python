@@ -101,7 +101,6 @@ class TestInMemoryStorageEviction:
         with pytest.raises(ValueError, match="evict_after_turns must be a positive integer"):
             InMemoryStorage(evict_after_turns=-1)
 
-
     def test_eviction_enabled_by_default(self):
         storage = InMemoryStorage()
         assert storage._evict_after_turns == 20

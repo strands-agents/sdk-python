@@ -614,11 +614,11 @@ describe('MemoryManager', () => {
   describe('initAgent', () => {
     it('does not throw', () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')] })
-      expect(() => mm.initAgent({} as any)).not.toThrow()
+      expect(() => mm.initAgent(createMockAgent())).not.toThrow()
     })
 
     it('does not register injection middleware when injection is disabled', () => {
-      const mm = new MemoryManager({ stores: [createMockStore('test')] })
+      const mm = new MemoryManager({ stores: [createMockStore('test')], injection: false })
       const addMiddleware = vi.fn()
       mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
       expect(addMiddleware).not.toHaveBeenCalled()
@@ -690,8 +690,8 @@ describe('MemoryManager', () => {
       const injectionConfig = (mm: MemoryManager) =>
         (mm as unknown as { _injectionConfig: object | false })._injectionConfig
 
-      it('defaults to false (disabled) when injection is omitted', () => {
-        expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')] }))).toBe(false)
+      it('defaults to an empty config (enabled) when injection is omitted', () => {
+        expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')] }))).toStrictEqual({})
       })
 
       it('is false when injection is explicitly false', () => {
