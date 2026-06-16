@@ -10,6 +10,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import strands
+import strands._middleware
 import strands.telemetry
 from strands import Agent
 from strands.event_loop._retry import ModelRetryStrategy
@@ -158,6 +159,8 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
     mock._model_state = {}
+    mock._system_prompt_content = None
+    mock._middleware_registry = strands._middleware.MiddlewareRegistry()
     mock._checkpointing = False
     mock._checkpoint = None
     mock._checkpoint_cycle_index = 0
@@ -560,7 +563,7 @@ async def test_event_loop_cycle_creates_spans(
     mock_tracer.start_model_invoke_span.assert_called_once()
     call_kwargs = mock_tracer.start_model_invoke_span.call_args[1]
     assert call_kwargs["system_prompt"] == agent.system_prompt
-    assert call_kwargs["system_prompt_content"] == agent._system_prompt_content
+    assert call_kwargs["system_prompt_content"] == [{"text": agent.system_prompt}]
     mock_tracer.end_model_invoke_span.assert_called_once()
     mock_tracer.end_event_loop_cycle_span.assert_called_once()
 
@@ -829,6 +832,11 @@ async def test_request_state_initialization(alist):
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
     mock_agent._cancel_signal = threading.Event()
+    mock_agent._system_prompt_content = None
+    mock_agent.system_prompt = None
+    mock_agent._middleware_registry = strands._middleware.MiddlewareRegistry()
+    mock_agent.messages = []
+    mock_agent.tool_registry.get_all_tool_specs.return_value = []
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
     mock_agent.hooks.invoke_callbacks_async = AsyncMock()
 

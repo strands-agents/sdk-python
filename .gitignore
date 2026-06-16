@@ -73,7 +73,6 @@ Thumbs.db
 bin/
 
 # LLM
-CLAUDE.md
 .claude/settings.local.json
 
 # dev

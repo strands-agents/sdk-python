@@ -481,7 +481,7 @@ async def test_enhanced_structured_output(llamacpp_model: LlamaCppModel) -> None
 
 
 @pytest.mark.asyncio
-async def test_context_overflow_handling(llamacpp_model: LlamaCppModel) -> None:
+async def test_context_overflow_handling(llamacpp_model: LlamaCppModel, quiet_strands_logging) -> None:
     """Test proper handling of context window overflow."""
     # Create a very long message that might exceed context
     long_text = "This is a test sentence. " * 1000

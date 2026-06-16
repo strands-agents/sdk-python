@@ -152,13 +152,13 @@ Evaluators operate at different levels of granularity:
 
 ### Tool Usage Evaluators
 
-**[ToolSelectionEvaluator](tool_selection_evaluator.md)**
+**[ToolSelectionAccuracyEvaluator](tool_selection_evaluator.md)**
 
 - **Level**: TRACE_LEVEL
 - **Purpose**: Evaluate whether correct tools were selected
 - **Use Case**: Assess tool choice accuracy in multi-tool scenarios
 
-**[ToolParameterEvaluator](tool_parameter_evaluator.md)**
+**[ToolParameterAccuracyEvaluator](tool_parameter_evaluator.md)**
 
 - **Level**: TRACE_LEVEL
 - **Purpose**: Evaluate accuracy of tool parameters
@@ -258,15 +258,20 @@ def task_function(case: Case) -> dict:
     return {"output": str(agent_response), "trajectory": session}
 
 # Use multiple evaluators to assess different aspects
+from strands_evals.evaluators import (
+    ToolSelectionAccuracyEvaluator,
+    TrajectoryEvaluator,
+)
+
 evaluators = [
-    HelpfulnessEvaluator(),           # Response quality
-    GoalSuccessRateEvaluator(),       # Goal achievement
-    ToolSelectionEvaluator(),         # Tool usage
-    TrajectoryEvaluator(rubric="...") # Action sequences
+    HelpfulnessEvaluator(),                  # Response quality
+    GoalSuccessRateEvaluator(),              # Goal achievement
+    ToolSelectionAccuracyEvaluator(),        # Tool usage
+    TrajectoryEvaluator(rubric="..."),       # Action sequences
 ]
 
 experiment = Experiment(cases=test_cases, evaluators=evaluators)
-reports = experiment.run_evaluations(task_function)
+report = experiment.run_evaluations(task_function)
 ```
 
 ## Best Practices
@@ -292,10 +297,10 @@ Assess different aspects comprehensively:
 
 ```python
 evaluators = [
-    HelpfulnessEvaluator(),      # User experience
-    FaithfulnessEvaluator(),     # Accuracy
-    ToolSelectionEvaluator(),    # Tool usage
-    GoalSuccessRateEvaluator()   # Success rate
+    HelpfulnessEvaluator(),              # User experience
+    FaithfulnessEvaluator(),             # Accuracy
+    ToolSelectionAccuracyEvaluator(),    # Tool usage
+    GoalSuccessRateEvaluator(),          # Success rate
 ]
 ```
 
@@ -319,15 +324,15 @@ evaluator = OutputEvaluator(rubric=rubric)
 
 ### 4. Leverage Async Evaluation
 
-For better performance with multiple evaluators:
+For better performance with multiple evaluators, run them concurrently via `evaluate_async`:
 
 ```python
 import asyncio
 
-async def run_evaluations():
+async def run_evaluations(data):
     evaluators = [HelpfulnessEvaluator(), FaithfulnessEvaluator()]
-    tasks = [evaluator.aevaluate(data) for evaluator in evaluators]
-    results = await asyncio.gather(*tasks)
+    tasks = [evaluator.evaluate_async(data) for evaluator in evaluators]
+    results = await asyncio.gather(*tasks)  # list[list[EvaluationOutput]]
     return results
 ```
 
@@ -335,69 +340,82 @@ async def run_evaluations():
 
 ### Pattern 1: Quality Assessment Pipeline
 
+`Evaluator.evaluate` returns `list[EvaluationOutput]`. Each `EvaluationOutput` has `score`, `test_pass`, and `reason` (not `reasoning`). `EvaluationData` field names are `actual_output`/`actual_trajectory`/`actual_interactions` (not `output`/`trajectory`).
+
 ```python
+from strands_evals.types import EvaluationData
+
 def assess_response_quality(case: Case, agent_output: str) -> dict:
     evaluators = [
         HelpfulnessEvaluator(),
         FaithfulnessEvaluator(),
         OutputEvaluator(rubric="Assess professional tone")
     ]
-    
+
+    data = EvaluationData(input=case.input, actual_output=agent_output)
     results = {}
     for evaluator in evaluators:
-        result = evaluator.evaluate(EvaluationData(
-            input=case.input,
-            output=agent_output
-        ))
-        results[evaluator.__class__.__name__] = result.score
-    
+        outputs = evaluator.evaluate(data)
+        # Average across this evaluator's outputs (usually a single one)
+        results[evaluator.__class__.__name__] = sum(o.score for o in outputs) / len(outputs)
+
     return results
 ```
 
 ### Pattern 2: Tool Usage Analysis
 
 ```python
+from strands_evals.evaluators import (
+    ToolSelectionAccuracyEvaluator,
+    ToolParameterAccuracyEvaluator,
+    TrajectoryEvaluator,
+)
+from strands_evals.types import EvaluationData
+
 def analyze_tool_usage(session: Session) -> dict:
     evaluators = [
-        ToolSelectionEvaluator(),
-        ToolParameterEvaluator(),
+        ToolSelectionAccuracyEvaluator(),
+        ToolParameterAccuracyEvaluator(),
         TrajectoryEvaluator(rubric="Assess tool usage efficiency")
     ]
-    
+
+    data = EvaluationData(actual_trajectory=session)
     results = {}
     for evaluator in evaluators:
-        result = evaluator.evaluate(EvaluationData(trajectory=session))
+        outputs = evaluator.evaluate(data)
+        # Take the first output (most evaluators emit one)
+        result = outputs[0]
         results[evaluator.__class__.__name__] = {
             "score": result.score,
-            "reasoning": result.reasoning
+            "reason": result.reason,
         }
-    
+
     return results
 ```
 
 ### Pattern 3: Comparative Evaluation
 
 ```python
+from strands_evals.types import EvaluationData
+
 def compare_agent_versions(cases: list, agents: dict) -> dict:
     evaluators = [HelpfulnessEvaluator(), GoalSuccessRateEvaluator()]
     results = {}
-    
+
     for agent_name, agent in agents.items():
         agent_scores = []
         for case in cases:
             output = agent(case.input)
+            data = EvaluationData(input=case.input, actual_output=str(output))
             for evaluator in evaluators:
-                result = evaluator.evaluate(EvaluationData(
-                    input=case.input,
-                    output=output
-                ))
-                agent_scores.append(result.score)
-        
+                outputs = evaluator.evaluate(data)
+                agent_scores.extend(o.score for o in outputs)
+
         results[agent_name] = {
             "average_score": sum(agent_scores) / len(agent_scores),
             "scores": agent_scores
         }
-    
+
     return results
 ```
 

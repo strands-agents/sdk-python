@@ -82,14 +82,14 @@ await agent.invoke('Research AI agent frameworks')`
         <span class="hero-highlight">agent harness SDK.</span>
       </h1>
       <p class="hero-subtitle">
-        Build an agent harness. Control it end-to-end.
+        The open source toolkit for building production agents.
       </p>
       <div class="hero-cta">
         <a href={withBase('/docs/user-guide/quickstart/overview/')} class="cta-button primary">Get Started</a>
         <a href="https://github.com/strands-agents/harness-sdk" class="cta-button secondary">GitHub</a>
       </div>
       <div class="hero-install-group">
-        <div class="hero-install" data-copy="pip install strands-agents">
+        <div class="hero-install" data-copy="pip install strands-agents" data-lang="Python">
           <code>pip install strands-agents</code>
           <button class="install-copy" aria-label="Copy install command">
             <svg class="copy-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -101,7 +101,7 @@ await agent.invoke('Research AI agent frameworks')`
             </svg>
           </button>
         </div>
-        <div class="hero-install" data-copy="npm install @strands-agents/sdk">
+        <div class="hero-install" data-copy="npm install @strands-agents/sdk" data-lang="TypeScript">
           <code>npm install @strands-agents/sdk</code>
           <button class="install-copy" aria-label="Copy install command">
             <svg class="copy-icon" width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -246,11 +246,32 @@ await agent.invoke('Research AI agent frameworks')`
     border-radius: 6px;
     padding: 0.5rem 0.75rem;
     cursor: pointer;
-    transition: border-color 0.2s ease;
+    transition: border-color 0.4s ease, box-shadow 0.4s ease, opacity 0.4s ease;
   }
 
   .hero-install:hover {
     border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Glow the install command matching the language currently shown by the
+     cycling code example (data-active-lang lives on <html>, set by
+     LangCodeBlock's shared script). Without JS the attribute is absent and
+     both commands render normally. */
+  :global(html[data-active-lang='Python']) .hero-install[data-lang='Python'],
+  :global(html[data-active-lang='TypeScript']) .hero-install[data-lang='TypeScript'] {
+    border-color: var(--strands-green);
+    box-shadow: 0 0 12px rgba(0, 204, 95, 0.25);
+  }
+
+  :global(html[data-active-lang='Python']) .hero-install[data-lang='TypeScript'],
+  :global(html[data-active-lang='TypeScript']) .hero-install[data-lang='Python'] {
+    opacity: 0.6;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-install {
+      transition: none;
+    }
   }
 
   :global([data-theme='light']) .hero-install {
@@ -337,29 +358,34 @@ await agent.invoke('Research AI agent frameworks')`
       if (!btn) return
 
       const text = install.dataset.copy || ''
-
-      // Map install commands to language preference
-      const lang = text.startsWith('pip') ? 'Python' : text.startsWith('npm') ? 'TypeScript' : null
+      const lang = install.dataset.lang
 
       const copy = async () => {
-        await navigator.clipboard.writeText(text)
-        btn.classList.add('copied')
-        setTimeout(() => btn.classList.remove('copied'), 2000)
+        try {
+          await navigator.clipboard.writeText(text)
+          btn.classList.add('copied')
+          setTimeout(() => btn.classList.remove('copied'), 2000)
+        } catch {
+          // Clipboard unavailable (non-secure context or denied); still pin below.
+        }
 
-        // Set global language preference to match the install command
         if (lang) {
+          // Pin the homepage code examples to this language
+          window.dispatchEvent(
+            new CustomEvent('strands-home-lang-pin', { detail: { lang } })
+          )
+
+          // Set the site-wide preference so docs pages match what was copied
           try {
-            const key = 'starlight-synced-tabs__jarkqt'
-            localStorage.setItem(key, lang)
-            // Update header toggle if present
-            document.querySelectorAll<HTMLElement>('language-toggle .lang-option').forEach((opt) => {
-              opt.setAttribute('aria-checked', opt.dataset.lang === lang ? 'true' : 'false')
-            })
+            localStorage.setItem('starlight-synced-tabs__jarkqt', lang)
+            document
+              .querySelectorAll<HTMLElement>('language-toggle .lang-option')
+              .forEach((opt) => {
+                opt.setAttribute('aria-checked', opt.dataset.lang === lang ? 'true' : 'false')
+              })
           } catch (e) {
-            if (typeof console !== 'undefined') console.debug('[HeroSection] localStorage error:', e);
+            if (typeof console !== 'undefined') console.debug('[HeroSection] localStorage error:', e)
           }
-          // Notify LangCodeBlock components
-          window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang } }))
         }
       }
 

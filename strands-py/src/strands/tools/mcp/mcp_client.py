@@ -948,7 +948,6 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
 
-
     def _log_debug_with_thread(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Logger helper to help differentiate logs coming from MCPClient background thread."""
         formatted_msg = msg % args if args else msg

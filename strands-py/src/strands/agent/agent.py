@@ -43,6 +43,7 @@ from ..types._snapshot import (
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
+from .._middleware import MiddlewareRegistry
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -58,6 +59,7 @@ from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..interventions.handler import InterventionHandler
 from ..interventions.registry import InterventionRegistry
+from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
@@ -73,7 +75,7 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, split_system_prompt
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
@@ -111,11 +113,14 @@ _DEFAULT_RETRY_STRATEGY = _DefaultRetryStrategySentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
-ContextManagerStrategy = Literal["auto"]
+ContextManagerStrategy = Literal["auto", "agentic"]
 """Supported values for the ``context_manager`` parameter."""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
+
+_AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 8_000
+"""Higher offload threshold for agentic mode - the model manages its own context, so we preserve more inline."""
 
 _CONTEXT_MANAGER_PREVIEW_TOKENS = 750
 """Benchmark-validated preview token count for offloaded results."""
@@ -165,6 +170,7 @@ class Agent(AgentBase):
         hooks: list[HookProvider | HookCallback] | None = None,
         interventions: list[InterventionHandler] | None = None,
         session_manager: SessionManager | None = None,
+        memory_manager: MemoryManager | MemoryManagerConfig | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
@@ -239,6 +245,11 @@ class Agent(AgentBase):
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            memory_manager: Cross-session memory manager, as a
+                :class:`~strands.memory.MemoryManager` or a
+                :class:`~strands.memory.MemoryManagerConfig` (auto-wrapped). Registers its
+                memory tools; the synchronous ``Agent(...)`` entry point flushes pending
+                extraction after each invocation. Defaults to None.
             structured_output_prompt: Custom prompt message used when forcing structured output.
                 When using structured output, if the model doesn't automatically use the output tool,
                 the agent sends a follow-up message to request structured formatting. This parameter
@@ -267,7 +278,7 @@ class Agent(AgentBase):
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
         # initializing self._system_prompt for backwards compatibility
-        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
+        self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
         self._structured_output_prompt = structured_output_prompt
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
@@ -326,6 +337,16 @@ class Agent(AgentBase):
         if tools is not None:
             self.tool_registry.process_tools(tools)
 
+        # Inject the model-driven context-management tools when running in agentic mode.
+        if context_manager == "agentic":
+            from .._context_manager.modes.agentic.agentic_context import (
+                pin_context,
+                summarize_context,
+                truncate_context,
+            )
+
+            self.tool_registry.process_tools([summarize_context, truncate_context, pin_context])
+
         # Initialize tools and configuration
         self.tool_registry.initialize_tools(self.load_tools_from_directory)
         if load_tools_from_directory:
@@ -351,6 +372,15 @@ class Agent(AgentBase):
         self.tool_caller = _ToolCaller(self)
 
         self.hooks = HookRegistry()
+
+        self._middleware_registry = MiddlewareRegistry()
+
+        # In agentic mode, surface live token usage to the model so it can decide when to compress.
+        if context_manager == "agentic":
+            from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
+            from .._middleware.stages import InvokeModelStage
+
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
 
         self._plugin_registry = _PluginRegistry(self)
 
@@ -428,6 +458,17 @@ class Agent(AgentBase):
             for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
+        # Resolve and register the memory manager (a Plugin); keep a reference so the
+        # synchronous entry point can flush pending extraction writes.
+        self.memory_manager = self._resolve_memory_manager(memory_manager)
+        if self.memory_manager is not None:
+            if self.memory_manager.name in self._plugin_registry._plugins:
+                raise ValueError(
+                    "A MemoryManager is already registered via plugins; pass it through the "
+                    "memory_manager parameter instead"
+                )
+            self._plugin_registry.add_and_init(self.memory_manager)
+
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @staticmethod
@@ -439,11 +480,15 @@ class Agent(AgentBase):
         """Resolve context_manager facade into concrete conversation_manager and plugins.
 
         When context_manager is None, returns (None, None) and no resolution occurs.
-        When "auto", constructs a SummarizingConversationManager and ContextOffloader
-        with benchmark-validated defaults, unless the user already provided those.
+        When "auto", constructs a SummarizingConversationManager with proactive compression
+        plus a ContextOffloader, using benchmark-validated defaults.
+        When "agentic", constructs a SummarizingConversationManager *without* proactive
+        compression (the model drives context management via injected tools; the conversation
+        manager is only a reactive overflow safety net) plus a ContextOffloader with a higher
+        offload threshold. In both cases a user-provided conversation_manager / offloader wins.
 
         Args:
-            context_manager: The facade value ("auto" or None).
+            context_manager: The facade value ("auto", "agentic", or None).
             conversation_manager: User-provided conversation manager, takes precedence if set.
             plugins: User-provided plugin list; offloader is appended if not already present.
 
@@ -457,37 +502,62 @@ class Agent(AgentBase):
         if context_manager is None:
             return None, None
 
-        supported = get_args(ContextManagerStrategy)
-        if context_manager not in supported:
-            raise ValueError(
-                f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}"
-            )
-
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
         from .conversation_manager import SummarizingConversationManager
 
-        resolved_plugins = list(plugins) if plugins else []
-
-        has_offloader = any(
-            isinstance(p, ContextOffloader) for p in resolved_plugins
-        )
-        if not has_offloader:
-            offloader = ContextOffloader(
-                storage=InMemoryStorage(),
-                max_result_tokens=_CONTEXT_MANAGER_MAX_RESULT_TOKENS,
-                preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
-            )
-            resolved_plugins.append(offloader)
-
-        if conversation_manager is not None:
-            resolved_conversation_manager = conversation_manager
-        else:
-            resolved_conversation_manager = SummarizingConversationManager(
+        if context_manager == "auto":
+            offloader_max_result_tokens = _CONTEXT_MANAGER_MAX_RESULT_TOKENS
+            default_conversation_manager = SummarizingConversationManager(
                 summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
                 proactive_compression={"compression_threshold": _CONTEXT_MANAGER_COMPRESSION_THRESHOLD},
             )
+        elif context_manager == "agentic":
+            # No proactive compression: the model manages context via injected tools.
+            offloader_max_result_tokens = _AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
+            default_conversation_manager = SummarizingConversationManager(
+                summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported context_manager value: {context_manager!r}. "
+                f"Supported values: {get_args(ContextManagerStrategy)}"
+            )
+
+        resolved_plugins = list(plugins) if plugins else []
+
+        has_offloader = any(isinstance(p, ContextOffloader) for p in resolved_plugins)
+        if not has_offloader:
+            resolved_plugins.append(
+                ContextOffloader(
+                    storage=InMemoryStorage(),
+                    max_result_tokens=offloader_max_result_tokens,
+                    preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
+                )
+            )
+
+        resolved_conversation_manager = (
+            conversation_manager if conversation_manager is not None else default_conversation_manager
+        )
 
         return resolved_conversation_manager, resolved_plugins
+
+    @staticmethod
+    def _resolve_memory_manager(
+        memory_manager: MemoryManager | MemoryManagerConfig | None,
+    ) -> MemoryManager | None:
+        """Resolve the ``memory_manager`` argument into a MemoryManager instance or None.
+
+        A :class:`~strands.memory.MemoryManagerConfig` is wrapped into a
+        :class:`~strands.memory.MemoryManager`; an instance passes through.
+        """
+        if memory_manager is None:
+            return None
+
+        if isinstance(memory_manager, MemoryManager):
+            return memory_manager
+        if isinstance(memory_manager, dict):
+            return MemoryManager(**memory_manager)
+        raise ValueError("memory_manager must be a MemoryManager or MemoryManagerConfig")
 
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
@@ -547,7 +617,7 @@ class Agent(AgentBase):
                   - list[SystemContentBlock]: Content blocks with features like caching
                   - None: Clear the system prompt
         """
-        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
+        self._system_prompt, self._system_prompt_content = split_system_prompt(value)
 
     @property
     def system_prompt_content(self) -> list[SystemContentBlock] | None:
@@ -631,7 +701,7 @@ class Agent(AgentBase):
                 - structured_output: Parsed structured output when structured_output_model was specified
         """
         return run_async(
-            lambda: self.invoke_async(
+            lambda: self._invoke_async_and_flush(
                 prompt,
                 invocation_state=invocation_state,
                 structured_output_model=structured_output_model,
@@ -640,6 +710,19 @@ class Agent(AgentBase):
                 **kwargs,
             )
         )
+
+    async def _invoke_async_and_flush(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+        """Run ``invoke_async`` then flush the memory manager within this loop.
+
+        The synchronous entry point runs each invocation in its own event loop, which would
+        cancel background extraction saves on close. Flushing here persists them. The async
+        path does not flush, leaving extraction on its trigger cadence.
+        """
+        try:
+            return await self.invoke_async(prompt, **kwargs)
+        finally:
+            if self.memory_manager is not None:
+                await self.memory_manager.flush()
 
     async def invoke_async(
         self,
@@ -1326,30 +1409,6 @@ class Agent(AgentBase):
             value = limits[key]
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
-
-    def _initialize_system_prompt(
-        self, system_prompt: str | list[SystemContentBlock] | None
-    ) -> tuple[str | None, list[SystemContentBlock] | None]:
-        """Initialize system prompt fields from constructor input.
-
-        Maintains backwards compatibility by keeping system_prompt as str when string input
-        provided, avoiding breaking existing consumers.
-
-        Maps system_prompt input to both string and content block representations:
-        - If string: system_prompt=string, _system_prompt_content=[{text: string}]
-        - If list with text elements: system_prompt=concatenated_text, _system_prompt_content=list
-        - If list without text elements: system_prompt=None, _system_prompt_content=list
-        - If None: system_prompt=None, _system_prompt_content=None
-        """
-        if isinstance(system_prompt, str):
-            return system_prompt, [{"text": system_prompt}]
-        elif isinstance(system_prompt, list):
-            # Concatenate all text elements for backwards compatibility, None if no text found
-            text_parts = [block["text"] for block in system_prompt if "text" in block]
-            system_prompt_str = "\n".join(text_parts) if text_parts else None
-            return system_prompt_str, system_prompt
-        else:
-            return None, None
 
     async def _append_messages(self, *messages: Message) -> None:
         """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""

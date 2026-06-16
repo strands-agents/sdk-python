@@ -10,7 +10,9 @@ export type {
   MemoryToolConfig,
   MemoryAddToolConfig,
   MemoryManagerConfig,
+  MemoryInjectionConfig,
 } from './types.js'
+export type { InjectionConfig, InjectionTrigger, InjectionContext } from '../injection/index.js'
 
 export { ExtractionTrigger } from './extraction/types.js'
 export { InvocationTrigger, IntervalTrigger } from './extraction/triggers.js'

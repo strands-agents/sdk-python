@@ -25,7 +25,7 @@ def my_task():
 cases = [Case(name="greeting", input="Hello!")]
 evaluator = OutputEvaluator(rubric="Score 1.0 if friendly. Score 0.0 otherwise.")
 experiment = Experiment(cases=cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(my_task)
+report = experiment.run_evaluations(my_task)
 ```
 
 ## How It Works
@@ -47,7 +47,7 @@ from strands_tools import calculator
 
 @eval_task()
 def my_task(case):
-    tools = [calculator] if case.metadata.get("use_calc") else []
+    tools = [calculator] if (case.metadata or {}).get("use_calc") else []
     return Agent(tools=tools, callback_handler=None)
 
 cases = [
@@ -72,7 +72,7 @@ experiment = Experiment(
     cases=cases,
     evaluators=[HelpfulnessEvaluator(), CorrectnessEvaluator()]
 )
-reports = experiment.run_evaluations(my_task)
+report = experiment.run_evaluations(my_task)
 ```
 
 `TracedHandler` handles:

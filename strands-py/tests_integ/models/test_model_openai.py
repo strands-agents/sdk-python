@@ -218,7 +218,7 @@ def _mini_model_params():
 
 
 @pytest.mark.parametrize("model_class,model_id", _mini_model_params())
-def test_context_window_overflow_integration(model_class, model_id):
+def test_context_window_overflow_integration(model_class, model_id, quiet_strands_logging):
     """Integration test for context window overflow with OpenAI.
 
     This test verifies that when a request exceeds the model's context window,
@@ -253,7 +253,7 @@ def _rate_limit_params():
     return params
 
 
-def test_rate_limit_throttling_integration_no_retries():
+def test_rate_limit_throttling_integration_no_retries(quiet_strands_logging):
     """Integration test for rate limit handling with retries disabled.
 
     This test verifies that when a request exceeds OpenAI's rate limits,

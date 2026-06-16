@@ -25,10 +25,10 @@ cases = [
 experiment = Experiment(cases=cases, evaluators=[OutputEvaluator(rubric="Score 1.0 if correct.")])
 
 # First run: executes the task and caches results
-reports = experiment.run_evaluations(my_task, evaluation_data_store=store)
+report = experiment.run_evaluations(my_task, evaluation_data_store=store)
 
 # Second run: loads cached results, skips task execution
-reports = experiment.run_evaluations(my_task, evaluation_data_store=store)
+report = experiment.run_evaluations(my_task, evaluation_data_store=store)
 ```
 
 ## How It Works

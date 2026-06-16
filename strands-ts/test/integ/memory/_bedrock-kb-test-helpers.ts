@@ -6,6 +6,8 @@ import {
   GetKnowledgeBaseDocumentsCommand,
 } from '@aws-sdk/client-bedrock-agent'
 
+import type { BedrockKnowledgeBaseStore } from '$/sdk/vended-memory-stores/bedrock-knowledge-base/index.js'
+
 /**
  * Generates a globally unique marker so concurrent tests against the same KB don't collide.
  */
@@ -13,6 +15,29 @@ export function uniqueMarker(label: string): string {
   const ts = Date.now().toString(36)
   const rand = Math.random().toString(36).slice(2, 8)
   return `integ-${label}-${ts}-${rand}`
+}
+
+/**
+ * Polls a scope-isolated store search until at least one entry matches `predicate` (default: any
+ * result), or the timeout elapses; returns the matched entry's content, or `undefined` on timeout.
+ *
+ * Use when the written content has no test-known document id — extraction rephrases what it writes,
+ * and the add tool mints ids internally — so indexing can't be awaited by id via {@link waitForIndexed}.
+ */
+export async function searchUntil(
+  store: BedrockKnowledgeBaseStore,
+  query: string,
+  predicate: (content: string) => boolean = () => true,
+  { timeoutMs = 60_000, intervalMs = 2_000 } = {}
+): Promise<string | undefined> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const entries = await store.search(query, { maxSearchResults: 10 })
+    const match = entries.find((e) => predicate(e.content))
+    if (match) return match.content
+    if (Date.now() >= deadline) return undefined
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
 }
 
 /**

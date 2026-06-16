@@ -29,7 +29,9 @@ jobs:
   check-access-and-checkout:
     runs-on: ubuntu-latest
     needs: authorization-check
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       id-token: write
       pull-requests: read

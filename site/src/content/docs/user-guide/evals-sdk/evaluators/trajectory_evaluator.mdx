@@ -180,8 +180,8 @@ evaluator = TrajectoryEvaluator(
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(get_response)
-reports[0].run_display()
+report = experiment.run_evaluations(get_response)
+report.run_display()
 ```
 
 ## Preventing Context Overflow
@@ -203,7 +203,7 @@ def task_with_many_tools(case: Case) -> dict:
     )
     evaluator.update_trajectory_description(tool_descriptions)
     
-    return TaskOutput(output=str(response), trajectory=trajectory=tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages))
+    return TaskOutput(output=str(response), trajectory=tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages))
 ```
 
 ## Evaluation Output

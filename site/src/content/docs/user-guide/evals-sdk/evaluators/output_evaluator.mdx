@@ -96,8 +96,8 @@ evaluator = OutputEvaluator(
 
 # Create and run experiment
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(get_response)
-reports[0].run_display()
+report = experiment.run_evaluations(get_response)
+report.run_display()
 ```
 
 ## Evaluation Output

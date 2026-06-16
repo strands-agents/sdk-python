@@ -36,6 +36,28 @@ export async function loadFixture(url: string): Promise<Uint8Array> {
 }
 
 // ================================
+// Async Helpers
+// ================================
+
+/**
+ * Polls a (sync or async) predicate until it returns truthy, or the timeout elapses. Resolves `true`
+ * on success and `false` on timeout (it does not throw), so callers assert on the result. Useful for
+ * awaiting eventually-consistent or background work — e.g. a value that a fire-and-forget task writes
+ * after the call that triggered it has already returned.
+ */
+export async function waitFor(
+  predicate: () => boolean | Promise<boolean>,
+  { timeoutMs = 45_000, intervalMs = 1_000 } = {}
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (await predicate()) return true
+    if (Date.now() >= deadline) return false
+    await new Promise((r) => setTimeout(r, intervalMs))
+  }
+}
+
+// ================================
 // Agent Message Helpers
 // ================================
 
