@@ -296,6 +296,9 @@ describe('InterventionRegistry', () => {
       const guidanceMessage = event.agent.messages[event.agent.messages.length - 1]!
       expect(guidanceMessage.role).toBe('user')
       expect(guidanceMessage.content[0]).toMatchObject({ type: 'textBlock', text: '[model-guide] be more specific' })
+      // The injected message carries a durable id even though it bypasses the append chokepoint.
+      expect(typeof guidanceMessage.id).toBe('string')
+      expect(guidanceMessage.id).toBeTruthy()
     })
   })
 

@@ -260,12 +260,14 @@ def _generate_message_id() -> str:
 
 
 def _ensure_message_id(message: Message) -> None:
-    """Assign a durable id to the message in place if it does not already have one.
+    """Assign a durable id to the message in place if it does not already have a usable one.
 
-    A message that already carries an id (e.g. restored from a session or supplied by a caller)
-    keeps it, so the same message has a stable identifier everywhere it is observed.
+    A message that already carries a non-empty id (e.g. restored from a session or supplied by a
+    caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
+    missing, ``None``, or empty-string id is treated as absent and replaced, since an empty id
+    cannot serve as a durable key.
     """
-    if "id" not in message:
+    if not message.get("id"):
         message["id"] = _generate_message_id()
 
 

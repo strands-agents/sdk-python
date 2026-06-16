@@ -64,14 +64,16 @@ export function generateMessageId(): string {
 }
 
 /**
- * Assign a durable id to the message in place if it does not already have one.
+ * Assign a durable id to the message in place if it does not already have a usable one.
  *
- * A message that already carries an id (e.g. restored from a session or supplied by a caller)
- * keeps it, so the same message has a stable identifier everywhere it is observed.
+ * A message that already carries a non-empty id (e.g. restored from a session or supplied by a
+ * caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
+ * missing or empty-string id is treated as absent and replaced, since an empty id cannot serve as
+ * a durable key.
  * @internal
  */
 export function ensureMessageId(message: Message): void {
-  if (message.id === undefined) {
+  if (!message.id) {
     message.id = generateMessageId()
   }
 }

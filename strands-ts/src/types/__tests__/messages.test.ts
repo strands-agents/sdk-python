@@ -142,6 +142,13 @@ describe('Message id', () => {
     expect(message.id).toBe('caller-supplied')
   })
 
+  test('ensureMessageId replaces an empty-string id', () => {
+    // An empty id cannot serve as a durable key, so it is treated as absent and replaced.
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], id: '' })
+    ensureMessageId(message)
+    expect(message.id).toBeTruthy()
+  })
+
   test('toJSON includes id when present', () => {
     const message = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'abc123' })
     expect(message.toJSON().id).toBe('abc123')
