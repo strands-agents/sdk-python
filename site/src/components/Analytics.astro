@@ -10,8 +10,7 @@
 ;(function () {
   'use strict'
 
-  // Prevent duplicate initialization on View Transition re-executions.
-  // The astro:page-load listener (registered on first init) handles transitions.
+  // Guard against this inline script running more than once on a page.
   if (window.__strandsAnalyticsInit) return
   window.__strandsAnalyticsInit = true
 
@@ -48,12 +47,19 @@
     window.dispatchEvent(new CustomEvent(ANALYTICS_EVENT_LISTENER, { detail: detail }))
   }
 
-  function dispatchCTAClick(name, type) {
-    dispatchXdmEvent('web.awsm.customCTAClick', {
-      pageInteraction: {
-        click: { name: name, type: type || 'customClick' },
+  // navigates: pass true for clicks that take the user to another page (links, toggles that
+  // redirect). Those are dispatched via beacon so the request isn't cancelled on unload - the
+  // same reason scroll depth uses the beacon path. In-page clicks (tabs, copy) pass false.
+  function dispatchCTAClick(name, type, navigates) {
+    dispatchXdmEvent(
+      'web.awsm.customCTAClick',
+      {
+        pageInteraction: {
+          click: { name: name, type: type || 'customClick' },
+        },
       },
-    })
+      !!navigates
+    )
   }
 
   function dispatchSearchEvent(searchTerm, resultCount) {
@@ -87,7 +93,7 @@
       var navTab = e.target.closest('.nav-tab, .mobile-nav-link')
       if (navTab) {
         var label = navTab.textContent.trim().replace(/\s*↗$/, '')
-        dispatchCTAClick('nav-tab:' + label, 'click')
+        dispatchCTAClick('nav-tab:' + label, 'click', true)
         return
       }
 
@@ -95,7 +101,8 @@
       var langControl = e.target.closest('.language-toggle .lang-option')
       if (langControl) {
         var lang = (langControl.getAttribute('data-lang') || '').trim()
-        dispatchCTAClick('lang-toggle:' + lang, 'click')
+        // The toggle navigates to the paired page in the other language, so beacon it.
+        dispatchCTAClick('lang-toggle:' + lang, 'click', true)
         return
       }
 
@@ -104,7 +111,7 @@
       if (ghLink) {
         var ghTextEl = ghLink.querySelector('.github-link-text')
         var ghLabel = (ghTextEl ? ghTextEl.textContent : ghLink.textContent).trim().replace(/\s*↗$/, '')
-        dispatchCTAClick('github-menu:' + ghLabel, 'linkClick')
+        dispatchCTAClick('github-menu:' + ghLabel, 'linkClick', true)
         return
       }
 
@@ -134,19 +141,19 @@
         var ctaLabel = homeCta.matches('a.le-card')
           ? homeCta.getAttribute('href')
           : homeCta.textContent.trim().replace(/\s+/g, ' ')
-        dispatchCTAClick('home-cta:' + ctaLabel, 'linkClick')
+        dispatchCTAClick('home-cta:' + ctaLabel, 'linkClick', true)
         return
       }
 
       // Blog post cards and navigation
       var blogCard = e.target.closest('a.blog-card')
       if (blogCard) {
-        dispatchCTAClick('blog-card:' + blogCard.getAttribute('href'), 'linkClick')
+        dispatchCTAClick('blog-card:' + blogCard.getAttribute('href'), 'linkClick', true)
         return
       }
       var blogNav = e.target.closest('a.blog-post-author, a.blog-back-link')
       if (blogNav) {
-        dispatchCTAClick('blog-nav:' + blogNav.textContent.trim(), 'linkClick')
+        dispatchCTAClick('blog-nav:' + blogNav.textContent.trim(), 'linkClick', true)
         return
       }
 
@@ -169,7 +176,7 @@
       // Outbound links
       var link = e.target.closest('a[href]')
       if (link && link.hostname && link.hostname !== window.location.hostname) {
-        dispatchCTAClick('outbound:' + link.hostname + link.pathname, 'linkClick')
+        dispatchCTAClick('outbound:' + link.hostname + link.pathname, 'linkClick', true)
       }
     })
   }
@@ -253,18 +260,16 @@
     }, 500)
   }
 
-  // --- 4. SPA / View Transition Support ---
-  // The WebSDK auto-fires the standard page view (web.webpagedetails.pageViews)
-  // and derives Base URL, entry/exit, and section data from the URL server-side.
-  // Reset scroll tracking on each navigation so depth is measured per page.
-
-  document.addEventListener('astro:page-load', function () {
-    resetScrollData()
-  })
-
-  // --- Initial setup (runs once) ---
+  // --- 4. Setup ---
+  // The WebSDK auto-fires the standard page view (web.webpagedetails.pageViews) and derives
+  // Base URL, entry/exit, and section data from the URL server-side, so no page-view event is
+  // sent here. Each full page load re-runs this IIFE, so setup below runs fresh per page.
   setupClickTracking()
   setupSearchTracking()
   setupScrollTracking()
+
+  // If view transitions (ClientRouter) are enabled later, navigations won't reload the page,
+  // so reset the per-page scroll baseline on astro:page-load. No-op while full reloads are used.
+  document.addEventListener('astro:page-load', resetScrollData)
 })()
 </script>
