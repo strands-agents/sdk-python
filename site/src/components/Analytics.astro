@@ -51,11 +51,14 @@
   // redirect). Those are dispatched via beacon so the request isn't cancelled on unload - the
   // same reason scroll depth uses the beacon path. In-page clicks (tabs, copy) pass false.
   function dispatchCTAClick(name, type, navigates) {
+    // Collapse whitespace so labels stay clean regardless of the source (textContent from
+    // elements with icons/SVG/newlines, hrefs, etc.) - keeps every caller consistent.
+    var cleanName = String(name).replace(/\s+/g, ' ').trim()
     dispatchXdmEvent(
       'web.awsm.customCTAClick',
       {
         pageInteraction: {
-          click: { name: name, type: type || 'customClick' },
+          click: { name: cleanName, type: type || 'customClick' },
         },
       },
       !!navigates
@@ -138,9 +141,7 @@
       // large block of text, so use their href (stable, concise) instead of textContent.
       var homeCta = e.target.closest('a.cta-button, a.le-card')
       if (homeCta) {
-        var ctaLabel = homeCta.matches('a.le-card')
-          ? homeCta.getAttribute('href')
-          : homeCta.textContent.trim().replace(/\s+/g, ' ')
+        var ctaLabel = homeCta.matches('a.le-card') ? homeCta.getAttribute('href') : homeCta.textContent
         dispatchCTAClick('home-cta:' + ctaLabel, 'linkClick', true)
         return
       }
@@ -165,7 +166,8 @@
         var copyLabel
         if (copyBtn.matches('button.install-copy')) {
           var installEl = copyBtn.closest('[data-copy]')
-          copyLabel = 'install:' + (installEl ? installEl.getAttribute('data-copy') : '')
+          var cmd = installEl && installEl.getAttribute('data-copy')
+          copyLabel = cmd ? 'install:' + cmd : 'install'
         } else {
           copyLabel = pageHierarchy(window.location.pathname)
         }
@@ -177,6 +179,7 @@
       var link = e.target.closest('a[href]')
       if (link && link.hostname && link.hostname !== window.location.hostname) {
         dispatchCTAClick('outbound:' + link.hostname + link.pathname, 'linkClick', true)
+        return
       }
     })
   }
