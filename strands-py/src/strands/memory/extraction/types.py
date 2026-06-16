@@ -144,6 +144,6 @@ class ExtractionConfig(TypedDict, total=False):
             blocks.
     """
 
-    trigger: ExtractionTrigger | list[ExtractionTrigger] | None
-    extractor: Extractor | None
-    filter: MemoryMessageFilter | None
+    trigger: ExtractionTrigger | list[ExtractionTrigger]
+    extractor: Extractor
+    filter: MemoryMessageFilter

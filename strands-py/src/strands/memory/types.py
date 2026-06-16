@@ -42,7 +42,7 @@ class SearchOptions(TypedDict, total=False):
     ``MemoryManager.search`` forwards only these base fields across its stores.
     """
 
-    max_search_results: int | None
+    max_search_results: int
 
 
 @dataclass
@@ -64,7 +64,7 @@ class MemorySearchOptions(SearchOptions, total=False):
             in-scope stores".
     """
 
-    stores: list[str] | None
+    stores: list[str]
 
 
 class MemoryAddOptions(TypedDict, total=False):
@@ -77,15 +77,15 @@ class MemoryAddOptions(TypedDict, total=False):
             in-scope stores".
     """
 
-    metadata: Metadata | None
-    stores: list[str] | None
+    metadata: Metadata
+    stores: list[str]
 
 
 class MemoryToolConfig(TypedDict, total=False):
     """Configuration for customizing a memory tool's name or description."""
 
-    name: str | None
-    description: str | None
+    name: str
+    description: str
 
 
 class MemoryAddToolConfig(MemoryToolConfig, total=False):
@@ -100,7 +100,7 @@ class MemoryAddToolConfig(MemoryToolConfig, total=False):
             are dispatched; per-store failures are logged.
     """
 
-    stores: list[str | MemoryStore] | None
+    stores: list[str | MemoryStore]
     wait_for_writes: bool
 
 
@@ -185,9 +185,9 @@ class MemoryInjectionConfig(InjectionConfig, total=False):
             for its own escaping.
     """
 
-    max_entries: int | None
-    query: InjectionQuery | None
-    format: InjectionFormat | None
+    max_entries: int
+    query: InjectionQuery
+    format: InjectionFormat
 
 
 class MemoryManagerConfig(TypedDict, total=False):
@@ -222,7 +222,7 @@ class MemoryStoreConfig(TypedDict, total=False):
             sink (:meth:`MemoryStore.add` or :meth:`MemoryStore.add_messages`).
         extraction: Automatic-extraction configuration for this writable store, as
             a ``bool | config`` shorthand. ``True`` enables it with defaults; an
-            :class:`ExtractionConfig` defaults any unset field; ``False``/``None``
+            :class:`ExtractionConfig` defaults any unset field; ``False``/omitted
             is off. The defaults run every 5 turns, and the extraction method
             depends on the store's write methods: a store implementing only ``add``
             uses a :class:`~strands.memory.extraction.model_extractor.ModelExtractor`
@@ -232,10 +232,10 @@ class MemoryStoreConfig(TypedDict, total=False):
     """
 
     name: Required[str]
-    description: str | None
-    max_search_results: int | None
+    description: str
+    max_search_results: int
     writable: bool
-    extraction: ExtractionConfig | bool | None
+    extraction: ExtractionConfig | bool
 
 
 class MemoryStore(Protocol):

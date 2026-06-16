@@ -443,10 +443,10 @@ class MemoryManager(Plugin):
                 Matching memory entries, each attributed to its store.
             """
             targets = self._resolve_tool_targets(scoped_names, stores)
-            results = await self.search(
-                query,
-                MemorySearchOptions(max_search_results=max_search_results, stores=targets),
-            )
+            options = MemorySearchOptions(stores=targets)
+            if max_search_results is not None:
+                options["max_search_results"] = max_search_results
+            results = await self.search(query, options)
             payload: list[dict[str, Any]] = []
             for entry in results:
                 item: dict[str, Any] = {"content": entry.content}
