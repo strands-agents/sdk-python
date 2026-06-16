@@ -5,36 +5,20 @@ imported from here or from its subpackage, e.g.
 ``from strands.vended_memory_stores import BedrockKnowledgeBaseStore``.
 """
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from .bedrock_knowledge_base import (
-        BedrockKnowledgeBaseAddResult,
-        BedrockKnowledgeBaseConfig,
-        BedrockKnowledgeBaseS3Config,
-        BedrockKnowledgeBaseStore,
-        BedrockKnowledgeBaseStoreConfig,
-    )
+from typing import Any
 
 __all__ = [
-    "BedrockKnowledgeBaseAddResult",
-    "BedrockKnowledgeBaseConfig",
-    "BedrockKnowledgeBaseS3Config",
     "BedrockKnowledgeBaseStore",
-    "BedrockKnowledgeBaseStoreConfig",
 ]
-
-_BEDROCK_KNOWLEDGE_BASE_EXPORTS = frozenset(__all__)
 
 
 def __getattr__(name: str) -> Any:
-    """Lazily import store backends only when accessed.
+    """Lazy load store implementations only when accessed.
 
-    This defers each store's optional dependencies (e.g. ``boto3`` for the Bedrock Knowledge Base
-    store) until one of its names is actually used.
+    This defers the import of optional dependencies until actually needed.
     """
-    if name in _BEDROCK_KNOWLEDGE_BASE_EXPORTS:
-        from . import bedrock_knowledge_base
+    if name == "BedrockKnowledgeBaseStore":
+        from .bedrock_knowledge_base import BedrockKnowledgeBaseStore
 
-        return getattr(bedrock_knowledge_base, name)
+        return BedrockKnowledgeBaseStore
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
