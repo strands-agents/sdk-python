@@ -8,7 +8,7 @@ from .hitl import HumanInTheLoop
 __all__ = ["CedarAuthorization", "HumanInTheLoop"]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     if name == "CedarAuthorization":
         from .cedar import CedarAuthorization
 
