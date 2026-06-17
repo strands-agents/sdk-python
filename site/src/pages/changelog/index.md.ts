@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { getReleases, groupEntries, HIDDEN_AREAS } from '../../util/changelog'
+import { getReleases, groupEntries, HIDDEN_AREAS, escapeMarkdownInline } from '../../util/changelog'
 
 export const GET: APIRoute = async () => {
   const releases = await getReleases()
@@ -18,7 +18,7 @@ export const GET: APIRoute = async () => {
         const tags = e.areas.filter((a) => !HIDDEN_AREAS.has(a))
         const areas = tags.length ? ` [${tags.join(', ')}]` : ''
         const pr = e.prUrl ? ` (${e.prUrl})` : ''
-        lines.push(`- ${e.title}${areas}${pr}`)
+        lines.push(`- ${escapeMarkdownInline(e.title)}${areas}${pr}`)
       }
     }
     section('Features', features)

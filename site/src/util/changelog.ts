@@ -3,6 +3,17 @@ import type { ChangelogEntry } from '../content.config'
 
 export type ChangelogRelease = CollectionEntry<'changelog'>
 
+/**
+ * Escape Markdown-significant characters in inline text (e.g. PR titles) before
+ * interpolating into the machine-readable `.md` endpoints. Without this,
+ * snake_case identifiers like `_extract_trace_level` render as italics and
+ * brackets/backticks reshape the output. Titles are single-line YAML strings,
+ * so only inline constructs matter (no block-level escaping needed).
+ */
+export function escapeMarkdownInline(text: string): string {
+  return text.replace(/[\\`*_[\]<>]/g, (c) => '\\' + c)
+}
+
 const FEATURE_TYPES = new Set(['feat', 'breaking', 'perf'])
 const FIX_TYPES = new Set(['fix'])
 

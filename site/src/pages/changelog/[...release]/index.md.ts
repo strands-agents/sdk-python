@@ -6,7 +6,7 @@
  * it stays in parity). Mirrors the aggregate /changelog/index.md format.
  */
 import type { APIRoute, GetStaticPaths } from 'astro'
-import { getReleasePaths, groupEntries, HIDDEN_AREAS, type ChangelogRelease } from '../../../util/changelog'
+import { getReleasePaths, groupEntries, HIDDEN_AREAS, escapeMarkdownInline, type ChangelogRelease } from '../../../util/changelog'
 import { SDK_META, LANGUAGE_META } from '../../../config/changelog'
 
 export const getStaticPaths: GetStaticPaths = async () => getReleasePaths()
@@ -32,7 +32,7 @@ function buildMarkdown(release: ChangelogRelease): string {
       const tags = e.areas.filter((a) => !HIDDEN_AREAS.has(a))
       const areas = tags.length ? ` [${tags.join(', ')}]` : ''
       const pr = e.prUrl ? ` (${e.prUrl})` : ''
-      lines.push(`- ${e.title}${areas}${pr}`)
+      lines.push(`- ${escapeMarkdownInline(e.title)}${areas}${pr}`)
     }
   }
   section('Features', features)

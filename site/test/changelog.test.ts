@@ -89,7 +89,21 @@ describe('changelogFrontmatterSchema', () => {
   })
 })
 
-import { groupEntries, getAreaCounts, formatChangelogDate, compareVersionDesc } from '../src/util/changelog'
+import { groupEntries, getAreaCounts, formatChangelogDate, compareVersionDesc, escapeMarkdownInline } from '../src/util/changelog'
+
+describe('escapeMarkdownInline (.md endpoint safety)', () => {
+  it('escapes snake_case so it does not render as italics', () => {
+    expect(escapeMarkdownInline('include tool executions in _extract_trace_level')).toBe(
+      'include tool executions in \\_extract\\_trace\\_level'
+    )
+  })
+  it('escapes brackets, backticks, and asterisks', () => {
+    expect(escapeMarkdownInline('fix [x] and `y` and *z*')).toBe('fix \\[x\\] and \\`y\\` and \\*z\\*')
+  })
+  it('leaves plain text untouched', () => {
+    expect(escapeMarkdownInline('add agent factory for isolating context')).toBe('add agent factory for isolating context')
+  })
+})
 
 describe('compareVersionDesc (date-tie stable ordering)', () => {
   it('orders releases newest-first', () => {
