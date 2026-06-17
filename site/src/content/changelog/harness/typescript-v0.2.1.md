@@ -6,7 +6,13 @@ tag: v0.2.1
 date: 2026-02-05
 releaseUrl: https://github.com/strands-agents/sdk-typescript/releases/tag/v0.2.1
 packageUrl: https://www.npmjs.com/package/@strands-agents/sdk/v/0.2.1
-entries: []
+entries:
+  - { type: other, breaking: false, scope: null, areas: [], title: "add sqs arn from secret", pr: 459, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/459", commit: "4e7494c", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/4e7494c", author: afarntrog }
+  - { type: other, breaking: false, scope: null, areas: [], title: "Add always condition to finalize step, fix audit, and update bash test to use real path", pr: 465, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/465", commit: "3a991c6", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/3a991c6", author: Unshure }
+  - { type: other, breaking: false, scope: null, areas: [], title: "Add sqs arn", pr: 470, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/470", commit: "6556e63", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/6556e63", author: afarntrog }
+  - { type: feat, breaking: false, scope: model, areas: [], title: "add text only implementation of gemini model", pr: 426, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/426", commit: "ebe5f30", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/ebe5f30", author: dbschmigelski }
+  - { type: feat, breaking: true, scope: hooks, areas: [], title: "add retry property to AfterToolCallEvent", pr: 493, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/493", commit: "d5d6e8f", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/d5d6e8f", author: dbschmigelski }
+  - { type: fix, breaking: false, scope: null, areas: [], title: "add @google/genai to devDependencies for TypeScript compilation", pr: 502, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/502", commit: "7363419", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/7363419", author: mkmeral }
 ---
 
 ## Major Features

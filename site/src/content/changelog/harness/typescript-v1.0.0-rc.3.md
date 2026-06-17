@@ -6,7 +6,17 @@ tag: v1.0.0-rc.3
 date: 2026-04-08
 releaseUrl: https://github.com/strands-agents/sdk-typescript/releases/tag/v1.0.0-rc.3
 packageUrl: https://www.npmjs.com/package/@strands-agents/sdk/v/1.0.0-rc.3
-entries: []
+entries:
+  - { type: feat, breaking: false, scope: examples, areas: [], title: "add browser-based agent example", pr: 384, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/384", commit: "cfc9ec2", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/cfc9ec2", author: michaelruelas }
+  - { type: feat, breaking: false, scope: null, areas: [], title: "add multiagent snapshot", pr: 756, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/756", commit: "82d4b7a", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/82d4b7a", author: JackYPCOnline }
+  - { type: fix, breaking: false, scope: null, areas: [], title: "sync BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES with Python SDK", pr: 782, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/782", commit: "336c992", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/336c992", author: opieter-aws }
+  - { type: fix, breaking: false, scope: null, areas: [], title: "update browser-agent example for current SDK API", pr: 792, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/792", commit: "e4112e7", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/e4112e7", author: pgrayy }
+  - { type: feat, breaking: false, scope: null, areas: [], title: "add AgentAsTool internal class", pr: 768, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/768", commit: "68eb9af", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/68eb9af", author: notowen333 }
+  - { type: feat, breaking: false, scope: null, areas: [], title: "enable session manager in multiagent (P0, resume logic will be in separate PR)", pr: 764, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/764", commit: "b4cf8a6", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/b4cf8a6", author: JackYPCOnline }
+  - { type: feat, breaking: false, scope: null, areas: [], title: "add mid-execution cancellation", pr: 781, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/781", commit: "58b40ae", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/58b40ae", author: notowen333 }
+  - { type: fix, breaking: false, scope: null, areas: [], title: "prevent invocation lock leak when consumer breaks from stream", pr: 796, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/796", commit: "eeecbfc", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/eeecbfc", author: pgrayy }
+  - { type: fix, breaking: false, scope: null, areas: [], title: "migrate MultiagentPlugin to be an interface", pr: 794, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/794", commit: "70346b0", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/70346b0", author: JackYPCOnline }
+  - { type: fix, breaking: false, scope: bedrock, areas: [], title: "disable thinking when tool_choice forces tool use", pr: 798, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/798", commit: "afb3912", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/afb3912", author: pgrayy }
 newContributors:
   - { login: michaelruelas, pr: 384 }
   - { login: opieter-aws, pr: 782 }
