@@ -10,7 +10,7 @@ sidebar:
 
 Looking for something beyond the built-in implementations? Building a custom Sandbox is easy.
 
-## Start from the shell base
+## Extending PosixShellSandbox
 
 `PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `executeStreaming` / `execute_streaming` (run a shell command via your backend and stream the output), you get everything else for free:
 
@@ -47,17 +47,9 @@ To give your sandbox the same `sandbox_bash` and `sandbox_file_editor` tools the
 <Tab label="TypeScript">
 
 ```typescript
-import type { Tool } from '@strands-agents/sdk'
-import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
-import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:vend_tools_imports"
 
-// Inside your custom sandbox class:
-override getTools(): Tool[] {
-  return [
-    makeFileEditor(this, { name: 'sandbox_file_editor' }),
-    makeBash(this, { name: 'sandbox_bash' }),
-  ]
-}
+--8<-- "user-guide/concepts/sandbox/index.ts:vend_tools"
 ```
 
 </Tab>

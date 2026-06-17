@@ -20,16 +20,7 @@ Executes operations inside a Docker container on the host via `docker exec`. The
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
-
-const sandbox = new DockerSandbox({
-  container: 'agent-workspace',
-  workingDir: '/workspace',
-  user: '1000:1000',
-})
-const agent = new Agent({ sandbox })
-await agent.invoke('Run the test suite and summarize any failures')
+--8<-- "user-guide/concepts/sandbox/index.ts:docker_constructor"
 ```
 
 </Tab>
@@ -73,16 +64,7 @@ Executes operations on a remote host via SSH. Each command spawns a fresh `ssh` 
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import { SshSandbox } from '@strands-agents/sdk/sandbox/ssh'
-
-const sandbox = new SshSandbox({
-  host: 'ubuntu@10.0.1.5',
-  workingDir: '/home/ubuntu/workspace',
-  identityFile: '~/.ssh/agent_key',
-})
-const agent = new Agent({ sandbox })
-await agent.invoke('Check disk usage and list running processes')
+--8<-- "user-guide/concepts/sandbox/index.ts:ssh_constructor"
 ```
 
 </Tab>

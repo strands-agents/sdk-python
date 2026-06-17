@@ -12,6 +12,7 @@ from strands.types.tools import ToolContext
 # --8<-- [start:basic_usage]
 agent = Agent(sandbox=DockerSandbox("my-container-id"))
 
+# The agent's sandbox_bash and sandbox_file_editor tools execute inside the container
 agent("List all files inside the current directory")
 # --8<-- [end:basic_usage]
 
@@ -38,19 +39,6 @@ agent = Agent(sandbox=sandbox)
 agent("Check disk usage and list running processes")
 # --8<-- [end:ssh_sandbox]
 
-
-# --8<-- [start:tool_context]
-@tool(context="tool_context")
-async def my_tool(command: str, tool_context: ToolContext) -> dict:
-    """Run a command in the sandbox.
-
-    Args:
-        command: The command to execute.
-        tool_context: Injected by the framework.
-    """
-    result = await tool_context.agent.sandbox.execute(command)
-    return {"exit_code": result.exit_code, "stdout": result.stdout}
-# --8<-- [end:tool_context]
 
 
 # --8<-- [start:programmatic_access]

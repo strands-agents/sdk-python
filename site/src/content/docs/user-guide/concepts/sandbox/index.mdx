@@ -24,7 +24,7 @@ flowchart LR
     subgraph runtime["Agent runtime (your infrastructure)"]
         L[Agent loop]
         M[Model]
-        T["sandbox_bash /\nsandbox_file_editor"]
+        T["sandbox_bash /<br/>sandbox_file_editor"]
         L --> M --> T
     end
     subgraph sb["Sandbox (execution environment you provision)"]
@@ -32,13 +32,6 @@ flowchart LR
     end
     T -->|"execute, read_file, write_file"| E
     E -->|"stdout, stderr, exit code"| T
-
-    style runtime fill:#1a1a1a,stroke:#555,stroke-width:2px,color:#ccc
-    style sb fill:#1a1a1a,stroke:#555,stroke-width:2px,color:#ccc
-    style M fill:#2a2a2a,stroke:#666,color:#ddd
-    style L fill:#2a2a2a,stroke:#666,color:#ddd
-    style T fill:#2a2a2a,stroke:#666,color:#ddd
-    style E fill:#2a2a2a,stroke:#666,color:#ddd
 ```
 
 All Sandbox implementations share the same abstract interface:

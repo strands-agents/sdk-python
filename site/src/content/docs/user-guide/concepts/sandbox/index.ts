@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
-import { Agent, tool } from '@strands-agents/sdk'
+import { Agent, tool, type Tool } from '@strands-agents/sdk'
 import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { PosixShellSandbox } from '@strands-agents/sdk/sandbox'
 import type {
   ExecuteOptions,
@@ -17,6 +18,7 @@ async function basicUsage() {
     sandbox: new DockerSandbox({ container: 'my-container-id' }),
   })
 
+  // The agent's sandbox_bash and sandbox_file_editor tools execute inside the container
   await agent.invoke('List all files inside the current directory')
   // --8<-- [end:basic_usage]
 }
@@ -44,23 +46,6 @@ async function sshSandbox() {
   const agent = new Agent({ sandbox })
   await agent.invoke('Check disk usage and list running processes')
   // --8<-- [end:ssh_sandbox]
-}
-
-function toolContext() {
-  // --8<-- [start:tool_context]
-  const myTool = tool({
-    name: 'my_tool',
-    description: 'Run a command in the sandbox',
-    inputSchema: z.object({
-      command: z.string(),
-    }),
-    callback: async (input, context) => {
-      const result = await context!.agent.sandbox.execute(input.command)
-      return { exitCode: result.exitCode, stdout: result.stdout }
-    },
-  })
-  // --8<-- [end:tool_context]
-  return myTool
 }
 
 // --8<-- [start:custom_sandbox]
@@ -92,8 +77,41 @@ class FirecrackerSandbox extends PosixShellSandbox {
     )
     yield { type: 'executionResult', exitCode, stdout, stderr, outputFiles: [] }
   }
-}
 // --8<-- [end:custom_sandbox]
+
+  // --8<-- [start:vend_tools]
+  override getTools(): Tool[] {
+    return [
+      makeFileEditor(this, { name: 'sandbox_file_editor' }),
+      makeBash(this, { name: 'sandbox_bash' }),
+    ]
+  }
+  // --8<-- [end:vend_tools]
+}
+
+function dockerConstructor() {
+  // --8<-- [start:docker_constructor]
+  const sandbox = new DockerSandbox({
+    container: 'agent-workspace',
+    workingDir: '/workspace',
+    user: '1000:1000',
+  })
+  const agent = new Agent({ sandbox })
+  void agent.invoke('Run the test suite and summarize any failures')
+  // --8<-- [end:docker_constructor]
+}
+
+function sshConstructor() {
+  // --8<-- [start:ssh_constructor]
+  const sandbox = new SshSandbox({
+    host: 'ubuntu@10.0.1.5',
+    workingDir: '/home/ubuntu/workspace',
+    identityFile: '~/.ssh/agent_key',
+  })
+  const agent = new Agent({ sandbox })
+  void agent.invoke('Check disk usage and list running processes')
+  // --8<-- [end:ssh_constructor]
+}
 
 function toolOverride() {
   // --8<-- [start:tool_override]
@@ -130,7 +148,7 @@ const agent = new Agent({
   sandbox: new DockerSandbox({ container: 'my-dev-env' }),
   tools: [lint],
 })
-// Agent now has: sandbox_bash, sandbox_fileEditor (vended) + lint (yours)
+// Agent now has: sandbox_bash, sandbox_file_editor (vended) + lint (yours)
 // --8<-- [end:custom_tool]
 
 async function programmaticAccess() {
@@ -169,8 +187,9 @@ export {
   basicUsage,
   dockerSandbox,
   sshSandbox,
-  toolContext,
+  dockerConstructor,
+  sshConstructor,
   programmaticAccess,
-  KubernetesSandbox,
+  FirecrackerSandbox,
   lint,
 }
