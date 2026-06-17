@@ -29,7 +29,7 @@ Skills for this repository. See [agentskills.io](https://agentskills.io/home) fo
 
 | Skill | Purpose |
 |-------|---------|
-| **pre-commit** | Mirrors the `ci.yml` merge gate locally. A bundled script detects which areas changed (python/typescript/docs) using CI's exact path filters, auto-fixes what's mechanical (format, lint `--fix`, lockfile sync) scoped to changed files, then runs that area's checks. Use to get commit-ready before pushing. |
+| **pre-push** | Mirrors the `ci.yml` merge gate locally. A bundled script detects which areas changed (python/typescript/docs) using CI's exact path filters, auto-fixes what's mechanical (format, lint `--fix`, lockfile sync) scoped to changed files, then runs that area's checks. Run it to get push-ready before pushing or opening a PR (pairs with **pr-create** / **pr-writer**). |
 
 ## Adding a new skill
 

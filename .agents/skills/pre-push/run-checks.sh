@@ -60,7 +60,9 @@ EXPLICIT_AREAS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --base) BASE_REF="$2"; shift 2 ;;
+    --base)
+      [[ $# -ge 2 ]] || { echo "error: --base requires a <ref>" >&2; exit 2; }
+      BASE_REF="$2"; shift 2 ;;
     --all) FORCE_ALL=1; shift ;;
     --list) LIST_ONLY=1; shift ;;
     --heavy) RUN_HEAVY=1; shift ;;
@@ -78,8 +80,8 @@ done
 # copy; keep the two in sync if the fork heuristics change. --base <ref> skips
 # the scan. BASE_SHA is resolved once and reused; empty means no base (no commits
 # ahead, or a fresh detached checkout), in which case the base diff is skipped
-# and staged/unstaged/untracked files are still checked — the normal pre-commit
-# case.
+# and staged/unstaged/untracked files are still checked — the normal case when
+# you haven't committed yet.
 # Sets globals BASE_SHA (the merge-base commit, or empty) and BASE_DISPLAY (a
 # human label for the report).
 BASE_SHA=""
