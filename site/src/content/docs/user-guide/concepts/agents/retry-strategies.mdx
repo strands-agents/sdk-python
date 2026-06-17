@@ -1,6 +1,10 @@
 ---
 title: Retry Strategies
 tags: [event-loop, error-handling]
+sourceLinks:
+  - path: strands-py/src/strands/event_loop/_retry.py
+  - path: strands-ts/src/retry/model-retry-strategy.ts
+  - path: strands-ts/src/retry/default-model-retry-strategy.ts
 ---
 
 Model providers occasionally encounter errors such as rate limits, service unavailability, or network timeouts. By default, the agent retries throttled responses automatically with exponential backoff. The <Syntax py="Agent.retry_strategy" ts="Agent.retryStrategy" /> parameter lets you customize this behavior.

@@ -2,6 +2,9 @@
 title: Steering
 description: "LLM-based contextual guidance for agents using the interventions framework — just-in-time feedback instead of front-loaded prompts."
 tags: [hooks, event-loop, tool-execution]
+sourceLinks:
+  - path: strands-py/src/strands/vended_plugins/steering/core/handler.py
+  - path: strands-ts/src/vended-interventions/steering/handlers/llm.ts
 ---
 
 Steering provides modular prompting for complex agent tasks through context-aware guidance that appears when relevant, rather than front-loading all instructions in monolithic prompts. Steering handlers observe agent activity and intervene at key moments — before a tool call or after a model response — with targeted feedback. They are built on the [interventions](./index.mdx) framework and use the same typed action model.

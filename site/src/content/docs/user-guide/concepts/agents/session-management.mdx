@@ -2,6 +2,13 @@
 title: Session Management
 description: "Persist agent conversations across sessions. Save and restore chat history, tool state, and context for long-running AI workflows."
 tags: [session-management, snapshots, state]
+sourceLinks:
+  - path: strands-py/src/strands/session/session_manager.py
+  - path: strands-py/src/strands/session/file_session_manager.py
+  - path: strands-py/src/strands/session/s3_session_manager.py
+  - path: strands-ts/src/session/session-manager.ts
+  - path: strands-ts/src/session/file-storage.ts
+  - path: strands-ts/src/session/s3-storage.ts
 ---
 
 Session management in Strands Agents provides a robust mechanism for persisting agent state and conversation history across multiple interactions. This enables agents to maintain context and continuity even when the application restarts or when deployed in distributed environments.

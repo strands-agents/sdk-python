@@ -7,6 +7,7 @@ import { htmlToMarkdown } from './html-to-markdown'
 import { pathWithBase } from './links'
 import { relatedUserGuideFor } from './related-docs'
 import type { SourceLink } from '../content.config'
+import { resolveLanguage, languageLabel, sourceLinkUrl } from './source-links'
 
 /**
  * Render the "Related pages" block for headless consumers. Appended only to
@@ -30,17 +31,33 @@ async function renderRelatedPages(
 /**
  * Render the "Implementation" block for headless consumers. Appended only to
  * the markdown surfaces (/<slug>/index.md, /llms-full.txt) — never the HTML
- * page. Link text and URL both embed repo+path so parsers can extract either.
+ * page. Links are grouped under a per-language heading ("Python", "TypeScript",
+ * …) so agents and crawlers get an unambiguous "here is the link for language
+ * X" mapping. The language is inferred from each path's extension (or its
+ * explicit `language` override). Link text and URL both embed repo+path so
+ * parsers can extract either.
  */
-function renderImplementation(entry: CollectionEntry<'docs'> | CollectionEntry<'blog'>): string {
+export function renderImplementation(entry: CollectionEntry<'docs'> | CollectionEntry<'blog'>): string {
   if (entry.collection !== 'docs') return ''
   const links: SourceLink[] | undefined = entry.data.sourceLinks
   if (!links || links.length === 0) return ''
-  const items = links.map(({ repo, path }) => {
-    const url = `https://github.com/strands-agents/${repo}/blob/main/${path}`
-    return `- [${repo}/${path}](${url})`
+
+  // Group links by language, preserving first-seen order of both languages and
+  // the links within each language.
+  const byLanguage = new Map<string, SourceLink[]>()
+  for (const link of links) {
+    const language = resolveLanguage(link)
+    const group = byLanguage.get(language) ?? []
+    group.push(link)
+    byLanguage.set(language, group)
+  }
+
+  const sections = [...byLanguage.entries()].map(([language, group]) => {
+    const items = group.map((link) => `- [${link.repo}/${link.path}](${sourceLinkUrl(link)})`)
+    return `### ${languageLabel(language)}\n\n${items.join('\n')}`
   })
-  return `\n\n## Implementation\n\n${items.join('\n')}\n`
+
+  return `\n\n## Implementation\n\n${sections.join('\n\n')}\n`
 }
 
 /**
