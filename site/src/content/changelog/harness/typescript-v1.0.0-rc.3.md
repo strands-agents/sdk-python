@@ -12,9 +12,6 @@ newContributors:
   - { login: opieter-aws, pr: 782 }
 ---
 
-## What's Changed
-
-
 ###  Features
 
 #### Mid-Execution Cancellation — [PR#781](https://github.com/strands-agents/sdk-typescript/pull/781)
@@ -118,10 +115,3 @@ Adds internal snapshot take/load support for multi-agent orchestrators (Graph an
 - **Bedrock thinking + forced tool_choice conflict** — [PR#798](https://github.com/strands-agents/sdk-typescript/pull/798): When using `structuredOutputSchema` with extended thinking enabled, the agent hit a Bedrock API error: "Thinking may not be enabled when tool_choice forces tool use." The SDK now strips the `thinking` key from `additionalRequestFields` when `toolChoice` forces tool use (`any` or `tool` variants), preserving thinking for `auto` and unset tool choice.
 
 - **Bedrock context window overflow detection** — [PR#782](https://github.com/strands-agents/sdk-typescript/pull/782): Synced `BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES` with the Python SDK to include the `'prompt is too long'` error pattern, ensuring consistent overflow detection across both SDKs.
-
-
-## New Contributors
-* @michaelruelas made their first contribution in https://github.com/strands-agents/sdk-typescript/pull/384
-* @opieter-aws made their first contribution in https://github.com/strands-agents/sdk-typescript/pull/782
-
-**Full Changelog**: https://github.com/strands-agents/sdk-typescript/compare/v1.0.0-rc.2...v1.0.0-rc.3

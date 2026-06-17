@@ -14,9 +14,6 @@ newContributors:
   - { login: gautamsirdeshmukh, pr: 2047 }
 ---
 
-## What's Changed
-
-
 ### Features
 
 #### Bedrock Service Tier Support — [PR#1799](https://github.com/strands-agents/sdk-python/pull/1799)
@@ -54,13 +51,3 @@ Valid values are `"default"`, `"priority"`, and `"flex"`. If a model or region d
 - **Anthropic premature stream termination** — [PR#2047](https://github.com/strands-agents/sdk-python/pull/2047): The Anthropic provider crashed with `AttributeError` when the stream terminated before the final `message_stop` event, because it accessed `event.message.usage` on event types that lack a `.message` attribute. Now uses the Anthropic SDK's `stream.get_final_message()` to read accumulated usage from all received events, gracefully handling premature termination and empty streams.
 
 - **Anthropic Pydantic deprecation warnings** — [PR#2044](https://github.com/strands-agents/sdk-python/pull/2044): Fixed `message_stop` event handling to avoid Pydantic deprecation warnings.
-
-
-## New Contributors
-* @mananpatel320 made their first contribution in https://github.com/strands-agents/sdk-python/pull/1918
-* @opieter-aws made their first contribution in https://github.com/strands-agents/sdk-python/pull/2044
-* @mattdai01 made their first contribution in https://github.com/strands-agents/sdk-python/pull/2046
-* @KKamJi98 made their first contribution in https://github.com/strands-agents/sdk-python/pull/1906
-* @gautamsirdeshmukh made their first contribution in https://github.com/strands-agents/sdk-python/pull/2047
-
-**Full Changelog**: https://github.com/strands-agents/sdk-python/compare/v1.34.1...v1.35.0

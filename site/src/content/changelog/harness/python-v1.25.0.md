@@ -180,10 +180,3 @@ result = agent(
 * Bump `actions/upload-artifact` from 4 to 6 - [PR#1608](https://github.com/strands-agents/sdk-python/pull/1608)
 
 ---
-
-## New Contributors
-
-* @charles-dyfis-net made their first contribution in [PR#1584](https://github.com/strands-agents/sdk-python/pull/1584)
-* @dinindunz made their first contribution in [PR#1529](https://github.com/strands-agents/sdk-python/pull/1529)
-
-**Full Changelog**: https://github.com/strands-agents/sdk-python/compare/v1.24.0...v1.25.0

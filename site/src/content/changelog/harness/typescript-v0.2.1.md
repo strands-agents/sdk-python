@@ -64,6 +64,3 @@ agent.hooks.addCallback(AfterToolCallEvent, (event: AfterToolCallEvent) => {
   Fixed CI build failures by adding the `@google/genai` package to devDependencies, ensuring TypeScript compilation succeeds for the new Gemini model provider.
 
 ---
-
-
-**Full Changelog**: https://github.com/strands-agents/sdk-typescript/compare/v0.2.0...v0.2.1
