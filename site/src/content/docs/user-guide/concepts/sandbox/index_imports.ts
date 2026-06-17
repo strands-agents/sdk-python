@@ -5,15 +5,15 @@ import { Agent } from '@strands-agents/sdk'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
 // --8<-- [end:basic_usage_imports]
 
-// --8<-- [start:docker_sandbox_imports]
+// --8<-- [start:docker_constructor_imports]
 import { Agent } from '@strands-agents/sdk'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
-// --8<-- [end:docker_sandbox_imports]
+// --8<-- [end:docker_constructor_imports]
 
-// --8<-- [start:ssh_sandbox_imports]
+// --8<-- [start:ssh_constructor_imports]
 import { Agent } from '@strands-agents/sdk'
 import { SshSandbox } from '@strands-agents/sdk/sandbox/ssh'
-// --8<-- [end:ssh_sandbox_imports]
+// --8<-- [end:ssh_constructor_imports]
 
 // --8<-- [start:custom_sandbox_imports]
 import { spawn } from 'node:child_process'

@@ -10,8 +10,6 @@ sidebar:
 
 Strands provides two built-in Sandbox backends: `DockerSandbox` for containers on the local host, and `SshSandbox` for remote machines. Both automatically register `sandbox_bash` and `sandbox_file_editor` tools on the agent. This page covers their configuration, plus how to drive a sandbox directly from your own code.
 
-Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on `execute()` / `execute_code()`.
-
 ## DockerSandbox
 
 Executes operations inside a Docker container on the host via `docker exec`. The container must already be running; Strands does not create it.
@@ -20,6 +18,8 @@ Executes operations inside a Docker container on the host via `docker exec`. The
 <Tab label="TypeScript">
 
 ```typescript
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:docker_constructor_imports"
+
 --8<-- "user-guide/concepts/sandbox/index.ts:docker_constructor"
 ```
 
@@ -35,26 +35,11 @@ Executes operations inside a Docker container on the host via `docker exec`. The
 
 ### Options
 
-<Tabs>
-<Tab label="TypeScript">
-
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `container` | `string` | (required) | ID or name of a running container |
-| `workingDir` | `string` | container default | Working directory for executed commands. If omitted, runs in the container's configured working directory. |
-| `user` | `string` | container default | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container's configured user. |
-
-</Tab>
-<Tab label="Python">
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `container` | `str` | (required) | ID or name of a running container |
-| `working_dir` | `str \| None` | `None` | Working directory for executed commands. If omitted, runs in the container's configured working directory. |
-| `user` | `str \| None` | `None` | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container's configured user. |
-
-</Tab>
-</Tabs>
+| <Syntax py="container" ts="container" /> | <Syntax py="str" ts="string" /> | (required) | ID or name of a running container |
+| <Syntax py="working_dir" ts="workingDir" /> | <Syntax py="str \| None" ts="string" /> | <Syntax py="None" ts="container default" /> | Working directory for executed commands. If omitted, runs in the container's configured working directory. |
+| <Syntax py="user" ts="user" /> | <Syntax py="str \| None" ts="string" /> | <Syntax py="None" ts="container default" /> | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container's configured user. |
 
 ## SshSandbox
 
@@ -64,6 +49,8 @@ Executes operations on a remote host via SSH. Each command spawns a fresh `ssh` 
 <Tab label="TypeScript">
 
 ```typescript
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:ssh_constructor_imports"
+
 --8<-- "user-guide/concepts/sandbox/index.ts:ssh_constructor"
 ```
 
@@ -79,34 +66,15 @@ Executes operations on a remote host via SSH. Each command spawns a fresh `ssh` 
 
 ### Options
 
-<Tabs>
-<Tab label="TypeScript">
-
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `host` | `string` | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
-| `workingDir` | `string` | (required) | Working directory on the remote host |
-| `identityFile` | `string` | `undefined` | Path to SSH private key file |
-| `port` | `number` | `22` | SSH port |
-| `allowUnknownHosts` | `boolean` | `false` | When `false`, uses `StrictHostKeyChecking=accept-new`. When `true`, disables host key verification. |
-| `sshOptions` | `string[]` | `[]` | Additional SSH options passed as `-o` flags |
-| `allowUnsafeSshOptions` | `boolean` | `false` | Bypass the SSH option allowlist. When `false`, unknown options throw at construction time. |
-
-</Tab>
-<Tab label="Python">
-
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `host` | `str` | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
-| `working_dir` | `str` | (required) | Working directory on the remote host |
-| `identity_file` | `str \| None` | `None` | Path to SSH private key file |
-| `port` | `int` | `22` | SSH port |
-| `allow_unknown_hosts` | `bool` | `False` | When `False`, uses `StrictHostKeyChecking=accept-new`. When `True`, disables host key verification. |
-| `ssh_options` | `list[str] \| None` | `None` | Additional SSH options passed as `-o` flags |
-| `allow_unsafe_ssh_options` | `bool` | `False` | Bypass the SSH option allowlist. When `False`, unknown options throw at construction time. |
-
-</Tab>
-</Tabs>
+| <Syntax py="host" ts="host" /> | <Syntax py="str" ts="string" /> | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
+| <Syntax py="working_dir" ts="workingDir" /> | <Syntax py="str" ts="string" /> | (required) | Working directory on the remote host |
+| <Syntax py="identity_file" ts="identityFile" /> | <Syntax py="str \| None" ts="string" /> | <Syntax py="None" ts="undefined" /> | Path to SSH private key file |
+| <Syntax py="port" ts="port" /> | <Syntax py="int" ts="number" /> | `22` | SSH port |
+| <Syntax py="allow_unknown_hosts" ts="allowUnknownHosts" /> | <Syntax py="bool" ts="boolean" /> | <Syntax py="False" ts="false" /> | When false, uses `StrictHostKeyChecking=accept-new`. When true, disables host key verification. |
+| <Syntax py="ssh_options" ts="sshOptions" /> | <Syntax py="list[str] \| None" ts="string[]" /> | <Syntax py="None" ts="[]" /> | Additional SSH options passed as `-o` flags |
+| <Syntax py="allow_unsafe_ssh_options" ts="allowUnsafeSshOptions" /> | <Syntax py="bool" ts="boolean" /> | <Syntax py="False" ts="false" /> | Bypass the SSH option allowlist. When false, unknown options throw at construction time. |
 
 ### SSH Option Allowlist
 
@@ -116,16 +84,18 @@ By default, `SshSandbox` only permits known-safe SSH options (connection tuning,
 Setting `allowUnsafeSshOptions: true` bypasses this allowlist and lets any SSH option through, including directives that run commands on the local host. Only enable it with options you control, never with model-generated or untrusted input.
 :::
 
+Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on <Syntax py="execute()" ts="execute()" /> / <Syntax py="execute_code()" ts="executeCode()" />.
+
 ## Working with a sandbox directly
 
 You can drive a sandbox directly from your own code. This is useful for setup and verification around an agent run: seed input files, invoke the agent, then read results back.
 
 | Method | Description |
 | --- | --- |
-| `execute` | Run a shell command, return the result |
-| `executeCode` / `execute_code` | Run code via an interpreter, return the result |
-| `readText` / `read_text` | Read a file as a UTF-8 string |
-| `writeText` / `write_text` | Write a string as UTF-8 |
+| <Syntax py="execute" ts="execute" /> | Run a shell command, return the result |
+| <Syntax py="execute_code" ts="executeCode" /> | Run code via an interpreter, return the result |
+| <Syntax py="read_text" ts="readText" /> | Read a file as a UTF-8 string |
+| <Syntax py="write_text" ts="writeText" /> | Write a string as UTF-8 |
 
 <Tabs>
 <Tab label="TypeScript">
@@ -148,7 +118,7 @@ You can drive a sandbox directly from your own code. This is useful for setup an
 
 ### Streaming output
 
-`execute` waits for the command to finish. When you need output as it arrives (long builds, live logs), use the streaming form. It yields chunks as they are produced, then a final result with the exit code:
+`execute` waits for the command to finish. When you need output as it arrives, use the streaming form. It yields chunks as they are produced, then a final result with the exit code:
 
 <Tabs>
 <Tab label="TypeScript">
@@ -170,6 +140,8 @@ You can drive a sandbox directly from your own code. This is useful for setup an
 </Tabs>
 
 ## Next steps
+
+For more on configuring tools and plugins that work with sandboxes, see the overview. To target an environment the built-ins don't cover, build a custom sandbox.
 
 - [Sandbox Overview](./index.mdx) — what a sandbox is, the tools it vends, and plugin compatibility
 - [Building a Custom Sandbox](./custom-sandbox.mdx) — target a backend the built-ins do not cover

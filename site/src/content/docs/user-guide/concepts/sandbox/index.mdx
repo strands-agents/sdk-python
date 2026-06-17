@@ -38,12 +38,12 @@ All Sandbox implementations share the same abstract interface:
 
 | Method | Description |
 | --- | --- |
-| `executeStreaming` / `execute_streaming` | Run a shell command, stream output |
-| `executeCodeStreaming` / `execute_code_streaming` | Run code via an interpreter, stream output |
-| `readFile` / `read_file` | Read a file as bytes |
-| `writeFile` / `write_file` | Write bytes to a file |
-| `removeFile` / `remove_file` | Delete a file |
-| `listFiles` / `list_files` | List directory contents |
+| <Syntax py="execute_streaming" ts="executeStreaming" /> | Run a shell command, stream output |
+| <Syntax py="execute_code_streaming" ts="executeCodeStreaming" /> | Run code via an interpreter, stream output |
+| <Syntax py="read_file" ts="readFile" /> | Read a file as bytes |
+| <Syntax py="write_file" ts="writeFile" /> | Write bytes to a file |
+| <Syntax py="remove_file" ts="removeFile" /> | Delete a file |
+| <Syntax py="list_files" ts="listFiles" /> | List directory contents |
 
 The execution methods accept optional parameters: `timeout` (seconds, throws `SandboxTimeoutError` when exceeded), `cwd` (working directory override), `env` (environment variables), and in TypeScript, `signal` (AbortSignal, throws `SandboxAbortError`).
 
@@ -113,7 +113,7 @@ If a tool with the same name is already registered on the agent, the sandbox-ven
 </Tab>
 </Tabs>
 
-Custom sandbox implementations can also override `getTools()` / `get_tools()` to vend their own tools entirely.
+Custom sandbox implementations can also override <Syntax py="get_tools()" ts="getTools()" /> to vend their own tools entirely.
 
 ### Custom tools
 

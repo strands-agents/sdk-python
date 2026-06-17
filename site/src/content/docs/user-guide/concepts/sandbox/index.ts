@@ -23,31 +23,6 @@ async function basicUsage() {
   // --8<-- [end:basic_usage]
 }
 
-async function dockerSandbox() {
-  // --8<-- [start:docker_sandbox]
-  const sandbox = new DockerSandbox({
-    container: 'my-python-sandbox',
-    workingDir: '/workspace',
-  })
-
-  const agent = new Agent({ sandbox })
-  await agent.invoke('Install numpy and compute the dot product of [1,2,3] and [4,5,6]')
-  // --8<-- [end:docker_sandbox]
-}
-
-async function sshSandbox() {
-  // --8<-- [start:ssh_sandbox]
-  const sandbox = new SshSandbox({
-    host: 'user@dev-server.example.com',
-    workingDir: '/home/user/workspace',
-    identityFile: '~/.ssh/id_ed25519',
-  })
-
-  const agent = new Agent({ sandbox })
-  await agent.invoke('Check disk usage and list running processes')
-  // --8<-- [end:ssh_sandbox]
-}
-
 // --8<-- [start:custom_sandbox]
 class FirecrackerSandbox extends PosixShellSandbox {
   constructor(private readonly vmId: string) {
@@ -185,8 +160,6 @@ async function streaming() {
 
 export {
   basicUsage,
-  dockerSandbox,
-  sshSandbox,
   dockerConstructor,
   sshConstructor,
   programmaticAccess,

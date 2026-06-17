@@ -8,11 +8,11 @@ sidebar:
     variant: tip
 ---
 
-Looking for something beyond the built-in implementations? Building a custom Sandbox is easy.
+Looking for something beyond the built-in implementations? Build a custom sandbox when your execution environment is not a local Docker container or an SSH host: a microVM, a cloud code-execution API, or a managed runtime. The agent loop, model, and vended tools all stay the same; you only implement the methods that run commands and access files in your backend.
 
 ## Extending PosixShellSandbox
 
-`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `executeStreaming` / `execute_streaming` (run a shell command via your backend and stream the output), you get everything else for free:
+`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement <Syntax py="execute_streaming" ts="executeStreaming" /> (run a shell command via your backend and stream the output), you get everything else for free:
 
 - Code execution via base64-encoded heredoc piped to the interpreter
 - File read/write via base64 encoding over the shell
@@ -64,13 +64,13 @@ To give your sandbox the same `sandbox_bash` and `sandbox_file_editor` tools the
 
 ## Extend the base interface directly
 
-For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: `executeStreaming` / `execute_streaming`, `executeCodeStreaming` / `execute_code_streaming`, `readFile` / `read_file`, `writeFile` / `write_file`, `removeFile` / `remove_file`, and `listFiles` / `list_files`.
+For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: <Syntax py="execute_streaming" ts="executeStreaming" />, <Syntax py="execute_code_streaming" ts="executeCodeStreaming" />, <Syntax py="read_file" ts="readFile" />, <Syntax py="write_file" ts="writeFile" />, <Syntax py="remove_file" ts="removeFile" />, and <Syntax py="list_files" ts="listFiles" />.
 
 Prefer the shell base whenever your backend can run `sh -c`. Reach for the raw interface only when shaping every operation as a shell command would be a worse fit than calling your backend's native API.
 
 ## Security
 
-A custom sandbox is a boundary only when the environment behind it is isolated. The interface routes operations; it does not confine them. Whatever the agent can reach through your `execute_streaming` implementation, it can reach.
+A custom sandbox is a boundary only when the environment behind it is isolated. The interface routes operations; it does not confine them. Whatever the agent can reach through your `execute_streaming` implementation (the method that runs commands in your environment), it can reach.
 
 A container running as root with the host filesystem mounted is not a boundary, even though it uses the same `Sandbox` interface as a locked-down container. The security comes from the environment you provision, not from the interface itself. Scope the environment to the least privilege the task needs, and treat that configuration as the actual control.
 

@@ -17,29 +17,6 @@ agent("List all files inside the current directory")
 # --8<-- [end:basic_usage]
 
 
-# --8<-- [start:docker_sandbox]
-sandbox = DockerSandbox(
-    "my-python-sandbox",
-    working_dir="/workspace",
-)
-
-agent = Agent(sandbox=sandbox)
-agent("Install numpy and compute the dot product of [1,2,3] and [4,5,6]")
-# --8<-- [end:docker_sandbox]
-
-
-# --8<-- [start:ssh_sandbox]
-sandbox = SshSandbox(
-    "user@dev-server.example.com",
-    working_dir="/home/user/workspace",
-    identity_file="~/.ssh/id_ed25519",
-)
-
-agent = Agent(sandbox=sandbox)
-agent("Check disk usage and list running processes")
-# --8<-- [end:ssh_sandbox]
-
-
 
 # --8<-- [start:programmatic_access]
 async def main():
