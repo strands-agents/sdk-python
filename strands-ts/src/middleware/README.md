@@ -62,6 +62,12 @@ Middleware is intended to supersede hooks. The Input/Output phases already cover
 
 We may revisit this later.
 
+## Metadata transport (future)
+
+No metadata fields exist today, but the wrappers are designed to carry them. This section documents the intent so implementations stay consistent when metadata is added.
+
+Middleware handlers could use metadata on the context and result wrappers to communicate across phases — for example, an Input handler annotating a request so that an Output handler can act on it. The context object carries Input-phase metadata; the result wrapper (`InvokeModelResult`, `MiddlewareResult`) carries Output-phase metadata.
+
 ## `AgentStreamStage` is internal
 
 `AgentStreamStage` is not exported from the public API. The context for this stage passes `args` and `options` by reference, but the correct contract (copy vs. reference, readonly enforcement) hasn't been finalized. Rather than ship an inconsistent surface, we're keeping it internal until we decide whether `args` should be deep-copied (consistent with `InvokeModelStage.messages`) or remain a reference (simpler, but surprising given the other stages' guarantees).
