@@ -2,6 +2,7 @@
 Tests for the SDK tool registry module.
 """
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -692,3 +693,32 @@ def test_process_tools_with_multiple_agents():
 
     assert tool_names == ["researcher", "reviewer", "writer"]
     assert all(registry.registry[name].tool_type == "agent" for name in tool_names)
+
+
+def test_get_all_tools_config_skips_tool_with_too_deeply_nested_schema(caplog):
+    """A tool with a pathologically deep inputSchema is skipped without taking down the others."""
+    deep_schema = {"type": "object", "properties": {"value": {"type": "string"}}}
+    for _ in range(100):
+        deep_schema = {"type": "object", "properties": {"child": deep_schema}}
+
+    hostile_tool = PythonAgentTool(
+        tool_name="hostile_tool",
+        tool_spec={
+            "name": "hostile_tool",
+            "description": "tool with a deeply nested inputSchema",
+            "inputSchema": {"json": deep_schema},
+        },
+        tool_func=lambda: None,
+    )
+    valid_tool = strands.tool(lambda a: a, name="valid_tool")
+
+    tool_registry = ToolRegistry()
+    tool_registry.register_tool(hostile_tool)
+    tool_registry.register_tool(valid_tool)
+
+    with caplog.at_level(logging.WARNING):
+        tool_config = tool_registry.get_all_tools_config()
+
+    assert "hostile_tool" not in tool_config
+    assert "valid_tool" in tool_config
+    assert "hostile_tool" in caplog.text

@@ -157,6 +157,9 @@ def normalize_tool_spec(tool_spec: ToolSpec) -> ToolSpec:
 
     Returns:
         The normalized tool specification.
+
+    Raises:
+        ValueError: If the inputSchema nesting exceeds _MAX_SCHEMA_DEPTH.
     """
     normalized = tool_spec.copy()
 
