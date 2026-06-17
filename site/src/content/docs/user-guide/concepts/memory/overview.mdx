@@ -20,7 +20,7 @@ Recall and injection are enabled by default when you attach a store. Extraction 
 
 ## Getting Started
 
-Attach a memory manager to an agent through the <Syntax py="memory_manager" ts="memoryManager" /> parameter. The examples below use a `preferences` store, a `MemoryStore` you provide; see [Bedrock Knowledge Base](./bedrock-knowledge-base) for a managed backend or [Custom Stores](#custom-stores) to create your own.
+Attach a memory manager to an agent through the <Syntax py="memory_manager" ts="memoryManager" /> parameter. The examples below use a `store`, a `MemoryStore` you provide; see [Bedrock Knowledge Base](./bedrock-knowledge-base) for a managed backend or [Custom Stores](#custom-stores) to create your own.
 
 <Tabs>
 <Tab label="Python">
@@ -29,7 +29,7 @@ Attach a memory manager to an agent through the <Syntax py="memory_manager" ts="
 from strands import Agent
 from strands.memory import MemoryManager
 
-agent = Agent(memory_manager=MemoryManager(stores=[preferences]))
+agent = Agent(memory_manager=MemoryManager(stores=[store]))
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -53,13 +53,18 @@ With no further configuration, reading through recall and injection is enabled. 
 ```python
 from strands import Agent
 from strands.memory import MemoryManager
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
-# Enable extraction on the writable store (every 5 turns by default).
-preferences.extraction = True
+store = BedrockKnowledgeBaseStore(
+    name="preferences",
+    writable=True,
+    extraction=True,  # capture memories from the conversation, every 5 turns
+    config={"knowledge_base_id": "KB123", "data_source_type": "CUSTOM", "data_source_id": "DS456"},
+)
 
 agent = Agent(
     memory_manager=MemoryManager(
-        stores=[preferences],
+        stores=[store],
         add_tool_config=True,  # let the agent save memories itself
     ),
 )
@@ -126,7 +131,7 @@ from strands.memory.types import MemoryAddToolConfig, MemoryToolConfig
 
 agent = Agent(
     memory_manager=MemoryManager(
-        stores=[preferences],
+        stores=[store],
         search_tool_config=MemoryToolConfig(
             name="recall",
             description="Look up what you remember about the user.",
@@ -169,7 +174,7 @@ from strands.memory.types import MemoryInjectionConfig
 
 agent = Agent(
     memory_manager=MemoryManager(
-        stores=[preferences],
+        stores=[store],
         injection=MemoryInjectionConfig(
             trigger="everyTurn",  # inject before every model call
             max_entries=3,
@@ -208,9 +213,15 @@ Extraction captures memories from the conversation automatically, instead of rel
 <Tab label="Python">
 
 ```python
-# A writable store's `extraction` attribute accepts True for defaults.
-# Set it on the store; see Custom Stores for the full class.
-preferences.extraction = True
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
+
+# Set extraction on the store at construction; True uses the defaults.
+store = BedrockKnowledgeBaseStore(
+    name="preferences",
+    writable=True,
+    extraction=True,
+    config={"knowledge_base_id": "KB123", "data_source_type": "CUSTOM", "data_source_id": "DS456"},
+)
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -237,13 +248,19 @@ from strands.models import BedrockModel
 from strands.memory.extraction.triggers import InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig
 from strands.memory.extraction.model_extractor import ModelExtractor
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
-preferences.extraction = ExtractionConfig(
-    trigger=InvocationTrigger(),  # after every turn, not every 5
-    extractor=ModelExtractor(
-        model=BedrockModel(model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0"),  # cheaper than the agent's
-        system_prompt="Extract durable user preferences as discrete facts.",
+store = BedrockKnowledgeBaseStore(
+    name="preferences",
+    writable=True,
+    extraction=ExtractionConfig(
+        trigger=InvocationTrigger(),  # after every turn, not every 5
+        extractor=ModelExtractor(
+            model=BedrockModel(model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0"),  # cheaper than the agent's
+            system_prompt="Extract durable user preferences as discrete facts.",
+        ),
     ),
+    config={"knowledge_base_id": "KB123", "data_source_type": "CUSTOM", "data_source_id": "DS456"},
 )
 ```
 </Tab>
@@ -257,16 +274,17 @@ preferences.extraction = ExtractionConfig(
 </Tab>
 </Tabs>
 
-Two triggers ship with the SDK. `InvocationTrigger` runs after every turn, `IntervalTrigger` runs every N turns. Compose several triggers by passing a list (extraction runs whenever any fires).
+The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent's own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the <Syntax py="add_messages" ts="addMessages" /> sink receives the raw message batch with no model call, so for those you omit the extractor.
 
-For control over exactly when memories are captured, extend `ExtractionTrigger`. A trigger registers a hook on the agent and calls `fire()` when extraction should run. Tying it to agent state lets a tool decide the moment, rather than extracting on a turn cadence:
+Two triggers ship with the SDK. `InvocationTrigger` runs after every turn, `IntervalTrigger` runs every N turns. For a custom trigger, extend `ExtractionTrigger`. A trigger registers a hook on the agent and calls `fire()` when extraction should run. Tying it to agent state can let a  tool decide the moment, rather than extracting on a turn cadence:
 
 <Tabs>
 <Tab label="Python">
 
 ```python
-from strands.memory.extraction.types import ExtractionTrigger, ExtractionTriggerContext
+from strands.memory.extraction.types import ExtractionConfig, ExtractionTrigger, ExtractionTriggerContext
 from strands.hooks import AfterInvocationEvent
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 
 class CustomTrigger(ExtractionTrigger):
@@ -281,7 +299,12 @@ class CustomTrigger(ExtractionTrigger):
         context.agent.add_hook(maybe_fire, AfterInvocationEvent)
 
 
-preferences.extraction = ExtractionConfig(trigger=CustomTrigger())
+store = BedrockKnowledgeBaseStore(
+    name="preferences",
+    writable=True,
+    extraction=ExtractionConfig(trigger=CustomTrigger()),
+    config={"knowledge_base_id": "KB123", "data_source_type": "CUSTOM", "data_source_id": "DS456"},
+)
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -295,8 +318,6 @@ preferences.extraction = ExtractionConfig(trigger=CustomTrigger())
 </Tabs>
 
 `fire()` runs the save in the background and returns immediately, so a trigger never blocks the agent loop. A trigger that never fires never extracts; for a guaranteed final write regardless of triggers, use the manager's flush method.
-
-The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent's own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the <Syntax py="add_messages" ts="addMessages" /> sink receives the raw message batch with no model call, so for those you omit the extractor.
 
 Extraction is at-least-once: a failed batch is retried, so the same entry may be written more than once. A store used with extraction should tolerate duplicate writes (the manager tracks a high-water mark per store, so a successful batch is never re-extracted).
 
@@ -397,7 +418,7 @@ class InMemoryStore:
         self._entries.append(content)
 
 
-preferences = InMemoryStore()
+store = InMemoryStore()
 ```
 </Tab>
 <Tab label="TypeScript">
