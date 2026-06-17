@@ -341,7 +341,7 @@ github:
           href: https://github.com/strands-agents/harness-sdk/tree/main/strands-ts
           icon: TS
     - title: Strands
-      links: 
+      links:
         - label: Evals
           href: https://github.com/strands-agents/evals
           icon: EV

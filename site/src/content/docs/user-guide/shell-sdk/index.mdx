@@ -53,13 +53,13 @@ Strands Shell is written in Rust and compiles from one source to native bindings
 
 ## What you control
 
-A fresh shell starts empty without access to files, network, or credentials. You grant access explicitly through three mechanisms: 
+A fresh shell starts empty without access to files, network, or credentials. You grant access explicitly through three mechanisms:
 
 - **Binds** map a host directory into the shell's filesystem. A `copy` bind snapshots the directory at construction time, isolating the agent from your live files. A `direct` bind passes reads and writes through to the host in real time. Prefer `copy` for source code and reserve `direct` for output directories.
 
- - **Credentials** attach a secret to a URL prefix. When a command makes a request to a matching URL, the Kernel injects the credential at request time. The agent doesn't hold the secret, and the Kernel doesn't re-inject on a redirect, even back to the same host.
+- **Credentials** attach a secret to a URL prefix. When a command makes a request to a matching URL, the Kernel injects the credential at request time. The agent doesn't hold the secret, and the Kernel doesn't re-inject on a redirect, even back to the same host.
 
- - **Allowed URLs** widen the network policy. By default the SSRF guard blocks private ranges (RFC1918, link-local, loopback, and cloud metadata endpoints) while letting public URLs through. Add a prefix to the allowlist to permit a specific internal host.
+- **Allowed URLs** widen the network policy. By default the SSRF guard blocks private ranges (RFC1918, link-local, loopback, and cloud metadata endpoints) while letting public URLs through. Add a prefix to the allowlist to permit a specific internal host.
 
 The [Configuration](configuration.md) guide covers each of these in depth, including the TOML format that lets you declare the whole policy in a file.
 

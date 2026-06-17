@@ -31,7 +31,7 @@ shell = strands_shell.Shell(
 )
 ```
 
-:::note
+:::caution
 The TOML parser defaults `mode` to `copy` when omitted, but the Python and Node.js constructors default to `direct`. Always pass `mode` explicitly when constructing a `Bind` in code to avoid accidentally granting live host access.
 :::
 
