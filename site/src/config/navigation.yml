@@ -89,6 +89,7 @@ sidebar:
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
               - docs/user-guide/concepts/plugins/goal-loop
+          - docs/user-guide/concepts/sandbox
           - label: Interventions
             items:
               - label: "Overview"
