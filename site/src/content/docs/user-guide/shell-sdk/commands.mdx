@@ -5,7 +5,7 @@ sidebar:
   label: "Commands"
 ---
 
-Strands Shell reimplements a curated subset of POSIX and coreutils in Rust, targeting the operations agents reach for most rather than a complete toolset. This page is the reference for what is supported and where behavior diverges from GNU or BSD: missing flags, unsupported features, and known gaps.
+Strands Shell reimplements a curated subset of POSIX and coreutils in Rust, targeting the operations agents reach for most rather than a complete toolset. This page is the reference for what's supported and where behavior diverges from GNU or BSD: missing flags, unsupported features, and known gaps.
 
 The shell is Bourne-compatible, with pipes, loops, functions, and subshells. The commands group into text processing, file contents, file management, path and system utilities, networking, JSON, search, and scripting.
 
@@ -15,20 +15,20 @@ These notes apply across commands:
 
 - Regex uses the Rust `regex` crate. Backreferences and lookaround are unavailable, so `grep -P` is unsupported and GNU BRE escapes are not translated.
 - `jq` is backed by [`jaq`](https://github.com/01mf02/jaq), a jq subset.
-- Unsupported flags are rejected, not ignored. Idioms such as `cp -p`, `set -o pipefail`, or `ln -sf` produce an error rather than silently doing the wrong thing.
-- Multiple file arguments are not uniformly supported. `cut` and `uniq` read only the first file; `head` and `tail` return a hard error; `cat`, `sort`, and `wc` handle multiple files correctly.
+- Unsupported flags are rejected, not ignored. Idioms like `cp -p`, `set -o pipefail`, or `ln -sf` produce an error rather than succeeding with incorrect behavior.
+- Multiple file arguments aren't uniformly supported. `cut` and `uniq` read only the first file; `head` and `tail` return a hard error; `cat`, `sort`, and `wc` handle multiple files correctly.
 - Malformed numeric input passes silently. `test`, `[`, and arithmetic `$(( ))` treat non-numeric or empty operands as `0` without an error.
-- Stdin under `strands-shell -c` is not connected to commands (`bad fd 0`). Use an in-shell pipe instead.
+- Stdin under `strands-shell -c` isn't connected to commands (`bad fd 0`). Use an in-shell pipe instead.
 
 ## Text processing
 
 | Command | Notable gaps |
 |---|---|
 | `grep` | No `-P`, backreferences, lookaround, or `-f`. `-o` on empty-matching patterns emits blank lines. |
-| `sed` | No branching (`b`, `t`, `:label`) or multiline (`N`, `D`, `P`); no `-f`. `s///N` replaces the wrong match; range `c` emits per line. |
-| `tr` | Missing `[:punct:]`, `[:cntrl:]`, and `[c*n]` repeats. `-c` two-set translate uses the wrong replacement character. |
+| `sed` | No branching (`b`, `t`, `:label`) or multiline (`N`, `D`, `P`); no `-f`. `s///N` replaces the incorrect match; range `c` emits per line. |
+| `tr` | Missing `[:punct:]`, `[:cntrl:]`, and `[c*n]` repeats. `-c` two-set translate uses the incorrect replacement character. |
 | `cut` | No `-b` or `--complement`. Reads only the first file when given several. |
-| `sort` | No `-c`, `-o`, `-V`, or `-h` (`-h` prints help instead). Keyed-tie order is non-deterministic. Loads all input into memory. |
+| `sort` | No `-c`, `-o`, `-V`, or `-h` (`-h` incorrectly prints help). Keyed-tie order is non-deterministic. Loads all input into memory. |
 | `uniq` | No `-w` or `-D`. Reads only the first file when given several. |
 | `wc` | No `-m` (char count) or `-L`. Counts are correct; column padding differs from coreutils. |
 
@@ -64,8 +64,8 @@ These notes apply across commands:
 | `readlink` | Plain read only; no `-f`, `-e`, or `-m` canonicalization. |
 | `mktemp` | No `-u` or `-t`. |
 | `date` | `%s` is not expanded; unknown specifiers pass through literally; no `-d` or `-r`. UTC only. |
-| `env` | Print-only. `env VAR=v cmd`, `-i`, and `-u` are unsupported; use the shell-prefix form instead. |
-| `echo` | Expands escapes by default; `-e` and `-E` are printed literally (escape expansion cannot be disabled). |
+| `env` | Print-only. `env VAR=v cmd`, `-i`, and `-u` aren't supported; use the shell-prefix form instead. |
+| `echo` | Expands escapes by default; `-e` and `-E` are printed literally (escape expansion can't be disabled). |
 | `pwd` | Full support, including `-L` and `-P`. |
 | `sleep` | No unit suffixes (`0.1s`). Respects the shell timeout. |
 | `true`, `false` | Full support. |
@@ -76,7 +76,7 @@ These notes apply across commands:
 |---|---|
 | `curl` | GET, POST, JSON, headers, auth, redirects, and `-w` are supported. No `--max-time`, `--connect-timeout`, or `--retry` (risk of an indefinite hang); no `-I`, `-F`, `-A`, `-G`, or cookie jar. SSRF and credential controls are enforced. |
 
-The SSRF guard and credential injection on `curl` are security features, covered in the [security model](security.md). They are not optional and cannot be disabled per command.
+The SSRF guard and credential injection on `curl` are security features, covered in the [security model](security.md). They aren't optional and can't be disabled per command.
 
 ## JSON
 
@@ -89,7 +89,7 @@ The SSRF guard and credential injection on `curl` are security features, covered
 | Command | Notable gaps |
 |---|---|
 | `find` | `-name`, `-type`, `-maxdepth`, `-exec`, and `-print0` are supported. No `-delete`, `-size`, `-mtime`, `-prune`, or `-regex`. Children are sorted alphabetically, not in readdir order. |
-| `xargs` | Space-separated `-n`, `-I`, `-0`, and `-d` are supported; attached forms (`-n1`, `-I{}`) and `-t`, `-r`, `-L`, `-P` are not. Implicitly behaves as `-r`. |
+| `xargs` | Space-separated `-n`, `-I`, `-0`, and `-d` are supported; attached forms (`-n1`, `-I{}`) and `-t`, `-r`, `-L`, `-P` aren't. Implicitly behaves as `-r`. |
 
 ## Scripting
 
@@ -114,8 +114,7 @@ Reach for `lua` when shell syntax gets awkward: multi-step transforms, structure
 | `type` | No `-t` or `-a`. |
 | `cd` | No `CDPATH`; `-P` and `-L` are not parsed. |
 | `getopts`, `export`, `unset`, `shift`, `umask`, `hash`, `wait`, `:` | Full support. |
-
-Arithmetic `$(( ))` handles precedence, bitwise operators, the ternary, hex, and octal correctly. Malformed input returns a wrong result with exit 0 (`$((2 3))` yields `2`, `$((1/0))` yields `0`). Post-increment `x++` and `x--` return the value without updating the variable.
+| `$(( ))` arithmetic | Precedence, bitwise, ternary, hex, and octal work correctly. Malformed input returns an incorrect result with exit 0 (`$((2 3))` yields `2`, `$((1/0))` yields `0`). Post-increment `x++`/`x--` returns the value without updating the variable. |
 
 ## Shell language
 

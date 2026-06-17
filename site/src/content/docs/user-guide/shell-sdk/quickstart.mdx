@@ -6,7 +6,7 @@ sidebar:
 tags: [quickstart]
 ---
 
-This guide gets you from zero to a running sandboxed command. You will install Strands Shell, create a shell with a single bound directory, and run a command against it. By the end you will have a working sandbox you can hand to an agent.
+This guide gets you from zero to a running sandboxed command. You'll install Strands Shell, create a shell with a single bound directory, and run a command against it. By the end you'll have a working sandbox you can hand to an agent.
 
 Strands Shell offers three surfaces. Pick the one that matches how you build:
 
@@ -16,7 +16,7 @@ Strands Shell offers three surfaces. Pick the one that matches how you build:
 
 ## MCP server
 
-The fastest way to give an existing agent a sandboxed shell is the built-in MCP server. It needs no code: point your MCP client at the `strands-shell` command and the agent gets four tools (`shell`, `read_file`, `write_file`, `list_dir`).
+The fastest way to give an existing agent a sandboxed shell is the built-in MCP server. It doesn't need any code, just point your MCP client at the `strands-shell` command and the agent gets four tools (`shell`, `read_file`, `write_file`, `list_dir`).
 
 Add this to your MCP client configuration:
 
@@ -31,7 +31,7 @@ Add this to your MCP client configuration:
 }
 ```
 
-This starts a bare in-memory sandbox: no host files, no network, no credentials. To grant access, write a [TOML config file](configuration.md#toml-configuration) and pass it before the `--mcp` flag:
+This starts a bare in-memory sandbox without access to files, network, or credentials. To grant access, write a [TOML config file](configuration.md#toml-configuration) and pass it before the `--mcp` flag:
 
 ```json
 {
@@ -48,13 +48,13 @@ The [MCP Server](mcp-server.md) page documents the four tools, their parameters,
 
 ## Python
 
-Install the shell. You need Python 3.10 or later.
+Install the shell, using Python 3.10 or later:
 
 ```bash
 pip install strands-shell
 ```
 
-Create a shell, bind a directory into it, and run a command. The bind is the grant: `/my/project` on your host becomes `/workspace` inside the sandbox, and nothing else on your filesystem is visible.
+Create a shell, bind a directory into it, and run a command. Only bound directories are visible inside the sandbox, so `/my/project` on your host appears as `/workspace` and the agent can't see anything else.
 
 ```python
 import strands_shell
@@ -67,7 +67,7 @@ result = shell.run("grep -rn TODO /workspace")
 print(result.stdout)
 ```
 
-`run` returns an `Output` with three fields: `stdout`, `stderr`, and `status` (the exit code). It does not raise when a command fails, so check `status` to branch on success.
+`run` returns an `Output` with three fields: `stdout`, `stderr`, and `status` (the exit code). It doesn't raise when a command fails, so check `status` to branch on success.
 
 ```python
 result = shell.run("test -f /workspace/pyproject.toml")
@@ -104,13 +104,13 @@ for entry in entries:
 
 ## Node.js
 
-Install the shell. You need Node.js 18 or later.
+Install the shell using Node.js 18 or later.
 
 ```bash
 npm install @strands-agents/shell
 ```
 
-Create a shell with `Shell.create`, which returns a promise. Bind a directory, then run a command.
+Create a shell with `Shell.create`, which returns a promise. Then bind a directory, then run a command.
 
 ```javascript
 import { Shell } from '@strands-agents/shell'
@@ -152,10 +152,10 @@ for (const entry of entries) {
 
 ## What you built
 
-You created a sandbox with exactly one directory visible to it and ran a command that could not reach anything else: not your home directory, not your credentials, not the network. That is the whole model. You add capability by adding binds, credentials, and allowed URLs, and the agent gets nothing you did not grant.
+You created a sandbox with exactly one directory visible to it and ran a command that couldn't reach anything else: not your home directory, not your credentials, not the network. That's the whole model. You add capability by adding binds, credentials, and allowed URLs, and the agent gets nothing you didn't grant.
 
 ## Next steps
 
 - [Configuration](configuration.md): the difference between `copy` and `direct` binds, credential injection, the network allowlist, and the TOML format.
 - [Commands](commands.md): which commands and flags are supported, and where they diverge from GNU coreutils.
-- [Security Model](security.md): what the sandbox guarantees, what it does not, and when to add OS-level isolation.
+- [Security Model](security.md): what the sandbox guarantees, what it doesn't, and when to add OS-level isolation.

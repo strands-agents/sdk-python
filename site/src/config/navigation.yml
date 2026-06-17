@@ -332,7 +332,7 @@ sidebar:
 
 github:
   sections:
-    - title: SDKs
+    - title: Strands Harness
       links:
         - label: Python SDK
           href: https://github.com/strands-agents/harness-sdk/tree/main/strands-py
@@ -340,9 +340,14 @@ github:
         - label: TypeScript SDK
           href: https://github.com/strands-agents/harness-sdk/tree/main/strands-ts
           icon: TS
-        - label: Evals SDK
+    - title: Strands
+      links: 
+        - label: Evals
           href: https://github.com/strands-agents/evals
           icon: EV
+        - label: Shell
+          href: https://github.com/strands-agents/shell
+          icon: SH
     - title: Organizations
       links:
         - label: strands-agents
