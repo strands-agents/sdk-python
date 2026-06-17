@@ -44,7 +44,7 @@ agent = Agent(memory_manager=MemoryManager(stores=[preferences]))
 
 With no further configuration, reading through recall and injection is enabled. Writing is opt-in, and comes in two modes:
 
-- **The `add_memory` tool** lets the agent decide what to save. Enable it on the manager.
+- **The `add_memory` tool** lets the agent decide what to save. Enable it on the manager with <Syntax py="add_tool_config=True" ts="addToolConfig: true" />.
 - **Automatic extraction** captures memories from the conversation without tool call. Enable it on a writable store, where it runs every 5 turns by default using your agent's model.
 
 <Tabs>
@@ -257,7 +257,44 @@ preferences.extraction = ExtractionConfig(
 </Tab>
 </Tabs>
 
-Two triggers ship with the SDK. `InvocationTrigger` runs after every turn, `IntervalTrigger` runs every N turns. Compose several triggers by passing a list (extraction runs whenever any fires), or extend `ExtractionTrigger` for custom logic.
+Two triggers ship with the SDK. `InvocationTrigger` runs after every turn, `IntervalTrigger` runs every N turns. Compose several triggers by passing a list (extraction runs whenever any fires).
+
+For control over exactly when memories are captured, extend `ExtractionTrigger`. A trigger registers a hook on the agent and calls `fire()` when extraction should run. Tying it to agent state lets a tool decide the moment, rather than extracting on a turn cadence:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands.memory.extraction.types import ExtractionTrigger, ExtractionTriggerContext
+from strands.hooks import AfterInvocationEvent
+
+
+class CustomTrigger(ExtractionTrigger):
+    name = "custom-trigger"
+
+    def attach(self, context: ExtractionTriggerContext) -> None:
+        # Extract only after a tool has flagged extraction.
+        def maybe_fire(event: AfterInvocationEvent) -> None:
+            if context.agent.state.get("extract"):
+                context.fire()
+
+        context.agent.add_hook(maybe_fire, AfterInvocationEvent)
+
+
+preferences.extraction = ExtractionConfig(trigger=CustomTrigger())
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/memory/overview_imports.ts:custom_trigger_imports"
+
+--8<-- "user-guide/concepts/memory/overview.ts:custom_trigger"
+```
+</Tab>
+</Tabs>
+
+`fire()` runs the save in the background and returns immediately, so a trigger never blocks the agent loop. A trigger that never fires never extracts; for a guaranteed final write regardless of triggers, use the manager's flush method.
 
 The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent's own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the <Syntax py="add_messages" ts="addMessages" /> sink receives the raw message batch with no model call, so for those you omit the extractor.
 

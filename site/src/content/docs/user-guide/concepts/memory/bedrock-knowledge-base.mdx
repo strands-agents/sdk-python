@@ -11,7 +11,7 @@ sidebar:
 
 `BedrockKnowledgeBaseStore` is a [`MemoryStore`](./overview#stores) backed by [Amazon Bedrock Knowledge Bases](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html).
 
-Connect the store to a knowledge base you have already set up. It does not provision one for you. Configure your store with its knowledge base ID and data source (see [Data Source Types and Writability](#data-source-types-and-writability)). A store with only a knowledge base ID is read-only. The store reaches Bedrock with the standard AWS credential chain, the same as the [Amazon Bedrock model provider](../model-providers/amazon-bedrock).
+Connect the store to a knowledge base you have already set up. Configure your store with its knowledge base ID and data source (see [Data Source Types and Writability](#data-source-types-and-writability)). A store with only a knowledge base ID is read-only. The store reaches Bedrock with the standard AWS credential chain, the same as the [Amazon Bedrock model provider](../model-providers/amazon-bedrock).
 
 <Tabs>
 <Tab label="Python">
@@ -19,7 +19,7 @@ Connect the store to a knowledge base you have already set up. It does not provi
 ```python
 from strands import Agent
 from strands.memory import MemoryManager
-from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 store = BedrockKnowledgeBaseStore(
     name="docs",
@@ -46,7 +46,7 @@ To enable writing memories through the [`add_memory` tool](./overview#memory-too
 <Tab label="Python">
 
 ```python
-from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 store = BedrockKnowledgeBaseStore(
     name="preferences",
@@ -105,7 +105,7 @@ Because the connection is a separate object, you build it once and vary only `na
 <Tab label="Python">
 
 ```python
-from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 # Build the connection once, vary only name and scope per store.
 connection = {
@@ -145,7 +145,7 @@ A writable `CUSTOM` store needs a data source ID. A writable `S3` store needs a 
 <Tab label="Python">
 
 ```python
-from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 store = BedrockKnowledgeBaseStore(
     name="preferences",
@@ -184,7 +184,7 @@ A write ingests its object directly, regardless of where the data source is conf
 
 ```python
 from strands.memory.types import SearchOptions
-from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 store = BedrockKnowledgeBaseStore(
     name="preferences",
@@ -231,7 +231,7 @@ Enable [automatic extraction](./overview#automatic-extraction) on a writable sto
 <Tab label="Python">
 
 ```python
-from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
 
 store = BedrockKnowledgeBaseStore(
     name="preferences",

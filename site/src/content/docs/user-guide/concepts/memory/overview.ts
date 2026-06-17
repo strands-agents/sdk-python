@@ -4,6 +4,8 @@ import {
   InvocationTrigger,
   ModelExtractor,
   BedrockModel,
+  ExtractionTrigger,
+  AfterInvocationEvent,
 } from '@strands-agents/sdk'
 import type {
   MemoryStore,
@@ -11,6 +13,7 @@ import type {
   SearchOptions,
   MessageData,
   AddMessagesContext,
+  ExtractionTriggerContext,
 } from '@strands-agents/sdk'
 import {
   BedrockKnowledgeBaseStore,
@@ -219,6 +222,27 @@ function extractionCustom() {
   void store
 }
 void extractionCustom
+
+// =====================
+// Extraction: custom trigger
+// =====================
+
+// --8<-- [start:custom_trigger]
+// Extract only after a tool has flagged extraction
+class CustomTrigger extends ExtractionTrigger {
+  readonly name = 'custom-trigger'
+
+  attach(context: ExtractionTriggerContext): void {
+    context.agent.addHook(AfterInvocationEvent, () => {
+      if (context.agent.appState.get('extract')) {
+        context.fire()
+      }
+    })
+  }
+}
+// --8<-- [end:custom_trigger]
+
+void CustomTrigger
 
 // =====================
 // Injection: customized

@@ -32,6 +32,11 @@ import { InvocationTrigger, ModelExtractor, BedrockModel } from '@strands-agents
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
 // --8<-- [end:extraction_custom_imports]
 
+// --8<-- [start:custom_trigger_imports]
+import { ExtractionTrigger, AfterInvocationEvent } from '@strands-agents/sdk'
+import type { ExtractionTriggerContext } from '@strands-agents/sdk'
+// --8<-- [end:custom_trigger_imports]
+
 // --8<-- [start:injection_custom_imports]
 import { Agent, BedrockModel, type MessageData } from '@strands-agents/sdk'
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
