@@ -8,20 +8,20 @@ The SSM test-infra parameters are resolved once in a session-scoped fixture
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 
-import boto3
 import pytest
+
+from tests_integ._ssm import resolve_ssm_parameters, ssm_parameter_path
 
 logger = logging.getLogger(__name__)
 
 # SSM parameter names for the shared test infrastructure.
 _SSM_PARAMS = {
-    "knowledge_base_id": "/strands/test-infra/bedrock-knowledge-base/knowledge-base-id",
-    "custom_data_source_id": "/strands/test-infra/bedrock-knowledge-base/custom-data-source-id",
-    "s3_data_source_id": "/strands/test-infra/bedrock-knowledge-base/s3-data-source-id",
-    "s3_bucket": "/strands/test-infra/bedrock-knowledge-base/s3-source-bucket-name",
+    "knowledge_base_id": ssm_parameter_path("bedrock-knowledge-base", "knowledge-base-id"),
+    "custom_data_source_id": ssm_parameter_path("bedrock-knowledge-base", "custom-data-source-id"),
+    "s3_data_source_id": ssm_parameter_path("bedrock-knowledge-base", "s3-data-source-id"),
+    "s3_bucket": ssm_parameter_path("bedrock-knowledge-base", "s3-source-bucket-name"),
 }
 
 # Optional local-dev overrides. Set these env vars to point the tests at your own resources without
@@ -45,23 +45,6 @@ class BedrockKnowledgeBaseContext:
     s3_bucket: str | None = None
 
 
-def _resolve_ssm_parameters() -> dict[str, str | None] | None:
-    """Batch-read the SSM parameters by name; returns a key->value map, or ``None`` on failure.
-
-    Parameters that don't exist in SSM resolve to ``None``.
-    """
-    region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
-    try:
-        client = boto3.Session(region_name=region).client("ssm")
-        response = client.get_parameters(Names=list(_SSM_PARAMS.values()))
-    except Exception as error:  # noqa: BLE001 - any failure means "skip", not "error".
-        logger.warning("error=<%s> | failed to resolve Bedrock KB SSM parameters", error)
-        return None
-
-    by_name = {param["Name"]: param["Value"] for param in response.get("Parameters", [])}
-    return {key: by_name.get(name) for key, name in _SSM_PARAMS.items()}
-
-
 @pytest.fixture(scope="session")
 def bedrock_kb_context() -> BedrockKnowledgeBaseContext:
     """Resolve the Bedrock KB test-infra parameters once per session.
@@ -70,11 +53,7 @@ def bedrock_kb_context() -> BedrockKnowledgeBaseContext:
     unreachable or the knowledge base id can't be resolved, returns a context with ``should_skip`` set
     so dependent tests skip cleanly.
     """
-    overrides = {key: os.environ.get(env_var) for key, env_var in _OVERRIDE_ENV.items()}
-
-    resolved = _resolve_ssm_parameters() or {}
-
-    merged = {key: overrides.get(key) or resolved.get(key) for key in _SSM_PARAMS}
+    merged = resolve_ssm_parameters(_SSM_PARAMS, overrides=_OVERRIDE_ENV)
 
     if not merged.get("knowledge_base_id"):
         logger.info("Bedrock KB id not available (SSM/overrides) - KB integration tests will be skipped")

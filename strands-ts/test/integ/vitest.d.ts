@@ -32,5 +32,12 @@ declare module 'vitest' {
       shouldSkip: boolean
       url: string | undefined
     }
+    ['provider-ssh-ec2']: {
+      shouldSkip: boolean
+      host: string | undefined
+      port: number | undefined
+      identityFile: string | undefined
+      workingDir: string | undefined
+    }
   }
 }

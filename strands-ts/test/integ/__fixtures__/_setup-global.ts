@@ -14,6 +14,7 @@ import type { ProvidedContext } from 'vitest'
 import { Agent } from '../../../src/agent/agent.js'
 import { A2AExpressServer } from '../../../src/a2a/express-server.js'
 import { BedrockModel } from '../../../src/models/bedrock.js'
+import { getSshEc2TestContext } from './_ssh-ec2.js'
 
 /**
  * Batch-reads SSM parameters by name and returns a key→value map.
@@ -103,8 +104,12 @@ export async function setup(project: TestProject): Promise<() => void> {
   const a2aContext = await getA2AServerContext(project)
   project.provide('a2a-server', { shouldSkip: a2aContext.shouldSkip, url: a2aContext.url })
 
+  const sshEc2 = await getSshEc2TestContext(project)
+  project.provide('provider-ssh-ec2', sshEc2.context)
+
   return () => {
     a2aContext.abort?.()
+    sshEc2.cleanup()
   }
 }
 
