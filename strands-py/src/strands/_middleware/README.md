@@ -46,6 +46,11 @@ metadata. Since Python async generators cannot return values, Wrap-phase metadat
 be yielded as events into the stream rather than attached to a return value. See the TS
 spec ("Metadata transport") for rationale.
 
+If we later want per-stage typed results (e.g., `InvokeModelResult` with named fields
+instead of an opaque `.value`), those can derive from `MiddlewareResult`. Existing Output
+handlers that accept `MiddlewareResult` continue to work; new handlers can narrow to the
+subclass for typed access. This is a two-way door — no migration required.
+
 ## No removal / cleanup
 
 Once registered, middleware cannot be removed. This matches the Python hook system which also does not support removal.
