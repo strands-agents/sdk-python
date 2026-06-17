@@ -118,6 +118,11 @@ const VersionHeading = detail ? 'h1' : 'h2'
         </span>
       </div>
     )}
+    {/* Curated narrative (highlights' long-form companion) reads first, above
+        the deterministic Features/Fixes/Other breakdown derived from PRs. */}
+    <div class="cl-version-notes">
+      {detail ? <Content /> : <Fragment set:html={namespacedBody} />}
+    </div>
     {features.length > 0 && (
       <>
         <h3 class="cl-group">✦ Features <span class="cl-n">{features.length}</span></h3>
@@ -171,8 +176,5 @@ const VersionHeading = detail ? 'h1' : 'h2'
         <a href={d.releaseUrl} target="_blank" rel="noopener">see the release on GitHub <span aria-hidden="true">↗</span></a>
       </p>
     )}
-    <div class="cl-version-notes">
-      {detail ? <Content /> : <Fragment set:html={namespacedBody} />}
-    </div>
   </div>
 </article>
