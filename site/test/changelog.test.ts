@@ -58,9 +58,52 @@ describe('changelogFrontmatterSchema', () => {
     })
     expect(fm.language).toBeUndefined()
   })
+
+  it('rejects a harness release with no language', () => {
+    expect(() =>
+      changelogFrontmatterSchema.parse({
+        sdk: 'harness',
+        version: '1.0.0',
+        tag: 'v1.0.0',
+        date: '2026-01-01',
+        releaseUrl: 'https://github.com/strands-agents/harness-sdk/releases/tag/v1.0.0',
+        packageUrl: 'https://pypi.org/project/strands-agents/1.0.0/',
+        entries: [],
+      })
+    ).toThrow()
+  })
+
+  it('rejects an evals release that sets a language', () => {
+    expect(() =>
+      changelogFrontmatterSchema.parse({
+        sdk: 'evals',
+        language: 'typescript',
+        version: '0.2.1',
+        tag: 'v0.2.1',
+        date: '2026-05-29',
+        releaseUrl: 'https://github.com/strands-agents/evals/releases/tag/v0.2.1',
+        packageUrl: 'https://pypi.org/project/strands-agents-evals/0.2.1/',
+        entries: [],
+      })
+    ).toThrow()
+  })
 })
 
-import { groupEntries, getAreaCounts, formatChangelogDate } from '../src/util/changelog'
+import { groupEntries, getAreaCounts, formatChangelogDate, compareVersionDesc } from '../src/util/changelog'
+
+describe('compareVersionDesc (date-tie stable ordering)', () => {
+  it('orders releases newest-first', () => {
+    const sorted = ['1.0.0-rc.0', '1.0.0', '1.0.0-rc.1', '1.2.0'].sort(compareVersionDesc)
+    expect(sorted).toEqual(['1.2.0', '1.0.0', '1.0.0-rc.1', '1.0.0-rc.0'])
+  })
+  it('ranks a final release above its prereleases', () => {
+    expect(compareVersionDesc('1.0.0', '1.0.0-rc.5')).toBeLessThan(0) // 1.0.0 sorts first
+  })
+  it('orders prerelease numbers numerically, not lexically', () => {
+    // rc.10 is newer than rc.2 (would be wrong under string compare)
+    expect(compareVersionDesc('1.0.0-rc.10', '1.0.0-rc.2')).toBeLessThan(0)
+  })
+})
 import type { ChangelogEntry } from '../src/content.config'
 
 const mk = (over: Partial<ChangelogEntry>): ChangelogEntry => ({

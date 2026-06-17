@@ -6,10 +6,55 @@ export type ChangelogRelease = CollectionEntry<'changelog'>
 const FEATURE_TYPES = new Set(['feat', 'breaking', 'perf'])
 const FIX_TYPES = new Set(['fix'])
 
-/** All releases sorted newest first. Filtering by SDK/language happens client-side on the page. */
+/**
+ * Compare two version strings (e.g. "1.0.0", "1.0.0-rc.1") newest-first.
+ * Numeric release components outrank a prerelease of the same number
+ * (1.0.0 > 1.0.0-rc.1 > 1.0.0-rc.0); prerelease identifiers compare
+ * numerically where both are numbers, else lexically. Returns >0 if `b` is
+ * newer than `a` (so it sorts after, consistent with date-desc usage).
+ */
+export function compareVersionDesc(a: string, b: string): number {
+  const parse = (v: string) => {
+    const [core = '', pre] = v.replace(/^v/, '').split('-')
+    return { core: core.split('.').map((n) => parseInt(n, 10) || 0), pre: pre ? pre.split('.') : null }
+  }
+  const pa = parse(a)
+  const pb = parse(b)
+  for (let i = 0; i < Math.max(pa.core.length, pb.core.length); i++) {
+    const d = (pb.core[i] ?? 0) - (pa.core[i] ?? 0)
+    if (d !== 0) return d
+  }
+  // Same core: a release (no prerelease) is newer than any prerelease of it.
+  if (!pa.pre && pb.pre) return -1
+  if (pa.pre && !pb.pre) return 1
+  if (pa.pre && pb.pre) {
+    for (let i = 0; i < Math.max(pa.pre.length, pb.pre.length); i++) {
+      const x = pa.pre[i] ?? ''
+      const y = pb.pre[i] ?? ''
+      const nx = Number(x)
+      const ny = Number(y)
+      const d = Number.isNaN(nx) || Number.isNaN(ny) ? y.localeCompare(x) : ny - nx
+      if (d !== 0) return d
+    }
+  }
+  return 0
+}
+
+/**
+ * All releases sorted newest first. Filtering by SDK/language happens
+ * client-side on the page. Ties on date are broken by version (newest first)
+ * then id, so same-day releases (e.g. typescript rc.0 and rc.1) get a stable,
+ * loader-order-independent ordering — which the prev/next links depend on.
+ */
 export async function getReleases(): Promise<ChangelogRelease[]> {
   const releases = await getCollection('changelog')
-  return releases.sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
+  return releases.sort((a, b) => {
+    const byDate = b.data.date.getTime() - a.data.date.getTime()
+    if (byDate !== 0) return byDate
+    const byVersion = compareVersionDesc(a.data.version, b.data.version)
+    if (byVersion !== 0) return byVersion
+    return a.id.localeCompare(b.id)
+  })
 }
 
 /**
