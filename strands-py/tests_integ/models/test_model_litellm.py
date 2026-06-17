@@ -303,8 +303,8 @@ def test_gemini_thinking_model_tool_call(tools):
     tool_results = [
         block["toolResult"] for message in agent.messages for block in message["content"] if "toolResult" in block
     ]
-    # A dropped thought_signature can surface as an error tool result rather than a raised
-    # exception, so check the results succeeded and carry the tools' return values.
+    # Both tools ran cleanly and returned their values, so the follow-up model call
+    # operates on real results rather than error placeholders.
     assert all(tool_result["status"] == "success" for tool_result in tool_results)
     tool_result_text = " ".join(
         content_block["text"]
