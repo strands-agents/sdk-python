@@ -6,10 +6,12 @@ from unittest import mock
 
 import pytest
 from opentelemetry.trace import (
+    SpanContext,
     SpanKind,
     StatusCode,  # type: ignore
 )
 
+from strands.memory.types import MemoryEntry
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.content import ContentBlock
 from strands.types.interrupt import InterruptResponseContent
@@ -79,7 +81,9 @@ def test_start_span(mock_tracer):
 
         span = tracer._start_span("test_span", attributes={"key": "value"})
 
-        mock_tracer.start_span.assert_called_once_with(name="test_span", context=None, kind=SpanKind.INTERNAL)
+        mock_tracer.start_span.assert_called_once_with(
+            name="test_span", context=None, kind=SpanKind.INTERNAL, links=None
+        )
         # Check that set_attributes was called with the provided attributes
         mock_span.set_attributes.assert_called_once_with({"key": "value"})
         assert span is not None
@@ -1780,6 +1784,210 @@ def test_end_model_invoke_span_non_langfuse_no_extra_attributes(mock_span, monke
         "gen_ai.client.inference.operation.details",
         attributes={"gen_ai.output.messages": expected_output},
     )
+
+
+def test_start_memory_search_span(mock_tracer):
+    """Test starting a memory search span records the query as an event, not an attribute."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        span = tracer.start_memory_search_span("dark mode preference", ["personal", "team"], max_search_results=5)
+
+        assert mock_tracer.start_span.call_args[1]["name"] == "memory.search"
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "memory.search",
+                "gen_ai.system": "strands-agents",
+                "memory.store.names": serialize(["personal", "team"]),
+                "memory.store.count": 2,
+                "memory.max_search_results": 5,
+            }
+        )
+        mock_span.add_event.assert_called_once_with("memory.query", attributes={"content": "dark mode preference"})
+        assert span is not None
+
+
+def test_end_memory_search_span(mock_span):
+    """Test ending a memory search span records result/failure counts and the entries event."""
+    tracer = Tracer()
+    entry = MemoryEntry(content="user prefers dark mode", store_name="personal", metadata={"score": 0.9})
+
+    tracer.end_memory_search_span(mock_span, entries=[entry], store_failure_count=1)
+
+    mock_span.add_event.assert_called_once_with(
+        "memory.results",
+        attributes={
+            "content": serialize(
+                [{"content": "user prefers dark mode", "store_name": "personal", "metadata": {"score": 0.9}}]
+            )
+        },
+    )
+    mock_span.set_attributes.assert_called_once_with({"memory.result.count": 1, "memory.store.failure_count": 1})
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+def test_end_memory_search_span_with_error(mock_span):
+    """Test ending a memory search span with an error sets error status and skips the results event."""
+    tracer = Tracer()
+    error = ValueError("store 'missing' not found")
+
+    tracer.end_memory_search_span(mock_span, error=error)
+
+    mock_span.add_event.assert_not_called()
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, str(error))
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_start_memory_add_span(mock_tracer):
+    """Test starting a memory add span records content as an event."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        tracer.start_memory_add_span("remember dark mode", ["personal"])
+
+        assert mock_tracer.start_span.call_args[1]["name"] == "memory.add"
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "memory.add",
+                "gen_ai.system": "strands-agents",
+                "memory.store.names": serialize(["personal"]),
+                "memory.store.count": 1,
+            }
+        )
+        mock_span.add_event.assert_called_once_with("memory.content", attributes={"content": "remember dark mode"})
+
+
+def test_start_memory_add_span_force_root(mock_tracer):
+    """Test that a forced-root add span detaches from any current span."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        current_span = mock.MagicMock()
+        current_span.is_recording.return_value = True
+        with mock.patch("strands.telemetry.tracer.trace_api.get_current_span", return_value=current_span):
+            tracer.start_memory_add_span("content", ["personal"], force_root=True)
+
+        # An empty Context (no parent) is passed when force_root is set.
+        passed_context = mock_tracer.start_span.call_args[1]["context"]
+        assert passed_context is not None
+        assert len(passed_context) == 0
+
+
+def test_end_memory_add_span_with_error(mock_span):
+    """Test ending a memory add span with an error sets error status and failure count."""
+    tracer = Tracer()
+    error = Exception("write failed")
+
+    tracer.end_memory_add_span(mock_span, store_failure_count=2, error=error)
+
+    mock_span.set_attributes.assert_called_once_with({"memory.store.failure_count": 2})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, str(error))
+    mock_span.record_exception.assert_called_once_with(error)
+
+
+def test_memory_inject_span(mock_tracer):
+    """Test starting and ending a memory inject span on the happy path."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        span = tracer.start_memory_inject_span(max_entries=5)
+        assert mock_tracer.start_span.call_args[1]["name"] == "memory.inject"
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "memory.inject",
+                "gen_ai.system": "strands-agents",
+                "memory.max_entries": 5,
+            }
+        )
+
+        tracer.end_memory_inject_span(span, injected=True, entry_count=3)
+        mock_span.set_attributes.assert_any_call({"memory.injected": True, "memory.entry.count": 3})
+        mock_span.set_status.assert_called_once_with(StatusCode.OK)
+
+
+def test_end_memory_inject_span_format_error(mock_span):
+    """Test that a format error ends the inject span OK (fail-open) with a flag, not an error."""
+    tracer = Tracer()
+
+    tracer.end_memory_inject_span(mock_span, injected=False, format_error=True)
+
+    mock_span.set_attributes.assert_called_once_with(
+        {"memory.injected": False, "memory.entry.count": 0, "memory.inject.format_error": True}
+    )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.record_exception.assert_not_called()
+
+
+def test_start_memory_extract_span_is_root(mock_tracer):
+    """Test that an extract span is always a root span, even when a current span is active."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        current_span = mock.MagicMock()
+        current_span.is_recording.return_value = True
+        with mock.patch("strands.telemetry.tracer.trace_api.get_current_span", return_value=current_span):
+            tracer.start_memory_extract_span("personal", message_count=2, filtered_count=1, extractor="ModelExtractor")
+
+        assert mock_tracer.start_span.call_args[1]["name"] == "memory.extract"
+        # An empty Context (no parent) detaches from the active current span.
+        passed_context = mock_tracer.start_span.call_args[1]["context"]
+        assert passed_context is not None
+        assert len(passed_context) == 0
+        # No agent span context was provided, so no links are attached.
+        assert mock_tracer.start_span.call_args[1]["links"] is None
+        mock_tracer.start_span.return_value.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "memory.extract",
+                "gen_ai.system": "strands-agents",
+                "memory.store.name": "personal",
+                "memory.message.count": 2,
+                "memory.message.filtered_count": 1,
+                "memory.extractor": "ModelExtractor",
+            }
+        )
+
+
+def test_start_memory_extract_span_links_agent_span(mock_tracer):
+    """Test that a valid agent span context is attached as a link on the extract span."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        agent_context = SpanContext(trace_id=1, span_id=2, is_remote=False)
+        tracer.start_memory_extract_span("personal", message_count=1, agent_span_context=agent_context)
+
+        links = mock_tracer.start_span.call_args[1]["links"]
+        assert links is not None
+        assert len(links) == 1
+        assert links[0].context is agent_context
+
+
+def test_end_memory_extract_span_with_error(mock_span):
+    """Test ending an extract span with an error records it (failures are swallowed by the coordinator)."""
+    tracer = Tracer()
+    error = Exception("save failed")
+
+    tracer.end_memory_extract_span(mock_span, error=error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, str(error))
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
 
 
 class TestIsLangfuse:

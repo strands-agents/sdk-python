@@ -11,9 +11,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
+from opentelemetry import trace as trace_api
+from opentelemetry.trace import SpanContext
+
 from ...models.model import Model
+from ...telemetry.metrics import MetricsClient
+from ...telemetry.tracer import get_tracer
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import AggregateMemoryError
 from ..types import MemoryStore
@@ -102,7 +108,10 @@ class ExtractionCoordinator:
         Dispatches the save and returns immediately. A no-op when the store is
         backed off and this request is not a probe.
         """
-        task = self.process(store)
+        # Capture the agent span synchronously: this runs inside the live agent
+        # span, but the save itself runs detached after that span has ended.
+        link_context = self._current_span_context()
+        task = self.process(store, link_context)
         if task is None:
             return
         self._background.add(task)
@@ -117,7 +126,7 @@ class ExtractionCoordinator:
 
         task.add_done_callback(_done)
 
-    def process(self, store: MemoryStore) -> asyncio.Task | None:
+    def process(self, store: MemoryStore, link_context: SpanContext | None = None) -> asyncio.Task | None:
         """Queue a save for this store behind its previous save.
 
         Returns the task running the save, or ``None`` when the store is backed
@@ -125,20 +134,31 @@ class ExtractionCoordinator:
         """
         if not self._should_attempt(store):
             return None
-        return self._enqueue(store)
+        return self._enqueue(store, link_context)
 
-    def _enqueue(self, store: MemoryStore) -> asyncio.Task:
+    def _enqueue(self, store: MemoryStore, link_context: SpanContext | None = None) -> asyncio.Task:
         """Queue this store's save behind its previous one and return the task."""
         previous = self._chains.get(id(store))
-        task = asyncio.create_task(self._run_chain(store, previous))
+        task = asyncio.create_task(self._run_chain(store, previous, link_context))
         self._chains[id(store)] = task
         return task
 
-    async def _run_chain(self, store: MemoryStore, previous: asyncio.Task | None) -> None:
+    async def _run_chain(
+        self, store: MemoryStore, previous: asyncio.Task | None, link_context: SpanContext | None = None
+    ) -> None:
         """Run this store's save after its previous one completes."""
         if previous is not None:
             await previous
-        await self._extract(store)
+        await self._extract(store, link_context)
+
+    @staticmethod
+    def _current_span_context() -> SpanContext | None:
+        """Capture the current agent span's context for linking, if one is active."""
+        span = trace_api.get_current_span()
+        context = span.get_span_context()
+        if span.is_recording() and context.is_valid:
+            return context
+        return None
 
     def _should_attempt(self, store: MemoryStore) -> bool:
         """Return whether to attempt a save now.
@@ -158,6 +178,10 @@ class ExtractionCoordinator:
 
         Bypasses backoff and also waits out saves that start while waiting.
         Never raises.
+
+        Flush typically runs at a shutdown boundary, after the agent span has ended, so
+        these extractions are enqueued without an agent span link and appear as unlinked
+        root traces.
         """
         for store in self._stores:
             self._enqueue(store)
@@ -171,7 +195,7 @@ class ExtractionCoordinator:
             ):
                 return
 
-    async def _extract(self, store: MemoryStore) -> None:
+    async def _extract(self, store: MemoryStore, link_context: SpanContext | None = None) -> None:
         """Save the store's messages newer than its high-water mark.
 
         On failure the mark is rolled back so the batch retries next time.
@@ -189,26 +213,79 @@ class ExtractionCoordinator:
 
         filtered = self._filter_messages([buffered.message for buffered in fresh], config.filter)
 
+        span = get_tracer().start_memory_extract_span(
+            store.name,
+            message_count=len(filtered),
+            filtered_count=len(fresh) - len(filtered),
+            extractor=type(config.extractor).__name__ if config.extractor is not None else None,
+            agent_span_context=link_context,
+        )
+        start_time = time.time()
+
+        write_error: Exception | None = None
+        entry_count = 0
         try:
             if filtered:
-                await self._write(store, filtered, config.extractor)
+                with trace_api.use_span(span, end_on_exit=False):
+                    entry_count = await self._write(store, filtered, config.extractor)
                 # Successful write clears the failure streak and ends backoff. A
                 # fully filtered (empty) turn never touched the backend, so it
                 # leaves backoff state untouched.
                 self._consecutive_failures[id(store)] = 0
                 self._backoff_counters.pop(id(store), None)
         except Exception as error:  # noqa: BLE001 - saving must never break the agent loop.
+            write_error = error
             self._on_save_failed(store, mark, error)
         finally:
             self._trim()
 
-    async def _write(self, store: MemoryStore, messages: list[Message], extractor: Extractor | None) -> None:
+        # Telemetry is recorded after the save resolves and is best-effort, so a metrics
+        # or span failure can never turn a successful save into a failure (which would
+        # wrongly trigger backoff) or break this detached background task.
+        self._record_extract_telemetry(store, span, start_time, entry_count, write_error)
+
+    def _record_extract_telemetry(
+        self,
+        store: MemoryStore,
+        span: trace_api.Span,
+        start_time: float,
+        entry_count: int,
+        error: Exception | None,
+    ) -> None:
+        """Record extraction metrics and end the extract span; never raises.
+
+        Args:
+            store: The store the extraction targeted.
+            span: The extraction span to end.
+            start_time: When the extraction started, for the duration metric.
+            entry_count: Number of entries written (0 on a fully filtered turn).
+            error: The save failure, or None on success.
+        """
+        try:
+            metrics_client = MetricsClient()
+            attributes = {"store_name": store.name}
+            metrics_client.memory_extract_call_count.add(1, attributes=attributes)
+            metrics_client.memory_extract_duration.record(time.time() - start_time, attributes=attributes)
+            if error is None:
+                metrics_client.memory_extract_success_count.add(1, attributes=attributes)
+                metrics_client.memory_extract_entries.record(entry_count, attributes=attributes)
+                get_tracer().end_memory_extract_span(span, entry_count=entry_count)
+            else:
+                metrics_client.memory_extract_error_count.add(1, attributes=attributes)
+                get_tracer().end_memory_extract_span(span, error=error)
+        except Exception:  # noqa: BLE001 - telemetry must never break the agent loop.
+            logger.debug("store=<%s> | memory extract telemetry failed", store.name, exc_info=True)
+
+    async def _write(self, store: MemoryStore, messages: list[Message], extractor: Extractor | None) -> int:
         """Save the messages to the store, one of two ways.
 
         - With an extractor: run it, then write each fact via ``add``
           concurrently. If any write fails the whole batch is re-raised and
           retried later, so stores should expect duplicate writes.
         - Without an extractor: hand the raw messages to ``add_messages``.
+
+        Returns:
+            The number of entries written (extracted facts, or raw messages).
 
         Raises:
             AggregateMemoryError: If any concurrent ``add`` write fails.
@@ -225,9 +302,10 @@ class ExtractionCoordinator:
                     f"failed to write {len(failures)} of {len(entries)} extracted entries",
                     failures,
                 )
-            return
+            return len(entries)
 
         await store.add_messages(messages)
+        return len(messages)
 
     def _filter_messages(self, messages: list[Message], message_filter: MemoryMessageFilter) -> list[Message]:
         """Remove excluded content blocks, dropping any message left empty.

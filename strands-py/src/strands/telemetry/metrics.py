@@ -571,6 +571,22 @@ class MetricsClient:
     tool_success_count: Counter
     tool_error_count: Counter
     tool_duration: Histogram
+    memory_search_call_count: Counter
+    memory_search_success_count: Counter
+    memory_search_error_count: Counter
+    memory_search_duration: Histogram
+    memory_search_results: Histogram
+    memory_add_call_count: Counter
+    memory_add_success_count: Counter
+    memory_add_error_count: Counter
+    memory_add_duration: Histogram
+    memory_extract_call_count: Counter
+    memory_extract_success_count: Counter
+    memory_extract_error_count: Counter
+    memory_extract_duration: Histogram
+    memory_extract_entries: Histogram
+    memory_inject_count: Counter
+    memory_inject_entries: Histogram
 
     def __new__(cls) -> "MetricsClient":
         """Create or return the singleton instance of MetricsClient.
@@ -638,4 +654,48 @@ class MetricsClient:
         )
         self.model_time_to_first_token = self.meter.create_histogram(
             name=constants.STRANDS_MODEL_TIME_TO_FIRST_TOKEN, unit="ms"
+        )
+        self.memory_search_call_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_SEARCH_CALL_COUNT, unit="Count"
+        )
+        self.memory_search_success_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_SEARCH_SUCCESS_COUNT, unit="Count"
+        )
+        self.memory_search_error_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_SEARCH_ERROR_COUNT, unit="Count"
+        )
+        self.memory_search_duration = self.meter.create_histogram(
+            name=constants.STRANDS_MEMORY_SEARCH_DURATION, unit="s"
+        )
+        self.memory_search_results = self.meter.create_histogram(
+            name=constants.STRANDS_MEMORY_SEARCH_RESULTS, unit="Count"
+        )
+        self.memory_add_call_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_ADD_CALL_COUNT, unit="Count"
+        )
+        self.memory_add_success_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_ADD_SUCCESS_COUNT, unit="Count"
+        )
+        self.memory_add_error_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_ADD_ERROR_COUNT, unit="Count"
+        )
+        self.memory_add_duration = self.meter.create_histogram(name=constants.STRANDS_MEMORY_ADD_DURATION, unit="s")
+        self.memory_extract_call_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_EXTRACT_CALL_COUNT, unit="Count"
+        )
+        self.memory_extract_success_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_EXTRACT_SUCCESS_COUNT, unit="Count"
+        )
+        self.memory_extract_error_count = self.meter.create_counter(
+            name=constants.STRANDS_MEMORY_EXTRACT_ERROR_COUNT, unit="Count"
+        )
+        self.memory_extract_duration = self.meter.create_histogram(
+            name=constants.STRANDS_MEMORY_EXTRACT_DURATION, unit="s"
+        )
+        self.memory_extract_entries = self.meter.create_histogram(
+            name=constants.STRANDS_MEMORY_EXTRACT_ENTRIES, unit="Count"
+        )
+        self.memory_inject_count = self.meter.create_counter(name=constants.STRANDS_MEMORY_INJECT_COUNT, unit="Count")
+        self.memory_inject_entries = self.meter.create_histogram(
+            name=constants.STRANDS_MEMORY_INJECT_ENTRIES, unit="Count"
         )

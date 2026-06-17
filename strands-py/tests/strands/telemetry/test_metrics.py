@@ -692,3 +692,42 @@ def test_projected_context_size_missing_tokens_key(event_loop_metrics):
         )
     )
     assert event_loop_metrics.projected_context_size is None
+
+
+def test_memory_instruments_created(mock_get_meter_provider):
+    """Test that the memory metric instruments are created on the MetricsClient."""
+    metrics_client = MetricsClient()
+
+    for instrument in (
+        metrics_client.memory_search_call_count,
+        metrics_client.memory_search_success_count,
+        metrics_client.memory_search_error_count,
+        metrics_client.memory_search_duration,
+        metrics_client.memory_search_results,
+        metrics_client.memory_add_call_count,
+        metrics_client.memory_add_success_count,
+        metrics_client.memory_add_error_count,
+        metrics_client.memory_add_duration,
+        metrics_client.memory_extract_call_count,
+        metrics_client.memory_extract_success_count,
+        metrics_client.memory_extract_error_count,
+        metrics_client.memory_extract_duration,
+        metrics_client.memory_extract_entries,
+        metrics_client.memory_inject_count,
+        metrics_client.memory_inject_entries,
+    ):
+        assert instrument is not None
+
+
+def test_memory_search_metrics_recorded(mock_get_meter_provider):
+    """Test that memory search counters and histograms record with store_name attributes."""
+    metrics_client = MetricsClient()
+    attributes = {"store_name": "personal"}
+
+    metrics_client.memory_search_call_count.add(1, attributes=attributes)
+    metrics_client.memory_search_success_count.add(1, attributes=attributes)
+    metrics_client.memory_search_results.record(3, attributes=attributes)
+
+    metrics_client.memory_search_call_count.add.assert_called_with(1, attributes=attributes)
+    metrics_client.memory_search_success_count.add.assert_called_with(1, attributes=attributes)
+    metrics_client.memory_search_results.record.assert_called_with(3, attributes=attributes)

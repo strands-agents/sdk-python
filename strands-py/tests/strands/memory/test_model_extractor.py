@@ -15,6 +15,7 @@ are expected to fail with an ``ImportError`` until that implementation exists.
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -135,3 +136,44 @@ async def test_raises_when_no_model_is_configured_and_no_default_is_provided():
 
     with pytest.raises(Exception, match="no model configured"):
         await extractor.extract([_user_turn("x")])
+
+
+@pytest.mark.asyncio
+async def test_wraps_the_model_call_in_a_model_invoke_span():
+    """The extraction model call is wrapped in start/end model-invoke spans with usage/metrics."""
+    model = MockedModelProvider([_assistant_text('[{"content": "fact"}]')])
+    extractor = ModelExtractor(model=model)
+
+    tracer = MagicMock()
+    with patch("strands.memory.extraction.model_extractor.get_tracer", return_value=tracer):
+        entries = await extractor.extract([_user_turn("x")])
+
+    assert entries == [ExtractionResult(content="fact")]
+    tracer.start_model_invoke_span.assert_called_once()
+    # The terminal stop tuple's usage/metrics/stop_reason are passed through on end.
+    end_call = tracer.end_model_invoke_span.call_args
+    span, message, usage, metrics, stop_reason = end_call.args
+    assert span is tracer.start_model_invoke_span.return_value
+    assert "inputTokens" in usage
+    assert "latencyMs" in metrics
+    tracer.end_span_with_error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_ends_model_invoke_span_with_error_on_failure():
+    """A model failure ends the span via end_span_with_error and re-raises."""
+
+    class _BoomModel(MockedModelProvider):
+        async def stream(self, *args: Any, **kwargs: Any):  # type: ignore[override]
+            raise RuntimeError("model down")
+            yield  # pragma: no cover - make this an async generator
+
+    extractor = ModelExtractor(model=_BoomModel([]))
+
+    tracer = MagicMock()
+    with patch("strands.memory.extraction.model_extractor.get_tracer", return_value=tracer):
+        with pytest.raises(RuntimeError, match="model down"):
+            await extractor.extract([_user_turn("x")])
+
+    tracer.end_span_with_error.assert_called_once()
+    tracer.end_model_invoke_span.assert_not_called()
