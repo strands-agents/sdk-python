@@ -40,9 +40,11 @@ def output_handler(result):  # result: MiddlewareResult
 Only the **Output** phase uses the wrapper. Wrap and Input handlers deal in raw
 events/contexts.
 
-The wrapper currently holds only `result`. It exists as a stable surface so we can add
-fields later (e.g. aggregated metadata that propagates upward) without changing the Output
-handler signature.
+The wrapper currently holds only `value`. Input already has a wrapper (the context
+dataclass), so `MiddlewareResult` gives Output the same extensibility surface for future
+metadata. Since Python async generators cannot return values, Wrap-phase metadata would
+be yielded as events into the stream rather than attached to a return value. See the TS
+spec ("Metadata transport") for rationale.
 
 ## No removal / cleanup
 
