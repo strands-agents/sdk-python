@@ -77,6 +77,10 @@
       "types": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.d.ts",
       "default": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.js"
     },
+    "./vended-memory-stores/local": {
+      "types": "./dist/src/vended-memory-stores/local/index.d.ts",
+      "default": "./dist/src/vended-memory-stores/local/index.js"
+    },
     "./telemetry": {
       "types": "./dist/src/telemetry/index.d.ts",
       "default": "./dist/src/telemetry/index.js"
