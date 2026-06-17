@@ -81,7 +81,7 @@ const tool = researcher.asTool({ preserveContext: true });
 `SessionManager` now implements `MultiAgentPlugin`, enabling Graph and Swarm orchestrators to automatically save and restore execution state. After each orchestrator invocation, the multi-agent state (node statuses, results, steps, app state) is persisted. On the next invocation, the snapshot is restored before the first node executes.
 
 ```typescript
-import { SessionManager, FileStorage } from '@strands-agents/sdk';
+import { SessionManager, FileStorage, Graph } from '@strands-agents/sdk';
 
 const session = new SessionManager({
   sessionId: 'my-session',
