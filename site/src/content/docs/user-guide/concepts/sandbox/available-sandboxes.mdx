@@ -1,0 +1,164 @@
+---
+title: Available Sandboxes
+description: "Use the built-in Docker and SSH sandboxes to run an agent's work in a container or on a remote host, and drive a sandbox from your own code."
+tags: [tool-execution]
+---
+
+The SDK ships two concrete sandboxes. Both run commands by spawning a process on the host that targets the isolated environment, so neither needs an in-process runtime for the container or remote machine.
+
+| Sandbox | Runs commands in | Import from |
+|---------|------------------|-------------|
+| Docker | A running Docker container, via `docker exec` | <Syntax py="strands.sandbox.docker" ts="@strands-agents/sdk/sandbox/docker" plain /> |
+| SSH | A remote host, via OpenSSH | <Syntax py="strands.sandbox.ssh" ts="@strands-agents/sdk/sandbox/ssh" plain /> |
+
+This page assumes you have read the [Sandbox overview](./index.mdx): a sandbox routes an agent's command and file operations into an environment you provision, and vends the `sandbox_bash` and `sandbox_file_editor` tools bound to it.
+
+## Docker
+
+Use the Docker sandbox when you want the agent's work confined to a container you control. You start and manage the container; the sandbox runs commands in it with `docker exec`.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.sandbox.docker import DockerSandbox
+
+# working_dir and user are optional; omit them to use the container's defaults
+sandbox = DockerSandbox(
+    container="agent-workspace",
+    working_dir="/workspace",
+    user="1000:1000",
+)
+agent = Agent(sandbox=sandbox)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/available-sandboxes_imports.ts:docker_imports"
+
+--8<-- "user-guide/concepts/sandbox/available-sandboxes.ts:docker"
+```
+</Tab>
+</Tabs>
+
+The container is yours to scope. Drop its capabilities, run it read-only with a writable workspace volume, set a non-root user, and cut off the network unless the task needs it. The sandbox confines the agent to whatever that container can do, so the container's configuration is the actual boundary.
+
+## SSH
+
+Use the SSH sandbox to run the agent's work on a remote host. Each command spawns a fresh `ssh` process in batch mode, so authentication must be key-based: interactive password prompts are disabled. The working directory on the remote host is required.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.sandbox.ssh import SshSandbox
+
+sandbox = SshSandbox(
+    host="ubuntu@10.0.1.5",
+    working_dir="/home/ubuntu/workspace",
+    identity_file="~/.ssh/agent_key",
+)
+agent = Agent(sandbox=sandbox)
+```
+
+By default the SSH sandbox trusts a host key on first connect and rejects it if it later changes. It also rejects SSH options outside a vetted allowlist. Both guards can be loosened (`allow_unknown_hosts`, `allow_unsafe_ssh_options`) when you understand the tradeoff.
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/available-sandboxes_imports.ts:ssh_imports"
+
+--8<-- "user-guide/concepts/sandbox/available-sandboxes.ts:ssh"
+```
+
+By default the SSH sandbox trusts a host key on first connect and rejects it if it later changes. It also rejects SSH options outside a vetted allowlist. Both guards can be loosened (<Syntax ts="allowUnknownHosts" plain />, <Syntax ts="allowUnsafeSshOptions" plain />) when you understand the tradeoff.
+</Tab>
+</Tabs>
+
+The remote account is the boundary here. Scope it to the least privilege the task needs, and treat the host key pinning and option allowlist as defense in depth, not a license to feed the sandbox untrusted commands.
+
+## Working With a Sandbox Directly
+
+The sandbox is not only for the model. You can drive it from your own code through <Syntax py="agent.sandbox" ts="agent.sandbox" />, which is useful for setup, verification, and teardown around an agent run.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+import asyncio
+
+from strands import Agent
+from strands.sandbox.docker import DockerSandbox
+
+agent = Agent(sandbox=DockerSandbox(container="agent-workspace", working_dir="/workspace"))
+
+async def main():
+    # Seed an input file, let the agent work, then read the result back
+    await agent.sandbox.write_text("/workspace/input.csv", "id,value\n1,42\n")
+
+    agent("Summarize /workspace/input.csv and write the summary to /workspace/out.txt")
+
+    result = await agent.sandbox.execute("cat /workspace/out.txt")
+    print(result.exit_code, result.stdout)
+
+asyncio.run(main())
+```
+
+The file helpers come in two forms. `read_file` and `write_file` move raw `bytes` for binary content; `read_text` and `write_text` wrap them with UTF-8 encoding for the common case. `list_files` returns `FileInfo` entries, and `remove_file` deletes one.
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/available-sandboxes_imports.ts:direct_use_imports"
+
+--8<-- "user-guide/concepts/sandbox/available-sandboxes.ts:direct_use"
+```
+
+The file helpers come in two forms. <Syntax ts="readFile" plain /> and <Syntax ts="writeFile" plain /> move raw bytes for binary content; <Syntax ts="readText" plain /> and <Syntax ts="writeText" plain /> wrap them with UTF-8 encoding for the common case. <Syntax ts="listFiles" plain /> returns `FileInfo` entries, and <Syntax ts="removeFile" plain /> deletes one.
+</Tab>
+</Tabs>
+
+### Streaming Output
+
+`execute` waits for the command to finish and returns the full result. When you want output as it arrives, for a long-running build or a live log, use the streaming form. It yields stdout and stderr chunks as they are produced, then a final result with the exit code:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+import asyncio
+
+from strands import Agent
+from strands.sandbox import ExecutionResult, StreamChunk
+from strands.sandbox.docker import DockerSandbox
+
+agent = Agent(sandbox=DockerSandbox(container="agent-workspace", working_dir="/workspace"))
+
+async def main():
+    async for chunk in agent.sandbox.execute_streaming("npm run build"):
+        if isinstance(chunk, StreamChunk):
+            print(chunk.data, end="")
+        elif isinstance(chunk, ExecutionResult):
+            print(f"\nexit code: {chunk.exit_code}")
+
+asyncio.run(main())
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/available-sandboxes_imports.ts:streaming_imports"
+
+--8<-- "user-guide/concepts/sandbox/available-sandboxes.ts:streaming"
+```
+</Tab>
+</Tabs>
+
+## Next Steps
+
+- [Building a Custom Sandbox](./custom-sandbox.mdx): target a backend the built-ins do not cover
+- [Sandbox Overview](./index.mdx): what a sandbox is and the tools it vends
+- [Responsible AI](../../safety-security/responsible-ai.md): the shared-responsibility model for tool execution

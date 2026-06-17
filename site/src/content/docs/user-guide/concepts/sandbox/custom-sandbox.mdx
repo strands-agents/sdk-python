@@ -1,0 +1,114 @@
+---
+title: Building a Custom Sandbox
+description: "Target an execution environment the built-in sandboxes do not cover: a microVM, a remote code-execution API, or a managed runtime, and vend its tools."
+tags: [tool-execution]
+---
+
+Write a custom sandbox when your execution environment is not a local Docker container or an SSH host: a remote code-execution API, a microVM, or a managed runtime. The agent loop, the model, and the vended tools do not change. Only the transport between a tool and the environment does, and that lives behind a handful of methods on the `Sandbox` interface.
+
+This page assumes you have read the [Sandbox overview](./index.mdx) and seen the [built-in sandboxes](./available-sandboxes.mdx). You have two starting points, depending on whether your backend runs a POSIX shell.
+
+## Start From the Shell Base
+
+Most backends run a POSIX shell, so start from `PosixShellSandbox`. It implements code execution and every file operation in terms of shell commands, which means you implement exactly one method: <Syntax py="execute_streaming" ts="executeStreaming" />. Build the command line for your backend, run it, and yield the output.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+import asyncio
+from collections.abc import AsyncGenerator
+from typing import Any
+
+from strands.sandbox import ExecutionResult, PosixShellSandbox, StreamChunk
+
+class FirecrackerSandbox(PosixShellSandbox):
+    """Run commands in a Firecracker microVM addressed by id."""
+
+    def __init__(self, vm_id: str) -> None:
+        self.vm_id = vm_id
+
+    async def execute_streaming(
+        self,
+        command: str,
+        *,
+        timeout: float | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+        proc = await asyncio.create_subprocess_exec(
+            "fc-exec", self.vm_id, "sh", "-c", command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if stdout:
+            yield StreamChunk(data=stdout.decode(), stream_type="stdout")
+        if stderr:
+            yield StreamChunk(data=stderr.decode(), stream_type="stderr")
+        yield ExecutionResult(
+            exit_code=proc.returncode or 0,
+            stdout=stdout.decode(),
+            stderr=stderr.decode(),
+        )
+```
+
+The inherited methods now route through your `execute_streaming`: `execute_code` base64-encodes the source and pipes it to an interpreter, and the file operations run `cat`, `mkdir`, `ls`, and `rm` for you.
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/custom-sandbox_imports.ts:custom_posix_imports"
+
+--8<-- "user-guide/concepts/sandbox/custom-sandbox.ts:custom_posix"
+```
+
+The inherited methods now route through your <Syntax ts="executeStreaming" plain />: <Syntax ts="executeCode" plain /> base64-encodes the source and pipes it to an interpreter, and the file operations run `cat`, `mkdir`, `ls`, and `rm` for you.
+</Tab>
+</Tabs>
+
+## Extend the Base Interface Directly
+
+Extend the `Sandbox` base directly only when your backend is not shell-based, for example an HTTP code-execution API that returns structured results and generated files. Then you implement all six operations yourself: the two streaming methods plus <Syntax py="read_file" ts="readFile" />, <Syntax py="write_file" ts="writeFile" />, <Syntax py="remove_file" ts="removeFile" />, and <Syntax py="list_files" ts="listFiles" />.
+
+Prefer the shell base whenever your backend can run `sh -c`. Reach for the raw interface only when shaping every file operation as a shell command would be a worse fit than calling your backend's native API.
+
+## Vending Tools From a Custom Sandbox
+
+To give your sandbox the same `sandbox_bash` and `sandbox_file_editor` tools the built-in sandboxes provide, override <Syntax py="get_tools" ts="getTools" /> and return tools bound to it. The factories take the sandbox instance, so the tools route through it:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands.types.tools import AgentTool
+from strands.vended_tools import make_bash, make_file_editor
+
+class FirecrackerSandbox(PosixShellSandbox):
+    # ... execute_streaming as above ...
+
+    def get_tools(self) -> list[AgentTool]:
+        return [
+            make_file_editor(sandbox=self, name="sandbox_file_editor"),
+            make_bash(sandbox=self, name="sandbox_bash"),
+        ]
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/custom-sandbox_imports.ts:custom_tools_imports"
+
+--8<-- "user-guide/concepts/sandbox/custom-sandbox.ts:custom_tools"
+```
+</Tab>
+</Tabs>
+
+A custom sandbox is a boundary only when the environment behind it is isolated. The interface routes operations; it does not confine them. Whatever the agent can reach through your `execute_streaming`, it can reach. See [Responsible AI](../../safety-security/responsible-ai.md) for the shared-responsibility model.
+
+## Next Steps
+
+- [Available Sandboxes](./available-sandboxes.mdx): the built-in Docker and SSH sandboxes
+- [Sandbox Overview](./index.mdx): what a sandbox is and the tools it vends
+- [Vended Tools](../tools/vended-tools.mdx): the bash and file editor factories a custom sandbox binds

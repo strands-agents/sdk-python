@@ -89,7 +89,12 @@ sidebar:
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
               - docs/user-guide/concepts/plugins/goal-loop
-          - docs/user-guide/concepts/sandbox
+          - label: Sandbox
+            items:
+              - label: "Overview"
+                slug: docs/user-guide/concepts/sandbox
+              - docs/user-guide/concepts/sandbox/available-sandboxes
+              - docs/user-guide/concepts/sandbox/custom-sandbox
           - label: Interventions
             items:
               - label: "Overview"
