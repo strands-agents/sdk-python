@@ -127,7 +127,7 @@ def normalize_schema(schema: dict[str, Any], *, _depth: int = 0) -> dict[str, An
         The normalized schema.
 
     Raises:
-        ValueError: If the schema nesting exceeds _MAX_SCHEMA_DEPTH.
+        ValueError: If the schema is nested too deeply.
     """
     if _depth > _MAX_SCHEMA_DEPTH:
         raise ValueError(f"tool inputSchema nesting exceeds {_MAX_SCHEMA_DEPTH} levels")
@@ -159,7 +159,7 @@ def normalize_tool_spec(tool_spec: ToolSpec) -> ToolSpec:
         The normalized tool specification.
 
     Raises:
-        ValueError: If the inputSchema nesting exceeds _MAX_SCHEMA_DEPTH.
+        ValueError: If the inputSchema is nested too deeply.
     """
     normalized = tool_spec.copy()
 
