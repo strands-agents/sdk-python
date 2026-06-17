@@ -1,0 +1,89 @@
+---
+title: Building a Custom Sandbox
+description: "Target an execution environment the built-in sandboxes do not cover: extend PosixShellSandbox or implement the Sandbox interface directly."
+tags: [sandbox, tool-execution]
+sidebar:
+  badge:
+    text: New
+    variant: tip
+---
+
+Looking for something beyond the built-in implementations? Building a custom Sandbox is easy.
+
+## Start from the shell base
+
+`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `executeStreaming` / `execute_streaming` (run a shell command via your backend and stream the output), you get everything else for free:
+
+- Code execution via base64-encoded heredoc piped to the interpreter
+- File read/write via base64 encoding over the shell
+- Directory listing via `ls`
+
+Both `DockerSandbox` and `SshSandbox` extend `PosixShellSandbox`.
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:custom_sandbox_imports"
+
+--8<-- "user-guide/concepts/sandbox/index.ts:custom_sandbox"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/sandbox/index.py:custom_sandbox"
+```
+
+</Tab>
+</Tabs>
+
+## Vending tools from a custom sandbox
+
+To give your sandbox the same `sandbox_bash` and `sandbox_file_editor` tools the built-in sandboxes provide, override `getTools()` / `get_tools()` and return tools bound to it:
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+import type { Tool } from '@strands-agents/sdk'
+import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
+
+// Inside your custom sandbox class:
+override getTools(): Tool[] {
+  return [
+    makeFileEditor(this, { name: 'sandbox_file_editor' }),
+    makeBash(this, { name: 'sandbox_bash' }),
+  ]
+}
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/sandbox/index.py:vend_tools"
+```
+
+</Tab>
+</Tabs>
+
+## Extend the base interface directly
+
+For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: `executeStreaming` / `execute_streaming`, `executeCodeStreaming` / `execute_code_streaming`, `readFile` / `read_file`, `writeFile` / `write_file`, `removeFile` / `remove_file`, and `listFiles` / `list_files`.
+
+Prefer the shell base whenever your backend can run `sh -c`. Reach for the raw interface only when shaping every operation as a shell command would be a worse fit than calling your backend's native API.
+
+## Security
+
+A custom sandbox is a boundary only when the environment behind it is isolated. The interface routes operations; it does not confine them. Whatever the agent can reach through your `execute_streaming` implementation, it can reach.
+
+A container running as root with the host filesystem mounted is not a boundary, even though it uses the same `Sandbox` interface as a locked-down container. The security comes from the environment you provision, not from the interface itself. Scope the environment to the least privilege the task needs, and treat that configuration as the actual control.
+
+## Next steps
+
+- [Sandbox Overview](./index.mdx) — what a sandbox is, the tools it vends, and plugin compatibility
+- [Available Sandboxes](./available-sandboxes.mdx) — the built-in Docker and SSH backends
+- [Vended Tools](../tools/vended-tools.mdx) — the `sandbox_bash` and `sandbox_file_editor` tool factories

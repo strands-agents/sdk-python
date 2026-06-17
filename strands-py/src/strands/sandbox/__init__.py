@@ -13,8 +13,10 @@ interface from ``strands-ts/src/sandbox/`` (the behavioral oracle):
   :class:`ExecutionResult`, and the :data:`StreamType` literal.
 - :data:`LANGUAGE_PATTERN` — interpreter-name validation pattern.
 
-Concrete sandboxes are imported from their own modules
-(e.g. ``from strands.sandbox.docker import DockerSandbox``), mirroring the TS oracle.
+Concrete sandboxes:
+
+- :class:`DockerSandbox` — run commands in a Docker container via ``docker exec``.
+- :class:`SshSandbox` — run commands on a remote host via OpenSSH.
 The sandbox error types (:class:`SandboxTimeoutError`, :class:`SandboxPathNotFoundError`)
 are re-exported from the top-level ``strands`` package, as in the TS oracle.
 

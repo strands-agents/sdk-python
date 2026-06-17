@@ -1,0 +1,193 @@
+---
+title: Available Sandboxes
+description: "Use the built-in Docker and SSH sandboxes, drive a sandbox from your own code, and stream output from long-running commands."
+tags: [sandbox, tool-execution]
+sidebar:
+  badge:
+    text: New
+    variant: tip
+---
+
+Strands provides two built-in Sandbox backends: `DockerSandbox` for containers on the local host, and `SshSandbox` for remote machines. Both automatically register `sandbox_bash` and `sandbox_file_editor` tools on the agent. This page covers their configuration, plus how to drive a sandbox directly from your own code.
+
+Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on `execute()` / `execute_code()`.
+
+## DockerSandbox
+
+Executes operations inside a Docker container on the host via `docker exec`. The container must already be running; Strands does not create it.
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
+
+const sandbox = new DockerSandbox({
+  container: 'agent-workspace',
+  workingDir: '/workspace',
+  user: '1000:1000',
+})
+const agent = new Agent({ sandbox })
+await agent.invoke('Run the test suite and summarize any failures')
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/sandbox/index.py:docker_constructor"
+```
+
+</Tab>
+</Tabs>
+
+### Options
+
+<Tabs>
+<Tab label="TypeScript">
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `container` | `string` | (required) | ID or name of a running container |
+| `workingDir` | `string` | container default | Working directory for executed commands. If omitted, runs in the container's configured working directory. |
+| `user` | `string` | container default | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container's configured user. |
+
+</Tab>
+<Tab label="Python">
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `container` | `str` | (required) | ID or name of a running container |
+| `working_dir` | `str \| None` | `None` | Working directory for executed commands. If omitted, runs in the container's configured working directory. |
+| `user` | `str \| None` | `None` | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container's configured user. |
+
+</Tab>
+</Tabs>
+
+## SshSandbox
+
+Executes operations on a remote host via SSH. Each command spawns a fresh `ssh` process. There is no persistent connection. The host must be reachable with key-based authentication; `BatchMode` is enforced, so password prompts fail rather than block.
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { SshSandbox } from '@strands-agents/sdk/sandbox/ssh'
+
+const sandbox = new SshSandbox({
+  host: 'ubuntu@10.0.1.5',
+  workingDir: '/home/ubuntu/workspace',
+  identityFile: '~/.ssh/agent_key',
+})
+const agent = new Agent({ sandbox })
+await agent.invoke('Check disk usage and list running processes')
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/sandbox/index.py:ssh_constructor"
+```
+
+</Tab>
+</Tabs>
+
+### Options
+
+<Tabs>
+<Tab label="TypeScript">
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `host` | `string` | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
+| `workingDir` | `string` | (required) | Working directory on the remote host |
+| `identityFile` | `string` | `undefined` | Path to SSH private key file |
+| `port` | `number` | `22` | SSH port |
+| `allowUnknownHosts` | `boolean` | `false` | When `false`, uses `StrictHostKeyChecking=accept-new`. When `true`, disables host key verification. |
+| `sshOptions` | `string[]` | `[]` | Additional SSH options passed as `-o` flags |
+| `allowUnsafeSshOptions` | `boolean` | `false` | Bypass the SSH option allowlist. When `false`, unknown options throw at construction time. |
+
+</Tab>
+<Tab label="Python">
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `host` | `str` | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
+| `working_dir` | `str` | (required) | Working directory on the remote host |
+| `identity_file` | `str \| None` | `None` | Path to SSH private key file |
+| `port` | `int` | `22` | SSH port |
+| `allow_unknown_hosts` | `bool` | `False` | When `False`, uses `StrictHostKeyChecking=accept-new`. When `True`, disables host key verification. |
+| `ssh_options` | `list[str] \| None` | `None` | Additional SSH options passed as `-o` flags |
+| `allow_unsafe_ssh_options` | `bool` | `False` | Bypass the SSH option allowlist. When `False`, unknown options throw at construction time. |
+
+</Tab>
+</Tabs>
+
+### SSH Option Allowlist
+
+By default, `SshSandbox` only permits known-safe SSH options (connection tuning, crypto, authentication). Unknown options throw an error at construction time. This prevents model-generated or user-provided options from executing commands on the host via directives like `ProxyCommand` or `LocalCommand`.
+
+:::caution[Security Warning]
+Setting `allowUnsafeSshOptions: true` bypasses this allowlist and lets any SSH option through, including directives that run commands on the local host. Only enable it with options you control, never with model-generated or untrusted input.
+:::
+
+## Working with a sandbox directly
+
+You can drive a sandbox directly from your own code. This is useful for setup and verification around an agent run: seed input files, invoke the agent, then read results back.
+
+| Method | Description |
+| --- | --- |
+| `execute` | Run a shell command, return the result |
+| `executeCode` / `execute_code` | Run code via an interpreter, return the result |
+| `readText` / `read_text` | Read a file as a UTF-8 string |
+| `writeText` / `write_text` | Write a string as UTF-8 |
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:programmatic_access_imports"
+
+--8<-- "user-guide/concepts/sandbox/index.ts:programmatic_access"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/sandbox/index.py:programmatic_access"
+```
+
+</Tab>
+</Tabs>
+
+### Streaming output
+
+`execute` waits for the command to finish. When you need output as it arrives (long builds, live logs), use the streaming form. It yields chunks as they are produced, then a final result with the exit code:
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:streaming_imports"
+
+--8<-- "user-guide/concepts/sandbox/index.ts:streaming"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/sandbox/index.py:streaming"
+```
+
+</Tab>
+</Tabs>
+
+## Next steps
+
+- [Sandbox Overview](./index.mdx) — what a sandbox is, the tools it vends, and plugin compatibility
+- [Building a Custom Sandbox](./custom-sandbox.mdx) — target a backend the built-ins do not cover
