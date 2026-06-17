@@ -36,9 +36,9 @@ export type OpenAIErrorKind = 'contextOverflow' | 'throttling'
  *
  * @internal
  */
-export function classifyOpenAIError(err: Error & { status?: number; code?: string }): OpenAIErrorKind | undefined {
+export function classifyOpenAIError(err: Error & { status?: number; code?: string | number }): OpenAIErrorKind | undefined {
   const message = err.message?.toLowerCase() ?? ''
-  const code = err.code?.toLowerCase() ?? ''
+  const code = typeof err.code === 'string' ? err.code.toLowerCase() : ''
 
   if (err.status === 429 || code === 'rate_limit_exceeded' || RATE_LIMIT_PATTERNS.some((p) => message.includes(p))) {
     return 'throttling'
