@@ -47,17 +47,36 @@ const highlightsHtml = d.highlights ? md.renderInline(d.highlights.trim()) : ''
 // generated files still go through human PR review before merge). highlights
 // above is escaped (html:false); the body is not.
 const { Content } = await render(release)
+
+// On the combined index, many release bodies reuse section headings ("What's
+// Changed", "Bug Fixes"), so their auto-generated heading ids collide into
+// invalid duplicate ids on the one page. There we emit the pre-rendered HTML
+// with each heading id (and same-document anchor href) prefixed by the release
+// anchor, making them unique. Detail pages render one body via <Content /> and
+// keep the clean, deep-linkable ids. body is trusted-by-PR-review (see above).
+const renderedHtml: string = (release as unknown as { rendered?: { html?: string } }).rendered?.html ?? ''
+const namespacedBody = detail
+  ? ''
+  : renderedHtml
+      .replace(/(<h[1-6][^>]*\sid=")([^"]+)(")/g, (_m, pre, id, post) => `${pre}${anchorId}-${id}${post}`)
+      .replace(/(<a[^>]*\shref="#)([^"]+)(")/g, (_m, pre, id, post) => `${pre}${anchorId}-${id}${post}`)
+
+// The version number is an <h1> on the standalone detail page (the page's one
+// top-level heading) and an <h2> within the combined list (under the page h1).
+const VersionHeading = detail ? 'h1' : 'h2'
 ---
 <article class="cl-version" id={anchorId} data-sdk={d.sdk} data-language={d.language ?? ''} aria-labelledby={`${anchorId}-h`}>
   <div class="cl-version-meta">
-    <h2 class="cl-version-num" id={`${anchorId}-h`}>
+    {/* On a detail page the version is the page's primary heading (h1, one per
+        page for a11y/SEO); in the combined list it's an h2 under the page h1. */}
+    <VersionHeading class="cl-version-num" id={`${anchorId}-h`}>
       {detail ? (
         <span class="cl-version-numtext">v{d.version}</span>
       ) : (
         <a class="cl-version-link" href={detailUrl} aria-label={`View v${d.version} release page`}>v{d.version}</a>
       )}
       <span class="cl-latest" data-cl-latest hidden>Latest</span>
-    </h2>
+    </VersionHeading>
     <div class="cl-version-date">{formatChangelogDate(d.date)}</div>
     <div class="cl-version-links">
       <a href={d.releaseUrl} target="_blank" rel="noopener">GitHub release <span aria-hidden="true">↗</span></a>
@@ -148,7 +167,7 @@ const { Content } = await render(release)
       </p>
     )}
     <div class="cl-version-notes">
-      <Content />
+      {detail ? <Content /> : <Fragment set:html={namespacedBody} />}
     </div>
   </div>
 </article>

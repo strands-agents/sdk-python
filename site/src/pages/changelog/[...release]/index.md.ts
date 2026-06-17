@@ -43,6 +43,11 @@ function buildMarkdown(release: ChangelogRelease): string {
     lines.push('', '## First-time contributors')
     for (const c of d.newContributors) lines.push(`- @${c.login} (#${c.pr})`)
   }
+  // Append the curated long-form body (raw markdown) so the agent-readable twin
+  // carries the same narrative the HTML detail page renders via <Content/>.
+  if (release.body && release.body.trim()) {
+    lines.push('', release.body.trim())
+  }
   lines.push('')
   return lines.join('\n')
 }

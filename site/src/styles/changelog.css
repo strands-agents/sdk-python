@@ -1,5 +1,11 @@
 :root {
   --changelog-danger: #d73a4a;
+  /* Accent for TEXT/links and the green-filled badge. Defaults to the theme
+     accent (passes WCAG AA on the dark background), but in light mode the
+     bright brand green (#00cc5f) only hits 2.1:1 on white — below AA — so we
+     darken it to a compliant green. Decorative accent uses (dots, rails, tints)
+     keep --sl-color-accent since contrast rules don't apply to them. */
+  --cl-accent-text: var(--sl-color-accent);
   /* Local tokens for values repeated with shared intent (not a full scale —
      deliberately-distinct sizes/radii are left inline). */
   --cl-text-meta: 0.72rem;   /* secondary metadata: counts, links, authors, tags */
@@ -8,6 +14,7 @@
 }
 [data-theme='light'] {
   --changelog-danger: #b60205;
+  --cl-accent-text: #067a39; /* 5.45:1 on white — WCAG AA */
 }
 
 /* Starlight's splash template wraps our slot in .sl-container (max-width 1080px)
@@ -34,7 +41,7 @@
 }
 .cl-title { font-size: clamp(2rem, 4vw, 2.75rem); font-weight: 700; color: var(--sl-color-white); margin: 0; }
 .cl-subtitle { color: var(--sl-color-gray-3); font-size: 1rem; margin: 0.4rem 0 0; }
-.cl-subtitle a { color: var(--sl-color-accent); }
+.cl-subtitle a { color: var(--cl-accent-text); }
 
 /* Reset Starlight's .sl-markdown-content spacing/typography on our subtree.
    The page renders inside .sl-markdown-content, which adds top margins to
@@ -54,7 +61,7 @@
   background: transparent; color: var(--sl-color-gray-2); font: inherit; line-height: 1.2; font-size: 0.9rem; font-weight: 600;
   border: 0; cursor: pointer; white-space: nowrap; }
 .cl-sdk button + button { border-left: 1px solid var(--sl-color-gray-5); }
-.cl-sdk button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--sl-color-accent); }
+.cl-sdk button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--cl-accent-text); }
 .cl-sdk .cl-langs { display: inline-flex; align-items: center; gap: 0.3rem; opacity: 0.85; }
 .cl-icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
@@ -64,7 +71,7 @@
   background: transparent; color: var(--sl-color-gray-3); font: inherit; line-height: 1.2; font-size: 0.82rem; font-weight: 600;
   border: 0; cursor: pointer; white-space: nowrap; }
 .cl-lang button + button { border-left: 1px solid var(--sl-color-gray-5); }
-.cl-lang button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--sl-color-accent); }
+.cl-lang button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--cl-accent-text); }
 
 /* layout: rail + feed */
 .cl-body { display: flex; border: 1px solid var(--sl-color-hairline); border-radius: 12px; overflow: hidden; }
@@ -89,7 +96,7 @@
   color: var(--sl-color-gray-2); background: transparent; cursor: pointer; text-align: left; }
 .cl-area:hover { background: color-mix(in srgb, var(--sl-color-gray-5) 40%, transparent); }
 .cl-area .cl-count { margin-left: auto; color: var(--sl-color-gray-3); font-size: var(--cl-text-meta); font-variant-numeric: tabular-nums; }
-.cl-area[aria-pressed='true'] { border-color: var(--sl-color-accent); color: var(--sl-color-accent);
+.cl-area[aria-pressed='true'] { border-color: var(--cl-accent-text); color: var(--cl-accent-text);
   background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent); }
 
 /* version block + timeline */
@@ -109,16 +116,16 @@
 /* "Latest" badge — marks the newest release of the active stream. */
 .cl-latest { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   padding: 0.1rem 0.4rem; border-radius: var(--cl-radius-pill);
-  background: var(--sl-color-accent); color: var(--sl-color-text-invert); }
+  background: var(--cl-accent-text); color: #fff; }
 /* The version number links to its per-release page on the combined index;
    inherits the heading color, accent + underline on hover. On the detail page
    it's plain text (.cl-version-numtext). */
 .cl-version-link { color: inherit; text-decoration: none; }
-.cl-version-link:hover, .cl-version-link:focus-visible { color: var(--sl-color-accent); text-decoration: underline; text-underline-offset: 3px; }
+.cl-version-link:hover, .cl-version-link:focus-visible { color: var(--cl-accent-text); text-decoration: underline; text-underline-offset: 3px; }
 .cl-version-date { color: var(--sl-color-gray-3); font-size: 0.8rem; margin-top: 2px; }
 .cl-version-links { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; align-items: flex-end; }
 .cl-version-links a { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; color: var(--sl-color-gray-3); text-decoration: none; }
-.cl-version-links a:hover { color: var(--sl-color-accent); }
+.cl-version-links a:hover { color: var(--cl-accent-text); }
 .cl-rail-line { display: flex; flex-direction: column; align-items: center; padding-top: 0.3rem; }
 /* Scroll-spy rail: the version currently in view (.cl-current, set by an
    IntersectionObserver) lights up green; everything else stays muted. */
@@ -133,7 +140,7 @@
 .cl-highlights { background: color-mix(in srgb, var(--sl-color-accent) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--sl-color-accent) 22%, transparent); border-radius: 9px;
   padding: 0.75rem 1rem; margin: 0.5rem 0 0.85rem; }
-.cl-highlights .cl-rail-label { color: var(--sl-color-accent); margin: 0; }
+.cl-highlights .cl-rail-label { color: var(--cl-accent-text); margin: 0; }
 .cl-highlights p { margin: 0.35rem 0 0; font-size: 1rem; line-height: 1.55; color: var(--sl-color-gray-1); }
 .cl-highlights code { font-size: 0.85em; }
 
@@ -142,7 +149,9 @@
 .cl-version-notes:not(:empty) { margin-top: 1rem; }
 .cl-version-notes :where(h1, h2, h3, h4) { font-size: 1rem; margin: 1rem 0 0.4rem; color: var(--sl-color-white); }
 .cl-version-notes :where(p, ul, ol) { margin: 0.4rem 0; }
-.cl-version-notes a { color: var(--sl-color-accent); }
+/* Links inside running prose are underlined so they're distinguishable by more
+   than color (WCAG link-in-text-block). */
+.cl-version-notes a { color: var(--cl-accent-text); text-decoration: underline; text-underline-offset: 2px; }
 .cl-version-notes code { font-size: 0.85em; }
 
 .cl-group { font-size: 1rem; font-weight: 700; letter-spacing: 0.02em; color: var(--sl-color-white);
@@ -159,11 +168,11 @@
 .cl-entry + .cl-entry { border-top: 1px solid var(--sl-color-gray-5); }
 /* min() guard: a hard 140px floor can overflow the narrow mobile drawer/feed. */
 .cl-entry-title { flex: 1; min-width: min(140px, 100%); }
-.cl-entry a { color: var(--sl-color-accent); text-decoration: none; }
+.cl-entry a { color: var(--cl-accent-text); text-decoration: none; }
 /* Linked titles keep body color (a page of accent-colored titles is unreadable);
    hover reveals the affordance. */
 a.cl-entry-title { color: var(--sl-color-gray-1); }
-a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underline; text-underline-offset: 3px; }
+a.cl-entry-title:hover { color: var(--cl-accent-text); text-decoration: underline; text-underline-offset: 3px; }
 .cl-atag { font-size: var(--cl-text-meta); padding: 0.1rem 0.5rem; border-radius: var(--cl-radius-pill); border: 1px solid var(--sl-color-gray-5); color: var(--sl-color-gray-3); white-space: nowrap; }
 .cl-break { font-size: 0.65rem; font-weight: 700; color: var(--changelog-danger);
   border: 1px solid color-mix(in srgb, var(--changelog-danger) 45%, transparent); border-radius: 4px;
@@ -172,12 +181,12 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 /* collapsed overflow sections (long releases, chores/docs/tests) */
 .cl-more { margin: 0.2rem 0 0.4rem; }
 .cl-more > summary { cursor: pointer; font-size: 0.8rem; color: var(--sl-color-gray-3); padding: 0.3rem 0; list-style-position: inside; }
-.cl-more > summary:hover { color: var(--sl-color-accent); }
+.cl-more > summary:hover { color: var(--cl-accent-text); }
 .cl-more.cl-other { border-top: 1px solid var(--sl-color-gray-5); padding-top: 0.5rem; margin-top: 0.9rem; }
 
 /* fallback when a release has no parsed entries (e.g. upstream notes omitted) */
 .cl-no-entries { color: var(--sl-color-gray-3); font-size: 0.9rem; margin: 0.5rem 0; }
-.cl-no-entries a { color: var(--sl-color-accent); text-decoration: none; }
+.cl-no-entries a { color: var(--cl-accent-text); text-decoration: underline; text-underline-offset: 2px; }
 
 /* first-time contributor celebration (sits right under highlights) */
 .cl-new-contributors { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
@@ -188,7 +197,7 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 .cl-nc-list { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
 .cl-nc { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; line-height: 1.4;
   color: var(--sl-color-gray-2); text-decoration: none; }
-.cl-nc:hover { color: var(--sl-color-accent); }
+.cl-nc:hover { color: var(--cl-accent-text); }
 .cl-nc img { display: block; border-radius: var(--cl-radius-pill); flex-shrink: 0; }
 
 /* per-release detail page: narrower reading column, no timeline rail (a single
@@ -201,14 +210,14 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 .cl-detail .cl-rail-line { display: none; }
 .cl-back { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem;
   color: var(--sl-color-gray-3); text-decoration: none; margin-bottom: 1.25rem; }
-.cl-back:hover { color: var(--sl-color-accent); }
+.cl-back:hover { color: var(--cl-accent-text); }
 /* prev/next within the same stream */
 .cl-pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem;
   padding-top: 1.5rem; border-top: 1px solid var(--sl-color-gray-5); }
 .cl-pager-link { display: inline-flex; flex-direction: column; gap: 0.15rem; text-decoration: none;
   padding: 0.6rem 0.9rem; border-radius: var(--cl-radius-control); border: 1px solid var(--sl-color-gray-5); }
 .cl-pager-next { text-align: right; }
-.cl-pager-link:hover { border-color: var(--sl-color-accent); }
+.cl-pager-link:hover { border-color: var(--cl-accent-text); }
 .cl-pager-dir { font-size: 0.72rem; color: var(--sl-color-gray-3); text-transform: uppercase; letter-spacing: 0.05em; }
 .cl-pager-ver { font-size: 0.95rem; font-weight: 600; color: var(--sl-color-white); }
 
@@ -268,7 +277,7 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
   border: 1px solid var(--sl-color-accent); }
 .cl-novel-btn:hover { background: color-mix(in srgb, var(--sl-color-accent) 85%, black); }
 .cl-novel-link { background: transparent; border: 0; color: var(--sl-color-gray-3); font: inherit; font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
-.cl-novel-link:hover { color: var(--sl-color-accent); }
+.cl-novel-link:hover { color: var(--cl-accent-text); }
 
 /* Hidden by filtering. Each selector is class+[hidden] (specificity 0,2,0),
    which outranks the plain-class display rules (e.g. .cl-area { display:flex }
