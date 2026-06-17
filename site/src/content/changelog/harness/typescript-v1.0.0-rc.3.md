@@ -19,7 +19,7 @@ newContributors:
 The SDK now supports cooperative cancellation of running agent invocations. Callers can stop an agent mid-execution via `agent.cancel()`, `AbortSignal.timeout()`, or any external `AbortSignal` (e.g., from an HTTP framework). Cancellation is checked between model stream events and before each tool execution, and running tools are never forcibly interrupted — they complete unless the tool itself checks the cancellation signal.
 
 ```typescript
-import { Agent } from '@anthropic-ai/sdk';
+import { Agent } from '@strands-agents/sdk';
 
 const agent = new Agent({ model, tools });
 
@@ -81,7 +81,7 @@ const tool = researcher.asTool({ preserveContext: true });
 `SessionManager` now implements `MultiAgentPlugin`, enabling Graph and Swarm orchestrators to automatically save and restore execution state. After each orchestrator invocation, the multi-agent state (node statuses, results, steps, app state) is persisted. On the next invocation, the snapshot is restored before the first node executes.
 
 ```typescript
-import { SessionManager, FileStorage } from '@anthropic-ai/sdk';
+import { SessionManager, FileStorage } from '@strands-agents/sdk';
 
 const session = new SessionManager({
   sessionId: 'my-session',
