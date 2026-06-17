@@ -6,7 +6,7 @@
  * it stays in parity). Mirrors the aggregate /changelog/index.md format.
  */
 import type { APIRoute, GetStaticPaths } from 'astro'
-import { getReleasePaths, groupEntries, HIDDEN_AREAS, escapeMarkdownInline, type ChangelogRelease } from '../../../util/changelog'
+import { getReleasePaths, renderEntrySectionsMd, type ChangelogRelease } from '../../../util/changelog'
 import { SDK_META, LANGUAGE_META } from '../../../config/changelog'
 
 export const getStaticPaths: GetStaticPaths = async () => getReleasePaths()
@@ -24,20 +24,8 @@ function buildMarkdown(release: ChangelogRelease): string {
   ]
   if (d.highlights) lines.push('', d.highlights.trim())
 
-  const { features, fixes, other } = groupEntries(d.entries)
-  const section = (title: string, items: typeof d.entries) => {
-    if (!items.length) return
-    lines.push('', `## ${title}`)
-    for (const e of items) {
-      const tags = e.areas.filter((a) => !HIDDEN_AREAS.has(a))
-      const areas = tags.length ? ` [${tags.join(', ')}]` : ''
-      const pr = e.prUrl ? ` (${e.prUrl})` : ''
-      lines.push(`- ${escapeMarkdownInline(e.title)}${areas}${pr}`)
-    }
-  }
-  section('Features', features)
-  section('Fixes', fixes)
-  section('Other', other)
+  // Top-level page, so sections are level-2 headings.
+  lines.push(...renderEntrySectionsMd(d.entries, 2))
 
   if (d.newContributors.length) {
     lines.push('', '## First-time contributors')

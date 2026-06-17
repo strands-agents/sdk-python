@@ -2,7 +2,7 @@
 import type { GetStaticPaths } from 'astro'
 import ChangelogLayout from '../../layouts/ChangelogLayout.astro'
 import ChangelogVersion from '../../components/changelog/ChangelogVersion.astro'
-import { getReleases, getReleasePaths, getStreamNeighbors, formatChangelogDate, releaseSlug } from '../../util/changelog'
+import { getReleasePaths, formatChangelogDate, releaseSlug } from '../../util/changelog'
 import { pathWithBase } from '../../util/links'
 import { SDK_META, LANGUAGE_META } from '../../config/changelog'
 import '../../styles/changelog.css'
@@ -11,10 +11,10 @@ export const getStaticPaths: GetStaticPaths = async () => {
   return getReleasePaths()
 }
 
-const { release } = Astro.props
+// release + same-stream neighbors are precomputed in getReleasePaths (no
+// per-page re-read of the whole collection).
+const { release, newer, older } = Astro.props
 const d = release.data
-const all = await getReleases()
-const { newer, older } = getStreamNeighbors(release, all)
 
 const streamLabel = [SDK_META[d.sdk].label, d.language ? LANGUAGE_META[d.language].label : '']
   .filter(Boolean)

@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { getReleases, groupEntries, HIDDEN_AREAS, escapeMarkdownInline } from '../../util/changelog'
+import { getReleases, renderEntrySectionsMd } from '../../util/changelog'
 
 export const GET: APIRoute = async () => {
   const releases = await getReleases()
@@ -10,20 +10,8 @@ export const GET: APIRoute = async () => {
     lines.push(`## ${label} v${d.version} — ${d.date.toISOString().slice(0, 10)}`)
     lines.push(`Release: ${d.releaseUrl} · Package: ${d.packageUrl}`)
     if (d.highlights) lines.push('', d.highlights.trim())
-    const { features, fixes, other } = groupEntries(d.entries)
-    const section = (title: string, items: typeof d.entries) => {
-      if (!items.length) return
-      lines.push('', `### ${title}`)
-      for (const e of items) {
-        const tags = e.areas.filter((a) => !HIDDEN_AREAS.has(a))
-        const areas = tags.length ? ` [${tags.join(', ')}]` : ''
-        const pr = e.prUrl ? ` (${e.prUrl})` : ''
-        lines.push(`- ${escapeMarkdownInline(e.title)}${areas}${pr}`)
-      }
-    }
-    section('Features', features)
-    section('Fixes', fixes)
-    section('Other', other)
+    // Sections nested under the per-release `##` header, so heading level 3.
+    lines.push(...renderEntrySectionsMd(d.entries, 3))
     lines.push('')
   }
   return new Response(lines.join('\n'), {

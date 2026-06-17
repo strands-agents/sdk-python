@@ -14,6 +14,35 @@ export function escapeMarkdownInline(text: string): string {
   return text.replace(/[\\`*_[\]<>]/g, (c) => '\\' + c)
 }
 
+/**
+ * Render a release's entries (Features / Fixes / Other) as Markdown bullet
+ * sections, shared by the aggregate and per-release `.md` endpoints so the two
+ * can't drift. `headingLevel` is the `#` count for the section headers (the
+ * aggregate nests sections under a per-release `##`, so it passes 3; the
+ * per-release page is the top-level doc, so it passes 2). Titles are escaped
+ * (see escapeMarkdownInline); the curated `community` area is hidden to match
+ * the HTML.
+ */
+export function renderEntrySectionsMd(entries: ChangelogEntry[], headingLevel: number): string[] {
+  const hashes = '#'.repeat(headingLevel)
+  const { features, fixes, other } = groupEntries(entries)
+  const out: string[] = []
+  const section = (title: string, items: ChangelogEntry[]) => {
+    if (!items.length) return
+    out.push('', `${hashes} ${title}`)
+    for (const e of items) {
+      const tags = e.areas.filter((a) => !HIDDEN_AREAS.has(a))
+      const areas = tags.length ? ` [${tags.join(', ')}]` : ''
+      const pr = e.prUrl ? ` (${e.prUrl})` : ''
+      out.push(`- ${escapeMarkdownInline(e.title)}${areas}${pr}`)
+    }
+  }
+  section('Features', features)
+  section('Fixes', fixes)
+  section('Other', other)
+  return out
+}
+
 const FEATURE_TYPES = new Set(['feat', 'breaking', 'perf'])
 const FIX_TYPES = new Set(['fix'])
 
@@ -87,16 +116,27 @@ export function releaseSlug(r: ChangelogRelease): string {
  * version) would otherwise collide into one route silently; fail the build fast
  * with a clear message instead.
  */
-export async function getReleasePaths(): Promise<Array<{ params: { release: string }; props: { release: ChangelogRelease } }>> {
+export interface ReleasePathProps {
+  release: ChangelogRelease
+  newer: ChangelogRelease | null
+  older: ChangelogRelease | null
+  // Astro's GetStaticPathsItem requires props to be index-signature compatible.
+  [key: string]: unknown
+}
+
+export async function getReleasePaths(): Promise<Array<{ params: { release: string }; props: ReleasePathProps }>> {
   const releases = await getReleases()
   const seen = new Map<string, string>()
+  // Compute same-stream prev/next neighbors here (once) and pass them as props,
+  // so detail pages don't each re-read the whole collection to find them.
   return releases.map((release) => {
     const slug = releaseSlug(release)
     if (seen.has(slug)) {
       throw new Error(`changelog: duplicate release slug "${slug}" from ${release.id} and ${seen.get(slug)}`)
     }
     seen.set(slug, release.id)
-    return { params: { release: slug }, props: { release } }
+    const { newer, older } = getStreamNeighbors(release, releases)
+    return { params: { release: slug }, props: { release, newer, older } }
   })
 }
 
