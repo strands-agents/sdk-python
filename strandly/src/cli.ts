@@ -116,9 +116,5 @@ function fmt(opts?: { check?: boolean }): void {
 }
 
 function clean(): void {
-  try {
-    run('npm run clean --workspaces')
-  } catch (e) {
-    console.warn('workspace clean failed (continuing):', (e as Error).message)
-  }
+  run('npm run clean --workspaces --if-present')
 }
