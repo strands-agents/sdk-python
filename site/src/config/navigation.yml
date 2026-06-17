@@ -231,6 +231,14 @@ sidebar:
               - docs/user-guide/evals-sdk/how-to/result_caching
               - docs/user-guide/evals-sdk/how-to/experiment_management
               - docs/user-guide/evals-sdk/how-to/serialization
+      - label: Strands Shell SDK
+        items:
+          - docs/user-guide/shell-sdk
+          - docs/user-guide/shell-sdk/quickstart
+          - docs/user-guide/shell-sdk/configuration
+          - docs/user-guide/shell-sdk/commands
+          - docs/user-guide/shell-sdk/mcp-server
+          - docs/user-guide/shell-sdk/security
       - docs/user-guide/versioning-and-support
 
   - label: Examples
