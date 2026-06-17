@@ -11,9 +11,7 @@ try:
 except ImportError:
     HAS_SCHEMA_GENERATOR = False
 
-pytestmark = pytest.mark.skipif(
-    not HAS_SCHEMA_GENERATOR, reason="cedar-policy-mcp-schema-generator not installed"
-)
+pytestmark = pytest.mark.skipif(not HAS_SCHEMA_GENERATOR, reason="cedar-policy-mcp-schema-generator not installed")
 
 
 class TestSchemaGeneration:

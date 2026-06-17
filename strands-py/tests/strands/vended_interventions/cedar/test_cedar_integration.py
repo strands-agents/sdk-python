@@ -44,9 +44,7 @@ class TestPermitDeny:
             ]
         )
 
-        cedar = CedarAuthorization(
-            policies='permit(principal, action == Action::"search", resource);'
-        )
+        cedar = CedarAuthorization(policies='permit(principal, action == Action::"search", resource);')
         agent = Agent(model=model, tools=[search], interventions=[cedar])
         result = agent("Search for test")
 
@@ -69,9 +67,7 @@ class TestPermitDeny:
             ]
         )
 
-        cedar = CedarAuthorization(
-            policies='permit(principal, action == Action::"search", resource);'
-        )
+        cedar = CedarAuthorization(policies='permit(principal, action == Action::"search", resource);')
         agent = Agent(model=model, tools=[delete_record], interventions=[cedar])
         result = agent("Delete record 42")
 

@@ -562,7 +562,6 @@ class TestReload:
         assert cedar.before_tool_call(_make_event("delete")).type == "proceed"
 
 
-
 class TestEntities:
     def test_inline_entities(self):
         entities = [

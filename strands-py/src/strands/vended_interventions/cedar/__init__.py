@@ -22,8 +22,7 @@ try:
     import cedarpy as _cedarpy  # noqa: F401
 except ImportError as _e:
     raise ImportError(
-        "The cedar intervention handler requires 'cedarpy'. "
-        "Install it with: pip install strands-agents[cedar]"
+        "The cedar intervention handler requires 'cedarpy'. Install it with: pip install strands-agents[cedar]"
     ) from _e
 
 from ._schema_generator import ToolDefinition
