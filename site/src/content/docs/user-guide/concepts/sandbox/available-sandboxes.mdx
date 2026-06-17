@@ -31,6 +31,8 @@ sandbox = DockerSandbox(
     user="1000:1000",
 )
 agent = Agent(sandbox=sandbox)
+
+agent("Run the test suite and summarize any failures")
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -62,6 +64,8 @@ sandbox = SshSandbox(
     identity_file="~/.ssh/agent_key",
 )
 agent = Agent(sandbox=sandbox)
+
+agent("Run the test suite and summarize any failures")
 ```
 
 By default the SSH sandbox trusts a host key on first connect and rejects it if it later changes. It also rejects SSH options outside a vetted allowlist. Both guards can be loosened (`allow_unknown_hosts`, `allow_unsafe_ssh_options`) when you understand the tradeoff.
@@ -82,7 +86,7 @@ The remote account is the boundary here. Scope it to the least privilege the tas
 
 ## Working With a Sandbox Directly
 
-The sandbox is not only for the model. You can drive it from your own code through <Syntax py="agent.sandbox" ts="agent.sandbox" />, which is useful for setup, verification, and teardown around an agent run.
+A sandbox is a standalone object. You can construct one and drive it directly from your own code, independent of any agent, which is useful for setup, verification, and teardown, or for running commands in the environment without a model in the loop. The same instance can also be handed to an agent through the `sandbox` option so both share one environment.
 
 <Tabs>
 <Tab label="Python">
@@ -90,18 +94,16 @@ The sandbox is not only for the model. You can drive it from your own code throu
 ```python
 import asyncio
 
-from strands import Agent
 from strands.sandbox.docker import DockerSandbox
 
-agent = Agent(sandbox=DockerSandbox(container="agent-workspace", working_dir="/workspace"))
+sandbox = DockerSandbox(container="agent-workspace", working_dir="/workspace")
 
 async def main():
-    # Seed an input file, let the agent work, then read the result back
-    await agent.sandbox.write_text("/workspace/input.csv", "id,value\n1,42\n")
+    # Write an input file, run a command against it, then read the result back
+    await sandbox.write_text("/workspace/input.csv", "id,value\n1,42\n")
+    await sandbox.execute("wc -l < /workspace/input.csv > /workspace/out.txt")
 
-    agent("Summarize /workspace/input.csv and write the summary to /workspace/out.txt")
-
-    result = await agent.sandbox.execute("cat /workspace/out.txt")
+    result = await sandbox.execute("cat /workspace/out.txt")
     print(result.exit_code, result.stdout)
 
 asyncio.run(main())
@@ -131,14 +133,13 @@ The file helpers come in two forms. <Syntax ts="readFile" plain /> and <Syntax t
 ```python
 import asyncio
 
-from strands import Agent
 from strands.sandbox import ExecutionResult, StreamChunk
 from strands.sandbox.docker import DockerSandbox
 
-agent = Agent(sandbox=DockerSandbox(container="agent-workspace", working_dir="/workspace"))
+sandbox = DockerSandbox(container="agent-workspace", working_dir="/workspace")
 
 async def main():
-    async for chunk in agent.sandbox.execute_streaming("npm run build"):
+    async for chunk in sandbox.execute_streaming("npm run build"):
         if isinstance(chunk, StreamChunk):
             print(chunk.data, end="")
         elif isinstance(chunk, ExecutionResult):
