@@ -149,6 +149,7 @@ def test_swarm_execution_with_string(researcher_agent, analyst_agent, writer_age
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(180)
 async def test_swarm_execution_with_image(researcher_agent, analyst_agent, writer_agent, yellow_img):
     """Test swarm execution with image input."""
     # Create the swarm
