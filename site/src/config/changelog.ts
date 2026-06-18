@@ -11,5 +11,15 @@ export const SDK_META: Record<Sdk, { label: string; languages: Language[] }> = {
   evals: { label: 'Evals', languages: ['python'] },
 }
 
+/**
+ * Canonical human label for a release stream, e.g. "Harness Python", "Evals".
+ * Single source so the detail page, markdown endpoints, RSS, and llms.txt don't
+ * each hand-roll it (they previously drifted between "Harness Python" and
+ * "Harness (python)").
+ */
+export function streamLabel(sdk: Sdk, language?: Language): string {
+  return [SDK_META[sdk].label, language ? LANGUAGE_META[language].label : ''].filter(Boolean).join(' ')
+}
+
 // Package-registry URL construction lives in the devtools changelog-release-pr
 // action (the producer of `packageUrl` frontmatter) — not duplicated here.

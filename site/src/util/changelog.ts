@@ -155,7 +155,7 @@ function streamKey(r: ChangelogRelease): string {
  * for prev/next links on the detail page. `newer`/`older` are relative to date;
  * either may be null at the ends of the stream.
  */
-export function getStreamNeighbors(
+function getStreamNeighbors(
   release: ChangelogRelease,
   all: ChangelogRelease[]
 ): { newer: ChangelogRelease | null; older: ChangelogRelease | null } {

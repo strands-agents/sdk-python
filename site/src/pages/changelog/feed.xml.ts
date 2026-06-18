@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import rss from '@astrojs/rss'
 import { getReleases, releaseSlug, HIDDEN_AREAS } from '../../util/changelog'
+import { streamLabel } from '../../config/changelog'
 import { pathWithBase } from '../../util/links'
 
 export const GET: APIRoute = async (context) => {
@@ -10,7 +11,7 @@ export const GET: APIRoute = async (context) => {
     description: 'Releases across the Strands Agents Harness and Evals SDKs.',
     site: context.site!,
     items: releases.map((r) => ({
-      title: `${r.data.sdk === 'evals' ? 'Evals' : 'Harness'} ${r.data.language ? `(${r.data.language}) ` : ''}v${r.data.version}`,
+      title: `${streamLabel(r.data.sdk, r.data.language)} v${r.data.version}`,
       pubDate: r.data.date,
       description:
         r.data.highlights ||

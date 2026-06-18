@@ -46,7 +46,10 @@ const highlightsHtml = d.highlights ? md.renderInline(d.highlights.trim()) : ''
 // so the body is trusted-by-PR-review (committed fixtures today; automation-
 // generated files still go through human PR review before merge). highlights
 // above is escaped (html:false); the body is not.
-const { Content } = await render(release)
+// Only the detail page uses <Content />; the combined index uses the
+// pre-rendered (namespaced) HTML instead, so don't pay for render() per release
+// across the whole list — only render when this is a detail page.
+const Content = detail ? (await render(release)).Content : null
 
 // On the combined index, many release bodies reuse section headings ("What's
 // Changed", "Bug Fixes"), so their auto-generated heading ids collide into

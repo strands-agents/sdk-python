@@ -3,7 +3,7 @@ import type { CollectionEntry } from 'astro:content'
 import { getCollection } from 'astro:content'
 import { getBase, getSiteOrigin } from '@util/links'
 import { getReleases, releaseSlug, type ChangelogRelease } from '@util/changelog'
-import { SDK_META, LANGUAGE_META } from '../config/changelog'
+import { streamLabel } from '../config/changelog'
 import { loadSidebarFromConfig, type StarlightSidebarItem } from '../sidebar'
 import path from 'node:path'
 
@@ -111,9 +111,7 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
   lines.push(`- [Changelog](${base}/changelog/index.md): All releases across the Harness and Evals SDKs`)
   const byStream = new Map<string, ChangelogRelease[]>()
   for (const r of releases) {
-    const label = [SDK_META[r.data.sdk].label, r.data.language ? LANGUAGE_META[r.data.language].label : '']
-      .filter(Boolean)
-      .join(' ')
+    const label = streamLabel(r.data.sdk, r.data.language)
     if (!byStream.has(label)) byStream.set(label, [])
     byStream.get(label)!.push(r)
   }

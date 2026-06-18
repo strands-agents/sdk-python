@@ -4,7 +4,7 @@ import ChangelogLayout from '../../layouts/ChangelogLayout.astro'
 import ChangelogVersion from '../../components/changelog/ChangelogVersion.astro'
 import { getReleasePaths, formatChangelogDate, releaseSlug } from '../../util/changelog'
 import { pathWithBase } from '../../util/links'
-import { SDK_META, LANGUAGE_META } from '../../config/changelog'
+import { streamLabel } from '../../config/changelog'
 import '../../styles/changelog.css'
 
 export const getStaticPaths: GetStaticPaths = async () => {
@@ -16,11 +16,9 @@ export const getStaticPaths: GetStaticPaths = async () => {
 const { release, newer, older } = Astro.props
 const d = release.data
 
-const streamLabel = [SDK_META[d.sdk].label, d.language ? LANGUAGE_META[d.language].label : '']
-  .filter(Boolean)
-  .join(' ')
-const title = `${streamLabel} v${d.version}`
-const description = `Release notes for ${streamLabel} v${d.version}, published ${formatChangelogDate(d.date)}.`
+const label = streamLabel(d.sdk, d.language)
+const title = `${label} v${d.version}`
+const description = `Release notes for ${label} v${d.version}, published ${formatChangelogDate(d.date)}.`
 
 const linkFor = (r: typeof release) => pathWithBase(`/changelog/${releaseSlug(r)}/`)
 ---
@@ -30,7 +28,7 @@ const linkFor = (r: typeof release) => pathWithBase(`/changelog/${releaseSlug(r)
     <ol class="cl-feed-list" role="list">
       <li class="cl-version-item"><ChangelogVersion release={release} detail /></li>
     </ol>
-    <nav class="cl-pager" aria-label={`Other ${streamLabel} releases`}>
+    <nav class="cl-pager" aria-label={`Other ${label} releases`}>
       {older ? (
         <a class="cl-pager-link cl-pager-prev" href={linkFor(older)} rel="prev">
           <span class="cl-pager-dir"><span aria-hidden="true">←</span> Older</span>

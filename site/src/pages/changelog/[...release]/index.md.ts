@@ -7,17 +7,14 @@
  */
 import type { APIRoute, GetStaticPaths } from 'astro'
 import { getReleasePaths, renderEntrySectionsMd, type ChangelogRelease } from '../../../util/changelog'
-import { SDK_META, LANGUAGE_META } from '../../../config/changelog'
+import { streamLabel } from '../../../config/changelog'
 
 export const getStaticPaths: GetStaticPaths = async () => getReleasePaths()
 
 function buildMarkdown(release: ChangelogRelease): string {
   const d = release.data
-  const streamLabel = [SDK_META[d.sdk].label, d.language ? LANGUAGE_META[d.language].label : '']
-    .filter(Boolean)
-    .join(' ')
   const lines: string[] = [
-    `# ${streamLabel} v${d.version}`,
+    `# ${streamLabel(d.sdk, d.language)} v${d.version}`,
     '',
     `Released ${d.date.toISOString().slice(0, 10)}`,
     `Release: ${d.releaseUrl} · Package: ${d.packageUrl}`,
