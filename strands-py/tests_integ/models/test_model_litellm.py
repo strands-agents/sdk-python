@@ -8,6 +8,7 @@ import pytest
 import strands
 from strands import Agent
 from strands.models.litellm import LiteLLMModel
+from tests_integ.conftest import retry_on_flaky
 
 
 @pytest.fixture
@@ -280,6 +281,7 @@ async def test_cache_read_tokens_multi_turn(model):
     assert result.metrics.accumulated_usage["cacheWriteInputTokens"] > 0
 
 
+@retry_on_flaky("The model may occasionally not elect to call both tools", retry_on=[AssertionError])
 def test_gemini_thinking_model_tool_call(tools):
     """Test that Gemini thinking models preserve thought_signature through multi-turn tool calls.
 
