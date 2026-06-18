@@ -3,7 +3,6 @@
  * sandbox integration test via an SSM Session Manager port-forward.
  */
 
-import { SSMClient, TerminateSessionCommand } from '@aws-sdk/client-ssm'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -160,8 +159,11 @@ function closeTunnel(state: TunnelState): void {
   process.removeListener('exit', state.exitHandler)
 
   if (state.sessionId) {
-    const client = new SSMClient({ region: AWS_REGION })
-    client.send(new TerminateSessionCommand({ SessionId: state.sessionId })).catch(() => {})
+    // Must be synchronous — this also runs as a process.on('exit') handler where async work
+    // never settles.
+    spawnSync('aws', ['ssm', 'terminate-session', '--region', AWS_REGION, '--session-id', state.sessionId], {
+      stdio: 'ignore',
+    })
   }
   if (!state.process.killed) {
     state.process.kill()
