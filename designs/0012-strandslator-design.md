@@ -1,4 +1,4 @@
-# Strandslator
+# Strandslator Design
 
 **Status**: Proposed
 
@@ -90,9 +90,18 @@ Committing and pushing code is a good example. Rather than letting the agent dec
 
 ## Experiments
 
-I ran early experiments translating the Anthropic model provider from TypeScript to Python, erasing existing traces from the Python SDK to set realistic conditions. With Opus 4.8 and above, translation quality is strong. The takeaway is that translation itself is not the bottleneck; what's missing is the review infrastructure, which is what shifted focus toward the artifacts and report design in this proposal.
+I ran two experiments to validate the workflow and understand where human effort actually goes.
 
-Trust will build incrementally. Each reviewed and approved PR gives us more evidence about where the system is reliable, and over time the review process can become lighter as confidence grows.
+In the first experiment, I translated the Anthropic model provider from TypeScript to Python, erasing existing traces from the Python SDK to set realistic conditions. With Opus 4.8 and above, translation quality was strong. The takeaway: translation itself is not the bottleneck; review infrastructure is. That shifted focus toward the artifacts and report design in this proposal.
+
+In the second experiment, I used the Strandslator prototype to port `BedrockKnowledgeBaseStore` from TypeScript to Python ([#2834](https://github.com/strands-agents/harness-sdk/pull/2834)): store implementation, config types, 54 unit tests, and integration tests against a live Bedrock Knowledge Base. The prototype ran end to end and produced working code, but required human redirection on four issues:
+
+- **Dataclass instead of TypedDict for configs.** The codebase uses both (e.g. `CacheConfig` is a dataclass, `BaseModelConfig` is a TypedDict) for the same pattern, so the agent picked the wrong precedent. Partially corrected ([#2824](https://github.com/strands-agents/harness-sdk/pull/2824)), but inconsistencies remain. The rule: a TS `interface` passed as a constructor object literal maps to a `TypedDict`.
+- **`MemoryStoreConfig` was a Protocol, not a TypedDict.** From a separate earlier port. Protocols can't be spread into constructor kwargs, so the agent couldn't compose with the shared config type.
+- **No uuid7 in Python.** The TS source uses uuid v7 for document IDs; Python's stdlib has no v7 until 3.14, so the agent used uuid4. A genuine language gap, not a codebase consistency issue.
+- **Skipped boto3-stubs[s3].** Adding the stub would have tightened typing repo-wide (boto3-stubs injects overloads via package install, not per-import), exposing a pre-existing error in an unrelated file. The agent surfaced the issue and correctly refused to fix code outside the feature, but that forced human intervention.
+
+All but uuid7 trace to inconsistencies in the Python codebase. The agent was influenced by conflicting precedents and made defensible-but-wrong choices. With consistency going forward, this port reduces to a single decision (uuid7 vs uuid4). That is the concrete payoff of "Design for portability" and "Fix the system, not the instance": consistency means less human intervention, and the intervention that remains is about genuine language gaps rather than inherited drift.
 
 ## References
 
