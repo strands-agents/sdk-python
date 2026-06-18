@@ -20,6 +20,7 @@ jobs:
             feat
             fix
             docs
+            blog
             style
             refactor
             perf
@@ -28,6 +29,7 @@ jobs:
             ci
             chore
             revert
+            design
           requireScope: false
           subjectPattern: ^[a-z].+$
           subjectPatternError: |

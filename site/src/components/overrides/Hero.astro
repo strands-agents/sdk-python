@@ -1,0 +1,11 @@
+---
+/**
+ * Hero override — suppresses the Starlight hero on blog pages,
+ * since we use hero: {} only as a layout signal to collapse the two-panel structure.
+ */
+import DefaultHero from 'node_modules/@astrojs/starlight/components/Hero.astro'
+
+const isBlog = Astro.url.pathname.includes('/blog/')
+---
+
+{!isBlog && <DefaultHero />}

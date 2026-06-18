@@ -1,0 +1,296 @@
+package strands:agent@0.1.0;
+
+/// Session persistence configuration and pluggable storage backends.
+interface sessions {
+  use wasi:clocks/wall-clock@0.2.6.{datetime};
+  use messages.{message};
+
+  /// Local filesystem snapshot storage.
+  record file-storage {
+    /// Directory under which snapshots are written.
+    base-dir: string,
+  }
+
+  /// S3 snapshot storage.
+  record s3-storage {
+    /// Target bucket.
+    bucket: string,
+    /// AWS region. Falls back to the default credential chain.
+    region: option<string>,
+    /// Key prefix under which snapshots are stored.
+    prefix: option<string>,
+  }
+
+  /// Reference to an application-implemented storage backend.
+  record custom-storage {
+    /// Identifier routed back to the `snapshot-storage` handler on every
+    /// call. One application can register multiple backends under
+    /// distinct ids.
+    backend-id: string,
+  }
+
+  /// Where to persist session snapshots.
+  variant storage-config {
+    /// Local filesystem.
+    file(file-storage),
+    /// Amazon S3.
+    s3(s3-storage),
+    /// Application-implemented backend.
+    custom(custom-storage),
+  }
+
+  /// When to update the "latest" snapshot pointer. The `trigger` arm
+  /// carries the id of an application-supplied callback that decides
+  /// per-invocation.
+  variant save-latest-policy {
+    /// After every message added to the conversation.
+    message,
+    /// Once per invocation, after it completes.
+    invocation,
+    /// Each invocation consults the named `snapshot-trigger-handler`.
+    /// The id identifies which handler to invoke.
+    trigger(string),
+  }
+
+  /// Session persistence configuration attached to an agent.
+  record session-manager {
+    /// Identifier for this session's snapshots.
+    session-id: string,
+    /// Storage backend.
+    storage: storage-config,
+    /// When to update the "latest" snapshot. Absent uses the `invocation`
+    /// default.
+    save-latest: option<save-latest-policy>,
+  }
+
+  /// Which kind of state a snapshot describes.
+  enum snapshot-scope {
+    /// Single-agent state.
+    agent,
+    /// Multi-agent orchestrator state.
+    multi-agent,
+  }
+
+  /// Locator for a snapshot within the storage hierarchy.
+  record snapshot-location {
+    /// Session identifier.
+    session-id: string,
+    /// What kind of state this snapshot holds.
+    scope: snapshot-scope,
+    /// Scope-specific identifier (agent id or multi-agent id).
+    scope-id: string,
+  }
+
+  /// Sliding-window conversation manager state at snapshot time.
+  record sliding-window-state {
+    /// Number of messages dropped from the front of history this lifetime.
+    removed-message-count: s32,
+  }
+
+  /// Summarizing conversation manager state at snapshot time.
+  record summarizing-state {
+    /// Current summary message, carrying the accumulated summary text.
+    /// Absent before the first summarization runs.
+    summary-message: option<message>,
+    /// Number of messages removed via summarization.
+    removed-message-count: s32,
+  }
+
+  /// Conversation manager snapshot state. Wrapped in ``option<>`` at the
+  /// call site; ``none`` means there's no manager and nothing to persist.
+  variant conversation-manager-state {
+    /// Sliding-window manager state.
+    sliding-window(sliding-window-state),
+    /// Summarizing manager state.
+    summarizing(summarizing-state),
+  }
+
+  /// Retry-strategy state at snapshot time.
+  record retry-strategy-state {
+    /// Attempts used against the current model call's budget.
+    attempts-used: s32,
+    /// Milliseconds elapsed against the strategy's total budget.
+    elapsed-ms: s64,
+  }
+
+  /// Named plugin state. `data` is an opaque JSON object owned by the plugin.
+  record plugin-state-entry {
+    /// Plugin identifier, matches the plugin's `name`.
+    plugin-name: string,
+    /// Plugin-owned state as an opaque JSON object.
+    data: string,
+  }
+
+  /// Framework-owned snapshot state. All fields are optional because an
+  /// agent may not exercise every subsystem in a given run.
+  record snapshot-data {
+    /// Conversation history at snapshot time.
+    messages: list<message>,
+    /// Conversation manager state.
+    conversation-manager: option<conversation-manager-state>,
+    /// Retry strategy state.
+    retry-strategy: option<retry-strategy-state>,
+    /// Model-provider state (e.g. server-side session id for stateful
+    /// providers) as an opaque JSON object.
+    model-state: option<string>,
+    /// Per-plugin state for plugins the framework doesn't model directly.
+    plugins: list<plugin-state-entry>,
+  }
+
+  /// Point-in-time capture of agent or orchestrator state.
+  record snapshot {
+    /// Which scope this snapshot belongs to.
+    scope: snapshot-scope,
+    /// Schema version string for forward compatibility.
+    schema-version: string,
+    /// Wall-clock time the snapshot was created.
+    created-at: datetime,
+    /// Framework-owned state.
+    data: snapshot-data,
+    /// Application-owned data as an opaque JSON object. The agent does
+    /// not read or modify this.
+    app-data: string,
+  }
+
+  /// Metadata describing the snapshot manifest file.
+  record snapshot-manifest {
+    /// Schema version of the manifest.
+    schema-version: string,
+    /// Wall-clock time of the most recent manifest update.
+    updated-at: datetime,
+  }
+
+  /// Why a snapshot operation failed.
+  variant storage-error {
+    /// No snapshot or manifest at the requested location.
+    not-found,
+    /// Caller lacks permission to read or write the storage.
+    access-denied(string),
+    /// Backing storage is full or over quota.
+    out-of-space,
+    /// Snapshot is malformed or cannot be deserialized.
+    corrupt(string),
+    /// Concurrent writers collided; retrying may succeed.
+    conflict(string),
+    /// Transient I/O failure; retrying may succeed.
+    transient(string),
+    /// Permanent backend failure.
+    permanent(string),
+    /// No custom backend registered for the given backend-id.
+    unknown-backend(string),
+  }
+}
+
+/// Pluggable snapshot storage. Selected via `storage-config = custom(...)`.
+/// `backend-id` is passed on every call so one impl can serve many backends.
+interface snapshot-storage {
+  use sessions.{snapshot, snapshot-location, snapshot-manifest, storage-error};
+
+  /// Arguments for `save-snapshot`.
+  record save-snapshot-args {
+    /// Backend this call targets.
+    backend-id: string,
+    /// Where to write the snapshot.
+    location: snapshot-location,
+    /// Snapshot identifier. Agent-assigned UUID v7; treat as opaque.
+    snapshot-id: string,
+    /// Whether this snapshot should become the new "latest" pointer.
+    is-latest: bool,
+    /// Snapshot data.
+    snapshot: snapshot,
+  }
+
+  /// Arguments for `load-snapshot`.
+  record load-snapshot-args {
+    /// Backend this call targets.
+    backend-id: string,
+    /// Which session/scope to load from.
+    location: snapshot-location,
+    /// Specific snapshot id. Absent loads the "latest" snapshot.
+    snapshot-id: option<string>,
+  }
+
+  /// Arguments for `list-snapshot-ids`.
+  record list-snapshot-ids-args {
+    /// Backend this call targets.
+    backend-id: string,
+    /// Which session/scope to list.
+    location: snapshot-location,
+    /// Cap on returned ids.
+    limit: option<s32>,
+    /// Exclusive cursor. Pass the last id returned by the previous page.
+    start-after: option<string>,
+  }
+
+  /// Arguments for `delete-session`.
+  record delete-session-args {
+    /// Backend this call targets.
+    backend-id: string,
+    /// Session to delete.
+    session-id: string,
+  }
+
+  /// Arguments for `load-manifest` / `save-manifest`.
+  record manifest-args {
+    /// Backend this call targets.
+    backend-id: string,
+    /// Which session/scope's manifest to address.
+    location: snapshot-location,
+  }
+
+  /// Arguments for `save-manifest`.
+  record save-manifest-args {
+    /// Backend this call targets.
+    backend-id: string,
+    /// Which session/scope's manifest to update.
+    location: snapshot-location,
+    /// New manifest.
+    manifest: snapshot-manifest,
+  }
+
+  /// Persist a snapshot.
+  save-snapshot: func(args: save-snapshot-args) -> result<_, storage-error>;
+
+  /// Load a snapshot. Returns `ok(none)` when the location is empty.
+  load-snapshot: func(args: load-snapshot-args) -> result<option<snapshot>, storage-error>;
+
+  /// List snapshot ids for a session scope, chronologically.
+  list-snapshot-ids: func(args: list-snapshot-ids-args) -> result<list<string>, storage-error>;
+
+  /// Delete every snapshot for the given session id.
+  delete-session: func(args: delete-session-args) -> result<_, storage-error>;
+
+  /// Load the manifest for a session scope.
+  load-manifest: func(args: manifest-args) -> result<snapshot-manifest, storage-error>;
+
+  /// Save the manifest for a session scope.
+  save-manifest: func(args: save-manifest-args) -> result<_, storage-error>;
+}
+
+/// Pluggable snapshot trigger called after each invocation.
+/// Enabled via `session-manager.save-latest = trigger(id)`.
+interface snapshot-trigger-handler {
+  use messages.{message};
+
+  /// Context passed to the trigger on each call.
+  record trigger-params {
+    /// Identifier of the trigger, matching the id supplied in
+    /// `save-latest-policy.trigger`.
+    trigger-id: string,
+    /// Total messages in the agent's conversation history.
+    message-count: s32,
+    /// Most recent message. Absent when history is empty.
+    last-message: option<message>,
+  }
+
+  /// Why a trigger evaluation failed.
+  variant trigger-error {
+    /// No trigger registered for the given id.
+    unknown(string),
+    /// Trigger raised an exception.
+    failed(string),
+  }
+
+  /// Return true to write a new snapshot, false to skip.
+  should-snapshot: func(params: trigger-params) -> result<bool, trigger-error>;
+}

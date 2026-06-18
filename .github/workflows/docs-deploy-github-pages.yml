@@ -1,0 +1,53 @@
+name: "Docs: Deploy to GitHub Pages"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: site
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build CMS
+        run: npm run cms:build
+        env:
+          SITE_DOMAIN: https://strandsagents.com
+
+      - name: Create latest/ symlinks for llms.txt files
+        run: |
+          mkdir -p dist/latest
+          ln dist/llms.txt dist/latest/llms.txt
+          ln dist/llms-full.txt dist/latest/llms-full.txt
+
+      - name: Deploy to gh-pages branch
+        working-directory: .
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git fetch origin gh-pages || true
+          git worktree add gh-pages-deploy origin/gh-pages 2>/dev/null || git worktree add --orphan -b gh-pages gh-pages-deploy
+          rsync -a --delete --exclude='.git' --exclude='CNAME' site/dist/ gh-pages-deploy/
+          cd gh-pages-deploy
+          git add -A
+          git diff --cached --quiet || git commit -m "Deploy to GitHub Pages from ${{ github.sha }}"
+          git push origin HEAD:gh-pages

@@ -1,0 +1,250 @@
+package strands:agent@0.1.0;
+
+/// Multi-agent orchestration: Graph (dependency DAG) and Swarm (handoff).
+interface multi-agent {
+  use wasi:clocks/monotonic-clock@0.2.6.{duration};
+  use messages.{content-block, prompt-input, usage, metrics};
+  use streaming.{stream-event};
+
+  /// Lifecycle status of a node or overall run.
+  enum orchestration-status {
+    /// Not started.
+    pending,
+    /// Running.
+    executing,
+    /// Finished successfully.
+    completed,
+    /// Finished with an error.
+    failed,
+    /// Cancelled before or during processing.
+    cancelled,
+  }
+
+  /// Terminal status of a node or run.
+  enum terminal-status {
+    /// Finished successfully.
+    completed,
+    /// Finished with an error.
+    failed,
+    /// Cancelled before or during processing.
+    cancelled,
+  }
+
+  /// What a node is.
+  enum node-kind {
+    /// Wraps a single Agent.
+    agent,
+    /// Wraps a nested multi-agent orchestrator.
+    multi-agent,
+  }
+
+  /// Definition of an agent-backed node.
+  record agent-node {
+    /// Node identifier, unique within its graph/swarm.
+    id: string,
+    /// Human-readable description.
+    description: option<string>,
+    /// Per-node wall-clock ceiling. Falls back to the enclosing
+    /// orchestrator's `node-timeout`.
+    timeout: option<duration>,
+    /// Agent configuration as a JSON value matching `api.agent-config`.
+    agent-config: string,
+  }
+
+  /// Definition of a node that wraps another orchestrator.
+  record multi-agent-node {
+    /// Node identifier, unique within its parent graph/swarm.
+    id: string,
+    /// Human-readable description.
+    description: option<string>,
+    /// Nested orchestrator as a JSON value matching `graph-config` or
+    /// `swarm-config`.
+    orchestrator: string,
+  }
+
+  /// Any node a graph or swarm can execute.
+  variant node-config {
+    /// Wraps a single agent.
+    agent(agent-node),
+    /// Wraps a nested orchestrator.
+    multi-agent(multi-agent-node),
+  }
+
+  /// Condition attached to a graph edge.
+  record edge-handler {
+    /// Handler identifier. Resolved against the callbacks registered via
+    /// `edge-handler-registry`.
+    handler-id: string,
+  }
+
+  /// Edge connecting two graph nodes.
+  record edge-config {
+    /// Source node id.
+    source: string,
+    /// Target node id.
+    target: string,
+    /// Handler controlling whether the edge fires. Absent means always.
+    handler: option<edge-handler>,
+  }
+
+  /// Runtime configuration for a Graph.
+  record graph-config {
+    /// Identifier of this graph.
+    id: string,
+    /// Nodes making up the graph.
+    nodes: list<node-config>,
+    /// Edges connecting the nodes.
+    edges: list<edge-config>,
+    /// Explicit source nodes. Empty means auto-detect (nodes with no incoming edges).
+    sources: list<string>,
+    /// Max nodes running in parallel. Absent means no limit.
+    max-concurrency: option<s32>,
+    /// Max total node executions. Absent means no limit.
+    max-steps: option<s32>,
+    /// Wall-clock ceiling for the whole graph. Absent means no limit.
+    timeout: option<duration>,
+    /// Fallback per-node wall-clock ceiling. Absent means no limit.
+    node-timeout: option<duration>,
+  }
+
+  /// Runtime configuration for a Swarm.
+  record swarm-config {
+    /// Identifier of this swarm.
+    id: string,
+    /// Agent-backed nodes available for handoff.
+    nodes: list<agent-node>,
+    /// Agent that runs first.
+    start-node-id: string,
+    /// Max total agent executions. Absent means no limit.
+    max-steps: option<s32>,
+    /// Wall-clock ceiling for the whole swarm. Absent means no limit.
+    timeout: option<duration>,
+    /// Fallback per-node wall-clock ceiling. Absent means no limit.
+    node-timeout: option<duration>,
+  }
+
+  /// Why a node or run ended in `failed` status.
+  variant node-error {
+    /// An underlying agent or nested orchestrator failed.
+    execution(string),
+    /// Wall-clock ceiling was exceeded.
+    timeout,
+    /// A declared runtime limit (max-steps, max-concurrency) was hit.
+    limit-exceeded(string),
+    /// Edge handler rejected the traversal with an error.
+    edge-handler(string),
+    /// Invalid configuration detected at run time.
+    invalid-config(string),
+    /// Catch-all for internal failures.
+    internal(string),
+  }
+
+  /// Result of a single node execution.
+  record node-result {
+    /// Node identifier.
+    node-id: string,
+    /// Terminal status.
+    status: terminal-status,
+    /// Wall-clock duration.
+    duration: duration,
+    /// Content produced by the node, in order.
+    content: list<content-block>,
+    /// Error payload when `status` is `failed`.
+    error: option<node-error>,
+    /// Validated structured output as a JSON value. Present when a schema
+    /// was supplied.
+    structured-output: option<string>,
+    /// Token usage for the node.
+    usage: option<usage>,
+    /// Performance metrics for the node.
+    metrics: option<metrics>,
+  }
+
+  /// Final result of a graph or swarm run.
+  record multi-agent-result {
+    /// Overall status.
+    status: terminal-status,
+    /// Per-node results, in execution order.
+    nodes: list<node-result>,
+    /// Total elapsed wall-clock time.
+    duration: duration,
+    /// Summed token usage across all nodes, including partial usage
+    /// from failed or cancelled nodes where the provider reports it.
+    usage: option<usage>,
+    /// Summed performance metrics across all nodes, including partial
+    /// metrics from failed or cancelled nodes.
+    metrics: option<metrics>,
+  }
+
+  /// Arguments for invoking a graph or swarm.
+  record multi-agent-invoke-args {
+    /// Task input.
+    input: prompt-input,
+    /// Invocation-scoped state bag as an opaque JSON object.
+    invocation-state: option<string>,
+  }
+
+  /// Payload for `node-start`.
+  record node-start-data {
+    /// Node identifier.
+    node-id: string,
+    /// Whether this node wraps a single agent or a nested orchestrator.
+    kind: node-kind,
+  }
+
+  /// Payload for `node-event`. Carries a nested stream event from a
+  /// running node.
+  record node-event-data {
+    /// Node that produced the event.
+    node-id: string,
+    /// Inner event emitted by the node's invocation.
+    event: stream-event,
+  }
+
+  /// Events emitted while streaming a multi-agent run.
+  variant multi-agent-stream-event {
+    /// A node began executing.
+    node-start(node-start-data),
+    /// A nested stream event from a running node.
+    nested(node-event-data),
+    /// A node finished executing.
+    node-stop(node-result),
+    /// A handoff happened between nodes.
+    handoff(handoff-event),
+    /// Terminal result for the run.
+    run-complete(multi-agent-result),
+  }
+
+  /// Payload for a handoff edge firing.
+  record handoff-event {
+    /// Nodes the run moves from (usually one).
+    from-node-ids: list<string>,
+    /// Nodes the run moves to.
+    to-node-ids: list<string>,
+  }
+}
+
+/// Pluggable edge-handler registry for graph edges that need custom routing.
+interface edge-handler-registry {
+  use multi-agent.{node-result};
+
+  /// Why an edge evaluation failed.
+  variant edge-handler-error {
+    /// No handler registered for the given id.
+    unknown(string),
+    /// Handler raised an exception.
+    failed(string),
+  }
+
+  /// State snapshot passed to `evaluate` so the handler can branch on
+  /// prior node results.
+  record handler-state {
+    /// Results accumulated so far, keyed by node id.
+    results: list<node-result>,
+    /// Total node executions completed.
+    execution-count: s32,
+  }
+
+  /// Decide whether an edge should be traversed.
+  evaluate: func(handler-id: string, state: handler-state) -> result<bool, edge-handler-error>;
+}

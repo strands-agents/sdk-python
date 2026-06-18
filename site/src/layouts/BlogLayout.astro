@@ -1,0 +1,51 @@
+---
+/**
+ * Blog Layout
+ *
+ * Uses StarlightPage to get the full Starlight page shell (head, styles,
+ * theme, header) for free, without sidebar or doc-page chrome.
+ */
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { pathWithBase } from '../util/links'
+
+interface Props {
+  title: string
+  description?: string
+  ogImage?: string
+  canonicalUrl?: string
+}
+
+const { title, description, ogImage, canonicalUrl: canonicalOverride } = Astro.props
+
+const pageUrl = new URL(Astro.url.pathname, Astro.site).href
+const canonicalUrl = canonicalOverride || pageUrl
+
+type HeadTag = 'link' | 'meta' | 'script' | 'style' | 'title' | 'base' | 'noscript' | 'template'
+type HeadEntry = { tag: HeadTag; attrs?: Record<string, string | boolean | undefined>; content?: string }
+
+const head: HeadEntry[] = [
+  { tag: 'link', attrs: { rel: 'canonical', href: canonicalUrl } },
+  { tag: 'meta', attrs: { property: 'og:title', content: title } },
+  { tag: 'meta', attrs: { property: 'og:type', content: 'article' } },
+  { tag: 'meta', attrs: { property: 'og:url', content: pageUrl } },
+  { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
+  { tag: 'meta', attrs: { name: 'twitter:title', content: title } },
+  { tag: 'link', attrs: { rel: 'alternate', type: 'application/rss+xml', title: 'Strands Agents Blog', href: pathWithBase('/blog/feed.xml') } },
+]
+if (description) {
+  head.push({ tag: 'meta' as const, attrs: { property: 'og:description', content: description } })
+  head.push({ tag: 'meta' as const, attrs: { name: 'twitter:description', content: description } })
+}
+if (ogImage) {
+  head.push({ tag: 'meta' as const, attrs: { property: 'og:image', content: ogImage } })
+  head.push({ tag: 'meta' as const, attrs: { name: 'twitter:image', content: ogImage } })
+}
+---
+
+<StarlightPage
+  frontmatter={{ title, description, template: 'splash', pagefind: false, head, hero: { actions: [] } }}
+  hasSidebar={false}
+>
+  <slot name="head" slot="head" />
+  <slot />
+</StarlightPage>

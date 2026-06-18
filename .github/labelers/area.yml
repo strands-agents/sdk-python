@@ -1,0 +1,64 @@
+# .github/labelers/area.yml
+# Classifies issues by technical area/subsystem.
+
+instructions: |
+  This is the Strands Agents SDK repository (Python + TypeScript monorepo).
+  CI dependency bumps (dependabot, renovate) should be labeled area-community.
+  MCP tools should be labeled area-mcp, not area-tool.
+  Provider-specific bugs (Bedrock, OpenAI, Anthropic, Gemini, Ollama, etc.) belong to area-model.
+  Issues about hook lifecycle events belong to area-hooks even if they mention tools or agents.
+  Guardrails and content filtering belong to area-interventions, not area-hooks.
+  Documentation content issues belong to documentation, not area-devx.
+  Storage backend implementation issues (S3, DynamoDB, file) belong to area-persistence. Session lifecycle and interface issues belong to area-sessions.
+  Context window/token management belongs to area-context.
+  General agent class behavior (invocation, streaming, result handling) belongs to area-agent. Do not assign area-agent merely because an issue mentions "agent"; require evidence it concerns the core agent class itself.
+  area-community is NOT a catch-all. Use it only for repo health, governance, contributor process, release process, and CI dependency bumps. If no area clearly applies, assign no area label rather than defaulting to area-community.
+  area-devx covers how it feels to use the SDK: papercuts, confusing or awkward public APIs, error-message quality, ergonomics, surprising behavior that does not match what a developer would reasonably expect, and usability of the developer-facing interface. It is appropriate even for a specific subsystem when the issue is about that subsystem's public API being confusing, awkward, or surprising to use (as opposed to a clear functional bug in its internal behavior). It is NOT a catch-all for any generic "make it better" request that lacks a concrete usability concern.
+  Order matters: list the most important label first, because at most 2 labels are kept. Rank by specificity — concrete feature areas (area-mcp, area-model, area-agent, area-persistence, etc.) come before softer cross-cutting labels (area-devx, area-community) that are not tied to one feature area. When an issue reports a bug in a concrete area, that area takes priority.
+  Example: "the MCPClient constructor arguments are confusing and the error when a server is unreachable is unhelpful" -> area-mcp, then area-devx (concrete area first, usability second). But "MCPClient drops messages under concurrent calls" -> area-mcp only (functional bug in internals; no devx concern).
+
+labels:
+  area-a2a:
+    description: "Agent-to-Agent protocol, A2AAgent, A2AClient, A2AServer, agent cards, cross-agent communication"
+  area-agent:
+    description: "Core agent class, agent invocation, agent lifecycle, streaming responses, AgentResult, system prompt"
+  area-async:
+    description: "Asynchronous flows, multi-threading, asyncio, concurrent execution, event loops, non-blocking operations"
+  area-bidirectional-streaming:
+    description: "Bidirectional streaming, BidiAgent, real-time audio/video, WebRTC, WebSocket, Nova Sonic, voice agents"
+  area-community:
+    description: "Repo health, governance, contributor guides, release process, and CI dependency bumps. Not a fallback for issues that fit no other area."
+  area-config:
+    description: "Config-based agents, agent config files, mcp-config, declarative agent/graph/swarm definitions from YAML"
+  area-context:
+    description: "Conversation management, context windows, context reduction, sliding window, token management, compression strategies"
+  area-devx:
+    description: "Developer experience: papercuts, confusing or awkward public APIs, error messages, ergonomics, surprising behavior that doesn't match expectations, helper methods, and usability of the SDK's developer-facing interface"
+  area-hil:
+    description: "Human-in-the-loop, interrupt/resume, suspend/resume, approval workflows, callback-based tool execution"
+  area-hooks:
+    description: "Hook events, hook registry, callbacks, lifecycle events, BeforeEvent/AfterEvent, Plugin protocol"
+  area-interventions:
+    description: "Guardrails, input/output filtering, content moderation, safety controls, Bedrock Guardrails integration"
+  area-language:
+    description: "New language SDKs (Ruby, .NET, Rust, Go, etc.) or language-specific development"
+  area-mcp:
+    description: "Model Context Protocol, MCP servers, MCP clients, MCP transport, MCP tools, Streamable HTTP"
+  area-model:
+    description: "Model providers (Bedrock, OpenAI, Anthropic, Gemini, Ollama, LiteLLM, SageMaker, vLLM, Mistral), model config, caching"
+  area-multiagent:
+    description: "Multi-agent patterns, swarm, graph, orchestrator, agent-as-tool, arena, agent coordination, GraphNode"
+  area-otel:
+    description: "OpenTelemetry, tracing, metrics, spans, observability, OTLP export, telemetry instrumentation"
+  area-persistence:
+    description: "Session storage backends, checkpointing, S3SessionManager, DynamoDB sessions, state serialization"
+  area-server:
+    description: "Strands Server, sandbox, runtime container, execution boundaries, credential injection, blast radius"
+  area-sessions:
+    description: "Session management, session lifecycle, session ID handling, session state, SessionManager interface"
+  area-structured-output:
+    description: "Structured output API, JSON schema enforcement, Pydantic output models, deterministic response formatting"
+  area-tool:
+    description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results, tool validation"
+  documentation:
+    description: "Documentation changes, improvements, additions, content updates, site improvements, examples, guides"

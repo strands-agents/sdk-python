@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      typescript: ${{ steps.filter.outputs.typescript }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            python:
+              - 'strands-py/**'
+              - '.github/workflows/python-*'
+              - '.github/workflows/ci.yml'
+            typescript:
+              - 'strands-ts/**'
+              - 'strands-wasm/**'
+              - 'strands-py-wasm/**'
+              - 'strandly/**'
+              - 'wit/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.github/workflows/typescript-*'
+              - '.github/workflows/wasm-*'
+              - '.github/workflows/ci.yml'
+            docs:
+              - 'site/**'
+              - '.github/workflows/docs-*'
+              - '.github/workflows/ci.yml'
+
+  python:
+    name: Python
+    needs: detect-changes
+    if: needs.detect-changes.outputs.python == 'true'
+    uses: ./.github/workflows/python-test-lint.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  typescript:
+    name: TypeScript
+    needs: detect-changes
+    if: needs.detect-changes.outputs.typescript == 'true'
+    uses: ./.github/workflows/typescript-pr-and-push.yml
+    permissions:
+      contents: read
+
+  docs:
+    name: Docs
+    needs: detect-changes
+    if: needs.detect-changes.outputs.docs == 'true'
+    uses: ./.github/workflows/docs-ci.yml
+    permissions:
+      contents: read
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [detect-changes, python, typescript, docs]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: re-actors/alls-green@release/v1
+        with:
+          allowed-skips: python, typescript, docs
+          jobs: ${{ toJSON(needs) }}
