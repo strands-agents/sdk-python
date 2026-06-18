@@ -1,5 +1,3 @@
-[EDITING]
-
 # Strandslator Spec
 
 **Status**: Proposed
@@ -12,7 +10,7 @@
 
 This document is a pairing to [0012-strandslator](./0012-strandslator-design.md), which focused on the experimentation behind translation and the context the workflow consumes. Here we specify the system's behaviors and interfaces: what a run takes as input, what it produces, the pipeline that drives the agents, how it runs locally through a CLI, and how that same command runs as a GitHub Action. It is a spec, not an implementation guide. It pins down the externally observable contracts and leaves the internal mechanics to the build.
 
-The guiding principle is that there is one way to run the workflow, and everything else is a wrapper around it. The local CLI is the workflow. The GitHub Action is the local CLI running on a hosted runner. A reviewer who wants to take over from a failed automated run picks up exactly where it left off, on their own machine, with the same command.
+The guiding principle is that there is one way to run the workflow, and everything else is a wrapper around it. The local CLI is the workflow. The GitHub Action is the local CLI running on a hosted runner. If an automated run fails, a developer has the option to pick up where it left off on their own machine with the same command.
 
 We lean on [`strands-command`](https://github.com/strands-agents/devtools/tree/main/strands-command) as prior art. It already runs Strands agents in GitHub Actions with job separation, permission isolation, artifact-based state handoff, and authorization gating. It is comment-driven (`/strands` on issues and PRs) rather than `workflow_dispatch`-driven, so it is not a drop-in, but we borrow its proven patterns where they fit.
 
@@ -38,7 +36,7 @@ The pipeline runs the Plan, Implement, Validate, Document, and Report agents in 
 - **Kickbacks.** When Validate finds a behavior gap or failing test, it sends the run back to Plan with the findings attached. We bound iterations so a run can't loop forever, and surface a clear failure when the bound is hit.
 - **Status updates.** Each step emits structured progress (agent, kickback count, pass/fail) so a human can follow along without reading raw transcripts.
 - **Human intervention.** A human can pause a run, inspect or amend the in-progress artifacts and context, and resume.
-- **Pause and resume across shutdown.** We checkpoint pipeline state after each completed step so a run can be stopped, the machine shut down, and picked back up from the last checkpoint. This is the same mechanism that lets a failed GitHub Action be continued locally.
+- **Pause and resume across shutdown.** We checkpoint pipeline state after each completed step so a run can be stopped and picked back up from the last checkpoint, whether that's locally or by re-dispatching in CI.
 
 The pipeline reads input from fixed monorepo paths. Agents may gather additional context on their own (e.g. from the web) during a run.
 
@@ -60,7 +58,7 @@ strandslate resume <run-id>
 strandslate status <run-id>
 ```
 
-The exact flags will firm up during implementation; the requirement is that a developer can drive a complete translation locally and that resume works after a full shutdown.
+The exact flags will firm up during implementation; the requirement is that resume works after a full shutdown.
 
 ## Action
 
@@ -71,7 +69,7 @@ The Action exists because this is where our code lives. It is deliberately thin:
 - **Source and target inputs.** Exposed as dispatch inputs, passed straight through to the command.
 - **Authorization gating.** Following `strands-command`, the workflow gates dispatch against an allowlist of repo roles (`maintain`, `write`, `admin`), with a manual approval gate for anyone else.
 - **Permission separation.** The agent runs in a read-only job. Repository changes and deferred GitHub operations are emitted as artifacts, and a separate Finalize job (with write permission, `if: always()`) pushes the branch and opens the PR. This keeps commit and push off the agent's plate and limits blast radius.
-- **Continue locally on failure.** A developer pulls down the checkpoint with `gh run download <run-id>` and continues with `strandslate resume`.
+- **Resume on failure.** A failed run can be resumed by re-dispatching in CI or by pulling down the checkpoint locally with `gh run download <run-id>` and running `strandslate resume`.
 
 The checkpoint is published via `actions/upload-artifact` in the job's final step (`if: always()`). Artifacts expire (default 90 days, configurable); we set `retention-days` long enough for realistic human handoff. The artifact carries only what `resume` needs; the translated code lands in the PR.
 
@@ -83,13 +81,6 @@ The pipeline is only as good as the context it reads. Before the workflow can pr
 - **Update guidelines with current learnings.** Fold what we've learned from experiments and ongoing port work back into the guides so the agents inherit it.
 - **Add code metadata files.** Backfill the per-feature metadata described in [0012](./0012-strandslator-design.md), prioritizing features we intend to translate first.
 
-## Questions
-
-- **Run-state format.** On-disk layout of the checkpoint directory, and how stable it needs to be across CLI versions so an older artifact can still be resumed.
-- **Checkpoint granularity.** Per-agent is the natural unit, but a long Implement step may want finer-grained recovery.
-- **Run identity.** How runs are named so `status` and `resume` are unambiguous, especially across CI and local.
-- **Determinism boundary.** The pipeline should make it easy to move a step from agent-driven to deterministic. The read-only-agent plus finalize split is a first step.
-- **Checkpoint durability.** Artifacts are retention-limited. If handoff windows grow, we could persist checkpoints to S3 (distinct from `S3SessionManager`). Start with artifacts.
 
 ## References
 
