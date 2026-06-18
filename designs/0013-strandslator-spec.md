@@ -45,6 +45,7 @@ The pipeline runs the Plan, Implement, Validate, Document, and Report agents in 
 - **Status updates.** Each step emits structured progress (agent, kickback count, pass/fail) so a human can follow along without reading raw transcripts.
 - **Human intervention.** A human can pause a run, inspect or amend the in-progress artifacts and context, and resume.
 - **Pause and resume across shutdown.** We checkpoint pipeline state after each completed step so a run can be stopped and picked back up from the last checkpoint, whether that's locally or by re-dispatching in CI.
+- **Feature locking.** A run claims its target feature so no other run can work on it concurrently. This prevents two agents from producing conflicting translations of the same feature into the same language. The lock is released when the run completes or is explicitly abandoned.
 
 The pipeline reads input from fixed monorepo paths. Agents may gather additional context on their own (e.g. from the web) during a run.
 
