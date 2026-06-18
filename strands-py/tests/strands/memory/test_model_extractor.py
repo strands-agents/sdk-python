@@ -177,3 +177,26 @@ async def test_ends_model_invoke_span_with_error_on_failure():
 
     tracer.end_span_with_error.assert_called_once()
     tracer.end_model_invoke_span.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_raises_and_ends_span_when_model_yields_no_stop_event():
+    """A stream that never emits a terminal stop event raises and ends the span with the error."""
+
+    async def _no_stop_stream(*_args: Any, **_kwargs: Any):
+        # An async generator that yields no events at all -> no ``stop`` -> no final message.
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    extractor = ModelExtractor(model=MockedModelProvider([_assistant_text("ignored")]))
+
+    tracer = MagicMock()
+    with (
+        patch("strands.memory.extraction.model_extractor.get_tracer", return_value=tracer),
+        patch("strands.event_loop.streaming.stream_messages", _no_stop_stream),
+    ):
+        with pytest.raises(RuntimeError, match="model returned no response"):
+            await extractor.extract([_user_turn("x")])
+
+    tracer.end_span_with_error.assert_called_once()
+    tracer.end_model_invoke_span.assert_not_called()

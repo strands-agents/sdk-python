@@ -1811,6 +1811,28 @@ def test_start_memory_search_span(mock_tracer):
         assert span is not None
 
 
+def test_start_memory_span_merges_custom_attributes_and_drops_non_scalar_kwargs(mock_tracer):
+    """custom_trace_attributes and scalar kwargs are merged; non-scalar kwargs are dropped."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        tracer.start_memory_search_span(
+            "q",
+            ["personal"],
+            custom_trace_attributes={"session_id": "abc"},
+            scalar_kwarg=7,
+            dropped_kwarg={"not": "scalar"},
+        )
+
+        attributes = mock_span.set_attributes.call_args[0][0]
+        assert attributes["session_id"] == "abc"
+        assert attributes["scalar_kwarg"] == 7
+        assert "dropped_kwarg" not in attributes
+
+
 def test_end_memory_search_span(mock_span):
     """Test ending a memory search span records result/failure counts and the entries event."""
     tracer = Tracer()
@@ -1987,6 +2009,17 @@ def test_end_memory_extract_span_with_error(mock_span):
 
     mock_span.set_status.assert_called_once_with(StatusCode.ERROR, str(error))
     mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_memory_extract_span_records_entry_count(mock_span):
+    """Test ending an extract span on success sets the entry count and OK status."""
+    tracer = Tracer()
+
+    tracer.end_memory_extract_span(mock_span, entry_count=3)
+
+    mock_span.set_attributes.assert_called_once_with({"memory.entry.count": 3})
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
 

@@ -19,7 +19,7 @@ from opentelemetry.trace import SpanContext
 
 from ...models.model import Model
 from ...telemetry.metrics import MetricsClient
-from ...telemetry.tracer import get_tracer
+from ...telemetry.tracer import Tracer, get_tracer
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import AggregateMemoryError
 from ..types import MemoryStore
@@ -213,7 +213,8 @@ class ExtractionCoordinator:
 
         filtered = self._filter_messages([buffered.message for buffered in fresh], config.filter)
 
-        span = get_tracer().start_memory_extract_span(
+        tracer = get_tracer()
+        span = tracer.start_memory_extract_span(
             store.name,
             message_count=len(filtered),
             filtered_count=len(fresh) - len(filtered),
@@ -242,10 +243,11 @@ class ExtractionCoordinator:
         # Telemetry is recorded after the save resolves and is best-effort, so a metrics
         # or span failure can never turn a successful save into a failure (which would
         # wrongly trigger backoff) or break this detached background task.
-        self._record_extract_telemetry(store, span, start_time, entry_count, write_error)
+        self._record_extract_telemetry(tracer, store, span, start_time, entry_count, write_error)
 
     def _record_extract_telemetry(
         self,
+        tracer: Tracer,
         store: MemoryStore,
         span: trace_api.Span,
         start_time: float,
@@ -255,6 +257,7 @@ class ExtractionCoordinator:
         """Record extraction metrics and end the extract span; never raises.
 
         Args:
+            tracer: The tracer that started the extract span.
             store: The store the extraction targeted.
             span: The extraction span to end.
             start_time: When the extraction started, for the duration metric.
@@ -269,10 +272,10 @@ class ExtractionCoordinator:
             if error is None:
                 metrics_client.memory_extract_success_count.add(1, attributes=attributes)
                 metrics_client.memory_extract_entries.record(entry_count, attributes=attributes)
-                get_tracer().end_memory_extract_span(span, entry_count=entry_count)
+                tracer.end_memory_extract_span(span, entry_count=entry_count)
             else:
                 metrics_client.memory_extract_error_count.add(1, attributes=attributes)
-                get_tracer().end_memory_extract_span(span, error=error)
+                tracer.end_memory_extract_span(span, error=error)
         except Exception:  # noqa: BLE001 - telemetry must never break the agent loop.
             logger.debug("store=<%s> | memory extract telemetry failed", store.name, exc_info=True)
 

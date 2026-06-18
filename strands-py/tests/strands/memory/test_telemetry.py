@@ -374,3 +374,27 @@ async def test_extract_telemetry_failure_does_not_corrupt_save(mock_coordinator_
     # The save itself succeeded and was not rolled back / marked failed.
     store.add_messages.assert_awaited_once()
     assert coordinator._consecutive_failures.get(id(store), 0) == 0
+
+
+async def test_schedule_captures_live_agent_span_as_link(mock_coordinator_telemetry):
+    """When scheduled inside a live recording span, that span is captured and linked on the extract span."""
+    tracer, _metrics_client = mock_coordinator_telemetry
+    store = _store(
+        "personal",
+        writable=True,
+        sinks={"add_messages"},
+        extraction=ExtractionConfig(triggers=[InvocationTrigger()]),
+    )
+    coordinator = ExtractionCoordinator([_binding(store)], default_model=MagicMock())
+    coordinator.record({"role": "user", "content": [{"text": "remember dark mode"}]})
+
+    live_span = MagicMock()
+    live_span.is_recording.return_value = True
+    live_span.get_span_context.return_value = MagicMock(is_valid=True)
+    with patch("strands.memory.extraction.coordinator.trace_api.get_current_span", return_value=live_span):
+        link_context = coordinator._current_span_context()
+        assert link_context is live_span.get_span_context.return_value
+
+        # And a non-recording span yields no link context.
+        live_span.is_recording.return_value = False
+        assert coordinator._current_span_context() is None
