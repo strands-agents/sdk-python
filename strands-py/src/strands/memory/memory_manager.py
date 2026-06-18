@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -15,7 +14,6 @@ from ..hooks.events import MessageAddedEvent
 from ..injection._message_injection import _create_injection_middleware, _is_user_turn
 from ..injection._xml import _escape_xml_attr, _escape_xml_text
 from ..plugins.plugin import Plugin
-from ..telemetry.metrics import MetricsClient
 from ..telemetry.tracer import get_tracer
 from ..tools.decorator import tool
 from ..types.exceptions import AggregateMemoryError
@@ -316,10 +314,8 @@ class MemoryManager(Plugin):
         )
 
         tracer = get_tracer()
-        metrics_client = MetricsClient()
         span_store_names = requested_stores if requested_stores is not None else [store.name for store in self._stores]
         span = tracer.start_memory_search_span(query, span_store_names, max_search_results=caller_max)
-        start_time = time.time()
 
         try:
             with trace_api.use_span(span, end_on_exit=False):
@@ -347,26 +343,19 @@ class MemoryManager(Plugin):
                     return_exceptions=True,
                 )
         except Exception as error:
-            metrics_client.memory_search_duration.record(time.time() - start_time)
             tracer.end_memory_search_span(span, error=error)
             raise
 
         results: list[MemoryEntry] = []
         store_failure_count = 0
         for store, outcome in zip(target_stores, settled, strict=True):
-            attributes = {"store_name": store.name}
-            metrics_client.memory_search_call_count.add(1, attributes=attributes)
             if isinstance(outcome, BaseException):
                 logger.warning("store=<%s>, reason=<%s> | store search failed", store.name, outcome)
                 store_failure_count += 1
-                metrics_client.memory_search_error_count.add(1, attributes=attributes)
                 continue
-            metrics_client.memory_search_success_count.add(1, attributes=attributes)
-            metrics_client.memory_search_results.record(len(outcome), attributes=attributes)
             for entry in outcome:
                 results.append(MemoryEntry(content=entry.content, store_name=store.name, metadata=entry.metadata))
 
-        metrics_client.memory_search_duration.record(time.time() - start_time)
         tracer.end_memory_search_span(span, entries=results, store_failure_count=store_failure_count)
 
         logger.debug("results=<%s> | search complete", len(results))
@@ -396,12 +385,10 @@ class MemoryManager(Plugin):
         metadata = options.get("metadata") if options is not None else None
 
         tracer = get_tracer()
-        metrics_client = MetricsClient()
         span_store_names = (
             requested_stores if requested_stores is not None else [store.name for store in self._add_stores]
         )
         span = tracer.start_memory_add_span(content, span_store_names, force_root=_detached)
-        start_time = time.time()
 
         try:
             with trace_api.use_span(span, end_on_exit=False):
@@ -418,24 +405,16 @@ class MemoryManager(Plugin):
                     return_exceptions=True,
                 )
         except Exception as error:
-            metrics_client.memory_add_duration.record(time.time() - start_time)
             tracer.end_memory_add_span(span, error=error)
             raise
 
         failed_names: list[str] = []
         reasons: list[BaseException] = []
         for store, outcome in zip(writable_stores, settled, strict=True):
-            attributes = {"store_name": store.name}
-            metrics_client.memory_add_call_count.add(1, attributes=attributes)
             if isinstance(outcome, BaseException):
                 logger.warning("store=<%s>, reason=<%s> | store write failed", store.name, outcome)
                 failed_names.append(store.name)
                 reasons.append(outcome)
-                metrics_client.memory_add_error_count.add(1, attributes=attributes)
-            else:
-                metrics_client.memory_add_success_count.add(1, attributes=attributes)
-
-        metrics_client.memory_add_duration.record(time.time() - start_time)
 
         if failed_names:
             aggregate_error = AggregateMemoryError(
@@ -675,14 +654,10 @@ class MemoryManager(Plugin):
         max_results = max_entries if max_entries is not None else DEFAULT_MAX_ENTRIES
 
         tracer = get_tracer()
-        metrics_client = MetricsClient()
         span = tracer.start_memory_inject_span(max_entries=max_results)
 
         def _end(injected: bool, entry_count: int = 0, format_error: bool = False) -> None:
-            """Record the inject metric (before ending the span, on every path) and end the span."""
-            metrics_client.memory_inject_count.add(1, attributes={"injected": injected})
-            if injected:
-                metrics_client.memory_inject_entries.record(entry_count)
+            """End the inject span on every path (skip, fail-open, and success)."""
             tracer.end_memory_inject_span(span, injected=injected, entry_count=entry_count, format_error=format_error)
 
         try:

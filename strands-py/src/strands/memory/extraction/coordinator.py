@@ -11,15 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass
 
 from opentelemetry import trace as trace_api
 from opentelemetry.trace import SpanContext
 
 from ...models.model import Model
-from ...telemetry.metrics import MetricsClient
-from ...telemetry.tracer import Tracer, get_tracer
+from ...telemetry.tracer import get_tracer
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import AggregateMemoryError
 from ..types import MemoryStore
@@ -213,15 +211,13 @@ class ExtractionCoordinator:
 
         filtered = self._filter_messages([buffered.message for buffered in fresh], config.filter)
 
-        tracer = get_tracer()
-        span = tracer.start_memory_extract_span(
+        span = get_tracer().start_memory_extract_span(
             store.name,
             message_count=len(filtered),
             filtered_count=len(fresh) - len(filtered),
             extractor=type(config.extractor).__name__ if config.extractor is not None else None,
             agent_span_context=link_context,
         )
-        start_time = time.time()
 
         write_error: Exception | None = None
         entry_count = 0
@@ -240,44 +236,15 @@ class ExtractionCoordinator:
         finally:
             self._trim()
 
-        # Telemetry is recorded after the save resolves and is best-effort, so a metrics
-        # or span failure can never turn a successful save into a failure (which would
-        # wrongly trigger backoff) or break this detached background task.
-        self._record_extract_telemetry(tracer, store, span, start_time, entry_count, write_error)
-
-    def _record_extract_telemetry(
-        self,
-        tracer: Tracer,
-        store: MemoryStore,
-        span: trace_api.Span,
-        start_time: float,
-        entry_count: int,
-        error: Exception | None,
-    ) -> None:
-        """Record extraction metrics and end the extract span; never raises.
-
-        Args:
-            tracer: The tracer that started the extract span.
-            store: The store the extraction targeted.
-            span: The extraction span to end.
-            start_time: When the extraction started, for the duration metric.
-            entry_count: Number of entries written (0 on a fully filtered turn).
-            error: The save failure, or None on success.
-        """
+        # End the span after the save resolves and best-effort, so span bookkeeping is
+        # decoupled from the save outcome and can never break this detached background task.
         try:
-            metrics_client = MetricsClient()
-            attributes = {"store_name": store.name}
-            metrics_client.memory_extract_call_count.add(1, attributes=attributes)
-            metrics_client.memory_extract_duration.record(time.time() - start_time, attributes=attributes)
-            if error is None:
-                metrics_client.memory_extract_success_count.add(1, attributes=attributes)
-                metrics_client.memory_extract_entries.record(entry_count, attributes=attributes)
-                tracer.end_memory_extract_span(span, entry_count=entry_count)
+            if write_error is None:
+                get_tracer().end_memory_extract_span(span, entry_count=entry_count)
             else:
-                metrics_client.memory_extract_error_count.add(1, attributes=attributes)
-                tracer.end_memory_extract_span(span, error=error)
+                get_tracer().end_memory_extract_span(span, error=write_error)
         except Exception:  # noqa: BLE001 - telemetry must never break the agent loop.
-            logger.debug("store=<%s> | memory extract telemetry failed", store.name, exc_info=True)
+            logger.debug("store=<%s> | memory extract span end failed", store.name, exc_info=True)
 
     async def _write(self, store: MemoryStore, messages: list[Message], extractor: Extractor | None) -> int:
         """Save the messages to the store, one of two ways.

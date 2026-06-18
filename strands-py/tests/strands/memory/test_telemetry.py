@@ -1,9 +1,9 @@
-"""Tests for OpenTelemetry instrumentation of the memory subsystem.
+"""Tests for OpenTelemetry tracing of the memory subsystem.
 
-These cover the span/metric lifecycle wired into ``MemoryManager.search`` /
-``add`` / ``_provide_memory_context`` and ``ExtractionCoordinator._extract``.
-Each test patches ``get_tracer`` and ``MetricsClient`` at the call site so it can
-assert which span methods fire (start/end, error vs OK) without a live exporter.
+These cover the span lifecycle wired into ``MemoryManager.search`` / ``add`` /
+``_provide_memory_context`` and ``ExtractionCoordinator._extract``. Each test
+patches ``get_tracer`` at the call site so it can assert which span methods fire
+(start/end, error vs OK) without a live exporter.
 """
 
 from __future__ import annotations
@@ -60,44 +60,36 @@ def _store(
 
 
 @pytest.fixture
-def mock_telemetry():
-    """Patch the tracer and metrics client used by ``memory_manager``.
+def mock_tracer():
+    """Patch the tracer used by ``memory_manager``.
 
-    Yields ``(tracer, metrics_client)`` mocks. ``start_*`` methods return distinct
-    span mocks so callers can assert which span was ended.
+    ``start_*`` methods return distinct span mocks so callers can assert which span
+    was ended.
     """
     tracer = MagicMock()
     tracer.start_memory_search_span.return_value = MagicMock(name="search_span")
     tracer.start_memory_add_span.return_value = MagicMock(name="add_span")
     tracer.start_memory_inject_span.return_value = MagicMock(name="inject_span")
-    metrics_client = MagicMock()
-    with (
-        patch("strands.memory.memory_manager.get_tracer", return_value=tracer),
-        patch("strands.memory.memory_manager.MetricsClient", return_value=metrics_client),
-    ):
-        yield tracer, metrics_client
+    with patch("strands.memory.memory_manager.get_tracer", return_value=tracer):
+        yield tracer
 
 
-async def test_search_records_span_and_metrics(mock_telemetry):
-    """A successful search starts/ends the search span and records per-store metrics."""
-    tracer, metrics_client = mock_telemetry
+async def test_search_records_span(mock_tracer):
+    """A successful search starts/ends the search span with the retrieved entries."""
     entry = MemoryEntry(content="user prefers dark mode")
     manager = MemoryManager(stores=[_store("personal", entries=[entry])], injection=False)
 
     results = await manager.search("preferences")
 
     assert len(results) == 1
-    tracer.start_memory_search_span.assert_called_once()
-    end_call = tracer.end_memory_search_span.call_args
+    mock_tracer.start_memory_search_span.assert_called_once()
+    end_call = mock_tracer.end_memory_search_span.call_args
     assert end_call.kwargs["store_failure_count"] == 0
     assert [e.content for e in end_call.kwargs["entries"]] == ["user prefers dark mode"]
-    metrics_client.memory_search_success_count.add.assert_called_once_with(1, attributes={"store_name": "personal"})
-    metrics_client.memory_search_duration.record.assert_called_once()
 
 
-async def test_search_partial_store_failure_ends_ok(mock_telemetry):
+async def test_search_partial_store_failure_ends_ok(mock_tracer):
     """A per-store search failure is counted but the span ends OK (not an error)."""
-    tracer, metrics_client = mock_telemetry
     good = _store("good", entries=[MemoryEntry(content="hit")])
     bad = _store("bad", search_error=RuntimeError("boom"))
     manager = MemoryManager(stores=[good, bad], injection=False)
@@ -105,96 +97,82 @@ async def test_search_partial_store_failure_ends_ok(mock_telemetry):
     results = await manager.search("q")
 
     assert len(results) == 1
-    end_call = tracer.end_memory_search_span.call_args
+    end_call = mock_tracer.end_memory_search_span.call_args
     assert end_call.kwargs["store_failure_count"] == 1
     assert "error" not in end_call.kwargs or end_call.kwargs["error"] is None
-    metrics_client.memory_search_error_count.add.assert_called_once_with(1, attributes={"store_name": "bad"})
 
 
-async def test_search_unknown_store_ends_with_error(mock_telemetry):
+async def test_search_unknown_store_ends_with_error(mock_tracer):
     """An unknown named store raises ValueError and ends the span with the error."""
-    tracer, _metrics_client = mock_telemetry
     manager = MemoryManager(stores=[_store("personal")], injection=False)
 
     with pytest.raises(ValueError):
         await manager.search("q", MemorySearchOptions(stores=["missing"]))
 
-    end_call = tracer.end_memory_search_span.call_args
+    end_call = mock_tracer.end_memory_search_span.call_args
     assert isinstance(end_call.kwargs["error"], ValueError)
 
 
-async def test_add_success_records_span_and_metrics(mock_telemetry):
-    """A successful add starts/ends the add span and records success metrics."""
-    tracer, metrics_client = mock_telemetry
+async def test_add_success_records_span(mock_tracer):
+    """A successful add starts/ends the add span with no error."""
     manager = MemoryManager(stores=[_store("personal", writable=True)], injection=False)
 
     await manager.add("remember this")
 
-    tracer.start_memory_add_span.assert_called_once()
-    # Success path ends with no error and no positional/keyword error.
-    end_call = tracer.end_memory_add_span.call_args
+    mock_tracer.start_memory_add_span.assert_called_once()
+    end_call = mock_tracer.end_memory_add_span.call_args
     assert end_call.kwargs.get("error") is None
-    metrics_client.memory_add_success_count.add.assert_called_once_with(1, attributes={"store_name": "personal"})
 
 
-async def test_add_failure_ends_with_error(mock_telemetry):
+async def test_add_failure_ends_with_error(mock_tracer):
     """A store write failure surfaces an AggregateMemoryError and ends the span with it."""
-    tracer, metrics_client = mock_telemetry
     store = _store("personal", writable=True, add_error=RuntimeError("disk full"))
     manager = MemoryManager(stores=[store], injection=False)
 
     with pytest.raises(AggregateMemoryError):
         await manager.add("remember this")
 
-    end_call = tracer.end_memory_add_span.call_args
+    end_call = mock_tracer.end_memory_add_span.call_args
     assert isinstance(end_call.kwargs["error"], AggregateMemoryError)
     assert end_call.kwargs["store_failure_count"] == 1
-    metrics_client.memory_add_error_count.add.assert_called_once_with(1, attributes={"store_name": "personal"})
 
 
-async def test_add_detached_forces_root_span(mock_telemetry):
+async def test_add_detached_forces_root_span(mock_tracer):
     """The fire-and-forget add path forces a root span (force_root=True)."""
-    tracer, _metrics_client = mock_telemetry
     manager = MemoryManager(stores=[_store("personal", writable=True)], injection=False)
 
     await manager.add("remember this", MemoryAddOptions(stores=["personal"]), _detached=True)
 
-    assert tracer.start_memory_add_span.call_args.kwargs["force_root"] is True
+    assert mock_tracer.start_memory_add_span.call_args.kwargs["force_root"] is True
 
 
-async def test_injection_happy_path(mock_telemetry):
-    """Injection with results ends the span injected=True and records the entries metric."""
-    tracer, metrics_client = mock_telemetry
+async def test_injection_happy_path(mock_tracer):
+    """Injection with results ends the span injected=True with the entry count."""
     entry = MemoryEntry(content="user prefers dark mode", store_name="personal")
     manager = MemoryManager(stores=[_store("personal", entries=[entry])], injection=True)
 
     rendered = await manager._provide_memory_context([{"role": "user", "content": [{"text": "hi"}]}], {})
 
     assert rendered is not None and "dark mode" in rendered
-    end_call = tracer.end_memory_inject_span.call_args
+    end_call = mock_tracer.end_memory_inject_span.call_args
     assert end_call.kwargs["injected"] is True
     assert end_call.kwargs["entry_count"] == 1
-    metrics_client.memory_inject_count.add.assert_called_once_with(1, attributes={"injected": True})
-    metrics_client.memory_inject_entries.record.assert_called_once_with(1)
 
 
-async def test_injection_no_query_ends_not_injected(mock_telemetry):
+async def test_injection_no_query_ends_not_injected(mock_tracer):
     """No derivable query ends the inject span injected=False without searching."""
-    tracer, metrics_client = mock_telemetry
     manager = MemoryManager(stores=[_store("personal")], injection=True)
 
     rendered = await manager._provide_memory_context([], {})
 
     assert rendered is None
-    tracer.end_memory_inject_span.assert_called_once_with(
-        tracer.start_memory_inject_span.return_value, injected=False, entry_count=0, format_error=False
+    mock_tracer.end_memory_inject_span.assert_called_once_with(
+        mock_tracer.start_memory_inject_span.return_value, injected=False, entry_count=0, format_error=False
     )
-    metrics_client.memory_inject_count.add.assert_called_once_with(1, attributes={"injected": False})
 
 
-async def test_injection_format_error_fails_open(mock_telemetry):
+async def test_injection_format_error_fails_open(mock_tracer):
     """A raising format callback ends the inject span OK with format_error=True."""
-    tracer, metrics_client = mock_telemetry
     entry = MemoryEntry(content="x", store_name="personal")
     manager = MemoryManager(stores=[_store("personal", entries=[entry])], injection=True)
 
@@ -204,19 +182,17 @@ async def test_injection_format_error_fails_open(mock_telemetry):
     rendered = await manager._provide_memory_context([{"role": "user", "content": [{"text": "hi"}]}], {"format": _boom})
 
     assert rendered is None
-    end_call = tracer.end_memory_inject_span.call_args
+    end_call = mock_tracer.end_memory_inject_span.call_args
     assert end_call.kwargs["injected"] is False
     assert end_call.kwargs["format_error"] is True
-    metrics_client.memory_inject_count.add.assert_called_once_with(1, attributes={"injected": False})
 
 
-async def test_injection_search_failure_ends_span_and_propagates(mock_telemetry):
+async def test_injection_search_failure_ends_span_and_propagates(mock_tracer):
     """A search() failure during injection ends the inject span (no leak) and re-raises.
 
     ``MemoryManager.search`` swallows per-store errors, so to exercise the inject guard we
     make ``search`` itself raise (e.g. an unexpected internal error).
     """
-    tracer, _metrics_client = mock_telemetry
     manager = MemoryManager(stores=[_store("personal")], injection=True)
 
     with patch.object(manager, "search", AsyncMock(side_effect=RuntimeError("search exploded"))):
@@ -224,8 +200,8 @@ async def test_injection_search_failure_ends_span_and_propagates(mock_telemetry)
             await manager._provide_memory_context([{"role": "user", "content": [{"text": "hi"}]}], {})
 
     # The span must be ended even though search raised, so it does not leak open.
-    tracer.end_memory_inject_span.assert_called_once()
-    assert tracer.end_memory_inject_span.call_args.kwargs["injected"] is False
+    mock_tracer.end_memory_inject_span.assert_called_once()
+    assert mock_tracer.end_memory_inject_span.call_args.kwargs["injected"] is False
 
 
 # --------------------------------------------------------------------------- #
@@ -240,21 +216,16 @@ def _binding(store: Any) -> _ExtractionBinding:
 
 
 @pytest.fixture
-def mock_coordinator_telemetry():
-    """Patch the tracer and metrics client used by ``coordinator``."""
+def mock_coordinator_tracer():
+    """Patch the tracer used by ``coordinator``."""
     tracer = MagicMock()
     tracer.start_memory_extract_span.return_value = MagicMock(name="extract_span")
-    metrics_client = MagicMock()
-    with (
-        patch("strands.memory.extraction.coordinator.get_tracer", return_value=tracer),
-        patch("strands.memory.extraction.coordinator.MetricsClient", return_value=metrics_client),
-    ):
-        yield tracer, metrics_client
+    with patch("strands.memory.extraction.coordinator.get_tracer", return_value=tracer):
+        yield tracer
 
 
-async def test_extract_records_root_span_and_metrics(mock_coordinator_telemetry):
-    """A successful extraction starts a root span, ends OK, and records success metrics."""
-    tracer, metrics_client = mock_coordinator_telemetry
+async def test_extract_records_root_span(mock_coordinator_tracer):
+    """A successful extraction starts a root span and ends OK."""
     store = _store(
         "personal",
         writable=True,
@@ -266,16 +237,14 @@ async def test_extract_records_root_span_and_metrics(mock_coordinator_telemetry)
 
     await coordinator._extract(store)
 
-    tracer.start_memory_extract_span.assert_called_once()
-    end_call = tracer.end_memory_extract_span.call_args
+    mock_coordinator_tracer.start_memory_extract_span.assert_called_once()
+    end_call = mock_coordinator_tracer.end_memory_extract_span.call_args
     assert end_call.kwargs.get("error") is None
-    metrics_client.memory_extract_success_count.add.assert_called_once_with(1, attributes={"store_name": "personal"})
     store.add_messages.assert_awaited_once()
 
 
-async def test_extract_failure_ends_with_error_and_is_swallowed(mock_coordinator_telemetry):
+async def test_extract_failure_ends_with_error_and_is_swallowed(mock_coordinator_tracer):
     """A failing write ends the extract span with the error but never raises."""
-    tracer, metrics_client = mock_coordinator_telemetry
     store = _store(
         "personal",
         writable=True,
@@ -289,14 +258,12 @@ async def test_extract_failure_ends_with_error_and_is_swallowed(mock_coordinator
     # Must not raise: saving never breaks the agent loop.
     await coordinator._extract(store)
 
-    end_call = tracer.end_memory_extract_span.call_args
+    end_call = mock_coordinator_tracer.end_memory_extract_span.call_args
     assert isinstance(end_call.kwargs["error"], RuntimeError)
-    metrics_client.memory_extract_error_count.add.assert_called_once_with(1, attributes={"store_name": "personal"})
 
 
-async def test_extract_no_fresh_messages_creates_no_span(mock_coordinator_telemetry):
+async def test_extract_no_fresh_messages_creates_no_span(mock_coordinator_tracer):
     """An empty buffer (nothing fresh) creates no extract span."""
-    tracer, _metrics_client = mock_coordinator_telemetry
     store = _store(
         "personal",
         writable=True,
@@ -307,12 +274,11 @@ async def test_extract_no_fresh_messages_creates_no_span(mock_coordinator_teleme
 
     await coordinator._extract(store)
 
-    tracer.start_memory_extract_span.assert_not_called()
+    mock_coordinator_tracer.start_memory_extract_span.assert_not_called()
 
 
-async def test_extract_with_extractor_records_entry_count(mock_coordinator_telemetry):
-    """The extractor path passes the written entry count to the span end and the metric."""
-    tracer, metrics_client = mock_coordinator_telemetry
+async def test_extract_with_extractor_records_entry_count(mock_coordinator_tracer):
+    """The extractor path passes the written entry count to the span end."""
     extractor = SimpleNamespace(
         extract=AsyncMock(return_value=[ExtractionResult(content="fact one"), ExtractionResult(content="fact two")])
     )
@@ -328,13 +294,13 @@ async def test_extract_with_extractor_records_entry_count(mock_coordinator_telem
     await coordinator._extract(store)
 
     # The count is threaded to the real span via end_memory_extract_span, not an implicit current span.
-    tracer.end_memory_extract_span.assert_called_once_with(tracer.start_memory_extract_span.return_value, entry_count=2)
-    metrics_client.memory_extract_entries.record.assert_called_once_with(2, attributes={"store_name": "personal"})
+    mock_coordinator_tracer.end_memory_extract_span.assert_called_once_with(
+        mock_coordinator_tracer.start_memory_extract_span.return_value, entry_count=2
+    )
 
 
-async def test_extract_fully_filtered_records_zero_entries(mock_coordinator_telemetry):
+async def test_extract_fully_filtered_records_zero_entries(mock_coordinator_tracer):
     """A turn whose messages are entirely filtered out records entry_count=0, not nothing."""
-    tracer, metrics_client = mock_coordinator_telemetry
     store = _store(
         "personal",
         writable=True,
@@ -348,17 +314,15 @@ async def test_extract_fully_filtered_records_zero_entries(mock_coordinator_tele
     await coordinator._extract(store)
 
     store.add_messages.assert_not_awaited()
-    tracer.end_memory_extract_span.assert_called_once_with(tracer.start_memory_extract_span.return_value, entry_count=0)
-    metrics_client.memory_extract_success_count.add.assert_called_once_with(1, attributes={"store_name": "personal"})
-    metrics_client.memory_extract_entries.record.assert_called_once_with(0, attributes={"store_name": "personal"})
+    mock_coordinator_tracer.end_memory_extract_span.assert_called_once_with(
+        mock_coordinator_tracer.start_memory_extract_span.return_value, entry_count=0
+    )
 
 
-async def test_extract_telemetry_failure_does_not_corrupt_save(mock_coordinator_telemetry):
-    """A telemetry failure after a successful save must not raise nor mark the save as failed."""
-    tracer, metrics_client = mock_coordinator_telemetry
-    # Every metric/span call after the write raises, simulating a broken meter/tracer provider.
-    metrics_client.memory_extract_call_count.add.side_effect = RuntimeError("meter down")
-    tracer.end_memory_extract_span.side_effect = RuntimeError("tracer down")
+async def test_extract_telemetry_failure_does_not_corrupt_save(mock_coordinator_tracer):
+    """A span failure after a successful save must not raise nor mark the save as failed."""
+    # Ending the span raises, simulating a broken tracer provider.
+    mock_coordinator_tracer.end_memory_extract_span.side_effect = RuntimeError("tracer down")
     store = _store(
         "personal",
         writable=True,
@@ -368,7 +332,7 @@ async def test_extract_telemetry_failure_does_not_corrupt_save(mock_coordinator_
     coordinator = ExtractionCoordinator([_binding(store)], default_model=MagicMock())
     coordinator.record({"role": "user", "content": [{"text": "remember dark mode"}]})
 
-    # Must not raise despite telemetry failures.
+    # Must not raise despite the telemetry failure.
     await coordinator._extract(store)
 
     # The save itself succeeded and was not rolled back / marked failed.
@@ -376,9 +340,8 @@ async def test_extract_telemetry_failure_does_not_corrupt_save(mock_coordinator_
     assert coordinator._consecutive_failures.get(id(store), 0) == 0
 
 
-async def test_schedule_captures_live_agent_span_as_link(mock_coordinator_telemetry):
-    """When scheduled inside a live recording span, that span is captured and linked on the extract span."""
-    tracer, _metrics_client = mock_coordinator_telemetry
+async def test_schedule_captures_live_agent_span_as_link(mock_coordinator_tracer):
+    """When scheduled inside a live recording span, that span is captured for linking."""
     store = _store(
         "personal",
         writable=True,
