@@ -497,12 +497,17 @@ def test_format_chunk_metadata_with_cache_tokens(model):
 
     event = {"chunk_type": "metadata", "data": mock_usage}
 
-    result = model._format_chunk(event)
-
-    assert result["metadata"]["usage"]["inputTokens"] == 100
-    assert result["metadata"]["usage"]["outputTokens"] == 50
-    assert result["metadata"]["usage"]["totalTokens"] == 150
-    assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
+    assert model._format_chunk(event) == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+                "cacheReadInputTokens": 25,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
 
 
 def test_format_chunk_metadata_with_zero_cached_tokens(model):
@@ -518,9 +523,38 @@ def test_format_chunk_metadata_with_zero_cached_tokens(model):
 
     event = {"chunk_type": "metadata", "data": mock_usage}
 
-    result = model._format_chunk(event)
+    assert model._format_chunk(event) == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
 
-    assert "cacheReadInputTokens" not in result["metadata"]["usage"]
+
+def test_format_chunk_metadata_without_token_details(model):
+    """Test _format_chunk for metadata when input token details are absent."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.input_tokens = 100
+    mock_usage.output_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.input_tokens_details = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    assert model._format_chunk(event) == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
 
 
 @pytest.mark.asyncio
