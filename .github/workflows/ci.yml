@@ -47,6 +47,25 @@ jobs:
               - '.github/workflows/docs-*'
               - '.github/workflows/ci.yml'
 
+  dependency-review:
+    name: Dependency Review
+    # Repo-level security gate covering every ecosystem in the monorepo
+    # (npm + Python) via GitHub's dependency graph. Diffs the PR against its
+    # base and fails only on vulnerabilities the PR introduces (adds or bumps
+    # to a vulnerable version); pre-existing advisories do not block.
+    # PR-only: it needs a base ref to diff, so it is skipped on dispatch.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
   python:
     name: Python
     needs: detect-changes
@@ -78,11 +97,11 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [detect-changes, python, typescript, docs]
+    needs: [detect-changes, dependency-review, python, typescript, docs]
     runs-on: ubuntu-latest
     permissions: {}
     steps:
       - uses: re-actors/alls-green@release/v1
         with:
-          allowed-skips: python, typescript, docs
+          allowed-skips: dependency-review, python, typescript, docs
           jobs: ${{ toJSON(needs) }}
