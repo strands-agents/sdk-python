@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { program } from 'commander'
@@ -168,6 +168,24 @@ function run(cmd: string, opts?: { cwd?: string; env?: Record<string, string> })
   }
 }
 
+/** Run a binary directly with an argument vector, bypassing the shell. Used for
+ * commands whose path or arguments come from resolved filesystem locations
+ * (e.g. the repo-root venv) rather than fixed literals, so no shell quoting or
+ * interpolation is involved. */
+function runFile(file: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }): void {
+  try {
+    execFileSync(file, args, {
+      stdio: 'inherit',
+      cwd: opts?.cwd ?? ROOT,
+      env: opts?.env ? { ...process.env, ...opts.env } : undefined,
+    })
+  } catch (e: unknown) {
+    const status = (e as { status?: number }).status ?? 1
+    console.error(`\nfailed: ${file} ${args.join(' ')} (exit ${status})`)
+    process.exit(status)
+  }
+}
+
 /** Run a command with the repo-root venv on PATH. ``cwd`` defaults to
  * strands-py-wasm because most Python commands (pytest, ruff) act on that
  * package's source, but callers can override. */
@@ -183,12 +201,12 @@ function setup(opts?: { node?: boolean; python?: boolean }): void {
   if (all || opts?.node) run('npm install')
   if (all || opts?.python) {
     run('python3 -m venv .venv', { cwd: ROOT })
-    run(`${VENV}/bin/pip install -e .`, { cwd: ROOT })
+    runFile(`${VENV}/bin/pip`, ['install', '-e', '.'], { cwd: ROOT })
   }
 }
 
 function installPyWasm(): void {
-  run(`${VENV}/bin/pip install -e strands-py-wasm/`, { cwd: ROOT })
+  runFile(`${VENV}/bin/pip`, ['install', '-e', 'strands-py-wasm/'], { cwd: ROOT })
 }
 
 function linkCli(): void {
@@ -255,7 +273,13 @@ function generate(opts?: { check?: boolean }): void {
   // The hand-written ``strands.types`` module re-exports the curated public
   // subset from this private ``_generated`` package.
   run('rm -rf strands-py-wasm/src/strands/_generated')
-  run(`${VENV}/bin/python -m wasmtime.component.bindgen wit -o strands-py-wasm/src/strands/_generated`)
+  runFile(`${VENV}/bin/python`, [
+    '-m',
+    'wasmtime.component.bindgen',
+    'wit',
+    '-o',
+    'strands-py-wasm/src/strands/_generated',
+  ])
 
   // Ensure TS + WASM are built first.
   if (!existsSync(join(ROOT, 'strands-wasm/dist/strands-agent.wasm'))) {

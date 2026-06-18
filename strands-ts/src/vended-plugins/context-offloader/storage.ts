@@ -45,6 +45,20 @@ function sanitizeId(rawId: string): string {
 }
 
 /**
+ * Remove any trailing `/` characters from a path-like string.
+ *
+ * Implemented as a linear scan rather than a `/\/+$/` replacement so that
+ * inputs with long runs of slashes are handled in linear time.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') {
+    end--
+  }
+  return value.slice(0, end)
+}
+
+/**
  * In-memory storage backend.
  *
  * Useful for testing and serverless environments where disk access is not available.
@@ -347,7 +361,7 @@ export class S3Storage implements Storage {
     options?: { prefix?: string; region?: string; s3Client?: import('@aws-sdk/client-s3').S3Client }
   ) {
     this._bucket = bucket
-    this._prefix = options?.prefix ? options.prefix.replace(/\/+$/, '') + '/' : ''
+    this._prefix = options?.prefix ? stripTrailingSlashes(options.prefix) + '/' : ''
     this._client = options?.s3Client
     this._region = options?.region ?? 'us-east-1'
   }

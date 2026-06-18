@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+from urllib.parse import urlparse
 
 import openai as openai_sdk
 import pydantic
@@ -353,7 +354,12 @@ def test_responses_builtin_tool_web_search():
 
     assert "citationsContent" in content
     citations = content["citationsContent"]["citations"]
-    assert any("strandsagents.com" in c["location"]["web"]["url"] for c in citations)
+
+    def _is_strands_host(url: str) -> bool:
+        host = urlparse(url).hostname or ""
+        return host == "strandsagents.com" or host.endswith(".strandsagents.com")
+
+    assert any(_is_strands_host(c["location"]["web"]["url"]) for c in citations)
 
 
 @pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
