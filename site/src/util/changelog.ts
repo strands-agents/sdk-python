@@ -52,6 +52,11 @@ const FIX_TYPES = new Set(['fix'])
  * (1.0.0 > 1.0.0-rc.1 > 1.0.0-rc.0); prerelease identifiers compare
  * numerically where both are numbers, else lexically. Returns >0 if `b` is
  * newer than `a` (so it sorts after, consistent with date-desc usage).
+ *
+ * A self-contained copy of this lives in the devtools changelog-release-pr
+ * action (changelog-release-pr/scripts/semver-compare.cjs), which has no access
+ * to this module. KEEP THE TWO IN SYNC: the action orders backfill tags and
+ * this orders the rendered site, so divergent rules would disagree on order.
  */
 export function compareVersionDesc(a: string, b: string): number {
   const parse = (v: string) => {
