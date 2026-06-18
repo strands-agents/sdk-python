@@ -24,6 +24,8 @@ import os
 
 import boto3
 
+from tests_integ._aws import resolve_region
+
 logger = logging.getLogger(__name__)
 
 # Root namespace the provisioning stack publishes every test parameter under.
@@ -44,24 +46,19 @@ def ssm_parameter_path(feature: str, *segments: str) -> str:
     return "/".join([SSM_PARAMETER_NAMESPACE, feature, *segments])
 
 
-def _resolve_region(region: str | None) -> str:
-    """Resolve the AWS region, falling back to the standard env vars then us-east-1."""
-    return region or os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
-
-
 def read_ssm_parameter(name: str, *, with_decryption: bool = False, region: str | None = None) -> str | None:
     """Read a single SSM parameter by name.
 
     Args:
         name: The SSM parameter name.
         with_decryption: Decrypt the value (required for ``SecureString`` parameters).
-        region: AWS region; defaults to ``AWS_REGION`` / ``AWS_DEFAULT_REGION`` / ``us-east-1``.
+        region: AWS region override; defaults via :func:`~tests_integ._aws.resolve_region`.
 
     Returns:
         The parameter value, or ``None`` if it can't be read (missing, no access, SSM unreachable).
     """
     try:
-        client = boto3.Session(region_name=_resolve_region(region)).client("ssm")
+        client = boto3.Session(region_name=resolve_region(region)).client("ssm")
         response = client.get_parameter(Name=name, WithDecryption=with_decryption)
     except Exception as error:  # noqa: BLE001 - any failure means "unavailable", not "error".
         logger.warning("name=<%s>, error=<%s> | failed to read SSM parameter", name, error)
@@ -82,7 +79,7 @@ def resolve_ssm_parameters(
         params: Map of result key -> SSM parameter name to batch-read.
         overrides: Optional map of result key -> environment variable name. When the
             env var is set, its value takes precedence over SSM for that key.
-        region: AWS region; defaults to ``AWS_REGION`` / ``AWS_DEFAULT_REGION`` / ``us-east-1``.
+        region: AWS region override; defaults via :func:`~tests_integ._aws.resolve_region`.
 
     Returns:
         Map of each key in ``params`` to its resolved value, or ``None`` when neither
@@ -95,12 +92,8 @@ def resolve_ssm_parameters(
 
 
 def _batch_get(params: dict[str, str], *, region: str | None) -> dict[str, str | None] | None:
-    """Batch-read the SSM parameters by name; returns a key->value map, or ``None`` on failure.
-
-    Parameters that don't exist in SSM resolve to ``None``.
-    """
     try:
-        client = boto3.Session(region_name=_resolve_region(region)).client("ssm")
+        client = boto3.Session(region_name=resolve_region(region)).client("ssm")
         response = client.get_parameters(Names=list(params.values()))
     except Exception as error:  # noqa: BLE001 - any failure means "skip", not "error".
         logger.warning("error=<%s> | failed to resolve SSM parameters", error)

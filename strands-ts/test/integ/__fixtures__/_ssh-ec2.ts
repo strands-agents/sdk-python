@@ -1,20 +1,9 @@
 /**
  * Sets up a connection to the shared `ssh-ec2` test instance for the SSH
- * sandbox integration test.
- *
- * That instance has no public IP and no inbound security-group rule, so the
- * only way to reach its sshd is an SSM Session Manager port-forward
- * (`aws ssm start-session --document-name AWS-StartPortForwardingSession`).
- * This runs in the global setup (parent process): it resolves the instance and
- * key from SSM, opens the tunnel to a local port, and provides a serializable
- * connection target the test points `SshSandbox` at.
- *
- * Everything self-skips: if the SSM parameters can't be resolved, or the `aws`
- * CLI / `session-manager-plugin` aren't installed, or the tunnel never comes
- * up, the provided context has `shouldSkip` set and the test skips.
+ * sandbox integration test via an SSM Session Manager port-forward.
  */
 
-import { SSMClient, GetParametersCommand, GetParameterCommand } from '@aws-sdk/client-ssm'
+import { SSMClient, TerminateSessionCommand } from '@aws-sdk/client-ssm'
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, writeFileSync, rmSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -25,7 +14,8 @@ import type { AddressInfo } from 'node:net'
 import type { TestProject } from 'vitest/node'
 import type { ProvidedContext } from 'vitest'
 
-const REGION = process.env.AWS_REGION || 'us-east-1'
+import { AWS_REGION } from './_aws.js'
+import { getSSMParameters, getSSMParameter } from './_ssm.js'
 const SSH_USER = 'ec2-user'
 const INSTANCE_ID_PARAM = '/strands/test-infra/ssh-ec2/instance-id'
 const KEY_PARAM_NAME_PARAM = '/strands/test-infra/ssh-ec2/private-key-parameter-name'
@@ -53,51 +43,40 @@ export async function getSshEc2TestContext(project: TestProject): Promise<SshEc2
   }
 
   if (!toolingAvailable()) {
-    console.log('⏭️  aws CLI or session-manager-plugin not on PATH - SSH sandbox test will be skipped')
+    console.log('SSH sandbox setup: aws CLI or session-manager-plugin not on PATH, skipping')
     return SKIP
   }
 
-  const ssm = new SSMClient({ region: REGION })
-
-  const pointers = await ssm
-    .send(new GetParametersCommand({ Names: [INSTANCE_ID_PARAM, KEY_PARAM_NAME_PARAM] }))
-    .catch((e) => {
-      console.warn('Error resolving ssh-ec2 SSM parameters', e)
-      return null
-    })
-  const byName = new Map((pointers?.Parameters ?? []).map((p) => [p.Name, p.Value]))
-  const instanceId = byName.get(INSTANCE_ID_PARAM)
-  const keyParamName = byName.get(KEY_PARAM_NAME_PARAM)
-  if (!instanceId || !keyParamName) {
-    console.log('⏭️  ssh-ec2 SSM parameters not available - SSH sandbox test will be skipped')
+  const resolved = await getSSMParameters({
+    instanceId: INSTANCE_ID_PARAM,
+    keyParamName: KEY_PARAM_NAME_PARAM,
+  })
+  if (!resolved?.instanceId || !resolved?.keyParamName) {
+    console.log('SSH sandbox setup: SSM parameters not available, skipping')
     return SKIP
   }
 
-  const keyResponse = await ssm
-    .send(new GetParameterCommand({ Name: keyParamName, WithDecryption: true }))
-    .catch((e) => {
-      console.warn('Error reading ssh-ec2 private key', e)
-      return null
-    })
-  const privateKey = keyResponse?.Parameter?.Value
+  const privateKey = await getSSMParameter(resolved.keyParamName, true)
   if (!privateKey) {
-    console.log('⏭️  ssh-ec2 private key not readable - SSH sandbox test will be skipped')
+    console.log('SSH sandbox setup: private key not readable, skipping')
     return SKIP
   }
 
+  // OpenSSH's -i flag requires a file path; chmod 600 is mandatory.
   const keyDir = mkdtempSync(join(tmpdir(), 'strands-ssh-ec2-'))
   const identityFile = join(keyDir, 'key.pem')
   writeFileSync(identityFile, privateKey.endsWith('\n') ? privateKey : `${privateKey}\n`)
   chmodSync(identityFile, 0o600)
 
   const removeKey = (): void => rmSync(keyDir, { recursive: true, force: true })
+  process.on('exit', removeKey)
 
   const localPort = await freeLocalPort()
-  const tunnelState = openTunnel(instanceId, localPort)
+  const tunnelState = openTunnel(resolved.instanceId, localPort)
 
   const ready = await waitForPort(localPort, TUNNEL_READY_TIMEOUT_MS)
   if (!ready) {
-    console.log('⏭️  SSM port-forward did not come up - SSH sandbox test will be skipped')
+    console.log('SSH sandbox setup: port-forward did not come up, skipping')
     closeTunnel(tunnelState)
     removeKey()
     return SKIP
@@ -105,13 +84,13 @@ export async function getSshEc2TestContext(project: TestProject): Promise<SshEc2
 
   const workingDir = `/home/${SSH_USER}/strands-integ-ssh-${randomBytes(4).toString('hex')}`
   if (!runSsh(localPort, identityFile, `mkdir -p ${workingDir}`)) {
-    console.log('⏭️  could not prepare remote working dir - SSH sandbox test will be skipped')
+    console.log('SSH sandbox setup: could not prepare remote working dir, skipping')
     closeTunnel(tunnelState)
     removeKey()
     return SKIP
   }
 
-  console.log('⏭️  ssh-ec2 instance reachable - SSH sandbox test will run')
+  console.log('SSH sandbox setup: instance reachable, tests will run')
   return {
     context: {
       shouldSkip: false,
@@ -123,13 +102,14 @@ export async function getSshEc2TestContext(project: TestProject): Promise<SshEc2
     cleanup: () => {
       runSsh(localPort, identityFile, `rm -rf ${workingDir}`)
       closeTunnel(tunnelState)
+      process.removeListener('exit', removeKey)
       removeKey()
     },
   }
 }
 
 // ---------------------------------------------------------------------------
-// Tunnel lifecycle with explicit session termination
+// Tunnel lifecycle with explicit session termination via the SSM API
 // ---------------------------------------------------------------------------
 
 interface TunnelState {
@@ -146,7 +126,7 @@ function openTunnel(instanceId: string, localPort: number): TunnelState {
       'ssm',
       'start-session',
       '--region',
-      REGION,
+      AWS_REGION,
       '--target',
       instanceId,
       '--document-name',
@@ -157,7 +137,6 @@ function openTunnel(instanceId: string, localPort: number): TunnelState {
     { stdio: ['ignore', 'pipe', 'pipe'] }
   )
 
-  // Capture the session ID from stdout for explicit terminate-session on cleanup.
   proc.stdout?.on('data', (chunk: { toString(): string }) => {
     const match = chunk.toString().match(/SessionId[:\s]+(\S+)/)
     if (match) sessionId = match[1]
@@ -171,8 +150,6 @@ function openTunnel(instanceId: string, localPort: number): TunnelState {
     exitHandler: () => {},
   }
 
-  // Safety net: if the Node process exits before cleanup is called (e.g. OOM, CI timeout),
-  // terminate the SSM session explicitly so it doesn't sit open for 20 minutes.
   state.exitHandler = () => closeTunnel(state)
   process.on('exit', state.exitHandler)
 
@@ -183,9 +160,8 @@ function closeTunnel(state: TunnelState): void {
   process.removeListener('exit', state.exitHandler)
 
   if (state.sessionId) {
-    spawnSync('aws', ['ssm', 'terminate-session', '--region', REGION, '--session-id', state.sessionId], {
-      stdio: 'ignore',
-    })
+    const client = new SSMClient({ region: AWS_REGION })
+    client.send(new TerminateSessionCommand({ SessionId: state.sessionId })).catch(() => {})
   }
   if (!state.process.killed) {
     state.process.kill()

@@ -6,6 +6,8 @@ reached through an SSM port-forward set up by the session-scoped
 infrastructure isn't available.
 """
 
+from collections.abc import Callable
+
 import pytest
 
 from strands.sandbox.ssh import SshSandbox
@@ -194,16 +196,9 @@ async def test_get_tools_descriptions_reference_host(ssh_sandbox: SshSandbox):
 # ---------------------------------------------------------------------------
 
 
-async def test_ssh_options_are_applied(ssh_sandbox: SshSandbox):
+async def test_ssh_options_are_applied(ssh_sandbox_factory: Callable[..., SshSandbox]):
     """ServerAliveInterval is a safe option; verify it doesn't break the connection."""
-    custom = SshSandbox(
-        host=ssh_sandbox.host,
-        working_dir=ssh_sandbox.working_dir,
-        identity_file=ssh_sandbox._identity_file,
-        port=ssh_sandbox._port,
-        ssh_options=["ServerAliveInterval=5"],
-        allow_unknown_hosts=True,
-    )
+    custom = ssh_sandbox_factory(ssh_options=["ServerAliveInterval=5"])
     result = await custom.execute("echo options_ok")
     assert result.exit_code == 0
     assert result.stdout.strip() == "options_ok"

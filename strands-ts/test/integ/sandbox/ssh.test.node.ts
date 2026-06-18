@@ -39,9 +39,13 @@ describe.skipIf(sshEc2.shouldSkip)('SshSandbox (integration)', () => {
 
   it('handles empty output', async () => {
     const result = await makeSandbox().execute('true')
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBe('')
-    expect(result.stderr).toBe('')
+    expect(result).toStrictEqual({
+      type: 'executionResult',
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      outputFiles: [],
+    })
   })
 
   // -------------------------------------------------------------------------
@@ -83,14 +87,24 @@ describe.skipIf(sshEc2.shouldSkip)('SshSandbox (integration)', () => {
 
   it('runs code via executeCode', async () => {
     const result = await makeSandbox().executeCode('echo $((6 * 7))', 'sh')
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBe('42\n')
+    expect(result).toStrictEqual({
+      type: 'executionResult',
+      exitCode: 0,
+      stdout: '42\n',
+      stderr: '',
+      outputFiles: [],
+    })
   })
 
   it('executeCode handles multiline scripts', async () => {
     const result = await makeSandbox().executeCode('x=hello\necho $x world', 'sh')
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBe('hello world\n')
+    expect(result).toStrictEqual({
+      type: 'executionResult',
+      exitCode: 0,
+      stdout: 'hello world\n',
+      stderr: '',
+      outputFiles: [],
+    })
   })
 
   // -------------------------------------------------------------------------
