@@ -1942,6 +1942,26 @@ def test_memory_inject_span(mock_tracer):
         mock_span.set_status.assert_called_once_with(StatusCode.OK)
 
 
+def test_start_memory_inject_span_without_max_entries(mock_tracer):
+    """Test that max_entries is omitted from attributes when not provided."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        tracer.start_memory_inject_span()
+
+        assert mock_tracer.start_span.call_args[1]["name"] == "memory.inject"
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "memory.inject",
+                "gen_ai.system": "strands-agents",
+            }
+        )
+
+
 def test_end_memory_inject_span_format_error(mock_span):
     """Test that a format error ends the inject span OK (fail-open) with a flag, not an error."""
     tracer = Tracer()

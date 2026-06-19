@@ -9,7 +9,7 @@ import logging
 import os
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import opentelemetry.context as context_api
 import opentelemetry.trace as trace_api
@@ -23,6 +23,9 @@ from ..types.multiagent import MultiAgentInput
 from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
+
+if TYPE_CHECKING:
+    from ..memory.types import MemoryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -886,7 +889,7 @@ class Tracer:
     def end_memory_search_span(
         self,
         span: Span,
-        entries: list[Any] | None = None,
+        entries: "list[MemoryEntry] | None" = None,
         store_failure_count: int = 0,
         error: Exception | None = None,
     ) -> None:
