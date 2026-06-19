@@ -24,6 +24,7 @@ from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionStartEvent,
+    BidiImageInputEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
@@ -712,7 +713,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
 
         Raises:
-            ValueError: If content type not supported (e.g., image content).
+            ValueError: If content type not supported.
         """
         if not self._connection_id:
             raise RuntimeError("model not started | call start before sending")
@@ -722,6 +723,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
             await self._send_text_content(content.text)
         elif isinstance(content, BidiAudioInputEvent):
             await self._send_audio_content(content)
+        elif isinstance(content, BidiImageInputEvent):
+            await self._send_image_content(content)
         elif isinstance(content, ToolResultEvent):
             tool_result = content.get("tool_result")
             if tool_result:
@@ -733,6 +736,22 @@ class BidiOpenAIRealtimeModel(BidiModel):
         """Internal: Send audio content to OpenAI for processing."""
         # Audio is already base64 encoded in the event
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_input.audio})
+
+    async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
+        """Internal: Send image content to OpenAI for processing.
+
+        Sends the image as an ``input_image`` content block on a user message via
+        ``conversation.item.create``. Image data is encoded as a ``data:`` URL using
+        the event's MIME type and base64 payload, matching the format documented for
+        OpenAI's Realtime API image input on ``gpt-realtime`` models.
+        """
+        data_url = f"data:{image_input.mime_type};base64,{image_input.image}"
+        item_data = {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_image", "image_url": data_url}],
+        }
+        await self._send_event({"type": "conversation.item.create", "item": item_data})
 
     async def _send_text_content(self, text: str) -> None:
         """Internal: Send text content to OpenAI for processing."""

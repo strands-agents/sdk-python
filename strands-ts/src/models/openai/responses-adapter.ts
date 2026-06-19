@@ -20,6 +20,7 @@ import type {
   ResponseFunctionToolCall,
   ResponseFunctionCallOutputItem,
   ResponseCreateParamsStreaming,
+  ResponseUsage,
 } from 'openai/resources/responses/responses'
 import type { Message, StopReason, ToolResultBlock } from '../../types/messages.js'
 import type { ImageBlock, DocumentBlock } from '../../types/media.js'
@@ -331,7 +332,12 @@ function formatDocumentInput(docBlock: DocumentBlock): Record<string, unknown> |
 export interface ResponsesStreamState {
   dataType: string | null
   toolCalls: Map<string, { name: string; arguments: string; callId: string; itemId: string }>
-  finalUsage: { inputTokens: number; outputTokens: number; totalTokens: number } | null
+  finalUsage: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+    cacheReadInputTokens?: number
+  } | null
   stopReason: StopReason
 }
 
@@ -347,6 +353,29 @@ export function createResponsesStreamState(): ResponsesStreamState {
     finalUsage: null,
     stopReason: 'endTurn',
   }
+}
+
+/**
+ * Maps a Responses API `usage` object to the SDK's usage shape, including
+ * prompt-cache reads. The Responses API reports cache hits via
+ * `usage.input_tokens_details.cached_tokens`; surfacing it as
+ * `cacheReadInputTokens` keeps the Responses path consistent with the Bedrock,
+ * Anthropic, and Vercel model adapters (and lets `telemetry/tracer.ts` emit
+ * `gen_ai.usage.cache_read_input_tokens`).
+ *
+ * @internal
+ */
+function mapResponsesUsage(usage: ResponseUsage): NonNullable<ResponsesStreamState['finalUsage']> {
+  const mapped: NonNullable<ResponsesStreamState['finalUsage']> = {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    totalTokens: usage.total_tokens,
+  }
+  const cached = usage.input_tokens_details?.cached_tokens
+  if (typeof cached === 'number' && cached > 0) {
+    mapped.cacheReadInputTokens = cached
+  }
+  return mapped
 }
 
 /**
@@ -464,11 +493,7 @@ export function mapResponsesEventToSDK(
     case 'response.incomplete': {
       const resp = event.response
       if (resp.usage) {
-        state.finalUsage = {
-          inputTokens: resp.usage.input_tokens,
-          outputTokens: resp.usage.output_tokens,
-          totalTokens: resp.usage.total_tokens,
-        }
+        state.finalUsage = mapResponsesUsage(resp.usage)
       }
       if (resp.incomplete_details?.reason === 'max_output_tokens') {
         state.stopReason = 'maxTokens'
@@ -479,11 +504,7 @@ export function mapResponsesEventToSDK(
     case 'response.completed': {
       const resp = event.response
       if (resp.usage) {
-        state.finalUsage = {
-          inputTokens: resp.usage.input_tokens,
-          outputTokens: resp.usage.output_tokens,
-          totalTokens: resp.usage.total_tokens,
-        }
+        state.finalUsage = mapResponsesUsage(resp.usage)
       }
       break
     }

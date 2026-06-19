@@ -84,7 +84,7 @@ bidi-io = [
 bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
-cedar = ["cedarpy==4.8.0", "cedar-policy-mcp-schema-generator==0.6.0"]
+cedar = ["cedarpy==4.8.4", "cedar-policy-mcp-schema-generator==0.6.0"]
 
 all = ["strands-agents[a2a,anthropic,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-io,bidi-gemini,bidi-openai,docs,otel]"]
@@ -97,7 +97,7 @@ dev = [
     "pre-commit>=3.2.0,<4.7.0",
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
-    "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-asyncio>=1.0.0,<1.5.0",
     "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.13.0,<0.15.0",
@@ -157,7 +157,7 @@ extra-args = ["-n", "auto", "-vv"]
 dependencies = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
-    "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-asyncio>=1.0.0,<1.5.0",
     "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "pytest-timeout>=2.0.0,<3.0.0",

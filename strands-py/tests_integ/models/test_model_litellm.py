@@ -8,6 +8,7 @@ import pytest
 import strands
 from strands import Agent
 from strands.models.litellm import LiteLLMModel
+from tests_integ.conftest import retry_on_flaky
 
 
 @pytest.fixture
@@ -280,6 +281,7 @@ async def test_cache_read_tokens_multi_turn(model):
     assert result.metrics.accumulated_usage["cacheWriteInputTokens"] > 0
 
 
+@retry_on_flaky("The model may occasionally not elect to call both tools", retry_on=[AssertionError])
 def test_gemini_thinking_model_tool_call(tools):
     """Test that Gemini thinking models preserve thought_signature through multi-turn tool calls.
 
@@ -287,6 +289,33 @@ def test_gemini_thinking_model_tool_call(tools):
     """
     model = LiteLLMModel(model_id="gemini/gemini-2.5-flash", client_args={"api_key": os.environ.get("GOOGLE_API_KEY")})
     agent = Agent(model=model, tools=tools)
-    result = agent("What is the time and weather in New York?")
-    text = result.message["content"][0]["text"].lower()
-    assert all(string in text for string in ["12:00", "sunny"])
+    # Direct the model to use the tools: an open-ended question lets Gemini decline
+    # (e.g. "I can only report my own location"), which is unrelated to what we test here.
+    result = agent("Use the available tools to look up the current time and weather, then tell me both.")
+
+    # Assert on the structure of the multi-turn cycle rather than the model's free-text
+    # wording (non-deterministic). Without thought_signature preservation the follow-up
+    # model call after the tool results would fail, so reaching a final assistant text
+    # turn that incorporates both tool results is what proves the regression is fixed.
+    called_tools = {
+        block["toolUse"]["name"] for message in agent.messages for block in message["content"] if "toolUse" in block
+    }
+    assert {"tool_time", "tool_weather"} <= called_tools
+
+    tool_results = [
+        block["toolResult"] for message in agent.messages for block in message["content"] if "toolResult" in block
+    ]
+    # Both tools ran cleanly and returned their values, so the follow-up model call
+    # operates on real results rather than error placeholders.
+    assert all(tool_result["status"] == "success" for tool_result in tool_results)
+    tool_result_text = " ".join(
+        content_block["text"]
+        for tool_result in tool_results
+        for content_block in tool_result["content"]
+        if "text" in content_block
+    )
+    assert "12:00" in tool_result_text and "sunny" in tool_result_text
+
+    # The agent loop ran to completion with a final assistant turn after the tool results.
+    assert result.message["role"] == "assistant"
+    assert any("text" in block for block in result.message["content"])

@@ -55,6 +55,7 @@ import openai  # noqa: E402 - must import after version check
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
+from ..types.event_loop import Usage  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
@@ -837,13 +838,20 @@ class OpenAIResponsesModel(Model):
 
             case "metadata":
                 # Responses API uses input_tokens/output_tokens naming convention
+                usage_data: Usage = {
+                    "inputTokens": getattr(event["data"], "input_tokens", 0),
+                    "outputTokens": getattr(event["data"], "output_tokens", 0),
+                    "totalTokens": getattr(event["data"], "total_tokens", 0),
+                }
+
+                if tokens_details := getattr(event["data"], "input_tokens_details", None):
+                    cached = getattr(tokens_details, "cached_tokens", None)
+                    if isinstance(cached, int) and cached:
+                        usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": getattr(event["data"], "input_tokens", 0),
-                            "outputTokens": getattr(event["data"], "output_tokens", 0),
-                            "totalTokens": getattr(event["data"], "total_tokens", 0),
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

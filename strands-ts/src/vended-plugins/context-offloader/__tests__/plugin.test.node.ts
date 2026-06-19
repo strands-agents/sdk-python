@@ -68,6 +68,10 @@ afterEach(() => {
 })
 
 describe.skipIf(process.platform === 'win32')('ContextOffloader with FileStorage', () => {
+  // Drives a real PosixShellSandbox, so every FileStorage operation spawns an `sh`
+  // subprocess (~9 spawns across both agents). Solo this is ~1.4s, but under the
+  // parallel coverage run the spawns serialize on CPU and push wall time past the
+  // 5s default, so allow extra headroom.
   it('isolates a shared storage config by agent sandbox', async () => {
     const dirA = makeTempDir()
     const dirB = makeTempDir()
@@ -106,5 +110,5 @@ describe.skipIf(process.platform === 'win32')('ContextOffloader with FileStorage
     await expect(retrievalTool.invoke({ reference: refA }, makeToolContext(agentB, refA))).resolves.toContain(
       'Error: reference not found'
     )
-  })
+  }, 15_000)
 })

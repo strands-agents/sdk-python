@@ -25,6 +25,12 @@ Skills for this repository. See [agentskills.io](https://agentskills.io/home) fo
 |-------|---------|
 | **strands-review** | Local preview of the `/strands review` GitHub Action. Runs the same Task Reviewer SOP so you can anticipate what the remote agent will flag before pushing. |
 
+## Local checks
+
+| Skill | Purpose |
+|-------|---------|
+| **pre-push** | Mirrors the `ci.yml` merge gate locally. A bundled script detects which areas changed (python/typescript/docs) using CI's exact path filters, auto-fixes what's mechanical (format, lint `--fix`, lockfile sync) scoped to changed files, then runs that area's checks. Run it to get push-ready before pushing or opening a PR (pairs with **pr-create** / **pr-writer**). |
+
 ## Adding a new skill
 
 Create a directory under `.agents/skills/<skill-name>/` with at least a `SKILL.md` file:
