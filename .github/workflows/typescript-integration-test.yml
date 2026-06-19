@@ -55,6 +55,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
           persist-credentials: false  # Don't persist credentials for subsequent actions
+          allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

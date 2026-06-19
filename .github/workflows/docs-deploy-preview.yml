@@ -64,6 +64,7 @@ jobs:
         with:
           ref: ${{ env.PR_HEAD_SHA }}
           persist-credentials: false
+          allow-unsafe-pr-checkout: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
