@@ -67,6 +67,24 @@ async def test_wrap_passthrough_forwards_events_and_result(registry, stage, alis
 
 
 @pytest.mark.asyncio
+async def test_wrap_phase_token_registers_wrap_handler(registry, stage, alist):
+    """Registering via the explicit .Wrap token behaves like passing the bare stage."""
+    seen = []
+
+    async def handler(context, next_fn):
+        seen.append("wrap")
+        async for event in next_fn(context):
+            yield event
+
+    registry.add_middleware(stage.Wrap, handler)
+    terminal = _make_terminal("e1", result="done")
+    *events, result = await alist(registry.invoke(stage, {}, terminal))
+    assert seen == ["wrap"]
+    assert events == ["e1"]
+    assert result == "done"
+
+
+@pytest.mark.asyncio
 async def test_wrap_context_modification_reaches_terminal(registry, stage, alist):
     received_context = {}
 
@@ -379,6 +397,26 @@ async def test_output_handler_must_return_middleware_result(registry, stage, ali
     terminal = _make_terminal(result="base")
     with pytest.raises(TypeError, match="Output handler must return a MiddlewareResult"):
         await alist(registry.invoke(stage, {}, terminal))
+
+
+@pytest.mark.asyncio
+async def test_output_handler_not_called_when_chain_yields_nothing(registry, stage, alist):
+    """When the chain yields no events, the Output handler is skipped (no result to wrap)."""
+    called = False
+
+    def output_handler(result):
+        nonlocal called
+        called = True
+        return result
+
+    async def empty_terminal(context):
+        return
+        yield  # noqa: B901 — makes this an async generator that yields nothing
+
+    registry.add_middleware(stage.Output, output_handler)
+    events = await alist(registry.invoke(stage, {}, empty_terminal))
+    assert events == []
+    assert not called
 
 
 # --- error propagation ---
