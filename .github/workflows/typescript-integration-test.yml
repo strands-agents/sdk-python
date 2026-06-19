@@ -51,7 +51,7 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout head commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
           persist-credentials: false  # Don't persist credentials for subsequent actions

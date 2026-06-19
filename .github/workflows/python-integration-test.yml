@@ -48,7 +48,7 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout head commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
@@ -91,7 +91,7 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout main
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
           sparse-checkout: |
