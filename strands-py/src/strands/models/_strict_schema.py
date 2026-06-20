@@ -229,18 +229,30 @@ def _has_oneof(schema: dict[str, Any], visited: set[int] | None = None) -> bool:
     if "oneOf" in schema:
         return True
 
-    # Recurse into nested structures
-    for key in ("properties", "items", "anyOf", "allOf", "$defs", "definitions"):
+    # Maps of name -> subschema: recurse into the values only. A property
+    # literally named "oneOf" is a field name, not a schema combinator.
+    for key in ("properties", "$defs", "definitions"):
+        container = schema.get(key)
+        if isinstance(container, dict):
+            for sub_schema in container.values():
+                if isinstance(sub_schema, dict) and _has_oneof(sub_schema, visited):
+                    return True
+
+    # items / prefixItems may be a single schema or a list (tuple validation).
+    for key in ("items", "prefixItems"):
         value = schema.get(key)
         if isinstance(value, dict):
             if _has_oneof(value, visited):
                 return True
-            # If key is properties or $defs/definitions, recurse into each sub-schema
-            if key in ("properties", "$defs", "definitions"):
-                for sub_schema in value.values():
-                    if isinstance(sub_schema, dict) and _has_oneof(sub_schema, visited):
-                        return True
         elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and _has_oneof(item, visited):
+                    return True
+
+    # Lists of subschemas.
+    for key in ("anyOf", "allOf"):
+        value = schema.get(key)
+        if isinstance(value, list):
             for item in value:
                 if isinstance(item, dict) and _has_oneof(item, visited):
                     return True
@@ -264,4 +276,4 @@ def _count_optional_params(schema: dict[str, Any]) -> int:
 
     properties = schema.get("properties", {})
     required = set(schema.get("required", []))
-    return len(properties) - len(required)
+    return max(0, len(properties) - len(set(properties) & required))

@@ -347,3 +347,70 @@ class TestBedrockStrictValidation:
 
         # Should not raise (0 optional params)
         validate_bedrock_strict_constraints(tool_specs, strict_tools=True)
+
+    def test_property_named_oneof_is_not_detected_as_combinator(self):
+        """Regression: property literally named 'oneOf' should not be detected as oneOf combinator."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "oneOf": {"type": "string"}  # This is a field name, not a combinator
+            }
+        }
+        assert _has_oneof(schema) is False
+
+    def test_nested_property_named_oneof_is_not_detected(self):
+        """Regression: nested property named 'oneOf' should not trigger false positive."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "properties": {
+                        "oneOf": {"type": "string"}  # Nested field named oneOf
+                    }
+                }
+            }
+        }
+        assert _has_oneof(schema) is False
+
+    def test_real_oneof_in_properties_is_still_detected(self):
+        """Regression: real oneOf combinator inside properties should still be detected."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "field": {
+                    "oneOf": [  # This IS a real combinator
+                        {"type": "string"},
+                        {"type": "number"}
+                    ]
+                }
+            }
+        }
+        assert _has_oneof(schema) is True
+
+    def test_count_optional_params_with_invalid_required_list(self):
+        """Regression: required listing non-existent properties should not go negative."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "x": {"type": "string"},
+                "y": {"type": "number"}
+            },
+            "required": ["x", "y", "g1", "g2", "g3"]  # g1, g2, g3 don't exist
+        }
+        # Should return 0, not -3
+        assert _count_optional_params(schema) == 0
+
+    def test_count_optional_params_normal_case_still_works(self):
+        """Regression: ensure normal optional counting still works after fix."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "a": {"type": "string"},
+                "b": {"type": "number"},
+                "c": {"type": "boolean"}
+            },
+            "required": ["a"]
+        }
+        # b and c are optional
+        assert _count_optional_params(schema) == 2
