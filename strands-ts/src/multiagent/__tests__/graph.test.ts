@@ -5,7 +5,7 @@ import { MockSnapshotStorage } from '../../__fixtures__/mock-storage-provider.js
 import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 import { createCancellableAgent } from '../../__fixtures__/agent-helpers.js'
 import { AfterNodeCallEvent, BeforeNodeCallEvent, MultiAgentInitializedEvent } from '../events.js'
-import { TextBlock, type ContentBlockData } from '../../types/messages.js'
+import { ReasoningBlock, TextBlock, type ContentBlockData } from '../../types/messages.js'
 import { Status, MultiAgentState } from '../state.js'
 import { AgentNode, MultiAgentNode } from '../nodes.js'
 import { Graph } from '../graph.js'
@@ -376,6 +376,31 @@ describe('Graph', () => {
       expect(streamSpy).toHaveBeenCalled()
       const input = streamSpy.mock.calls[0]![0] as TextBlock[]
       expect(input.map((b) => b.text)).toStrictEqual(['task-input', '[node: a]', 'from-a'])
+    })
+
+    it('does not pass dependency reasoning blocks to downstream nodes', async () => {
+      const agentA = new Agent({
+        model: new MockMessageModel().addTurn([
+          new ReasoningBlock({ text: 'private reasoning' }),
+          new TextBlock('from-a'),
+        ]),
+        printer: false,
+        id: 'a',
+      })
+      const agentB = makeAgent('b')
+      const streamSpy = vi.spyOn(agentB, 'stream')
+
+      const graph = new Graph({
+        nodes: [agentA, agentB],
+        edges: [['a', 'b']],
+      })
+
+      await graph.invoke('task-input')
+
+      expect(streamSpy).toHaveBeenCalled()
+      const input = streamSpy.mock.calls[0]![0] as TextBlock[]
+      expect(input.map((b) => b.text)).toStrictEqual(['task-input', '[node: a]', 'from-a'])
+      expect(input.map((b) => b.type)).toStrictEqual(['textBlock', 'textBlock', 'textBlock'])
     })
 
     it('converts ContentBlockData[] input to ContentBlock instances for downstream nodes', async () => {
