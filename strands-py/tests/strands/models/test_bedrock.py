@@ -1730,7 +1730,7 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model, alist,
         "└ Bedrock region: us-west-2",
         "└ Model id: m1",
         "└ For more information see "
-        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+        "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#required-iam-permissions",
     ]
 
 

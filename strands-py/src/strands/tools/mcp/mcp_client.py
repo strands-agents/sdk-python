@@ -89,7 +89,7 @@ MIME_TO_FORMAT: dict[str, ImageFormat] = {
 CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
     "the client session is not running. Ensure the agent is used within "
     "the MCP client context manager. For more information see: "
-    "https://strandsagents.com/latest/user-guide/concepts/tools/mcp-tools/#mcpclientinitializationerror"
+    "https://strandsagents.com/docs/user-guide/concepts/tools/mcp-tools/#mcpclientinitializationerror-python"
 )
 
 # Non-fatal error patterns that should not cause connection collapse

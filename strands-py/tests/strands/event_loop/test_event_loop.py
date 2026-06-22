@@ -629,7 +629,7 @@ async def test_event_loop_cycle_max_tokens_exception(
     expected_message = (
         "Agent has reached an unrecoverable state due to max_tokens limit. "
         "For more information see: "
-        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+        "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
     )
     with pytest.raises(MaxTokensReachedException, match=expected_message):
         stream = strands.event_loop.event_loop.event_loop_cycle(

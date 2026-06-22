@@ -1021,7 +1021,7 @@ class BedrockModel(Model):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#required-iam-permissions",
                 )
 
             if (
