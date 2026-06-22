@@ -58,7 +58,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.10.1",
-    "acorn": "^8.14.0",
+    "acorn": "^8.17.0",
     "astro": "^6.4.8",
     "js-yaml": "^4.2.0",
     "pino": "^10.3.1",
