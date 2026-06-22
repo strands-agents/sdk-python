@@ -836,7 +836,7 @@ describe('CedarAuthorization', () => {
         entities: [
           { uid: { type: 'Agent::Role', id: 'admin' }, attrs: {}, parents: [] },
           { uid: { type: 'Agent::User', id: 'alice' }, attrs: {}, parents: [{ type: 'Agent::Role', id: 'admin' }] },
-          { uid: { type: 'Agent::McpServer', id: 'default' }, attrs: {}, parents: [] },
+          { uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] },
         ],
         principalResolver: (state) => {
           if (!state.user_id) return undefined
@@ -867,7 +867,7 @@ describe('CedarAuthorization', () => {
         entities: [
           { uid: { type: 'Agent::Role', id: 'admin' }, attrs: {}, parents: [] },
           { uid: { type: 'Agent::User', id: 'bob' }, attrs: {}, parents: [] },
-          { uid: { type: 'Agent::McpServer', id: 'default' }, attrs: {}, parents: [] },
+          { uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] },
         ],
         principalResolver: (state) => {
           if (!state.user_id) return undefined
@@ -881,7 +881,7 @@ describe('CedarAuthorization', () => {
       expect(toolExecuted).toBe(false)
     })
 
-    it('defaults to unnamespaced types when namespace is not set', async () => {
+    it('works with namespace and tools (schema generation path)', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: { query: 'test' } })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -892,8 +892,18 @@ describe('CedarAuthorization', () => {
         return 'results'
       })
 
+      const tools = [
+        {
+          name: 'search',
+          inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+        },
+      ]
+
       const cedar = new CedarAuthorization({
-        policies: 'permit(principal, action == Action::"search", resource);',
+        namespace: 'MyApp',
+        policies: 'permit(principal, action == MyApp::Action::"search", resource);',
+        tools,
+        entities: [{ uid: { type: 'MyApp::Resource', id: 'default' }, attrs: {}, parents: [] }],
       })
 
       const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })

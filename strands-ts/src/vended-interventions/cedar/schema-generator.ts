@@ -12,8 +12,9 @@ export function createSchemaGenerator(
   },
   namespace?: string
 ): SchemaGenerator {
+  const ns = namespace ?? 'Agent'
   const defaultStub = `
-namespace Agent {
+namespace ${ns} {
   @mcp_principal
   entity User;
   @mcp_resource
