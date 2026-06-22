@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import strands._logging as logging_module
 import strands.vended_memory_stores.bedrock_knowledge_base.store as store_module
 from strands.hooks.events import AfterInvocationEvent, MessageAddedEvent
 from strands.hooks.registry import HookOrder
@@ -46,6 +47,14 @@ def _pin_id(monkeypatch):
     monkeypatch.setattr(store_module, "_new_id", lambda: "test-uuid-v7")
 
 
+@pytest.fixture(autouse=True)
+def _reset_warn_once():
+    """Clear process-wide warn-once state so each test exercises the detection-failure warning fresh."""
+    logging_module._warned.clear()
+    yield
+    logging_module._warned.clear()
+
+
 def _mock_client() -> MagicMock:
     """A stub AWS client whose methods are spies the test can program and inspect."""
     return MagicMock()
@@ -57,7 +66,8 @@ def make_store():
 
     Returns a callable ``(overrides, config_overrides) -> (store, runtime, agent)``: the injected
     ``runtime`` / ``agent`` spies are ready to program and inspect. ``retrieve`` defaults to an empty
-    result set; ``ingest_knowledge_base_documents`` defaults to ``{}``.
+    result set; ``ingest_knowledge_base_documents`` defaults to ``{}``; ``get_knowledge_base`` defaults
+    to a ``VECTOR`` knowledge base (re-program it to ``MANAGED`` to exercise managed search).
     """
 
     def _make(
@@ -71,6 +81,7 @@ def make_store():
         runtime.retrieve.return_value = {"retrievalResults": []}
         agent = _mock_client()
         agent.ingest_knowledge_base_documents.return_value = {}
+        agent.get_knowledge_base.return_value = {"knowledgeBase": {"knowledgeBaseConfiguration": {"type": "VECTOR"}}}
 
         config = BedrockKnowledgeBaseConfig(
             knowledge_base_id="kb-1",
@@ -143,6 +154,11 @@ def _last_inline_attributes(agent: MagicMock) -> list[Any]:
     if metadata is None:
         return []
     return metadata.get("inlineAttributes", [])
+
+
+def _managed_kb(agent: MagicMock) -> None:
+    """Program ``get_knowledge_base`` to report a managed knowledge base."""
+    agent.get_knowledge_base.return_value = {"knowledgeBase": {"knowledgeBaseConfiguration": {"type": "MANAGED"}}}
 
 
 # --------------------------------------------------------------------------- #
@@ -332,6 +348,85 @@ class TestSearch:
             with pytest.raises(RuntimeError, match="retrieve boom"):
                 await store.search("q")
         assert "knowledge base retrieve failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_detects_the_kind_from_get_knowledge_base_using_the_kb_id(self, make_store):
+        store, _runtime, agent = make_store()
+        await store.search("q")
+        assert agent.get_knowledge_base.call_args.kwargs == {"knowledgeBaseId": "kb-1"}
+
+    @pytest.mark.asyncio
+    async def test_queries_a_managed_kb_with_managed_search_configuration(self, make_store):
+        store, runtime, agent = make_store()
+        _managed_kb(agent)
+        await store.search("q")
+        assert runtime.retrieve.call_args.kwargs["retrievalConfiguration"] == {
+            "managedSearchConfiguration": {"numberOfResults": 10}
+        }
+
+    @pytest.mark.asyncio
+    async def test_carries_the_scope_filter_into_managed_search_configuration(self, make_store):
+        store, runtime, agent = make_store({"scope": "user-123"})
+        _managed_kb(agent)
+        await store.search("q")
+        assert runtime.retrieve.call_args.kwargs["retrievalConfiguration"] == {
+            "managedSearchConfiguration": {
+                "numberOfResults": 10,
+                "filter": {"equals": {"key": "namespace", "value": "user-123"}},
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_treats_non_managed_types_as_vector(self, make_store):
+        store, runtime, agent = make_store()
+        agent.get_knowledge_base.return_value = {"knowledgeBase": {"knowledgeBaseConfiguration": {"type": "KENDRA"}}}
+        await store.search("q")
+        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
+
+    @pytest.mark.asyncio
+    async def test_detects_the_kind_once_and_reuses_it_across_searches(self, make_store):
+        store, _runtime, agent = make_store()
+        _managed_kb(agent)
+        await store.search("q")
+        await store.search("q")
+        assert agent.get_knowledge_base.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_vector_search_when_detection_fails(self, make_store, caplog):
+        store, runtime, agent = make_store()
+        agent.get_knowledge_base.side_effect = RuntimeError("AccessDenied")
+
+        with caplog.at_level(logging.WARNING):
+            await store.search("q")
+
+        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
+        assert "knowledge base kind detection failed" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_does_not_cache_a_detection_failure_and_retries_on_the_next_search(self, make_store):
+        store, runtime, agent = make_store()
+        agent.get_knowledge_base.side_effect = RuntimeError("throttled")
+        await store.search("q")
+        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
+
+        # The transient failure clears; the next search re-detects and now sees a managed KB.
+        agent.get_knowledge_base.side_effect = None
+        _managed_kb(agent)
+        await store.search("q")
+        assert agent.get_knowledge_base.call_count == 2
+        assert "managedSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
+
+    @pytest.mark.asyncio
+    async def test_warns_only_once_across_repeated_detection_failures(self, make_store, caplog):
+        store, _runtime, agent = make_store()
+        agent.get_knowledge_base.side_effect = RuntimeError("AccessDenied")
+
+        with caplog.at_level(logging.WARNING):
+            await store.search("q")
+            await store.search("q")
+
+        warnings = [r for r in caplog.records if "knowledge base kind detection failed" in r.getMessage()]
+        assert len(warnings) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -636,7 +731,9 @@ class TestConfigReuseAcrossNamespaces:
     async def test_reuses_an_injected_runtime_client_across_stores(self):
         runtime = _mock_client()
         runtime.retrieve.return_value = {"retrievalResults": []}
-        config = BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1", runtime_client=runtime)
+        agent = _mock_client()
+        agent.get_knowledge_base.return_value = {"knowledgeBase": {"knowledgeBaseConfiguration": {"type": "VECTOR"}}}
+        config = BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1", runtime_client=runtime, agent_client=agent)
 
         with patch("boto3.client") as client_fn:
             personal = BedrockKnowledgeBaseStore(config=config, name="personal", scope="user-abc")

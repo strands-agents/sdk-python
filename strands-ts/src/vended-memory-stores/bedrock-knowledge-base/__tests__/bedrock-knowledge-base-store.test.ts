@@ -9,6 +9,13 @@ import { Message, TextBlock } from '../../../types/messages.js'
 import { AfterInvocationEvent, MessageAddedEvent } from '../../../hooks/events.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import { logger } from '../../../logging/logger.js'
+import { warnOnce } from '../../../logging/warn-once.js'
+
+// Mock warn-once so detection-failure warnings can be asserted without the module-level dedupe set
+// leaking state across tests (mirrors conversation-manager.test.ts).
+vi.mock('../../../logging/warn-once.js', () => ({
+  warnOnce: vi.fn(),
+}))
 
 // Mock the AWS SDK clients. Command classes are stubbed to echo their input as `{ input }`, so a
 // test can assert on `send`'s argument — mirroring src/session/__tests__/s3-storage.test.ts. Client
@@ -29,6 +36,9 @@ vi.mock('@aws-sdk/client-bedrock-agent', () => ({
   }),
   IngestKnowledgeBaseDocumentsCommand: vi.fn().mockImplementation(function (input) {
     return { input }
+  }),
+  GetKnowledgeBaseCommand: vi.fn().mockImplementation(function (input) {
+    return { input, _command: 'GetKnowledgeBase' }
   }),
 }))
 
@@ -52,6 +62,19 @@ function mockClient(): { send: MockedFunction<any> } {
 }
 
 /**
+ * Programs an agent client's `send` to discriminate by command: a {@link GetKnowledgeBaseCommand}
+ * resolves to a knowledge base of `kbType` (driving search-config selection), while everything else
+ * (i.e. ingestion) resolves to `{}`. Defaults to a `VECTOR` knowledge base.
+ */
+function programAgentSend(agent: { send: MockedFunction<any> }, kbType = 'VECTOR'): void {
+  agent.send.mockImplementation((command: any) =>
+    command?._command === 'GetKnowledgeBase'
+      ? Promise.resolve({ knowledgeBase: { knowledgeBaseConfiguration: { type: kbType } } })
+      : Promise.resolve({})
+  )
+}
+
+/**
  * Builds a store from a base connection config plus per-store fields. `config` overrides merge onto
  * the shared connection (`knowledgeBaseId: 'kb-1'` + injected runtime/agent clients); `overrides`
  * carry the per-store fields that sit outside `config` (`name`, `scope`, `writable`, ...). The
@@ -68,7 +91,7 @@ function makeStore(
   const runtime = mockClient()
   runtime.send.mockResolvedValue({ retrievalResults: [] })
   const agent = mockClient()
-  agent.send.mockResolvedValue({})
+  programAgentSend(agent)
   const store = new BedrockKnowledgeBaseStore({
     config: { knowledgeBaseId: 'kb-1', runtimeClient: runtime as any, agentClient: agent as any, ...configOverrides },
     name: 'kb',
@@ -349,6 +372,90 @@ describe('BedrockKnowledgeBaseStore', () => {
       await expect(store.search('q')).rejects.toThrow('retrieve boom')
       expect(errorSpy).toHaveBeenCalled()
       errorSpy.mockRestore()
+    })
+
+    /** Reads the retrievalConfiguration the most recent RetrieveCommand was sent with. */
+    function lastRetrievalConfiguration(runtime: { send: MockedFunction<any> }): any {
+      const calls = runtime.send.mock.calls
+      return calls[calls.length - 1]?.[0].input.retrievalConfiguration
+    }
+
+    it('detects the kind from GetKnowledgeBase using the knowledge base id', async () => {
+      const { store, agent } = makeStore()
+      await store.search('q')
+      const detectCall = agent.send.mock.calls.find((c: any[]) => c[0]?._command === 'GetKnowledgeBase')
+      expect(detectCall?.[0].input).toStrictEqual({ knowledgeBaseId: 'kb-1' })
+    })
+
+    it('queries a managed knowledge base with managedSearchConfiguration', async () => {
+      const { store, runtime, agent } = makeStore()
+      programAgentSend(agent, 'MANAGED')
+      await store.search('q')
+      expect(lastRetrievalConfiguration(runtime)).toStrictEqual({
+        managedSearchConfiguration: { numberOfResults: 10 },
+      })
+    })
+
+    it('carries the scope filter into managedSearchConfiguration', async () => {
+      const { store, runtime, agent } = makeStore({ scope: 'user-123' })
+      programAgentSend(agent, 'MANAGED')
+      await store.search('q')
+      expect(lastRetrievalConfiguration(runtime)).toStrictEqual({
+        managedSearchConfiguration: {
+          numberOfResults: 10,
+          filter: { equals: { key: 'namespace', value: 'user-123' } },
+        },
+      })
+    })
+
+    it('queries a vector knowledge base with vectorSearchConfiguration', async () => {
+      // makeStore reports VECTOR by default.
+      const { store, runtime } = makeStore()
+      await store.search('q')
+      expect(lastRetrievalConfiguration(runtime)).toStrictEqual({
+        vectorSearchConfiguration: { numberOfResults: 10 },
+      })
+    })
+
+    it('treats non-managed types as vector', async () => {
+      const { store, runtime, agent } = makeStore()
+      programAgentSend(agent, 'KENDRA')
+      await store.search('q')
+      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
+    })
+
+    it('detects the kind once and reuses it across searches', async () => {
+      const { store, agent } = makeStore()
+      programAgentSend(agent, 'MANAGED')
+      await store.search('q')
+      await store.search('q')
+      const detectCalls = agent.send.mock.calls.filter((c: any[]) => c[0]?._command === 'GetKnowledgeBase')
+      expect(detectCalls).toHaveLength(1)
+    })
+
+    it('falls back to vector search and warns when detection fails', async () => {
+      const { store, runtime, agent } = makeStore()
+      agent.send.mockRejectedValue(new Error('AccessDenied'))
+      await store.search('q')
+      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
+      expect(vi.mocked(warnOnce)).toHaveBeenCalledWith(
+        logger,
+        expect.stringContaining('knowledge base kind detection failed')
+      )
+    })
+
+    it('does not cache a detection failure and retries on the next search', async () => {
+      const { store, runtime, agent } = makeStore()
+      agent.send.mockRejectedValueOnce(new Error('throttled'))
+      await store.search('q')
+      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
+
+      // The transient failure clears; the next search re-detects and now sees a managed KB.
+      programAgentSend(agent, 'MANAGED')
+      await store.search('q')
+      const detectCalls = agent.send.mock.calls.filter((c: any[]) => c[0]?._command === 'GetKnowledgeBase')
+      expect(detectCalls).toHaveLength(2)
+      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('managedSearchConfiguration')
     })
   })
 

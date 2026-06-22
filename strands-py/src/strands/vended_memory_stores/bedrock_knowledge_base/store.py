@@ -1,7 +1,9 @@
 """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
 Supports semantic search via ``Retrieve`` and document ingestion via
-``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources.
+``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with both managed and
+self-managed (vector) knowledge bases; the kind is detected automatically and the query is shaped to
+match (see :meth:`BedrockKnowledgeBaseStore._resolve_kb_kind`).
 """
 
 from __future__ import annotations
@@ -9,11 +11,12 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import boto3
 from typing_extensions import Unpack
 
+from ..._logging import warn_once
 from ...memory.types import MemoryEntry, MemoryStore, Metadata, SearchOptions
 from .types import (
     BedrockKnowledgeBaseAddResult,
@@ -25,12 +28,17 @@ if TYPE_CHECKING:
     from mypy_boto3_bedrock_agent import AgentsforBedrockClient
     from mypy_boto3_bedrock_agent.type_defs import KnowledgeBaseDocumentTypeDef
     from mypy_boto3_bedrock_agent_runtime import AgentsforBedrockRuntimeClient
-    from mypy_boto3_bedrock_agent_runtime.type_defs import KnowledgeBaseVectorSearchConfigurationTypeDef
+    from mypy_boto3_bedrock_agent_runtime.type_defs import KnowledgeBaseRetrievalConfigurationTypeDef
     from mypy_boto3_s3 import S3Client
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_SEARCH_RESULTS = 10
+
+# How a knowledge base is queried: a managed knowledge base takes ``managedSearchConfiguration``; a
+# self-managed (vector) one takes ``vectorSearchConfiguration``. Detected from ``GetKnowledgeBase``
+# (see :meth:`BedrockKnowledgeBaseStore._resolve_kb_kind`), defaulting to vector on failure.
+_KbKind = Literal["MANAGED", "VECTOR"]
 
 # A Bedrock attribute value: ``{"type": ..., "stringValue"/"numberValue"/...}``. There is no Python
 # SDK type for this (boto3 passes plain dicts), so it is modeled as ``dict[str, Any]``.
@@ -66,7 +74,11 @@ class BedrockKnowledgeBaseStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
     Supports semantic search via ``Retrieve`` and document ingestion via
-    ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources.
+    ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with both managed
+    and self-managed (vector) knowledge bases; the kind is detected automatically (via
+    ``GetKnowledgeBase``) so the right ``Retrieve`` configuration is sent. Detecting a managed
+    knowledge base requires the ``bedrock:GetKnowledgeBase`` permission and a boto3 recent enough to
+    model managed search; without either, search falls back to the vector configuration.
 
     Example:
         ```python
@@ -123,6 +135,11 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             "bedrock-agent-runtime"
         )
 
+        # The knowledge base kind, resolved lazily on first search and memoized (see
+        # :meth:`_resolve_kb_kind`). ``None`` means "not yet detected"; a detection failure is not
+        # cached, so it is retried on the next search.
+        self._kb_kind: _KbKind | None = None
+
         if self.writable:
             self._validate_write_config()
 
@@ -141,6 +158,40 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         if self.scope:
             return {"equals": {"key": self.scope_metadata_key, "value": self.scope}}
         return None
+
+    def _resolve_kb_kind(self) -> _KbKind:
+        """Resolve whether this knowledge base is ``MANAGED`` or ``VECTOR``, memoizing the result.
+
+        A managed knowledge base must be queried with ``managedSearchConfiguration`` and a self-managed
+        one with ``vectorSearchConfiguration``; the two are otherwise interchangeable for the fields
+        this store sets. The kind is read once from ``GetKnowledgeBase`` (a ``bedrock-agent``
+        control-plane call) and cached for the store's lifetime.
+
+        Detection fails open: any failure -- a missing ``bedrock:GetKnowledgeBase`` permission, a
+        throttle, or a boto3 too old to model managed knowledge bases -- warns (once per process) and
+        falls back to ``VECTOR``. Vector is the right fallback because it is the only kind that existed
+        before this detection was added, so every store that worked previously was a vector store:
+        falling back to it preserves their behavior exactly, and adds no new ``GetKnowledgeBase``
+        permission requirement for them. The fallback is not cached, so a transient failure is retried
+        on the next search.
+        """
+        if self._kb_kind is not None:
+            return self._kb_kind
+
+        try:
+            response = self._get_agent_client().get_knowledge_base(knowledgeBaseId=self._knowledge_base_id)
+            kb_type = response["knowledgeBase"]["knowledgeBaseConfiguration"]["type"]
+        except Exception as error:
+            warn_once(
+                logger,
+                "store=<%s>, error=<%s> | knowledge base kind detection failed | falling back to vector search",
+                self.name,
+                error,
+            )
+            return "VECTOR"
+
+        self._kb_kind = "MANAGED" if kb_type == "MANAGED" else "VECTOR"
+        return self._kb_kind
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search the knowledge base for entries matching the query.
@@ -163,19 +214,21 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         limit = caller_max or self.max_search_results or DEFAULT_MAX_SEARCH_RESULTS
         filter_ = self._resolve_filter()
 
-        vector_search_configuration: dict[str, Any] = {"numberOfResults": limit}
+        search_configuration: dict[str, Any] = {"numberOfResults": limit}
         if filter_:
-            vector_search_configuration["filter"] = filter_
+            search_configuration["filter"] = filter_
+
+        # A managed knowledge base takes ``managedSearchConfiguration``, a vector one
+        # ``vectorSearchConfiguration``; both accept the same fields, so only the wrapping key differs.
+        managed = self._resolve_kb_kind() == "MANAGED"
+        config_key = "managedSearchConfiguration" if managed else "vectorSearchConfiguration"
+        retrieval_configuration = {config_key: search_configuration}
 
         try:
             response = self._runtime_client.retrieve(
                 knowledgeBaseId=self._knowledge_base_id,
                 retrievalQuery={"text": query},
-                retrievalConfiguration={
-                    "vectorSearchConfiguration": cast(
-                        "KnowledgeBaseVectorSearchConfigurationTypeDef", vector_search_configuration
-                    )
-                },
+                retrievalConfiguration=cast("KnowledgeBaseRetrievalConfigurationTypeDef", retrieval_configuration),
             )
         except Exception as error:
             logger.error(
