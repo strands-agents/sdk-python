@@ -1258,6 +1258,38 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
     assert tru_result == exp_result
 
 
+@pytest.mark.asyncio
+async def test_structured_output_forwards_request_params(openai_client, model_id, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 100, "temperature": 0.5})
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock(choices=[mock_choice])
+    openai_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    stream = model.structured_output(test_output_model_cls, messages, system_prompt="Be precise.")
+    events = await alist(stream)
+
+    tru_result = events[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result
+
+    # Config params are forwarded; the streaming-only fields (stream, stream_options) are dropped.
+    openai_client.beta.chat.completions.parse.assert_called_once_with(
+        messages=[
+            {"role": "system", "content": "Be precise."},
+            {"role": "user", "content": [{"text": "Generate a person", "type": "text"}]},
+        ],
+        model=model_id,
+        tools=[],
+        max_tokens=100,
+        temperature=0.5,
+        response_format=test_output_model_cls,
+    )
+
+
 def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     OpenAIModel({"api_key": "test"}, model_id="test-model", invalid_param="test")

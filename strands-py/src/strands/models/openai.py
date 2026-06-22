@@ -849,10 +849,12 @@ class OpenAIModel(Model):
         # https://github.com/encode/httpx/discussions/2959.
         async with self._get_client() as client:
             try:
+                request = self.format_request(prompt, system_prompt=system_prompt)
+                # parse() is non-streaming; stream=True would raise, so drop the streaming-only fields.
+                request.pop("stream", None)
+                request.pop("stream_options", None)
                 response: ParsedChatCompletion = await client.beta.chat.completions.parse(
-                    model=self.get_config()["model_id"],
-                    messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
-                    response_format=output_model,
+                    **request, response_format=output_model
                 )
             except openai.BadRequestError as e:
                 # Check if this is a context length exceeded error
