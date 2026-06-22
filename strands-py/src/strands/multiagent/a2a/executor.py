@@ -28,6 +28,7 @@ from ...agent.agent import Agent as SAAgent
 from ...agent.agent import AgentResult as SAAgentResult
 from ...types.content import ContentBlock
 from ...types.media import (
+    VIDEO_FORMAT_ALIASES,
     DocumentContent,
     DocumentSource,
     ImageContent,
@@ -51,8 +52,9 @@ class StrandsA2AExecutor(AgentExecutor):
     # Default formats for each file type when MIME type is unavailable or unrecognized
     DEFAULT_FORMATS = {"document": "txt", "image": "png", "video": "mp4", "unknown": "txt"}
 
-    # Handle special cases where format differs from extension
-    FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
+    # Handle special cases where format differs from extension.
+    # Video aliases are sourced from `types.media.VIDEO_FORMAT_ALIASES` so Bedrock and A2A stay in sync.
+    FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", **VIDEO_FORMAT_ALIASES}
 
     # A2A-compliant streaming mode
     _current_artifact_id: str | None

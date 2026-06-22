@@ -77,8 +77,11 @@ class DocumentContent(TypedDict, total=False):
     context: str | None
 
 
-ImageFormat = Literal["png", "jpeg", "gif", "webp"]
-"""Supported image formats."""
+ImageFormat = Literal["png", "jpeg", "jpg", "gif", "webp"]
+"""Supported image formats.
+
+`jpg` is accepted as an alias for `jpeg`; providers normalize it to the canonical media type internally.
+"""
 
 
 class ImageSource(TypedDict, total=False):
@@ -107,8 +110,16 @@ class ImageContent(TypedDict):
     source: ImageSource
 
 
-VideoFormat = Literal["flv", "mkv", "mov", "mpeg", "mpg", "mp4", "3gp", "three_gp", "webm", "wmv"]
-"""Supported video formats."""
+VideoFormat = Literal["flv", "mkv", "mov", "mpeg", "mpg", "mp4", "3gp", "3gpp", "3g2", "three_gp", "webm", "wmv"]
+"""Supported video formats.
+
+Callers should pass the canonical extension (e.g. `3gp`, `3gpp`, `3g2`); providers translate to the
+Bedrock wire value `three_gp` via `VIDEO_FORMAT_ALIASES` when formatting requests. `three_gp` is
+retained for backward compatibility with callers that already pass the wire value directly.
+"""
+
+VIDEO_FORMAT_ALIASES: dict[str, str] = {"3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
+"""Canonical-extension -> provider-wire-value aliases for video formats."""
 
 
 class VideoSource(TypedDict, total=False):

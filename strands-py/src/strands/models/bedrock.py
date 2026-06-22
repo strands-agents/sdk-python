@@ -29,6 +29,7 @@ from ..types.exceptions import (
     ModelThrottledException,
     ProviderTokenCountError,
 )
+from ..types.media import VIDEO_FORMAT_ALIASES
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
@@ -37,7 +38,6 @@ from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
-_VIDEO_FORMAT_ALIASES = {"3gp": "three_gp"}
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
@@ -704,7 +704,7 @@ class BedrockModel(Model):
             elif "bytes" in source:
                 formatted_video_source = {"bytes": source["bytes"]}
             result = {
-                "format": _VIDEO_FORMAT_ALIASES.get(video["format"], video["format"]),
+                "format": VIDEO_FORMAT_ALIASES.get(video["format"], video["format"]),
                 "source": formatted_video_source,
             }
             return {"video": result}

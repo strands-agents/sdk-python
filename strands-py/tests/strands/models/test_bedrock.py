@@ -2254,14 +2254,15 @@ def test_format_request_video_s3_location(model, model_id):
     assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
 
 
-def test_format_request_video_3gp_maps_bedrock_enum(model, model_id):
+@pytest.mark.parametrize("input_format", ["3gp", "3gpp", "3g2"])
+def test_format_request_video_3gp_maps_bedrock_enum(model, model_id, input_format):
     messages = [
         {
             "role": "user",
             "content": [
                 {
                     "video": {
-                        "format": "3gp",
+                        "format": input_format,
                         "source": {"bytes": b"video_data"},
                     }
                 },

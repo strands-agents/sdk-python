@@ -254,7 +254,7 @@ def test_format_request_with_image(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
-def test_format_request_with_webp_image_uses_explicit_media_type(model, monkeypatch):
+def test_format_request_with_webp_image_uses_explicit_media_type(model, model_id, max_tokens, monkeypatch):
     monkeypatch.delitem(strands.models.anthropic.mimetypes.types_map, ".webp", raising=False)
 
     messages = [
@@ -272,8 +272,28 @@ def test_format_request_with_webp_image_uses_explicit_media_type(model, monkeypa
     ]
 
     tru_request = model.format_request(messages)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "source": {
+                            "data": "d2VicGltYWdl",
+                            "media_type": "image/webp",
+                            "type": "base64",
+                        },
+                        "type": "image",
+                    },
+                ],
+            },
+        ],
+        "model": model_id,
+        "tools": [],
+    }
 
-    assert tru_request["messages"][0]["content"][0]["source"]["media_type"] == "image/webp"
+    assert tru_request == exp_request
 
 
 def test_format_request_with_reasoning(model, model_id, max_tokens):
