@@ -65,9 +65,9 @@ const areaCounts = getAreaCounts(allEntries)
   // Client-side faceted filtering. State: SDK (toggle), language (global pref), areas (chips), search.
   // This is a processed (bundled) script, so importing shared config works —
   // no hand-maintained mirror of SDK metadata.
-  import { SDK_META } from '../../config/changelog'
+  import { SDK_META, LANG_STORAGE_KEY, DEFAULT_LANG_LABEL } from '../../config/changelog'
 
-  const LANG_KEY = 'starlight-synced-tabs__jarkqt' // shared with the global LanguageToggle
+  const LANG_KEY = LANG_STORAGE_KEY // shared with the global LanguageToggle
   const SDK_LANGS: Record<string, readonly string[]> = Object.fromEntries(
     Object.entries(SDK_META).map(([sdk, meta]) => [sdk, meta.languages])
   )
@@ -95,9 +95,9 @@ const areaCounts = getAreaCounts(allEntries)
     search: params.get('q') || '',
   }
 
-  // Site-wide default is TypeScript (see LanguageToggle.astro DEFAULT_LANG).
+  // Site-wide default (DEFAULT_LANG_LABEL) and key are shared via config.
   function globalLang(): string {
-    try { return localStorage.getItem(LANG_KEY) || 'TypeScript' } catch { return 'TypeScript' }
+    try { return localStorage.getItem(LANG_KEY) || DEFAULT_LANG_LABEL } catch { return DEFAULT_LANG_LABEL }
   }
   function langSlug(): string { return globalLang() === 'TypeScript' ? 'typescript' : 'python' }
 

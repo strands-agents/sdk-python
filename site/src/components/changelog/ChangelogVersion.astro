@@ -57,7 +57,18 @@ const Content = detail ? (await render(release)).Content : null
 // with each heading id (and same-document anchor href) prefixed by the release
 // anchor, making them unique. Detail pages render one body via <Content /> and
 // keep the clean, deep-linkable ids. body is trusted-by-PR-review (see above).
+// We read the pre-rendered HTML off the collection entry's internal `rendered`
+// field (undocumented Astro shape) to avoid a render() per release across the
+// whole list. Guard it: if a release HAS a curated body but this yields empty,
+// the internal shape changed and bodies would silently vanish — fail the build
+// loudly instead. Detail pages don't use this path (they render via <Content/>).
 const renderedHtml: string = (release as unknown as { rendered?: { html?: string } }).rendered?.html ?? ''
+if (!detail && release.body && release.body.trim() && !renderedHtml.trim()) {
+  throw new Error(
+    `changelog: release "${release.id}" has a curated body but rendered.html is empty — ` +
+    `Astro's internal entry.rendered shape likely changed; update ChangelogVersion.astro.`
+  )
+}
 // Whether the release carries a curated long-form body (markdown after the
 // frontmatter). Used so the "no itemized notes" fallback isn't shown when a
 // hand-written narrative is present (e.g. releases the parser couldn't itemize

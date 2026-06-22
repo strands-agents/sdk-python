@@ -3,7 +3,7 @@ import { changelogEntrySchema, changelogFrontmatterSchema } from '../src/content
 
 describe('changelogEntrySchema', () => {
   it('parses a full entry', () => {
-    const entry = changelogEntrySchema.parse({
+    const input = {
       type: 'feat',
       breaking: false,
       scope: 'model',
@@ -14,16 +14,25 @@ describe('changelogEntrySchema', () => {
       commit: 'a1b2c3d',
       commitUrl: 'https://github.com/strands-agents/harness-sdk/commit/a1b2c3d',
       author: 'yatszhash',
-    })
-    expect(entry.type).toBe('feat')
-    expect(entry.areas).toEqual(['model'])
+    }
+    // Assert the whole object so a dropped passthrough or flipped default fails.
+    expect(changelogEntrySchema.parse(input)).toEqual(input)
   })
 
   it('applies defaults for sparse entries', () => {
     const entry = changelogEntrySchema.parse({ type: 'fix', title: 'handle null' })
-    expect(entry.breaking).toBe(false)
-    expect(entry.areas).toEqual([])
-    expect(entry.pr).toBeNull()
+    expect(entry).toEqual({
+      type: 'fix',
+      title: 'handle null',
+      breaking: false,
+      scope: null,
+      areas: [],
+      pr: null,
+      prUrl: null,
+      commit: null,
+      commitUrl: null,
+      author: null,
+    })
   })
 
   it('rejects unknown type', () => {
