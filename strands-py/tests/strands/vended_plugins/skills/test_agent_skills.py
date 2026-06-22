@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from strands.hooks.events import BeforeInvocationEvent
+from strands.hooks.events import BeforeInvocationEvent, BeforeModelCallEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
 from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
@@ -1027,3 +1027,203 @@ class TestSetStateField:
         agent.state.set(plugin._state_key, "not-a-dict")
         with pytest.raises(TypeError, match="expected dict for state key"):
             plugin._set_state_field(agent, "k", "v")
+
+
+class TestInjectionModeConfig:
+    """Tests for the injection_mode constructor argument and tool exposure."""
+
+    def test_default_mode_is_tool(self):
+        plugin = AgentSkills(skills=[])
+        assert plugin._injection_mode == "tool"
+
+    def test_tool_mode_exposes_only_skills_tool(self):
+        plugin = AgentSkills(skills=[_make_skill()])
+        assert [t.tool_name for t in plugin.tools] == ["skills"]
+
+    def test_system_prompt_mode_exposes_toggle_tools(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        assert sorted(t.tool_name for t in plugin.tools) == ["activate_skill", "deactivate_skill"]
+
+    def test_invalid_mode_raises(self):
+        with pytest.raises(ValueError, match="injection_mode"):
+            AgentSkills(skills=[], injection_mode="bogus")  # type: ignore[arg-type]
+
+
+class TestSystemPromptModeInjection:
+    """Tests for instruction injection in system_prompt mode."""
+
+    @pytest.mark.asyncio
+    async def test_inactive_skill_instructions_not_injected(self):
+        skill = _make_skill(instructions="SECRET STEPS")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+
+        await plugin.init_agent(agent)
+        await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
+
+        assert "<name>test-skill</name>" in agent.system_prompt
+        assert "SECRET STEPS" not in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_activated_skill_instructions_injected(self):
+        skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        await plugin.init_agent(agent)
+        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert 'active="true"' in agent.system_prompt
+        assert "FULL INSTRUCTIONS HERE" in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_deactivate_removes_instructions(self):
+        skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        await plugin.init_agent(agent)
+        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+        assert "FULL INSTRUCTIONS HERE" in agent.system_prompt
+
+        await plugin.deactivate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert "FULL INSTRUCTIONS HERE" not in agent.system_prompt
+        # metadata listing remains
+        assert "<name>test-skill</name>" in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_repeated_model_calls_do_not_accumulate(self):
+        skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        await plugin.init_agent(agent)
+        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+        first = agent.system_prompt
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert agent.system_prompt == first
+
+    @pytest.mark.asyncio
+    async def test_before_model_call_noop_in_tool_mode(self):
+        skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
+        plugin = AgentSkills(skills=[skill])  # tool mode
+        agent = _mock_agent()
+
+        await plugin.init_agent(agent)
+        await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
+        before = agent.system_prompt
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert agent.system_prompt == before
+        assert "FULL INSTRUCTIONS HERE" not in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_activate_nonexistent_skill_returns_error(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        result = await plugin.activate_skill(skill_name="ghost", tool_context=tool_context)
+
+        assert "not found" in result
+        assert plugin.get_activated_skills(agent) == []
+
+    @pytest.mark.asyncio
+    async def test_activate_without_name_returns_error(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        result = await plugin.activate_skill(skill_name="", tool_context=tool_context)
+
+        assert "required" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_deactivate_inactive_skill_returns_error(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        result = await plugin.deactivate_skill(skill_name="test-skill", tool_context=tool_context)
+
+        assert "not active" in result
+
+    @pytest.mark.asyncio
+    async def test_activate_tracks_state(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+
+        assert plugin.get_activated_skills(agent) == ["test-skill"]
+
+    @pytest.mark.asyncio
+    async def test_activate_reports_resources(self, tmp_path):
+        skill_dir = _make_skill_dir(tmp_path, "res-skill")
+        (skill_dir / "scripts").mkdir()
+        (skill_dir / "scripts" / "run.py").write_text("# run")
+        plugin = AgentSkills(skills=[str(skill_dir)], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        tool_context = _mock_tool_context(agent)
+
+        result = await plugin.activate_skill(skill_name="res-skill", tool_context=tool_context)
+
+        assert "scripts/run.py" in result
+
+    @pytest.mark.asyncio
+    async def test_programmatic_activate_deactivate(self):
+        skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+
+        plugin.activate_skill_for(agent, "test-skill")
+        assert plugin.get_activated_skills(agent) == ["test-skill"]
+        plugin.deactivate_skill_for(agent, "test-skill")
+        assert plugin.get_activated_skills(agent) == []
+
+    def test_deactivate_for_inactive_is_noop(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        agent = _mock_agent()
+        plugin.deactivate_skill_for(agent, "test-skill")
+        assert plugin.get_activated_skills(agent) == []
+
+    @pytest.mark.asyncio
+    async def test_active_instructions_escaped(self):
+        skill = _make_skill(instructions="use <tag> & amp")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        plugin.activate_skill_for(agent, "test-skill")
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert "&lt;tag&gt; &amp; amp" in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_preserves_cache_points(self):
+        skill = _make_skill(instructions="STEPS")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        agent._system_prompt = "Base."
+        agent._system_prompt_content = [
+            {"text": "Base."},
+            {"cachePoint": {"type": "default"}},
+        ]
+        await plugin.init_agent(agent)
+        plugin.activate_skill_for(agent, "test-skill")
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert {"cachePoint": {"type": "default"}} in agent.system_prompt_content
+        assert agent.system_prompt_content[0] == {"text": "Base."}
+        assert "STEPS" in agent.system_prompt_content[-1]["text"]
