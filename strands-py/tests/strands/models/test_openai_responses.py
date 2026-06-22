@@ -1016,6 +1016,20 @@ def test_format_request_merges_builtin_tools_with_function_tools(messages, tool_
     ]
 
 
+def test_format_request_does_not_mutate_params_tools_across_calls(messages, tool_specs):
+    """Repeated _format_request calls must not mutate self.config["params"]["tools"]."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "web_search"}]},
+    )
+
+    first = model._format_request(messages, tool_specs)
+    second = model._format_request(messages, tool_specs)
+
+    assert second["tools"] == first["tools"]
+    assert model.config["params"]["tools"] == [{"type": "web_search"}]
+
+
 def test_format_request_builtin_tools_without_function_tools(messages):
     """Test that built-in tools from params are preserved when no function tools are provided."""
     model = OpenAIResponsesModel(
