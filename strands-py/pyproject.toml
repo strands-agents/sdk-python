@@ -46,7 +46,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.21.0,<1.0.0"]
-gemini = ["google-genai>=1.32.0,<2.0.0"]
+gemini = ["google-genai>=1.32.0,<3.0.0"]
 litellm = ["litellm>=1.75.9,<=1.89.3", "openai>=1.68.0,<3.0.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
 mistral = ["mistralai>=1.8.2,<2.0.0"]
@@ -81,7 +81,7 @@ bidi-io = [
     "prompt_toolkit>=3.0.0,<4.0.0",
     "pyaudio>=0.2.13,<1.0.0",
 ]
-bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
+bidi-gemini = ["google-genai>=1.32.0,<3.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 cedar = ["cedarpy==4.8.5", "cedar-policy-mcp-schema-generator==0.6.0"]
