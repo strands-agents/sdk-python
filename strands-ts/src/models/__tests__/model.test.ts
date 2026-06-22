@@ -323,19 +323,41 @@ describe('Model', () => {
         )
       })
 
-      it('preserves SyntaxError instead of overwriting with MaxTokensError when tool input JSON is malformed', async () => {
+      it('throws MaxTokensError when contentBlockStop arrives with truncated tool input JSON and stopReason is maxTokens', async () => {
         const provider = new TestModelProvider(async function* () {
           yield { type: 'modelMessageStartEvent', role: 'assistant' }
           yield {
             type: 'modelContentBlockStartEvent',
-            start: { type: 'toolUseStart', toolUseId: 'tool1', name: 'get_weather' },
+            start: { type: 'toolUseStart', toolUseId: 't', name: 'tool' },
+          }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'toolUseInputDelta', input: '{"field": "value"' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'maxTokens' }
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        await expect(async () => await collectGenerator(provider.streamAggregated(messages))).rejects.toThrow(
+          MaxTokensError
+        )
+      })
+
+      it('surfaces SyntaxError as cause when tool input JSON is malformed and stopReason is not maxTokens', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: 't', name: 'tool' },
           }
           yield {
             type: 'modelContentBlockDeltaEvent',
             delta: { type: 'toolUseInputDelta', input: '{invalid json' },
           }
           yield { type: 'modelContentBlockStopEvent' }
-          yield { type: 'modelMessageStopEvent', stopReason: 'maxTokens' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'toolUse' }
         })
 
         const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
@@ -346,6 +368,34 @@ describe('Model', () => {
         } catch (error) {
           expect(error).toBeInstanceOf(ModelError)
           expect(error).not.toBeInstanceOf(MaxTokensError)
+          expect((error as ModelError).message).toBe('unable to parse tool input JSON')
+          expect((error as ModelError).cause).toBeInstanceOf(SyntaxError)
+        }
+      })
+
+      it('attaches SyntaxError as cause when stream ends without a stop event after malformed tool input', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: 't', name: 'tool' },
+          }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'toolUseInputDelta', input: '{invalid json' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        try {
+          await collectGenerator(provider.streamAggregated(messages))
+          expect.fail('Expected error to be thrown')
+        } catch (error) {
+          expect(error).toBeInstanceOf(ModelError)
+          expect(error).not.toBeInstanceOf(MaxTokensError)
+          expect((error as ModelError).message).toBe('Stream ended without completing a message')
           expect((error as ModelError).cause).toBeInstanceOf(SyntaxError)
         }
       })

@@ -1,10 +1,15 @@
 ---
 title: Vended Tools
-description: "Pre-built tools included in the TypeScript SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes."
+description: "Pre-built tools included in the SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes."
 sidebar:
   label: "Vended Tools"
-languages: [typescript]
+languages: [python, typescript]
 tags: [tool-authoring]
+sourceLinks:
+  - path: strands-ts/src/vended-tools/file-editor/file-editor.ts
+  - path: strands-ts/src/vended-tools/bash/bash.ts
+  - path: strands-ts/src/vended-tools/http-request/http-request.ts
+  - path: strands-ts/src/vended-tools/notebook/notebook.ts
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -25,29 +30,45 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 
 | Tool | Description | Supported in |
 |------|-------------|--------------|
-| [File Editor](#file-editor) | View, create, and edit files | Node.js |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Node.js 20+, browsers |
-| [Notebook](#notebook) | Manage persistent text notebooks | Node.js, browsers |
-| [Bash](#bash) | Execute shell commands with persistent sessions | Node.js (Unix/Linux/macOS) |
+| [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
+| [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
+| [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 
 ### File Editor
 
 Gives your agent the ability to read and modify files on disk — useful for coding agents, config management, or any workflow where the agent needs to inspect output and make targeted edits.
 
-_Supported in: Node.js only._
-
 :::caution[Security Warning]
-This tool reads and writes files at arbitrary absolute paths with the full permissions of the Node.js process. Only use with trusted input and consider running in a sandboxed environment (containers, VMs) for production.
+This tool reads and writes files at arbitrary absolute paths with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:file_editor_import"
 
 --8<-- "user-guide/concepts/tools/vended-tools.ts:file_editor_example"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/sdk-typescript/blob/main/strands-ts/src/vended-tools/file-editor/README.md)
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import file_editor
+
+agent = Agent(tools=[file_editor])
+agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/file-editor/README.md)
 
 ---
 
@@ -58,7 +79,7 @@ Lets your agent call external APIs and fetch web content. Supports all HTTP meth
 _Supported in: Node.js 20+, modern browsers._
 
 :::caution[Security Warning]
-This tool makes HTTP requests to arbitrary URLs without restrictions on destination. Only use with trusted input and consider running in a sandboxed environment (containers, VMs) for production.
+This tool makes HTTP requests to arbitrary URLs without restrictions on destination. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example:**
@@ -68,7 +89,7 @@ This tool makes HTTP requests to arbitrary URLs without restrictions on destinat
 --8<-- "user-guide/concepts/tools/vended-tools.ts:http_request_example"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/sdk-typescript/blob/main/strands-ts/src/vended-tools/http-request/README.md)
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md)
 
 ---
 
@@ -92,7 +113,7 @@ _Supported in: Node.js, browsers._
 --8<-- "user-guide/concepts/tools/vended-tools.ts:notebook_state_persistence"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/sdk-typescript/blob/main/strands-ts/src/vended-tools/notebook/README.md)
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/notebook/README.md)
 
 ---
 
@@ -100,27 +121,45 @@ _Supported in: Node.js, browsers._
 
 Lets your agent run shell commands and act on the output. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
 
-_Supported in: Node.js on Unix/Linux/macOS. Not supported on Windows._
+_Supported in: Node.js on Unix/Linux/macOS (TypeScript), all platforms (Python)._
 
 :::caution[Security Warning]
-This tool executes arbitrary bash commands without sandboxing. Commands run with the full permissions of the Node.js process. Only use with trusted input and consider running in sandboxed environments (containers, VMs) for production.
+This tool executes arbitrary bash commands. Without a [Sandbox](../sandbox/index.mdx), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example - File Operations:**
+
+<Tabs>
+<Tab label="TypeScript">
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:bash_import"
 
 --8<-- "user-guide/concepts/tools/vended-tools.ts:bash_example"
 ```
 
-**Example - Session Persistence:**
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import bash
+
+agent = Agent(tools=[bash])
+agent("List all Python files in the current directory and count them")
+```
+
+</Tab>
+</Tabs>
+
+**Example - Session Persistence (TypeScript):**
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:bash_import"
 
 --8<-- "user-guide/concepts/tools/vended-tools.ts:bash_session"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/sdk-typescript/blob/main/strands-ts/src/vended-tools/bash/README.md)
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
 
 ---
 
@@ -136,7 +175,7 @@ Combine vended tools to build powerful agent workflows:
 
 ## Versioning & Maintenance
 
-Vended tools ship as part of the SDK and are updated alongside it. Report bugs and feature requests in the [TypeScript SDK GitHub repository](https://github.com/strands-agents/sdk-typescript/issues).
+Vended tools ship as part of the SDK and are updated alongside it. Report bugs and feature requests in the [GitHub repository](https://github.com/strands-agents/harness-sdk/issues).
 
 Tool names are stable and will not change. In minor versions, a tool's description, spec, or parameters may be updated to improve effectiveness — these changes are noted in SDK release notes. Pin your SDK version and test after upgrades if your workflows depend on specific tool behavior.
 

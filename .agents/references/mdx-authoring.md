@@ -22,6 +22,21 @@ Practical reference for writing documentation in this repo. This site uses Astro
 </Tabs>
 ```
 
+`<Syntax>` is also globally available. Use it when shared prose needs to reference a language-specific identifier — any method name, parameter, class name, or short expression that differs between Python and TypeScript:
+
+```mdx
+Use <Syntax py=".as_tool()" ts=".asTool()" /> to customize the tool name.
+The <Syntax py="Agent.retry_strategy" ts="Agent.retryStrategy" /> parameter controls retry behavior.
+```
+
+Renders as inline `<code>` by default. Pass `plain` for plain text. Reacts live to the global language toggle — no page reload.
+
+**When to use `<Syntax>` vs `<Tabs>`:**
+- `<Syntax>`: single identifier or short expression that differs by language, embedded in a prose sentence.
+- `<Tabs>`: code blocks, multi-line examples, or content that's structurally different between languages.
+
+Never spell out both language variants manually in prose. Use `<Syntax>` instead.
+
 For other Starlight components (`Aside`, `Card`, `CardGrid`, `LinkCard`, `Icon`, `Badge`), use explicit imports:
 
 ```mdx

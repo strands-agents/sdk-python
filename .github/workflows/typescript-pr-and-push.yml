@@ -6,14 +6,10 @@ on:
     branches: [ main ]
     paths:
       - 'strands-ts/**'
-      - 'strands-wasm/**'
-      - 'strands-py-wasm/**'
       - 'strandly/**'
-      - 'wit/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/typescript-*'
-      - '.github/workflows/wasm-*'
   workflow_dispatch:
 
 jobs:
@@ -26,13 +22,6 @@ jobs:
 
   call-ts-check:
     uses: ./.github/workflows/typescript-ts-check.yml
-    permissions:
-      contents: read
-    with:
-      ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-  call-py-check:
-    uses: ./.github/workflows/wasm-py-check.yml
     permissions:
       contents: read
     with:

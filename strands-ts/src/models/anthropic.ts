@@ -536,10 +536,10 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       }
 
       case 'reasoningBlock':
-        if (block.text && block.signature) {
+        if (block.signature) {
           return {
             type: 'thinking',
-            thinking: block.text,
+            thinking: block.text ?? '',
             signature: block.signature,
           } as unknown as Anthropic.ContentBlockParam
         } else if (block.redactedContent) {

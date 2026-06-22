@@ -4,8 +4,7 @@
   "private": true,
   "workspaces": [
     "strandly",
-    "strands-ts",
-    "strands-wasm"
+    "strands-ts"
   ],
   "devDependencies": {
     "husky": "^9.1.7",

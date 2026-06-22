@@ -130,6 +130,7 @@ def test_guardrail_input_intervention(boto_session, bedrock_guardrail, guardrail
     assert agent.messages[0]["content"][0]["text"] == "Redacted."
 
 
+@retry_on_flaky("LLM may mention CACTUS unprompted, triggering guardrail on response2", retry_on=[AssertionError])
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
 def test_guardrail_output_intervention(boto_session, bedrock_guardrail, processing_mode):
     bedrock_model = BedrockModel(

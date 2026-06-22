@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 # Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
-# A major version bump is proposed in https://github.com/strands-agents/sdk-python/pull/1370
+# A major version bump is proposed in https://github.com/strands-agents/harness-sdk/pull/1370
 _MIN_OPENAI_VERSION = Version("2.0.0")
 
 try:
@@ -844,8 +844,9 @@ class OpenAIResponsesModel(Model):
                     "totalTokens": getattr(event["data"], "total_tokens", 0),
                 }
 
-                if token_details := getattr(event["data"], "input_tokens_details", None):
-                    if cached := getattr(token_details, "cached_tokens", None):
+                if tokens_details := getattr(event["data"], "input_tokens_details", None):
+                    cached = getattr(tokens_details, "cached_tokens", None)
+                    if isinstance(cached, int) and cached:
                         usage_data["cacheReadInputTokens"] = cached
 
                 return {

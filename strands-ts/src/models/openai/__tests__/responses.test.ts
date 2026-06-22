@@ -50,24 +50,20 @@ describe("OpenAIModel (api: 'responses')", () => {
     }
   })
 
-  describe('constructor', () => {
+  describe.runIf(isNode)('constructor', () => {
     it('uses API key from constructor parameter', () => {
       new OpenAIModel({ api: 'responses', modelId: 'gpt-4o', apiKey: 'sk-explicit' })
       expect(OpenAI).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-explicit' }))
     })
 
-    if (isNode) {
-      it('uses API key from environment variable', () => {
-        vi.stubEnv('OPENAI_API_KEY', 'sk-from-env')
-        new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })
-        expect(OpenAI).toHaveBeenCalled()
-      })
-    }
+    it('uses API key from environment variable', () => {
+      vi.stubEnv('OPENAI_API_KEY', 'sk-from-env')
+      new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })
+      expect(OpenAI).toHaveBeenCalled()
+    })
 
     it('throws error when no API key is available', () => {
-      if (isNode) {
-        vi.stubEnv('OPENAI_API_KEY', '')
-      }
+      vi.stubEnv('OPENAI_API_KEY', '')
       expect(() => new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })).toThrow(/OpenAI API key is required/)
     })
 
@@ -80,9 +76,7 @@ describe("OpenAIModel (api: 'responses')", () => {
     })
 
     it('does not require API key when client is provided', () => {
-      if (isNode) {
-        vi.stubEnv('OPENAI_API_KEY', '')
-      }
+      vi.stubEnv('OPENAI_API_KEY', '')
       const client = {} as OpenAI
       expect(() => new OpenAIModel({ api: 'responses', client })).not.toThrow()
     })
@@ -528,6 +522,55 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(stop?.stopReason).toBe('maxTokens')
       const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
       expect(metadata?.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
+    })
+
+    it('plumbs prompt-cache reads (input_tokens_details.cached_tokens) into cacheReadInputTokens', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield { type: 'response.output_text.delta', delta: 'hi' }
+        yield {
+          type: 'response.completed',
+          response: {
+            usage: {
+              input_tokens: 1553,
+              output_tokens: 42,
+              total_tokens: 1595,
+              input_tokens_details: { cached_tokens: 873 },
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+      const events = await collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
+      expect(metadata?.usage).toEqual({
+        inputTokens: 1553,
+        outputTokens: 42,
+        totalTokens: 1595,
+        cacheReadInputTokens: 873,
+      })
+    })
+
+    it('omits cacheReadInputTokens when there is no cache hit (cached_tokens 0 or absent)', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield {
+          type: 'response.completed',
+          response: {
+            usage: {
+              input_tokens: 1553,
+              output_tokens: 42,
+              total_tokens: 1595,
+              input_tokens_details: { cached_tokens: 0 },
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+      const events = await collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
+      expect(metadata?.usage).toEqual({ inputTokens: 1553, outputTokens: 42, totalTokens: 1595 })
+      expect(metadata?.usage).not.toHaveProperty('cacheReadInputTokens')
     })
 
     it('emits URL citation delta from response.output_text.annotation.added', async () => {

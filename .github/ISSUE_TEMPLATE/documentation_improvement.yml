@@ -1,7 +1,7 @@
 name: Documentation Improvement
 description: Suggest improvements to the documentation
 title: "[DOCS] "
-labels: ["documentation", "enhancement"]
+labels: ["documentation"]
 assignees: []
 body:
   - type: markdown

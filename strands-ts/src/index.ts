@@ -37,6 +37,7 @@ export {
   ToolValidationError,
   StructuredOutputError,
   ToolNotFoundError,
+  DefaultNotConfiguredError,
 } from './errors.js'
 
 // Interrupt system
@@ -305,8 +306,58 @@ export { AgentMetrics } from './telemetry/meter.js'
 // Sandbox
 export { Sandbox, type ExecuteOptions } from './sandbox/base.js'
 export { PosixShellSandbox } from './sandbox/posix-shell.js'
+export { SandboxTimeoutError, SandboxAbortError, SandboxPathNotFoundError } from './sandbox/errors.js'
 export type { StreamType, StreamChunk, FileInfo, OutputFile, ExecutionResult } from './sandbox/types.js'
+
+// Middleware system
+export { InvokeModelStage, ExecuteToolStage } from './middleware/index.js'
+export type {
+  MiddlewareStage,
+  MiddlewareHandler,
+  MiddlewareNext,
+  MiddlewareHandlerOf,
+  MiddlewareNextOf,
+  MiddlewareInputHandler,
+  MiddlewareOutputHandler,
+  InvokeModelContext,
+  InvokeModelResult,
+  ExecuteToolContext,
+  ExecuteToolResult,
+  MiddlewareInterruptResult,
+  MiddlewareInterruptible,
+} from './middleware/index.js'
 
 // Multi-agent orchestration
 export { Graph } from './multiagent/index.js'
 export { Swarm } from './multiagent/index.js'
+
+// Memory management
+export { MemoryManager } from './memory/index.js'
+export type {
+  MemoryEntry,
+  MemoryStore,
+  MemoryStoreConfig,
+  SearchOptions,
+  AddMessagesContext,
+  MemorySearchOptions,
+  MemoryAddOptions,
+  MemoryToolConfig,
+  MemoryAddToolConfig,
+  MemoryManagerConfig,
+  MemoryInjectionConfig,
+  InjectionConfig,
+  InjectionTrigger,
+  InjectionContext,
+} from './memory/index.js'
+export { ExtractionTrigger, InvocationTrigger, IntervalTrigger, ModelExtractor } from './memory/index.js'
+export type {
+  ExtractionConfig,
+  Extractor,
+  ExtractorContext,
+  ExtractionResult,
+  ExtractionTriggerContext,
+  MemoryMessageFilter,
+  MemoryContentBlockType,
+  IntervalTriggerOptions,
+  ModelExtractorOptions,
+} from './memory/index.js'

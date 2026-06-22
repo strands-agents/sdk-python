@@ -63,8 +63,8 @@ export default defineConfig({
         // rehype plugins (e.g. heading anchor links) run on the real resolved paths.
         processedDirs: [path.resolve('.build/api-docs')],
       },
-      title: 'Strands Agents SDK',
-      description: 'A model-driven approach to building AI agents in just a few lines of code.',
+      title: 'Strands Agents',
+      description: 'The open source toolkit for building production agents.',
       sidebar: sidebar,
       routeMiddleware: './src/route-middleware.ts',
       customCss: [
@@ -76,7 +76,7 @@ export default defineConfig({
         replacesTitle: false,
       },
       editLink: {
-        baseUrl: 'https://github.com/strands-agents/docs/edit/main/',
+        baseUrl: 'https://github.com/strands-agents/harness-sdk/edit/main/site/',
       },
       components: {
         Head: './src/components/overrides/Head.astro',
@@ -101,6 +101,9 @@ export default defineConfig({
           ],
           './src/components/AutoSyncTabs.astro': [
             ['default', "Tabs"]
+          ],
+          './src/components/Syntax.astro': [
+            ['default', 'Syntax']
           ]
         },
       ],

@@ -41,30 +41,36 @@ const SLUG_RULES: SlugRule[] = [
     to: 'https://discord.gg/strands',
   },
 
+  // cli-reference-agent was archived (strands-agents/agent-builder)
+  {
+    match: exactly('docs/examples/python/cli-reference-agent'),
+    to: 'docs/examples',
+  },
+
   // CDK and deployment examples now live on GitHub
   {
     match: exactly('docs/examples/cdk/deploy_to_apprunner'),
-    to: 'https://github.com/strands-agents/docs/blob/main/docs/examples/cdk/deploy_to_apprunner/README.md',
+    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_apprunner/README.md',
   },
   {
     match: exactly('docs/examples/cdk/deploy_to_ec2'),
-    to: 'https://github.com/strands-agents/docs/blob/main/docs/examples/cdk/deploy_to_ec2/README.md',
+    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_ec2/README.md',
   },
   {
     match: exactly('docs/examples/cdk/deploy_to_fargate'),
-    to: 'https://github.com/strands-agents/docs/blob/main/docs/examples/cdk/deploy_to_fargate/README.md',
+    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_fargate/README.md',
   },
   {
     match: exactly('docs/examples/cdk/deploy_to_lambda'),
-    to: 'https://github.com/strands-agents/docs/blob/main/docs/examples/cdk/deploy_to_lambda/README.md',
+    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_lambda/README.md',
   },
   {
     match: exactly('docs/examples/deploy_to_eks'),
-    to: 'https://github.com/strands-agents/docs/blob/main/docs/examples/deploy_to_eks/README.md',
+    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/deploy_to_eks/README.md',
   },
   {
     match: exactly('docs/examples/typescript/deploy_to_bedrock_agentcore'),
-    to: 'https://github.com/strands-agents/docs/blob/main/docs/examples/typescript/deploy_to_bedrock_agentcore/README.md',
+    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/typescript/deploy_to_bedrock_agentcore/README.md',
   },
 ]
 

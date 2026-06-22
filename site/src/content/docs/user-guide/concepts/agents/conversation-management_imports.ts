@@ -44,13 +44,15 @@ import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
 // --8<-- [end:summarizing_conversation_manager_advanced_imports]
 
 // --8<-- [start:proactive_sliding_window_imports]
-import {
-  Agent,
-  BedrockModel,
-  SlidingWindowConversationManager,
-} from '@strands-agents/sdk'
+import { Agent, SlidingWindowConversationManager } from '@strands-agents/sdk'
 // --8<-- [end:proactive_sliding_window_imports]
 
 // --8<-- [start:proactive_summarizing_imports]
-import { Agent, BedrockModel, SummarizingConversationManager } from '@strands-agents/sdk'
+import { Agent, SummarizingConversationManager } from '@strands-agents/sdk'
 // --8<-- [end:proactive_summarizing_imports]
+
+// --8<-- [start:pin_first_imports]
+import { Agent, SlidingWindowConversationManager } from '@strands-agents/sdk'
+// --8<-- [end:pin_first_imports]
+
+

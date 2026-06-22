@@ -478,15 +478,28 @@ async def test_send_edge_cases(mock_websockets_connect, model):
         await model.send(text_input)
     mock_ws.send.assert_not_called()
 
-    # Test image input (not supported, base64 encoded, no encoding parameter)
+    # Test image input (sent as input_image content block on user message)
     await model.start()
+    mock_ws.send.reset_mock()
     image_b64 = base64.b64encode(b"image_bytes").decode("utf-8")
     image_input = BidiImageInputEvent(
         image=image_b64,
         mime_type="image/jpeg",
     )
-    with pytest.raises(ValueError, match=r"content not supported"):
-        await model.send(image_input)
+    await model.send(image_input)
+
+    # Verify exactly one event was sent: a conversation.item.create with input_image
+    image_calls = [json.loads(call[0][0]) for call in mock_ws.send.call_args_list]
+    image_creates = [m for m in image_calls if m.get("type") == "conversation.item.create"]
+    assert len(image_creates) == 1, "expected exactly one conversation.item.create for image"
+    image_item = image_creates[0].get("item", {})
+    assert image_item.get("type") == "message"
+    assert image_item.get("role") == "user"
+    assert image_item.get("content") == [
+        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_b64}"}
+    ]
+    # Image input must NOT auto-trigger a response — caller decides when to commit.
+    assert not any(m.get("type") == "response.create" for m in image_calls)
 
     await model.stop()
 

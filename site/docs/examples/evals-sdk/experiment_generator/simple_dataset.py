@@ -46,8 +46,8 @@ async def simple_experiment_generator():
     experiment.to_file("generate_simple_experiment")
 
     # Step 4: Run evaluations on the generated test cases
-    reports = await experiment.run_evaluations_async(get_response)
-    return reports[0]
+    report = await experiment.run_evaluations_async(get_response)
+    return report
 
 
 if __name__ == "__main__":

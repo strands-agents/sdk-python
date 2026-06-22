@@ -68,16 +68,29 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
 {
   // --8<-- [start:in_memory_storage]
+  // Default: entries evicted after 20 cycles of disuse
   const agent = new Agent({
+    plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
+  })
+
+  // Custom eviction window
+  const agent2 = new Agent({
     plugins: [
-      new ContextOffloader({
-        storage: new InMemoryStorage(),
-      }),
+      new ContextOffloader({ storage: new InMemoryStorage(50) }),
+    ],
+  })
+
+  // Disable eviction (accumulates until clear() is called)
+  const agent3 = new Agent({
+    plugins: [
+      new ContextOffloader({ storage: new InMemoryStorage(null) }),
     ],
   })
   // --8<-- [end:in_memory_storage]
 
   void agent
+  void agent2
+  void agent3
 }
 
 // =====================

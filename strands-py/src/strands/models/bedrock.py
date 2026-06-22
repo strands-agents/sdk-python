@@ -234,12 +234,13 @@ class BedrockModel(Model):
         """
         return resolve_config_metadata(self.config, self.config.get("model_id", ""))
 
-    def _format_request(
+    def format_request(
         self,
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -248,6 +249,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             A Bedrock converse stream request.
@@ -480,7 +482,7 @@ class BedrockModel(Model):
                     continue
 
                 # DeepSeek models have issues with reasoningContent
-                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/harness-sdk/issues/780)
                 if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
                     dropped_deepseek_reasoning_content = True
                     continue
@@ -737,7 +739,8 @@ class BedrockModel(Model):
 
             return {"citationsContent": result}
 
-        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+        content_type = next(iter(content), None)
+        raise TypeError(f"content_type=<{content_type}> | unsupported type")
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
@@ -830,7 +833,7 @@ class BedrockModel(Model):
             if system_prompt and system_prompt_content is None:
                 system_prompt_content = [{"text": system_prompt}]
 
-            request = self._format_request(messages, tool_specs, system_prompt_content)
+            request = self.format_request(messages, tool_specs, system_prompt_content)
             converse_input: dict[str, Any] = {}
             if "messages" in request:
                 converse_input["messages"] = request["messages"]
@@ -960,7 +963,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            request = self.format_request(messages, tool_specs, system_prompt_content, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
@@ -984,7 +987,7 @@ class BedrockModel(Model):
 
             else:
                 response = self.client.converse(**request)
-                for event in self._convert_non_streaming_to_streaming(response):
+                for event in self.convert_non_streaming_to_streaming(response):
                     callback(event)
 
                 if (
@@ -1040,11 +1043,12 @@ class BedrockModel(Model):
             callback()
             logger.debug("finished streaming response from model")
 
-    def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
+    def convert_non_streaming_to_streaming(self, response: dict[str, Any], **kwargs: Any) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
 
         Args:
             response: The non-streaming response from the Bedrock model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An iterable of response events in the streaming format.

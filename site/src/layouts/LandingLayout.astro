@@ -112,6 +112,9 @@ Astro.locals.t = mockT
     
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href={pathWithBase('/favicon.svg')} />
+
+    <!-- Canonical -->
+    <link rel="canonical" href={Astro.url.href} />
     
     <!-- Open Graph -->
     <meta property="og:title" content={title} />

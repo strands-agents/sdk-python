@@ -170,8 +170,10 @@ async function processFile(file: FileInfo): Promise<void> {
     .replace(/\]\(([^)]+)\.md((?:#[^)]+)?)\)/g, ']($1.mdx$2)')
 
   // Special-case: escape the literal string "<name>Data" which typedoc emits in prose
-  // to describe the naming pattern for data interfaces (e.g. "the <name>Data pattern")
-  const specialCased = linkedFixed.replace(/<name>Data/g, '\\<name>Data')
+  // to describe the naming pattern for data interfaces (e.g. "the <name>Data pattern").
+  // Encode the leading "<" as an HTML entity so MDX renders it as text instead of
+  // attempting to parse "<name>" as a JSX tag.
+  const specialCased = linkedFixed.replace(/<name>Data/g, '&lt;name>Data')
 
   // Escape MDX-unsafe characters (e.g. { } outside code blocks)
   const mdxSafe = await escapeMdxChars(specialCased)

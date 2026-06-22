@@ -2,15 +2,19 @@
 title: Plugins
 tags: [hooks, event-loop]
 description: "Extend agent behavior with plugins. Add steering, guardrails, and custom capabilities that hook into the agent lifecycle."
+sourceLinks:
+  - path: strands-py/src/strands/plugins/plugin.py
+  - path: strands-ts/src/plugins/plugin.ts
 ---
 
-Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](./steering), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, `system_prompt`, `messages`, `tools`, and `hooks`—and executing logic to improve an agent's behavior.
+Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](./steering), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, <Syntax py="system_prompt" ts="systemPrompt" />, `messages`, `tools`, and `hooks`—and executing logic to improve an agent's behavior.
 
 The Strands SDK provides built-in plugins that you can use out of the box:
 
 - **[Skills](./skills.mdx)** - On-demand, modular instructions that agents discover and activate at runtime following the [Agent Skills specification](https://agentskills.io/specification)
 - **[Steering](./steering)** - Modular prompting for complex agent tasks through context-aware guidance
 - **[Context Offloader](./context-offloader)** - Proactively offloads oversized tool results to storage, replacing them with previews and providing a built-in retrieval tool
+- **[Context Injector](./context-injector)** - Folds real-time text (a clock, environment facts, a lookup) into the model input before each call, without persisting it to history
 
 You can also build and distribute your own plugins to extend agent functionality. See [Get Featured](/docs/community/get-featured) to share your plugins with the community.
 
@@ -176,7 +180,7 @@ TypeScript plugins register hooks manually in the `initAgent` method using `agen
 
 ### Manual Hook and Tool Registration
 
-For more control, you can manually register hooks and tools in the `init_agent` method:
+For more control, you can manually register hooks and tools in the <Syntax py="init_agent" ts="initAgent" /> method:
 
 <Tabs>
 <Tab label="Python">
@@ -302,4 +306,5 @@ class AsyncConfigPlugin(Plugin):
 - [Hooks](../agents/hooks.mdx) - Learn about the underlying hook system
 - [Steering](./steering) - Explore the built-in steering plugin
 - [Context Offloader](./context-offloader) - Manage large tool results proactively
+- [Context Injector](./context-injector) - Inject real-time context into the model input
 - [Get Featured](/docs/community/get-featured) - Share your plugins with the community

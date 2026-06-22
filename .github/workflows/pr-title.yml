@@ -20,6 +20,7 @@ jobs:
             feat
             fix
             docs
+            blog
             style
             refactor
             perf

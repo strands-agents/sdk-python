@@ -168,13 +168,16 @@ export async function checkLinksInHtml(
 }
 
 function isValidUrl(url) {
-  // Skip mailto:, tel:, javascript:, and empty links
+  // Skip non-HTTP schemes and empty links
+  const lower = url.toLowerCase().trim();
   return !(
-    url.startsWith('mailto:') ||
-    url.startsWith('tel:') ||
-    url.startsWith('javascript:') ||
-    url.startsWith('#') ||
-    url.trim() === ''
+    lower.startsWith('mailto:') ||
+    lower.startsWith('tel:') ||
+    lower.startsWith('javascript:') ||
+    lower.startsWith('vbscript:') ||
+    lower.startsWith('data:') ||
+    lower.startsWith('#') ||
+    lower === ''
   );
 }
 

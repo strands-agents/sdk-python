@@ -1,6 +1,13 @@
 ---
 title: Conversation Management
 tags: [conversation-management, session-management, token-management]
+sourceLinks:
+  - path: strands-py/src/strands/agent/conversation_manager/conversation_manager.py
+  - path: strands-py/src/strands/agent/conversation_manager/sliding_window_conversation_manager.py
+  - path: strands-py/src/strands/agent/conversation_manager/summarizing_conversation_manager.py
+  - path: strands-ts/src/conversation-manager/conversation-manager.ts
+  - path: strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts
+  - path: strands-ts/src/conversation-manager/summarizing-conversation-manager.ts
 ---
 
 In the Strands Agents SDK, context refers to the information provided to the agent for understanding and reasoning. This includes:
@@ -16,6 +23,11 @@ As conversations grow, managing this context becomes increasingly important for 
 2. **Performance**: Larger contexts require more processing time and resources
 3. **Relevance**: Older messages may become less relevant to the current conversation
 4. **Coherence**: Maintaining logical flow and preserving important information
+
+:::tip[Quick setup]
+For most agents, you can skip manual configuration entirely.
+See [Context Management](../context-management).
+:::
 
 ## Built-in Conversation Managers
 
@@ -95,13 +107,14 @@ Key features of the `SlidingWindowConversationManager`:
 - **Maintains Window Size**: Automatically removes messages from the window if the number of messages exceeds the limit.
 - **Dangling Message Cleanup**: Removes incomplete message sequences to maintain valid conversation state.
 - **Overflow Trimming**: In the case of a context window overflow, it will trim the oldest messages from history until the request fits in the models context window.
-- **Configurable Tool Result Truncation**: Enable or disable truncation of tool results when the message exceeds context window limits. When enabled (the default; `should_truncate_results=True` in Python, `shouldTruncateResults: true` in TypeScript), the oldest message with tool results is truncated first so recent context is preserved as long as possible. Truncation depends on content type:
+- **Configurable Tool Result Truncation**: Enable or disable truncation of tool results when the message exceeds context window limits. When enabled (the default; <Syntax py="should_truncate_results=True" ts="shouldTruncateResults: true" />), the oldest message with tool results is truncated first so recent context is preserved as long as possible. Truncation depends on content type:
     - Text payloads keep their head and tail, separated by a `<truncated chars="N"/>` marker.
     - Images, videos, binary documents, and oversized JSON are replaced by a typed placeholder, for example `[image: png, source: bytes, 12345 bytes]`.
     - The tool result's original `status` and `error` fields are preserved.
 
     When disabled, full results are preserved but more historical messages may be removed. For a proactive alternative that preserves full content externally, see the [Context Offloader](../plugins/context-offloader) plugin.
 - **Per-Turn Management**: Optionally apply context management proactively during the agent loop execution, not just at the end.
+- **Message Pinning**: Protect specific messages from trimming during context reduction. See [Message Pinning](#message-pinning).
 - **Proactive Compression**: Pass `proactiveCompression: true` or `proactiveCompression: { compressionThreshold: 0.7 }` to trigger context reduction before the model call when projected input tokens exceed a configurable threshold. See [Proactive Context Compression](#proactive-context-compression).
 
 **Per-Turn Management**:
@@ -285,7 +298,7 @@ from strands.models import AnthropicModel
 
 # Create a cheaper, faster model for summarization tasks
 summarization_model = AnthropicModel(
-    model_id="claude-3-5-haiku-20241022",  # More cost-effective for summarization
+    model_id="claude-haiku-4-5-20251001",  # More cost-effective for summarization
     max_tokens=1000,
     params={"temperature": 0.1}  # Low temperature for consistent summaries
 )
@@ -320,8 +333,62 @@ Pass a custom `model` to `SummarizingConversationManager` to override the model 
 - **Context Window Management**: Automatically reduces context when token limits are exceeded
 - **Intelligent Summarization**: Uses structured bullet-point summaries to capture key information
 - **Tool Pair Preservation**: Ensures tool use and result message pairs aren't broken during summarization
+- **Message Pinning**: Protect specific messages from summarization during context reduction. See [Message Pinning](#message-pinning).
 - **Flexible Configuration**: Customize summarization behavior through various parameters
 - **Fallback Safety**: Handles summarization failures gracefully
+
+## Message Pinning
+
+Message pinning protects specific messages from eviction during context reduction. Pinned messages survive both sliding-window trimming and summarization, which makes pinning useful for preserving system prompts, critical instructions, or key decisions that must remain in the conversation regardless of length.
+
+Messages are pinned by setting `metadata.custom.pinned = true` on the message object. The SDK provides both a declarative configuration (`pin_first` / `pinFirst`) and runtime utility functions for programmatic control.
+
+### Protecting Initial Messages with `pin_first`
+
+Both `SlidingWindowConversationManager` and `SummarizingConversationManager` accept a `pin_first` (Python) / `pinFirst` (TypeScript) parameter that permanently protects the first N messages from eviction. This is the simplest way to preserve system prompts or initial instructions across all context reductions.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.agent.conversation_manager import SlidingWindowConversationManager
+
+agent = Agent(
+    conversation_manager=SlidingWindowConversationManager(
+        window_size=40,
+        pin_first=1,
+    )
+)
+```
+
+The same parameter works with `SummarizingConversationManager`:
+
+```python
+from strands.agent.conversation_manager import SummarizingConversationManager
+
+agent = Agent(
+    conversation_manager=SummarizingConversationManager(
+        pin_first=2,
+    )
+)
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/agents/conversation-management_imports.ts:pin_first_imports"
+
+--8<-- "user-guide/concepts/agents/conversation-management.ts:pin_first"
+```
+
+The same parameter works with `SummarizingConversationManager`.
+
+</Tab>
+</Tabs>
+
+The pin metadata is written during the first context reduction and remains set permanently, protecting those messages through all subsequent reductions.
 
 ## Proactive Context Compression
 
@@ -339,10 +406,8 @@ Pass `proactive_compression` to any built-in conversation manager. Use `True` fo
 ```python
 from strands import Agent
 from strands.agent.conversation_manager import SlidingWindowConversationManager
-from strands.models.bedrock import BedrockModel
 
 agent = Agent(
-    model=BedrockModel(model_id="anthropic.claude-sonnet-4-6-v1:0"),
     conversation_manager=SlidingWindowConversationManager(
         window_size=50,
         proactive_compression={"compression_threshold": 0.7},
@@ -355,10 +420,8 @@ agent = Agent(
 ```python
 from strands import Agent
 from strands.agent.conversation_manager import SummarizingConversationManager
-from strands.models.bedrock import BedrockModel
 
 agent = Agent(
-    model=BedrockModel(model_id="anthropic.claude-sonnet-4-6-v1:0"),
     conversation_manager=SummarizingConversationManager(
         proactive_compression=True,
     ),
@@ -408,7 +471,7 @@ Because `BeforeModelCallEvent` triggers before every model call including calls 
 
 ### Context Window Limit
 
-The threshold check requires the model's context window size. The SDK auto-populates `contextWindowLimit` from built-in lookup tables ([Python](https://github.com/strands-agents/sdk-python/blob/main/src/strands/models/_defaults.py), [TypeScript](https://github.com/strands-agents/sdk-typescript/blob/main/strands-ts/src/models/defaults.ts)) for known models. You can override it manually for models not in the lookup table:
+The threshold check requires the model's context window size. The SDK auto-populates `contextWindowLimit` from built-in lookup tables ([Python](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/_defaults.py), [TypeScript](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/models/defaults.ts)) for known models. You can override it manually for models not in the lookup table:
 
 <Tabs>
 <Tab label="Python">
@@ -468,7 +531,7 @@ To create a custom conversation manager, implement the [`ConversationManager`](@
 
 4. `register_hooks` (optional): Override this method to integrate with [hooks](./hooks.md). This enables proactive context management patterns, such as trimming context before model calls. Always call `super().register_hooks` when overriding.
 
-See the [SlidingWindowConversationManager](https://github.com/strands-agents/sdk-python/blob/main/src/strands/agent/conversation_manager/sliding_window_conversation_manager.py) implementation as a reference example.
+See the [SlidingWindowConversationManager](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/conversation_manager/sliding_window_conversation_manager.py) implementation as a reference example.
 </Tab>
 <Tab label="TypeScript">
 
@@ -492,6 +555,6 @@ For proactive management alongside overflow recovery, override `initAgent`:
 --8<-- "user-guide/concepts/agents/conversation-management.ts:custom_conversation_manager_proactive"
 ```
 
-See the [SlidingWindowConversationManager](https://github.com/strands-agents/sdk-typescript/blob/main/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts) implementation as a reference example.
+See the [SlidingWindowConversationManager](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts) implementation as a reference example.
 </Tab>
 </Tabs>

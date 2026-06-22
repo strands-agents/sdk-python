@@ -15,10 +15,10 @@
     "resolveJsonModule": true
   },
   "include": [
-    ".build/sdk-typescript/strands-ts/src/**/*.ts"
+    "../strands-ts/src/**/*.ts"
   ],
   "exclude": [
-    ".build/sdk-typescript/strands-ts/src/**/__**__/**",
-    ".build/sdk-typescript/strands-ts/src/**/*.test.ts"
+    "../strands-ts/src/**/__**__/**",
+    "../strands-ts/src/**/*.test.ts"
   ]
 }

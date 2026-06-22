@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ContextOffloader } from '../plugin.js'
 import { InMemoryStorage } from '../storage.js'
-import { AfterToolCallEvent } from '../../../hooks/events.js'
+import { AfterToolCallEvent, BeforeModelCallEvent } from '../../../hooks/events.js'
 import { TextBlock, JsonBlock, ToolResultBlock } from '../../../types/messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock } from '../../../types/media.js'
 import { createMockAgent, invokeTrackedHook } from '../../../__fixtures__/agent-helpers.js'
@@ -61,12 +61,14 @@ describe('ContextOffloader', () => {
       expect(plugin.name).toBe('strands:context-offloader')
     })
 
-    it('registers AfterToolCallEvent hook', () => {
+    it('registers hooks', () => {
       const plugin = new ContextOffloader({ storage: new InMemoryStorage() })
       const agent = createMockAgent()
       plugin.initAgent(agent)
-      expect(agent.trackedHooks).toHaveLength(1)
-      expect(agent.trackedHooks[0]!.eventType).toBe(AfterToolCallEvent)
+      expect(agent.trackedHooks).toHaveLength(2)
+      const eventTypes = agent.trackedHooks.map((h) => h.eventType)
+      expect(eventTypes).toContain(AfterToolCallEvent)
+      expect(eventTypes).toContain(BeforeModelCallEvent)
     })
 
     it('returns retrieval tool by default', () => {
@@ -606,6 +608,55 @@ describe('ContextOffloader', () => {
       expect(result).toContain('[Lines 1-1 of 10]')
       expect(result).toContain('line 1')
       expect(result).not.toContain('line 2')
+    })
+  })
+
+  describe('eviction via BeforeModelCallEvent', () => {
+    it('calls _evict on storage with incrementing cycle count', () => {
+      const storage = new InMemoryStorage(5)
+      const plugin = new ContextOffloader({ storage, maxResultTokens: 10, previewTokens: 5 })
+      const agent = createMockAgent()
+      plugin.initAgent(agent)
+
+      const hook = agent.trackedHooks.find((h) => h.eventType === BeforeModelCallEvent)!
+      const event = new BeforeModelCallEvent({ agent, model: mockModel, invocationState: {} })
+
+      hook.callback(event)
+      expect((storage as unknown as { _currentCycle: number })._currentCycle).toBe(1)
+
+      hook.callback(event)
+      expect((storage as unknown as { _currentCycle: number })._currentCycle).toBe(2)
+    })
+
+    it('evicts stale entries on BeforeModelCallEvent', async () => {
+      const storage = new InMemoryStorage(2)
+      const plugin = new ContextOffloader({ storage, maxResultTokens: 10, previewTokens: 5 })
+      const agent = createMockAgent()
+      plugin.initAgent(agent)
+
+      const ref = await storage.store('key1', new TextEncoder().encode('test'))
+
+      const hook = agent.trackedHooks.find((h) => h.eventType === BeforeModelCallEvent)!
+      const event = new BeforeModelCallEvent({ agent, model: mockModel, invocationState: {} })
+
+      // Advance 3 cycles: threshold = 3 - 2 = 1, stored at 0, 0 < 1 → evicted
+      hook.callback(event)
+      hook.callback(event)
+      hook.callback(event)
+
+      await expect(storage.retrieve(ref)).rejects.toThrow('Reference not found')
+    })
+
+    it('does not crash when storage lacks _evict', () => {
+      const storage = { store: vi.fn(), retrieve: vi.fn() }
+      const plugin = new ContextOffloader({ storage, maxResultTokens: 10, previewTokens: 5 })
+      const agent = createMockAgent()
+      plugin.initAgent(agent)
+
+      const hook = agent.trackedHooks.find((h) => h.eventType === BeforeModelCallEvent)!
+      const event = new BeforeModelCallEvent({ agent, model: mockModel, invocationState: {} })
+
+      expect(() => hook.callback(event)).not.toThrow()
     })
   })
 })

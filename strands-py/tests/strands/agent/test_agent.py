@@ -23,13 +23,19 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
+from strands.memory import MemoryManager, MemoryManagerConfig
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import Messages
-from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException
+from strands.types.exceptions import (
+    CheckpointException,
+    ConcurrencyException,
+    ContextWindowOverflowException,
+    EventLoopException,
+)
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -529,7 +535,9 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent, tool):
+def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(
+    mock_model, agent, tool, quiet_strands_logging
+):
     conversation_manager = SlidingWindowConversationManager(window_size=500, should_truncate_results=False)
     conversation_manager_spy = unittest.mock.Mock(wraps=conversation_manager)
     agent.conversation_manager = conversation_manager_spy
@@ -555,7 +563,9 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(mock_model, agent, tool):
+def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(
+    mock_model, agent, tool, quiet_strands_logging
+):
     agent.conversation_manager = NullConversationManager()
 
     messages: Messages = [
@@ -2629,7 +2639,7 @@ def test_agent_add_hook_delegates_to_hooks_add_callback():
     # Spy on the hooks.add_callback method
     with unittest.mock.patch.object(agent.hooks, "add_callback") as mock_add_callback:
         agent.add_hook(callback, BeforeInvocationEvent)
-        mock_add_callback.assert_called_once_with(BeforeInvocationEvent, callback)
+        mock_add_callback.assert_called_once_with(BeforeInvocationEvent, callback, order=0)
 
 
 @pytest.mark.asyncio
@@ -2750,7 +2760,85 @@ def test_agent_plugins_can_register_hooks():
     )
 
     agent("test")
+
     assert len(hook_called) == 1
+
+
+class _SearchOnlyStore:
+    """Minimal read-only memory store for exercising Agent's memory_manager wiring."""
+
+    name = "notes"
+    description = None
+    max_search_results = None
+    writable = False
+    extraction = None
+
+    async def search(self, query, options=None):
+        return []
+
+
+def test_agent_memory_manager_instance_registers_tools_and_is_exposed():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    assert agent.memory_manager is memory_manager
+    assert "search_memory" in agent.tool_names
+
+
+def test_agent_memory_manager_config_is_wrapped():
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=MemoryManagerConfig(stores=[_SearchOnlyStore()]),
+    )
+
+    assert isinstance(agent.memory_manager, MemoryManager)
+    assert "search_memory" in agent.tool_names
+
+
+def test_agent_memory_manager_defaults_to_none():
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+
+    assert agent.memory_manager is None
+
+
+def test_agent_memory_manager_passed_via_both_paths_raises():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    with pytest.raises(ValueError, match="pass it through the memory_manager parameter instead"):
+        Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+            plugins=[memory_manager],
+            memory_manager=memory_manager,
+        )
+
+
+def test_agent_sync_call_flushes_memory_manager():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    agent("test")
+
+    memory_manager.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_agent_async_invoke_does_not_flush_memory_manager():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    await agent.invoke_async("test")
+
+    memory_manager.flush.assert_not_awaited()
 
 
 def test_as_tool_returns_agent_tool():
@@ -2800,3 +2888,60 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+# ============================================================================
+# Checkpointing Tests
+# ============================================================================
+
+
+def test_agent_checkpointing_defaults_to_false() -> None:
+    agent = Agent()
+    assert agent._checkpointing is False
+    assert agent._checkpoint is None
+
+
+def test_agent_checkpointing_flag_stored() -> None:
+    agent = Agent(checkpointing=True)
+    assert agent._checkpointing is True
+    assert agent._checkpoint is None
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_cycle_index_resets_between_invocations() -> None:
+    """A stale cycle index from a prior invocation does not leak into the next."""
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "done"}]}])
+    agent = Agent(model=model, checkpointing=True)
+
+    # Simulate state left over from a prior checkpointing run.
+    agent._checkpoint_cycle_index = 5
+    agent._checkpoint_resume_position = "after_tools"
+
+    await agent.invoke_async("hello")
+
+    assert agent._checkpoint_cycle_index == 0
+    assert agent._checkpoint_resume_position is None
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_without_checkpointing_flag_raises_value_error() -> None:
+    agent = Agent(checkpointing=False)
+    prompt = {"checkpointResume": {"checkpoint": {}}}
+    with pytest.raises(ValueError, match="checkpointing=True"):
+        await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_missing_checkpoint_key_raises_key_error() -> None:
+    agent = Agent(checkpointing=True)
+    prompt = {"checkpointResume": {}}
+    with pytest.raises(KeyError, match="checkpoint"):
+        await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_schema_mismatch_raises_checkpoint_exception() -> None:
+    agent = Agent(checkpointing=True)
+    prompt = {"checkpointResume": {"checkpoint": {"schema_version": "0.1", "position": "after_model"}}}
+    with pytest.raises(CheckpointException, match="schema version"):
+        await agent.invoke_async(prompt)

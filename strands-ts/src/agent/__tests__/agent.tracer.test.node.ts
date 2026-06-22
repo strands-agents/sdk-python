@@ -3,6 +3,7 @@ import { Agent } from '../agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
 import { TextBlock, ToolUseBlock, ToolResultBlock, MaxTokensError, StructuredOutputError } from '../../index.js'
+import { InvokeModelStage } from '../../middleware/stages.js'
 import { Tracer } from '../../telemetry/tracer.js'
 import { z } from 'zod'
 
@@ -323,6 +324,25 @@ describe('Agent tracer integration', () => {
 
       expect(tracer.startModelInvokeSpan).toHaveBeenCalledTimes(2)
       expect(tracer.endModelInvokeSpan).toHaveBeenCalledTimes(2)
+    })
+
+    it('model span records post-middleware messages when InvokeModelStage middleware transforms input', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+      const agent = new Agent({ model, systemPrompt: 'Original prompt' })
+      const tracer = getLatestTracer()
+
+      agent.addMiddleware(InvokeModelStage.Input, async (context) => ({
+        ...context,
+        systemPrompt: 'Transformed prompt',
+      }))
+
+      await agent.invoke('Hi')
+
+      expect(tracer.startModelInvokeSpan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          systemPrompt: 'Transformed prompt',
+        })
+      )
     })
   })
 

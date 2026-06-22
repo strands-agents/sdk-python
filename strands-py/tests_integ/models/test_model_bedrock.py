@@ -335,7 +335,7 @@ def test_multi_prompt_system_content():
     agent("Hello!")
 
 
-def test_prompt_caching_with_5m_ttl():
+def test_prompt_caching_with_5m_ttl(quiet_strands_logging):
     """Test prompt caching with 5 minute TTL and verify cache metrics.
 
     This test verifies:
@@ -386,7 +386,7 @@ def test_prompt_caching_with_5m_ttl():
     )
 
 
-def test_prompt_caching_with_1h_ttl():
+def test_prompt_caching_with_1h_ttl(quiet_strands_logging):
     """Test prompt caching with 1 hour TTL and verify cache metrics.
 
     Uses Claude Haiku 4.5 which supports 1hr TTL.
@@ -434,7 +434,7 @@ def test_prompt_caching_with_1h_ttl():
     )
 
 
-def test_prompt_caching_with_ttl_in_messages():
+def test_prompt_caching_with_ttl_in_messages(quiet_strands_logging):
     """Test prompt caching with TTL in message content and verify cache metrics.
 
     Uses Claude Haiku 4.5 which supports TTL in CachePointBlock on Bedrock.
@@ -475,7 +475,7 @@ def test_prompt_caching_with_ttl_in_messages():
     )
 
 
-def test_prompt_caching_backward_compatibility_no_ttl():
+def test_prompt_caching_backward_compatibility_no_ttl(quiet_strands_logging):
     """Test that prompt caching works without TTL (backward compatibility).
 
     Verifies that cache points work correctly when TTL is not specified,
@@ -613,7 +613,7 @@ def test_prompt_caching_cache_tools_ttl():
     assert len(str(result)) > 0
 
 
-def test_prompt_caching_cache_config_auto_with_ttl():
+def test_prompt_caching_cache_config_auto_with_ttl(quiet_strands_logging):
     """Test that CacheConfig(strategy="auto", ttl="5m") propagates TTL to the auto-injected message cache point.
 
     Verifies that the cache point appended to the last user message by _inject_cache_point
@@ -647,7 +647,7 @@ def test_prompt_caching_cache_config_auto_with_ttl():
     )
 
 
-def test_prompt_caching_aligned_1h_ttl_across_checkpoints():
+def test_prompt_caching_aligned_1h_ttl_across_checkpoints(quiet_strands_logging):
     """Regression test for Bedrock TTL non-increasing ordering rule (Issue #2121).
 
     Bedrock processes cache checkpoints in order: toolConfig -> system -> messages,

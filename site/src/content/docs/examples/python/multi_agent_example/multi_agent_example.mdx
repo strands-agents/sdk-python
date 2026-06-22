@@ -4,7 +4,7 @@ sidebar:
   label: "Multi Agents"
 ---
 
-This [example](https://github.com/strands-agents/docs/blob/main/docs/examples/python/multi_agent_example/teachers_assistant.py) demonstrates how to implement a multi-agent architecture using Strands Agents, where specialized agents work together under the coordination of a central orchestrator. The system uses natural language routing to direct queries to the most appropriate specialized agent based on subject matter expertise.
+This [example](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/multi_agent_example/teachers_assistant.py) demonstrates how to implement a multi-agent architecture using Strands Agents, where specialized agents work together under the coordination of a central orchestrator. The system uses natural language routing to direct queries to the most appropriate specialized agent based on subject matter expertise.
 
 ## Overview
 
@@ -63,7 +63,7 @@ This example implements a multi-agent architecture where specialized agents work
 
 ### 1. Teacher's Assistant (Orchestrator)
 
-The `teacher_assistant` acts as the central coordinator that analyzes incoming natural language queries, determines the most appropriate specialized agent, and routes queries to that agent. All of this is accomplished through instructions outlined in the [TEACHER_SYSTEM_PROMPT](https://github.com/strands-agents/docs/blob/main/docs/examples/python/multi_agent_example/teachers_assistant.py#L51) for the agent. Furthermore, each specialized agent is part of the tools array for the orchestrator agent. 
+The `teacher_assistant` acts as the central coordinator that analyzes incoming natural language queries, determines the most appropriate specialized agent, and routes queries to that agent. All of this is accomplished through instructions outlined in the [TEACHER_SYSTEM_PROMPT](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/multi_agent_example/teachers_assistant.py#L51) for the agent. Furthermore, each specialized agent is part of the tools array for the orchestrator agent. 
 
 **Implementation:**
 
@@ -115,10 +115,10 @@ def math_assistant(query: str) -> str:
 ```
 Each specialized agent has a distinct system prompt, and tools in its inventory, and follows this general pattern.
 
-  - [Language Assistant](https://github.com/strands-agents/docs/blob/main/docs/examples/python/multi_agent_example/language_assistant.py) specializes in queries related to translation into different languages.
-  - [Computer Science Assistant](https://github.com/strands-agents/docs/blob/main/docs/examples/python/multi_agent_example/computer_science_assistant.py) specializes in queries related to writing, editing, running, code and explaining computer science concepts.
-  - [English Assistant](https://github.com/strands-agents/docs/blob/main/docs/examples/python/multi_agent_example/english_assistant.py) specializes in queries related to grammar, and english comprehension.
-  - [General Assistant](https://github.com/strands-agents/docs/blob/main/docs/examples/python/multi_agent_example/no_expertise.py) is a no specialty agent that aims to answer queries outside of the specific domains the agents are specialized in.
+  - [Language Assistant](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/multi_agent_example/language_assistant.py) specializes in queries related to translation into different languages.
+  - [Computer Science Assistant](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/multi_agent_example/computer_science_assistant.py) specializes in queries related to writing, editing, running, code and explaining computer science concepts.
+  - [English Assistant](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/multi_agent_example/english_assistant.py) specializes in queries related to grammar, and english comprehension.
+  - [General Assistant](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/multi_agent_example/no_expertise.py) is a no specialty agent that aims to answer queries outside of the specific domains the agents are specialized in.
 
 ### 3. Agent as Tool Pattern
 

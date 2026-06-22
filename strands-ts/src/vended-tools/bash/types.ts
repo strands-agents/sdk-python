@@ -2,6 +2,10 @@
  * Type definitions for the bash tool.
  */
 
+export const SANDBOX_BASH_DESCRIPTION =
+  'Executes bash shell commands. Each call runs in a fresh shell; ' +
+  'state such as variables and the working directory does not persist across calls.'
+
 /**
  * Input parameters for execute operation.
  */

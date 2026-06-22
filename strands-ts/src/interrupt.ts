@@ -20,7 +20,7 @@ import { Message, ToolResultBlock, type MessageData, type ToolResultBlockData } 
  * - `'hook'` — raised by an agent-level hook (e.g. `BeforeToolCallEvent.interrupt()`).
  * - `'multiagent-hook'` — raised by a multi-agent hook (e.g. `BeforeNodeCallEvent.interrupt()`).
  */
-export type InterruptSource = 'tool' | 'hook' | 'multiagent-hook'
+export type InterruptSource = 'tool' | 'hook' | 'middleware' | 'multiagent-hook'
 
 /**
  * Represents an interrupt that can pause agent execution for human-in-the-loop workflows.
@@ -323,6 +323,13 @@ export class InterruptState implements InterruptStateData {
     })
     this.interrupts[id] = interrupt
     return interrupt
+  }
+
+  /**
+   * Register an existing Interrupt instance in the state, or return the already-registered one.
+   */
+  registerInterrupt(interrupt: Interrupt): Interrupt {
+    return this.getOrCreateInterrupt(interrupt.id, interrupt.name, interrupt.reason, undefined, interrupt.source)
   }
 
   /**

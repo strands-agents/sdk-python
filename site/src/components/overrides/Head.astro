@@ -9,6 +9,8 @@ import SiteScripts from '../SiteScripts.astro'
 import Analytics from '../Analytics.astro'
 import { baseSchemas } from '../../util/structured-data'
 import { relatedUserGuideFor } from '../../util/related-docs'
+import { resolveLanguage, sourceLinkUrl } from '../../util/source-links'
+import type { SourceLink } from '../../content.config'
 
 const { head } = Astro.locals.starlightRoute
 const route = Astro.locals.starlightRoute
@@ -72,6 +74,7 @@ const breadcrumbItems = pathSegments.map((segment, i) => {
 //   relatedLink:        https://schema.org/relatedLink
 //   isBasedOn:          https://schema.org/isBasedOn
 //   SoftwareSourceCode: https://schema.org/SoftwareSourceCode
+//   programmingLanguage: https://schema.org/programmingLanguage
 const entry = route.entry
 // Non-docs routes (blog authors/tags pages, etc.) flow through Starlight too
 // but their synthetic entry.data has no `tags` field — guard with ??.
@@ -93,10 +96,11 @@ if (tags.length > 0 || sourceLinks.length > 0) {
       : {}),
     ...(sourceLinks.length > 0
       ? {
-          "isBasedOn": sourceLinks.map((s: { repo: string, path: string }) => ({
+          "isBasedOn": sourceLinks.map((s: SourceLink) => ({
             "@type": "SoftwareSourceCode",
+            "programmingLanguage": resolveLanguage(s),
             "codeRepository": `https://github.com/strands-agents/${s.repo}`,
-            "url": `https://github.com/strands-agents/${s.repo}/blob/main/${s.path}`,
+            "url": sourceLinkUrl(s),
           })),
         }
       : {}),

@@ -60,10 +60,11 @@ jobs:
 
     steps:
       - name: Checkout head commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ env.PR_HEAD_SHA }}
           persist-credentials: false
+          allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -107,11 +108,34 @@ jobs:
 
       - name: Comment on PR (success)
         if: success()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
-            const previewUrl = '${{ env.PREVIEW_URL }}';
+            const baseUrl = 'https://${{ env.CLOUDFRONT_DOMAIN }}/${{ env.S3_PATH }}';
+
+            // Get changed files in the PR
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            // Build preview links for changed doc pages
+            const docFiles = files
+              .filter(f => f.filename.startsWith('site/src/content/docs/') && f.filename.endsWith('.mdx'))
+              .filter(f => f.status !== 'removed');
+
+            const previewLinks = docFiles.map(f => {
+              const urlPath = f.filename
+                .replace('site/src/content/docs/', '/docs/')
+                .replace(/\/index\.mdx$/, '/')
+                .replace(/\.mdx$/, '/');
+              const label = urlPath.replace(/^\/docs\//, '').replace(/\/$/, '');
+              return `- [${label}](${baseUrl}${urlPath})`;
+            });
+
+            const fallbackUrl = `${baseUrl}/docs/user-guide/quickstart/overview/`;
 
             // Find existing bot comment
             const comments = await github.rest.issues.listComments({
@@ -125,15 +149,21 @@ jobs:
               comment.body.includes('Documentation Preview')
             );
 
-            const body = [
+            const lines = [
               '## Documentation Preview Ready',
               '',
               'Your documentation preview has been successfully deployed!',
               '',
-              `**Preview URL**: ${previewUrl}`,
-              '',
-              `_Updated at: ${new Date().toISOString()}_`
-            ].join('\n');
+            ];
+
+            if (previewLinks.length > 0) {
+              lines.push('**Changed pages:**', '', ...previewLinks);
+            } else {
+              lines.push(`**Preview URL**: ${fallbackUrl}`);
+            }
+
+            lines.push('', `_Updated at: ${new Date().toISOString()}_`);
+            const body = lines.join('\n');
 
             if (botComment) {
               await github.rest.issues.updateComment({
@@ -153,7 +183,7 @@ jobs:
 
       - name: Comment on PR (failure)
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;

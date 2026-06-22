@@ -11,6 +11,7 @@ import { ImageBlock, encodeBase64 } from '../../types/media.js'
 import { ContentBlockEvent, ModelStreamUpdateEvent } from '../../hooks/events.js'
 import { AgentResult } from '../../types/agent.js'
 import { Message } from '../../types/messages.js'
+import type { ModelStreamEvent } from '../../models/streaming.js'
 
 function createMockEventBus(): ExecutionEventBus & { events: AgentExecutionEvent[] } {
   const events: AgentExecutionEvent[] = []
@@ -45,7 +46,7 @@ describe('A2AExecutor', () => {
     it('streams text deltas as artifact chunks and publishes completed status', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Agent response' })
       const agent = new Agent({ model, printer: false })
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
 
       await executor.execute(createRequestContext('Hello agent'), eventBus)
@@ -96,7 +97,7 @@ describe('A2AExecutor', () => {
         { type: 'textBlock', text: 'Second' },
       ])
       const agent = new Agent({ model, printer: false })
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
 
       await executor.execute(createRequestContext('Hello'), eventBus)
@@ -113,7 +114,7 @@ describe('A2AExecutor', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Response' })
       const agent = new Agent({ model, printer: false })
       vi.spyOn(agent, 'stream')
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
 
       const context: RequestContext = {
@@ -143,7 +144,7 @@ describe('A2AExecutor', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Response' })
       const agent = new Agent({ model, printer: false })
       const streamSpy = vi.spyOn(agent, 'stream')
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
       const context = createRequestContext('hello', 'task-42')
 
@@ -157,7 +158,7 @@ describe('A2AExecutor', () => {
     it('re-throws when agent throws, publishing only the initial task event', async () => {
       const model = new MockMessageModel().addTurn(new Error('Agent failed'))
       const agent = new Agent({ model, printer: false })
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
 
       await expect(executor.execute(createRequestContext('Hello'), eventBus)).rejects.toThrow('Agent failed')
@@ -196,7 +197,7 @@ describe('A2AExecutor', () => {
         },
       }
 
-      const executor = new A2AExecutor(mockAgent)
+      const executor = new A2AExecutor({ agentFactory: () => mockAgent })
       const eventBus = createMockEventBus()
 
       await executor.execute(createRequestContext('Generate an image'), eventBus)
@@ -224,7 +225,7 @@ describe('A2AExecutor', () => {
     it('throws A2AError.invalidRequest when parts produce no content blocks', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Response' })
       const agent = new Agent({ model, printer: false })
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
 
       const context: RequestContext = {
@@ -242,11 +243,176 @@ describe('A2AExecutor', () => {
     it('throws A2AError.unsupportedOperation', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: '' })
       const agent = new Agent({ model, printer: false })
-      const executor = new A2AExecutor(agent)
+      const executor = new A2AExecutor({ agent })
       const eventBus = createMockEventBus()
 
       await expect(executor.cancelTask('task-1', eventBus)).rejects.toThrow('Task cancellation is not supported')
       expect(eventBus.events).toStrictEqual([])
+    })
+  })
+})
+
+// ============================================================================
+// Per-context conversation isolation
+//
+// These tests drive a real Agent (with a deterministic echo model) through a
+// single executor across two distinct A2A contextIds, asserting that no
+// conversation state leaks between contexts, while a single context still
+// accumulates its own history across turns.
+// ============================================================================
+
+/**
+ * Deterministic, network-free model that echoes the latest user text prefixed
+ * with `ECHO[<history-length>]`, so tests can observe per-context history growth.
+ */
+class EchoModel extends MockMessageModel {
+  override async *stream(messages: Message[]): AsyncGenerator<ModelStreamEvent> {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+    const lastText = lastUser?.content.find((b): b is TextBlock => b.type === 'textBlock')?.text ?? ''
+    const reply = `ECHO[${messages.length}]: ${lastText}`
+    yield { type: 'modelMessageStartEvent', role: 'assistant' }
+    yield { type: 'modelContentBlockStartEvent' }
+    yield { type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text: reply } }
+    yield { type: 'modelContentBlockStopEvent' }
+    yield { type: 'modelMessageStopEvent', stopReason: 'endTurn' }
+  }
+}
+
+function makeEchoAgent(): Agent {
+  return new Agent({ model: new EchoModel(), printer: false })
+}
+
+function ctxRequest(contextId: string, taskId: string, text: string): RequestContext {
+  return {
+    taskId,
+    contextId,
+    userMessage: {
+      kind: 'message',
+      messageId: `msg-${taskId}`,
+      role: 'user',
+      parts: [{ kind: 'text', text }],
+    },
+  }
+}
+
+function artifactTexts(eventBus: ReturnType<typeof createMockEventBus>): string[] {
+  return eventBus.events
+    .filter((e): e is TaskArtifactUpdateEvent => e.kind === 'artifact-update')
+    .flatMap((e) => e.artifact.parts)
+    .filter((p): p is { kind: 'text'; text: string } => p.kind === 'text')
+    .map((p) => p.text)
+}
+
+describe('A2AExecutor context isolation', () => {
+  describe('constructor validation', () => {
+    it('throws when neither agent nor agentFactory is provided', () => {
+      expect(() => new A2AExecutor()).toThrow("Provide exactly one of 'agent' or 'agentFactory'.")
+    })
+
+    it('throws when both agent and agentFactory are provided', () => {
+      const agent = new Agent({ model: new MockMessageModel(), printer: false })
+      expect(() => new A2AExecutor({ agent, agentFactory: () => agent })).toThrow(
+        "Provide exactly one of 'agent' or 'agentFactory'."
+      )
+    })
+
+    it('throws when maxContexts is less than 1', () => {
+      expect(() => new A2AExecutor({ agentFactory: makeEchoAgent, maxContexts: 0 })).toThrow(
+        'maxContexts must be at least 1'
+      )
+    })
+  })
+
+  describe('factory mode', () => {
+    it('builds one agent per context and reuses it within a context', async () => {
+      const built: string[] = []
+      const agentsByContext = new Map<string, Agent>()
+      const executor = new A2AExecutor({
+        agentFactory: (contextId) => {
+          built.push(contextId)
+          const agent = makeEchoAgent()
+          agentsByContext.set(contextId, agent)
+          return agent
+        },
+      })
+
+      await executor.execute(ctxRequest('ctx-A', 'a-1', 'first'), createMockEventBus())
+      await executor.execute(ctxRequest('ctx-A', 'a-2', 'second'), createMockEventBus())
+      await executor.execute(ctxRequest('ctx-B', 'b-1', 'first'), createMockEventBus())
+
+      // Factory invoked once per distinct context, not per request.
+      expect(built).toStrictEqual(['ctx-A', 'ctx-B'])
+      // Distinct Agent instances per context.
+      expect(agentsByContext.get('ctx-A')).not.toBe(agentsByContext.get('ctx-B'))
+    })
+
+    it('isolates history across contexts and continues it within one', async () => {
+      const executor = new A2AExecutor({ agentFactory: makeEchoAgent })
+
+      // ctx-A turn 1: just the user message in history -> ECHO[1].
+      let bus = createMockEventBus()
+      await executor.execute(ctxRequest('ctx-A', 'a-1', 'SECRET-AAAA'), bus)
+      expect(artifactTexts(bus).some((t) => t.includes('ECHO[1]:') && t.includes('SECRET-AAAA'))).toBe(true)
+
+      // ctx-A turn 2: history now has user1, assistant1, user2 -> ECHO[3].
+      bus = createMockEventBus()
+      await executor.execute(ctxRequest('ctx-A', 'a-2', 'again'), bus)
+      expect(artifactTexts(bus).some((t) => t.includes('ECHO[3]:'))).toBe(true)
+
+      // ctx-B is independent -> starts fresh, never sees ctx-A's secret.
+      bus = createMockEventBus()
+      await executor.execute(ctxRequest('ctx-B', 'b-1', 'hello'), bus)
+      const textsB = artifactTexts(bus)
+      expect(textsB.some((t) => t.includes('ECHO[1]:'))).toBe(true)
+      expect(textsB.some((t) => t.includes('SECRET-AAAA'))).toBe(false)
+    })
+
+    it('evicts the least-recently-used context beyond maxContexts', async () => {
+      const built: string[] = []
+      const executor = new A2AExecutor({
+        agentFactory: (contextId) => {
+          built.push(contextId)
+          return makeEchoAgent()
+        },
+        maxContexts: 2,
+      })
+
+      await executor.execute(ctxRequest('ctx-A', 'a-1', 'hi'), createMockEventBus())
+      await executor.execute(ctxRequest('ctx-B', 'b-1', 'hi'), createMockEventBus())
+      await executor.execute(ctxRequest('ctx-A', 'a-2', 'again'), createMockEventBus()) // touch A
+      await executor.execute(ctxRequest('ctx-C', 'c-1', 'hi'), createMockEventBus()) // evicts B
+
+      // B was evicted, so reusing it rebuilds a fresh agent (factory called again for B).
+      await executor.execute(ctxRequest('ctx-B', 'b-2', 'hi'), createMockEventBus())
+      expect(built).toStrictEqual(['ctx-A', 'ctx-B', 'ctx-C', 'ctx-B'])
+    })
+  })
+
+  describe('single-agent mode (deprecated)', () => {
+    it('isolates history across contexts via snapshot swapping', async () => {
+      const executor = new A2AExecutor({ agent: makeEchoAgent() })
+
+      let bus = createMockEventBus()
+      await executor.execute(ctxRequest('ctx-A', 'a-1', 'SECRET-AAAA'), bus)
+      expect(artifactTexts(bus).some((t) => t.includes('ECHO[1]:') && t.includes('SECRET-AAAA'))).toBe(true)
+
+      // ctx-A continues -> ECHO[3].
+      bus = createMockEventBus()
+      await executor.execute(ctxRequest('ctx-A', 'a-2', 'again'), bus)
+      expect(artifactTexts(bus).some((t) => t.includes('ECHO[3]:'))).toBe(true)
+
+      // ctx-B starts fresh and never sees ctx-A's secret.
+      bus = createMockEventBus()
+      await executor.execute(ctxRequest('ctx-B', 'b-1', 'hello'), bus)
+      const textsB = artifactTexts(bus)
+      expect(textsB.some((t) => t.includes('ECHO[1]:'))).toBe(true)
+      expect(textsB.some((t) => t.includes('SECRET-AAAA'))).toBe(false)
+    })
+
+    it('throws when a single agent has a sessionManager', () => {
+      const agent = makeEchoAgent()
+      ;(agent as unknown as { sessionManager: unknown }).sessionManager = {}
+      expect(() => new A2AExecutor({ agent })).toThrow('sessionManager is not supported')
     })
   })
 })

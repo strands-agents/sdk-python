@@ -556,7 +556,7 @@ async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alis
         "model": model_id,
         "messages": [{"role": "user", "content": [{"text": "What is 123981723 + 234982734?", "type": "text"}]}],
         "stream": False,  # Verify that stream=False was passed to litellm
-        "stream_options": {"include_usage": True},
+        # stream_options is only sent for streaming requests
         "tools": [],
     }
     litellm_acompletion.assert_called_once_with(**expected_request)

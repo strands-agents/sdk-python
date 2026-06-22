@@ -55,5 +55,5 @@ evaluators = [HelpfulnessEvaluator()]
 experiment = Experiment[str, str](cases=test_cases, evaluators=evaluators)
 
 # 5. Run evaluations
-reports = experiment.run_evaluations(task_function)
-reports[0].run_display()
+report = experiment.run_evaluations(task_function)
+report.run_display()

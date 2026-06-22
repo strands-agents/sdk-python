@@ -29,7 +29,9 @@ jobs:
   check-access-and-checkout:
     runs-on: ubuntu-latest
     needs: authorization-check
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       id-token: write
       pull-requests: read
@@ -46,10 +48,11 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout head commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+          allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -89,7 +92,7 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout main
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
           sparse-checkout: |

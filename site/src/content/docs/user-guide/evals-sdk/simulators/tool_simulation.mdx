@@ -157,6 +157,8 @@ def lookup_user(username: str) -> dict:
 Use ToolSimulator within an Experiment to evaluate agent tool-use behavior end-to-end:
 
 ```python
+import asyncio
+
 from pydantic import BaseModel, Field
 from strands import Agent
 from strands_evals import Case, Experiment
@@ -210,8 +212,12 @@ test_cases = [
 
 evaluators = [GoalSuccessRateEvaluator()]
 experiment = Experiment(cases=test_cases, evaluators=evaluators)
-reports = experiment.run_evaluations(task_function)
-reports[0].run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 
@@ -289,12 +295,12 @@ Specify a different model for simulation inference:
 
 ```python
 # Via model ID string (Bedrock)
-tool_simulator = ToolSimulator(model="anthropic.claude-3-5-sonnet-20241022-v2:0")
+tool_simulator = ToolSimulator(model="anthropic.claude-haiku-4-5-20251001-v1:0")
 
 # Via Strands Model provider
 from strands.models import BedrockModel
 
-model = BedrockModel(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
+model = BedrockModel(model_id="anthropic.claude-haiku-4-5-20251001-v1:0")
 tool_simulator = ToolSimulator(model=model)
 ```
 

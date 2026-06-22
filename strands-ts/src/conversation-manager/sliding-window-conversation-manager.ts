@@ -14,6 +14,8 @@ import {
   type ProactiveCompressionConfig,
   type ConversationManagerReduceOptions,
 } from './conversation-manager.js'
+import { isPinned, applyPinFirst } from './compression/pin-message.js'
+import { findValidTrimPoint } from './compression/context-compression.js'
 import { logger } from '../logging/logger.js'
 
 const PRESERVE_CHARS = 200
@@ -103,6 +105,12 @@ export type SlidingWindowConversationManagerConfig = {
    * - `false` or omitted: disabled, only reactive overflow recovery is used.
    */
   proactiveCompression?: boolean | ProactiveCompressionConfig
+
+  /**
+   * Number of messages at the start of the conversation to permanently pin.
+   * Pinned messages are protected from eviction during context reduction.
+   */
+  pinFirst?: number
 }
 
 /**
@@ -121,6 +129,8 @@ export type SlidingWindowConversationManagerConfig = {
 export class SlidingWindowConversationManager extends ConversationManager {
   private readonly _windowSize: number
   private readonly _shouldTruncateResults: boolean
+  private readonly _pinFirst: number | undefined
+  private _pinFirstApplied = false
 
   /**
    * Unique identifier for this conversation manager.
@@ -136,6 +146,7 @@ export class SlidingWindowConversationManager extends ConversationManager {
     super(config)
     this._windowSize = config?.windowSize ?? 40
     this._shouldTruncateResults = config?.shouldTruncateResults ?? true
+    this._pinFirst = config?.pinFirst != null ? Math.max(0, config.pinFirst) : undefined
   }
 
   /**
@@ -204,6 +215,12 @@ export class SlidingWindowConversationManager extends ConversationManager {
    * @returns `true` if any reduction occurred, `false` otherwise.
    */
   private _reduceContext(messages: Message[], _error?: Error): boolean {
+    // Pin first N messages permanently (only on first reduction)
+    if (this._pinFirst && !this._pinFirstApplied) {
+      applyPinFirst(messages, this._pinFirst)
+      this._pinFirstApplied = true
+    }
+
     // Only truncate tool results when handling a context overflow error, not for window size enforcement
     const oldestMessageIdxWithToolResults = this._findOldestMessageWithToolResults(messages)
     if (_error && oldestMessageIdxWithToolResults !== undefined && this._shouldTruncateResults) {
@@ -215,45 +232,8 @@ export class SlidingWindowConversationManager extends ConversationManager {
 
     // Try to trim messages when tool result cannot be truncated anymore
     // If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
-    let trimIndex = messages.length <= this._windowSize ? 2 : messages.length - this._windowSize
-
-    // Find the next valid trim point that:
-    // 1. Starts with a user message (required by some models)
-    // 2. Does not start with an orphaned toolResult
-    // 3. Does not start with a toolUse unless its toolResult immediately follows
-    while (trimIndex < messages.length) {
-      const oldestMessage = messages[trimIndex]
-      if (!oldestMessage) {
-        break
-      }
-
-      // Must start with a user message
-      if (oldestMessage.role !== 'user') {
-        trimIndex++
-        continue
-      }
-
-      // Cannot start with an orphaned toolResult
-      const hasToolResult = oldestMessage.content.some((block) => block.type === 'toolResultBlock')
-      if (hasToolResult) {
-        trimIndex++
-        continue
-      }
-
-      // toolUse is only valid if the next message is its toolResult
-      const hasToolUse = oldestMessage.content.some((block) => block.type === 'toolUseBlock')
-      if (hasToolUse) {
-        const nextMessage = messages[trimIndex + 1]
-        const nextHasToolResult = nextMessage && nextMessage.content.some((block) => block.type === 'toolResultBlock')
-        if (!nextHasToolResult) {
-          trimIndex++
-          continue
-        }
-      }
-
-      // Valid trim point found
-      break
-    }
+    const startIndex = messages.length <= this._windowSize ? 2 : messages.length - this._windowSize
+    const trimIndex = findValidTrimPoint(messages, startIndex)
 
     // If no valid trim point was found, return false and let the caller handle it.
     // When windowSize is 0, trimIndex === messages.length is expected (remove all), so allow it through.
@@ -264,8 +244,24 @@ export class SlidingWindowConversationManager extends ConversationManager {
       return false
     }
 
-    // trimIndex is guaranteed to be < messages.length here, so splice always removes at least one message
-    messages.splice(0, trimIndex)
+    // Collect non-pinned indices in [0, trimIndex) to remove
+    const indicesToRemove: number[] = []
+    for (let i = 0; i < trimIndex; i++) {
+      if (isPinned(messages, i)) continue
+      indicesToRemove.push(i)
+    }
+
+    if (indicesToRemove.length === 0) {
+      logger.warn(
+        `window_size=<${this._windowSize}>, messages=<${messages.length}> | all messages in trim range are protected, unable to reduce`
+      )
+      return false
+    }
+
+    // Remove in reverse order to keep indices stable
+    for (let i = indicesToRemove.length - 1; i >= 0; i--) {
+      messages.splice(indicesToRemove[i]!, 1)
+    }
     return true
   }
 
@@ -449,10 +445,9 @@ export class SlidingWindowConversationManager extends ConversationManager {
    */
   private _findOldestMessageWithToolResults(messages: Message[]): number | undefined {
     for (let idx = 0; idx < messages.length; idx++) {
-      const currentMessage = messages[idx]!
+      if (isPinned(messages, idx)) continue
 
-      const hasToolResult = currentMessage.content.some((block) => block.type === 'toolResultBlock')
-
+      const hasToolResult = messages[idx]!.content.some((block) => block.type === 'toolResultBlock')
       if (hasToolResult) {
         return idx
       }

@@ -9,7 +9,11 @@ This folder contains internal documentation about how the Strands team builds an
 | [TENETS.md](./TENETS.md) | Core principles that guide SDK design and implementation |
 | [DECISIONS.md](./DECISIONS.md) | Record of design and API decisions with rationale |
 | [API_BAR_RAISING.md](./API_BAR_RAISING.md) | Process for reviewing and approving API changes |
+| [FEATURE_LIFECYCLE.md](./FEATURE_LIFECYCLE.md) | How features are added, marked experimental, and deprecated under semantic versioning |
+| [PR.md](./PR.md) | Pull request description guidelines (applies to both SDKs) |
+| [COMPATIBILITY.md](./COMPATIBILITY.md) | What changes are not considered breaking under semantic versioning (both SDKs) |
 | [AGENT_GUIDELINES.md](./AGENT_GUIDELINES.md) | Guidelines for AI agents that interact with Strands repositories |
+| [designs/](./designs/) | Design proposals for significant features (RFC-style) |
 
 ## For Contributors
 

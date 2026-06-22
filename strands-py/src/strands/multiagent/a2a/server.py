@@ -1,6 +1,6 @@
 """A2A-compatible wrapper for Strands Agent.
 
-This module provides the A2AAgent class, which adapts a Strands Agent to the A2A protocol,
+This module provides the A2AServer class, which adapts a Strands Agent to the A2A protocol,
 allowing it to be used in A2A-compatible systems.
 """
 
@@ -18,9 +18,12 @@ from fastapi import FastAPI
 from starlette.applications import Starlette
 
 from ...agent.agent import Agent as SAAgent
-from .executor import StrandsA2AExecutor
+from .executor import AgentFactory, StrandsA2AExecutor
 
 logger = logging.getLogger(__name__)
+
+# Placeholder context id used to build a representative agent for card metadata in factory mode.
+_AGENT_CARD_CONTEXT_ID = "__agent_card__"
 
 
 class A2AServer:
@@ -28,8 +31,10 @@ class A2AServer:
 
     def __init__(
         self,
-        agent: SAAgent,
+        agent: SAAgent | None = None,
         *,
+        agent_factory: AgentFactory | None = None,
+        max_contexts: int = StrandsA2AExecutor.DEFAULT_MAX_CONTEXTS,
         # AgentCard
         host: str = "127.0.0.1",
         port: int = 9000,
@@ -46,8 +51,23 @@ class A2AServer:
     ):
         """Initialize an A2A-compatible server from a Strands agent.
 
+        Provide exactly one of ``agent`` or ``agent_factory``:
+
+        - ``agent_factory`` (recommended): a callable ``(context_id) -> Agent`` that builds a
+          dedicated agent per A2A context. Contexts run concurrently and the factory is the place
+          to wire per-context concerns such as a context-scoped ``session_manager``. The factory
+          is invoked once at construction (with a placeholder context id) solely to derive the
+          agent card metadata (name, description, skills); that agent is not used for request
+          handling. An expensive factory therefore pays its cost once at startup.
+        - ``agent`` (deprecated): a single agent serving one conversation. Not multi-tenant safe —
+          every A2A context reuses the same instance — so use ``agent_factory`` for multi-caller
+          deployments.
+
         Args:
-            agent: The Strands Agent to wrap with A2A compatibility.
+            agent: A single Strands Agent to wrap. Deprecated; prefer ``agent_factory``.
+            agent_factory: Callable ``(context_id) -> Agent`` building a fresh agent per context.
+            max_contexts: Maximum number of per-context agents to retain concurrently (factory
+                mode); the least-recently-used is evicted beyond this. Must be >= 1.
             host: The hostname or IP address to bind the A2A server to. Defaults to "127.0.0.1".
             port: The port to bind the A2A server to. Defaults to 9000.
             http_url: The public HTTP URL where this agent will be accessible. If provided,
@@ -70,7 +90,14 @@ class A2AServer:
             enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
                 artifact updates. If False, uses legacy status updates streaming behavior
                 for backwards compatibility. Defaults to False.
+
+        Raises:
+            ValueError: If neither or both of ``agent``/``agent_factory`` are provided, or if
+                ``max_contexts`` is less than 1.
         """
+        if (agent is None) == (agent_factory is None):
+            raise ValueError("Provide exactly one of 'agent' or 'agent_factory'.")
+
         self.host = host
         self.port = port
         self.version = version
@@ -91,13 +118,18 @@ class A2AServer:
             self.mount_path = ""
             self._http_url_explicit = False
 
-        self.strands_agent = agent
+        # The agent used to derive card metadata (name/description/skills). With a factory, build
+        # a representative agent once; per-request agents are created lazily by the executor.
+        self.strands_agent = agent if agent is not None else agent_factory(_AGENT_CARD_CONTEXT_ID)  # type: ignore[misc]
         self.name = self.strands_agent.name
         self.description = self.strands_agent.description
         self.capabilities = AgentCapabilities(streaming=True)
         self.request_handler = DefaultRequestHandler(
             agent_executor=StrandsA2AExecutor(
-                self.strands_agent, enable_a2a_compliant_streaming=enable_a2a_compliant_streaming
+                agent,
+                agent_factory=agent_factory,
+                enable_a2a_compliant_streaming=enable_a2a_compliant_streaming,
+                max_contexts=max_contexts,
             ),
             task_store=task_store or InMemoryTaskStore(),
             queue_manager=queue_manager,
