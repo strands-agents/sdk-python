@@ -22,5 +22,5 @@ entries:
 newContributors:
   - { login: josephgultekin, pr: 109 }
   - { login: Shubhamraut01, pr: 108 }
-  - { login: fede-dash, pr: 106 }
+  - { login: fede-kamel, pr: 106 }
 ---
