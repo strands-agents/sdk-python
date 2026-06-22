@@ -9,6 +9,9 @@
 #     they arrive as individual, clearly-attributable PRs.
 #   - schedule: poll weekly. The cooldown already delays PRs by days, so daily
 #     polling just adds noise without surfacing updates any sooner.
+#   - versioning-strategy: increase-if-necessary — bump the constraint floor at a
+#     major boundary instead of just widening the upper bound, so CI actually
+#     resolves and tests the new major rather than sitting on the old one.
 version: 2
 updates:
   # Python SDK (strands-py). Dev tooling and minor/patch bumps are batched;
@@ -23,6 +26,7 @@ updates:
       - 'python'
     commit-message:
       prefix: 'ci(python)'
+    versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 5
       semver-major-days: 30
@@ -53,6 +57,7 @@ updates:
       - 'typescript'
     commit-message:
       prefix: 'ci(typescript)'
+    versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 5
       semver-major-days: 30
@@ -84,6 +89,7 @@ updates:
       - 'typescript'
     commit-message:
       prefix: 'ci(docs)'
+    versioning-strategy: increase-if-necessary
     cooldown:
       default-days: 5
       semver-major-days: 30
