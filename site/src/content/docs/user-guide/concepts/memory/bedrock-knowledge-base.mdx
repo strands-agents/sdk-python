@@ -16,6 +16,8 @@ sidebar:
 
 Connect the store to a knowledge base you have already set up. Configure your store with its knowledge base ID and data source (see [Data Source Types and Writability](#data-source-types-and-writability)). A store with only a knowledge base ID is read-only. The store reaches Bedrock with the standard AWS credential chain, the same as the [Amazon Bedrock model provider](../model-providers/amazon-bedrock).
 
+Both managed and vector knowledge bases are supported. The store detects which kind it is connected to and shapes its Retrieve request to match, so the same configuration works for either (see [Required IAM Permissions](#required-iam-permissions) for the permission this detection needs).
+
 <Tabs>
 <Tab label="Python">
 
@@ -265,6 +267,7 @@ To change the cadence, swap the extractor, or extract server-side, see [Automati
 The credentials the store uses must allow the Bedrock operations it calls, plus S3 writes when using an S3 data source:
 
 - `bedrock:Retrieve` - for search.
+- `bedrock:GetKnowledgeBase` - read once on the first search, then memoized.
 - `bedrock:IngestKnowledgeBaseDocuments` - for writes (`CUSTOM` and `S3`).
 - `s3:PutObject` - for writes to an `S3` data source, on the configured bucket and prefix.
 
@@ -278,6 +281,7 @@ Here is a sample IAM policy for a writable store backed by a `CUSTOM` data sourc
             "Effect": "Allow",
             "Action": [
                 "bedrock:Retrieve",
+                "bedrock:GetKnowledgeBase",
                 "bedrock:IngestKnowledgeBaseDocuments"
             ],
             "Resource": "arn:aws:bedrock:*:*:knowledge-base/KB123"
