@@ -1,6 +1,6 @@
 """Exception-related type definitions for the SDK."""
 
-from typing import Any, Optional
+from typing import Any
 
 from strands.types.content import Message
 
@@ -31,14 +31,14 @@ class MaxTokensReachedException(Exception):
     the model naturally reaches its configured output limit during generation.
     """
 
-    def __init__(self, message: str, recovered_message: Optional[Message] = None):
+    def __init__(self, message: str, recovered_message: Message | None = None):
         """Initialize the exception with an error message and optional recovered partial message.
 
         Args:
             message: The error message describing the token limit issue
-            recovered_message: Optional partial message object that was recovered before the limit was reached
+            recovered_message: Optional partial message recovered after the token limit, with tool-use blocks replaced
         """
-        self.recovered_message: Optional[Message] = recovered_message
+        self.recovered_message: Message | None = recovered_message
         super().__init__(message)
 
 

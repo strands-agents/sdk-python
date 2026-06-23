@@ -304,13 +304,6 @@ async def event_loop_cycle(
 
         try:
             if stop_reason == "max_tokens":
-                """
-                Handle max_tokens limit reached by the model.
-
-                The message has already been recovered in _handle_model_execution and automatically added
-                to agent.messages. Notify the caller that the limit was reached. The agent remains recoverable
-                — the partial message is already in the conversation history.
-                """
                 raise MaxTokensReachedException(
                     message=(
                         "Model stopped generating due to maximum token limit. "
@@ -319,7 +312,7 @@ async def event_loop_cycle(
                         "For more information see: "
                         "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
                     ),
-                    recovered_message=agent.messages[-1],
+                    recovered_message=copy.deepcopy(agent.messages[-1]),
                 )
 
             if stop_reason == "tool_use":
