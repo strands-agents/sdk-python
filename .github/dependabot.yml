@@ -4,9 +4,10 @@
 #   - cooldown: hold new updates for a few days before opening a PR so we don't
 #     churn on same-day releases. Majors get a long (30-day) window so a human
 #     can vet breaking changes before the PR lands.
-#   - groups: batch low-risk updates (dev tooling, minor/patch bumps) into a
-#     single PR. Major production updates are intentionally left ungrouped so
-#     they arrive as individual, clearly-attributable PRs.
+#   - groups: batch low-risk updates into grouped PRs — dev tooling in one,
+#     production minor/patch bumps in another. Major production updates are
+#     intentionally left ungrouped so they arrive as individual,
+#     clearly-attributable PRs.
 #   - schedule: poll weekly. The cooldown already delays PRs by days, so daily
 #     polling just adds noise without surfacing updates any sooner.
 #   - versioning-strategy: increase-if-necessary — bump the constraint floor at a
