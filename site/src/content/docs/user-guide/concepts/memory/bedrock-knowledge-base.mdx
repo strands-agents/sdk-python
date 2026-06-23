@@ -90,6 +90,7 @@ The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and b
 | `config` | The knowledge base connection (see below). Reuse one across stores that differ only by `scope`. |
 | `scope` | Logical namespace isolating documents. Applied as a metadata filter on search and stamped on writes. |
 | `filter` | Explicit retrieval filter; overrides the auto-generated scope filter on search. |
+| <Syntax py="access_control_list" ts="accessControlList" /> | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
 
 ### Connection config
 
@@ -179,6 +180,45 @@ store = BedrockKnowledgeBaseStore(
 An S3 document can't carry metadata inline, so when a scope or metadata are present a single write produces two objects: the content as a `.txt` object, and a `<object-key>.metadata.json` sidecar beside it (Bedrock's convention for attaching attributes to an S3 object). The uploads are not transactional, so if a later step fails, any already-uploaded objects remain in the bucket un-ingested, where a future sync may pick them up or you can clean them up out of band.
 
 A write ingests its object directly, regardless of where the data source is configured to scan. A later data-source sync reconciles the index to the scanned location, so a memory written outside that location is treated as deleted and removed. If you run periodic syncs against this data source, upload to the bucket and prefix it scans (the `s3` config) so directly-ingested memories survive them.
+
+### Access control lists
+
+Managed knowledge base data sources can have ACL awareness enabled, which requires every ingested document to carry an access control list specifying who can retrieve it. Set <Syntax py="access_control_list" ts="accessControlList" /> on the store to supply entries for every write:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
+
+store = BedrockKnowledgeBaseStore(
+    name="policies",
+    writable=True,
+    scope="hr",
+    access_control_list=[
+        {"access": "ALLOW", "name": "alice@example.com", "type": "USER"},
+    ],
+    config={
+        "knowledge_base_id": "KB123",
+        "data_source_type": "CUSTOM",
+        "data_source_id": "DS456",
+    },
+)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/memory/bedrock-knowledge-base_imports.ts:acl_store_imports"
+
+--8<-- "user-guide/concepts/memory/bedrock-knowledge-base.ts:acl_store"
+```
+</Tab>
+</Tabs>
+
+Each entry specifies `access` (`'ALLOW'` or `'DENY'`), `name` (the user's email), and `type` (`'USER'`). Deny overrides allow. The entries apply to both `CUSTOM` and `S3` writes. For the `CUSTOM` path, an inline ACL requires at least one metadata attribute (a `scope` satisfies this); if none is present the store raises with guidance.
+
+If the data source has ACL awareness enabled and no <Syntax py="access_control_list" ts="accessControlList" /> is set, the store surfaces a clear error pointing at the field.
 
 ## Search and Ingestion
 
