@@ -5,5 +5,6 @@ This module implements experimental features that are subject to change in futur
 
 from . import checkpoint, steering, tools
 from .agent_config import config_to_agent
+from .mcp_config import load_mcp_clients_from_config
 
-__all__ = ["checkpoint", "config_to_agent", "tools", "steering"]
+__all__ = ["checkpoint", "config_to_agent", "load_mcp_clients_from_config", "tools", "steering"]
