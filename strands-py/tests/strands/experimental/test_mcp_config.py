@@ -394,3 +394,8 @@ class TestLoadMcpClientsFromConfig:
         config = {"mcpServers": {"bad_server": {"transport": "invalid"}}}
         with pytest.raises(ValueError, match="bad_server"):
             load_mcp_clients_from_config(config)
+
+    def test_non_dict_server_config_raises_clear_error(self):
+        config = {"mcpServers": {"bad": "not-a-dict"}}
+        with pytest.raises(ValueError, match="server 'bad' configuration must be a dictionary"):
+            load_mcp_clients_from_config(config)

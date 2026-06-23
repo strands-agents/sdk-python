@@ -328,8 +328,8 @@ def load_mcp_clients_from_config(config: str | dict[str, Any]) -> list[MCPClient
     Raises:
         FileNotFoundError: If the config file does not exist.
         json.JSONDecodeError: If the config file contains invalid JSON.
-        ValueError: If the config format is invalid, a server config is invalid, or a
-            referenced environment variable is not set.
+        ValueError: If the config format is invalid, a server config is not a dictionary or is
+            invalid, or a referenced environment variable is not set.
 
     Examples:
         Load from a dictionary:
@@ -361,6 +361,8 @@ def load_mcp_clients_from_config(config: str | dict[str, Any]) -> list[MCPClient
     servers = config_dict["mcpServers"]
     clients: list[MCPClient] = []
     for server_name, server_config in servers.items():
+        if not isinstance(server_config, dict):
+            raise ValueError(f"server '{server_name}' configuration must be a dictionary")
         if server_config.get("disabled", False):
             logger.debug("server_name=<%s> | skipping disabled MCP server", server_name)
             continue
