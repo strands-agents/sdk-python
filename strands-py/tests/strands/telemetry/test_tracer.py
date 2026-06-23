@@ -2019,6 +2019,12 @@ def test_start_memory_extract_span_links_agent_span(mock_tracer):
         assert len(links) == 1
         assert links[0].context is agent_context
 
+        # The detached root has no OTel parent, so the scheduling run's ids are also recorded as
+        # plain attributes for backends that don't render span links.
+        attributes = mock_tracer.start_span.return_value.set_attributes.call_args[0][0]
+        assert attributes["memory.parent.trace_id"] == "00000000000000000000000000000001"
+        assert attributes["memory.parent.span_id"] == "0000000000000002"
+
 
 def test_end_memory_extract_span_with_error(mock_span):
     """Test ending an extract span with an error records it (failures are swallowed by the coordinator)."""

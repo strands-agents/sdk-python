@@ -631,7 +631,7 @@ export class Tracer {
       if (options.maxSearchResults !== undefined) attributes['memory.max_search_results'] = options.maxSearchResults
 
       const span = this._startSpan({ name: 'memory.search', attributes, spanKind: SpanKind.INTERNAL })
-      this._addEvent(span, 'memory.query', { content: options.query })
+      this._addEvent(span, 'memory.query', { content: options.query }, this._isLangfuse)
       return span
     } catch (error) {
       logger.warn(`error=<${error}> | failed to start memory search span`)
@@ -657,12 +657,21 @@ export class Tracer {
         'memory.store.failure_count': options.storeFailureCount ?? 0,
       }
       if (!options.error) {
-        this._addEvent(span, 'memory.results', {
-          content: JSON.stringify(
-            entries.map((entry) => ({ content: entry.content, storeName: entry.storeName, metadata: entry.metadata })),
-            jsonReplacer
-          ),
-        })
+        this._addEvent(
+          span,
+          'memory.results',
+          {
+            content: JSON.stringify(
+              entries.map((entry) => ({
+                content: entry.content,
+                storeName: entry.storeName,
+                metadata: entry.metadata,
+              })),
+              jsonReplacer
+            ),
+          },
+          this._isLangfuse
+        )
       }
       this._endSpan(span, attributes, options.error)
     } catch (err) {
@@ -691,7 +700,7 @@ export class Tracer {
         spanKind: SpanKind.INTERNAL,
         ...(options.forceRoot && { forceRoot: true }),
       })
-      this._addEvent(span, 'memory.content', { content: options.content })
+      this._addEvent(span, 'memory.content', { content: options.content }, this._isLangfuse)
       return span
     } catch (error) {
       logger.warn(`error=<${error}> | failed to start memory add span`)
@@ -774,10 +783,17 @@ export class Tracer {
       attributes['memory.message.filtered_count'] = options.filteredCount ?? 0
       if (options.extractor !== undefined) attributes['memory.extractor'] = options.extractor
 
-      const links: Link[] | undefined =
-        options.agentSpanContext && isSpanContextValid(options.agentSpanContext)
-          ? [{ context: options.agentSpanContext }]
-          : undefined
+      // The extract span is a detached root, so its OTel parent is empty. Record the scheduling
+      // agent run's ids as plain attributes (in addition to the link below) so backends that don't
+      // render span links can still trace the extraction back to the run that triggered it.
+      const validAgentSpanContext =
+        options.agentSpanContext && isSpanContextValid(options.agentSpanContext) ? options.agentSpanContext : undefined
+      if (validAgentSpanContext) {
+        attributes['memory.parent.trace_id'] = validAgentSpanContext.traceId
+        attributes['memory.parent.span_id'] = validAgentSpanContext.spanId
+      }
+
+      const links: Link[] | undefined = validAgentSpanContext ? [{ context: validAgentSpanContext }] : undefined
 
       return this._startSpan({
         name: 'memory.extract',
@@ -970,7 +986,12 @@ export class Tracer {
   /**
    * Add an event to a span.
    */
-  private _addEvent(span: Span, eventName: string, eventAttributes?: Record<string, AttributeValue>): void {
+  private _addEvent(
+    span: Span,
+    eventName: string,
+    eventAttributes?: Record<string, AttributeValue>,
+    toSpanAttributes = false
+  ): void {
     try {
       if (!eventAttributes) {
         span.addEvent(eventName)
@@ -979,6 +1000,11 @@ export class Tracer {
       const otelAttributes: Record<string, AttributeValue | undefined> = {}
       for (const [key, value] of Object.entries(eventAttributes)) {
         if (value !== undefined && value !== null) otelAttributes[key] = value
+      }
+      // Some backends (e.g. Langfuse) don't surface span events, so optionally promote the
+      // attributes onto the span where they remain visible.
+      if (toSpanAttributes) {
+        span.setAttributes(otelAttributes)
       }
       span.addEvent(eventName, otelAttributes)
     } catch (err) {

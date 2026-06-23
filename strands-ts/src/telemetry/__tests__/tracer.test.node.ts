@@ -1114,19 +1114,30 @@ describe('Tracer', () => {
 
       tracer.startMemoryExtractSpan({ storeName: 'personal', messageCount: 1, agentSpanContext })
 
-      const options = mockStartSpan.mock.calls[0]![1] as { links?: { context: unknown }[] }
+      const options = mockStartSpan.mock.calls[0]![1] as {
+        links?: { context: unknown }[]
+        attributes: Record<string, unknown>
+      }
       expect(options.links).toHaveLength(1)
       expect(options.links![0]!.context).toBe(agentSpanContext)
+      // The detached root has no OTel parent, so the scheduling run's ids are also recorded as
+      // plain attributes for backends that don't render span links.
+      expect(options.attributes).toMatchObject({
+        'memory.parent.trace_id': 'abcdef01234567890abcdef012345678',
+        'memory.parent.span_id': 'abcdef0123456789',
+      })
     })
 
-    it('startMemoryExtractSpan skips the link for an invalid agent span context', () => {
+    it('startMemoryExtractSpan skips the link and parent ids for an invalid agent span context', () => {
       const tracer = new Tracer()
       const invalid = { traceId: '00000000000000000000000000000000', spanId: '0000000000000000', traceFlags: 0 }
 
       tracer.startMemoryExtractSpan({ storeName: 'personal', messageCount: 1, agentSpanContext: invalid })
 
-      const options = mockStartSpan.mock.calls[0]![1] as { links?: unknown }
+      const options = mockStartSpan.mock.calls[0]![1] as { links?: unknown; attributes: Record<string, unknown> }
       expect(options.links).toBeUndefined()
+      expect(options.attributes).not.toHaveProperty('memory.parent.trace_id')
+      expect(options.attributes).not.toHaveProperty('memory.parent.span_id')
     })
 
     it('endMemoryExtractSpan records the entry count on success', () => {

@@ -882,7 +882,7 @@ class Tracer:
         )
 
         span = self._start_span("memory.search", parent_span, attributes=attributes)
-        self._add_event(span, "memory.query", {"content": query})
+        self._add_event(span, "memory.query", {"content": query}, to_span_attributes=self.is_langfuse)
 
         return span
 
@@ -926,6 +926,7 @@ class Tracer:
                         ]
                     )
                 },
+                to_span_attributes=self.is_langfuse,
             )
 
         self._end_span(span, attributes, error)
@@ -965,7 +966,7 @@ class Tracer:
         )
 
         span = self._start_span("memory.add", parent_span, attributes=attributes, force_root=force_root)
-        self._add_event(span, "memory.content", {"content": content})
+        self._add_event(span, "memory.content", {"content": content}, to_span_attributes=self.is_langfuse)
 
         return span
 
@@ -1081,11 +1082,17 @@ class Tracer:
         }
         if extractor is not None:
             memory_attributes["memory.extractor"] = extractor
-        attributes = self._build_memory_span_attributes("memory.extract", memory_attributes, extra_kwargs=kwargs)
 
+        # The extract span is a detached root, so its OTel parent is empty. Record the scheduling
+        # agent run's ids as plain attributes (in addition to the link below) so backends that don't
+        # render span links can still trace the extraction back to the run that triggered it.
         links = None
         if agent_span_context is not None and agent_span_context.is_valid:
+            memory_attributes["memory.parent.trace_id"] = trace_api.format_trace_id(agent_span_context.trace_id)
+            memory_attributes["memory.parent.span_id"] = trace_api.format_span_id(agent_span_context.span_id)
             links = [Link(agent_span_context)]
+
+        attributes = self._build_memory_span_attributes("memory.extract", memory_attributes, extra_kwargs=kwargs)
 
         return self._start_span("memory.extract", attributes=attributes, force_root=True, links=links)
 
