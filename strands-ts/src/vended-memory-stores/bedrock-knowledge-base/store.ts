@@ -7,6 +7,7 @@ import {
 import {
   BedrockAgentClient,
   GetKnowledgeBaseCommand,
+  type DocumentAccessControlEntry,
   type KnowledgeBaseDocument,
   type MetadataAttributeValue,
   IngestKnowledgeBaseDocumentsCommand,
@@ -137,6 +138,29 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   scope?: string
   /** Explicit retrieval filter; overrides the auto-generated scope filter when provided. */
   filter?: RetrievalFilter
+  /**
+   * Document-level access control entries stamped on every write, required by data sources with ACL
+   * awareness enabled (a write to such a data source fails without it). Applies to writes only; ACL
+   * filtering at search time is supplied separately as retrieval `userContext`.
+   */
+  accessControlList?: BedrockKnowledgeBaseAccessControlEntry[]
+}
+
+/**
+ * One document-level access control entry stamped on writes for ACL-aware data sources.
+ *
+ * The fields mirror Bedrock's `IngestKnowledgeBaseDocuments` access control entry. They are
+ * serialized to whatever the target data source requires — as-is for `CUSTOM` (inline), and to the
+ * capitalized `.metadata.json` sidecar keys for `S3` — so callers write one shape regardless of data
+ * source.
+ */
+export interface BedrockKnowledgeBaseAccessControlEntry {
+  /** `'ALLOW'` or `'DENY'`. Deny overrides allow. */
+  access: 'ALLOW' | 'DENY'
+  /** The principal identifier. Bedrock matches users by email. */
+  name: string
+  /** The principal type. `'USER'` is the only value Bedrock accepts today; validated server-side. */
+  type: string
 }
 
 /** Result returned by {@link BedrockKnowledgeBaseStore.add}. */
@@ -207,9 +231,12 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    * Note the asymmetry: an explicit filter affects search only; writes always scope by {@link scope}.
    */
   public readonly filter: RetrievalFilter | undefined
+  /** Document-level access control entries stamped on every write, for ACL-aware data sources. */
+  public readonly accessControlList: BedrockKnowledgeBaseAccessControlEntry[] | undefined
 
   constructor(options: BedrockKnowledgeBaseStoreConfig) {
-    const { config, scope, name, description, writable, maxSearchResults, filter, extraction } = options
+    const { config, scope, name, description, writable, maxSearchResults, filter, extraction, accessControlList } =
+      options
 
     this.name = name
     if (description !== undefined) this.description = description
@@ -235,6 +262,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     this.scope = scope
     this.scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
     this.filter = filter
+    this.accessControlList = accessControlList
   }
 
   /**
@@ -394,10 +422,24 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
         `store=<${this.name}>, knowledgeBaseId=<${this._knowledgeBaseId}>, dataSourceId=<${dataSourceId}>, dataSourceType=<${dataSourceType}>, error=<${error}> | knowledge base document ingestion failed`,
         error
       )
+      if (this._isMissingAclError(error)) {
+        throw new Error(
+          'BedrockKnowledgeBaseStore: ingestion was rejected because the data source has ACL awareness ' +
+            'enabled but this store has no accessControlList configured. Set accessControlList in the store ' +
+            'config to write to an ACL-enabled data source.'
+        )
+      }
       throw error
     }
 
     return { documentId }
+  }
+
+  private _isMissingAclError(error: unknown): boolean {
+    if (this.accessControlList != null) return false
+    if (!(error instanceof Error)) return false
+    if (error.name !== 'ValidationException') return false
+    return error.message.toLowerCase().includes('accesscontrollist')
   }
 
   /**
@@ -427,12 +469,17 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     const contentUri = await this._putObject(s3, key, content, 'text/plain; charset=utf-8')
 
     const attributes = this._buildS3SidecarAttributes(metadata)
-    if (Object.keys(attributes).length === 0) {
+    const sidecarAcl = this._buildS3SidecarAcl()
+    // A sidecar is written only when there is something to put in it: scope/metadata attributes,
+    // an ACL, or both.
+    if (Object.keys(attributes).length === 0 && sidecarAcl.length === 0) {
       return { contentUri }
     }
 
     // The sidecar must sit beside the source object and be named `<object-key>.metadata.json`.
-    const sidecar = JSON.stringify({ metadataAttributes: attributes })
+    const sidecarBody: Record<string, unknown> = { metadataAttributes: attributes }
+    if (sidecarAcl.length > 0) sidecarBody.accessControlList = sidecarAcl
+    const sidecar = JSON.stringify(sidecarBody)
     const sidecarUri = await this._putObject(s3, `${key}.metadata.json`, sidecar, 'application/json')
     return { contentUri, sidecarUri }
   }
@@ -536,6 +583,15 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   ): KnowledgeBaseDocument {
     const attrs = this._resolveAttributes(metadata)
 
+    // An inline ACL rides on IN_LINE_ATTRIBUTE metadata, which Bedrock requires to carry at least
+    // one attribute; an ACL with no scope/metadata has no valid inline shape.
+    if (this.accessControlList && attrs.length === 0) {
+      throw new Error(
+        'BedrockKnowledgeBaseStore: an inline accessControlList requires at least one metadata ' +
+          'attribute, but this CUSTOM write has none. Set a scope or pass metadata to add().'
+      )
+    }
+
     const document: KnowledgeBaseDocument = {
       content: {
         dataSourceType: 'CUSTOM',
@@ -554,6 +610,9 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       document.metadata = {
         type: 'IN_LINE_ATTRIBUTE',
         inlineAttributes: attrs.map(({ key, value }) => ({ key, value })),
+        ...(this.accessControlList && {
+          accessControlList: this.accessControlList as DocumentAccessControlEntry[],
+        }),
       }
     }
 
@@ -572,6 +631,16 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       attributes[key] = { value, includeForEmbedding: false }
     }
     return attributes
+  }
+
+  /**
+   * Builds the `accessControlList` array for an S3 `.metadata.json` sidecar. The sidecar uses
+   * capitalized field names (`Name`/`Type`/`Access`), unlike the lowercase keys the `CUSTOM` inline
+   * document takes, so entries are translated here.
+   */
+  private _buildS3SidecarAcl(): Array<{ Name: string; Type: string; Access: string }> {
+    if (!this.accessControlList) return []
+    return this.accessControlList.map((entry) => ({ Name: entry.name, Type: entry.type, Access: entry.access }))
   }
 
   private _validateWriteConfig(): { dataSourceId: string; dataSourceType: 'CUSTOM' | 'S3' } {

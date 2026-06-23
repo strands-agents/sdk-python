@@ -569,6 +569,49 @@ describe('BedrockKnowledgeBaseStore', () => {
       await store.add('fact')
       expect(vi.mocked(BedrockAgentClient)).toHaveBeenCalledWith({})
     })
+
+    it('attaches accessControlList verbatim in inline metadata', async () => {
+      const acl = [{ access: 'ALLOW' as const, name: 'alice@example.com', type: 'USER' }]
+      const { store, agent } = makeCustomStore({ accessControlList: acl })
+      await store.add('fact', { team: 'hr' })
+      const doc = agent.send.mock.calls.find((c: any[]) => c[0]?.input?.documents)?.[0].input.documents[0]
+      expect(doc.metadata.type).toBe('IN_LINE_ATTRIBUTE')
+      expect(doc.metadata.accessControlList).toStrictEqual(acl)
+    })
+
+    it('raises when ACL is set but no inline attributes are present', async () => {
+      const acl = [{ access: 'DENY' as const, name: 'bob@example.com', type: 'USER' }]
+      const { store } = makeCustomStore({ accessControlList: acl })
+      await expect(store.add('fact')).rejects.toThrow('at least one metadata attribute')
+    })
+
+    it('carries both inline attributes and ACL when scope provides an attribute', async () => {
+      const acl = [{ access: 'ALLOW' as const, name: 'alice@example.com', type: 'USER' }]
+      const { store, agent } = makeCustomStore({ scope: 'user-123', accessControlList: acl })
+      await store.add('fact')
+      const doc = agent.send.mock.calls.find((c: any[]) => c[0]?.input?.documents)?.[0].input.documents[0]
+      expect(doc.metadata.accessControlList).toStrictEqual(acl)
+      expect(doc.metadata.inlineAttributes).toStrictEqual([
+        { key: 'namespace', value: { type: 'STRING', stringValue: 'user-123' } },
+      ])
+    })
+
+    it('rewrites a missing-ACL ValidationException to point at the param', async () => {
+      const { store, agent } = makeCustomStore()
+      const err = Object.assign(new Error('accessControlList is required when ACL is enabled'), {
+        name: 'ValidationException',
+      })
+      agent.send.mockRejectedValueOnce(err)
+      await expect(store.add('fact')).rejects.toThrow('accessControlList configured')
+    })
+
+    it('does not rewrite when ACL is already configured', async () => {
+      const acl = [{ access: 'ALLOW' as const, name: 'alice@example.com', type: 'USER' }]
+      const { store, agent } = makeCustomStore({ scope: 'u', accessControlList: acl })
+      const err = Object.assign(new Error('accessControlList is invalid'), { name: 'ValidationException' })
+      agent.send.mockRejectedValueOnce(err)
+      await expect(store.add('fact')).rejects.toThrow('accessControlList is invalid')
+    })
   })
 
   describe('add — S3 data source', () => {
@@ -718,6 +761,42 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(errorSpy).toHaveBeenCalled()
       expect(agent.send).not.toHaveBeenCalled()
       errorSpy.mockRestore()
+    })
+
+    it('writes ACL into the sidecar with capitalized keys', async () => {
+      const acl = [{ access: 'ALLOW' as const, name: 'alice@example.com', type: 'USER' }]
+      const { store, s3 } = makeS3Store({ accessControlList: acl })
+      await store.add('content')
+
+      // The sidecar is the second send; parse it for the ACL.
+      const sidecarCall = s3.send.mock.calls[1]?.[0].input
+      const sidecarBody = JSON.parse(sidecarCall.Body)
+      expect(sidecarBody.accessControlList).toStrictEqual([
+        { Name: 'alice@example.com', Type: 'USER', Access: 'ALLOW' },
+      ])
+    })
+
+    it('writes a sidecar for ACL-only when no scope or metadata', async () => {
+      const acl = [{ access: 'DENY' as const, name: 'bob@example.com', type: 'USER' }]
+      const { store, s3 } = makeS3Store({ accessControlList: acl })
+      await store.add('content')
+
+      expect(s3.send).toHaveBeenCalledTimes(2)
+      const sidecarBody = JSON.parse(s3.send.mock.calls[1]?.[0].input.Body)
+      expect(sidecarBody.metadataAttributes).toStrictEqual({})
+      expect(sidecarBody.accessControlList).toStrictEqual([{ Name: 'bob@example.com', Type: 'USER', Access: 'DENY' }])
+    })
+
+    it('sidecar carries both scope attributes and ACL', async () => {
+      const acl = [{ access: 'ALLOW' as const, name: 'alice@example.com', type: 'USER' }]
+      const { store, s3 } = makeS3Store({ scope: 'team-a', accessControlList: acl })
+      await store.add('content')
+
+      const sidecarBody = JSON.parse(s3.send.mock.calls[1]?.[0].input.Body)
+      expect(sidecarBody.metadataAttributes.namespace.value.stringValue).toBe('team-a')
+      expect(sidecarBody.accessControlList).toStrictEqual([
+        { Name: 'alice@example.com', Type: 'USER', Access: 'ALLOW' },
+      ])
     })
   })
 

@@ -21,6 +21,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from botocore.exceptions import ClientError
 
 import strands._logging as logging_module
 import strands.vended_memory_stores.bedrock_knowledge_base.store as store_module
@@ -159,6 +160,14 @@ def _last_inline_attributes(agent: MagicMock) -> list[Any]:
 def _managed_kb(agent: MagicMock) -> None:
     """Program ``get_knowledge_base`` to report a managed knowledge base."""
     agent.get_knowledge_base.return_value = {"knowledgeBase": {"knowledgeBaseConfiguration": {"type": "MANAGED"}}}
+
+
+def _validation_error(message: str) -> ClientError:
+    """Build a botocore ``ValidationException`` carrying ``message``, as Bedrock would raise."""
+    return ClientError(
+        {"Error": {"Code": "ValidationException", "Message": message}},
+        "IngestKnowledgeBaseDocuments",
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -554,6 +563,67 @@ class TestAddCustom:
             service_names = [call.args[0] for call in client_fn.call_args_list]
             assert "bedrock-agent" in service_names
 
+    @pytest.mark.asyncio
+    async def test_attaches_access_control_list_verbatim_in_inline_metadata(self, make_custom_store):
+        acl = [{"access": "ALLOW", "name": "alice@example.com", "type": "USER"}]
+        store, agent = make_custom_store({"access_control_list": acl})
+        # An inline ACL needs at least one attribute, so supply caller metadata.
+        await store.add("fact", {"team": "hr"})
+        metadata = agent.ingest_knowledge_base_documents.call_args.kwargs["documents"][0]["metadata"]
+        assert metadata["type"] == "IN_LINE_ATTRIBUTE"
+        assert metadata["accessControlList"] == acl
+
+    @pytest.mark.asyncio
+    async def test_raises_when_acl_set_but_no_inline_attributes(self, make_custom_store):
+        # An inline ACL rides on IN_LINE_ATTRIBUTE metadata, which Bedrock requires to carry at least
+        # one attribute; an ACL with no scope/metadata has no valid inline shape, so reject it early.
+        acl = [{"access": "DENY", "name": "bob@example.com", "type": "USER"}]
+        store, agent = make_custom_store({"access_control_list": acl})
+        with pytest.raises(ValueError, match="at least one metadata attribute"):
+            await store.add("fact")
+        agent.ingest_knowledge_base_documents.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_carries_both_inline_attributes_and_acl(self, make_custom_store):
+        acl = [{"access": "ALLOW", "name": "alice@example.com", "type": "USER"}]
+        store, agent = make_custom_store({"scope": "user-123", "access_control_list": acl})
+        await store.add("fact")
+        metadata = agent.ingest_knowledge_base_documents.call_args.kwargs["documents"][0]["metadata"]
+        assert metadata["accessControlList"] == acl
+        assert metadata["inlineAttributes"] == [
+            {"key": "namespace", "value": {"type": "STRING", "stringValue": "user-123"}}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_rewrites_missing_acl_error_to_point_at_the_param(self, make_custom_store):
+        store, agent = make_custom_store()
+        agent.ingest_knowledge_base_documents.side_effect = _validation_error(
+            "accessControlList is required when ACL is enabled on the data source"
+        )
+        with pytest.raises(ValueError, match="access_control_list"):
+            await store.add("fact")
+
+    @pytest.mark.asyncio
+    async def test_does_not_rewrite_acl_error_when_acl_is_already_configured(self, make_custom_store):
+        acl = [{"access": "ALLOW", "name": "alice@example.com", "type": "USER"}]
+        store, agent = make_custom_store({"access_control_list": acl})
+        original = _validation_error("accessControlList is invalid")
+        agent.ingest_knowledge_base_documents.side_effect = original
+        # The store already has an ACL, so the missing-ACL hint would mislead: re-raise as-is. Pass
+        # metadata so the inline ACL has the attribute it requires and the write reaches ingestion.
+        with pytest.raises(ClientError) as excinfo:
+            await store.add("fact", {"team": "hr"})
+        assert excinfo.value is original
+
+    @pytest.mark.asyncio
+    async def test_does_not_rewrite_unrelated_validation_errors(self, make_custom_store):
+        store, agent = make_custom_store()
+        original = _validation_error("document content exceeds the maximum size")
+        agent.ingest_knowledge_base_documents.side_effect = original
+        with pytest.raises(ClientError) as excinfo:
+            await store.add("fact")
+        assert excinfo.value is original
+
 
 # --------------------------------------------------------------------------- #
 # add -- S3 data source
@@ -693,6 +763,41 @@ class TestAddS3:
                 await store.add("content")
         assert "S3 upload failed before ingestion" in caplog.text
         agent.ingest_knowledge_base_documents.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_writes_acl_into_the_sidecar_with_capitalized_keys(self, make_s3_store):
+        acl = [{"access": "ALLOW", "name": "alice@example.com", "type": "USER"}]
+        store, _agent, s3 = make_s3_store({"access_control_list": acl})
+        await store.add("content")
+
+        # The sidecar is the second put_object; the ACL uses the sidecar's capitalized field names.
+        sidecar_body = json.loads(s3.put_object.call_args_list[1].kwargs["Body"])
+        assert sidecar_body["accessControlList"] == [{"Name": "alice@example.com", "Type": "USER", "Access": "ALLOW"}]
+
+    @pytest.mark.asyncio
+    async def test_writes_a_sidecar_for_acl_only_when_no_scope_or_metadata(self, make_s3_store):
+        acl = [{"access": "DENY", "name": "bob@example.com", "type": "USER"}]
+        store, agent, s3 = make_s3_store({"access_control_list": acl})
+        await store.add("content")
+
+        # An ACL alone forces the sidecar even with no attributes, so two objects are written and the
+        # document points its metadata at the sidecar.
+        assert s3.put_object.call_count == 2
+        sidecar_body = json.loads(s3.put_object.call_args_list[1].kwargs["Body"])
+        assert sidecar_body["metadataAttributes"] == {}
+        assert sidecar_body["accessControlList"] == [{"Name": "bob@example.com", "Type": "USER", "Access": "DENY"}]
+        document = agent.ingest_knowledge_base_documents.call_args.kwargs["documents"][0]
+        assert document["metadata"]["type"] == "S3_LOCATION"
+
+    @pytest.mark.asyncio
+    async def test_sidecar_carries_both_scope_attributes_and_acl(self, make_s3_store):
+        acl = [{"access": "ALLOW", "name": "alice@example.com", "type": "USER"}]
+        store, _agent, s3 = make_s3_store({"scope": "team-a", "access_control_list": acl})
+        await store.add("content")
+
+        sidecar_body = json.loads(s3.put_object.call_args_list[1].kwargs["Body"])
+        assert sidecar_body["metadataAttributes"]["namespace"]["value"]["stringValue"] == "team-a"
+        assert sidecar_body["accessControlList"] == [{"Name": "alice@example.com", "Type": "USER", "Access": "ALLOW"}]
 
 
 # --------------------------------------------------------------------------- #

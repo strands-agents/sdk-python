@@ -14,11 +14,13 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import boto3
+from botocore.exceptions import ClientError
 from typing_extensions import Unpack
 
 from ..._logging import warn_once
 from ...memory.types import MemoryEntry, MemoryStore, Metadata, SearchOptions
 from .types import (
+    BedrockKnowledgeBaseAccessControlEntry,
     BedrockKnowledgeBaseAddResult,
     BedrockKnowledgeBaseS3Config,
     BedrockKnowledgeBaseStoreConfig,
@@ -146,6 +148,9 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self.scope = store_config.get("scope")
         self.scope_metadata_key = kb_config.get("scope_metadata_key") or "namespace"
         self.filter = store_config.get("filter")
+        self.access_control_list: list[BedrockKnowledgeBaseAccessControlEntry] | None = store_config.get(
+            "access_control_list"
+        )
 
     def _resolve_filter(self) -> dict[str, Any] | None:
         """Resolve the effective retrieval filter for a search.
@@ -307,9 +312,29 @@ class BedrockKnowledgeBaseStore(MemoryStore):
                 data_source_type,
                 error,
             )
+            if self._is_missing_acl_error(error):
+                raise ValueError(
+                    "BedrockKnowledgeBaseStore: ingestion was rejected because the data source has ACL awareness "
+                    "enabled but this store has no access_control_list configured. Set access_control_list in the "
+                    "store config to write to an ACL-enabled data source."
+                ) from error
             raise
 
         return BedrockKnowledgeBaseAddResult(document_id=document_id)
+
+    def _is_missing_acl_error(self, error: Exception) -> bool:
+        """Return whether ``error`` is Bedrock rejecting a write for a missing access control list.
+
+        True only when this store has no :attr:`access_control_list` configured and the failure is a
+        ``ValidationException`` whose message names the access control list, so the caller can be
+        pointed at the field rather than left with the raw Bedrock error.
+        """
+        if self.access_control_list is not None or not isinstance(error, ClientError):
+            return False
+        bedrock_error = error.response.get("Error", {})
+        if bedrock_error.get("Code") != "ValidationException":
+            return False
+        return "accesscontrollist" in bedrock_error.get("Message", "").lower()
 
     def _upload_s3_objects(self, content: str, metadata: Metadata | None) -> tuple[str, str | None]:
         """Upload the objects that back one S3 ingestion and return their ``s3://`` URIs.
@@ -330,12 +355,18 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         content_uri = self._put_object(s3, key, content, "text/plain; charset=utf-8")
 
         attributes = self._build_s3_sidecar_attributes(metadata)
-        if not attributes:
+        access_control_list = self._build_s3_sidecar_acl()
+        # A sidecar is written only when there is something to put in it: scope/metadata attributes,
+        # an ACL, or both.
+        if not attributes and not access_control_list:
             return content_uri, None
 
         # The sidecar must sit beside the source object and be named ``<object-key>.metadata.json``.
         # ``separators=(",", ":")`` emits compact, no-whitespace JSON for the sidecar body.
-        sidecar = json.dumps({"metadataAttributes": attributes}, separators=(",", ":"))
+        sidecar_body: dict[str, Any] = {"metadataAttributes": attributes}
+        if access_control_list:
+            sidecar_body["accessControlList"] = access_control_list
+        sidecar = json.dumps(sidecar_body, separators=(",", ":"))
         sidecar_uri = self._put_object(s3, f"{key}.metadata.json", sidecar, "application/json")
         return content_uri, sidecar_uri
 
@@ -418,6 +449,16 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         """
         attrs = self._resolve_attributes(metadata)
 
+        # An inline ACL travels under the ``IN_LINE_ATTRIBUTE`` metadata, which Bedrock requires to
+        # carry at least one inline attribute, so an ACL with no scope or caller metadata has no valid
+        # inline representation. Point the caller at the fix rather than letting a cryptic ingest-time
+        # validation error surface. (S3 sidecars have no such requirement; this applies to CUSTOM only.)
+        if self.access_control_list and not attrs:
+            raise ValueError(
+                "BedrockKnowledgeBaseStore: an inline access_control_list requires at least one metadata "
+                "attribute, but this CUSTOM write has none. Set a scope or pass metadata to add()."
+            )
+
         document: dict[str, Any] = {
             "content": {
                 "dataSourceType": "CUSTOM",
@@ -432,11 +473,17 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             },
         }
 
+        # The metadata block uses one ``type`` for both inline attributes and the ACL. ``attrs`` is
+        # guaranteed non-empty whenever an ACL is present (the guard above), so ``inlineAttributes``
+        # is never emitted empty. ``access_control_list`` entries pass straight through to Bedrock.
         if attrs:
-            document["metadata"] = {
+            document_metadata: dict[str, Any] = {
                 "type": "IN_LINE_ATTRIBUTE",
                 "inlineAttributes": [{"key": key, "value": value} for key, value in attrs],
             }
+            if self.access_control_list:
+                document_metadata["accessControlList"] = self.access_control_list
+            document["metadata"] = document_metadata
 
         return document
 
@@ -445,14 +492,28 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
         ``includeForEmbedding`` is ``False`` so the attribute is stored for filtering only and does
         not influence the embedding (matching how inline attributes behave for ``CUSTOM`` documents).
-        Returns an empty map when there's nothing to attach; :meth:`_upload_s3_objects` treats that as
-        "no sidecar" and skips writing the second object.
+        Returns an empty map when there's nothing to attach; :meth:`_upload_s3_objects` skips writing
+        the sidecar only when there is also no ACL to record.
         """
         attrs = self._resolve_attributes(metadata)
         attributes: dict[str, dict[str, Any]] = {}
         for key, value in attrs:
             attributes[key] = {"value": value, "includeForEmbedding": False}
         return attributes
+
+    def _build_s3_sidecar_acl(self) -> list[dict[str, Any]]:
+        """Build the ``accessControlList`` array for an S3 ``.metadata.json`` sidecar.
+
+        The S3 sidecar names ACL fields ``Name``/``Type``/``Access`` (capitalized), unlike the
+        lowercase keys the ``CUSTOM`` inline document takes, so :attr:`access_control_list` entries are
+        translated here. Returns an empty list when no ACL is configured.
+        """
+        if not self.access_control_list:
+            return []
+        return [
+            {"Name": entry["name"], "Type": entry["type"], "Access": entry["access"]}
+            for entry in self.access_control_list
+        ]
 
     def _validate_write_config(self) -> tuple[str, str]:
         """Validate the write configuration and return ``(data_source_id, data_source_type)``.
