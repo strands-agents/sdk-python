@@ -3,7 +3,7 @@
 Supports semantic search via ``Retrieve`` and document ingestion via
 ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with both managed and
 self-managed (vector) knowledge bases; the kind is detected automatically and the query is shaped to
-match (see :meth:`BedrockKnowledgeBaseStore._resolve_kb_kind`).
+match (see :meth:`BedrockKnowledgeBaseStore._resolve_kb_type`).
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ DEFAULT_MAX_SEARCH_RESULTS = 10
 
 # How a knowledge base is queried: a managed knowledge base takes ``managedSearchConfiguration``; a
 # self-managed (vector) one takes ``vectorSearchConfiguration``. Detected from ``GetKnowledgeBase``
-# (see :meth:`BedrockKnowledgeBaseStore._resolve_kb_kind`), defaulting to vector on failure.
-_KbKind = Literal["MANAGED", "VECTOR"]
+# (see :meth:`BedrockKnowledgeBaseStore._resolve_kb_type`), defaulting to vector on failure.
+_KbType = Literal["MANAGED", "VECTOR"]
 
 # A Bedrock attribute value: ``{"type": ..., "stringValue"/"numberValue"/...}``. There is no Python
 # SDK type for this (boto3 passes plain dicts), so it is modeled as ``dict[str, Any]``.
@@ -135,10 +135,10 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             "bedrock-agent-runtime"
         )
 
-        # The knowledge base kind, resolved lazily on first search and memoized (see
-        # :meth:`_resolve_kb_kind`). ``None`` means "not yet detected"; a detection failure is not
+        # The knowledge base type, resolved lazily on first search and memoized (see
+        # :meth:`_resolve_kb_type`). ``None`` means "not yet detected"; a detection failure is not
         # cached, so it is retried on the next search.
-        self._kb_kind: _KbKind | None = None
+        self._kb_type: _KbType | None = None
 
         if self.writable:
             self._validate_write_config()
@@ -159,39 +159,39 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             return {"equals": {"key": self.scope_metadata_key, "value": self.scope}}
         return None
 
-    def _resolve_kb_kind(self) -> _KbKind:
+    def _resolve_kb_type(self) -> _KbType:
         """Resolve whether this knowledge base is ``MANAGED`` or ``VECTOR``, memoizing the result.
 
         A managed knowledge base must be queried with ``managedSearchConfiguration`` and a self-managed
         one with ``vectorSearchConfiguration``; the two are otherwise interchangeable for the fields
-        this store sets. The kind is read once from ``GetKnowledgeBase`` (a ``bedrock-agent``
+        this store sets. The type is read once from ``GetKnowledgeBase`` (a ``bedrock-agent``
         control-plane call) and cached for the store's lifetime.
 
         Detection fails open: any failure -- a missing ``bedrock:GetKnowledgeBase`` permission, a
         throttle, or a boto3 too old to model managed knowledge bases -- warns (once per process) and
-        falls back to ``VECTOR``. Vector is the right fallback because it is the only kind that existed
+        falls back to ``VECTOR``. Vector is the right fallback because it is the only type that existed
         before this detection was added, so every store that worked previously was a vector store:
         falling back to it preserves their behavior exactly, and adds no new ``GetKnowledgeBase``
         permission requirement for them. The fallback is not cached, so a transient failure is retried
         on the next search.
         """
-        if self._kb_kind is not None:
-            return self._kb_kind
+        if self._kb_type is not None:
+            return self._kb_type
 
         try:
             response = self._get_agent_client().get_knowledge_base(knowledgeBaseId=self._knowledge_base_id)
-            kb_type = response["knowledgeBase"]["knowledgeBaseConfiguration"]["type"]
+            config_type = response["knowledgeBase"]["knowledgeBaseConfiguration"]["type"]
         except Exception as error:
             warn_once(
                 logger,
-                "store=<%s>, error=<%s> | knowledge base kind detection failed | falling back to vector search",
+                "store=<%s>, error=<%s> | knowledge base type detection failed | falling back to vector search",
                 self.name,
                 error,
             )
             return "VECTOR"
 
-        self._kb_kind = "MANAGED" if kb_type == "MANAGED" else "VECTOR"
-        return self._kb_kind
+        self._kb_type = "MANAGED" if config_type == "MANAGED" else "VECTOR"
+        return self._kb_type
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search the knowledge base for entries matching the query.
@@ -220,7 +220,7 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
         # A managed knowledge base takes ``managedSearchConfiguration``, a vector one
         # ``vectorSearchConfiguration``; both accept the same fields, so only the wrapping key differs.
-        managed = self._resolve_kb_kind() == "MANAGED"
+        managed = self._resolve_kb_type() == "MANAGED"
         config_key = "managedSearchConfiguration" if managed else "vectorSearchConfiguration"
         retrieval_configuration = {config_key: search_configuration}
 

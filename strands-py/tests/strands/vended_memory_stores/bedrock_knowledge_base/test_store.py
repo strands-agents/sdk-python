@@ -400,7 +400,7 @@ class TestSearch:
             await store.search("q")
 
         assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
-        assert "knowledge base kind detection failed" in caplog.text
+        assert "knowledge base type detection failed" in caplog.text
 
     @pytest.mark.asyncio
     async def test_does_not_cache_a_detection_failure_and_retries_on_the_next_search(self, make_store):
@@ -425,7 +425,7 @@ class TestSearch:
             await store.search("q")
             await store.search("q")
 
-        warnings = [r for r in caplog.records if "knowledge base kind detection failed" in r.getMessage()]
+        warnings = [r for r in caplog.records if "knowledge base type detection failed" in r.getMessage()]
         assert len(warnings) == 1
 
 

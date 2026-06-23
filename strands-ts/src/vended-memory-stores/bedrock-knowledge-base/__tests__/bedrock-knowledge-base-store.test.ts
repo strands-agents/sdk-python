@@ -440,7 +440,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
       expect(vi.mocked(warnOnce)).toHaveBeenCalledWith(
         logger,
-        expect.stringContaining('knowledge base kind detection failed')
+        expect.stringContaining('knowledge base type detection failed')
       )
     })
 

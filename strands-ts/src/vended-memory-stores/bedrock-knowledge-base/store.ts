@@ -25,9 +25,9 @@ const DEFAULT_MAX_SEARCH_RESULTS = 10
 /**
  * How a knowledge base is queried: a managed knowledge base takes `managedSearchConfiguration`; a
  * self-managed (vector) one takes `vectorSearchConfiguration`. Detected from `GetKnowledgeBase` (see
- * {@link BedrockKnowledgeBaseStore._resolveKbKind}), defaulting to vector on failure.
+ * {@link BedrockKnowledgeBaseStore._resolveKbType}), defaulting to vector on failure.
  */
-type KbKind = 'MANAGED' | 'VECTOR'
+type KbType = 'MANAGED' | 'VECTOR'
 
 /**
  * An attribute entry in an S3 `.metadata.json` sidecar. `includeForEmbedding` is `false` so the
@@ -187,11 +187,11 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   private readonly _dataSourceType: 'CUSTOM' | 'S3' | 'OTHER' | undefined
   private readonly _dataSourceId: string | undefined
   /**
-   * The knowledge base kind, resolved lazily on first search and memoized (see
-   * {@link _resolveKbKind}). `undefined` means "not yet detected"; a detection failure is not cached,
+   * The knowledge base type, resolved lazily on first search and memoized (see
+   * {@link _resolveKbType}). `undefined` means "not yet detected"; a detection failure is not cached,
    * so it is retried on the next search.
    */
-  private _kbKind: KbKind | undefined
+  private _kbType: KbType | undefined
 
   /**
    * Logical namespace isolating documents: applied as a metadata filter on {@link search} and stamped
@@ -252,35 +252,35 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    *
    * A managed knowledge base must be queried with `managedSearchConfiguration` and a self-managed one
    * with `vectorSearchConfiguration`; the two are otherwise interchangeable for the fields this store
-   * sets. The kind is read once from `GetKnowledgeBase` (a bedrock-agent control-plane call) and
+   * sets. The type is read once from `GetKnowledgeBase` (a bedrock-agent control-plane call) and
    * cached for the store's lifetime.
    *
    * Detection fails open: any failure — a missing `bedrock:GetKnowledgeBase` permission, a throttle,
    * or an AWS SDK too old to model managed knowledge bases — warns (once per process) and falls back
-   * to `VECTOR`. Vector is the right fallback because it is the only kind that existed before this
+   * to `VECTOR`. Vector is the right fallback because it is the only type that existed before this
    * detection was added, so every store that worked previously was a vector store: falling back to it
    * preserves their behavior exactly, and adds no new `GetKnowledgeBase` permission requirement for
    * them. The fallback is not cached, so a transient failure is retried on the next search.
    */
-  private async _resolveKbKind(): Promise<KbKind> {
-    if (this._kbKind !== undefined) return this._kbKind
+  private async _resolveKbType(): Promise<KbType> {
+    if (this._kbType !== undefined) return this._kbType
 
-    let kbType: string | undefined
+    let configType: string | undefined
     try {
       const response = await this._getAgentClient().send(
         new GetKnowledgeBaseCommand({ knowledgeBaseId: this._knowledgeBaseId })
       )
-      kbType = response.knowledgeBase?.knowledgeBaseConfiguration?.type
+      configType = response.knowledgeBase?.knowledgeBaseConfiguration?.type
     } catch (error) {
       warnOnce(
         logger,
-        `store=<${this.name}>, error=<${error}> | knowledge base kind detection failed | falling back to vector search`
+        `store=<${this.name}>, error=<${error}> | knowledge base type detection failed | falling back to vector search`
       )
       return 'VECTOR'
     }
 
-    this._kbKind = kbType === 'MANAGED' ? 'MANAGED' : 'VECTOR'
-    return this._kbKind
+    this._kbType = configType === 'MANAGED' ? 'MANAGED' : 'VECTOR'
+    return this._kbType
   }
 
   /**
@@ -302,7 +302,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     const searchConfiguration = { numberOfResults: limit, ...(filter && { filter }) }
     // A managed knowledge base takes `managedSearchConfiguration`, a vector one
     // `vectorSearchConfiguration`; both accept the same fields, so only the wrapping key differs.
-    const managed = (await this._resolveKbKind()) === 'MANAGED'
+    const managed = (await this._resolveKbType()) === 'MANAGED'
     const retrievalConfiguration: KnowledgeBaseRetrievalConfiguration = managed
       ? { managedSearchConfiguration: searchConfiguration }
       : { vectorSearchConfiguration: searchConfiguration }
