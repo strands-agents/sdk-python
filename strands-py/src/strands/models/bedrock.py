@@ -119,7 +119,8 @@ class BedrockModel(Model):
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
             request_metadata: Key-value metadata to attach to the request for cost tracking and attribution.
-                Appears in model invocation logs for per-request finops. Max 16 entries, keys/values max 256 chars.
+                Appears in model invocation logs for per-request finops. Max 16 entries; keys/values max 256 chars
+                and limited to letters, digits, spaces, and ":_@$#=/+,-." (e.g. "team (eng)" or "cost%" are rejected by Bedrock).
                 See https://docs.aws.amazon.com/bedrock/latest/userguide/cost-mgmt-request-metadata.html
             use_native_token_count: Whether to use the native Bedrock CountTokens API.
                 When True, count_tokens() calls the Bedrock API for accurate counts.
