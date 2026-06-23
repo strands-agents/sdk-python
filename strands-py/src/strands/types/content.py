@@ -12,7 +12,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from .citations import CitationsContentBlock
 from .event_loop import Metrics, Usage
-from .media import DocumentContent, ImageContent, VideoContent
+from .media import AudioContent, DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
 
 
@@ -79,6 +79,7 @@ class ContentBlock(TypedDict, total=False):
     """A block of content for a message that you pass to, or receive from, a model.
 
     Attributes:
+        audio: Audio to include in the message.
         cachePoint: A cache point configuration to optimize conversation history.
         document: A document to include in the message.
         guardContent: Contains the content to assess with the guardrail.
@@ -91,6 +92,7 @@ class ContentBlock(TypedDict, total=False):
         citationsContent: Contains the citations for a document.
     """
 
+    audio: AudioContent
     cachePoint: CachePoint
     document: DocumentContent
     guardContent: GuardContent
