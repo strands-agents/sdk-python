@@ -21,7 +21,7 @@ def test_load_stdio_server_from_config():
                 "command": "python",
                 "args": _ECHO_SERVER_ARGS,
                 "prefix": "cfg",
-                "tool_filters": {"allowed": ["cfg_echo$"]},
+                "tool_filters": {"allowed": ["^echo$"]},
             }
         }
     }
@@ -46,7 +46,7 @@ def test_load_stdio_server_from_json_file():
                 "command": "python",
                 "args": _ECHO_SERVER_ARGS,
                 "prefix": "file",
-                "tool_filters": {"allowed": ["file_echo$"]},
+                "tool_filters": {"allowed": ["^echo$"]},
             }
         }
     }
@@ -81,7 +81,7 @@ def test_env_interpolation_and_disabled_skip(monkeypatch):
                 "command": "python",
                 "args": _ECHO_SERVER_ARGS,
                 "prefix": "${env:ECHO_PREFIX}",
-                "tool_filters": {"allowed": ["dyn_echo$"]},
+                "tool_filters": {"allowed": ["^echo$"]},
             },
             "disabled_echo": {
                 "command": "python",
@@ -99,5 +99,30 @@ def test_env_interpolation_and_disabled_skip(monkeypatch):
 
     result = agent.tool.dyn_echo(to_echo="Dynamic Prefix")
     assert "Dynamic Prefix" in str(result)
+
+    agent.cleanup()
+
+
+def test_config_to_agent_with_mcp_servers():
+    """End-to-end: config_to_agent loads an MCP server declared via mcp_servers."""
+    from strands.experimental import config_to_agent
+
+    config = {
+        "model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "mcp_servers": {
+            "echo": {
+                "command": "python",
+                "args": _ECHO_SERVER_ARGS,
+                "prefix": "agent",
+                "tool_filters": {"allowed": ["^echo$"]},
+            }
+        },
+    }
+
+    agent = config_to_agent(config)
+    assert "agent_echo" in agent.tool_names
+
+    result = agent.tool.agent_echo(to_echo="Agent Config Test")
+    assert "Agent Config Test" in str(result)
 
     agent.cleanup()

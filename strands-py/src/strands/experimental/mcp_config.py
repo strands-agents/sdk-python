@@ -162,6 +162,12 @@ def _parse_tool_filters(config: dict[str, Any] | None) -> ToolFilters | None:
     (prefix match from start of string). Use ``"^echo$"`` for exact matching.
     ``"echo"`` will match any tool name starting with "echo" (e.g. "echo_extra").
 
+    Note:
+        Filters are matched against the **server-side (unprefixed)** tool name. The
+        ``prefix`` is applied *after* filtering, so a server tool ``echo`` exposed with
+        ``prefix="cfg"`` (final name ``cfg_echo``) is selected by the pattern ``"^echo$"``,
+        not ``"^cfg_echo$"``.
+
     Args:
         config: Tool filter configuration dict with 'allowed' and/or 'rejected' lists,
             or None.
@@ -316,6 +322,9 @@ def load_mcp_clients_from_config(config: str | dict[str, Any]) -> list[MCPClient
     String values support ``${env:VAR}`` interpolation (replaced with the value of the ``VAR``
     environment variable), and ``~`` in the ``command`` and ``cwd`` paths is expanded to the
     user's home directory. Servers marked ``"disabled": true`` are skipped.
+
+    ``tool_filters`` patterns match the server-side (unprefixed) tool name; ``prefix`` is
+    applied afterwards.
 
     Args:
         config: Either a file path (with optional file:// prefix) to a JSON config file,

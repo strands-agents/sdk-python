@@ -9,6 +9,12 @@ programmatic approach after creating the agent:
     agent = config_to_agent("config.json")
     # Add tools that need code-based instantiation
     agent.tool_registry.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
+
+MCP servers can be declared with the ``mcp_servers`` field using the same per-server
+configuration accepted by :func:`strands.experimental.mcp_config.load_mcp_clients_from_config`
+(``command``/``url``, ``prefix``, ``tool_filters``, ``${env:VAR}`` interpolation, ``disabled``, etc.).
+Each enabled server is created as an ``MCPClient`` and appended to the agent's tools; the agent
+manages their lifecycle automatically.
 """
 
 import json
@@ -42,6 +48,15 @@ AGENT_CONFIG_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "default": [],
+        },
+        "mcp_servers": {
+            "description": "Mapping of MCP server name to its configuration. Each enabled server "
+            "is loaded as an MCPClient and added to the agent's tools. Uses the same per-server "
+            "schema as load_mcp_clients_from_config (command/url, prefix, tool_filters, env, "
+            "headers, disabled, ${env:VAR} interpolation).",
+            "type": "object",
+            "additionalProperties": {"type": "object"},
+            "default": {},
         },
     },
     "additionalProperties": False,
@@ -128,6 +143,20 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
     for config_key, agent_param in config_mapping.items():
         if config_key in config_dict and config_dict[config_key] is not None:
             agent_kwargs[agent_param] = config_dict[config_key]
+
+    # Build MCP clients from the ``mcp_servers`` field and append them to the tools list.
+    # MCPClient is a ToolProvider, so the agent connects/lists/tears down each server
+    # automatically. Done before kwargs.update so explicit ``tools=`` kwargs still win.
+    mcp_servers = config_dict.get("mcp_servers")
+    if mcp_servers:
+        # Reuse the standalone loader (validation, ${env:VAR} interpolation, transport
+        # detection, tool_filters, disabled-skip) by wrapping in the mcpServers envelope.
+        from .mcp_config import load_mcp_clients_from_config
+
+        mcp_clients = load_mcp_clients_from_config({"mcpServers": mcp_servers})
+        if mcp_clients:
+            existing_tools = agent_kwargs.get("tools") or []
+            agent_kwargs["tools"] = [*existing_tools, *mcp_clients]
 
     # Override with any additional kwargs provided
     agent_kwargs.update(kwargs)
