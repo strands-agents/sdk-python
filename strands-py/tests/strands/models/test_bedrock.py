@@ -3,6 +3,7 @@ import copy
 import logging
 import os
 import sys
+import time
 import traceback
 import unittest.mock
 from unittest.mock import ANY
@@ -819,13 +820,16 @@ async def test_stream_with_invalid_content_throws(bedrock_client, model, alist):
 @pytest.mark.asyncio
 async def test_stream_cancellation_consumes_orphaned_task_exception(bedrock_client, model, messages):
     """Orphaned background task exception is consumed when stream generator is cancelled."""
-    import time
 
     def slow_converse_stream(**kwargs):
         time.sleep(0.1)
         raise RuntimeError("simulated boto3 timeout")
 
     bedrock_client.converse_stream.side_effect = slow_converse_stream
+
+    loop = asyncio.get_running_loop()
+    captured: list[dict] = []
+    loop.set_exception_handler(lambda _loop, ctx: captured.append(ctx))
 
     gen = model.stream(messages)
     with pytest.raises(asyncio.TimeoutError):
@@ -836,9 +840,7 @@ async def test_stream_cancellation_consumes_orphaned_task_exception(bedrock_clie
     # Allow the background thread to finish and the done-callback to fire
     await asyncio.sleep(0.2)
 
-    # If the fix is missing, asyncio would emit "Task exception was never retrieved"
-    # which pytest captures as a warning/error. Reaching here without that warning means
-    # the done-callback consumed the exception correctly.
+    assert not captured, f"orphaned task exception was not consumed: {captured}"
 
 
 @pytest.mark.asyncio
