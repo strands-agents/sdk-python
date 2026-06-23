@@ -74,5 +74,5 @@ echo "Selective run for changed files:"
 echo "$TS_SOURCE" | sed 's/^/  /'
 [[ -n "$DRY_RUN" ]] && exit 0
 # shellcheck disable=SC2046  # intentional word-splitting of the file list
-( cd strands-ts && npx vitest related $(echo "$TS_SOURCE" | sed 's#^strands-ts/##') \
+( cd strands-ts && npx vitest related $(echo "$TS_SOURCE" | sed -E 's#^(strands-ts|strands-wasm|wit)/##') \
     --project integ-node --project integ-browser --run )
