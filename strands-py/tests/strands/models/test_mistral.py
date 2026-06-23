@@ -11,7 +11,7 @@ from strands.types.exceptions import ModelThrottledException
 
 @pytest.fixture
 def mistral_client():
-    with unittest.mock.patch.object(strands.models.mistral.mistralai, "Mistral") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.mistral, "Mistral") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
         yield mock_client
