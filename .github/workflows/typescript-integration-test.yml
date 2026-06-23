@@ -51,6 +51,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
+          fetch-depth: 0  # full history so selective testing can diff against the base
           persist-credentials: false  # Don't persist credentials for subsequent actions
           allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
 
@@ -69,7 +70,9 @@ jobs:
         run: npm run build
 
       - name: Run integration tests
-        run: npm run test:integ:all
+        env:
+          SELECTIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: npm run test:integ:selective
 
       - name: Upload test artifacts
         if: always()
