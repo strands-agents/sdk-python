@@ -102,7 +102,7 @@ class TestMaxTokensReachedException:
     def test_recovered_message_attribute(self):
         """Test that recovered_message attribute can be set and accessed."""
         message = "Token limit reached"
-        recovered_message = {"role": "assistant", "content": [{"type": "text", "text": "partial response"}]}
+        recovered_message = {"role": "assistant", "content": [{"text": "partial response"}]}
 
         exception = MaxTokensReachedException(message, recovered_message=recovered_message)
 
