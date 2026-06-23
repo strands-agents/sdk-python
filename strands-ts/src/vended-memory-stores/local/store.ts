@@ -76,6 +76,19 @@ function tokenize(text: string): Set<string> {
 }
 
 /**
+ * Lexical relevance score for one record: the number of distinct query tokens that appear in the
+ * record's content. A higher count means more of the query's words are present. Returns 0 when there
+ * is no overlap.
+ */
+function tokenOverlapScore(queryTokens: Set<string>, content: string): number {
+  let score = 0
+  for (const token of tokenize(content)) {
+    if (queryTokens.has(token)) score++
+  }
+  return score
+}
+
+/**
  * A zero-infrastructure store {@link MemoryStore} that keeps entries in memory and by default
  * persists them to a local JSON file. Use for prototyping and testing.
  *
@@ -141,6 +154,9 @@ export class LocalMemoryStore implements MemoryStore {
     this.writable = writable ?? true
     if (extraction !== undefined) this.extraction = extraction
 
+    if (path !== undefined && !path.trim()) {
+      throw new Error('LocalMemoryStore: path must not be empty.')
+    }
     this._persist = persist ?? true
     this._explicitPath = path
   }
@@ -168,10 +184,7 @@ export class LocalMemoryStore implements MemoryStore {
 
     const scored: Array<{ record: LocalMemoryRecord; score: number }> = []
     for (const record of records) {
-      let score = 0
-      for (const token of tokenize(record.content)) {
-        if (queryTokens.has(token)) score++
-      }
+      const score = tokenOverlapScore(queryTokens, record.content)
       if (score > 0) scored.push({ record, score })
     }
 
@@ -278,7 +291,7 @@ export class LocalMemoryStore implements MemoryStore {
       rawContent = await readFile(filePath, 'utf8')
     } catch (error: unknown) {
       if ((error as { code?: string }).code === 'ENOENT') return []
-      throw error
+      throw new Error(`LocalMemoryStore: failed to read ${filePath}`, { cause: error })
     }
 
     let parsedFile: unknown
@@ -310,7 +323,8 @@ export class LocalMemoryStore implements MemoryStore {
   /**
    * Persists `records` to disk with an atomic write (write to a `.tmp` file, then rename) so a
    * crash mid-write can never leave a partially written file. A no-op for ephemeral stores. Callers
-   * serialize invocations via {@link _writeChain}.
+   * serialize invocations via {@link _writeChain}. Throws with the target path (and the OS error as
+   * `cause`) when the path is unreachable or not writable.
    */
   private async _flush(records: LocalMemoryRecord[]): Promise<void> {
     const filePath = await this._getPath()
@@ -318,9 +332,13 @@ export class LocalMemoryStore implements MemoryStore {
 
     const { mkdir, writeFile, rename } = await import('node:fs/promises')
     const { dirname } = await import('node:path')
-    await mkdir(dirname(filePath), { recursive: true })
-    const tmpPath = `${filePath}.tmp`
-    await writeFile(tmpPath, JSON.stringify(records, null, 2), 'utf8')
-    await rename(tmpPath, filePath)
+    try {
+      await mkdir(dirname(filePath), { recursive: true })
+      const tmpPath = `${filePath}.tmp`
+      await writeFile(tmpPath, JSON.stringify(records, null, 2), 'utf8')
+      await rename(tmpPath, filePath)
+    } catch (error: unknown) {
+      throw new Error(`LocalMemoryStore: failed to write ${filePath}`, { cause: error })
+    }
   }
 }

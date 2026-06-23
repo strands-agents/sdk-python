@@ -56,6 +56,10 @@ describe('LocalMemoryStore', () => {
       expect(() => new LocalMemoryStore({ name: '   ' })).toThrow('name must not be empty')
     })
 
+    it('throws when an explicit path is empty', () => {
+      expect(() => new LocalMemoryStore({ name: 'notes', path: '   ' })).toThrow('path must not be empty')
+    })
+
     it('does no filesystem I/O on construction', async () => {
       new LocalMemoryStore({ name: 'notes', path: filePath() })
       await expect(fs.access(filePath())).rejects.toThrow()
@@ -228,6 +232,15 @@ describe('LocalMemoryStore', () => {
       await fs.writeFile(filePath(), JSON.stringify([{ foo: 'bar' }]), 'utf8')
       const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
       await expect(store.search('anything')).rejects.toThrow('each record must have string')
+    })
+
+    it('throws a clear error when the path is unreachable', async () => {
+      // Point the store under an existing FILE, so the backing path can't be reached — surfacing a
+      // wrapped "failed to read/write" error naming the path rather than a bare OS error.
+      const blocker = join(dir, 'blocker')
+      await fs.writeFile(blocker, 'not a directory', 'utf8')
+      const store = new LocalMemoryStore({ name: 'notes', path: join(blocker, 'notes.json') })
+      await expect(store.add('user prefers dark mode')).rejects.toThrow('failed to')
     })
 
     it('keeps all entries when many writes happen concurrently', async () => {

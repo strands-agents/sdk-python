@@ -59,6 +59,15 @@ def _tokenize(text: str) -> set[str]:
     return {token for token in re.split(r"\W+", text.lower()) if token}
 
 
+def _token_overlap_score(query_tokens: set[str], content: str) -> int:
+    """Lexical relevance score for one record.
+
+    The number of distinct query tokens that appear in the content; a higher count means more of the
+    query's words are present. Returns 0 when there is no overlap.
+    """
+    return len(query_tokens & _tokenize(content))
+
+
 class LocalMemoryStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by an in-memory list and a local JSON file.
 
@@ -97,7 +106,8 @@ class LocalMemoryStore(MemoryStore):
             **store_config: See :class:`LocalMemoryStoreConfig`.
 
         Raises:
-            ValueError: If ``name`` is empty/whitespace, or ``max_search_results`` is less than 1.
+            ValueError: If ``name`` or ``path`` is empty/whitespace, or ``max_search_results`` is
+                less than 1.
         """
         self.name = store_config["name"]
         if not self.name.strip():
@@ -113,6 +123,8 @@ class LocalMemoryStore(MemoryStore):
 
         self._persist = store_config.get("persist", True)
         path = store_config.get("path")
+        if path is not None and not path.strip():
+            raise ValueError("LocalMemoryStore: path must not be empty.")
         if not self._persist:
             self._path: Path | None = None
         elif path is not None:
@@ -154,7 +166,7 @@ class LocalMemoryStore(MemoryStore):
 
         scored: list[tuple[dict[str, Any], int]] = []
         for record in records:
-            score = len(query_tokens & _tokenize(record["content"]))
+            score = _token_overlap_score(query_tokens, record["content"])
             if score > 0:
                 scored.append((record, score))
 
@@ -184,6 +196,8 @@ class LocalMemoryStore(MemoryStore):
 
         Raises:
             ValueError: If the store is not writable or ``content`` is empty/whitespace.
+            OSError: If persisting the entry to disk fails (e.g. the path is unreachable or not
+                writable), with the target path in the message.
         """
         if not self.writable:
             raise ValueError("LocalMemoryStore: store is not writable. Set writable=True in config to enable add().")
@@ -230,6 +244,8 @@ class LocalMemoryStore(MemoryStore):
             return self._records
         except json.JSONDecodeError as error:
             raise ValueError(f"LocalMemoryStore: invalid JSON in {self._path}: {error}") from error
+        except OSError as error:
+            raise OSError(f"LocalMemoryStore: failed to read {self._path}: {error}") from error
 
         if not isinstance(parsed_file, list):
             raise ValueError(f"LocalMemoryStore: invalid backing file {self._path}: expected a JSON array of records")
@@ -251,12 +267,19 @@ class LocalMemoryStore(MemoryStore):
         """Persist ``records`` with an atomic write (write to a ``.tmp`` file, then replace).
 
         A crash mid-write can never leave a partially written file. A no-op for ephemeral stores.
+
+        Raises:
+            OSError: If the backing directory cannot be created or the file cannot be written
+                (e.g. the path is unreachable or not writable), with the target path in the message.
         """
         if self._path is None:
             return
 
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = self._path.with_name(f"{self._path.name}.tmp")
-        with open(tmp_path, "w", encoding="utf-8", newline="\n") as file:
-            json.dump(records, file, indent=2, ensure_ascii=False)
-        tmp_path.replace(self._path)
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._path.with_name(f"{self._path.name}.tmp")
+            with open(tmp_path, "w", encoding="utf-8", newline="\n") as file:
+                json.dump(records, file, indent=2, ensure_ascii=False)
+            tmp_path.replace(self._path)
+        except OSError as error:
+            raise OSError(f"LocalMemoryStore: failed to write {self._path}: {error}") from error

@@ -80,6 +80,10 @@ class TestConstructor:
         with pytest.raises(ValueError, match="name must not be empty"):
             make_store(name="   ")
 
+    def test_raises_when_explicit_path_is_empty(self):
+        with pytest.raises(ValueError, match="path must not be empty"):
+            LocalMemoryStore(name="notes", path="   ")
+
     def test_does_no_filesystem_io_on_construction(self, make_store, store_path):
         make_store()
         assert not Path(store_path).exists()
@@ -263,6 +267,16 @@ class TestPersistence:
         store = make_store()
         await asyncio.gather(*(store.add(f"fact number {index}") for index in range(10)))
         assert len(json.loads(Path(store_path).read_text(encoding="utf-8"))) == 10
+
+    @pytest.mark.asyncio
+    async def test_raises_clear_error_when_path_is_unreachable(self, tmp_path):
+        # Point the store under an existing FILE, so the backing path can't be reached — surfacing a
+        # wrapped "failed to read/write" error naming the path rather than a bare OSError.
+        blocker = tmp_path / "blocker"
+        blocker.write_text("not a directory", encoding="utf-8")
+        store = LocalMemoryStore(name="notes", path=str(blocker / "notes.json"))
+        with pytest.raises(OSError, match="failed to"):
+            await store.add("user prefers dark mode")
 
 
 class TestCrossSdkInterop:
