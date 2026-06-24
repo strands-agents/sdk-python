@@ -2,13 +2,14 @@
 Tests for the function-based tool decorator pattern.
 """
 
+import warnings
 from asyncio import Queue
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 import strands
 from strands import Agent
@@ -2145,10 +2146,6 @@ def test_tool_field_default_factory_no_warning():
 
     Regression test for https://github.com/strands-agents/sdk-python/issues/1914.
     """
-    import warnings
-
-    from pydantic import Field
-
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
 
@@ -2170,7 +2167,6 @@ def test_tool_field_default_factory_no_warning():
 
 def test_tool_field_default_value():
     """Field(default=...) as a parameter default is handled correctly."""
-    from pydantic import Field
 
     @strands.tool
     def default_val_tool(name: str = Field(default="world", description="A name")):
@@ -2180,3 +2176,21 @@ def test_tool_field_default_value():
     schema = default_val_tool.tool_spec["inputSchema"]["json"]
     assert "name" not in schema.get("required", [])
     assert schema["properties"]["name"]["description"] == "A name"
+
+
+def test_tool_field_default_constraints_preserved():
+    """Field(...) constraints are kept in the schema and enforced on validation."""
+
+    @strands.tool
+    def scored_tool(score: int = Field(default=50, ge=0, le=100)):
+        """Tool with constrained Field default."""
+        return score
+
+    schema = scored_tool.tool_spec["inputSchema"]["json"]
+    assert schema["properties"]["score"]["minimum"] == 0
+    assert schema["properties"]["score"]["maximum"] == 100
+
+    metadata = scored_tool._metadata
+    metadata.input_model(score=50)
+    with pytest.raises(ValidationError):
+        metadata.input_model(score=999)

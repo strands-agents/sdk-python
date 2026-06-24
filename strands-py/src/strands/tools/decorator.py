@@ -181,6 +181,9 @@ class FunctionToolMetadata:
                 field_kwargs["default_factory"] = param_default.default_factory
             elif param_default.default is not PydanticUndefined:
                 field_kwargs["default"] = param_default.default
+            # Re-attach constraints (ge, le, pattern, ...) so they stay in the schema and validated.
+            if param_default.metadata:
+                actual_type = Annotated[tuple([actual_type, *param_default.metadata])]
         else:
             field_kwargs["default"] = param_default
 
