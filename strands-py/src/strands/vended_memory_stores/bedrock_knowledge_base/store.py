@@ -70,11 +70,12 @@ class BedrockKnowledgeBaseStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
     Supports semantic search via ``Retrieve`` and document ingestion via
-    ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with both managed
-    and self-managed (vector) knowledge bases; the kind is detected automatically (via
-    ``GetKnowledgeBase``) so the right ``Retrieve`` configuration is sent. Detecting a managed
-    knowledge base requires the ``bedrock:GetKnowledgeBase`` permission and a boto3 recent enough to
-    model managed search; without either, search falls back to the vector configuration.
+    ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with all knowledge
+    base types (MANAGED, VECTOR, KENDRA, SQL); the type is detected via ``GetKnowledgeBase`` during
+    :meth:`initialize` and determines whether ``Retrieve`` uses ``managedSearchConfiguration`` or
+    ``vectorSearchConfiguration``. Detection requires the ``bedrock:GetKnowledgeBase`` permission; a
+    failure raises at agent construction (via ``MemoryManager``) or on first ``search()`` standalone.
+    To skip detection, provide ``knowledge_base_type`` in the config.
 
     Example:
         ```python
@@ -167,8 +168,17 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         if self._kb_type is not None:
             return
 
-        response = self._get_agent_client().get_knowledge_base(knowledgeBaseId=self._knowledge_base_id)
-        self._kb_type = response["knowledgeBase"]["knowledgeBaseConfiguration"]["type"]
+        try:
+            response = self._get_agent_client().get_knowledge_base(knowledgeBaseId=self._knowledge_base_id)
+            self._kb_type = response["knowledgeBase"]["knowledgeBaseConfiguration"]["type"]
+        except Exception as error:
+            logger.error(
+                "store=<%s>, knowledge_base_id=<%s>, error=<%s> | knowledge base type detection failed",
+                self.name,
+                self._knowledge_base_id,
+                error,
+            )
+            raise
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search the knowledge base for entries matching the query.

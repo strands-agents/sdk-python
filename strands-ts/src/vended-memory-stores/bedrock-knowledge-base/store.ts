@@ -173,10 +173,11 @@ export interface BedrockKnowledgeBaseAddResult {
  * A {@link MemoryStore} backed by Amazon Bedrock Knowledge Bases. Supports semantic search via
  * Retrieve and document ingestion via IngestKnowledgeBaseDocuments for CUSTOM and S3 data sources.
  *
- * Works with both managed and self-managed (vector) knowledge bases; the kind is detected
- * automatically (via GetKnowledgeBase) so the right Retrieve configuration is sent. Detecting a
- * managed knowledge base requires the `bedrock:GetKnowledgeBase` permission and an AWS SDK recent
- * enough to model managed search; without either, search falls back to the vector configuration.
+ * Works with all knowledge base types (MANAGED, VECTOR, KENDRA, SQL); the type is detected via
+ * `GetKnowledgeBase` during {@link initialize} and determines whether Retrieve uses
+ * `managedSearchConfiguration` or `vectorSearchConfiguration`. Detection requires the
+ * `bedrock:GetKnowledgeBase` permission; a failure raises at agent construction (via MemoryManager)
+ * or on first `search()` standalone. To skip detection, provide `knowledgeBaseType` in the config.
  *
  * @example
  * ```typescript
@@ -284,10 +285,17 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   async initialize(): Promise<void> {
     if (this._kbType !== undefined) return
 
-    const response = await this._getAgentClient().send(
-      new GetKnowledgeBaseCommand({ knowledgeBaseId: this._knowledgeBaseId })
-    )
-    this._kbType = response.knowledgeBase?.knowledgeBaseConfiguration?.type as KbType
+    try {
+      const response = await this._getAgentClient().send(
+        new GetKnowledgeBaseCommand({ knowledgeBaseId: this._knowledgeBaseId })
+      )
+      this._kbType = response.knowledgeBase!.knowledgeBaseConfiguration!.type as KbType
+    } catch (error) {
+      logger.error(
+        `store=<${this.name}>, knowledgeBaseId=<${this._knowledgeBaseId}>, error=<${error}> | knowledge base type detection failed`
+      )
+      throw error
+    }
   }
 
   /**
