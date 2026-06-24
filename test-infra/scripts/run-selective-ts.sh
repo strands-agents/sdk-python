@@ -108,6 +108,12 @@ fi
 # Pass changed source files to Vitest's module-graph tracer, scoped to both
 # integ projects. vitest related exits 0 with "No test files found" when none
 # depend on the changes — a valid skip.
+#
+# LOAD-BEARING ASSUMPTION (vitest v4, pinned in strands-ts/package.json): the
+# "no covering spec" case exits 0, not non-zero. The whole "never skip a test
+# that should run" invariant relies on this — a non-zero here would turn safe
+# skips into red CI. If a future vitest major changes this, this branch must be
+# revisited (and the version floor in package.json bumped deliberately).
 echo "Selective run for changed files:"
 echo "$TS_SOURCE" | sed 's/^/  /'
 [[ -n "$DRY_RUN" ]] && exit 0
