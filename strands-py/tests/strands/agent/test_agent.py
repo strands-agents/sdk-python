@@ -2507,6 +2507,29 @@ async def test_agent_lock_released_on_exception():
         await agent.invoke_async("test")
 
 
+@pytest.mark.asyncio
+async def test_stream_async_does_not_release_unowned_lock_in_unsafe_reentrant_mode():
+    """stream_async should only release a lock it acquired itself."""
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello"}]}])
+    agent = Agent(model=model, concurrent_invocation_mode=ConcurrentInvocationMode.UNSAFE_REENTRANT)
+    agent._invocation_lock.acquire()
+
+    def raise_before_work(_prompt):
+        raise RuntimeError("stop before invocation work")
+
+    agent._interrupt_state.resume = raise_before_work
+
+    try:
+        with pytest.raises(RuntimeError, match="stop before invocation work"):
+            async for _ in agent.stream_async("test"):
+                pass
+
+        assert agent._invocation_lock.locked()
+    finally:
+        if agent._invocation_lock.locked():
+            agent._invocation_lock.release()
+
+
 def test_agent_direct_tool_call_during_invocation_raises_exception(tool_decorated):
     """Test that direct tool call during agent invocation raises ConcurrencyException."""
 
