@@ -1980,6 +1980,30 @@ def test_format_request_message_content_preserves_nonempty_tool_result_content(m
     assert tool_result["content"] == [{"text": "some result"}]
 
 
+def test_format_request_message_content_guard_content_without_qualifiers(model, model_id):
+    """Test that _format_request_message_content accepts guardContent text blocks without qualifiers.
+
+    The Bedrock GuardrailConverseTextBlock treats qualifiers as optional, so omitting it
+    should not raise a KeyError.
+
+    See: https://github.com/strands-agents/harness-sdk/issues/959
+    """
+    content = {"guardContent": {"text": {"text": "evaluate me"}}}
+
+    formatted = model._format_request_message_content(content)
+
+    assert formatted == {"guardContent": {"text": {"text": "evaluate me"}}}
+
+
+def test_format_request_message_content_guard_content_with_qualifiers(model, model_id):
+    """Test that _format_request_message_content forwards qualifiers when supplied."""
+    content = {"guardContent": {"text": {"text": "evaluate me", "qualifiers": ["guard_content"]}}}
+
+    formatted = model._format_request_message_content(content)
+
+    assert formatted == {"guardContent": {"text": {"text": "evaluate me", "qualifiers": ["guard_content"]}}}
+
+
 def test_format_request_removes_status_field_when_configured(model, model_id):
     model.update_config(include_tool_result_status=False)
 
