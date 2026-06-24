@@ -311,8 +311,7 @@ async def event_loop_cycle(
                         "You can continue by calling the agent again. "
                         "For more information see: "
                         "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
-                    ),
-                    recovered_message=copy.deepcopy(agent.messages[-1]),
+                    )
                 )
 
             if stop_reason == "tool_use":

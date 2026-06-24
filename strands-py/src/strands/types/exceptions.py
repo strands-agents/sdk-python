@@ -2,8 +2,6 @@
 
 from typing import Any
 
-from strands.types.content import Message
-
 
 class EventLoopException(Exception):
     """Exception raised by the event loop."""
@@ -24,21 +22,19 @@ class MaxTokensReachedException(Exception):
     """Exception raised when the model reaches its maximum token generation limit.
 
     This exception is raised when the model stops generating tokens because it has reached the maximum number of
-    tokens allowed for output generation. The agent remains recoverable — the partial message is automatically added
-    to agent.messages, and you can continue the conversation by calling the agent again.
+    tokens allowed for output generation. The partial message is automatically added to agent.messages and you can
+    continue the conversation by calling the agent again.
 
     This can occur when the model's max_tokens parameter is set too low for the complexity of the response, or when
     the model naturally reaches its configured output limit during generation.
     """
 
-    def __init__(self, message: str, recovered_message: Message | None = None):
-        """Initialize the exception with an error message and optional recovered partial message.
+    def __init__(self, message: str):
+        """Initialize the exception with an error message.
 
         Args:
             message: The error message describing the token limit issue
-            recovered_message: Optional partial message recovered after the token limit, with tool-use blocks replaced
         """
-        self.recovered_message: Message | None = recovered_message
         super().__init__(message)
 
 

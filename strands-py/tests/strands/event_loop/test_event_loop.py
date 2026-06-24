@@ -641,7 +641,7 @@ async def test_event_loop_cycle_max_tokens_exception(
         "For more information see: "
         "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
     )
-    with pytest.raises(MaxTokensReachedException, match=expected_message) as exception_info:
+    with pytest.raises(MaxTokensReachedException, match=expected_message):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
             invocation_state={},
@@ -651,8 +651,6 @@ async def test_event_loop_cycle_max_tokens_exception(
     # Verify the exception message contains the expected content
     assert len(agent.messages) == 2
     assert "tool use was incomplete due" in agent.messages[1]["content"][0]["text"]
-    assert "tool use was incomplete due" in exception_info.value.recovered_message["content"][0]["text"]
-    assert exception_info.value.recovered_message == agent.messages[-1]
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
