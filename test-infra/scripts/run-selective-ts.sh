@@ -15,6 +15,17 @@ cd "$ROOT"
 # Defined up top so it also short-circuits the early full-suite fallbacks below.
 DRY_RUN="${SELECTIVE_DRY_RUN:-}"
 
+# Run the entire integration suite. Used by the structural branch and by every
+# fail-safe fallback, so the "what does a full run mean" decision lives in one
+# place. Honours DRY_RUN (print intent, run nothing) and exits with the suite's
+# status so a test failure surfaces as a non-zero script exit.
+run_full_suite() {
+  echo "$1" >&2
+  [[ -n "$DRY_RUN" ]] && exit 0
+  npm run test:integ:all
+  exit $?
+}
+
 # --- Compute changed files ---
 # Test seam: when SELECTIVE_CHANGED_FILES is defined (even empty) it overrides
 # the git-derived change set, so the classification logic below can be exercised
@@ -37,10 +48,7 @@ else
       done
     done
     if [[ ${#candidates[@]} -eq 0 ]]; then
-      echo "WARNING: no base branch found; running full integration suite." >&2
-      [[ -n "$DRY_RUN" ]] && exit 0
-      npm run test:integ:all
-      exit $?
+      run_full_suite "WARNING: no base branch found; running full integration suite."
     fi
     BASE="${candidates[0]}"
     best=$(git rev-list --count "$BASE"..HEAD 2>/dev/null || echo 999999)
@@ -57,12 +65,8 @@ else
   # --exclude-standard honours .gitignore. On CI (HEAD == base SHA) there are no
   # local edits, so this reduces to the committed diff.
   MERGE_BASE="$(git merge-base "$BASE" HEAD 2>/dev/null || echo "$BASE")"
-  CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || {
-    echo "WARNING: cannot diff against $MERGE_BASE; running full integration suite." >&2
-    [[ -n "$DRY_RUN" ]] && exit 0
-    npm run test:integ:all
-    exit $?
-  }
+  CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || \
+    run_full_suite "WARNING: cannot diff against $MERGE_BASE; running full integration suite."
   UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
   CHANGED="$(printf '%s\n%s' "$CHANGED" "$UNTRACKED" | grep -v '^$' || true)"
 fi
@@ -90,10 +94,7 @@ STRUCTURAL_PATTERNS=(
 )
 STRUCTURAL="$(IFS='|'; echo "${STRUCTURAL_PATTERNS[*]}")"
 if echo "$CHANGED" | grep -qE "$STRUCTURAL"; then
-  echo "Structural change detected — running full integration suite."
-  [[ -n "$DRY_RUN" ]] && exit 0
-  npm run test:integ:all
-  exit $?
+  run_full_suite "Structural change detected — running full integration suite."
 fi
 
 # --- Branch 2: no TS source changed ---
