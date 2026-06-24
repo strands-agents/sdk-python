@@ -472,6 +472,8 @@ class AnthropicModel(Model):
                                     "message": {"stop_reason": event.message.stop_reason},
                                 }
                             )
+                        elif event.type == "content_block_stop":
+                            yield self.format_chunk({"type": "content_block_stop", "index": event.index})
                         else:
                             yield self.format_chunk(event.model_dump())
 

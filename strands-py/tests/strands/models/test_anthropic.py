@@ -1105,6 +1105,39 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
     assert {"messageStop": {"stopReason": mock_message_stop.message.stop_reason}} in events
 
 
+@pytest.mark.asyncio
+async def test_stream_content_block_stop_no_pydantic_warnings(anthropic_client, model, alist):
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/1865."""
+    mock_event = unittest.mock.Mock()
+    mock_event.type = "content_block_stop"
+    mock_event.index = 0
+
+    def model_dump_with_warning():
+        warnings.warn(
+            "PydanticSerializationUnexpectedValue(Expected `ParsedTextBlock[TypeVar]`)",
+            UserWarning,
+            stacklevel=2,
+        )
+        return {"type": mock_event.type, "index": mock_event.index}
+
+    mock_event.model_dump = model_dump_with_warning
+
+    final_message = unittest.mock.Mock()
+    final_message.usage = unittest.mock.Mock(model_dump=lambda: {"input_tokens": 1, "output_tokens": 2})
+
+    mock_context = generate_mock_stream_context([mock_event], final_message=final_message)
+    anthropic_client.messages.stream.return_value = mock_context
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        response = model.stream([{"role": "user", "content": [{"text": "hello"}]}], None, None)
+        events = await alist(response)
+
+    pydantic_warnings = [w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)]
+    assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+    assert {"contentBlockStop": {"contentBlockIndex": 0}} in events
+
+
 class TestCountTokens:
     """Tests for AnthropicModel.count_tokens native token counting."""
 
