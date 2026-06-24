@@ -103,7 +103,7 @@ describe('zod-tool type tests', () => {
       expectTypeOf(asyncComplexTool.invoke).returns.resolves.toEqualTypeOf<{
         id: string
         timestamp: number
-        metadata: { processed: true }
+        metadata: { processed: boolean }
       }>()
     })
   })
@@ -152,7 +152,7 @@ describe('zod-tool type tests', () => {
 
       expectTypeOf(generatorObjectTool.invoke).returns.resolves.toEqualTypeOf<{
         processed: number
-        success: true
+        success: boolean
       }>()
     })
   })
