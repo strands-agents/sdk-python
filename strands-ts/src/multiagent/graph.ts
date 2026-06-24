@@ -741,8 +741,9 @@ export class Graph implements MultiAgent {
     const deps: ContentBlock[] = []
     for (const edge of this.edges.filter((e) => e.target.id === node.id)) {
       const ns = state.node(edge.source.id)!
-      if (ns.content.length > 0) {
-        deps.push(new TextBlock(`[node: ${edge.source.id}]`), ...ns.content)
+      const forwarded = ns.content.filter((b) => b.type !== 'reasoningBlock')
+      if (forwarded.length > 0) {
+        deps.push(new TextBlock(`[node: ${edge.source.id}]`), ...forwarded)
       }
     }
 
