@@ -15,51 +15,60 @@ cd "$ROOT"
 # Defined up top so it also short-circuits the early full-suite fallbacks below.
 DRY_RUN="${SELECTIVE_DRY_RUN:-}"
 
-# --- Determine the base ref to diff against ---
-# CI passes SELECTIVE_BASE_REF (the PR base SHA). Locally, discover the
-# closest of {origin/main, main, master, */main} — mirrors get-diff.sh.
-BASE="${SELECTIVE_BASE_REF:-}"
-if [[ -z "$BASE" ]]; then
-  candidates=()
-  for ref in main master; do
-    git rev-parse --verify "$ref" &>/dev/null && candidates+=("$ref")
-    for remote_ref in $(git for-each-ref --format='%(refname:short)' "refs/remotes/*/$ref" 2>/dev/null); do
-      candidates+=("$remote_ref")
+# --- Compute changed files ---
+# Test seam: when SELECTIVE_CHANGED_FILES is defined (even empty) it overrides
+# the git-derived change set, so the classification logic below can be exercised
+# in isolation with no git state or network. ${VAR+x} detects "is it set",
+# which lets a test assert the empty-set (skip) case distinctly from "unset".
+# See test/classify.test.sh.
+if [[ -n "${SELECTIVE_CHANGED_FILES+x}" ]]; then
+  CHANGED="$(printf '%s' "$SELECTIVE_CHANGED_FILES" | grep -v '^$' || true)"
+else
+  # --- Determine the base ref to diff against ---
+  # CI passes SELECTIVE_BASE_REF (the PR base SHA). Locally, discover the
+  # closest of {origin/main, main, master, */main} — mirrors get-diff.sh.
+  BASE="${SELECTIVE_BASE_REF:-}"
+  if [[ -z "$BASE" ]]; then
+    candidates=()
+    for ref in main master; do
+      git rev-parse --verify "$ref" &>/dev/null && candidates+=("$ref")
+      for remote_ref in $(git for-each-ref --format='%(refname:short)' "refs/remotes/*/$ref" 2>/dev/null); do
+        candidates+=("$remote_ref")
+      done
     done
-  done
-  if [[ ${#candidates[@]} -eq 0 ]]; then
-    echo "WARNING: no base branch found; running full integration suite." >&2
+    if [[ ${#candidates[@]} -eq 0 ]]; then
+      echo "WARNING: no base branch found; running full integration suite." >&2
+      [[ -n "$DRY_RUN" ]] && exit 0
+      npm run test:integ:all
+      exit $?
+    fi
+    BASE="${candidates[0]}"
+    best=$(git rev-list --count "$BASE"..HEAD 2>/dev/null || echo 999999)
+    for ref in "${candidates[@]:1}"; do
+      d=$(git rev-list --count "$ref"..HEAD 2>/dev/null || echo 999999)
+      if [[ "$d" -lt "$best" ]]; then BASE="$ref"; best="$d"; fi
+    done
+  fi
+
+  # Diff the working tree against the merge-base so the local inner loop tests
+  # what you just edited, including uncommitted edits. git diff only reports
+  # tracked files, so untracked (new, not-yet-added) files are appended via
+  # ls-files --others so brand-new source files select their covering tests too.
+  # --exclude-standard honours .gitignore. On CI (HEAD == base SHA) there are no
+  # local edits, so this reduces to the committed diff.
+  MERGE_BASE="$(git merge-base "$BASE" HEAD 2>/dev/null || echo "$BASE")"
+  CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || {
+    echo "WARNING: cannot diff against $MERGE_BASE; running full integration suite." >&2
     [[ -n "$DRY_RUN" ]] && exit 0
     npm run test:integ:all
     exit $?
-  fi
-  BASE="${candidates[0]}"
-  best=$(git rev-list --count "$BASE"..HEAD 2>/dev/null || echo 999999)
-  for ref in "${candidates[@]:1}"; do
-    d=$(git rev-list --count "$ref"..HEAD 2>/dev/null || echo 999999)
-    if [[ "$d" -lt "$best" ]]; then BASE="$ref"; best="$d"; fi
-  done
+  }
+  UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
+  CHANGED="$(printf '%s\n%s' "$CHANGED" "$UNTRACKED" | grep -v '^$' || true)"
 fi
 
-# --- Compute changed files ---
-# Diff the working tree against the merge-base so the local inner loop tests
-# what you just edited, including uncommitted edits. git diff only reports
-# tracked files, so untracked (new, not-yet-added) files are appended via
-# ls-files --others so brand-new source files select their covering tests too.
-# --exclude-standard honours .gitignore. On CI (HEAD == base SHA) there are no
-# local edits, so this reduces to the committed diff.
-MERGE_BASE="$(git merge-base "$BASE" HEAD 2>/dev/null || echo "$BASE")"
-CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || {
-  echo "WARNING: cannot diff against $MERGE_BASE; running full integration suite." >&2
-  [[ -n "$DRY_RUN" ]] && exit 0
-  npm run test:integ:all
-  exit $?
-}
-UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
-CHANGED="$(printf '%s\n%s' "$CHANGED" "$UNTRACKED" | grep -v '^$' || true)"
-
 if [[ -z "$CHANGED" ]]; then
-  echo "No changes detected vs $BASE — skipping integration tests."
+  echo "No changes detected vs ${BASE:-base} — skipping integration tests."
   exit 0
 fi
 
