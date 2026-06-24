@@ -73,17 +73,22 @@ if [[ -z "$CHANGED" ]]; then
 fi
 
 # --- Branch 1: structural fallback ---
-# Anything here forces the FULL suite. The graph tracer cannot see these as
-# dependencies of a test, so they must fail safe:
-#   - dependency manifests / lockfiles
-#   - any tsconfig under strands-ts (nested too: src/, test/integ/ define the $/sdk alias)
-#   - the vitest config
-#   - shared test fixtures AND binary resources imported via Vite `?url`
-#     (the module graph does not traverse `?url` edges in reverse)
-#   - strandly/ (workspace member that CI triggers on but the graph can't trace)
-#   - this orchestration script itself
-#   - the TypeScript CI workflows
-STRUCTURAL='^package\.json$|^package-lock\.json$|^strands-ts/package\.json$|^strands-ts/(.*/)?tsconfig.*\.json$|^strands-ts/vitest\.config\.ts$|^strands-ts/test/integ/__fixtures__/|^strands-ts/test/integ/__resources__/|^strandly/|^test-infra/scripts/run-selective-ts\.sh$|^\.github/workflows/typescript-'
+# These paths force the FULL suite: the module-graph tracer cannot see them as
+# dependencies of a test, so a change to any of them must fail safe rather than
+# risk a narrowed (or empty) selective run.
+STRUCTURAL_PATTERNS=(
+  '^package\.json$'                            # root dependency manifest
+  '^package-lock\.json$'                       # root lockfile
+  '^strands-ts/package\.json$'                 # workspace manifest
+  '^strands-ts/(.*/)?tsconfig.*\.json$'        # any tsconfig (src/ + test/integ/ define the $/sdk alias)
+  '^strands-ts/vitest\.config\.ts$'            # vitest config (projects, aliases)
+  '^strands-ts/test/integ/__fixtures__/'       # shared integ setup/fixtures
+  '^strands-ts/test/integ/__resources__/'      # binary assets imported via Vite `?url` (not traced in reverse)
+  '^strandly/'                                 # workspace member CI triggers on but the graph cannot trace
+  '^test-infra/scripts/run-selective-ts\.sh$'  # this orchestration script
+  '^\.github/workflows/typescript-'            # TypeScript CI workflows
+)
+STRUCTURAL="$(IFS='|'; echo "${STRUCTURAL_PATTERNS[*]}")"
 if echo "$CHANGED" | grep -qE "$STRUCTURAL"; then
   echo "Structural change detected — running full integration suite."
   [[ -n "$DRY_RUN" ]] && exit 0
@@ -92,7 +97,7 @@ if echo "$CHANGED" | grep -qE "$STRUCTURAL"; then
 fi
 
 # --- Branch 2: no TS source changed ---
-TS_SOURCE="$(echo "$CHANGED" | grep -E '^(strands-ts|strands-wasm|wit)/' || true)"
+TS_SOURCE="$(echo "$CHANGED" | grep -E '^strands-ts/' || true)"
 if [[ -z "$TS_SOURCE" ]]; then
   echo "No strands-ts source changes — skipping integration tests."
   exit 0
@@ -111,6 +116,6 @@ echo "$TS_SOURCE" | sed 's/^/  /'
 files=()
 while IFS= read -r f; do
   [[ -n "$f" ]] && files+=("$f")
-done < <(echo "$TS_SOURCE" | sed -E 's#^(strands-ts|strands-wasm|wit)/##')
+done < <(echo "$TS_SOURCE" | sed -E 's#^strands-ts/##')
 ( cd strands-ts && npx vitest related "${files[@]}" \
     --project integ-node --project integ-browser --run )

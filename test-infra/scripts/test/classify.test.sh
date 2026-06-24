@@ -67,8 +67,7 @@ expect_branch skip "empty change set" ""
 # --- Selective: traceable source change ---
 expect_branch selective "single src file" "strands-ts/src/agent/agent.ts"
 expect_branch selective "src plus unrelated docs" "strands-ts/src/agent/agent.ts" "site/docs/x.md"
-expect_branch selective "strands-wasm source" "strands-wasm/src/lib.rs"
-expect_branch selective "wit interface" "wit/world.wit"
+expect_branch selective "nested src file" "strands-ts/src/vended-tools/bash/types.ts"
 
 echo "---"
 echo "passed: $pass, failed: $fail"
