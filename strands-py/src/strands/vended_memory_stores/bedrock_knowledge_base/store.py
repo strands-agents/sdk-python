@@ -177,8 +177,8 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         falls back to ``VECTOR``. Vector is the right fallback because it is the only type that existed
         before this detection was added, so every store that worked previously was a vector store:
         falling back to it preserves their behavior exactly, and adds no new ``GetKnowledgeBase``
-        permission requirement for them. The fallback is not cached, so a transient failure is retried
-        on the next search.
+        permission requirement for them. The fallback is cached so subsequent searches avoid a
+        repeated failing control-plane call.
         """
         if self._kb_type is not None:
             return self._kb_type
@@ -193,6 +193,7 @@ class BedrockKnowledgeBaseStore(MemoryStore):
                 self.name,
                 error,
             )
+            self._kb_type = "VECTOR"
             return "VECTOR"
 
         self._kb_type = "MANAGED" if config_type == "MANAGED" else "VECTOR"

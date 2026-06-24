@@ -288,7 +288,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    * to `VECTOR`. Vector is the right fallback because it is the only type that existed before this
    * detection was added, so every store that worked previously was a vector store: falling back to it
    * preserves their behavior exactly, and adds no new `GetKnowledgeBase` permission requirement for
-   * them. The fallback is not cached, so a transient failure is retried on the next search.
+   * them. The fallback is cached so subsequent searches avoid a repeated failing control-plane call.
    */
   private async _resolveKbType(): Promise<KbType> {
     if (this._kbType !== undefined) return this._kbType
@@ -304,6 +304,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
         logger,
         `store=<${this.name}>, error=<${error}> | knowledge base type detection failed | falling back to vector search`
       )
+      this._kbType = 'VECTOR'
       return 'VECTOR'
     }
 

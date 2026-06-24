@@ -412,18 +412,16 @@ class TestSearch:
         assert "knowledge base type detection failed" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_does_not_cache_a_detection_failure_and_retries_on_the_next_search(self, make_store):
+    async def test_caches_vector_fallback_on_detection_failure(self, make_store):
         store, runtime, agent = make_store()
-        agent.get_knowledge_base.side_effect = RuntimeError("throttled")
+        agent.get_knowledge_base.side_effect = RuntimeError("AccessDenied")
         await store.search("q")
         assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
 
-        # The transient failure clears; the next search re-detects and now sees a managed KB.
-        agent.get_knowledge_base.side_effect = None
-        _managed_kb(agent)
+        # Subsequent searches reuse the cached VECTOR fallback without re-calling GetKnowledgeBase.
         await store.search("q")
-        assert agent.get_knowledge_base.call_count == 2
-        assert "managedSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
+        assert agent.get_knowledge_base.call_count == 1
+        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
 
     @pytest.mark.asyncio
     async def test_warns_only_once_across_repeated_detection_failures(self, make_store, caplog):
@@ -570,8 +568,11 @@ class TestAddCustom:
         # An inline ACL needs at least one attribute, so supply caller metadata.
         await store.add("fact", {"team": "hr"})
         metadata = agent.ingest_knowledge_base_documents.call_args.kwargs["documents"][0]["metadata"]
-        assert metadata["type"] == "IN_LINE_ATTRIBUTE"
-        assert metadata["accessControlList"] == acl
+        assert metadata == {
+            "type": "IN_LINE_ATTRIBUTE",
+            "inlineAttributes": [{"key": "team", "value": {"type": "STRING", "stringValue": "hr"}}],
+            "accessControlList": acl,
+        }
 
     @pytest.mark.asyncio
     async def test_raises_when_acl_set_but_no_inline_attributes(self, make_custom_store):

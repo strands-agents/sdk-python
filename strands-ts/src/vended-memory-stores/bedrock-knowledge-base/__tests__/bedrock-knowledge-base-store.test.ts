@@ -444,18 +444,17 @@ describe('BedrockKnowledgeBaseStore', () => {
       )
     })
 
-    it('does not cache a detection failure and retries on the next search', async () => {
+    it('caches the vector fallback on detection failure', async () => {
       const { store, runtime, agent } = makeStore()
-      agent.send.mockRejectedValueOnce(new Error('throttled'))
+      agent.send.mockRejectedValueOnce(new Error('AccessDenied'))
       await store.search('q')
       expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
 
-      // The transient failure clears; the next search re-detects and now sees a managed KB.
-      programAgentSend(agent, 'MANAGED')
+      // Subsequent searches reuse the cached VECTOR fallback without re-calling GetKnowledgeBase.
       await store.search('q')
       const detectCalls = agent.send.mock.calls.filter((c: any[]) => c[0]?._command === 'GetKnowledgeBase')
-      expect(detectCalls).toHaveLength(2)
-      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('managedSearchConfiguration')
+      expect(detectCalls).toHaveLength(1)
+      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
     })
   })
 
