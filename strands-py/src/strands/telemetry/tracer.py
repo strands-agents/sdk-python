@@ -748,11 +748,6 @@ class Tracer:
         """Start a new span for swarm invocation."""
         operation = f"invoke_{instance}"
         attributes: dict[str, AttributeValue] = self._get_common_attributes(operation)
-        attributes.update(
-            {
-                "gen_ai.agent.name": instance,
-            }
-        )
 
         if custom_trace_attributes:
             attributes.update(custom_trace_attributes)
