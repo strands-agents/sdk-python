@@ -39,7 +39,11 @@ fi
 # merge-base diff INCLUDING uncommitted working-tree changes, so the local
 # inner loop tests what you just edited. (Two-arg form: base..working-tree.)
 MERGE_BASE="$(git merge-base "$BASE" HEAD 2>/dev/null || echo "$BASE")"
-CHANGED="$(git diff --name-only "$MERGE_BASE")"
+CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || {
+  echo "WARNING: cannot diff against $MERGE_BASE; running full integration suite." >&2
+  npm run test:integ:all
+  exit $?
+}
 
 if [[ -z "$CHANGED" ]]; then
   echo "No changes detected vs $BASE — skipping integration tests."
