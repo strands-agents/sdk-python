@@ -1019,3 +1019,262 @@ def test_thought_signature_round_trip():
     tool_call = LiteLLMModel.format_request_message_tool_call(internal_tool_use)
     assert "__thought__" in tool_call["id"]
     assert signature in tool_call["id"]
+
+
+# --- Non-Streaming Edge Case Tests ---
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_text_only(litellm_acompletion, api_key, model_id, alist):
+    """Test non-streaming response with text content only (no tool calls, no reasoning).
+
+    This is the most common response pattern from Azure OpenAI when the model
+    provides a direct text answer without invoking any tools.
+    """
+    mock_message = unittest.mock.Mock()
+    mock_message.content = "The answer is 42."
+    mock_message.reasoning_content = None
+    mock_message.tool_calls = None
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message = mock_message
+    mock_choice.finish_reason = "stop"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 15
+    mock_usage.completion_tokens = 8
+    mock_usage.total_tokens = 23
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+    mock_response.usage = mock_usage
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = LiteLLMModel(
+        client_args={"api_key": api_key},
+        model_id=model_id,
+        params={"stream": False},
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "What is the meaning of life?"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "The answer is 42."}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {
+                    "inputTokens": 15,
+                    "outputTokens": 8,
+                    "totalTokens": 23,
+                },
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+
+    assert len(tru_events) == len(exp_events)
+    for i, (tru, exp) in enumerate(zip(tru_events, exp_events, strict=False)):
+        assert tru == exp, f"Event {i} mismatch: {tru} != {exp}"
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_empty_response(litellm_acompletion, api_key, model_id, alist):
+    """Test non-streaming response when the model returns no choices.
+
+    This edge case can occur with certain API errors or empty completions.
+    The handler should gracefully produce message start/stop events without content.
+    """
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = []
+    mock_response.usage = None
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = LiteLLMModel(
+        client_args={"api_key": api_key},
+        model_id=model_id,
+        params={"stream": False},
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Hello"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Should at minimum have message start and stop
+    assert tru_events[0] == {"messageStart": {"role": "assistant"}}
+    assert any("messageStop" in e for e in tru_events)
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_multiple_tool_calls(litellm_acompletion, api_key, model_id, alist):
+    """Test non-streaming response with multiple tool calls.
+
+    When the model decides to invoke multiple tools in parallel, all tool calls
+    should be properly emitted with start/delta/stop events for each.
+    """
+    mock_function_1 = unittest.mock.Mock()
+    mock_function_1.name = "get_weather"
+    mock_function_1.arguments = '{"city": "Seattle"}'
+
+    mock_function_2 = unittest.mock.Mock()
+    mock_function_2.name = "get_time"
+    mock_function_2.arguments = '{"timezone": "PST"}'
+
+    mock_tool_call_1 = unittest.mock.Mock(index=0, function=mock_function_1, id="tool_1")
+    mock_tool_call_2 = unittest.mock.Mock(index=1, function=mock_function_2, id="tool_2")
+
+    mock_message = unittest.mock.Mock()
+    mock_message.content = None
+    mock_message.reasoning_content = None
+    mock_message.tool_calls = [mock_tool_call_1, mock_tool_call_2]
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message = mock_message
+    mock_choice.finish_reason = "tool_calls"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 50
+    mock_usage.completion_tokens = 30
+    mock_usage.total_tokens = 80
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+    mock_response.usage = mock_usage
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = LiteLLMModel(
+        client_args={"api_key": api_key},
+        model_id=model_id,
+        params={"stream": False},
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "What's the weather and time in Seattle?"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify both tool calls are present
+    tool_start_events = [e for e in tru_events if "contentBlockStart" in e and "toolUse" in e.get("contentBlockStart", {}).get("start", {})]
+    assert len(tool_start_events) == 2
+
+    # Verify tool names
+    tool_names = [e["contentBlockStart"]["start"]["toolUse"]["name"] for e in tool_start_events]
+    assert "get_weather" in tool_names
+    assert "get_time" in tool_names
+
+    # Verify message stop has tool_use reason
+    assert {"messageStop": {"stopReason": "tool_use"}} in tru_events
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_with_cache_tokens(litellm_acompletion, api_key, model_id, alist):
+    """Test non-streaming response with prompt caching token details.
+
+    Azure OpenAI and Anthropic via LiteLLM support prompt caching. This test
+    verifies that cache read and write tokens are correctly reported in metadata.
+    """
+    mock_message = unittest.mock.Mock()
+    mock_message.content = "Cached response."
+    mock_message.reasoning_content = None
+    mock_message.tool_calls = None
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message = mock_message
+    mock_choice.finish_reason = "stop"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 10
+    mock_usage.total_tokens = 110
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 75
+    mock_usage.prompt_tokens_details = mock_tokens_details
+    mock_usage.cache_creation_input_tokens = 25
+    mock_response.usage = mock_usage
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = LiteLLMModel(
+        client_args={"api_key": api_key},
+        model_id=model_id,
+        params={"stream": False},
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Repeat context"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Find metadata event
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+
+    usage = metadata_events[0]["metadata"]["usage"]
+    assert usage["inputTokens"] == 100
+    assert usage["outputTokens"] == 10
+    assert usage["totalTokens"] == 110
+    assert usage["cacheReadInputTokens"] == 75
+    assert usage["cacheWriteInputTokens"] == 25
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_reasoning_only(litellm_acompletion, api_key, model_id, alist):
+    """Test non-streaming response with reasoning content but no text or tool calls.
+
+    Some thinking models may return only reasoning content in intermediate responses.
+    This verifies the content type switching works correctly in non-streaming mode.
+    """
+    mock_message = unittest.mock.Mock()
+    mock_message.content = None
+    mock_message.reasoning_content = "Let me think step by step about this problem..."
+    mock_message.tool_calls = None
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message = mock_message
+    mock_choice.finish_reason = "stop"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 20
+    mock_usage.completion_tokens = 15
+    mock_usage.total_tokens = 35
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+    mock_response.usage = mock_usage
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = LiteLLMModel(
+        client_args={"api_key": api_key},
+        model_id=model_id,
+        params={"stream": False},
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Think about this"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Should contain reasoning content delta
+    reasoning_events = [
+        e for e in tru_events
+        if "contentBlockDelta" in e and "reasoningContent" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(reasoning_events) == 1
+    assert reasoning_events[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == (
+        "Let me think step by step about this problem..."
+    )
