@@ -42,8 +42,12 @@ if [[ -z "$BASE" ]]; then
 fi
 
 # --- Compute changed files ---
-# merge-base diff INCLUDING uncommitted working-tree changes, so the local
-# inner loop tests what you just edited. (Two-arg form: base..working-tree.)
+# Diff the working tree against the merge-base so the local inner loop tests
+# what you just edited, including uncommitted edits. git diff only reports
+# tracked files, so untracked (new, not-yet-added) files are appended via
+# ls-files --others so brand-new source files select their covering tests too.
+# --exclude-standard honours .gitignore. On CI (HEAD == base SHA) there are no
+# local edits, so this reduces to the committed diff.
 MERGE_BASE="$(git merge-base "$BASE" HEAD 2>/dev/null || echo "$BASE")"
 CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || {
   echo "WARNING: cannot diff against $MERGE_BASE; running full integration suite." >&2
@@ -51,6 +55,8 @@ CHANGED="$(git diff --name-only "$MERGE_BASE" 2>/dev/null)" || {
   npm run test:integ:all
   exit $?
 }
+UNTRACKED="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
+CHANGED="$(printf '%s\n%s' "$CHANGED" "$UNTRACKED" | grep -v '^$' || true)"
 
 if [[ -z "$CHANGED" ]]; then
   echo "No changes detected vs $BASE — skipping integration tests."

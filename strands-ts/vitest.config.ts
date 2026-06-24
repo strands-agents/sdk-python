@@ -69,6 +69,10 @@ export default defineConfig({
           alias: {
             '$/sdk': path.resolve(__dirname, './src'),
             '$/vended': path.resolve(__dirname, './src/vended-tools'),
+            // Resolve the package specifier to source so `vitest related` can
+            // trace src changes to integ tests that import via '@strands-agents/sdk'
+            // (which otherwise resolves through package exports to dist/).
+            '@strands-agents/sdk': path.resolve(__dirname, './src'),
           },
           include: ['test/integ/**/*.test.ts', 'test/integ/**/*.test.node.ts'],
           name: { label: 'integ-node', color: 'magenta' },
@@ -89,6 +93,10 @@ export default defineConfig({
           alias: {
             '$/sdk': path.resolve(__dirname, './src'),
             '$/vended': path.resolve(__dirname, './src/vended-tools'),
+            // Resolve the package specifier to source so `vitest related` can
+            // trace src changes to integ tests that import via '@strands-agents/sdk'
+            // (which otherwise resolves through package exports to dist/).
+            '@strands-agents/sdk': path.resolve(__dirname, './src'),
           },
           include: ['test/integ/**/*.test.ts', 'test/integ/**/*.test.browser.ts'],
           name: { label: 'integ-browser', color: 'yellow' },
