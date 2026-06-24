@@ -9,13 +9,6 @@ import { Message, TextBlock } from '../../../types/messages.js'
 import { AfterInvocationEvent, MessageAddedEvent } from '../../../hooks/events.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import { logger } from '../../../logging/logger.js'
-import { warnOnce } from '../../../logging/warn-once.js'
-
-// Mock warn-once so detection-failure warnings can be asserted without the module-level dedupe set
-// leaking state across tests (mirrors conversation-manager.test.ts).
-vi.mock('../../../logging/warn-once.js', () => ({
-  warnOnce: vi.fn(),
-}))
 
 // Mock the AWS SDK clients. Command classes are stubbed to echo their input as `{ input }`, so a
 // test can assert on `send`'s argument — mirroring src/session/__tests__/s3-storage.test.ts. Client
@@ -35,7 +28,7 @@ vi.mock('@aws-sdk/client-bedrock-agent', () => ({
     return { send: vi.fn() }
   }),
   IngestKnowledgeBaseDocumentsCommand: vi.fn().mockImplementation(function (input) {
-    return { input }
+    return { input, _command: 'IngestKnowledgeBaseDocuments' }
   }),
   GetKnowledgeBaseCommand: vi.fn().mockImplementation(function (input) {
     return { input, _command: 'GetKnowledgeBase' }
@@ -433,28 +426,18 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(detectCalls).toHaveLength(1)
     })
 
-    it('falls back to vector search and warns when detection fails', async () => {
-      const { store, runtime, agent } = makeStore()
+    it('throws when detection fails', async () => {
+      const { store, agent } = makeStore()
       agent.send.mockRejectedValue(new Error('AccessDenied'))
-      await store.search('q')
-      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
-      expect(vi.mocked(warnOnce)).toHaveBeenCalledWith(
-        logger,
-        expect.stringContaining('knowledge base type detection failed')
-      )
+      await expect(store.search('q')).rejects.toThrow('AccessDenied')
     })
 
-    it('caches the vector fallback on detection failure', async () => {
-      const { store, runtime, agent } = makeStore()
-      agent.send.mockRejectedValueOnce(new Error('AccessDenied'))
-      await store.search('q')
-      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
-
-      // Subsequent searches reuse the cached VECTOR fallback without re-calling GetKnowledgeBase.
-      await store.search('q')
+    it('initialize is idempotent', async () => {
+      const { store, agent } = makeStore()
+      await store.initialize()
+      await store.initialize()
       const detectCalls = agent.send.mock.calls.filter((c: any[]) => c[0]?._command === 'GetKnowledgeBase')
       expect(detectCalls).toHaveLength(1)
-      expect(lastRetrievalConfiguration(runtime)).toHaveProperty('vectorSearchConfiguration')
     })
   })
 
@@ -815,7 +798,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     it('reuses an injected runtime client across stores built from the same config', async () => {
       const runtime = mockClient()
       runtime.send.mockResolvedValue({ retrievalResults: [] })
-      const config = { knowledgeBaseId: 'kb-1', runtimeClient: runtime as any }
+      const config = { knowledgeBaseId: 'kb-1', knowledgeBaseType: 'VECTOR' as const, runtimeClient: runtime as any }
 
       const personal = new BedrockKnowledgeBaseStore({ config, name: 'personal', scope: 'user-abc' })
       const team = new BedrockKnowledgeBaseStore({ config, name: 'team', scope: 'other' })
@@ -909,7 +892,7 @@ describe('BedrockKnowledgeBaseStore', () => {
 
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       // Buffer a turn, then fire the after-invocation hook and flush the background save.
       const message = new Message({ role: 'user', content: [new TextBlock('I like dark mode')] })
@@ -921,8 +904,12 @@ describe('BedrockKnowledgeBaseStore', () => {
 
       expect(extractor.extract).toHaveBeenCalledTimes(1)
       // The fact was ingested via IngestKnowledgeBaseDocuments with the extracted content.
-      expect(agentClient.send).toHaveBeenCalledTimes(1)
-      const document = agentClient.send.mock.calls[0]?.[0].input.documents[0]
+      // First call is GetKnowledgeBase (from initialize), second is IngestKnowledgeBaseDocuments.
+      const ingestCalls = agentClient.send.mock.calls.filter(
+        (c: any[]) => c[0]?._command === 'IngestKnowledgeBaseDocuments'
+      )
+      expect(ingestCalls).toHaveLength(1)
+      const document = ingestCalls[0]?.[0].input.documents[0]
       expect(document.content.custom.inlineContent.textContent.data).toBe('user prefers dark mode')
     })
   })

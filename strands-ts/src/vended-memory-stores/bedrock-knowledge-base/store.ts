@@ -19,16 +19,14 @@ import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from 
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
 import { logger } from '../../logging/logger.js'
-import { warnOnce } from '../../logging/warn-once.js'
 
 const DEFAULT_MAX_SEARCH_RESULTS = 10
 
 /**
- * How a knowledge base is queried: a managed knowledge base takes `managedSearchConfiguration`; a
- * self-managed (vector) one takes `vectorSearchConfiguration`. Detected from `GetKnowledgeBase` (see
- * {@link BedrockKnowledgeBaseStore._resolveKbType}), defaulting to vector on failure.
+ * Knowledge base types as defined by `GetKnowledgeBase`. A `MANAGED` KB uses
+ * `managedSearchConfiguration`; all others use `vectorSearchConfiguration`.
  */
-type KbType = 'MANAGED' | 'VECTOR'
+type KbType = 'KENDRA' | 'MANAGED' | 'SQL' | 'VECTOR'
 
 /**
  * An attribute entry in an S3 `.metadata.json` sidecar. `includeForEmbedding` is `false` so the
@@ -118,6 +116,8 @@ export interface BedrockKnowledgeBaseConfig {
   s3?: BedrockKnowledgeBaseS3Config
   /** Metadata attribute key used for scope-based filtering. Defaults to `'namespace'`. */
   scopeMetadataKey?: string
+  /** Knowledge base type (e.g. `'MANAGED'`, `'VECTOR'`). When provided, skips the `GetKnowledgeBase` call during initialization. */
+  knowledgeBaseType?: KbType
   /** Pre-constructed runtime client for Retrieve calls. When omitted, a default client is constructed. */
   runtimeClient?: BedrockAgentRuntimeClient
   /** Pre-constructed agent client for IngestKnowledgeBaseDocuments calls. When omitted, a default client is constructed lazily on first write. */
@@ -210,11 +210,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   private readonly _knowledgeBaseId: string
   private readonly _dataSourceType: 'CUSTOM' | 'S3' | 'OTHER' | undefined
   private readonly _dataSourceId: string | undefined
-  /**
-   * The knowledge base type, resolved lazily on first search and memoized (see
-   * {@link _resolveKbType}). `undefined` means "not yet detected"; a detection failure is not cached,
-   * so it is retried on the next search.
-   */
+  /** The knowledge base type, resolved eagerly in {@link initialize} via `GetKnowledgeBase`. */
   private _kbType: KbType | undefined
 
   /**
@@ -254,6 +250,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     this._s3Client = config.s3?.client
     this._s3Config = config.s3
     this._knowledgeBaseId = config.knowledgeBaseId
+    this._kbType = config.knowledgeBaseType
     this._dataSourceType = config.dataSourceType
     this._dataSourceId = config.dataSourceId
 
@@ -276,40 +273,21 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   }
 
   /**
-   * Resolves whether this knowledge base is `MANAGED` or `VECTOR`, memoizing the result.
+   * Resolve the knowledge base type via `GetKnowledgeBase` and cache the result.
    *
-   * A managed knowledge base must be queried with `managedSearchConfiguration` and a self-managed one
-   * with `vectorSearchConfiguration`; the two are otherwise interchangeable for the fields this store
-   * sets. The type is read once from `GetKnowledgeBase` (a bedrock-agent control-plane call) and
-   * cached for the store's lifetime.
+   * Idempotent: subsequent calls return immediately. When the store is registered with a
+   * `MemoryManager`, this runs at agent construction so permission or connectivity issues surface
+   * early. Standalone callers get the same check on first `search()`.
    *
-   * Detection fails open: any failure — a missing `bedrock:GetKnowledgeBase` permission, a throttle,
-   * or an AWS SDK too old to model managed knowledge bases — warns (once per process) and falls back
-   * to `VECTOR`. Vector is the right fallback because it is the only type that existed before this
-   * detection was added, so every store that worked previously was a vector store: falling back to it
-   * preserves their behavior exactly, and adds no new `GetKnowledgeBase` permission requirement for
-   * them. The fallback is cached so subsequent searches avoid a repeated failing control-plane call.
+   * @throws Error if the `GetKnowledgeBase` call fails for any reason.
    */
-  private async _resolveKbType(): Promise<KbType> {
-    if (this._kbType !== undefined) return this._kbType
+  async initialize(): Promise<void> {
+    if (this._kbType !== undefined) return
 
-    let configType: string | undefined
-    try {
-      const response = await this._getAgentClient().send(
-        new GetKnowledgeBaseCommand({ knowledgeBaseId: this._knowledgeBaseId })
-      )
-      configType = response.knowledgeBase?.knowledgeBaseConfiguration?.type
-    } catch (error) {
-      warnOnce(
-        logger,
-        `store=<${this.name}>, error=<${error}> | knowledge base type detection failed | falling back to vector search`
-      )
-      this._kbType = 'VECTOR'
-      return 'VECTOR'
-    }
-
-    this._kbType = configType === 'MANAGED' ? 'MANAGED' : 'VECTOR'
-    return this._kbType
+    const response = await this._getAgentClient().send(
+      new GetKnowledgeBaseCommand({ knowledgeBaseId: this._knowledgeBaseId })
+    )
+    this._kbType = response.knowledgeBase?.knowledgeBaseConfiguration?.type as KbType
   }
 
   /**
@@ -331,7 +309,8 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     const searchConfiguration = { numberOfResults: limit, ...(filter && { filter }) }
     // A managed knowledge base takes `managedSearchConfiguration`, a vector one
     // `vectorSearchConfiguration`; both accept the same fields, so only the wrapping key differs.
-    const managed = (await this._resolveKbType()) === 'MANAGED'
+    await this.initialize()
+    const managed = this._kbType === 'MANAGED'
     const retrievalConfiguration: KnowledgeBaseRetrievalConfiguration = managed
       ? { managedSearchConfiguration: searchConfiguration }
       : { vectorSearchConfiguration: searchConfiguration }
@@ -427,7 +406,8 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
         throw new Error(
           'BedrockKnowledgeBaseStore: ingestion was rejected because the data source has ACL awareness ' +
             'enabled but this store has no accessControlList configured. Set accessControlList in the store ' +
-            'config to write to an ACL-enabled data source.'
+            'config to write to an ACL-enabled data source.',
+          { cause: error }
         )
       }
       throw error

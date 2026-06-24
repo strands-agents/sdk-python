@@ -23,7 +23,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 from botocore.exceptions import ClientError
 
-import strands._logging as logging_module
 import strands.vended_memory_stores.bedrock_knowledge_base.store as store_module
 from strands.hooks.events import AfterInvocationEvent, MessageAddedEvent
 from strands.hooks.registry import HookOrder
@@ -46,14 +45,6 @@ from strands.vended_memory_stores.bedrock_knowledge_base import (
 def _pin_id(monkeypatch):
     """Pin the generated document/object id for deterministic assertions."""
     monkeypatch.setattr(store_module, "_new_id", lambda: "test-uuid-v7")
-
-
-@pytest.fixture(autouse=True)
-def _reset_warn_once():
-    """Clear process-wide warn-once state so each test exercises the detection-failure warning fresh."""
-    logging_module._warned.clear()
-    yield
-    logging_module._warned.clear()
 
 
 def _mock_client() -> MagicMock:
@@ -401,39 +392,18 @@ class TestSearch:
         assert agent.get_knowledge_base.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_vector_search_when_detection_fails(self, make_store, caplog):
-        store, runtime, agent = make_store()
-        agent.get_knowledge_base.side_effect = RuntimeError("AccessDenied")
-
-        with caplog.at_level(logging.WARNING):
-            await store.search("q")
-
-        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
-        assert "knowledge base type detection failed" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_caches_vector_fallback_on_detection_failure(self, make_store):
-        store, runtime, agent = make_store()
-        agent.get_knowledge_base.side_effect = RuntimeError("AccessDenied")
-        await store.search("q")
-        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
-
-        # Subsequent searches reuse the cached VECTOR fallback without re-calling GetKnowledgeBase.
-        await store.search("q")
-        assert agent.get_knowledge_base.call_count == 1
-        assert "vectorSearchConfiguration" in runtime.retrieve.call_args.kwargs["retrievalConfiguration"]
-
-    @pytest.mark.asyncio
-    async def test_warns_only_once_across_repeated_detection_failures(self, make_store, caplog):
+    async def test_raises_when_detection_fails(self, make_store):
         store, _runtime, agent = make_store()
         agent.get_knowledge_base.side_effect = RuntimeError("AccessDenied")
-
-        with caplog.at_level(logging.WARNING):
-            await store.search("q")
+        with pytest.raises(RuntimeError, match="AccessDenied"):
             await store.search("q")
 
-        warnings = [r for r in caplog.records if "knowledge base type detection failed" in r.getMessage()]
-        assert len(warnings) == 1
+    @pytest.mark.asyncio
+    async def test_initialize_is_idempotent(self, make_store):
+        store, _runtime, agent = make_store()
+        await store.initialize()
+        await store.initialize()
+        assert agent.get_knowledge_base.call_count == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -590,10 +560,11 @@ class TestAddCustom:
         store, agent = make_custom_store({"scope": "user-123", "access_control_list": acl})
         await store.add("fact")
         metadata = agent.ingest_knowledge_base_documents.call_args.kwargs["documents"][0]["metadata"]
-        assert metadata["accessControlList"] == acl
-        assert metadata["inlineAttributes"] == [
-            {"key": "namespace", "value": {"type": "STRING", "stringValue": "user-123"}}
-        ]
+        assert metadata == {
+            "type": "IN_LINE_ATTRIBUTE",
+            "inlineAttributes": [{"key": "namespace", "value": {"type": "STRING", "stringValue": "user-123"}}],
+            "accessControlList": acl,
+        }
 
     @pytest.mark.asyncio
     async def test_rewrites_missing_acl_error_to_point_at_the_param(self, make_custom_store):
@@ -973,7 +944,7 @@ class TestExtractionViaMemoryManager:
 
         mm = MemoryManager(stores=[store])
         agent = _FakeAgent()
-        mm.init_agent(agent)
+        await mm.init_agent(agent)
 
         message = {"role": "user", "content": [{"text": "I like dark mode"}]}
         await _invoke_all(agent, MessageAddedEvent(agent=agent, message=message))

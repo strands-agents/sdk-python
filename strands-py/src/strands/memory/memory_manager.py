@@ -536,11 +536,14 @@ class MemoryManager(Plugin):
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    def init_agent(self, agent: Agent) -> None:
+    async def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with the agent.
 
-        Wires up two independent behaviors:
+        Wires up three behaviors:
 
+        - **Store initialization**: calls each store's ``initialize()`` (if present) so stores can
+          resolve remote resources or validate configuration eagerly. A failure here aborts agent
+          construction with a clear error.
         - **Extraction**: for any store configured with an ``ExtractionConfig``,
           buffers conversation messages and attaches each store's triggers. A
           no-op when no store uses extraction. Extraction runs in the background;
@@ -551,8 +554,15 @@ class MemoryManager(Plugin):
           that folds retrieved memory into the model input for each call without
           touching durable history. A no-op when injection is disabled.
         """
+        await self._init_stores()
         self._init_extraction(agent)
         self._init_injection(agent)
+
+    async def _init_stores(self) -> None:
+        """Call ``initialize()`` on each store that implements it."""
+        for store in self._stores:
+            if _has_method(store, "initialize"):
+                await store.initialize()
 
     def _init_extraction(self, agent: Agent) -> None:
         """Wire background extraction for stores configured with an ``ExtractionConfig``."""

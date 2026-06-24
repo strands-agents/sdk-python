@@ -99,6 +99,7 @@ The inner `BedrockKnowledgeBaseConfig` is the reusable connection: which knowled
 | Field | Purpose |
 |-------|---------|
 | <Syntax py="knowledge_base_id" ts="knowledgeBaseId" /> | The Bedrock Knowledge Base to query and ingest into. Required. |
+| <Syntax py="knowledge_base_type" ts="knowledgeBaseType" /> | The knowledge base type (`'MANAGED'`, `'VECTOR'`, `'KENDRA'`, or `'SQL'`). When provided, skips the `GetKnowledgeBase` call during initialization. When omitted, detected automatically. |
 | <Syntax py="data_source_type" ts="dataSourceType" /> | `'CUSTOM'`, `'S3'`, or `'OTHER'`. Governs whether and how the store can be written to. |
 | <Syntax py="data_source_id" ts="dataSourceId" /> | The data source to ingest into. Required for writes. |
 | `s3` | S3 ingestion settings (`bucket`, `prefix`). Required when the data source type is `'S3'`. |
@@ -268,7 +269,7 @@ To change the cadence, swap the extractor, or extract server-side, see [Automati
 The credentials the store uses must allow the Bedrock operations it calls, plus S3 writes when using an S3 data source:
 
 - `bedrock:Retrieve` - for search.
-- `bedrock:GetKnowledgeBase` - read once on the first search, then memoized.
+- `bedrock:GetKnowledgeBase` - called once at initialization to detect the knowledge base type, then memoized. Not required if you provide <Syntax py="knowledge_base_type" ts="knowledgeBaseType" /> in the config.
 - `bedrock:IngestKnowledgeBaseDocuments` - for writes (`CUSTOM` and `S3`).
 - `s3:PutObject` - for writes to an `S3` data source, on the configured bucket and prefix.
 

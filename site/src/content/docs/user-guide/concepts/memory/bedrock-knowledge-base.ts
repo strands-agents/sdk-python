@@ -113,9 +113,7 @@ function aclStore() {
     name: 'policies',
     writable: true,
     scope: 'hr',
-    accessControlList: [
-      { access: 'ALLOW', name: 'alice@example.com', type: 'USER' },
-    ],
+    accessControlList: [{ access: 'ALLOW', name: 'alice@example.com', type: 'USER' }],
     config: {
       knowledgeBaseId: 'KB123',
       dataSourceType: 'CUSTOM',

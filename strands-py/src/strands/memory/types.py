@@ -283,6 +283,14 @@ class MemoryStore(Protocol):
         """
         ...
 
+    async def initialize(self) -> None:
+        """Perform async setup that must succeed before the agent runs.
+
+        Called by the ``MemoryManager`` during ``init_agent``. Stores that require remote resources
+        (e.g. resolving a knowledge base type) implement this; the default is a no-op.
+        """
+        ...
+
     def get_tools(self) -> list[AgentTool]:
         """Return store-specific tools to register alongside the manager's tools."""
         ...

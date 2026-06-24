@@ -82,6 +82,7 @@ class BedrockKnowledgeBaseConfig(TypedDict, total=False):
     """
 
     knowledge_base_id: Required[str]
+    knowledge_base_type: str
     data_source_type: Literal["CUSTOM", "S3", "OTHER"]
     data_source_id: str
     s3: BedrockKnowledgeBaseS3Config
