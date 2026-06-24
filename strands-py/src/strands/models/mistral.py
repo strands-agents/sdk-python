@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
@@ -36,6 +36,11 @@ class MistralModel(Model):
     - Tool/function calling
     - System prompts
     """
+
+    OVERFLOW_MESSAGES = {
+        "too large for model",
+        "maximum context length",
+    }
 
     class MistralConfig(BaseModelConfig, total=False):
         """Configuration parameters for Mistral models.
@@ -422,6 +427,7 @@ class MistralModel(Model):
             Formatted message chunks from the model.
 
         Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: When the model service is throttling requests.
         """
         warn_on_tool_choice_not_supported(tool_choice)
@@ -501,6 +507,8 @@ class MistralModel(Model):
                                 yield self.format_chunk({"chunk_type": "metadata", "data": chunk.data.usage})
 
         except Exception as e:
+            if any(message in str(e).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(e)) from e
             if "rate" in str(e).lower() or "429" in str(e):
                 raise ModelThrottledException(str(e)) from e
             raise
@@ -523,6 +531,7 @@ class MistralModel(Model):
             An instance of the output model with the generated data.
 
         Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
             ValueError: If the response cannot be parsed into the output model.
         """
         tool_spec: ToolSpec = {
@@ -536,8 +545,13 @@ class MistralModel(Model):
         formatted_request["tool_choice"] = "any"
         formatted_request["parallel_tool_calls"] = False
 
-        async with Mistral(**self.client_args) as client:
-            response = await client.chat.complete_async(**formatted_request)
+        try:
+            async with Mistral(**self.client_args) as client:
+                response = await client.chat.complete_async(**formatted_request)
+        except Exception as e:
+            if any(message in str(e).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(e)) from e
+            raise
 
         if response.choices and response.choices[0].message.tool_calls:
             tool_call = response.choices[0].message.tool_calls[0]
