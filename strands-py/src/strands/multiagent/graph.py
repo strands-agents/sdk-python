@@ -1079,9 +1079,12 @@ class Graph(MultiAgentBase):
                 yield self._activate_interrupt(node, node_result.interrupts)
                 return
 
-            # Mark as completed
-            node.execution_status = Status.COMPLETED
-            self.state.completed_nodes.add(node)
+            if node_result.status == Status.FAILED:
+                node.execution_status = Status.FAILED
+                self.state.failed_nodes.add(node)
+            else:
+                node.execution_status = Status.COMPLETED
+                self.state.completed_nodes.add(node)
             self.state.results[node.node_id] = node_result
             self.state.execution_order.append(node)
 
