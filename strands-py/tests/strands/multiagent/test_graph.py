@@ -1900,6 +1900,42 @@ async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_sp
 
 
 @pytest.mark.asyncio
+async def test_graph_nested_multiagent_failed_status_routed_to_failed_nodes(mock_strands_tracer, mock_use_span):
+    """Test that a nested MultiAgentBase reporting FAILED status is routed to failed_nodes."""
+    failing_multiagent = create_mock_multi_agent("failing_multiagent", "nested failure")
+
+    failed_inner_result = MultiAgentResult(
+        results={"inner_node": NodeResult(result=Exception("inner failure"), status=Status.FAILED)},
+        accumulated_usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        accumulated_metrics={"latencyMs": 0.0},
+        execution_count=1,
+        execution_time=10,
+        status=Status.FAILED,
+    )
+
+    async def stream_failed_result(*args, **kwargs):
+        yield {"multi_agent_start": True}
+        yield {"result": failed_inner_result}
+
+    failing_multiagent.stream_async = Mock(side_effect=stream_failed_result)
+    failing_multiagent.invoke_async = AsyncMock(return_value=failed_inner_result)
+
+    builder = GraphBuilder()
+    builder.add_node(failing_multiagent, "failing_multiagent_node")
+    graph = builder.build()
+
+    result = await graph.invoke_async("Test nested multiagent failure routing")
+
+    assert result.status == Status.FAILED
+    assert graph.state.status == Status.FAILED
+    failed_node_ids = {node.node_id for node in graph.state.failed_nodes}
+    completed_node_ids = {node.node_id for node in graph.state.completed_nodes}
+    assert "failing_multiagent_node" in failed_node_ids
+    assert "failing_multiagent_node" not in completed_node_ids
+    assert graph.nodes["failing_multiagent_node"].execution_status == Status.FAILED
+
+
+@pytest.mark.asyncio
 async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     """Test graph persistence functionality with multimodal input containing binary bytes."""
     import base64
