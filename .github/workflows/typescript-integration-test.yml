@@ -71,7 +71,11 @@ jobs:
 
       - name: Run integration tests
         env:
-          SELECTIVE_BASE_REF: ${{ github.event.pull_request.base.sha }}
+          # PR events expose the base SHA directly; merge_group exposes it as
+          # merge_group.base_sha. Falling back to the merge-queue base avoids
+          # diffing against origin/main (which would miss interactions with
+          # earlier-enqueued PRs and could narrow the test set unsafely).
+          SELECTIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: npm run test:integ:selective
 
       - name: Upload test artifacts
