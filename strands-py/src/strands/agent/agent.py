@@ -1214,7 +1214,8 @@ class Agent(AgentBase):
             self._cancel_signal.clear()
 
             self._concurrency.complete(begin.registered_token, result=result)
-            self._concurrency.release_lock()
+            if self._concurrency.mode == ConcurrentInvocationMode.THROW:
+                self._concurrency.release_lock()
 
     async def _run_loop(
         self,
