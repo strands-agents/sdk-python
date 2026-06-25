@@ -98,7 +98,7 @@ describe('changelogFrontmatterSchema', () => {
   })
 })
 
-import { groupEntries, getAreaCounts, formatChangelogDate, compareVersionDesc, escapeMarkdownInline } from '../src/util/changelog'
+import { groupEntries, getAreaCounts, formatChangelogDate, escapeMarkdownInline } from '../src/util/changelog'
 
 describe('escapeMarkdownInline (.md endpoint safety)', () => {
   it('escapes snake_case so it does not render as italics', () => {
@@ -110,28 +110,28 @@ describe('escapeMarkdownInline (.md endpoint safety)', () => {
     expect(escapeMarkdownInline('fix [x] and `y` and *z*')).toBe('fix \\[x\\] and \\`y\\` and \\*z\\*')
   })
   it('leaves plain text untouched', () => {
-    expect(escapeMarkdownInline('add agent factory for isolating context')).toBe('add agent factory for isolating context')
+    expect(escapeMarkdownInline('add agent factory for isolating context')).toBe(
+      'add agent factory for isolating context'
+    )
   })
 })
 
-describe('compareVersionDesc (date-tie stable ordering)', () => {
-  it('orders releases newest-first', () => {
-    const sorted = ['1.0.0-rc.0', '1.0.0', '1.0.0-rc.1', '1.2.0'].sort(compareVersionDesc)
-    expect(sorted).toEqual(['1.2.0', '1.0.0', '1.0.0-rc.1', '1.0.0-rc.0'])
-  })
-  it('ranks a final release above its prereleases', () => {
-    expect(compareVersionDesc('1.0.0', '1.0.0-rc.5')).toBeLessThan(0) // 1.0.0 sorts first
-  })
-  it('orders prerelease numbers numerically, not lexically', () => {
-    // rc.10 is newer than rc.2 (would be wrong under string compare)
-    expect(compareVersionDesc('1.0.0-rc.10', '1.0.0-rc.2')).toBeLessThan(0)
-  })
-})
+// compareVersionDesc ordering is covered in test/changelog/semver.test.ts
+// (its canonical home, next to the module). Not duplicated here.
 import type { ChangelogEntry } from '../src/content.config'
 
 const mk = (over: Partial<ChangelogEntry>): ChangelogEntry => ({
-  type: 'feat', breaking: false, scope: null, areas: [], title: 't',
-  pr: null, prUrl: null, commit: null, commitUrl: null, author: null, ...over,
+  type: 'feat',
+  breaking: false,
+  scope: null,
+  areas: [],
+  title: 't',
+  pr: null,
+  prUrl: null,
+  commit: null,
+  commitUrl: null,
+  author: null,
+  ...over,
 })
 
 describe('groupEntries', () => {
@@ -151,11 +151,7 @@ describe('groupEntries', () => {
 
 describe('getAreaCounts', () => {
   it('counts entries per area, sorted desc', () => {
-    const counts = getAreaCounts([
-      mk({ areas: ['model'] }),
-      mk({ areas: ['model', 'mcp'] }),
-      mk({ areas: [] }),
-    ])
+    const counts = getAreaCounts([mk({ areas: ['model'] }), mk({ areas: ['model', 'mcp'] }), mk({ areas: [] })])
     expect(counts).toEqual([
       { area: 'model', count: 2 },
       { area: 'mcp', count: 1 },
@@ -165,7 +161,7 @@ describe('getAreaCounts', () => {
   it('counts only the curated areas field — scopes are not folded in', () => {
     const counts = getAreaCounts([
       mk({ areas: ['model'], scope: 'model' }),
-      mk({ areas: [], scope: 'tests' }),    // raw scope must NOT become a facet
+      mk({ areas: [], scope: 'tests' }), // raw scope must NOT become a facet
       mk({ areas: ['tool'], scope: null }),
     ])
     expect(counts).toEqual([
