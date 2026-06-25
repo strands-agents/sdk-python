@@ -18,13 +18,11 @@ name: Auto Bug Verify
 # agent runs in the strands-command read-only sandbox and its only writes are
 # triage labels plus a single conditional comment as described above.
 #
-# DEPENDENCY: requires strands-agents/devtools#71 (which ships the
-# task-bug-verifier SOP and registers the `bug-verify` command) to be merged
-# first. Without it, the strands-command parser silently falls through to
-# `refiner` mode and the agent would produce confused refiner output on every
-# bug report. The "Verify devtools dependency" step below guards against this
-# by skipping the dispatch (with a logged warning) until the SOP is present on
-# strands-agents/devtools@main.
+# Requires the task-bug-verifier SOP and `bug-verify` command in
+# strands-agents/devtools@main, same convention as every other devtools-
+# dependent workflow in this repo (auto-strands-review, strands-command,
+# issue-labeler, etc. — none of them runtime-check devtools either; merge
+# order is coordinated at PR review time).
 #
 # Maintainers can also run it manually by commenting `/strands bug-verify`.
 
@@ -42,21 +40,7 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - name: Verify devtools dependency
-        id: devtools-check
-        run: |
-          set -euo pipefail
-          SOP_URL="https://raw.githubusercontent.com/strands-agents/devtools/main/strands-command/agent-sops/task-bug-verifier.sop.md"
-          # -f: fail (non-zero exit) on HTTP error. -s: silent. -o /dev/null: discard body. -I: HEAD only.
-          if curl -fsI -o /dev/null "$SOP_URL"; then
-            echo "sop_present=true" >> "$GITHUB_OUTPUT"
-            echo "✅ devtools task-bug-verifier SOP found on main"
-          else
-            echo "sop_present=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Skipping bug-verify dispatch: devtools task-bug-verifier SOP not yet on strands-agents/devtools@main. This guard prevents the strands-command parser from silently falling through to refiner mode. Merge strands-agents/devtools#71 first."
-          fi
       - name: Trigger Strands Command Workflow
-        if: steps.devtools-check.outputs.sop_present == 'true'
         uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
