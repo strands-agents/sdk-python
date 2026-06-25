@@ -74,10 +74,15 @@ if (!detail && release.body && release.body.trim() && !renderedHtml.trim()) {
 // hand-written narrative is present (e.g. releases the parser couldn't itemize
 // but that have curated prose).
 const hasBody = renderedHtml.trim().length > 0
+// Namespace EVERY id (not just headings): GFM footnotes also emit
+// id="user-content-fn-1" / "user-content-fnref-1", which would otherwise
+// collide across releases on the combined index and reintroduce the duplicate-id
+// a11y/W3C issue this exists to prevent. Same-document anchor hrefs (#...) are
+// rewritten to match so footnote/heading links still resolve.
 const namespacedBody = detail
   ? ''
   : renderedHtml
-      .replace(/(<h[1-6][^>]*\sid=")([^"]+)(")/g, (_m, pre, id, post) => `${pre}${anchorId}-${id}${post}`)
+      .replace(/(\sid=")([^"]+)(")/g, (_m, pre, id, post) => `${pre}${anchorId}-${id}${post}`)
       .replace(/(<a[^>]*\shref="#)([^"]+)(")/g, (_m, pre, id, post) => `${pre}${anchorId}-${id}${post}`)
 
 // The version number is an <h1> on the standalone detail page (the page's one
