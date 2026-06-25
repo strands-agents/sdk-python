@@ -45,10 +45,10 @@ src/subdir/
 
 ### Integration Test Location
 
-**Rule**: Integration tests are separate in `tests_integ/`
+**Rule**: Integration tests are separate in `test/integ/`
 
 ```
-tests_integ/
+test/integ/
 ├── api.test.ts                 # Tests public API
 └── environment.test.ts         # Tests environment compatibility
 ```
