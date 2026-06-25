@@ -15,13 +15,19 @@ The repo's CI (`.github/workflows/ci.yml`) detects which of three areas changed 
 
 ### 1. Run the bundled script
 
-From the repo root:
-
 ```bash
-bash .agents/skills/pre-push/run-checks.sh
+bash .agents/skills/pre-push/run-checks.sh 2>&1; echo "FAILURES:"; grep '^  FAILED:' /dev/stdin
 ```
 
-That path is relative to the repo root, but the script itself runs from anywhere in the repo — it locates the root with `git rev-parse --show-toplevel` before doing anything, so the area detection and checks are unaffected by your working directory. From a subdirectory, just point at the script absolutely:
+Or equivalently, capture and extract:
+
+```bash
+bash .agents/skills/pre-push/run-checks.sh > /tmp/prepush.log 2>&1; cat /tmp/prepush.log | grep '^  FAILED:' || echo "ALL PASSED"
+```
+
+The exit code is non-zero if anything failed. The `grep '^  FAILED:'` line extracts exactly the failed steps (two leading spaces + `FAILED:` + colon). Do **not** grep for bare `FAIL` or `FAILED` — test stderr noise matches those patterns.
+
+The script runs from anywhere in the repo (it locates the root via `git rev-parse --show-toplevel`). From a subdirectory:
 
 ```bash
 bash "$(git rev-parse --show-toplevel)/.agents/skills/pre-push/run-checks.sh"
@@ -44,7 +50,7 @@ Useful flags:
 
 ### 2. Triage what phase 2 reports
 
-If phase 2 comes back green, you're done — report it and stop. If it's red, work the failures before calling the branch push-ready, splitting by whether the fix requires judgment:
+If the grep from step 1 prints nothing, you're done — report it and stop. If it prints failures, work them before calling the branch push-ready, splitting by whether the fix requires judgment:
 
 - **Mechanical / unambiguous** — a missing type annotation, an unused import the linter flagged but didn't strip, a lockfile that needs committing. Just fix these and re-run the script.
 - **Anything ambiguous** — loop back to the developer with the failing output before changing anything. The clearest case is a **test failure**: it means either the change broke real behavior (fix the code) or the behavior change is intended and the test is stale (fix the test). Don't guess, and never rewrite a test just to make it pass — that silences the very check that caught the regression. Surface it and let the developer decide.
@@ -57,6 +63,16 @@ How that split applies to the specific things phase 2 reports:
 - **Missing tool** (`hatch`/`npm` not found) — the script says how to install. Report it; don't silently work around it.
 
 After fixing anything, re-run the script to confirm green.
+
+## Output format
+
+Phase 2 emits structured markers you can parse in a single pass:
+
+- **Starting a check:** `  > label` (two leading spaces, `>`, space, then the label)
+- **Failed check:** `  FAILED: label` (two leading spaces, `FAILED:` with colon, then the label) — written to stderr
+- **Final exit code:** non-zero if any check failed
+
+To identify failures, grep for `^  FAILED:` (leading spaces + colon). Do **not** grep for bare `FAIL` or `FAILED` — test stderr noise matches those patterns (e.g. `FAILED status`, `node execution failed`, vitest's `FAIL` prefix on test file names).
 
 ## Rules
 

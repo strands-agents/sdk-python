@@ -209,12 +209,26 @@ run_step() {  # run_step "label" cmd args...
   local label="$1"; shift
   echo
   echo "  > ${label}"
-  if "$@"; then
-    return 0
+  local rc=0
+  if [[ -t 1 ]]; then
+    # stdout is a TTY — run directly for streaming output.
+    "$@" || rc=$?
   else
+    # stdout is a pipe — redirect child output through a temp file so the child
+    # process never blocks on a full pipe buffer. Without this, long-running
+    # commands (vitest with 3500+ tests) can have workers time out because the
+    # main thread is stuck in write() waiting for the pipe to drain.
+    local _outfile
+    _outfile="$(mktemp "${TMPDIR:-/tmp}/run-checks.XXXXXX")"
+    "$@" > "$_outfile" 2>&1 || rc=$?
+    cat "$_outfile"
+    rm -f "$_outfile"
+  fi
+  if [[ $rc -ne 0 ]]; then
     echo "  FAILED: ${label}" >&2
     return 1
   fi
+  return 0
 }
 
 # A fixer that errors is reported but does not fail the area; the checks that
