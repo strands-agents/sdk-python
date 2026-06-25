@@ -26,13 +26,15 @@ jobs:
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
+          # `**/!(*.md)` excludes docs-only changes from the SDK test matrices; keep it an
+          # extglob, not a `!**/*.md` negation (paths-filter OR-s patterns, so a bare negation fires on everything).
           filters: |
             python:
-              - 'strands-py/**'
+              - 'strands-py/**/!(*.md)'
               - '.github/workflows/python-*'
               - '.github/workflows/ci.yml'
             typescript:
-              - 'strands-ts/**'
+              - 'strands-ts/**/!(*.md)'
               - 'strandly/**'
               - 'package.json'
               - 'package-lock.json'
