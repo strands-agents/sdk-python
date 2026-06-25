@@ -25,6 +25,12 @@ Skills for this repository. See [agentskills.io](https://agentskills.io/home) fo
 |-------|---------|
 | **strands-review** | Local preview of the `/strands review` GitHub Action. Runs the same Task Reviewer SOP so you can anticipate what the remote agent will flag before pushing. |
 
+## Issue triage
+
+| Skill | Purpose |
+|-------|---------|
+| **bug-verify** | Local preview of the `/strands bug-verify` GitHub Action (auto-triggered when a bug issue is opened). Runs the same Task Bug Verifier SOP: inspects the implicated source, runs a reproduction in a code executor, scores urgency, and applies triage labels. Comments on the issue in two cases only: sharing a derived reproduction when it couldn't validate the reporter's repro, or stating it couldn't reproduce the bug and requesting more info. |
+
 ## Adding a new skill
 
 Create a directory under `.agents/skills/<skill-name>/` with at least a `SKILL.md` file:
