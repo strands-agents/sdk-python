@@ -70,6 +70,7 @@ assert tru_message == exp_message
 
 ## Test Organization
 
+- **Prefer adding assertions to an existing test over writing a new one.** When a test already sets up the same scenario, extend it with the new assertions rather than duplicating the arrange step in a new test function. Add a separate test only for a distinct behavior, execution path, or error condition.
 - **Name tests `test_<method>_<description>`.** The test module already names the subject, so the class/subject should be omitted: `test__init__default_model_id`, `test_update_config_validation_warns_on_unknown_keys`. Add a subject prefix (`test_<subject>_<method>_<description>`) **only** when one module covers several subjects and the bare method name would be ambiguous.
 - **Default to flat, module-level functions.** Most of the suite is flat.
 - **Use a `class Test<Subject>` only when tests share class-scoped setup or fixtures** — not merely to group related cases (a module already groups them). Inside a class, the method name can drop the redundant subject since the class supplies it.

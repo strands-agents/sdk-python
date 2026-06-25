@@ -164,9 +164,9 @@ describe('calculateTotal', () => {
 
 ## Test Batching Strategy
 
-**Rule**: When test setup cost exceeds test logic cost, you MUST batch related assertions into a single test.
+**Rule**: When test setup cost exceeds test logic cost, you MUST batch related assertions into a single test. Prefer extending an existing test over adding a new one. If a test already arranges the scenario your new behavior needs, add the assertion(s) there rather than duplicating the setup. Reach for a new test only for the cases listed under "You SHOULD keep separate tests for" below.
 
-**You MUST batch when**:
+**You MUST batch (or extend an existing test) when**:
 
 - Setup complexity > test logic complexity
 - Multiple assertions verify the same object state
