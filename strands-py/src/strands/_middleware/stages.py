@@ -32,6 +32,4 @@ class InvokeModelContext:
     projected_input_tokens: int | None = None
 
 
-# TResult is the result event (ModelStopReason — the last event from the model chain);
-# TEvent is the type streamed through the chain.
 InvokeModelStage: MiddlewareStage[InvokeModelContext, ModelStopReason, TypedEvent] = MiddlewareStage(name="invokeModel")
