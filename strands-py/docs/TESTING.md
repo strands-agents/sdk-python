@@ -2,7 +2,7 @@
 
 > **IMPORTANT**: When writing tests, you **MUST** follow the guidelines in this document. They keep tests consistent, maintainable, and resilient to unrelated changes.
 
-This document is the authoritative testing reference for the Python SDK. For general development guidance, see [AGENTS.md](../AGENTS.md). It is the counterpart to the TypeScript SDK's [docs/TESTING.md](../../strands-ts/docs/TESTING.md); where a convention is shared, the two should stay aligned.
+This document is the authoritative testing reference for the Python SDK. For general development guidance, see [AGENTS.md](../AGENTS.md).
 
 ## Test Layout
 
@@ -70,8 +70,9 @@ assert tru_message == exp_message
 
 ## Test Organization
 
-- **Default to flat, module-level `test_<behavior>` functions.** Most of the suite is flat.
-- **Use a `class Test<Subject>` only when tests share class-scoped setup or fixtures** — not merely to group related cases (a module already groups them).
+- **Name tests `test_<method>_<description>`.** The test module already names the subject, so the class/subject should be omitted: `test__init__default_model_id`, `test_update_config_validation_warns_on_unknown_keys`. Add a subject prefix (`test_<subject>_<method>_<description>`) **only** when one module covers several subjects and the bare method name would be ambiguous.
+- **Default to flat, module-level functions.** Most of the suite is flat.
+- **Use a `class Test<Subject>` only when tests share class-scoped setup or fixtures** — not merely to group related cases (a module already groups them). Inside a class, the method name can drop the redundant subject since the class supplies it.
 - **Parametrize repetitive cases** with `@pytest.mark.parametrize` instead of copy-pasting a test body across inputs.
 - **Keep tests focused and independent**; import packages at the top of the file.
 
