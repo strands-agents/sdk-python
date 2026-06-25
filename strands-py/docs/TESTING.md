@@ -56,7 +56,9 @@ exp_result = {"role": "assistant", "content": [{"text": "hi"}]}
 assert tru_result == exp_result
 ```
 
-**Assert whole objects, not field-by-field.** A single equality on the whole structure documents the expected shape and catches unexpected extra fields. Mask only genuinely volatile fields (timestamps, generated ids, metadata) with `unittest.mock.ANY`:
+The right granularity depends on **who controls the expected shape**:
+
+**When you control the shape, assert the whole object — not field-by-field.** A single equality on the whole structure documents the expected shape and catches unexpected extra fields. Mask only genuinely volatile fields (timestamps, generated ids, metadata) with `unittest.mock.ANY`:
 
 ```python
 tru_message = result.message
@@ -64,7 +66,7 @@ exp_message = {"role": "assistant", "content": [{"text": "abc"}], "metadata": un
 assert tru_message == exp_message
 ```
 
-**Do not assert a full `Message` dict when the test only cares about part of it.** If the test is about the text or role, assert just that (`assert result.message["role"] == "assistant"`). Asserting the entire `Message` shape couples the test to fields it doesn't care about, so an unrelated change to the `Message` type breaks it — this is a recurring source of breakage in `tests_integ/`.
+**When the shape is an externally-evolving type, assert only the fields the test is about.** This is the natural exception to the rule above: a type like `Message` grows fields the test doesn't care about, so asserting the entire dict couples the test to unrelated churn. If the test is about the text or role, assert just that (`assert result.message["role"] == "assistant"`) — pinning the whole `Message` shape is a recurring source of breakage in `tests_integ/`.
 
 ## Test Organization
 
