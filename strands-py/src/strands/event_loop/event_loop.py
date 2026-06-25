@@ -304,18 +304,13 @@ async def event_loop_cycle(
 
         try:
             if stop_reason == "max_tokens":
-                """
-                Handle max_tokens limit reached by the model.
-
-                When the model reaches its maximum token limit, this represents a potentially unrecoverable
-                state where the model's response was truncated. By default, Strands fails hard with an
-                MaxTokensReachedException to maintain consistency with other failure types.
-                """
                 raise MaxTokensReachedException(
                     message=(
-                        "Agent has reached an unrecoverable state due to max_tokens limit. "
+                        "Model stopped generating due to maximum token limit. "
+                        "The partial message has been added to the conversation history. "
+                        "You can continue by calling the agent again. "
                         "For more information see: "
-                        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                        "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
                     )
                 )
 
@@ -530,9 +525,7 @@ async def _handle_model_execution(
             # Build middleware context with defensive copies to prevent accidental mutation.
             # invocation_state is intentionally shared by reference (hooks/tools write to it).
             system_prompt_value = (
-                agent._system_prompt_content
-                if agent._system_prompt_content is not None
-                else agent.system_prompt
+                agent._system_prompt_content if agent._system_prompt_content is not None else agent.system_prompt
             )
             middleware_context = InvokeModelContext(
                 agent=agent,
@@ -541,6 +534,7 @@ async def _handle_model_execution(
                 tool_specs=copy.deepcopy(tool_specs),
                 tool_choice=copy.deepcopy(structured_output_context.tool_choice),
                 invocation_state=invocation_state,
+                projected_input_tokens=projected_input_tokens,
             )
 
             # Run through middleware chain (terminal includes span tracking)
@@ -679,12 +673,14 @@ def _make_invoke_model_terminal(
 
                 stop_reason, message, usage, metrics = event["stop"]
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
-                yield MiddlewareResult(InvokeModelResult(
-                    stop_reason=stop_reason,
-                    message=message,
-                    usage=usage,
-                    metrics=metrics,
-                ))
+                yield MiddlewareResult(
+                    InvokeModelResult(
+                        stop_reason=stop_reason,
+                        message=message,
+                        usage=usage,
+                        metrics=metrics,
+                    )
+                )
             except Exception as e:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
                 raise

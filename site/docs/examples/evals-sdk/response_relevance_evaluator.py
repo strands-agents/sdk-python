@@ -3,6 +3,8 @@
 Evaluates whether agent responses are relevant to the user's question.
 """
 
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import ResponseRelevanceEvaluator
@@ -13,7 +15,6 @@ telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 
 
 def task_function(case: Case) -> dict:
-    telemetry.in_memory_exporter.clear()
     agent = Agent(
         trace_attributes={"session.id": case.session_id},
         callback_handler=None,
@@ -31,5 +32,12 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[ResponseRelevanceEvaluator()])
-report = experiment.run_evaluations(task_function)
-report.run_display()
+
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

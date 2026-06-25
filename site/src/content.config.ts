@@ -16,8 +16,18 @@ const authorSchema = z.object({
 })
 
 export const sourceLinkSchema = z.object({
-  repo: z.enum(['sdk-python', 'sdk-typescript']),
+  // Repo-relative path to the implementation,
+  // e.g. 'strands-py/src/strands/agent/agent.py'.
   path: z.string(),
+  // SDK language this implementation is for. Optional — by default it is
+  // inferred from the file extension (see resolveLanguage in util/source-links).
+  // Set it explicitly only to override inference: a backing file whose
+  // extension doesn't map to a language, or a future language. Free-form string
+  // (not an enum) so a new language works without a schema change.
+  language: z.string().optional(),
+  // GitHub repo slug under the strands-agents org. Defaults to the monorepo;
+  // override only for code that lives in a different org repo.
+  repo: z.string().default('harness-sdk'),
 })
 export type SourceLink = z.infer<typeof sourceLinkSchema>
 

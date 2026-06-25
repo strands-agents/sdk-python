@@ -80,25 +80,30 @@ experiment = Experiment.from_dict(
 `run_evaluations` returns a single `EvaluationReport`. When the experiment runs multiple evaluators, each row in `report.cases` carries an `evaluator` key naming the evaluator that produced it — use that to filter by evaluator if needed.
 
 ```python
+import asyncio
+
 # Run evaluation
-report = experiment.run_evaluations(task_function)
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
 
-# Save the full report directly (writes JSON; .json is added if missing)
-report.to_file("report")
+    # Save the full report directly (writes JSON; .json is added if missing)
+    report.to_file("report")
 
-# Or build a custom JSON payload
-import json
+    # Or build a custom JSON payload
+    import json
 
-report_data = {
-    "overall_score": report.overall_score,
-    "scores": report.scores,
-    "test_passes": report.test_passes,
-    "reasons": report.reasons,
-    "cases": report.cases,
-}
+    report_data = {
+        "overall_score": report.overall_score,
+        "scores": report.scores,
+        "test_passes": report.test_passes,
+        "reasons": report.reasons,
+        "cases": report.cases,
+    }
 
-with open("report_summary.json", "w") as f:
-    json.dump(report_data, f, indent=2)
+    with open("report_summary.json", "w") as f:
+        json.dump(report_data, f, indent=2)
+
+asyncio.run(main())
 ```
 
 ## Versioning Strategies
@@ -155,6 +160,7 @@ reports_dir.mkdir(exist_ok=True)
 ## Saving Experiments with Reports
 
 ```python
+import asyncio
 from pathlib import Path
 
 def save_with_report(experiment, report, base_name):
@@ -166,8 +172,11 @@ def save_with_report(experiment, report, base_name):
     report.to_file(str(base_path / "report.json"))
 
 # Usage
-report = experiment.run_evaluations(task_function)
-save_with_report(experiment, report, "baseline_20250115")
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    save_with_report(experiment, report, "baseline_20250115")
+
+asyncio.run(main())
 ```
 
 ## Error Handling

@@ -31,6 +31,12 @@ Skills for this repository. See [agentskills.io](https://agentskills.io/home) fo
 |-------|---------|
 | **bug-verify** | Local preview of the `/strands bug-verify` GitHub Action (auto-triggered when a bug issue is opened). Runs the same Task Bug Verifier SOP: inspects the implicated source, runs a reproduction in a code executor, scores urgency, and applies triage labels. Comments on the issue in two cases only: sharing a derived reproduction when it couldn't validate the reporter's repro, or stating it couldn't reproduce the bug and requesting more info. |
 
+## Local checks
+
+| Skill | Purpose |
+|-------|---------|
+| **pre-push** | Mirrors the `ci.yml` merge gate locally. A bundled script detects which areas changed (python/typescript/docs) using CI's exact path filters, auto-fixes what's mechanical (format, lint `--fix`, lockfile sync) scoped to changed files, then runs that area's checks. Run it to get push-ready before pushing or opening a PR (pairs with **pr-create** / **pr-writer**). |
+
 ## Adding a new skill
 
 Create a directory under `.agents/skills/<skill-name>/` with at least a `SKILL.md` file:

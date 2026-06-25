@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from strands import Agent
 from strands.models import Model
+from tests_integ.conftest import retry_on_flaky
 from tests_integ.models.providers import ProviderInfo, all_providers, cohere, llama, mistral
 
 
@@ -46,6 +47,10 @@ def test_model_can_be_constructed(model: Model, skip_for):
     pass
 
 
+@retry_on_flaky(
+    "A model may occasionally return no structured output for an uninformative prompt",
+    retry_on=["No valid tool use or tool use input was found"],
+)
 def test_structured_output_is_forced(skip_for, model):
     """Tests that structured_output is always forced to return a value even if model doesn't have any information."""
     skip_for([mistral, cohere, llama], "structured_output is not forced for provider ")

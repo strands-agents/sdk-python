@@ -89,7 +89,7 @@ async function summarizingCustom() {
 
   const conversationManager = new SummarizingConversationManager({
     model: summarizationModel, // Override the agent's model for summarization
-    summaryRatio: 0.3, // Summarize 30% of messages when context reduction is needed
+    summaryRatio: 0.3, // Summarize and replace the oldest 30% of messages
     preserveRecentMessages: 10, // Always keep 10 most recent messages
   })
 
@@ -175,5 +175,3 @@ async function pinFirstExample() {
   })
   // --8<-- [end:pin_first]
 }
-
-

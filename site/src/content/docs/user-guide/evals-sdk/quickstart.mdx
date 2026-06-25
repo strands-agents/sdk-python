@@ -346,6 +346,24 @@ You'll see detailed results showing:
 - Pass/fail rates by category
 - Detailed judge explanations
 
+## Command-Line Interface
+
+Installing `strands-agents-evals` also installs a `strands-evals` console script — a thin wrapper over the same Python API for CI gates and one-off checks. It's the fastest way to run an experiment without writing a runner:
+
+```bash
+# Schema-check, then run an experiment file against an agent factory
+strands-evals validate basic_evaluation.json
+strands-evals run basic_evaluation.json --agent my_agent_path:build_agent --display
+
+# One-off check with no experiment file
+strands-evals run \
+  --input "What is the capital of France?" \
+  --expected-output "Paris" \
+  --agent my_agent_path:build_agent
+```
+
+`--agent MODULE:ATTR` points at the same factory you'd pass to `experiment.run_evaluations` in Python. See the [CLI reference](cli.md) for `report`, `diagnose`, `generate`, CI exit codes, and the full flag set.
+
 ## Async Evaluation
 
 For improved performance, you can run evaluations asynchronously using `run_evaluations_async`. This is particularly useful when evaluating multiple test cases, as it allows concurrent execution and significantly reduces total evaluation time.
@@ -536,6 +554,7 @@ experiment = Experiment[str, str](cases=test_cases, evaluators=[safety_evaluator
 
 Ready to dive deeper? Explore these resources:
 
+- [Command-Line Interface](cli.md) - Run experiments and diagnose sessions from the shell or CI
 - [Task Decorator](how-to/eval_task.md) - Simplify task functions with `@eval_task`
 - [Output Evaluator](evaluators/output_evaluator.md) - LLM-based output evaluation with custom rubrics
 - [Trajectory Evaluator](evaluators/trajectory_evaluator.md) - Tool usage and sequence evaluation

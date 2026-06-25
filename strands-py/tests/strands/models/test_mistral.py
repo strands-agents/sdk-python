@@ -11,7 +11,7 @@ from strands.types.exceptions import ModelThrottledException
 
 @pytest.fixture
 def mistral_client():
-    with unittest.mock.patch.object(strands.models.mistral.mistralai, "Mistral") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.mistral, "Mistral") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
         yield mock_client
@@ -147,6 +147,74 @@ def test_format_request_with_system_prompt(model, messages, model_id, system_pro
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "test"},
+        ],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    assert actual_request == exp_request
+
+
+def test_format_request_with_tool_use_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "c1", "name": "search", "input": {"query": "東京"}}}],
+        },
+    ]
+
+    actual_request = model.format_request(messages)
+    exp_request = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "search",
+                            "arguments": '{"query": "東京"}',
+                        },
+                        "id": "c1",
+                        "type": "function",
+                    }
+                ],
+            }
+        ],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    assert actual_request == exp_request
+
+
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    actual_request = model.format_request(messages)
+    exp_request = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "tool",
+                "name": "c1",
+                "content": '{"city": "東京"}',
+                "tool_call_id": "c1",
+            }
         ],
         "max_tokens": 100,
         "stream": True,

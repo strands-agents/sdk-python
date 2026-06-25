@@ -5,7 +5,7 @@ import { z } from 'zod'
 import { resolve } from 'node:path'
 import { bedrock } from './__fixtures__/model-providers.js'
 
-const FIXTURES = resolve(import.meta.dirname!, '../../../src/vended-interventions/cedar/__tests__/fixtures')
+const FIXTURES = resolve(import.meta.dirname!, '../../src/vended-interventions/cedar/__tests__/fixtures')
 
 const searchTool = tool({
   name: 'search',

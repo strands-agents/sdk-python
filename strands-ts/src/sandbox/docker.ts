@@ -84,9 +84,11 @@ export class DockerSandbox extends PosixShellSandbox {
     const cwd = this.workingDir ? ` Working directory: ${this.workingDir}.` : ''
     return [
       makeFileEditor(this, {
+        name: 'sandbox_file_editor',
         description: `${DEFAULT_FILE_EDITOR_DESCRIPTION} Files are in Docker container "${this.container}".`,
       }),
       makeBash(this, {
+        name: 'sandbox_bash',
         description: `${SANDBOX_BASH_DESCRIPTION} Runs in Docker container "${this.container}".${cwd}`,
       }),
     ]

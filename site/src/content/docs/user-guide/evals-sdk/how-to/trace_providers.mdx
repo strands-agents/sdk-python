@@ -149,6 +149,8 @@ data = provider.get_evaluation_data(session_id="my-session-id")
 Pass the provider's data into the standard `Experiment` pipeline by wrapping it in a task function:
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import CoherenceEvaluator, OutputEvaluator
 from strands_evals.providers import CloudWatchProvider
@@ -174,9 +176,12 @@ evaluators = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=evaluators)
-report = experiment.run_evaluations(task)
 
-print(f"{report.overall_score:.2f} - {report.reasons}")
+async def main():
+    report = await experiment.run_evaluations_async(task)
+    print(f"{report.overall_score:.2f} - {report.reasons}")
+
+asyncio.run(main())
 ```
 
 The same pattern works with `LangfuseProvider` or `OpenSearchProvider` — just swap the provider initialization.

@@ -73,6 +73,7 @@ Always prefer `gh` over manual URL construction or web scraping. If `gh` is not 
 - Never list every file changed — that's what the diff view is for.
 - If the diff is trivial (typo fix, dependency bump), keep the description proportionally short.
 - Follow the writing principles and anti-patterns defined in the PR guidelines file selected in step 3.
+- Don't hard-wrap prose to a fixed column width. Write each paragraph as one continuous line and let it soft-wrap — GitHub renders Markdown that way, and narrow hard wraps are awkward to read in the rendered view and painful to edit later. Hard line breaks are only for actual structure (list items, headings, code blocks, table rows).
 - Fill in ALL sections of `.github/PULL_REQUEST_TEMPLATE.md`. Don't skip or rearrange them.
 - When a PR template contains checkboxes (`- [ ]`), pre-check them (`- [x]`) by default — except for any checkbox related to documentation updates or documentation examples, which should be left unchecked for the user to verify manually.
 - Output the final PR as a single markdown code block so the user can copy it directly.

@@ -107,6 +107,8 @@ class DiagnosisConfig(BaseModel):
 ### Example: Diagnose Failing Cases
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
@@ -141,7 +143,12 @@ experiment = Experiment(
     ),
 )
 
-report = experiment.run_evaluations(my_agent_task)
+async def main():
+    report = await experiment.run_evaluations_async(my_agent_task, max_workers=1)
+    report.run_display()
+    return report
+
+report = asyncio.run(main())
 ```
 
 ### Viewing Recommendations
@@ -209,6 +216,8 @@ If the trajectory is not a `Session` (e.g., it's a plain list of tool names), di
 This example shows the complete workflow: run evaluations with diagnosis, then analyze the results.
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
@@ -244,11 +253,14 @@ experiment = Experiment(
     ),
 )
 
-report = experiment.run_evaluations(math_agent)
+async def main():
+    report = await experiment.run_evaluations_async(math_agent, max_workers=1)
 
-# The experiment already returns a single combined report across all evaluators —
-# each row in `report.cases` carries an `evaluator` key naming the producer.
-report.display(include_recommendations=True)
+    # The experiment already returns a single combined report across all evaluators —
+    # each row in `report.cases` carries an `evaluator` key naming the producer.
+    report.display(include_recommendations=True)
+
+asyncio.run(main())
 ```
 
 ## Best Practices

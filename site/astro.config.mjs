@@ -63,8 +63,8 @@ export default defineConfig({
         // rehype plugins (e.g. heading anchor links) run on the real resolved paths.
         processedDirs: [path.resolve('.build/api-docs')],
       },
-      title: 'Strands Agents SDK',
-      description: 'A model-driven approach to building AI agents in just a few lines of code.',
+      title: 'Strands Agents',
+      description: 'The open source toolkit for building production agents.',
       sidebar: sidebar,
       routeMiddleware: './src/route-middleware.ts',
       customCss: [

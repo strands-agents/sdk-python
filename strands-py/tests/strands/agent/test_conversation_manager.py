@@ -1106,17 +1106,19 @@ def test_pin_first_only_applies_once():
     assert agent.messages[0].get("metadata", {}).get("custom", {}).get("pinned") is True
 
     # Second reduction — should not re-apply (flag is set)
-    agent.messages.extend([
-        {"role": "user", "content": [{"text": "seventh"}]},
-        {"role": "assistant", "content": [{"text": "eighth"}]},
-    ])
+    agent.messages.extend(
+        [
+            {"role": "user", "content": [{"text": "seventh"}]},
+            {"role": "assistant", "content": [{"text": "eighth"}]},
+        ]
+    )
     manager.reduce_context(agent)
     # Still works without error
     assert "first" in [m["content"][0]["text"] for m in agent.messages]
 
 
 def test_pinned_message_in_middle_survives_trimming():
-    from strands.agent.conversation_manager.pin_message import pin_message
+    from strands.agent.conversation_manager.compression.pin_message import pin_message
 
     manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False)
     messages = [

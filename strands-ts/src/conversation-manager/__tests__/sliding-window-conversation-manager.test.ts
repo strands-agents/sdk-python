@@ -1249,7 +1249,7 @@ describe('SlidingWindowConversationManager', () => {
     })
 
     it('pinned message in middle of window survives trimming', async () => {
-      const { pinMessage } = await import('../pin-message.js')
+      const { pinMessage } = await import('../compression/pin-message.js')
       const messages = [
         new Message({ role: 'user', content: [new TextBlock('first')] }),
         new Message({ role: 'assistant', content: [new TextBlock('second')] }),

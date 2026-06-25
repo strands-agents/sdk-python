@@ -173,7 +173,9 @@ describe('InvokeModelStage copy-on-input isolation', () => {
 
       await agent.invoke('Hello')
 
-      expect(contextKeys.sort()).toEqual(['agent', 'invocationState', 'messages', 'systemPrompt', 'toolSpecs'].sort())
+      expect(contextKeys.sort()).toEqual(
+        ['agent', 'invocationState', 'messages', 'projectedInputTokens', 'systemPrompt', 'toolSpecs'].sort()
+      )
     })
 
     it('model state changes are written back to agent.modelState after streaming', async () => {

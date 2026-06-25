@@ -157,9 +157,11 @@ export class SshSandbox extends PosixShellSandbox {
   override getTools(): Tool[] {
     return [
       makeFileEditor(this, {
+        name: 'sandbox_file_editor',
         description: `${DEFAULT_FILE_EDITOR_DESCRIPTION} Files are on host "${this.host}".`,
       }),
       makeBash(this, {
+        name: 'sandbox_bash',
         description: `${SANDBOX_BASH_DESCRIPTION} Runs on host "${this.host}". Working directory: ${this.workingDir}.`,
       }),
     ]

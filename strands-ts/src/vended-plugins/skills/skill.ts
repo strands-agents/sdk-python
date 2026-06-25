@@ -385,9 +385,11 @@ export class Skill {
       content = await response.text()
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('HTTP ')) {
-        throw new Error(`url=<${url}> | ${error.message}`)
+        throw new Error(`url=<${url}> | ${error.message}`, { cause: error })
       }
-      throw new Error(`url=<${url}> | failed to fetch skill: ${error instanceof Error ? error.message : error}`)
+      throw new Error(`url=<${url}> | failed to fetch skill: ${error instanceof Error ? error.message : error}`, {
+        cause: error,
+      })
     }
 
     return Skill.fromContent(content, options)

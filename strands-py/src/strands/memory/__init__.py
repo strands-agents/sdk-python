@@ -5,6 +5,7 @@ This package gives agents cross-session recall and persistence through a
 tools, and runs automatic background extraction.
 """
 
+from ..injection import InjectionConfig, InjectionContext, InjectionTrigger
 from ..types.exceptions import AggregateMemoryError
 from .extraction.model_extractor import ModelExtractor
 from .extraction.triggers import IntervalTrigger, InvocationTrigger
@@ -21,9 +22,12 @@ from .extraction.types import (
 from .memory_manager import MemoryManager
 from .types import (
     AddMessagesContext,
+    InjectionFormatContext,
+    InjectionQueryContext,
     MemoryAddOptions,
     MemoryAddToolConfig,
     MemoryEntry,
+    MemoryInjectionConfig,
     MemoryManagerConfig,
     MemorySearchOptions,
     MemoryStore,
@@ -41,12 +45,18 @@ __all__ = [
     "ExtractionTriggerContext",
     "Extractor",
     "ExtractorContext",
+    "InjectionConfig",
+    "InjectionContext",
+    "InjectionFormatContext",
+    "InjectionQueryContext",
+    "InjectionTrigger",
     "IntervalTrigger",
     "InvocationTrigger",
     "MemoryAddOptions",
     "MemoryAddToolConfig",
     "MemoryContentBlockType",
     "MemoryEntry",
+    "MemoryInjectionConfig",
     "MemoryManager",
     "MemoryManagerConfig",
     "MemoryMessageFilter",

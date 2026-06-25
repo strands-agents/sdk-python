@@ -323,8 +323,9 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // search_memory tool — explicit, model-driven retrieval. Injection off (default) so the only path
-  // to the fact is the tool.
+  // search_memory tool — explicit, model-driven retrieval. Injection is disabled so the only path to
+  // the fact is the tool: injection is on by default and would otherwise fold the seeded fact into
+  // the prompt, letting a correct answer bypass the tool.
   // ---------------------------------------------------------------------------
 
   describe.skipIf(shouldSkip())('search_memory tool', () => {
@@ -333,7 +334,7 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const fact = doveFact()
       await seedFact(store, fact.text)
 
-      const memoryManager = new MemoryManager({ stores: [store] })
+      const memoryManager = new MemoryManager({ stores: [store], injection: false })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, SEARCH_TOOL)
 
@@ -352,7 +353,7 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const fact = doveFact()
       await seedFact(storeB, fact.text)
 
-      const memoryManager = new MemoryManager({ stores: [storeA, storeB] })
+      const memoryManager = new MemoryManager({ stores: [storeA, storeB], injection: false })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, SEARCH_TOOL)
 
@@ -375,7 +376,12 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const store = makeStore('integ-mm-add-tool')
       const ids = captureAddedIds(store)
 
-      const memoryManager = new MemoryManager({ stores: [store], addToolConfig: true, searchToolConfig: false })
+      const memoryManager = new MemoryManager({
+        stores: [store],
+        addToolConfig: true,
+        searchToolConfig: false,
+        injection: false,
+      })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, ADD_TOOL)
 

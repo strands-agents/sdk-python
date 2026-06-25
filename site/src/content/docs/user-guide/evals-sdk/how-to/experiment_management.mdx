@@ -52,6 +52,8 @@ Case(name="math-arithmetic-001", input="..."),
 ### Experiment Collections
 
 ```python
+import asyncio
+
 from strands_evals import Experiment
 
 experiments = {
@@ -61,9 +63,12 @@ experiments = {
 }
 
 # Run all
-for name, exp in experiments.items():
-    print(f"Running {name}...")
-    report = exp.run_evaluations(task_function)
+async def main():
+    for name, exp in experiments.items():
+        print(f"Running {name}...")
+        report = await exp.run_evaluations_async(task_function)
+
+asyncio.run(main())
 ```
 
 ### Combining Experiments
@@ -83,12 +88,17 @@ combined = Experiment(
 If you've run separate experiments and want to merge their reports into one table, use `EvaluationReport.flatten`:
 
 ```python
-report_a = experiment_a.run_evaluations(task_function)
-report_b = experiment_b.run_evaluations(task_function)
+import asyncio
 
-from strands_evals.types.evaluation_report import EvaluationReport
-combined = EvaluationReport.flatten([report_a, report_b])
-combined.run_display()  # All cases from both runs in one table
+async def main():
+    report_a = await experiment_a.run_evaluations_async(task_function)
+    report_b = await experiment_b.run_evaluations_async(task_function)
+
+    from strands_evals.types.evaluation_report import EvaluationReport
+    combined = EvaluationReport.flatten([report_a, report_b])
+    combined.run_display()  # All cases from both runs in one table
+
+asyncio.run(main())
 ```
 
 ## Modifying Experiments

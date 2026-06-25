@@ -28,11 +28,10 @@ function buildLastModMap(contentDir: string): Map<string, string> {
   try {
     // Single git command: output all commits with dates and affected files
     // Format: each commit outputs its ISO date, then the list of files
-    const output = execFileSync(
-      'git',
-      ['log', '--format=%cI', '--name-only', '--diff-filter=ACMR', '--', contentDir],
-      { encoding: 'utf-8', maxBuffer: 50 * 1024 * 1024 }
-    )
+    const output = execFileSync('git', ['log', '--format=%cI', '--name-only', '--diff-filter=ACMR', '--', contentDir], {
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+    })
 
     // Parse: lines alternate between date lines and file path lines,
     // separated by blank lines. First occurrence of each file = most recent.
@@ -59,21 +58,43 @@ function buildLastModMap(contentDir: string): Map<string, string> {
 }
 
 /**
- * Convert a URL path to likely content file paths.
- * e.g., /docs/user-guide/quickstart/python/ → src/content/docs/user-guide/quickstart/python.mdx
+ * Determine the path from the git repo root to the current working directory.
+ *
+ * `git log --name-only` emits file paths relative to the repo root, but the
+ * build runs from `site/`, so those paths carry a `site/` prefix. We prepend
+ * the same prefix to lookup candidates so both sides share one path space.
+ * Returns '' when the build runs from the repo root (e.g. a Docker build) or
+ * when git is unavailable, which keeps the plugin correct in both layouts.
  */
-function urlToContentPaths(urlPath: string, contentDir: string): string[] {
+function getGitPrefix(): string {
+  try {
+    // git uses forward slashes with a trailing slash (e.g. "site/"), or "" at the repo root
+    return execFileSync('git', ['rev-parse', '--show-prefix'], { encoding: 'utf-8' }).trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Convert a URL path to likely content file paths.
+ * e.g., /docs/user-guide/quickstart/python/ → site/src/content/docs/user-guide/quickstart/python.mdx
+ *
+ * `gitPrefix` is prepended so candidates match the repo-root-relative paths
+ * that `git log --name-only` produces. Uses `path.posix.join` (not `path.join`)
+ * because both the git paths and `gitPrefix` use forward slashes — joining with
+ * the OS-native separator would reintroduce a separator mismatch on Windows,
+ * the same bug class this lookup is built to avoid.
+ */
+export function urlToContentPaths(urlPath: string, contentDir: string, gitPrefix: string): string[] {
   const slug = urlPath.replace(/^\//, '').replace(/\/$/, '')
 
-  return [
-    path.join(contentDir, `${slug}.mdx`),
-    path.join(contentDir, `${slug}.md`),
-    path.join(contentDir, slug, 'index.mdx'),
-    path.join(contentDir, slug, 'index.md'),
-  ]
+  return [`${slug}.mdx`, `${slug}.md`, path.posix.join(slug, 'index.mdx'), path.posix.join(slug, 'index.md')].map(
+    (rel) => gitPrefix + path.posix.join(contentDir, rel)
+  )
 }
 
 export function sitemapWithLastmod(contentDir: string = 'src/content') {
+  const gitPrefix = getGitPrefix()
   const lastModMap = buildLastModMap(contentDir)
   console.log(`[sitemap-lastmod] Loaded ${lastModMap.size} git dates`)
 
@@ -84,7 +105,7 @@ export function sitemapWithLastmod(contentDir: string = 'src/content') {
       // Skip API reference pages — generated at build time, not git-tracked
       if (url.pathname.includes('/api/')) return item
 
-      const candidates = urlToContentPaths(url.pathname, contentDir)
+      const candidates = urlToContentPaths(url.pathname, contentDir, gitPrefix)
 
       for (const candidate of candidates) {
         const date = lastModMap.get(candidate)

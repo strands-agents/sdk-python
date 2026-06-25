@@ -17,7 +17,8 @@ from ...models.model import Model
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import AggregateMemoryError
 from ..types import MemoryStore
-from .types import DEFAULT_MEMORY_MESSAGE_FILTER, Extractor, ExtractorContext, MemoryMessageFilter
+from .resolve_extraction_config import _ResolvedExtractionConfig
+from .types import Extractor, ExtractorContext, MemoryMessageFilter
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,20 @@ SAVE_FAILURES_BEFORE_BACKOFF = 10
 
 # While backed off, a store retries only once every this many save attempts.
 BACKOFF_PROBE_INTERVAL = 3
+
+
+@dataclass
+class _ExtractionBinding:
+    """A store paired with its fully-resolved extraction config.
+
+    Attributes:
+        store: The memory store to extract into.
+        config: The store's fully-resolved extraction config (triggers, extractor,
+            filter).
+    """
+
+    store: MemoryStore
+    config: _ResolvedExtractionConfig
 
 
 @dataclass
@@ -46,22 +61,27 @@ class ExtractionCoordinator:
     for repeatedly failing stores.
     """
 
-    def __init__(self, stores: list[MemoryStore], default_model: Model) -> None:
+    def __init__(self, bindings: list[_ExtractionBinding], default_model: Model) -> None:
         """Initialize the coordinator.
 
         Args:
-            stores: The extraction-configured stores this coordinator manages.
+            bindings: The extraction-configured stores this coordinator manages,
+                each paired with its fully-resolved config.
             default_model: The agent's model, passed to extractors that do not
                 configure their own.
         """
-        self._stores = list(stores)
+        self._stores = [binding.store for binding in bindings]
+        # Per store: its resolved extraction config (triggers, extractor, filter).
+        self._configs: dict[int, _ResolvedExtractionConfig] = {
+            id(binding.store): binding.config for binding in bindings
+        }
         self._default_model = default_model
         # Messages waiting to be saved, oldest first.
         self._pending: list[_Buffered] = []
         # The ``seq`` to assign the next buffered message.
         self._next_seq = 0
         # Per store: ``seq`` of the last message it has saved (-1 means none).
-        self._marks: dict[int, int] = {id(store): -1 for store in stores}
+        self._marks: dict[int, int] = {id(binding.store): -1 for binding in bindings}
         # Per store: the currently-running save task, so the next save waits its turn.
         self._chains: dict[int, asyncio.Task] = {}
         # Per store: consecutive save failures, reset to 0 on success.
@@ -161,20 +181,17 @@ class ExtractionCoordinator:
         if not fresh:
             return
 
-        extraction = store.extraction
-        if extraction is None:
-            return
+        config = self._configs[id(store)]
 
         # Mark saved before saving so a queued save won't pick these up again;
         # rolled back below on failure.
         self._marks[id(store)] = fresh[-1].seq
 
-        message_filter = extraction.filter or DEFAULT_MEMORY_MESSAGE_FILTER
-        filtered = self._filter_messages([buffered.message for buffered in fresh], message_filter)
+        filtered = self._filter_messages([buffered.message for buffered in fresh], config.filter)
 
         try:
             if filtered:
-                await self._write(store, filtered, extraction.extractor)
+                await self._write(store, filtered, config.extractor)
                 # Successful write clears the failure streak and ends backoff. A
                 # fully filtered (empty) turn never touched the backend, so it
                 # leaves backoff state untouched.

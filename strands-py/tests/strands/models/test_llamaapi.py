@@ -136,6 +136,72 @@ def test_format_request_with_image(model, model_id):
     assert tru_request == exp_request
 
 
+def test_format_request_with_tool_use_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "c1", "name": "search", "input": {"query": "東京"}}}],
+        },
+    ]
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [
+            {
+                "content": "",
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "search",
+                            "arguments": '{"query": "東京"}',
+                        },
+                        "id": "c1",
+                    }
+                ],
+            }
+        ],
+        "model": model_id,
+        "stream": True,
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [
+            {
+                "content": [{"text": '{"city": "東京"}', "type": "text"}],
+                "role": "tool",
+                "tool_call_id": "c1",
+            },
+        ],
+        "model": model_id,
+        "stream": True,
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_with_tool_result(model, model_id):
     messages = [
         {

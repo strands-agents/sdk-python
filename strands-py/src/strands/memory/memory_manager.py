@@ -5,20 +5,26 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from ..hooks.events import AfterInvocationEvent, MessageAddedEvent
-from ..hooks.registry import HookOrder
+from .._middleware.stages import InvokeModelStage
+from ..hooks.events import MessageAddedEvent
+from ..injection._message_injection import _create_injection_middleware, _is_user_turn
+from ..injection._xml import _escape_xml_attr, _escape_xml_text
 from ..plugins.plugin import Plugin
 from ..tools.decorator import tool
 from ..types.exceptions import AggregateMemoryError
 from ..types.tools import AgentTool
-from .extraction.coordinator import ExtractionCoordinator
-from .extraction.types import ExtractionTrigger, ExtractionTriggerContext
+from .extraction.coordinator import ExtractionCoordinator, _ExtractionBinding
+from .extraction.resolve_extraction_config import _resolve_extraction_config
+from .extraction.types import ExtractionTriggerContext
 from .types import (
+    InjectionFormatContext,
+    InjectionQueryContext,
     MemoryAddOptions,
     MemoryAddToolConfig,
     MemoryEntry,
+    MemoryInjectionConfig,
     MemorySearchOptions,
     MemoryStore,
     MemoryToolConfig,
@@ -28,6 +34,7 @@ from .types import (
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..types.content import Messages
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +51,8 @@ ADD_TOOL_DESCRIPTION = (
 # Default maximum results per store when neither caller nor store specifies one.
 DEFAULT_MAX_SEARCH_RESULTS = 3
 
-
-def _normalize_triggers(trigger: ExtractionTrigger | list[ExtractionTrigger]) -> list[ExtractionTrigger]:
-    """Normalize a store's ``trigger`` field (a single trigger or a list) to a list."""
-    return list(trigger) if isinstance(trigger, list) else [trigger]
+# Default number of entries injected per model call when injection does not specify one.
+DEFAULT_MAX_ENTRIES = 5
 
 
 def _flatten_reasons(reasons: list[BaseException]) -> list[BaseException]:
@@ -64,17 +69,13 @@ def _flatten_reasons(reasons: list[BaseException]) -> list[BaseException]:
 class MemoryManager(Plugin):
     """Provides cross-session memory retrieval and storage for agents.
 
-    When using the synchronous ``Agent(...)`` entry point, set
-    ``flush_on_invocation_end=True`` so extraction writes persist across its
-    per-invocation event loop.
-
     Example:
         ```python
         from strands import Agent
         from strands.memory import MemoryManager
 
-        memory_manager = MemoryManager(stores=[my_store], flush_on_invocation_end=True)
-        agent = Agent(model=model, plugins=[memory_manager])
+        memory_manager = MemoryManager(stores=[my_store])
+        agent = Agent(model=model, memory_manager=memory_manager)
         agent("Remember I prefer dark mode")
 
         results = await memory_manager.search("user preferences")
@@ -88,7 +89,7 @@ class MemoryManager(Plugin):
         stores: list[MemoryStore],
         search_tool_config: MemoryToolConfig | bool = True,
         add_tool_config: MemoryAddToolConfig | bool = False,
-        flush_on_invocation_end: bool = False,
+        injection: MemoryInjectionConfig | bool = True,
     ) -> None:
         """Initialize the memory manager.
 
@@ -100,11 +101,11 @@ class MemoryManager(Plugin):
             add_tool_config: Add tool configuration. ``False`` (default) disables
                 the add tool; ``True`` lets it write to all writable stores; a
                 :class:`MemoryAddToolConfig` restricts/customizes it.
-            flush_on_invocation_end: When True, await pending extraction writes at
-                the end of each agent invocation. Enable when driving the agent
-                through the synchronous ``Agent(...)`` entry point, whose
-                per-invocation event loop would otherwise cancel in-flight saves.
-                Defaults to False (fire-and-forget).
+            injection: Memory context injection. ``True`` (default) uses the
+                default injection settings; a :class:`MemoryInjectionConfig`
+                customizes retrieval, timing, and formatting; ``False`` disables
+                it. When enabled, retrieved memory is folded into the model input
+                before each call without touching durable history.
 
         Raises:
             ValueError: If ``stores`` is empty, a store name is duplicated, a
@@ -116,6 +117,7 @@ class MemoryManager(Plugin):
             raise ValueError("MemoryManager: at least one store is required")
 
         seen_names: set[str] = set()
+        extraction_bindings: list[_ExtractionBinding] = []
         for store in stores:
             if store.name in seen_names:
                 raise ValueError(f"MemoryManager: duplicate store name '{store.name}'")
@@ -126,13 +128,16 @@ class MemoryManager(Plugin):
                     f"MemoryManager: store '{store.name}' is writable but has no add or add_messages method"
                 )
 
-            if store.extraction is not None:
+            extraction_config = _resolve_extraction_config(store.extraction, store)
+            if extraction_config is not None:
                 if not store.writable:
                     raise ValueError(f"MemoryManager: store '{store.name}' has extraction config but is not writable")
-                if len(_normalize_triggers(store.extraction.trigger)) == 0:
+                if len(extraction_config.triggers) == 0:
                     raise ValueError(f"MemoryManager: store '{store.name}' has extraction config but no triggers")
-                # Each extraction shape needs its matching write sink.
-                if store.extraction.extractor is not None:
+                # Each extraction shape needs its matching write sink. An extractor produces discrete
+                # entries written via `add`; without an extractor the raw message batch goes to
+                # `add_messages`.
+                if extraction_config.extractor is not None:
                     if not _has_method(store, "add"):
                         raise ValueError(
                             f"MemoryManager: store '{store.name}' has an extractor but no add method "
@@ -143,6 +148,7 @@ class MemoryManager(Plugin):
                         f"MemoryManager: store '{store.name}' has extraction config without an extractor "
                         "but no add_messages method"
                     )
+                extraction_bindings.append(_ExtractionBinding(store=store, config=extraction_config))
 
         super().__init__()
 
@@ -150,17 +156,18 @@ class MemoryManager(Plugin):
         self._search_stores = list(stores)
         # `add`-targeting paths (tool / programmatic) need an `add` method specifically.
         self._add_stores = [store for store in stores if store.writable and _has_method(store, "add")]
-        self._extraction_stores = [store for store in stores if store.writable and store.extraction is not None]
+        # Stores with extraction enabled, each paired with its resolved config; wired up in ``init_agent``.
+        self._extraction_stores = extraction_bindings
 
-        self._search_tool_config: MemoryToolConfig | bool
-        if search_tool_config is False:
-            self._search_tool_config = False
-        elif isinstance(search_tool_config, MemoryToolConfig):
+        self._search_tool_config: MemoryToolConfig | Literal[False]
+        if isinstance(search_tool_config, dict):
             self._search_tool_config = search_tool_config
-        else:
+        elif search_tool_config:
             self._search_tool_config = MemoryToolConfig()
+        else:
+            self._search_tool_config = False
 
-        self._add_tool_config: MemoryAddToolConfig | bool
+        self._add_tool_config: MemoryAddToolConfig | Literal[False]
         self._add_tool_stores: list[MemoryStore]
         if add_tool_config is None or add_tool_config is False:
             self._add_tool_config = False
@@ -169,9 +176,7 @@ class MemoryManager(Plugin):
             # The `add_memory` tool writes via `add`, so needs an `add`-capable store.
             if len(self._add_stores) == 0:
                 raise ValueError("MemoryManager: add_tool_config is enabled but no writable stores implement add")
-            resolved_config = (
-                add_tool_config if isinstance(add_tool_config, MemoryAddToolConfig) else MemoryAddToolConfig()
-            )
+            resolved_config = add_tool_config if isinstance(add_tool_config, dict) else MemoryAddToolConfig()
             self._add_tool_config = resolved_config
             self._add_tool_stores = self._resolve_add_tool_stores(resolved_config)
 
@@ -181,7 +186,15 @@ class MemoryManager(Plugin):
         # Extraction coordinator, created in ``init_agent`` when configured.
         self._coordinator: ExtractionCoordinator | None = None
 
-        self._flush_on_invocation_end = flush_on_invocation_end
+        # Resolved injection config, or ``False`` when injection is disabled. ``True`` resolves
+        # to a default ``MemoryInjectionConfig``; a config object passes through unchanged.
+        self._injection_config: MemoryInjectionConfig | Literal[False]
+        if isinstance(injection, dict):
+            self._injection_config = injection
+        elif injection:
+            self._injection_config = MemoryInjectionConfig()
+        else:
+            self._injection_config = False
 
         # Build tools now; surfaced via the ``tools`` property.
         self._memory_tools: list[AgentTool] = self._build_tools()
@@ -196,10 +209,11 @@ class MemoryManager(Plugin):
             ValueError: If a referenced store is not configured, not writable, or
                 has no ``add`` method.
         """
-        if tool_config.stores is None:
+        config_stores = tool_config.get("stores")
+        if config_stores is None:
             return self._add_stores
 
-        names = [store if isinstance(store, str) else store.name for store in tool_config.stores]
+        names = [store if isinstance(store, str) else store.name for store in config_stores]
 
         resolved: list[MemoryStore] = []
         seen: set[str] = set()
@@ -226,10 +240,10 @@ class MemoryManager(Plugin):
         """
         tools: list[AgentTool] = []
 
-        if isinstance(self._search_tool_config, MemoryToolConfig):
+        if isinstance(self._search_tool_config, dict):
             tools.append(self._create_search_tool(self._search_tool_config))
 
-        if isinstance(self._add_tool_config, MemoryAddToolConfig):
+        if isinstance(self._add_tool_config, dict):
             tools.append(self._create_add_tool(self._add_tool_config, self._add_tool_stores))
 
         for store in self._stores:
@@ -258,8 +272,8 @@ class MemoryManager(Plugin):
         Raises:
             ValueError: If a named store is not found (raised before querying).
         """
-        requested_stores = options.stores if options is not None else None
-        caller_max = options.max_search_results if options is not None else None
+        requested_stores = options.get("stores") if options is not None else None
+        caller_max = options.get("max_search_results") if options is not None else None
 
         logger.debug(
             "query=<%s>, max_search_results=<%s>, stores=<%s> | searching stores",
@@ -325,8 +339,8 @@ class MemoryManager(Plugin):
                 writable store matched.
             AggregateMemoryError: If any targeted store write fails.
         """
-        requested_stores = options.stores if options is not None else None
-        metadata = options.metadata if options is not None else None
+        requested_stores = options.get("stores") if options is not None else None
+        metadata = options.get("metadata") if options is not None else None
 
         if requested_stores is not None:
             writable_stores: list[MemoryStore] = []
@@ -398,7 +412,8 @@ class MemoryManager(Plugin):
 
     def _create_search_tool(self, config: MemoryToolConfig) -> AgentTool:
         """Build the ``search_memory`` tool."""
-        description = config.description if config.description is not None else SEARCH_TOOL_DESCRIPTION
+        custom_description = config.get("description")
+        description = custom_description if custom_description is not None else SEARCH_TOOL_DESCRIPTION
         store_descriptions = [
             f"- {store.name}: {store.description}" for store in self._search_stores if store.description
         ]
@@ -428,10 +443,10 @@ class MemoryManager(Plugin):
                 Matching memory entries, each attributed to its store.
             """
             targets = self._resolve_tool_targets(scoped_names, stores)
-            results = await self.search(
-                query,
-                MemorySearchOptions(max_search_results=max_search_results, stores=targets),
-            )
+            options = MemorySearchOptions(stores=targets)
+            if max_search_results is not None:
+                options["max_search_results"] = max_search_results
+            results = await self.search(query, options)
             payload: list[dict[str, Any]] = []
             for entry in results:
                 item: dict[str, Any] = {"content": entry.content}
@@ -442,14 +457,16 @@ class MemoryManager(Plugin):
                 payload.append(item)
             return payload
 
+        custom_name = config.get("name")
         return tool(
-            name=config.name if config.name is not None else "search_memory",
+            name=custom_name if custom_name is not None else "search_memory",
             description=description,
         )(search_memory)
 
     def _create_add_tool(self, config: MemoryAddToolConfig, stores: list[MemoryStore]) -> AgentTool:
         """Build the ``add_memory`` tool."""
-        description = config.description if config.description is not None else ADD_TOOL_DESCRIPTION
+        custom_description = config.get("description")
+        description = custom_description if custom_description is not None else ADD_TOOL_DESCRIPTION
         store_descriptions = [f"- {store.name}: {store.description}" for store in stores if store.description]
         if store_descriptions:
             description += "\n\nAvailable writable stores:\n" + "\n".join(store_descriptions)
@@ -459,7 +476,7 @@ class MemoryManager(Plugin):
             )
 
         scoped_names = [store.name for store in stores]
-        wait_for_writes = config.wait_for_writes
+        wait_for_writes = config.get("wait_for_writes", True)
 
         async def add_memory(entries: list[str], stores: list[str] | None = None) -> dict[str, int]:
             """Add data to long-term memory.
@@ -500,8 +517,9 @@ class MemoryManager(Plugin):
 
             return {"stored": len(entries)}
 
+        custom_name = config.get("name")
         return tool(
-            name=config.name if config.name is not None else "add_memory",
+            name=custom_name if custom_name is not None else "add_memory",
             description=description,
         )(add_memory)
 
@@ -518,12 +536,36 @@ class MemoryManager(Plugin):
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
 
-    def init_agent(self, agent: Agent) -> None:
+    async def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with the agent.
 
-        Wires up automatic extraction for any store configured with an
-        ``ExtractionConfig``. A no-op when no store uses extraction.
+        Wires up three behaviors:
+
+        - **Store initialization**: calls each store's ``initialize()`` (if present) so stores can
+          resolve remote resources or validate configuration eagerly. A failure here aborts agent
+          construction with a clear error.
+        - **Extraction**: for any store configured with an ``ExtractionConfig``,
+          buffers conversation messages and attaches each store's triggers. A
+          no-op when no store uses extraction. Extraction runs in the background;
+          the synchronous ``Agent(...)`` entry point awaits :meth:`flush` after
+          each invocation so writes persist, and callers driving the agent through
+          their own event loop should await :meth:`flush` at a shutdown boundary.
+        - **Injection**: when enabled, registers an ``InvokeModelStage`` middleware
+          that folds retrieved memory into the model input for each call without
+          touching durable history. A no-op when injection is disabled.
         """
+        await self._init_stores()
+        self._init_extraction(agent)
+        self._init_injection(agent)
+
+    async def _init_stores(self) -> None:
+        """Call ``initialize()`` on each store that implements it."""
+        for store in self._stores:
+            if _has_method(store, "initialize"):
+                await store.initialize()
+
+    def _init_extraction(self, agent: Agent) -> None:
+        """Wire background extraction for stores configured with an ``ExtractionConfig``."""
         if len(self._extraction_stores) == 0:
             return
 
@@ -533,23 +575,118 @@ class MemoryManager(Plugin):
         # Buffer every message so extraction has its own copy to save from.
         agent.add_hook(lambda event: coordinator.record(event.message), MessageAddedEvent)
 
-        for store in self._extraction_stores:
-            assert store.extraction is not None  # noqa: S101 - extraction stores always configure this.
-            for trigger in _normalize_triggers(store.extraction.trigger):
-                trigger.attach(ExtractionTriggerContext(agent=agent, fire=self._make_fire(coordinator, store)))
+        for binding in self._extraction_stores:
+            for trigger in binding.config.triggers:
+                trigger.attach(ExtractionTriggerContext(agent=agent, fire=self._make_fire(coordinator, binding.store)))
 
-        if self._flush_on_invocation_end:
-            agent.add_hook(self._flush_after_invocation, AfterInvocationEvent, order=HookOrder.SDK_LAST)
-        else:
-            logger.warning(
-                "flush_on_invocation_end=<False> | background extraction is lost if the event loop closes "
-                "before it finishes (e.g. the synchronous Agent(...) entry point); safe to ignore if you "
-                "await MemoryManager.flush() at a shutdown boundary or enable flush_on_invocation_end."
+    def _init_injection(self, agent: Agent) -> None:
+        """Register the injection middleware when injection is enabled.
+
+        Folds retrieved memory into the model input for each call via
+        :meth:`_provide_memory_context`, without touching durable history. A no-op
+        when injection is disabled.
+        """
+        config = self._injection_config
+        if config is False:
+            return
+
+        agent._middleware_registry.add_middleware(
+            InvokeModelStage.Input,
+            _create_injection_middleware(
+                lambda context: self._provide_memory_context(context.messages, config),
+                trigger=config.get("trigger"),
+            ),
+        )
+
+    async def _provide_memory_context(self, messages: Messages, config: MemoryInjectionConfig) -> str | None:
+        """Produce the memory context text to inject for a model call, or ``None`` to skip.
+
+        This is the ``render_content`` callback the injection middleware invokes (see
+        :meth:`_init_injection`). Derives a query (the configured callback or an adaptive
+        default), searches memory, and renders the top entries. Skips silently
+        (returns ``None``) when no query can be derived or the search returns
+        nothing. The rendering callback raising fails open (returns ``None``).
+
+        Args:
+            messages: The current conversation, as data.
+            config: The resolved injection configuration.
+
+        Returns:
+            The injected text, or ``None`` when there is nothing to inject.
+        """
+        query = self._resolve_injection_query(messages, config)
+        if query is None or not query.strip():
+            return None
+
+        max_entries = config.get("max_entries")
+        max_results = max_entries if max_entries is not None else DEFAULT_MAX_ENTRIES
+        # search caps each store at max_results; the slice caps the concatenation across stores.
+        entries = (await self.search(query, MemorySearchOptions(max_search_results=max_results)))[:max_results]
+        if len(entries) == 0:
+            return None
+
+        try:
+            custom_format = config.get("format")
+            if custom_format is not None:
+                return custom_format(InjectionFormatContext(entries=entries))
+            return self._default_injection_format(entries)
+        except Exception as error:  # noqa: BLE001 - fail open: a bad formatter must not abort the model call.
+            logger.warning("reason=<%s> | injection format raised | skipping injection", error)
+            return None
+
+    def _resolve_injection_query(self, messages: Messages, config: MemoryInjectionConfig) -> str | None:
+        """Derive the injection search query.
+
+        Uses the configured ``query`` callback when provided (a raise fails open,
+        skipping injection); otherwise an adaptive default: the latest user
+        message's text on a user turn, or the most recent assistant message's text
+        otherwise (the previous autonomous step).
+
+        Args:
+            messages: The current conversation, as data.
+            config: The resolved injection configuration.
+
+        Returns:
+            The query string, or ``None`` when none is available.
+        """
+        custom_query = config.get("query")
+        if custom_query is not None:
+            try:
+                return custom_query(InjectionQueryContext(messages=messages))
+            except Exception as error:  # noqa: BLE001 - fail open: a bad query must not abort the model call.
+                logger.warning("reason=<%s> | injection query raised | skipping injection", error)
+                return None
+
+        role = "user" if _is_user_turn(messages) else "assistant"
+        index = next((index for index in range(len(messages) - 1, -1, -1) if messages[index]["role"] == role), -1)
+        if index < 0:
+            return None
+
+        text = "\n".join(block["text"] for block in messages[index]["content"] if "text" in block).strip()
+        return text if text else None
+
+    def _default_injection_format(self, entries: list[MemoryEntry]) -> str:
+        """Render the default injection format: a ``<memory>`` block with one ``<entry>`` per result.
+
+        Each entry carries a ``source`` attribute naming the originating store (when
+        known) so the model can attribute memories.
+
+        Args:
+            entries: The retrieved memory entries to render.
+
+        Returns:
+            The rendered ``<memory>`` block.
+        """
+        items = [
+            (
+                f'<entry source="{_escape_xml_attr(entry.store_name)}">{_escape_xml_text(entry.content)}</entry>'
+                if entry.store_name
+                else f"<entry>{_escape_xml_text(entry.content)}</entry>"
             )
-
-    async def _flush_after_invocation(self, event: AfterInvocationEvent) -> None:
-        """Await pending extraction writes at the end of an agent invocation."""
-        await self.flush()
+            for entry in entries
+        ]
+        joined = "\n".join(items)
+        return f"<memory>\n{joined}\n</memory>"
 
     @staticmethod
     def _make_fire(coordinator: ExtractionCoordinator, store: MemoryStore) -> Callable[[], None]:

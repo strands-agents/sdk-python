@@ -55,6 +55,7 @@ import openai  # noqa: E402 - must import after version check
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
+from ..types.event_loop import Usage  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
@@ -488,11 +489,9 @@ class OpenAIResponsesModel(Model):
         """
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
-                response = await client.responses.parse(
-                    model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
-                    text_format=output_model,
-                )
+                request = self._format_request(prompt, system_prompt=system_prompt)
+                request.pop("stream", None)
+                response = await client.responses.parse(**request, text_format=output_model)
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
@@ -549,16 +548,22 @@ class OpenAIResponsesModel(Model):
 
         # Add tools if provided
         if tool_specs:
-            # Merge with any built-in tools (e.g. web_search) already in the request from params
-            request.setdefault("tools", []).extend(
-                {
-                    "type": "function",
-                    "name": tool_spec["name"],
-                    "description": tool_spec.get("description", ""),
-                    "parameters": tool_spec["inputSchema"]["json"],
-                }
-                for tool_spec in tool_specs
-            )
+            # Merge function tools with any built-in tools (e.g. web_search) carried in from params.
+            # Build a new list rather than extending in place: ** unpacking above aliases
+            # self.config["params"]["tools"] by reference, so mutating it would duplicate every tool
+            # spec into the stored config on each call.
+            request["tools"] = [
+                *request.get("tools", []),
+                *(
+                    {
+                        "type": "function",
+                        "name": tool_spec["name"],
+                        "description": tool_spec.get("description", ""),
+                        "parameters": tool_spec["inputSchema"]["json"],
+                    }
+                    for tool_spec in tool_specs
+                ),
+            ]
             request.update(self._format_request_tool_choice(tool_choice))
 
         return request
@@ -694,7 +699,7 @@ class OpenAIResponsesModel(Model):
             "type": "function_call",
             "call_id": tool_use["toolUseId"],
             "name": tool_use["name"],
-            "arguments": json.dumps(tool_use["input"]),
+            "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
         }
 
     @classmethod
@@ -720,7 +725,7 @@ class OpenAIResponsesModel(Model):
 
         for content in tool_result["content"]:
             if "json" in content:
-                output_parts.append({"type": "input_text", "text": json.dumps(content["json"])})
+                output_parts.append({"type": "input_text", "text": json.dumps(content["json"], ensure_ascii=False)})
             elif "text" in content:
                 output_parts.append({"type": "input_text", "text": content["text"]})
             elif "image" in content:
@@ -837,13 +842,20 @@ class OpenAIResponsesModel(Model):
 
             case "metadata":
                 # Responses API uses input_tokens/output_tokens naming convention
+                usage_data: Usage = {
+                    "inputTokens": getattr(event["data"], "input_tokens", 0),
+                    "outputTokens": getattr(event["data"], "output_tokens", 0),
+                    "totalTokens": getattr(event["data"], "total_tokens", 0),
+                }
+
+                if tokens_details := getattr(event["data"], "input_tokens_details", None):
+                    cached = getattr(tokens_details, "cached_tokens", None)
+                    if isinstance(cached, int) and cached:
+                        usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": getattr(event["data"], "input_tokens", 0),
-                            "outputTokens": getattr(event["data"], "output_tokens", 0),
-                            "totalTokens": getattr(event["data"], "total_tokens", 0),
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

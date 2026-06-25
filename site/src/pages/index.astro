@@ -50,6 +50,34 @@ const base = import.meta.env.BASE_URL || '/'
       <Copyright />
     </div>
   </footer>
+
+  <script>
+    // Scroll-responsive strands background animation
+    // Adjusts background-position offset along the flow axis so scrolling
+    // feels like controlling the tempo of the strand movement
+    const primary = document.querySelector<HTMLElement>('.strands-curve-primary')
+    const secondary = document.querySelector<HTMLElement>('.strands-curve-secondary')
+
+    if (primary && secondary && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      let ticking = false
+
+      window.addEventListener('scroll', () => {
+        if (!ticking) {
+          requestAnimationFrame(() => {
+            const scrollY = window.scrollY
+
+            // Offset background-position along the flow axis via CSS variable
+            // Primary responds more (0.3x scroll), secondary less (0.15x) for depth
+            primary.style.setProperty('--scroll-offset', `${-(scrollY * 0.3) % 344}px`)
+            secondary.style.setProperty('--scroll-offset', `${-(scrollY * 0.15) % 344}px`)
+
+            ticking = false
+          })
+          ticking = true
+        }
+      }, { passive: true })
+    }
+  </script>
 </LandingLayout>
 
 <style>
@@ -149,31 +177,3 @@ const base = import.meta.env.BASE_URL || '/'
   @media (max-width: 768px) {
   }
 </style>
-
-<script>
-  // Scroll-responsive strands background animation
-  // Adjusts background-position offset along the flow axis so scrolling
-  // feels like controlling the tempo of the strand movement
-  const primary = document.querySelector<HTMLElement>('.strands-curve-primary')
-  const secondary = document.querySelector<HTMLElement>('.strands-curve-secondary')
-
-  if (primary && secondary && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    let ticking = false
-
-    window.addEventListener('scroll', () => {
-      if (!ticking) {
-        requestAnimationFrame(() => {
-          const scrollY = window.scrollY
-
-          // Offset background-position along the flow axis via CSS variable
-          // Primary responds more (0.3x scroll), secondary less (0.15x) for depth
-          primary.style.setProperty('--scroll-offset', `${-(scrollY * 0.3) % 344}px`)
-          secondary.style.setProperty('--scroll-offset', `${-(scrollY * 0.15) % 344}px`)
-
-          ticking = false
-        })
-        ticking = true
-      }
-    }, { passive: true })
-  }
-</script>

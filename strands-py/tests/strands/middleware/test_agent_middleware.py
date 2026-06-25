@@ -71,7 +71,6 @@ def test_wrap_context_transformation(agent):
     transformed_system_prompt = None
 
     async def inject_prompt(context, next_fn):
-
         modified = replace(context, system_prompt="Injected prompt")
         async for event in next_fn(modified):
             yield event
@@ -94,7 +93,6 @@ def test_wrap_context_transformation_tool_specs(agent):
     received_tool_specs = None
 
     async def modify_specs(context, next_fn):
-
         modified = replace(context, tool_specs=[])
         async for event in next_fn(modified):
             yield event
@@ -220,7 +218,6 @@ def test_input_transforms_context(agent):
             yield event
 
     def inject_prompt(context):
-
         return replace(context, system_prompt="From input handler")
 
     agent._middleware_registry.add_middleware(InvokeModelStage.Input, inject_prompt)
@@ -240,7 +237,6 @@ def test_input_async_handler(agent):
             yield event
 
     async def async_inject(context):
-
         return replace(context, system_prompt="Async input")
 
     agent._middleware_registry.add_middleware(InvokeModelStage.Input, async_inject)
@@ -257,7 +253,6 @@ def test_output_transforms_result(agent):
     transformed_results: list[InvokeModelResult] = []
 
     def output_handler(result):
-
         new_result = replace(result, stop_reason="custom_stop")
         transformed_results.append(new_result)
         return new_result
@@ -318,7 +313,6 @@ def test_after_model_call_fires_after_middleware(model):
 
 
 def test_plugin_can_register_middleware(model):
-
     class TimingPlugin(Plugin):
         name = "timing"
 
@@ -394,7 +388,6 @@ def test_passthrough_middleware_preserves_result():
 def test_short_circuit_model_not_called(model):
     """When middleware short-circuits, model.stream is never invoked."""
 
-
     agent = Agent(model=model, callback_handler=None)
     agent.model.stream = AsyncMock(wraps=agent.model.stream)
 
@@ -459,7 +452,6 @@ def test_phase_ordering_at_agent_level(model):
 
     agent("test")
     assert order == ["input", "wrap", "output"]
-
 
 
 def test_retry_on_error_use_case():

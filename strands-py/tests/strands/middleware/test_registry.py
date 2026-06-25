@@ -382,7 +382,6 @@ async def test_output_runs_after_wrap(registry, stage):
     assert result == "base_out"
 
 
-
 # --- error propagation ---
 
 
@@ -575,5 +574,3 @@ async def test_two_layer_finally_on_generator_close(registry, stage):
     await gen.aclose()
     assert "inner_finally" in order
     assert "outer_finally" in order
-
-

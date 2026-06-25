@@ -166,11 +166,7 @@ export class MemoryManager implements Plugin {
     }
 
     this._injectionConfig =
-      config.injection === undefined || config.injection === false
-        ? false
-        : typeof config.injection === 'object'
-          ? config.injection
-          : {}
+      config.injection === false ? false : typeof config.injection === 'object' ? config.injection : {}
   }
 
   /**
@@ -212,9 +208,19 @@ export class MemoryManager implements Plugin {
    *
    * @param agent - The agent this plugin is being attached to
    */
-  initAgent(agent: LocalAgent): void {
+  async initAgent(agent: LocalAgent): Promise<void> {
+    await this._initStores()
     this._initExtraction(agent)
     this._initInjection(agent)
+  }
+
+  /** Call `initialize()` on each store that implements it. */
+  private async _initStores(): Promise<void> {
+    for (const store of this._searchStores) {
+      if (store.initialize) {
+        await store.initialize()
+      }
+    }
   }
 
   /** Wires background extraction for stores configured with {@link ExtractionConfig}. */

@@ -175,6 +175,7 @@ async def test_graph_execution_with_string(math_agent, summary_agent, validation
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(180)
 async def test_graph_execution_with_image(image_analysis_agent, summary_agent, yellow_img, hook_provider):
     """Test graph execution with multi-modal image input."""
     builder = GraphBuilder()

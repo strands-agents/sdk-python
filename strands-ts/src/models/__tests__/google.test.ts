@@ -966,6 +966,57 @@ describe('GoogleModel', () => {
       ])
     })
 
+    it('disambiguates displayName for multiple same-format images in one tool result', () => {
+      const toolUseBlock = new ToolUseBlock({ toolUseId: 'test-id', name: 'two_images', input: {} })
+      const toolResultBlock = new ToolResultBlock({
+        toolUseId: 'test-id',
+        status: 'success',
+        content: [
+          new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]) } }),
+          new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x48]) } }),
+        ],
+      })
+      const messages = [
+        new Message({ role: 'assistant', content: [toolUseBlock] }),
+        new Message({ role: 'user', content: [toolResultBlock] }),
+      ]
+
+      const contents = formatMessages(messages)
+
+      const resultPart = contents[1]!.parts![0]! as {
+        functionResponse: { parts?: Array<{ inlineData: { displayName: string } }> }
+      }
+      const displayNames = resultPart.functionResponse.parts!.map((p) => p.inlineData.displayName)
+      // Gemini rejects duplicate part names within one function_response.parts.
+      expect(new Set(displayNames).size).toBe(displayNames.length)
+      expect(displayNames).toEqual(['image.png', 'image-1.png'])
+    })
+
+    it('disambiguates displayName for documents sharing a name in one tool result', () => {
+      const toolUseBlock = new ToolUseBlock({ toolUseId: 'test-id', name: 'two_docs', input: {} })
+      const toolResultBlock = new ToolResultBlock({
+        toolUseId: 'test-id',
+        status: 'success',
+        content: [
+          new DocumentBlock({ name: 'report.pdf', format: 'pdf', source: { bytes: new Uint8Array([0x25, 0x50]) } }),
+          new DocumentBlock({ name: 'report.pdf', format: 'pdf', source: { bytes: new Uint8Array([0x25, 0x51]) } }),
+        ],
+      })
+      const messages = [
+        new Message({ role: 'assistant', content: [toolUseBlock] }),
+        new Message({ role: 'user', content: [toolResultBlock] }),
+      ]
+
+      const contents = formatMessages(messages)
+
+      const resultPart = contents[1]!.parts![0]! as {
+        functionResponse: { parts?: Array<{ inlineData: { displayName: string } }> }
+      }
+      const displayNames = resultPart.functionResponse.parts!.map((p) => p.inlineData.displayName)
+      expect(new Set(displayNames).size).toBe(displayNames.length)
+      expect(displayNames).toEqual(['report.pdf', 'report-1.pdf'])
+    })
+
     it('formats document block with bytes source in tool result as inlineData', () => {
       const docBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46])
       const toolUseBlock = new ToolUseBlock({ toolUseId: 'test-id', name: 'read_doc', input: {} })

@@ -14,7 +14,7 @@ from strands_evals.types import EvaluationData, EvaluationOutput
 ## Need to install $pip install langchain langchain_aws ##
 
 
-def third_party_example():
+async def third_party_example():
     """
     Demonstrates integrating a third-party evaluator (LangChain) with the evaluation framework.
 
@@ -88,7 +88,7 @@ def third_party_example():
     experiment.to_file("third_party_dataset")
 
     # 5. Run evaluations
-    report = experiment.run_evaluations(get_response)
+    report = await experiment.run_evaluations_async(get_response)
     return report
 
 

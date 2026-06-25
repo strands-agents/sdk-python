@@ -162,7 +162,7 @@ class AnthropicModel(Model):
             return {
                 "content": [
                     self._format_request_message_content(
-                        {"text": json.dumps(tool_result_content["json"])}
+                        {"text": json.dumps(tool_result_content["json"], ensure_ascii=False)}
                         if "json" in tool_result_content
                         else cast(ContentBlock, tool_result_content)
                     )
@@ -472,6 +472,8 @@ class AnthropicModel(Model):
                                     "message": {"stop_reason": event.message.stop_reason},
                                 }
                             )
+                        elif event.type == "content_block_stop":
+                            yield self.format_chunk({"type": "content_block_stop", "index": event.index})
                         else:
                             yield self.format_chunk(event.model_dump())
 

@@ -157,6 +157,8 @@ def lookup_user(username: str) -> dict:
 Use ToolSimulator within an Experiment to evaluate agent tool-use behavior end-to-end:
 
 ```python
+import asyncio
+
 from pydantic import BaseModel, Field
 from strands import Agent
 from strands_evals import Case, Experiment
@@ -210,8 +212,12 @@ test_cases = [
 
 evaluators = [GoalSuccessRateEvaluator()]
 experiment = Experiment(cases=test_cases, evaluators=evaluators)
-report = experiment.run_evaluations(task_function)
-report.run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 

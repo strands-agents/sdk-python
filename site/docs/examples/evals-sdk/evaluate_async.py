@@ -27,8 +27,6 @@ async def async_example():
 
     ### Step 1: Define task ###
     def user_task_function(case: Case) -> dict:
-        memory_exporter.clear()
-
         agent = Agent(
             # IMPORTANT: trace_attributes with session IDs are required when using StrandsInMemorySessionMapper
             # to prevent spans from different test cases from being mixed together in the memory exporter

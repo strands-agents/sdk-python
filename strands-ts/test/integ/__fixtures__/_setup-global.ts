@@ -5,7 +5,6 @@
  */
 
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
-import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm'
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
 import express from 'express'
 import type { TestProject } from 'vitest/node'
@@ -14,33 +13,16 @@ import type { ProvidedContext } from 'vitest'
 import { Agent } from '../../../src/agent/agent.js'
 import { A2AExpressServer } from '../../../src/a2a/express-server.js'
 import { BedrockModel } from '../../../src/models/bedrock.js'
-
-/**
- * Batch-reads SSM parameters by name and returns a key→value map.
- * Parameters that don't exist in SSM resolve to `undefined`.
- */
-async function getSSMParameters<T extends Record<string, string>>(
-  params: T
-): Promise<{ [K in keyof T]: string | undefined } | null> {
-  const client = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
-  try {
-    const response = await client.send(new GetParametersCommand({ Names: Object.values(params) }))
-    const byName = new Map((response.Parameters ?? []).map((p) => [p.Name, p.Value]))
-    return Object.fromEntries(Object.entries(params).map(([key, name]) => [key, byName.get(name)])) as {
-      [K in keyof T]: string | undefined
-    }
-  } catch (e) {
-    console.warn('Error retrieving SSM parameters', e)
-    return null
-  }
-}
+import { AWS_REGION } from './_aws.js'
+import { getSSMParameters } from './_ssm.js'
+import { getSshEc2TestContext } from './_ssh-ec2.js'
 
 /**
  * Load API keys as environment variables from AWS Secrets Manager
  */
 async function loadApiKeysFromSecretsManager(): Promise<void> {
   const client = new SecretsManagerClient({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: AWS_REGION,
   })
 
   try {
@@ -103,8 +85,12 @@ export async function setup(project: TestProject): Promise<() => void> {
   const a2aContext = await getA2AServerContext(project)
   project.provide('a2a-server', { shouldSkip: a2aContext.shouldSkip, url: a2aContext.url })
 
+  const sshEc2 = await getSshEc2TestContext(project)
+  project.provide('provider-ssh-ec2', sshEc2.context)
+
   return () => {
     a2aContext.abort?.()
+    sshEc2.cleanup()
   }
 }
 
