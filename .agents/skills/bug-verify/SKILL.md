@@ -1,16 +1,16 @@
 ---
 name: bug-verify
-description: Local preview of the strands-agents/devtools `/strands bug-verify` agent. Body is the upstream Task Bug Verifier SOP verbatim — do not paraphrase. Use when the user types `/bug-verify`, asks to "verify a bug" or "triage an issue", references a bug-report GitHub issue and wants reproduction + urgency assessment, or wants to anticipate what the remote auto-bug-verify GitHub Action will do to an issue. The agent inspects the implicated source, runs a reproduction in a code executor, scores urgency, applies triage labels, records a verification report, and comments on the issue in two cases only (sharing a derived reproduction when it couldn't validate the reporter's repro, or stating it couldn't reproduce the bug and requesting more info). Findings are close but not identical to the remote agent. Strongly prefer running this skill in a fresh-context subagent rather than inline — the SOP is long and the verdict is more reliable when it isn't entangled with the parent conversation's prior context.
+description: Local preview of the strands-agents/devtools `/strands bug-verify` agent. Body is the upstream Task Bug Verifier SOP verbatim — do not paraphrase. Use when the user types `/bug-verify`, asks to "verify a bug" or "triage an issue", references a bug-report GitHub issue and wants reproduction + urgency assessment, or wants to anticipate what the remote `/strands bug-verify` agent will do to an issue. The agent inspects the implicated source, runs a reproduction in a code executor, scores urgency, applies triage labels, records a verification report, and comments on the issue in two cases only (sharing a derived reproduction when it couldn't validate the reporter's repro, or stating it couldn't reproduce the bug and requesting more info). Findings are close but not identical to the remote agent. Strongly prefer running this skill in a fresh-context subagent rather than inline — the SOP is long and the verdict is more reliable when it isn't entangled with the parent conversation's prior context.
 source: https://github.com/strands-agents/devtools/blob/main/strands-command/agent-sops/task-bug-verifier.sop.md
 ---
 
 <!--
 Body below is copied verbatim from the upstream SOP so local runs surface the
-same findings as the remote `/strands bug-verify` agent (triggered automatically
-by .github/workflows/auto-bug-verify.yml when a bug issue is opened, i.e. its
-title starts with "[BUG]"). If the upstream changes, re-sync from the source URL
-above. Do not edit the body to fit local conventions — divergence here defeats
-the purpose of the skill.
+same findings as the remote `/strands bug-verify` agent (triggered when a
+maintainer comments `/strands bug-verify` on a bug issue — the command is
+authorization-gated by the strands-command workflow). If the upstream changes,
+re-sync from the source URL above. Do not edit the body to fit local
+conventions — divergence here defeats the purpose of the skill.
 
 The agent applies triage labels, and comments on the issue in two cases only:
 (1) when the reporter's bug can't be validated as written but the agent produced
