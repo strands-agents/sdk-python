@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-IMAGE_MEDIA_TYPES = {
+_IMAGE_MEDIA_TYPES = {
     "gif": "image/gif",
     "jpeg": "image/jpeg",
     "jpg": "image/jpeg",
@@ -143,7 +143,7 @@ class AnthropicModel(Model):
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": IMAGE_MEDIA_TYPES.get(
+                    "media_type": _IMAGE_MEDIA_TYPES.get(
                         image_format,
                         mimetypes.types_map.get(f".{image_format}", "application/octet-stream"),
                     ),
