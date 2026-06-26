@@ -19,7 +19,11 @@ reproduce the bug at all and needs more information. Otherwise the verification
 report is recorded for maintainers only (in CI, the run logs).
 
 Tool-name mapping (the SOP assumes the upstream Strands runtime; locally use these):
-- read the issue body    -> `gh issue view <id> --json title,body,labels`
+- the issue snapshot     -> the SOP expects the issue title/body injected into the
+  prompt by the command runtime. Locally there is no such injection: fetch it once
+  at the start with `gh issue view <id> --json title,body,labels`, treat that
+  captured text as the authoritative snapshot, and do NOT re-fetch the body later
+  (same reason as the remote agent — the live issue can change mid-run).
 - search/inspect source   -> repo search + file reads in the workspace
 - run the reproduction    -> execute in your local shell / a scratch venv
 - apply additive labels   -> `gh issue edit <id> --add-label ...`
