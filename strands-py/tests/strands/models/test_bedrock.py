@@ -2305,7 +2305,7 @@ def test_format_request_maps_3gp_video_formats(model, model_id, video_format):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     video_block = formatted_request["messages"][0]["content"][0]["video"]
     assert video_block == {"format": "three_gp", "source": {"bytes": b"video_data"}}

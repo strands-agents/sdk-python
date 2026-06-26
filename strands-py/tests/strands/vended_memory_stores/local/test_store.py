@@ -373,7 +373,7 @@ class TestMemoryManagerIntegration:
         store = make_store(extraction=ExtractionConfig(trigger=InvocationTrigger(), extractor=extractor))
         mm = MemoryManager(stores=[store])
         agent = _FakeAgent()
-        mm.init_agent(agent)
+        await mm.init_agent(agent)
 
         message = {"role": "user", "content": [{"text": "I like dark mode"}]}
         await _invoke_all(agent, MessageAddedEvent(agent=agent, message=message))
