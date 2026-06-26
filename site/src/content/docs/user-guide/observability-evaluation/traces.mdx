@@ -525,8 +525,65 @@ print(response)
 </Tab>
 </Tabs>
 
-## Sending traces to CloudWatch X-ray
-There are several ways to send traces, metrics, and logs to CloudWatch. Please visit the following pages for more details and configurations:
-1. [AWS Distro for OpenTelemetry Collector](https://aws-otel.github.io/docs/getting-started/x-ray#configuring-the-aws-x-ray-exporter)
-2. [AWS CloudWatch OpenTelemetry User Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-OpenTelemetry-Sections.html)
-  - Please ensure Transaction Search is enabled in CloudWatch.
+## Sending traces to CloudWatch
+
+To get Strands traces into CloudWatch, point the OTLP exporter at an endpoint that forwards to CloudWatch. There are two routes; choose based on whether you want an OpenTelemetry Collector in the path.
+
+| Route | When to use |
+|-------|-------------|
+| [ADOT Collector](#route-1-through-the-adot-collector) | You run on EC2, ECS, EKS, or Lambda and want one agent to batch traces — and CloudWatch metrics — from several services. |
+| [Direct OTLP](#route-2-direct-otlp-to-cloudwatch-transaction-search) | You want to skip the collector and have Strands export traces straight to CloudWatch. |
+
+### Route 1: Through the ADOT Collector
+
+Run the [AWS Distro for OpenTelemetry (ADOT) Collector](https://aws-otel.github.io/docs/getting-started/x-ray#configuring-the-aws-x-ray-exporter) next to your agent and have Strands export OTLP to it. The collector forwards spans to X-Ray, so your agent process never handles AWS credentials directly.
+
+Point Strands at the local collector, then enable the OTLP exporter as shown in [Code Configuration](#code-configuration):
+
+```bash
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318"
+```
+
+A minimal collector config that sends traces to X-Ray and metrics to CloudWatch (EMF):
+
+```yaml
+# otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+
+exporters:
+  awsxray:
+    region: us-east-1
+  awsemf:
+    region: us-east-1
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [awsxray]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [awsemf]
+```
+
+The collector uses the standard AWS credential chain (instance role, task role, or environment variables), so grant it an IAM policy allowing `xray:PutTraceSegments` and `xray:PutTelemetryRecords`. See the [ADOT X-Ray exporter docs](https://aws-otel.github.io/docs/getting-started/x-ray#configuring-the-aws-x-ray-exporter) for the full permission set and deployment options.
+
+### Route 2: Direct OTLP to CloudWatch (Transaction Search)
+
+CloudWatch can receive OTLP spans directly, so you can export from Strands without running a collector. This route requires [CloudWatch Transaction Search](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-OpenTelemetry-Sections.html) to be enabled, and requests to be signed with SigV4.
+
+1. Enable Transaction Search in the CloudWatch console (or through the API).
+2. Configure the OTLP endpoint and SigV4 authentication following the [AWS CloudWatch OpenTelemetry User Guide](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-OpenTelemetry-Sections.html). The endpoint and signing headers are AWS-managed, so refer to that guide rather than hardcoding them.
+
+Strands exports through the same `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` variables documented under [Environment Variables](#environment-variables).
