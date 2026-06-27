@@ -11,10 +11,11 @@ permissions:
 jobs:
   respond-to-issue:
     runs-on: ubuntu-latest
-    
+    if: contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)
+
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
         with:
           role-to-assume: ${{ secrets.STRANDS_AGENTCORE_ACTIONS_ROLE }}
           aws-region: us-east-1
@@ -61,6 +62,6 @@ jobs:
           (async () => {
             const response = await client.send(command);
             const textResponse = await response.response.transformToString();
-            console.log("Response:", textResponse);
+            console.log("AgentCore invocation complete:", textResponse.length, "characters returned");
           })();
           JSEOF
