@@ -8,7 +8,7 @@ import {
 import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Snapshot, SnapshotManifest } from './types.js'
 import { SessionError } from '../errors.js'
-import { validateIdentifier, validateUuidV7 } from './validation.js'
+import { validateIdentifier, validateScope, validateUuidV7 } from './validation.js'
 
 const MANIFEST = 'manifest.json'
 const SNAPSHOT_LATEST = 'snapshot_latest.json'
@@ -66,10 +66,13 @@ export class S3Storage implements SnapshotStorage {
 
   /**
    * Resolves the full S3 object key for a given scope location and path.
-   * Validates sessionId and scopeId before constructing the key.
+   * Validates sessionId, scope, and scopeId before constructing the key. The scope
+   * allowlist confines the key to a known subtree, since none of the recognized scopes
+   * contain `/`, `..`, or a leading `/`.
    */
   private _getKey(location: SnapshotLocation, path: string): string {
     validateIdentifier(location.sessionId)
+    validateScope(location.scope)
     validateIdentifier(location.scopeId)
     const base = this._prefix ? `${this._prefix}/` : ''
     return `${base}${location.sessionId}/scopes/${location.scope}/${location.scopeId}/snapshots/${path}`

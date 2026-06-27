@@ -15,6 +15,28 @@ export function validateIdentifier(id: string): string {
 }
 
 /**
+ * The set of recognized snapshot scopes. Mirrors the `Scope` union in `types/snapshot.ts`.
+ * Used as an allowlist so a scope value can only ever name a known storage subtree.
+ */
+const VALID_SCOPES = new Set<string>(['agent', 'multiAgent'])
+
+/**
+ * Validates that a scope is one of the recognized values.
+ * `Scope` is a compile-time union, but this guards the storage layer against any value
+ * that bypasses the type system before it is used to build a file path or object key.
+ *
+ * @param scope - The scope to validate
+ * @returns The validated scope
+ * @throws Error if scope is not a recognized value
+ */
+export function validateScope(scope: string): string {
+  if (!VALID_SCOPES.has(scope)) {
+    throw new Error(`Scope '${scope}' is not a recognized session scope`)
+  }
+  return scope
+}
+
+/**
  * Validates that a string is a UUID v7.
  *
  * @param id - The string to validate

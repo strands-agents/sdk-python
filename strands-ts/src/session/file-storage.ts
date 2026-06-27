@@ -2,7 +2,7 @@ import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Snapshot, SnapshotManifest } from './types.js'
 
 import { SessionError } from '../errors.js'
-import { validateIdentifier, validateUuidV7 } from './validation.js'
+import { validateIdentifier, validateScope, validateUuidV7 } from './validation.js'
 
 const MANIFEST = 'manifest.json'
 const SNAPSHOT_LATEST = 'snapshot_latest.json'
@@ -35,13 +35,28 @@ export class FileStorage implements SnapshotStorage {
 
   /**
    * Resolves the absolute file path for a given scope location and filename.
-   * Validates sessionId and scopeId before constructing the path.
+   * Validates sessionId, scope, and scopeId, then confirms the resolved path stays
+   * within `_baseDir` before returning it.
    */
   private async _getPath(location: SnapshotLocation, filename: string): Promise<string> {
-    const { join } = await import('path')
+    const { join, resolve, sep } = await import('path')
     validateIdentifier(location.sessionId)
+    validateScope(location.scope)
     validateIdentifier(location.scopeId)
-    return join(this._baseDir, location.sessionId, 'scopes', location.scope, location.scopeId, 'snapshots', filename)
+    const path = join(
+      this._baseDir,
+      location.sessionId,
+      'scopes',
+      location.scope,
+      location.scopeId,
+      'snapshots',
+      filename
+    )
+    const resolvedBaseDir = resolve(this._baseDir)
+    if (resolve(path) !== resolvedBaseDir && !resolve(path).startsWith(resolvedBaseDir + sep)) {
+      throw new SessionError(`Resolved path for session ${location.sessionId} escapes the storage directory`)
+    }
+    return path
   }
 
   /**
