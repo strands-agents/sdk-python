@@ -1,3 +1,5 @@
+[![Listed on TakoAPI](https://img.shields.io/badge/Listed%20on-TakoAPI-7c3aed)](https://takoapi.com/agents/strands-agents-harness-sdk)
+
 <div align="center">
   <div>
     <a href="https://strandsagents.com">
