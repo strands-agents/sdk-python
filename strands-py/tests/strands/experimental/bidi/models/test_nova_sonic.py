@@ -96,6 +96,21 @@ async def test_model_initialization(model_id, boto_session):
     assert model._connection_id is None
 
 
+@pytest.mark.asyncio
+async def test_valid_region_accepted(model_id):
+    """A well-formed region resolves successfully and is used for the model."""
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": "us-east-1"})
+
+    assert model.region == "us-east-1"
+
+
+@pytest.mark.asyncio
+async def test_invalid_region_rejected(model_id):
+    """A malformed region is rejected before it can reach the endpoint URL."""
+    with pytest.raises(ValueError, match="invalid AWS region"):
+        BidiNovaSonicModel(model_id=model_id, client_config={"region": "x@attacker.com:443/#"})
+
+
 # Audio Configuration Tests
 
 

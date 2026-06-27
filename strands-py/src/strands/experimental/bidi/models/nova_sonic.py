@@ -24,6 +24,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import uuid
 from typing import Any, AsyncGenerator, cast
 
@@ -99,6 +100,9 @@ NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
 _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
+# Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
+_VALID_REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d+$")
+
 
 class BidiNovaSonicModel(BidiModel):
     """Nova Sonic implementation for bidirectional streaming.
@@ -137,6 +141,7 @@ class BidiNovaSonicModel(BidiModel):
         Raises:
             ValueError: If turn_detection is used with v1 model.
             ValueError: If endpointingSensitivity is not HIGH, MEDIUM, or LOW.
+            ValueError: If the resolved AWS region is not a valid region identifier.
         """
         # Store model ID
         self.model_id = model_id
@@ -192,6 +197,11 @@ class BidiNovaSonicModel(BidiModel):
         # Resolve region from session or use default
         if "region" not in resolved:
             resolved["region"] = resolved["boto_session"].region_name or "us-east-1"
+
+        # Validate the region before it is interpolated into the service endpoint URL
+        region = resolved["region"]
+        if not isinstance(region, str) or not _VALID_REGION.match(region):
+            raise ValueError(f"invalid AWS region: {region!r}")
 
         return resolved
 
