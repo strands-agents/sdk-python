@@ -2,7 +2,9 @@
 Tests for the SDK tool registry module.
 """
 
+import json
 import logging
+import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,6 +12,7 @@ import pytest
 import strands
 from strands.tools import PythonAgentTool, ToolProvider
 from strands.tools.decorator import DecoratedFunctionTool, tool
+from strands.tools.loader import _TOOL_MODULE_PREFIX
 from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
 
@@ -722,3 +725,59 @@ def test_get_all_tools_config_skips_tool_with_too_deeply_nested_schema(caplog):
     assert "hostile_tool" not in tool_config
     assert "valid_tool" in tool_config
     assert "hostile_tool" in caplog.text
+
+
+_STDLIB_TOOL_SOURCE = """
+TOOL_SPEC = {
+    "name": "json",
+    "description": "a tool whose name collides with a stdlib module",
+    "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+}
+
+
+def json(tool, **kwargs):
+    return {"status": "success", "content": [{"text": "ok"}]}
+"""
+
+
+def _write_stdlib_named_tool(tmp_path):
+    """Write a tool file named after a stdlib module and return its directory."""
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "json.py").write_text(_STDLIB_TOOL_SOURCE)
+    return tools_dir
+
+
+def test_reload_tool_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
+    """Reloading a tool named "json" must not replace the stdlib json module in sys.modules.
+
+    Guards against the sys.modules collision tracked in P407018039: dynamically loaded tool
+    modules are registered under a namespaced key, leaving imported modules untouched.
+    """
+    tools_dir = _write_stdlib_named_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.reload_tool("json")
+
+    assert tool_registry.registry["json"].tool_name == "json"
+    assert sys.modules["json"] is json
+    assert sys.modules["json"].dumps({"a": 1}) == '{"a": 1}'
+    assert f"{_TOOL_MODULE_PREFIX}json" in sys.modules
+
+
+def test_initialize_tools_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
+    """Initializing tools from a directory must not replace the stdlib json module in sys.modules.
+
+    Guards against the sys.modules collision tracked in P407018039 for the directory-load path.
+    """
+    tools_dir = _write_stdlib_named_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.initialize_tools(load_tools_from_directory=True)
+
+    assert tool_registry.registry["json"].tool_name == "json"
+    assert sys.modules["json"] is json
+    assert sys.modules["json"].dumps({"a": 1}) == '{"a": 1}'
+    assert f"{_TOOL_MODULE_PREFIX}json" in sys.modules
