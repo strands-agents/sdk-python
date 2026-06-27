@@ -526,6 +526,42 @@ async def test_cycle_exception(
     assert tru_stop_event == exp_stop_event
 
 
+@pytest.mark.asyncio
+async def test_cycle_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    caplog,
+):
+    """A failed cycle logs the exception type at ERROR without attaching a full traceback.
+
+    The ERROR-level cycle-failure record names the exception type and carries no exc_info, so the
+    handler's exception arguments and stack frames are not emitted into application logs.
+    """
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        ValueError("Invalid error presented"),
+    ]
+
+    with caplog.at_level("ERROR", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            async for _event in stream:
+                pass
+
+    error_records = [record for record in caplog.records if record.levelname == "ERROR"]
+    assert error_records
+    cycle_record = next(record for record in error_records if "event loop cycle failed" in record.getMessage())
+    assert "ValueError" in cycle_record.getMessage()
+    assert cycle_record.exc_info is None
+
+
 @patch("strands.event_loop.event_loop.get_tracer")
 @pytest.mark.asyncio
 async def test_event_loop_cycle_creates_spans(
