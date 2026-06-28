@@ -766,6 +766,65 @@ def test_reload_tool_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
     assert f"{_TOOL_MODULE_PREFIX}json" in sys.modules
 
 
+_SIBLING_MODULE_SOURCE = """
+GREETING = "hello from sibling"
+"""
+
+_SIBLING_TOOL_SOURCE = """
+import sibling_helper
+
+TOOL_SPEC = {
+    "name": "needs_sibling",
+    "description": "a tool that imports a sibling module from its own directory",
+    "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+}
+
+
+def needs_sibling(tool, **kwargs):
+    return {"status": "success", "content": [{"text": sibling_helper.GREETING}]}
+"""
+
+
+def _write_sibling_importing_tool(tmp_path):
+    """Write a tool that imports a sibling module from the same directory and return its directory."""
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "sibling_helper.py").write_text(_SIBLING_MODULE_SOURCE)
+    (tools_dir / "needs_sibling.py").write_text(_SIBLING_TOOL_SOURCE)
+    return tools_dir
+
+
+def test_reload_tool_supports_sibling_imports(tmp_path, monkeypatch):
+    """Reloading a tool must let it import a sibling module from its own directory.
+
+    Guards against the regression in P407018039 where a directory tool doing a top-level
+    ``import <sibling>`` failed: the tool directory is on sys.path while the module executes.
+    """
+    tools_dir = _write_sibling_importing_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.reload_tool("needs_sibling")
+
+    assert tool_registry.registry["needs_sibling"].tool_name == "needs_sibling"
+    assert str(tools_dir) not in sys.path
+
+
+def test_initialize_tools_supports_sibling_imports(tmp_path, monkeypatch):
+    """Initializing tools from a directory must let a tool import a sibling module.
+
+    Guards against the regression in P407018039 for the directory-load path.
+    """
+    tools_dir = _write_sibling_importing_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.initialize_tools(load_tools_from_directory=True)
+
+    assert tool_registry.registry["needs_sibling"].tool_name == "needs_sibling"
+    assert str(tools_dir) not in sys.path
+
+
 def test_initialize_tools_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
     """Initializing tools from a directory must not replace the stdlib json module in sys.modules.
 

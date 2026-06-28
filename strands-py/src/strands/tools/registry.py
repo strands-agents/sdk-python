@@ -396,16 +396,24 @@ class ToolRegistry:
             if spec is None:
                 raise ImportError(f"Could not load spec for {tool_name}")
 
+            if spec.loader is None:
+                raise ImportError(f"Could not load {tool_name}")
+
             module = util.module_from_spec(spec)
             sys.modules[module_key] = module
-            try:
-                if spec.loader is None:
-                    raise ImportError(f"Could not load {tool_name}")
 
+            # Add the tool directory to the path only while executing the module so a tool
+            # can import sibling modules from the same directory at the top level.
+            tool_dir = str(tool_path.parent)
+            sys.path.insert(0, tool_dir)
+            try:
                 spec.loader.exec_module(module)
             except Exception:
                 sys.modules.pop(module_key, None)
                 raise
+            finally:
+                if tool_dir in sys.path:
+                    sys.path.remove(tool_dir)
 
             # Look for function-based tools first
             try:
@@ -488,11 +496,19 @@ class ToolRegistry:
 
                 module = util.module_from_spec(spec)
                 sys.modules[module_key] = module
+
+                # Add the tool directory to the path only while executing the module so a tool
+                # can import sibling modules from the same directory at the top level.
+                tool_dir = str(tool_path.parent)
+                sys.path.insert(0, tool_dir)
                 try:
                     spec.loader.exec_module(module)
                 except Exception:
                     sys.modules.pop(module_key, None)
                     raise
+                finally:
+                    if tool_dir in sys.path:
+                        sys.path.remove(tool_dir)
 
                 # Process Python tool
                 if tool_path.suffix == ".py":
