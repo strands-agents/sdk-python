@@ -101,7 +101,7 @@ _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
 # Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
-_VALID_REGION = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d+$")
+_VALID_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-\d+")
 
 
 class BidiNovaSonicModel(BidiModel):
@@ -200,7 +200,7 @@ class BidiNovaSonicModel(BidiModel):
 
         # Validate the region before it is interpolated into the service endpoint URL
         region = resolved["region"]
-        if not isinstance(region, str) or not _VALID_REGION.match(region):
+        if not isinstance(region, str) or not _VALID_REGION.fullmatch(region):
             raise ValueError(f"invalid AWS region: {region!r}")
 
         return resolved
