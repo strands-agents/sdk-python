@@ -392,6 +392,7 @@ async def event_loop_cycle(
             # Handle any other exceptions
             yield ForceStopEvent(reason=e)
             logger.error("exception=<%s> | event loop cycle failed", type(e).__name__)
+            logger.debug("event loop cycle failed", exc_info=True)
             raise EventLoopException(e, invocation_state["request_state"]) from e
 
 
@@ -646,6 +647,7 @@ async def _handle_model_execution(
     except Exception as e:
         yield ForceStopEvent(reason=e)
         logger.error("exception=<%s> | event loop cycle failed", type(e).__name__)
+        logger.debug("event loop cycle failed", exc_info=True)
         raise EventLoopException(e, invocation_state["request_state"]) from e
 
 
