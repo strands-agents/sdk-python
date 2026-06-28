@@ -751,7 +751,7 @@ def _write_stdlib_named_tool(tmp_path):
 def test_reload_tool_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
     """Reloading a tool named "json" must not replace the stdlib json module in sys.modules.
 
-    Guards against the sys.modules collision tracked in P407018039: dynamically loaded tool
+    Guards against a sys.modules collision: dynamically loaded tool
     modules are registered under a namespaced key, leaving imported modules untouched.
     """
     tools_dir = _write_stdlib_named_tool(tmp_path)
@@ -797,7 +797,7 @@ def _write_sibling_importing_tool(tmp_path):
 def test_reload_tool_supports_sibling_imports(tmp_path, monkeypatch):
     """Reloading a tool must let it import a sibling module from its own directory.
 
-    Guards against the regression in P407018039 where a directory tool doing a top-level
+    Guards against a regression where a directory tool doing a top-level
     ``import <sibling>`` failed: the tool directory is on sys.path while the module executes.
     """
     tools_dir = _write_sibling_importing_tool(tmp_path)
@@ -813,7 +813,7 @@ def test_reload_tool_supports_sibling_imports(tmp_path, monkeypatch):
 def test_initialize_tools_supports_sibling_imports(tmp_path, monkeypatch):
     """Initializing tools from a directory must let a tool import a sibling module.
 
-    Guards against the regression in P407018039 for the directory-load path.
+    Guards against the same regression for the directory-load path.
     """
     tools_dir = _write_sibling_importing_tool(tmp_path)
     monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
@@ -828,7 +828,7 @@ def test_initialize_tools_supports_sibling_imports(tmp_path, monkeypatch):
 def test_initialize_tools_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
     """Initializing tools from a directory must not replace the stdlib json module in sys.modules.
 
-    Guards against the sys.modules collision tracked in P407018039 for the directory-load path.
+    Guards against the same sys.modules collision for the directory-load path.
     """
     tools_dir = _write_stdlib_named_tool(tmp_path)
     monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
