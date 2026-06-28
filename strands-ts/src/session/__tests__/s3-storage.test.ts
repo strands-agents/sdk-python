@@ -67,7 +67,7 @@ describe('S3Storage', () => {
   describe('scope validation', () => {
     describe('S3SnapshotStorage_When_ScopeIsUnrecognized_Then_Rejects', () => {
       // Guards the key builder against a scope value that escapes the Scope union and would
-      // otherwise be interpolated into the object key. See finding strands-127.
+      // otherwise be interpolated into the object key.
       it('rejects an operation whose scope is not a recognized value', async () => {
         const location = {
           sessionId: 'test-session',

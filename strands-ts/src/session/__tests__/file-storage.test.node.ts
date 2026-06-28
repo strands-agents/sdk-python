@@ -131,7 +131,7 @@ describe('FileStorage', () => {
   describe('scope validation', () => {
     describe('FileSnapshotStorage_When_ScopeIsUnrecognized_Then_Rejects', () => {
       // Guards the storage layer against a scope value that escapes the Scope union and would
-      // otherwise be interpolated into the path. See finding strands-127.
+      // otherwise be interpolated into the path.
       it('rejects an operation whose scope is not a recognized value', async () => {
         const location = {
           sessionId: 'test-session',
