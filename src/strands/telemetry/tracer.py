@@ -87,13 +87,35 @@ class Tracer:
     or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
 
-    def __init__(self) -> None:
-        """Initialize the tracer."""
+    def __init__(self, instrument_threading: bool | None = None) -> None:
+        """Initialize the tracer.
+
+        Args:
+            instrument_threading: When True, install OpenTelemetry's
+                ``ThreadingInstrumentor`` so spans propagate across
+                ``concurrent.futures.ThreadPoolExecutor``/``threading.Thread``
+                boundaries. When False, skip it. When None (default), honor
+                the ``STRANDS_INSTRUMENT_THREADING`` environment variable
+                (``false``/``0``/``no`` disables, anything else leaves the
+                default in place). Threading instrumentation is ON by
+                default (preserving historical strands behavior): it
+                propagates spans across ``ThreadPoolExecutor``/``Thread``
+                boundaries. It mutates global Python state (monkey-patches
+                ``ThreadPoolExecutor.submit``), so hosts that manage their
+                own OpenTelemetry setup can opt OUT via this kwarg
+                (``instrument_threading=False``) or the standard
+                ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` env var.
+
+                The standard ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS``
+                env var is honored regardless — if ``threading`` appears in
+                that comma-separated list, instrumentation is skipped even
+                when explicitly opted in.
+        """
         self.service_name = __name__
         self.tracer_provider: trace_api.TracerProvider | None = None
         self.tracer_provider = trace_api.get_tracer_provider()
         self.tracer = self.tracer_provider.get_tracer(self.service_name)
-        ThreadingInstrumentor().instrument()
+        self._maybe_instrument_threading(instrument_threading)
 
         # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
         opt_in_values = self._parse_semconv_opt_in()
@@ -101,6 +123,93 @@ class Tracer:
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
         self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
+
+    @staticmethod
+    def _threading_opt_in(explicit: bool | None) -> tuple[bool, bool]:
+        """Resolve whether to install ThreadingInstrumentor, and whether the user asked.
+
+        Precedence (highest to lowest):
+
+        1. ``OTEL_PYTHON_DISABLED_INSTRUMENTATIONS`` containing ``threading`` →
+           always disabled (matches OpenTelemetry's auto-loader semantics).
+        2. Explicit ``instrument_threading`` kwarg on ``Tracer()``.
+        3. ``STRANDS_INSTRUMENT_THREADING`` env var. Accepted opt-OUT tokens
+           are ``0``/``false``/``no``/``off``; accepted opt-IN tokens are
+           ``1``/``true``/``yes``/``on`` (case-insensitive). A non-empty value
+           matching neither set is treated as a typo: a WARNING is logged and
+           the default (rule #4) is applied. An empty/unset value is silent.
+        4. Default: enabled (preserves historical strands>=1.35.0 behavior;
+           opt-out is via rule #1 or rule #2).
+
+        Returns:
+            A tuple ``(enabled, user_requested)``. ``user_requested`` is True
+            when the caller explicitly opted in via kwarg=True or via the
+            ``STRANDS_INSTRUMENT_THREADING`` env var — i.e. a failure at that
+            point is a broken feature the user asked for (logged at ERROR).
+            False when instrumentation is enabled only by default/auto behavior
+            (logged at WARNING). Currently default is ON but NOT user_requested,
+            so an auto-enabled failure ⇒ WARNING while an explicit opt-in
+            (kwarg=True or STRANDS_INSTRUMENT_THREADING env) ⇒ ERROR; we keep
+            the distinction so a future "disabled by default" flip doesn't have
+            to touch this logic.
+        """
+        disabled_env = os.getenv("OTEL_PYTHON_DISABLED_INSTRUMENTATIONS", "")
+        disabled = {value.strip().lower() for value in disabled_env.split(",") if value.strip()}
+        if "threading" in disabled:
+            return False, False
+        if explicit is not None:
+            # An explicit kwarg (True or False) is always a user intent signal.
+            return explicit, explicit
+        env_raw = os.getenv("STRANDS_INSTRUMENT_THREADING", "").strip().lower()
+        if env_raw in {"0", "false", "no", "off"}:
+            # Explicit env opt-OUT — user requested it be off; nothing to install.
+            return False, False
+        if env_raw in {"1", "true", "yes", "on"}:
+            # Explicit env opt-IN.
+            return True, True
+        if env_raw:
+            # Non-empty but unrecognized (e.g. a typo like "flase", or "off"
+            # misspelled). Don't silently swallow what is most likely an
+            # opt-OUT intent: warn that the value was not understood, then fall
+            # through to the default.
+            logger.warning(
+                "value=<%s> | STRANDS_INSTRUMENT_THREADING value not recognized; "
+                "expected one of on/1/true/yes or off/0/false/no — using the default (enabled)",
+                env_raw,
+            )
+        # Default: enabled, but NOT user-requested (auto). A failure here logs
+        # at WARNING, not ERROR, because the user did not explicitly ask for it.
+        return True, False
+
+    def _maybe_instrument_threading(self, instrument_threading: bool | None) -> None:
+        """Install ``ThreadingInstrumentor`` if requested and not already active."""
+        enabled, user_requested = self._threading_opt_in(instrument_threading)
+        if not enabled:
+            return
+        instrumentor = ThreadingInstrumentor()
+        # Skip if this process already has OTel threading instrumentation — prevents
+        # wrapper stacking if the host application (e.g. ``opentelemetry-distro``,
+        # AWS OTel Distro, ``opentelemetry-instrument`` CLI, Azure Monitor's
+        # distro) installed it first. Read the documented underscore-prefixed
+        # attribute directly rather than the ``is_instrumented_by_opentelemetry``
+        # property, so the guard state is unambiguous.
+        if getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
+            return
+        # Telemetry is ancillary — a failure inside the instrumentor must not
+        # crash the host application. Mirror the log+continue pattern used
+        # elsewhere in this module (see ``_end_span``). Use ERROR when the
+        # user explicitly asked for threading instrumentation (they asked for
+        # a feature and it silently didn't work); WARNING when it was only
+        # auto-enabled.
+        try:
+            instrumentor.instrument()
+        except Exception as e:
+            log = logger.error if user_requested else logger.warning
+            log(
+                "error=<%s> | ThreadingInstrumentor.instrument() failed; continuing without threading span propagation",
+                e,
+                exc_info=True,
+            )
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
