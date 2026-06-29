@@ -39,6 +39,7 @@ jobs:
           npm install @aws-sdk/client-bedrock-agentcore
           node - <<'JSEOF'
           const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } = require("@aws-sdk/client-bedrock-agentcore");
+          const crypto = require("crypto");
 
           const payload = JSON.stringify({
             source: "github",
@@ -53,26 +54,41 @@ jobs:
             }
           });
 
+          const client = new BedrockAgentCoreClient({ region: "us-east-1" });
+
+          const sessionId = `github-issue-${process.env.ISSUE_NUMBER}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+          // W3C trace context (version "00", 16-byte trace id, 8-byte span id, sampled flag).
+          // Passing traceParent propagates this trace id into the AgentCore runtime's OTel
+          // spans, so the same id ties the Actions run to the runtime logs/traces in CloudWatch.
+          const traceId = crypto.randomBytes(16).toString("hex");
+          const traceParent = `00-${traceId}-${crypto.randomBytes(8).toString("hex")}-01`;
+
           // Log only non-sensitive metadata. The issue title and body are
           // forwarded to AgentCore but not echoed to the public Actions log.
+          // runtimeSessionId and traceId are logged so the run can be correlated
+          // with the AgentCore runtime logs/traces in CloudWatch.
           console.log(
             `Invoking AgentCore for issue #${process.env.ISSUE_NUMBER} ` +
-            `by ${process.env.ISSUE_AUTHOR} in ${process.env.REPO}`
+            `by ${process.env.ISSUE_AUTHOR} in ${process.env.REPO} ` +
+            `(runtimeSessionId=${sessionId} traceId=${traceId})`
           );
 
-          const client = new BedrockAgentCoreClient({ region: "us-east-1" });
-          
-          const sessionId = `github-issue-${process.env.ISSUE_NUMBER}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          
           const command = new InvokeAgentRuntimeCommand({
             agentRuntimeArn: process.env.GH_ISSUE_AGENTCORE_RUNTIME_ARN,
             runtimeSessionId: sessionId,
+            traceParent: traceParent,
             payload: Buffer.from(payload)
           });
 
           (async () => {
             const response = await client.send(command);
             const textResponse = await response.response.transformToString();
-            console.log("AgentCore invocation complete:", textResponse.length, "characters returned");
+            console.log(
+              `AgentCore invocation complete: runtimeSessionId=${sessionId} ` +
+              `traceId=${response.traceId ?? traceId} ` +
+              `requestId=${response.$metadata?.requestId ?? "unknown"} ` +
+              `(${textResponse.length} characters returned)`
+            );
           })();
           JSEOF
