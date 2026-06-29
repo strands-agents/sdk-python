@@ -82,13 +82,24 @@ jobs:
           });
 
           (async () => {
-            const response = await client.send(command);
-            const textResponse = await response.response.transformToString();
-            console.log(
-              `AgentCore invocation complete: runtimeSessionId=${sessionId} ` +
-              `traceId=${response.traceId ?? traceId} ` +
-              `requestId=${response.$metadata?.requestId ?? "unknown"} ` +
-              `(${textResponse.length} characters returned)`
-            );
+            try {
+              const response = await client.send(command);
+              const textResponse = await response.response.transformToString();
+              console.log(
+                `AgentCore invocation complete: runtimeSessionId=${sessionId} ` +
+                `traceId=${response.traceId ?? traceId} ` +
+                `requestId=${response.$metadata?.requestId ?? "unknown"} ` +
+                `(${textResponse.length} characters returned)`
+              );
+            } catch (err) {
+              // Log the same correlation IDs on failure: a failed invocation is exactly
+              // when the trace id is most useful for finding the runtime logs in CloudWatch.
+              console.error(
+                `AgentCore invocation failed: runtimeSessionId=${sessionId} ` +
+                `traceId=${err?.traceId ?? traceId} ` +
+                `requestId=${err?.$metadata?.requestId ?? "unknown"}: ${err}`
+              );
+              process.exitCode = 1;
+            }
           })();
           JSEOF
