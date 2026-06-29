@@ -1556,7 +1556,7 @@ describe('Agent', () => {
   })
 })
 
-describe('Agent._redactLastMessage', () => {
+describe('Agent._redactMessage', () => {
   const redactMessage = '[REDACTED]'
 
   it('redacts last user message with only text blocks', () => {
@@ -1571,7 +1571,7 @@ describe('Agent._redactLastMessage', () => {
       })
     )
 
-    agent['_redactLastMessage'](redactMessage)
+    agent['_redactMessage'](redactMessage)
 
     const lastMessage = agent['messages'][agent['messages'].length - 1]!
     expect(lastMessage.role).toBe('user')
@@ -1605,7 +1605,7 @@ describe('Agent._redactLastMessage', () => {
       })
     )
 
-    agent['_redactLastMessage'](redactMessage)
+    agent['_redactMessage'](redactMessage)
 
     const lastMessage = agent['messages'][agent['messages'].length - 1]!
     expect(lastMessage.role).toBe('user')
@@ -1641,7 +1641,7 @@ describe('Agent._redactLastMessage', () => {
     agent['messages'].push(assistantMessage)
 
     const originalContent = assistantMessage.content
-    agent['_redactLastMessage'](redactMessage)
+    agent['_redactMessage'](redactMessage)
 
     const lastMessage = agent['messages'][agent['messages'].length - 1]!
     expect(lastMessage.role).toBe('assistant')
@@ -1652,7 +1652,7 @@ describe('Agent._redactLastMessage', () => {
     const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Response' })
     const agent = new Agent({ model })
 
-    expect(() => agent['_redactLastMessage'](redactMessage)).not.toThrow()
+    expect(() => agent['_redactMessage'](redactMessage)).not.toThrow()
     expect(agent['messages']).toHaveLength(0)
   })
 })
@@ -1718,16 +1718,16 @@ describe('Agent guardrail input redaction across a tool cycle', () => {
     const toolResultMessage = userMessages[userMessages.length - 1]!
 
     // The originating user input is redacted to a single text block.
-    expect(originatingMessage.content).toHaveLength(1)
-    expect(originatingMessage.content[0]!.type).toBe('textBlock')
-    expect((originatingMessage.content[0] as TextBlock).text).toBe('[User input redacted.]')
+    expect(originatingMessage.content).toEqual([new TextBlock('[User input redacted.]')])
 
     // The tool-result message keeps its tool result intact and is not redacted.
-    expect(toolResultMessage.content).toHaveLength(1)
-    expect(toolResultMessage.content[0]!.type).toBe('toolResultBlock')
-    const toolResult = toolResultMessage.content[0] as ToolResultBlock
-    expect(toolResult.toolUseId).toBe('tool-1')
-    expect((toolResult.content[0] as TextBlock).text).toBe('tool output')
+    expect(toolResultMessage.content).toEqual([
+      new ToolResultBlock({
+        toolUseId: 'tool-1',
+        status: 'success',
+        content: [new TextBlock('tool output')],
+      }),
+    ])
   })
 })
 

@@ -1873,7 +1873,7 @@ export class Agent implements LocalAgent, InvokableAgent {
 
         // Handle user content redaction if guardrails blocked input
         if (result.redaction?.userMessage) {
-          this._redactLastMessage(result.redaction.userMessage, this._findUserInputIndexToRedact())
+          this._redactMessage(result.redaction.userMessage, this._findUserInputIndexToRedact())
         }
 
         const stopData: ModelStopData = {
@@ -2652,15 +2652,15 @@ export class Agent implements LocalAgent, InvokableAgent {
    * @param redactMessage - The redaction message to replace the content with
    * @param targetIndex - The message index to redact; defaults to the last message
    */
-  private _redactLastMessage(redactMessage: string, targetIndex?: number): void {
+  private _redactMessage(redactMessage: string, targetIndex?: number): void {
     // Find and redact the target message
-    const lastIndex = targetIndex ?? this.messages.length - 1
-    if (lastIndex >= 0) {
-      const lastMessage = this.messages[lastIndex]
-      if (lastMessage && lastMessage.role === 'user') {
+    const resolvedIndex = targetIndex ?? this.messages.length - 1
+    if (resolvedIndex >= 0) {
+      const targetMessage = this.messages[resolvedIndex]
+      if (targetMessage && targetMessage.role === 'user') {
         // Collect only tool result blocks with redacted content
         const redactedContent: ContentBlock[] = []
-        for (const block of lastMessage.content) {
+        for (const block of targetMessage.content) {
           if (block.type === 'toolResultBlock') {
             // Preserve tool result block structure, only redact its content
             redactedContent.push(
@@ -2678,14 +2678,14 @@ export class Agent implements LocalAgent, InvokableAgent {
           redactedContent.push(new TextBlock(redactMessage))
         }
 
-        this.messages[lastIndex] = new Message({
+        this.messages[resolvedIndex] = new Message({
           role: 'user',
           content: redactedContent,
         })
-      } else if (lastMessage) {
+      } else if (targetMessage) {
         // Unexpected state: redaction requested but last message is not from user
         logger.warn(
-          `role=<${lastMessage.role}> | received input redaction but last message is not from user | redaction skipped`
+          `role=<${targetMessage.role}> | received input redaction but last message is not from user | redaction skipped`
         )
       }
     }
