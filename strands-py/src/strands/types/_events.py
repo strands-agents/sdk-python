@@ -380,9 +380,30 @@ class ToolCancelEvent(TypedEvent):
 class ToolInterruptEvent(TypedEvent):
     """Event emitted when a tool is interrupted."""
 
-    def __init__(self, tool_use: ToolUse, interrupts: list[Interrupt]) -> None:
-        """Set interrupt in the event payload."""
-        super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
+    def __init__(
+        self,
+        tool_use: ToolUse,
+        interrupts: list[Interrupt],
+        sub_agent_snapshot: dict[str, Any] | None = None,
+    ) -> None:
+        """Set interrupt in the event payload.
+
+        Args:
+            tool_use: The tool use that was interrupted.
+            interrupts: The interrupts raised during tool execution.
+            sub_agent_snapshot: Serializable snapshot an agent-as-tool needs to resume the
+                interrupted sub-agent invocation across process boundaries. ``None`` for ordinary
+                tool interrupts that have no sub-agent to resume.
+        """
+        super().__init__(
+            {
+                "tool_interrupt_event": {
+                    "tool_use": tool_use,
+                    "interrupts": interrupts,
+                    "sub_agent_snapshot": sub_agent_snapshot,
+                }
+            }
+        )
 
     @property
     def tool_use_id(self) -> str:
@@ -393,6 +414,11 @@ class ToolInterruptEvent(TypedEvent):
     def interrupts(self) -> list[Interrupt]:
         """The interrupt instances."""
         return cast(list[Interrupt], self["tool_interrupt_event"]["interrupts"])
+
+    @property
+    def sub_agent_snapshot(self) -> dict[str, Any] | None:
+        """Serializable state an agent-as-tool needs to resume its sub-agent, if any."""
+        return cast("dict[str, Any] | None", self["tool_interrupt_event"].get("sub_agent_snapshot"))
 
 
 class ModelMessageEvent(TypedEvent):

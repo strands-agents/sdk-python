@@ -9,11 +9,12 @@ from __future__ import annotations
 import copy
 import logging
 import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
 from ..agent.state import AgentState
+from ..interrupt import _InterruptState
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
@@ -183,10 +184,16 @@ class _AgentAsTool(AgentTool):
 
         try:
             # Determine if we are resuming the sub-agent from an interrupt.
-            if self._is_sub_agent_interrupted():
-                prompt = self._build_interrupt_responses()
+            sub_agent_snapshot = self._get_sub_agent_snapshot(invocation_state, tool_use_id)
+            if sub_agent_snapshot is not None:
+                # Resume routes both the interrupt response and the interrupted turn as data,
+                # carried in the parent's persisted interrupt record. It does not depend on the
+                # orchestrator and sub-agent sharing an in-memory Interrupt object, so it works
+                # even when both have been independently rebuilt from storage (e.g. a stateless
+                # Lambda that recreates every agent each invocation).
+                prompt = self._restore_from_snapshot(sub_agent_snapshot, invocation_state)
                 logger.debug(
-                    "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from interrupt",
+                    "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from serialized interrupt snapshot",
                     self._tool_name,
                     tool_use_id,
                 )
@@ -212,9 +219,13 @@ class _AgentAsTool(AgentTool):
                 )
                 return
 
-            # Propagate sub-agent interrupts to the parent agent.
+            # Propagate sub-agent interrupts to the parent agent. The snapshot lets the parent
+            # persist everything required to resume this exact invocation, so the sub-agent does
+            # not need its own session and does not accumulate history across turns.
             if result.stop_reason == "interrupt" and result.interrupts:
-                yield ToolInterruptEvent(tool_use, list(result.interrupts))
+                yield ToolInterruptEvent(
+                    tool_use, list(result.interrupts), sub_agent_snapshot=self._build_sub_agent_snapshot()
+                )
                 return
 
             if result.structured_output:
@@ -268,24 +279,65 @@ class _AgentAsTool(AgentTool):
         self._agent.messages = copy.deepcopy(self._initial_messages)
         self._agent.state = AgentState(self._initial_state.get())
 
-    def _is_sub_agent_interrupted(self) -> bool:
-        """Check whether the wrapped agent is in an activated interrupt state."""
-        return self._agent._interrupt_state.activated
+    def _build_sub_agent_snapshot(self) -> dict[str, Any]:
+        """Capture the minimal serializable state needed to resume this invocation.
 
-    def _build_interrupt_responses(self) -> list[InterruptResponseContent]:
-        """Build interrupt response payloads from the sub-agent's interrupt state.
-
-        The parent agent's ``_interrupt_state.resume()`` sets ``.response`` on the shared
-        ``Interrupt`` objects (registered by the executor), so we re-package them in the
-        format expected by ``Agent.stream_async``.
+        The snapshot is scoped to the single interrupted turn: the sub-agent's messages, its
+        key/value state, and its interrupt state (which carries the original ``tool_use_message``
+        and therefore the original ``toolUseId``). Restoring it reproduces the exact pending tool
+        call so the recomputed interrupt id matches, without persisting the sub-agent's session or
+        retaining history beyond this turn.
 
         Returns:
-            List of interrupt response content blocks for resuming the sub-agent.
+            Serializable snapshot of the interrupted invocation.
         """
+        return {
+            "messages": copy.deepcopy(self._agent.messages),
+            "state": copy.deepcopy(self._agent.state.get()),
+            "interrupt_state": self._agent._interrupt_state.to_dict(),
+        }
+
+    def _get_sub_agent_snapshot(self, invocation_state: dict[str, Any], tool_use_id: str) -> dict[str, Any] | None:
+        """Return the sub-agent snapshot for this invocation, if the parent is resuming it.
+
+        Args:
+            invocation_state: Tool invocation context, populated by the event loop with
+                ``_sub_agent_interrupt_resume`` when resuming from an interrupt.
+            tool_use_id: The toolUseId of this agent-as-tool call, used to key the snapshot.
+
+        Returns:
+            The snapshot for this invocation, or ``None`` if this is not a sub-agent resume.
+        """
+        sub_agent_interrupt_resume = invocation_state.get("_sub_agent_interrupt_resume")
+        if not sub_agent_interrupt_resume:
+            return None
+        snapshots = sub_agent_interrupt_resume.get("snapshots") or {}
+        return cast("dict[str, Any] | None", snapshots.get(tool_use_id))
+
+    def _restore_from_snapshot(
+        self, snapshot: dict[str, Any], invocation_state: dict[str, Any]
+    ) -> list[InterruptResponseContent]:
+        """Overlay the interrupted turn onto a fresh sub-agent and build its resume prompt.
+
+        Args:
+            snapshot: Snapshot produced by ``_build_sub_agent_snapshot`` (possibly round-tripped
+                through session serialization).
+            invocation_state: Tool invocation context carrying the parent's resume responses
+                under ``_sub_agent_interrupt_resume``.
+
+        Returns:
+            The interrupt responses destined for this sub-agent, ready to pass to ``stream_async``.
+        """
+        self._agent.messages = snapshot["messages"]
+        self._agent.state = AgentState(snapshot["state"])
+        self._agent._interrupt_state = _InterruptState.from_dict(snapshot["interrupt_state"])
+
+        sub_agent_interrupt_resume = invocation_state.get("_sub_agent_interrupt_resume") or {}
+        responses = sub_agent_interrupt_resume.get("responses") or []
         return [
-            {"interruptResponse": {"interruptId": interrupt.id, "response": interrupt.response}}
-            for interrupt in self._agent._interrupt_state.interrupts.values()
-            if interrupt.response is not None
+            response
+            for response in responses
+            if response["interruptResponse"]["interruptId"] in self._agent._interrupt_state.interrupts
         ]
 
     @override

@@ -741,11 +741,21 @@ async def _handle_tool_execution(
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
 
+        # Route agent-as-tool resume state down through invocation_state so a sub-agent
+        # rebuilt from storage can resume without relying on a shared in-memory interrupt object.
+        persisted_sub_agent_snapshots = agent._interrupt_state.context.get("sub_agent_snapshots")
+        if persisted_sub_agent_snapshots:
+            invocation_state["_sub_agent_interrupt_resume"] = {
+                "responses": agent._interrupt_state.context.get("responses"),
+                "snapshots": persisted_sub_agent_snapshots,
+            }
+
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
     interrupts = []
+    sub_agent_snapshots: dict[str, Any] = {}
 
     # Check for cancellation before tool execution
     # Add tool_result for each tool_use to maintain valid conversation state
@@ -793,6 +803,9 @@ async def _handle_tool_execution(
     async for tool_event in tool_events:
         if isinstance(tool_event, ToolInterruptEvent):
             interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+            sub_agent_snapshot = tool_event.sub_agent_snapshot
+            if sub_agent_snapshot is not None:
+                sub_agent_snapshots[tool_event.tool_use_id] = sub_agent_snapshot
 
         yield tool_event
 
@@ -805,8 +818,12 @@ async def _handle_tool_execution(
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     if interrupts:
-        # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+        # Session state stored on AfterInvocationEvent. Agent-as-tool snapshots ride inside the
+        # interrupt context so they round-trip through the parent's session with no extra wiring.
+        interrupt_context: dict[str, Any] = {"tool_use_message": message, "tool_results": tool_results}
+        if sub_agent_snapshots:
+            interrupt_context["sub_agent_snapshots"] = sub_agent_snapshots
+        agent._interrupt_state.context = interrupt_context
         agent._interrupt_state.activate()
 
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
