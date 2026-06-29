@@ -323,7 +323,7 @@ describe('LocalMemoryStore', () => {
 
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       const message = new Message({ role: 'user', content: [new TextBlock('I like dark mode')] })
       const added = agent.trackedHooks.filter((hook) => hook.eventType === MessageAddedEvent)
