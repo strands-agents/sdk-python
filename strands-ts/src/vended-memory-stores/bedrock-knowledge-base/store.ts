@@ -33,6 +33,18 @@ import { logger } from '../../logging/logger.js'
 
 const DEFAULT_MAX_SEARCH_RESULTS = 10
 
+const RETRIEVE_INPUT_SCHEMA = zodSchemaToJsonSchema(
+  z.object({
+    query: z.string().describe('The search query to retrieve relevant passages for'),
+    maxResults: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe('Maximum number of passages to retrieve. Defaults to the store default.'),
+  })
+)
+
 /**
  * Knowledge base types as defined by `GetKnowledgeBase`. A `MANAGED` KB uses
  * `managedSearchConfiguration`; all others use `vectorSearchConfiguration`.
@@ -417,28 +429,10 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    *
    * Use this alongside a {@link MemoryManager} with `searchToolConfig: false` so the model
    * reaches for the retrieve tool (which returns citable blocks) rather than the plain
-   * `search_memory` tool (which returns JSON strings).
+   * `search_memory` tool (which returns JSON strings). See `examples/kb-native-citations` for
+   * a complete usage example.
    *
    * @returns Array containing one tool, or an empty array when citation blocks are disabled
-   *
-   * @example
-   * ```typescript
-   * import { Agent } from '@strands-agents/sdk'
-   * import { MemoryManager } from '@strands-agents/sdk'
-   * import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
-   *
-   * const store = new BedrockKnowledgeBaseStore({
-   *   config: { knowledgeBaseId: 'KB123' },
-   *   citationDocumentBlocks: true,
-   * })
-   *
-   * const mm = new MemoryManager({
-   *   stores: [store],
-   *   searchToolConfig: false,  // disable plain search_memory; the retrieve tool handles retrieval
-   * })
-   *
-   * const agent = new Agent({ model, memoryManager: mm })
-   * ```
    */
   getTools(): Tool[] {
     if (!this._citationDocumentBlocks) {
@@ -446,28 +440,15 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     }
 
     const toolName = this._retrieveToolConfig?.name ?? 'retrieve_knowledge_base'
-    const storeDescription = this.description ? `\n\nKnowledge base: ${this.description}` : ''
     const toolDescription =
       this._retrieveToolConfig?.description ??
-      `Search the knowledge base and return cited document passages. Results include source citations so the model can attribute each fact to its origin.${storeDescription}`
-
-    const inputSchema = zodSchemaToJsonSchema(
-      z.object({
-        query: z.string().describe('The search query to retrieve relevant passages for'),
-        maxResults: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe('Maximum number of passages to retrieve. Defaults to the store default.'),
-      })
-    )
+      `Search the knowledge base and return cited document passages. Results include source citations so the model can attribute each fact to its origin.${this.description ? `\n\nKnowledge base: ${this.description}` : ''}`
 
     return [
       new FunctionTool({
         name: toolName,
         description: toolDescription,
-        inputSchema,
+        inputSchema: RETRIEVE_INPUT_SCHEMA,
         callback: async (rawInput: unknown): Promise<JSONValue> => {
           const input = rawInput as { query: string; maxResults?: number }
           const results = await this.search(input.query, {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, type MockedFunction } from 'vites
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
 import { BedrockKnowledgeBaseStore } from '../store.js'
+import type { Tool } from '../../../tools/tool.js'
 import { MemoryManager } from '../../../memory/index.js'
 import { InvocationTrigger } from '../../../memory/extraction/triggers.js'
 import type { Extractor } from '../../../memory/extraction/types.js'
@@ -878,6 +879,16 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
   })
 
+  const invokeTool = async (tool: Tool, input: unknown) => {
+    const gen = tool.stream({
+      toolUse: { name: tool.name, toolUseId: 'tu-1', input },
+      invocationState: {},
+    } as any)
+    let step = await gen.next()
+    while (!step.done) step = await gen.next()
+    return step.value
+  }
+
   describe('getTools', () => {
     it('returns an empty array when citationDocumentBlocks is not set', () => {
       const { store } = makeStore()
@@ -938,15 +949,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       })
 
       const tool = store.getTools()[0]!
-      // Invoke via stream() → collect result
-      let result
-      const gen = tool.stream({
-        toolUse: { name: tool.name, toolUseId: 'tu-1', input: { query: 'what is strands' } },
-        invocationState: {},
-      } as any)
-      let step = await gen.next()
-      while (!step.done) step = await gen.next()
-      result = step.value
+      const result = await invokeTool(tool, { query: 'what is strands' })
 
       // ToolResultBlock with two DocumentBlock content items
       expect(result.status).toBe('success')
@@ -982,14 +985,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       })
 
       const tool = store.getTools()[0]!
-      let result
-      const gen = tool.stream({
-        toolUse: { name: tool.name, toolUseId: 'tu-1', input: { query: 'q' } },
-        invocationState: {},
-      } as any)
-      let step = await gen.next()
-      while (!step.done) step = await gen.next()
-      result = step.value
+      const result = await invokeTool(tool, { query: 'q' })
 
       expect(result.content[0]).toEqual(expect.objectContaining({ name: 's3://bucket/key.txt' }))
     })
@@ -1004,14 +1000,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       })
 
       const tool = store.getTools()[0]!
-      let result
-      const gen = tool.stream({
-        toolUse: { name: tool.name, toolUseId: 'tu-1', input: { query: 'q' } },
-        invocationState: {},
-      } as any)
-      let step = await gen.next()
-      while (!step.done) step = await gen.next()
-      result = step.value
+      const result = await invokeTool(tool, { query: 'q' })
 
       expect(result.content[0]).toEqual(expect.objectContaining({ name: 'passage-1' }))
       expect(result.content[1]).toEqual(expect.objectContaining({ name: 'passage-2' }))
@@ -1022,14 +1011,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       // runtime.send already resolves to { retrievalResults: [] } from makeStore
 
       const tool = store.getTools()[0]!
-      let result
-      const gen = tool.stream({
-        toolUse: { name: tool.name, toolUseId: 'tu-1', input: { query: 'unknown topic' } },
-        invocationState: {},
-      } as any)
-      let step = await gen.next()
-      while (!step.done) step = await gen.next()
-      result = step.value
+      const result = await invokeTool(tool, { query: 'unknown topic' })
 
       expect(result.status).toBe('success')
       expect(result.content[0]).toEqual(expect.objectContaining({ type: 'textBlock' }))
@@ -1039,12 +1021,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       const { store, runtime } = makeStore({ citationDocumentBlocks: true })
 
       const tool = store.getTools()[0]!
-      const gen = tool.stream({
-        toolUse: { name: tool.name, toolUseId: 'tu-1', input: { query: 'q', maxResults: 3 } },
-        invocationState: {},
-      } as any)
-      let step = await gen.next()
-      while (!step.done) step = await gen.next()
+      await invokeTool(tool, { query: 'q', maxResults: 3 })
 
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1061,12 +1038,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       const { store, runtime } = makeStore({ citationDocumentBlocks: true, scope: 'tenant-x' })
 
       const tool = store.getTools()[0]!
-      const gen = tool.stream({
-        toolUse: { name: tool.name, toolUseId: 'tu-1', input: { query: 'q' } },
-        invocationState: {},
-      } as any)
-      let step = await gen.next()
-      while (!step.done) step = await gen.next()
+      await invokeTool(tool, { query: 'q' })
 
       expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'tenant-x' } })
     })
