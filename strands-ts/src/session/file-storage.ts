@@ -53,7 +53,8 @@ export class FileStorage implements SnapshotStorage {
       filename
     )
     const resolvedBaseDir = resolve(this._baseDir)
-    if (resolve(path) !== resolvedBaseDir && !resolve(path).startsWith(resolvedBaseDir + sep)) {
+    const resolvedPath = resolve(path)
+    if (resolvedPath !== resolvedBaseDir && !resolvedPath.startsWith(resolvedBaseDir + sep)) {
       throw new SessionError(`Resolved path for session ${location.sessionId} escapes the storage directory`)
     }
     return path

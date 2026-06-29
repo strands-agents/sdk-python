@@ -1,3 +1,5 @@
+import type { Scope } from './types.js'
+
 /**
  * Validates that an identifier contains only allowed characters.
  * Allowed characters: lowercase letters (a-z), numbers (0-9), hyphens (-), and underscores (_)
@@ -15,10 +17,11 @@ export function validateIdentifier(id: string): string {
 }
 
 /**
- * The set of recognized snapshot scopes. Mirrors the `Scope` union in `types/snapshot.ts`.
+ * The set of recognized snapshot scopes. Derived from the `Scope` union so adding a new
+ * scope forces a compile error here until the allowlist is updated.
  * Used as an allowlist so a scope value can only ever name a known storage subtree.
  */
-const VALID_SCOPES = new Set<string>(['agent', 'multiAgent'])
+const VALID_SCOPES = { agent: true, multiAgent: true } satisfies Record<Scope, true>
 
 /**
  * Validates that a scope is one of the recognized values.
@@ -30,7 +33,7 @@ const VALID_SCOPES = new Set<string>(['agent', 'multiAgent'])
  * @throws Error if scope is not a recognized value
  */
 export function validateScope(scope: string): string {
-  if (!VALID_SCOPES.has(scope)) {
+  if (!(scope in VALID_SCOPES)) {
     throw new Error(`Scope '${scope}' is not a recognized session scope`)
   }
   return scope
