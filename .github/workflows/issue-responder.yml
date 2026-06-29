@@ -11,6 +11,13 @@ permissions:
 jobs:
   respond-to-issue:
     runs-on: ubuntu-latest
+    # Only run for repository-affiliated authors. This is intentional: the job
+    # assumes an AWS role via OIDC and forwards issue text to a Bedrock AgentCore
+    # runtime, so an arbitrary account opening an issue must not be able to drive
+    # that invocation. Responding to external or first-time reporters is
+    # deliberately out of scope here; if that is wanted later, add a separate
+    # abuse control (e.g. rate limiting or a label gate) rather than relaxing
+    # this author_association gate.
     if: contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)
 
     steps:
@@ -46,8 +53,12 @@ jobs:
             }
           });
 
-          console.log("Invoking AgentCore with payload:");
-          console.log(JSON.stringify(JSON.parse(payload), null, 2));
+          // Log only non-sensitive metadata. The issue title and body are
+          // forwarded to AgentCore but not echoed to the public Actions log.
+          console.log(
+            `Invoking AgentCore for issue #${process.env.ISSUE_NUMBER} ` +
+            `by ${process.env.ISSUE_AUTHOR} in ${process.env.REPO}`
+          );
 
           const client = new BedrockAgentCoreClient({ region: "us-east-1" });
           
