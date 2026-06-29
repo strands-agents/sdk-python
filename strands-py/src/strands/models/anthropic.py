@@ -478,7 +478,8 @@ class AnthropicModel(Model):
                     if event.type in AnthropicModel.EVENT_TYPES:
                         with warnings.catch_warnings():
                             warnings.filterwarnings("ignore", message=".*PydanticSerializationUnexpectedValue.*")
-                            yield self.format_chunk(event.model_dump())
+                            chunk = event.model_dump()
+                        yield self.format_chunk(chunk)
 
                 try:
                     message_snapshot = await stream.get_final_message()

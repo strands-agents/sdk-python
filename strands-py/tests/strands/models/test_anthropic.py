@@ -1219,16 +1219,20 @@ async def test_stream_all_events_no_pydantic_warnings(anthropic_client, model, a
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always")
         response = model.stream([{"role": "user", "content": [{"text": "hello"}]}], None, None)
-        events = await alist(response)
+        tru_events = await alist(response)
 
     pydantic_warnings = [w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)]
     assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
 
-    assert {"messageStart": {"role": "assistant"}} in events
-    assert {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}} in events
-    assert {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "Hello"}}} in events
-    assert {"contentBlockStop": {"contentBlockIndex": 0}} in events
-    assert {"messageStop": {"stopReason": "end_turn"}} in events
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
+        {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "Hello"}}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_events == exp_events
 
 
 class TestCountTokens:
