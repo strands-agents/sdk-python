@@ -557,6 +557,21 @@ class TestSkillFromUrl:
     _SKILL_MODULE = "strands.vended_plugins.skills.skill"
     _SAMPLE_CONTENT = "---\nname: my-skill\ndescription: A remote skill\n---\nRemote instructions.\n"
 
+    @pytest.fixture(autouse=True)
+    def _resolve_to_public(self):
+        """Resolve all hostnames to a public address so tests do not hit DNS.
+
+        Tests that exercise disallowed-host behavior override this with their
+        own resolution.
+        """
+        from unittest.mock import patch
+
+        with patch(
+            f"{self._SKILL_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 0))],
+        ):
+            yield
+
     def _mock_urlopen(self, content):
         """Create a mock urlopen context manager returning the given content."""
         from unittest.mock import MagicMock
@@ -636,6 +651,65 @@ class TestSkillFromUrl:
         with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(html_content)):
             with pytest.raises(ValueError, match="frontmatter"):
                 Skill.from_url("https://example.com/SKILL.md")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://169.254.169.254/latest/meta-data/",
+            "https://[fd00:ec2::254]/latest/meta-data/",
+            "https://127.0.0.1/SKILL.md",
+            "https://[::1]/SKILL.md",
+            "https://10.0.0.5/SKILL.md",
+        ],
+    )
+    def test_from_url_literal_disallowed_host_rejected(self, url):
+        """Test that link-local, loopback, and private IP literals are rejected before any fetch."""
+        from unittest.mock import patch
+
+        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
+            with pytest.raises(ValueError, match="not allowed"):
+                Skill.from_url(url)
+            mock_urlopen.assert_not_called()
+
+    def test_from_url_resolved_disallowed_host_rejected(self):
+        """Test that a hostname resolving to a link-local address is rejected before any fetch."""
+        from unittest.mock import patch
+
+        with patch(
+            f"{self._SKILL_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("169.254.169.254", 0))],
+        ):
+            with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
+                with pytest.raises(ValueError, match="not allowed"):
+                    Skill.from_url("https://metadata.example.com/SKILL.md")
+                mock_urlopen.assert_not_called()
+
+    def test_from_url_unresolvable_host_rejected(self):
+        """Test that a host that cannot be resolved is rejected before any fetch."""
+        import socket
+        from unittest.mock import patch
+
+        with patch(f"{self._SKILL_MODULE}.socket.getaddrinfo", side_effect=socket.gaierror("no such host")):
+            with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
+                with pytest.raises(ValueError, match="could not resolve host"):
+                    Skill.from_url("https://does-not-exist.invalid/SKILL.md")
+                mock_urlopen.assert_not_called()
+
+    def test_from_url_public_host_allowed(self):
+        """Test that a host resolving to a public address is allowed to fetch."""
+        from unittest.mock import patch
+
+        with patch(
+            f"{self._SKILL_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 0))],
+        ):
+            with patch(
+                f"{self._SKILL_MODULE}.urllib.request.urlopen",
+                return_value=self._mock_urlopen(self._SAMPLE_CONTENT),
+            ):
+                skill = Skill.from_url("https://example.com/SKILL.md")
+
+        assert skill.name == "my-skill"
 
 
 class TestSkillClassmethods:

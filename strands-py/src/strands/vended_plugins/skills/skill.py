@@ -8,13 +8,16 @@ frontmatter metadata and markdown instructions.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -22,6 +25,64 @@ logger = logging.getLogger(__name__)
 
 _SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _MAX_SKILL_NAME_LENGTH = 64
+
+# IPv6 address of the EC2 instance metadata service. ``ipaddress`` does not
+# classify this address as link-local, so it is checked explicitly.
+_IMDS_IPV6 = ipaddress.ip_address("fd00:ec2::254")
+
+
+def _is_disallowed_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True if an IP address must not be reached when fetching a remote skill.
+
+    Rejects loopback, link-local (which covers the 169.254.0.0/16 instance
+    metadata range), and other non-public address ranges, plus the EC2 IPv6
+    metadata address.
+
+    Args:
+        ip: The resolved IP address to check.
+
+    Returns:
+        True if the address is in a disallowed range, False otherwise.
+    """
+    if ip == _IMDS_IPV6:
+        return True
+    return ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+
+
+def _validate_fetch_host(url: str) -> None:
+    """Validate that a URL's host does not resolve to a non-public address.
+
+    Resolves the host to all of its addresses and rejects the fetch if any of
+    them fall in a loopback, link-local, private, or otherwise non-public
+    range. Resolving up front (rather than trusting a literal host) keeps the
+    set of addresses that are checked aligned with the set the fetch will
+    actually connect to.
+
+    Args:
+        url: The URL whose host should be validated.
+
+    Raises:
+        ValueError: If the host is missing or resolves to a disallowed address.
+    """
+    host = urlsplit(url).hostname
+    if not host:
+        raise ValueError(f"url=<{url}> | missing host")
+
+    # A bracketed/bare IP literal is parsed by urlsplit without brackets, so it
+    # can be checked directly; otherwise resolve the hostname to its addresses.
+    try:
+        literal = ipaddress.ip_address(host)
+        candidates = [literal]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except socket.gaierror as e:
+            raise ValueError(f"url=<{url}> | could not resolve host") from e
+        candidates = [ipaddress.ip_address(info[4][0]) for info in infos]
+
+    for ip in candidates:
+        if _is_disallowed_address(ip):
+            raise ValueError(f"url=<{url}> | host is not allowed")
 
 
 def _find_skill_md(skill_dir: Path) -> Path:
@@ -361,11 +422,14 @@ class Skill:
             A Skill instance populated from the fetched SKILL.md content.
 
         Raises:
-            ValueError: If ``url`` is not an ``https://`` URL.
+            ValueError: If ``url`` is not an ``https://`` URL, or if its host
+                resolves to a loopback, link-local, or other non-public address.
             RuntimeError: If the SKILL.md content cannot be fetched.
         """
         if not url.startswith("https://"):
             raise ValueError(f"url=<{url}> | not a valid HTTPS URL")
+
+        _validate_fetch_host(url)
 
         logger.info("url=<%s> | fetching skill content", url)
 
