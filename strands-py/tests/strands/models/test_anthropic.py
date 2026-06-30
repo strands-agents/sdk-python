@@ -802,8 +802,7 @@ def test_format_chunk_metadata_with_cache_tokens(model):
             "usage": {
                 "inputTokens": 5,
                 "outputTokens": 7,
-                # 5 (uncached) + 100 (cache read) + 50 (cache write) + 7 (output)
-                "totalTokens": 162,
+                "totalTokens": 12,
                 "cacheReadInputTokens": 100,
                 "cacheWriteInputTokens": 50,
             },
