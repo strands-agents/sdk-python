@@ -20,7 +20,7 @@ from ...models.model import Model
 from ...telemetry.tracer import get_tracer
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import AggregateMemoryError
-from ..types import MemoryStore
+from ..types import AddMessagesContext, MemoryStore
 from .resolve_extraction_config import _ResolvedExtractionConfig
 from .types import Extractor, ExtractorContext, MemoryMessageFilter
 
@@ -209,7 +209,7 @@ class ExtractionCoordinator:
         # rolled back below on failure.
         self._marks[id(store)] = fresh[-1].seq
 
-        filtered = self._filter_messages([buffered.message for buffered in fresh], config.filter)
+        filtered = self._filter_messages(fresh, config.filter)
 
         span = get_tracer().start_memory_extract_span(
             store.name,
@@ -246,13 +246,15 @@ class ExtractionCoordinator:
         except Exception:  # noqa: BLE001 - telemetry must never break the agent loop.
             logger.debug("store=<%s> | memory extract span end failed", store.name, exc_info=True)
 
-    async def _write(self, store: MemoryStore, messages: list[Message], extractor: Extractor | None) -> int:
+    async def _write(self, store: MemoryStore, buffered: list[_Buffered], extractor: Extractor | None) -> int:
         """Save the messages to the store, one of two ways.
 
         - With an extractor: run it, then write each fact via ``add``
           concurrently. If any write fails the whole batch is re-raised and
           retried later, so stores should expect duplicate writes.
-        - Without an extractor: hand the raw messages to ``add_messages``.
+        - Without an extractor: hand the raw messages to ``add_messages``,
+          passing each message's sequence number so the store can build an
+          idempotency key that survives retries.
 
         Returns:
             The number of entries written (extracted facts, or raw messages).
@@ -260,6 +262,8 @@ class ExtractionCoordinator:
         Raises:
             AggregateMemoryError: If any concurrent ``add`` write fails.
         """
+        messages = [item.message for item in buffered]
+
         if extractor is not None:
             entries = await extractor.extract(messages, ExtractorContext(default_model=self._default_model))
             results = await asyncio.gather(
@@ -274,23 +278,26 @@ class ExtractionCoordinator:
                 )
             return len(entries)
 
-        await store.add_messages(messages)
+        await store.add_messages(messages, AddMessagesContext(sequence_numbers=[item.seq for item in buffered]))
         return len(messages)
 
-    def _filter_messages(self, messages: list[Message], message_filter: MemoryMessageFilter) -> list[Message]:
+    def _filter_messages(self, buffered: list[_Buffered], message_filter: MemoryMessageFilter) -> list[_Buffered]:
         """Remove excluded content blocks, dropping any message left empty.
 
-        Builds new message dicts rather than mutating the inputs.
+        Builds new message dicts rather than mutating the inputs, and carries each
+        surviving message's sequence number through so it stays aligned with the
+        filtered batch.
         """
         exclude = set(message_filter.exclude)
-        result: list[Message] = []
-        for message in messages:
+        result: list[_Buffered] = []
+        for item in buffered:
+            message = item.message
             content = [block for block in message["content"] if self._block_kind(block) not in exclude]
             if content:
                 new_message: Message = {"role": message["role"], "content": content}
                 if message.get("metadata") is not None:
                     new_message["metadata"] = message["metadata"]
-                result.append(new_message)
+                result.append(_Buffered(item.seq, new_message))
         return result
 
     def _block_kind(self, block: ContentBlock) -> str:
