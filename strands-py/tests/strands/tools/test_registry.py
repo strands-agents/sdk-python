@@ -17,6 +17,27 @@ from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
 
 
+@pytest.fixture(autouse=True)
+def _restore_sys_state():
+    """Snapshot and restore sys.modules keys and sys.path entries introduced by a test.
+
+    Loading directory tools mutates global state: the tool module lands in sys.modules under
+    its namespaced key, sibling imports land under their own bare names (a known limitation),
+    and the tool directory is briefly added to sys.path. Restoring this state keeps the tests
+    order-independent.
+    """
+    original_modules = dict(sys.modules)
+    original_path = list(sys.path)
+    try:
+        yield
+    finally:
+        for key in set(sys.modules) - set(original_modules):
+            del sys.modules[key]
+        for key, value in original_modules.items():
+            sys.modules[key] = value
+        sys.path[:] = original_path
+
+
 @pytest.mark.filterwarnings("ignore:load_tool_from_filepath is deprecated:DeprecationWarning")
 def test_load_tool_from_filepath_failure():
     """Test error handling when load_tool fails."""
