@@ -273,7 +273,7 @@ Sometimes more than one request targets the same agent instance at once: a retri
 
   #### Deduplicating retried requests
 
-  When a retry arrives for a request that is still running, returning the original's result beats both erroring and starting the work twice. Pass <Syntax py="idempotency_token" /> (a `str`) to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
+  When a retry arrives for a request that is still running, returning the original's result beats both erroring and starting the work twice. Pass <Syntax py="idempotency_token" /> to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
 
   If a call with the same token is already in flight, the new call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
 
