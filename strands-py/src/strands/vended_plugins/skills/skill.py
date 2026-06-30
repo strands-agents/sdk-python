@@ -26,17 +26,17 @@ logger = logging.getLogger(__name__)
 _SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _MAX_SKILL_NAME_LENGTH = 64
 
-# IPv6 address of the EC2 instance metadata service. ``ipaddress`` does not
-# classify this address as link-local, so it is checked explicitly.
-_IMDS_IPV6 = ipaddress.ip_address("fd00:ec2::254")
+# A small set of non-public IPv6 addresses that ``ipaddress`` does not flag via
+# its is_* properties, so they are matched explicitly.
+_EXTRA_NON_PUBLIC_IPS = frozenset({ipaddress.ip_address("fd00:ec2::254")})
 
 
 def _is_disallowed_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True if an IP address must not be reached when fetching a remote skill.
+    """Return True if a remote skill must not be fetched from this IP address.
 
-    Rejects loopback, link-local (which covers the 169.254.0.0/16 instance
-    metadata range), and other non-public address ranges, plus the EC2 IPv6
-    metadata address.
+    Allows only public, routable addresses. Loopback, link-local, private,
+    multicast, reserved, and unspecified ranges are rejected, along with a few
+    extra non-public addresses not covered by the standard properties.
 
     Args:
         ip: The resolved IP address to check.
@@ -44,7 +44,7 @@ def _is_disallowed_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
     Returns:
         True if the address is in a disallowed range, False otherwise.
     """
-    if ip == _IMDS_IPV6:
+    if ip in _EXTRA_NON_PUBLIC_IPS:
         return True
     return ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_multicast or ip.is_reserved or ip.is_unspecified
 

@@ -655,15 +655,15 @@ class TestSkillFromUrl:
     @pytest.mark.parametrize(
         "url",
         [
-            "https://169.254.169.254/latest/meta-data/",
-            "https://[fd00:ec2::254]/latest/meta-data/",
+            "https://169.254.169.254/SKILL.md",
+            "https://[fd00:ec2::254]/SKILL.md",
             "https://127.0.0.1/SKILL.md",
             "https://[::1]/SKILL.md",
             "https://10.0.0.5/SKILL.md",
         ],
     )
     def test_from_url_literal_disallowed_host_rejected(self, url):
-        """Test that link-local, loopback, and private IP literals are rejected before any fetch."""
+        """Test that non-public IP literals are rejected before any fetch."""
         from unittest.mock import patch
 
         with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
@@ -672,7 +672,7 @@ class TestSkillFromUrl:
             mock_urlopen.assert_not_called()
 
     def test_from_url_resolved_disallowed_host_rejected(self):
-        """Test that a hostname resolving to a link-local address is rejected before any fetch."""
+        """Test that a hostname resolving to a non-public address is rejected before any fetch."""
         from unittest.mock import patch
 
         with patch(
@@ -681,7 +681,7 @@ class TestSkillFromUrl:
         ):
             with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
                 with pytest.raises(ValueError, match="not allowed"):
-                    Skill.from_url("https://metadata.example.com/SKILL.md")
+                    Skill.from_url("https://internal.example.com/SKILL.md")
                 mock_urlopen.assert_not_called()
 
     def test_from_url_unresolvable_host_rejected(self):
