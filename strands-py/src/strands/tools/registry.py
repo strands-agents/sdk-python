@@ -7,11 +7,9 @@ invocation capabilities.
 import inspect
 import logging
 import os
-import sys
 import uuid
 import warnings
 from collections.abc import Iterable, Sequence
-from importlib import util
 from os.path import expanduser
 from pathlib import Path
 from typing import Any, cast
@@ -23,7 +21,7 @@ from ..agent.base import AgentBase
 from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
 from . import ToolProvider
-from .loader import _TOOL_MODULE_PREFIX, load_tool_from_string, load_tools_from_module
+from .loader import _load_tool_module, load_tool_from_string, load_tools_from_module
 from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
@@ -390,30 +388,9 @@ class ToolRegistry:
             logger.debug("tool_name=<%s> | reloading tool", tool_name)
 
             # Load the module under a namespaced key so a tool file does not clobber an
-            # identically named entry in sys.modules (e.g. a tool named "json").
-            module_key = f"{_TOOL_MODULE_PREFIX}{tool_name}"
-            spec = util.spec_from_file_location(module_key, str(tool_path))
-            if spec is None:
-                raise ImportError(f"Could not load spec for {tool_name}")
-
-            if spec.loader is None:
-                raise ImportError(f"Could not load {tool_name}")
-
-            module = util.module_from_spec(spec)
-            sys.modules[module_key] = module
-
-            # Add the tool directory to the path only while executing the module so a tool
-            # can import sibling modules from the same directory at the top level.
-            tool_dir = str(tool_path.parent)
-            sys.path.insert(0, tool_dir)
-            try:
-                spec.loader.exec_module(module)
-            except Exception:
-                sys.modules.pop(module_key, None)
-                raise
-            finally:
-                if tool_dir in sys.path:
-                    sys.path.remove(tool_dir)
+            # identically named entry in sys.modules (e.g. a tool named "json"), with the
+            # tool directory scoped onto sys.path only while the module executes.
+            module = _load_tool_module(tool_name, str(tool_path))
 
             # Look for function-based tools first
             try:
@@ -488,27 +465,9 @@ class ToolRegistry:
 
             try:
                 # Load the module under a namespaced key so a tool file does not clobber an
-                # identically named entry in sys.modules (e.g. a tool named "json").
-                module_key = f"{_TOOL_MODULE_PREFIX}{tool_name}"
-                spec = util.spec_from_file_location(module_key, str(tool_path))
-                if spec is None or spec.loader is None:
-                    raise ImportError(f"Could not load spec for {tool_name}")
-
-                module = util.module_from_spec(spec)
-                sys.modules[module_key] = module
-
-                # Add the tool directory to the path only while executing the module so a tool
-                # can import sibling modules from the same directory at the top level.
-                tool_dir = str(tool_path.parent)
-                sys.path.insert(0, tool_dir)
-                try:
-                    spec.loader.exec_module(module)
-                except Exception:
-                    sys.modules.pop(module_key, None)
-                    raise
-                finally:
-                    if tool_dir in sys.path:
-                        sys.path.remove(tool_dir)
+                # identically named entry in sys.modules (e.g. a tool named "json"), with the
+                # tool directory scoped onto sys.path only while the module executes.
+                module = _load_tool_module(tool_name, str(tool_path))
 
                 # Process Python tool
                 if tool_path.suffix == ".py":
