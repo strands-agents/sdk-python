@@ -114,6 +114,9 @@ sidebar:
               - docs/user-guide/concepts/plugins/context-injector
               - docs/user-guide/concepts/plugins/goal-loop
           - label: Interventions
+            badge:
+              text: New
+              variant: tip
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
