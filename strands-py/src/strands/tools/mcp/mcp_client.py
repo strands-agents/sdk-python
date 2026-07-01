@@ -84,6 +84,27 @@ class ToolFilters(TypedDict, total=False):
     rejected: list[_ToolMatcher]
 
 
+class MCPServerConfig(TypedDict, total=False):
+    """Schema for a single MCP server entry in a load_servers config.
+
+    Provide either 'command' (stdio) or 'url' (streamable-http/sse), not both. When 'transport' is
+    omitted it is auto-detected from the fields present. String values support '${VAR}' /
+    '${env:VAR}' interpolation, and '~' in 'command' and 'cwd' is expanded to the home directory.
+    """
+
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    cwd: str
+    url: str
+    headers: dict[str, str]
+    transport: str
+    disabled: bool
+    prefix: str
+    tool_filters: ToolFilters
+    startup_timeout: int
+
+
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
@@ -153,6 +174,11 @@ class MCPClient(ToolProvider):
             # A non-dict entry is a malformed-config error and always raises, unlike per-server failures.
             if not isinstance(server, dict):
                 raise ValueError(f"server '{name}' configuration must be a dictionary, got {type(server).__name__}")
+            unknown_keys = sorted(server.keys() - MCPServerConfig.__annotations__.keys())
+            if unknown_keys:
+                logger.warning(
+                    "server_name=<%s>, unknown_keys=<%s> | ignoring unrecognized MCP config keys", name, unknown_keys
+                )
             if server.get("disabled", False):
                 logger.debug("server_name=<%s> | skipping disabled MCP server", name)
                 continue

@@ -123,9 +123,10 @@ def test_malformed_placeholder_not_interpolated(mock_client, transports):
 # Path Expansion Tests
 
 
-def test_expands_tilde_in_command_and_cwd(mock_client, transports, monkeypatch):
-    monkeypatch.setenv("HOME", "/home/user")
-    MCPClient.load_servers({"srv": {"command": "~/bin/server", "cwd": "~/project"}})
+def test_expands_tilde_in_command_and_cwd(mock_client, transports):
+    # Patch expanduser to a fixed home so the assertion holds regardless of platform.
+    with patch("os.path.expanduser", lambda p: p.replace("~", "/home/user")):
+        MCPClient.load_servers({"srv": {"command": "~/bin/server", "cwd": "~/project"}})
     _open(mock_client[0][0])
     transports["params"].assert_called_once_with(
         command="/home/user/bin/server", args=[], env=None, cwd="/home/user/project"
@@ -138,13 +139,12 @@ def test_expands_tilde_in_command_and_cwd(mock_client, transports, monkeypatch):
 def test_prefix_and_startup_timeout_passed(mock_client, transports):
     MCPClient.load_servers({"srv": {"command": "node", "prefix": "p", "startup_timeout": 5}})
     _, kwargs = mock_client[0]
-    assert kwargs["prefix"] == "p"
-    assert kwargs["startup_timeout"] == 5
+    assert kwargs == {"startup_timeout": 5, "tool_filters": None, "prefix": "p"}
 
 
 def test_default_startup_timeout(mock_client, transports):
     MCPClient.load_servers({"srv": {"command": "node"}})
-    assert mock_client[0][1]["startup_timeout"] == 30
+    assert mock_client[0][1] == {"startup_timeout": 30, "tool_filters": None, "prefix": None}
 
 
 def test_tool_filters_compiled_to_regex(mock_client, transports):
@@ -159,6 +159,12 @@ def test_tool_filters_compiled_to_regex(mock_client, transports):
 def test_invalid_regex_raises(mock_client, transports):
     with pytest.raises(ValueError, match="invalid regex in tool_filters.allowed"):
         MCPClient.load_servers({"srv": {"command": "node", "tool_filters": {"allowed": ["([unclosed"]}}})
+
+
+def test_unknown_config_key_warns(mock_client, transports, caplog):
+    with caplog.at_level("WARNING", logger="strands.tools.mcp.mcp_client"):
+        MCPClient.load_servers({"srv": {"command": "node", "startup_timout": 5}})
+    assert "startup_timout" in caplog.text
 
 
 # File Loading Tests
@@ -176,6 +182,11 @@ def test_extracts_mcp_servers_key(mock_client, transports, tmp_path):
     cfg.write_text(json.dumps({"mcpServers": {"a": {"command": "node"}, "b": {"url": "https://x.com"}}}))
     clients = MCPClient.load_servers(str(cfg))
     assert len(clients) == 2
+    # Verify each entry wired to the right transport, not just that two clients were created.
+    _open(mock_client[0][0])
+    _open(mock_client[1][0])
+    transports["stdio"].assert_called_once()
+    transports["http"].assert_called_once_with(url="https://x.com", headers=None)
 
 
 def test_flat_object_without_wrapper(mock_client, transports, tmp_path):
