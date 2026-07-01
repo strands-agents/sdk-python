@@ -2799,3 +2799,161 @@ async def test_reset_executor_state_preserves_graph_state_for_nested_graph():
     assert isinstance(inner_graph.state, GraphState), "reset_executor_state overwrote GraphState with AgentState"
     assert node.execution_status == Status.PENDING
     assert node.result is None
+
+
+# ---------------------------------------------------------------------------
+# Test: _is_node_ready_for_resume excludes edges from bypassed nodes
+# ---------------------------------------------------------------------------
+
+
+class TestResumeBypassedNodes:
+    """Verify _is_node_ready_for_resume excludes edges from bypassed (never-executed) nodes.
+
+    When conditional edges create a skip/bypass pattern (A→C bypassing B), node B
+    may never execute. Its unconditional outgoing edge B→C should not block C from
+    being ready for resume, because B was intentionally bypassed.
+
+    Regression test for strands-agents/sdk-python#3068.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bypassed_node_does_not_block_resume(self):
+        """C should be in next_nodes_to_execute even though B (bypassed) has an unconditional edge to C."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        # A→B: enter only when skip_flag is falsy
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        # A→C: bypass B when skip_flag is truthy
+        def bypass_to_c(state, *, invocation_state, **kwargs):
+            return (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("A", "C", condition=bypass_to_c)
+        builder.add_edge("B", "C")  # unconditional
+
+        graph = builder.build()
+
+        # Simulate: A completed, B bypassed (never executed), C interrupted
+        node_a = graph.nodes["A"]
+        _node_b = graph.nodes["B"]
+        node_c = graph.nodes["C"]
+
+        node_a.execution_status = Status.COMPLETED
+        node_c.execution_status = Status.INTERRUPTED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_c}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        # Compute ready nodes for resume
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = [n.node_id for n in ready]
+
+        # C should be ready — its bypass edge from A is satisfied
+        assert "C" in ready_ids, (
+            f"Expected 'C' in next_nodes_to_execute, got {ready_ids}. Edge from bypassed node B should not block C."
+        )
+        # B should NOT be ready — its enter condition is False
+        assert "B" not in ready_ids
+
+    @pytest.mark.asyncio
+    async def test_parallel_fan_in_still_waits_for_all(self):
+        """AND-join is preserved for parallel fan-in (non-bypassed nodes)."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        # Both A and B feed into C (parallel fan-in, unconditional)
+        builder.add_edge("A", "C")
+        builder.add_edge("B", "C")
+
+        graph = builder.build()
+
+        node_a = graph.nodes["A"]
+        node_b = graph.nodes["B"]
+        _node_c = graph.nodes["C"]
+
+        # Only A completed, B is still in progress (touched but not done)
+        node_a.execution_status = Status.COMPLETED
+        node_b.execution_status = Status.INTERRUPTED  # touched but not completed
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_b}
+        graph._current_invocation_state = {}
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = [n.node_id for n in ready]
+
+        # C should NOT be ready — B is touched (interrupted) but not completed
+        # AND-join requires all touched sources to be completed
+        assert "C" not in ready_ids, "AND-join should still wait for interrupted node B to complete"
+        # B should be ready (it's interrupted and has completed source... wait, B has no incoming edge)
+        # Actually B is an entry point here
+        assert "B" in ready_ids
+
+    @pytest.mark.asyncio
+    async def test_serialize_deserialize_with_bypassed_node(self):
+        """Full serialize/deserialize cycle with a bypassed node produces correct resume."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        def bypass_to_c(state, *, invocation_state, **kwargs):
+            return (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("A", "C", condition=bypass_to_c)
+        builder.add_edge("B", "C")
+
+        graph = builder.build()
+
+        # Simulate state after: A completed, B bypassed, C interrupted
+        node_a = graph.nodes["A"]
+        node_c = graph.nodes["C"]
+        node_a.execution_status = Status.COMPLETED
+        node_c.execution_status = Status.INTERRUPTED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_c}
+        graph.state.execution_order = [node_a]
+        graph.state.results = {}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        # Serialize
+        payload = graph.serialize_state()
+
+        assert "C" in payload["next_nodes_to_execute"], (
+            f"Expected 'C' in serialized next_nodes_to_execute, got {payload['next_nodes_to_execute']}"
+        )
+
+        # Deserialize into a fresh graph
+        graph2 = builder.build()
+        graph2._current_invocation_state = {"skip_flag": True}
+        graph2.deserialize_state(payload)
+
+        assert graph2._resume_from_session is True, "Graph should resume from session, not reset"

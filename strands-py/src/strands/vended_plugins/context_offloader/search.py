@@ -143,9 +143,7 @@ def _search_by_pattern(
     return f"{header}\n\n{truncated_body}"
 
 
-def _search_by_line_range(
-    lines: list[str], start: int, end: int, total_lines: int, max_chars: int
-) -> str:
+def _search_by_line_range(lines: list[str], start: int, end: int, total_lines: int, max_chars: int) -> str:
     """Format a contiguous range of lines with truncation."""
     indices = list(range(start, end + 1))
     header = f"[Lines {start + 1}-{end + 1} of {total_lines}]"
