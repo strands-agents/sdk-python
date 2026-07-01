@@ -14,11 +14,12 @@ consumers:
 - **Reconstruction**: full retrieval rebuilds the original content block
   (same kind, same format) through the inverse mapping.
 
-The mapping is derived from the SDK's own format contracts
-(:data:`strands.types.media.DocumentFormat` and
-:data:`strands.types.media.ImageFormat`) -- no provider-specific enum is
-involved -- and it is bijective per kind, so offload -> retrieve is lossless:
-the model receives the same block it would have seen without offloading.
+The mapping covers the SDK's own format contract
+(:data:`strands.types.media.DocumentFormat`) -- no provider-specific enum is
+involved -- so offload -> retrieve reproduces the original document block for
+every format except ``txt``, which intentionally retrieves as plain text
+(content-identical, and additionally pattern-searchable). A drift-guard test
+keeps this table in lockstep with ``DocumentFormat``.
 """
 
 from __future__ import annotations

@@ -573,9 +573,8 @@ class TestRetrievalTool:
             doc_bytes = b"content for " + fmt.encode()
             ref = await storage.store(f"key_{fmt}", doc_bytes, f"application/{fmt}")
             result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
-            assert result["status"] == "success", f"{fmt} should produce a document block"
-            assert result["content"][0]["document"]["format"] == fmt
-            assert result["content"][0]["document"]["source"]["bytes"] == doc_bytes
+            exp_block = {"format": fmt, "name": ref, "source": {"bytes": doc_bytes}}
+            assert result == {"status": "success", "content": [{"document": exp_block}]}
 
 
 class TestFaithfulRoundTrip:
@@ -624,9 +623,8 @@ class TestFaithfulRoundTrip:
             doc_bytes = b"content for " + fmt.encode()
             ref = await self._offload_document(plugin, mock_agent, fmt, doc_bytes)
             result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
-            doc = result["content"][0]["document"]
-            assert doc["format"] == fmt, f"offload+retrieve must preserve format={fmt}"
-            assert doc["source"]["bytes"] == doc_bytes
+            exp_block = {"format": fmt, "name": ref, "source": {"bytes": doc_bytes}}
+            assert result == {"status": "success", "content": [{"document": exp_block}]}
 
     @pytest.mark.asyncio
     async def test_txt_document_round_trips_as_text(self, plugin, mock_agent, tool_context):
@@ -659,6 +657,24 @@ class TestFaithfulRoundTrip:
         result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
         assert isinstance(result, str)
         assert result == "strange bytes"
+
+    @pytest.mark.asyncio
+    async def test_non_utf8_txt_document_retrieves_without_raising(self, plugin, mock_agent, tool_context):
+        """Regression: a non-UTF-8 txt document (e.g. Windows-1252) must degrade, not raise."""
+        doc_bytes = "caf\u00e9,r\u00e9sum\u00e9\n".encode("cp1252")  # é = 0xe9, invalid UTF-8
+        ref = await self._offload_document(plugin, mock_agent, "txt", doc_bytes)
+        result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
+        assert isinstance(result, str)
+        assert result == doc_bytes.decode("utf-8", errors="replace")
+
+    @pytest.mark.asyncio
+    async def test_non_utf8_csv_document_pattern_search_does_not_raise(self, plugin, mock_agent, tool_context):
+        """Regression: pattern search on a non-UTF-8 CSV document must degrade, not raise."""
+        doc_bytes = "name,city\nbob,Z\u00fcrich\nalice,Madrid\n".encode("cp1252")  # ü = 0xfc, invalid UTF-8
+        ref = await self._offload_document(plugin, mock_agent, "csv", doc_bytes)
+        result = await plugin.retrieve_offloaded_content(reference=ref, pattern="bob", tool_context=tool_context)
+        assert isinstance(result, str)
+        assert "bob" in result
 
 
 class TestRetrievalToolSearch:

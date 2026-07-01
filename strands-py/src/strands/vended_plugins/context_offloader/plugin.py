@@ -246,7 +246,7 @@ class ContextOffloader(Plugin):
                 "Omit pattern/line_range/context_lines to retrieve the full content."
             )
 
-        text = content_bytes.decode("utf-8")
+        text = content_bytes.decode("utf-8", errors="replace")
         ctx_lines = context_lines if context_lines is not None else 5
         max_chars = self._max_result_tokens * _CHARS_PER_TOKEN
 
@@ -286,7 +286,9 @@ class ContextOffloader(Plugin):
             return {"status": "success", "content": [{"document": doc_block}]}
 
         if content_type.startswith("text/"):
-            return content_bytes.decode("utf-8")
+            # errors="replace": text-based documents (csv/txt/md/html) carry
+            # arbitrary bytes -- a non-UTF-8 file must degrade, not raise.
+            return content_bytes.decode("utf-8", errors="replace")
 
         # Unknown/foreign content (e.g. octet-stream from lost metadata):
         # return as text -- never an invalid document block that kills the turn.
