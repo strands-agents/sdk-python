@@ -12,6 +12,7 @@ import base64
 import contextvars
 import json
 import logging
+import os
 import sys
 import threading
 import uuid
@@ -161,6 +162,10 @@ class MCPClient(ToolProvider):
         self._background_thread: threading.Thread | None = None
         self._background_thread_session: ClientSession | None = None
         self._background_thread_event_loop: AbstractEventLoop | None = None
+        # Pseudo-terminal file descriptors observed before the background thread starts.
+        # Used to identify and release descriptors opened by the transport subprocess
+        # if its context managers fail to unwind cleanly. None until start() runs.
+        self._pre_start_ptmx_fds: set[int] | None = None
         self._loaded_tools: list[MCPAgentTool] | None = None
         self._tool_provider_started = False
         self.server_instructions: str | None = None
@@ -209,6 +214,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session is currently running")
 
         self._log_debug_with_thread("entering MCPClient context")
+        # Record the pseudo-terminal descriptors already open before the transport starts so
+        # stop() can release only the ones this client opens. See _snapshot_ptmx_fds.
+        self._pre_start_ptmx_fds = self._snapshot_ptmx_fds()
         # Copy context vars to propagate to the background thread
         # This ensures that context set in the main thread is accessible in the background thread
         # See: https://github.com/strands-agents/harness-sdk/issues/1440
@@ -388,6 +396,11 @@ class MCPClient(ToolProvider):
         if self._background_thread_event_loop is not None:
             self._background_thread_event_loop.close()
 
+        # The background thread has joined, so no async code references the transport's
+        # descriptors anymore. Release any pseudo-terminal descriptors the transport
+        # subprocess opened but did not close when its context managers failed to unwind.
+        self._close_leaked_ptmx_fds()
+
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
         # Reset fields to allow instance reuse
@@ -395,6 +408,7 @@ class MCPClient(ToolProvider):
         self._background_thread = None
         self._background_thread_session = None
         self._background_thread_event_loop = None
+        self._pre_start_ptmx_fds = None
         self._session_id = uuid.uuid4()
         self._loaded_tools = None
         self._tool_provider_started = False
@@ -406,6 +420,62 @@ class MCPClient(ToolProvider):
             exception = self._close_exception
             self._close_exception = None
             raise RuntimeError("Connection to the MCP server was closed") from exception
+
+    def _snapshot_ptmx_fds(self) -> set[int]:
+        """Return the set of open pseudo-terminal file descriptors for this process.
+
+        The transport callable may spawn a subprocess that opens pseudo-terminal
+        descriptors in the parent process. This inspects ``/proc/self/fd`` to find those
+        descriptors so stop() can release any that are left open. Returns an empty set on
+        platforms without ``/proc/self/fd`` (anything other than Linux), making the
+        cleanup a no-op there.
+        """
+        ptmx_fds: set[int] = set()
+        if not os.path.isdir("/proc/self/fd"):
+            return ptmx_fds
+        try:
+            entries = os.listdir("/proc/self/fd")
+        except OSError:
+            return ptmx_fds
+        for entry in entries:
+            try:
+                fd = int(entry)
+                target = os.readlink(f"/proc/self/fd/{fd}")
+            except (ValueError, OSError):
+                # FD may have been closed between listing and readlink; skip it.
+                continue
+            if "/dev/ptmx" in target or "/dev/pts/" in target:
+                ptmx_fds.add(fd)
+        return ptmx_fds
+
+    def _close_leaked_ptmx_fds(self) -> None:
+        """Close pseudo-terminal descriptors opened during this client's lifetime.
+
+        Compares the current set of pseudo-terminal descriptors against the snapshot taken
+        in start() and closes only the difference. This releases descriptors the transport
+        subprocess left open while leaving descriptors owned by the parent process or other
+        clients untouched. Must only be called after the background thread has joined so no
+        async code still references these descriptors.
+        """
+        pre_start = self._pre_start_ptmx_fds
+        if pre_start is None:
+            return
+
+        leaked = self._snapshot_ptmx_fds() - pre_start
+        if not leaked:
+            return
+
+        closed = 0
+        for fd in leaked:
+            try:
+                os.close(fd)
+                closed += 1
+            except OSError:
+                # Already closed elsewhere; nothing to do.
+                pass
+
+        if closed:
+            self._log_debug_with_thread("released %d pseudo-terminal file descriptor(s) on stop", closed)
 
     def list_tools_sync(
         self,
