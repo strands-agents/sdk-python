@@ -25,7 +25,7 @@ import {
 } from '../types/messages.js'
 import { deepCopy } from '../types/json.js'
 import type { JSONValue } from '../types/json.js'
-import { McpClient } from '../mcp.js'
+import { McpClient } from '../mcp/index.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'

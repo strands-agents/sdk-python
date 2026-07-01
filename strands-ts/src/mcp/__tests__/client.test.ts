@@ -9,16 +9,16 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { ClientCredentialsProvider } from '@modelcontextprotocol/sdk/client/auth-extensions.js'
-import { McpClient } from '../mcp.js'
-import { McpTool } from '../tools/mcp-tool.js'
-import { JsonBlock, type TextBlock, type ToolResultBlock } from '../types/messages.js'
-import { ImageBlock } from '../types/media.js'
-import type { LocalAgent } from '../types/agent.js'
-import type { ToolContext } from '../tools/tool.js'
-import type { ElicitationCallback } from '../types/elicitation.js'
+import { McpClient } from '../client.js'
+import { McpTool } from '../../tools/mcp-tool.js'
+import { JsonBlock, type TextBlock, type ToolResultBlock } from '../../types/messages.js'
+import { ImageBlock } from '../../types/media.js'
+import type { LocalAgent } from '../../types/agent.js'
+import type { ToolContext } from '../../tools/tool.js'
+import type { ElicitationCallback } from '../../types/elicitation.js'
 import { context, propagation, trace, TraceFlags } from '@opentelemetry/api'
 import type { SpanContext } from '@opentelemetry/api'
-import { logger } from '../logging/index.js'
+import { logger } from '../../logging/index.js'
 import type { LoggingMessageNotificationParams } from '@modelcontextprotocol/sdk/types.js'
 
 /**
@@ -64,7 +64,7 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
   }),
 }))
 
-vi.mock('../tools/tool.js', () => ({
+vi.mock('../../tools/tool.js', () => ({
   Tool: class {},
   createErrorResult: (err: unknown, toolUseId: string) => ({
     type: 'toolResultBlock',

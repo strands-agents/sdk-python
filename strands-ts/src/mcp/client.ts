@@ -12,10 +12,11 @@ import {
   type LoggingMessageNotificationParams,
 } from '@modelcontextprotocol/sdk/types.js'
 import { context, propagation, trace } from '@opentelemetry/api'
-import type { JSONSchema, JSONValue } from './types/json.js'
-import type { ElicitationCallback } from './types/elicitation.js'
-import { McpTool } from './tools/mcp-tool.js'
-import { logger } from './logging/index.js'
+import type { JSONSchema, JSONValue } from '../types/json.js'
+import type { ElicitationCallback } from '../types/elicitation.js'
+import { McpTool } from '../tools/mcp-tool.js'
+import { logger } from '../logging/index.js'
+import { type McpServerConfig, mcpServerLoader } from './config.js'
 
 /**
  * Widened transport type that accepts MCP transport implementations without requiring explicit casts.
@@ -125,6 +126,20 @@ export class McpClient {
 
   /** Default poll timeout for task completion in milliseconds (5 minutes). */
   public static readonly DEFAULT_POLL_TIMEOUT = 300000
+
+  /**
+   * Parses an MCP servers config (file path or object) and returns McpClient instances.
+   *
+   * @param config - A file path to a JSON config, or a flat server map object.
+   * @param defaults - Options applied to all clients unless overridden per-server.
+   * @returns An array of McpClient instances ready to be passed to an Agent.
+   */
+  public static async loadServers(
+    config: string | Record<string, McpServerConfig>,
+    defaults?: McpClientOptions
+  ): Promise<McpClient[]> {
+    return (await mcpServerLoader.get()(config, defaults)).map((c) => new McpClient(c))
+  }
 
   private _clientName: string
   private _clientVersion: string
