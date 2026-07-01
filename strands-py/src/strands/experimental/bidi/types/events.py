@@ -47,6 +47,30 @@ Role = Literal["user", "assistant"]
 - "assistant": Messages from the assistant to the user.
 """
 
+_VALID_ROLES: tuple[str, ...] = ("user", "assistant")
+
+
+def normalize_role(role: Any, default: Role = "assistant") -> Role:
+    """Normalize a role value to a supported `Role`.
+
+    Provider outputs and transcript events may carry role values in arbitrary
+    casing or outside the supported set. This coerces the value to lowercase
+    and falls back to `default` when it is not one of the supported roles, so
+    that messages persisted to the conversation always carry a valid role.
+
+    Args:
+        role: The incoming role value (any type).
+        default: Role to use when the value is missing or unsupported.
+
+    Returns:
+        A role guaranteed to be one of the supported `Role` values.
+    """
+    normalized = role.lower() if isinstance(role, str) else default
+    if normalized not in _VALID_ROLES:
+        normalized = default
+    return cast(Role, normalized)
+
+
 StopReason = Literal["complete", "error", "interrupted", "tool_use"]
 """Reason for the model ending its response generation.
 
@@ -328,7 +352,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
                 "type": "bidi_transcript_stream",
                 "delta": delta,
                 "text": text,
-                "role": role,
+                "role": normalize_role(role),
                 "is_final": is_final,
                 "current_transcript": current_transcript,
             }

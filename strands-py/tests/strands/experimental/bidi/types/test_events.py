@@ -21,6 +21,7 @@ from strands.experimental.bidi.types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
+    normalize_role,
 )
 
 
@@ -161,3 +162,56 @@ def test_transcript_stream_event_extends_model_stream_event():
     )
 
     assert isinstance(event, ModelStreamEvent)
+
+
+@pytest.mark.parametrize(
+    "raw_role,expected",
+    [
+        ("user", "user"),
+        ("assistant", "assistant"),
+        ("USER", "user"),
+        ("Assistant", "assistant"),
+    ],
+)
+def test_normalize_role_accepts_supported_roles(raw_role, expected):
+    """normalize_role lowercases and preserves supported roles."""
+    assert normalize_role(raw_role) == expected
+
+
+@pytest.mark.parametrize(
+    "raw_role",
+    ["system", "SYSTEM", "tool", "", "unknown", None, 123],
+)
+def test_normalize_role_falls_back_for_unsupported_roles(raw_role):
+    """normalize_role coerces out-of-range values to the default role."""
+    assert normalize_role(raw_role) == "assistant"
+    assert normalize_role(raw_role, default="user") == "user"
+
+
+@pytest.mark.parametrize("raw_role", ["system", "SYSTEM", "tool", "developer", "unknown"])
+def test_transcript_stream_event_rejects_out_of_range_role(raw_role):
+    """An out-of-range transcript role is normalized and never persisted verbatim."""
+    event = BidiTranscriptStreamEvent(
+        delta={"text": "hi"},
+        text="hi",
+        role=raw_role,
+        is_final=True,
+        current_transcript="hi",
+    )
+
+    assert event.role in ("user", "assistant")
+    assert event["role"] in ("user", "assistant")
+    assert event.role != raw_role.lower()
+
+
+def test_transcript_stream_event_normalizes_role_casing():
+    """A supported role in mixed casing is normalized to lowercase."""
+    event = BidiTranscriptStreamEvent(
+        delta={"text": "hi"},
+        text="hi",
+        role="USER",
+        is_final=True,
+        current_transcript="hi",
+    )
+
+    assert event.role == "user"
