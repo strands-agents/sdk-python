@@ -136,7 +136,8 @@
   },
   "scripts": {
     "build": "tsc --project src/tsconfig.json",
-    "prepack": "npm run build",
+    "prepack": "npm run build && node scripts/prune-package-artifacts.js",
+    "postpack": "rm -rf dist && npm run build",
     "check": "npm run lint && npm run format && npm run type-check && npm run check:browser-bundle && npm run test:coverage && npm run test:package",
     "check:browser-bundle": "esbuild src/index.ts --bundle --platform=browser --format=esm --packages=external --outfile=/dev/null",
     "clean": "rm -rf node_modules dist",
@@ -152,7 +153,7 @@
     "test:browser:install": "npx playwright install --with-deps chromium",
     "test:all": "vitest run --project unit-node --project unit-browser",
     "test:all:coverage": "vitest run --coverage --project unit-node --project unit-browser",
-    "test:package": "cd test/packages/esm-module && npm install && node esm.js && cd ../cjs-module && npm install && node cjs.js",
+    "test:package": "npm run build && cd test/packages/esm-module && npm install && node esm.js && cd ../cjs-module && npm install && node cjs.js && cd ../../.. && npm pack --dry-run --json | node test/packages/assert-package-contents.js",
     "lint": "eslint src test/integ",
     "lint:fix": "eslint src test/integ --fix",
     "format": "prettier --write src test/integ",
