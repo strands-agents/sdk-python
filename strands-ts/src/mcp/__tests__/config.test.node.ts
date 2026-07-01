@@ -76,6 +76,7 @@ describe('McpClient.loadServers', () => {
       })
 
       expect(clients).toHaveLength(1)
+      expect(StreamableHTTPClientTransport).toHaveBeenCalledWith(new URL('https://example.com/mcp'), {})
       expect(StdioClientTransport).not.toHaveBeenCalled()
       expect(SSEClientTransport).not.toHaveBeenCalled()
     })
@@ -248,6 +249,11 @@ describe('McpClient.loadServers', () => {
       const clients = await McpClient.loadServers('/path/to/config.json')
 
       expect(clients).toHaveLength(2)
+      // Verify each entry wired to the right transport, not just that two clients were created:
+      // server-a (command) builds a stdio transport; server-b (url) takes the http path, not sse.
+      expect(StdioClientTransport).toHaveBeenCalledTimes(1)
+      expect(StdioClientTransport).toHaveBeenCalledWith({ command: 'node' })
+      expect(SSEClientTransport).not.toHaveBeenCalled()
     })
 
     it('uses whole object when mcpServers key is absent', async () => {
