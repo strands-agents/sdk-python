@@ -25,7 +25,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@a2a-js/sdk": "^0.3.10",
-    "@astrojs/rss": "^4.0.15",
+    "@astrojs/rss": "^4.0.19",
     "@aws-sdk/client-s3": "^3.943.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
