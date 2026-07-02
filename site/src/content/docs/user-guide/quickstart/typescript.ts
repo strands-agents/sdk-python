@@ -70,7 +70,7 @@ console.log(myAgent['model'].getConfig().modelId)
 // --8<-- [start:model-string]
 // Create an agent with a specific model by passing the model ID string
 const specificAgent = new Agent({
-  model: 'global.anthropic.claude-opus-4-6-v1',
+  model: 'global.anthropic.claude-sonnet-5',
 })
 // --8<-- [end:model-string]
 
@@ -79,9 +79,8 @@ import { BedrockModel } from '@strands-agents/sdk'
 
 // Create a BedrockModel with custom configuration
 const bedrockModel = new BedrockModel({
-  modelId: 'global.anthropic.claude-opus-4-6-v1',
+  modelId: 'global.anthropic.claude-sonnet-5',
   region: 'us-west-2',
-  temperature: 0.3,
 })
 
 const bedrockAgent = new Agent({ model: bedrockModel })

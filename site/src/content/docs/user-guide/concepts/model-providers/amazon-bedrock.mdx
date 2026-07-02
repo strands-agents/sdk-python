@@ -108,7 +108,7 @@ session = boto3.Session(
 
 # Create a Bedrock model with the custom session
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     boto_session=session
 )
 ```
@@ -185,7 +185,7 @@ You can specify which Bedrock model to use by passing in the model ID string dir
 from strands import Agent
 
 # Create an agent with a specific model by passing the model ID string
-agent = Agent(model="anthropic.claude-sonnet-4-20250514-v1:0")
+agent = Agent(model="global.anthropic.claude-sonnet-5")
 
 response = agent("Tell me about Amazon Bedrock.")
 ```
@@ -304,10 +304,8 @@ boto_config = BotocoreConfig(
 
 # Create a configured Bedrock model
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     region_name="us-east-1",  # Specify a different region than the default
-    temperature=0.3,
-    top_p=0.8,
     stop_sequences=["###", "END"],
     boto_client_config=boto_config,
 )
@@ -352,7 +350,7 @@ in order to use these models. Both modes provide the same event structure and fu
 ```python
 # Streaming model (default)
 streaming_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     streaming=True,  # This is the default
 )
 
@@ -386,7 +384,7 @@ from strands.models import BedrockModel
 
 # Create a Bedrock model that supports multimodal inputs
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0"
+    model_id="global.anthropic.claude-sonnet-5"
 )
 agent = Agent(model=bedrock_model)
 
@@ -485,7 +483,7 @@ from strands.models import BedrockModel
 
 # Using guardrails with BedrockModel
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     guardrail_id="your-guardrail-id",
     guardrail_version="DRAFT",
     guardrail_trace="enabled",  # Options: "enabled", "disabled", "enabled_full"
@@ -602,7 +600,7 @@ from strands_tools import calculator, current_time
 
 # Using tool caching with BedrockModel
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     cache_tools="default"
 )
 
@@ -856,11 +854,10 @@ from strands.models import BedrockModel
 
 # Create a Bedrock model with reasoning configuration
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     additional_request_fields={
         "thinking": {
-            "type": "enabled",
-            "budget_tokens": 4096 # Minimum of 1,024
+            "type": "adaptive",
         }
     }
 )
@@ -956,7 +953,7 @@ You can enable native token counting with:
 
 ```python
 model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-5",
     use_native_token_count=True,
 )
 ```
@@ -971,7 +968,7 @@ You can enable native token counting with:
 
 ```typescript
 const model = new BedrockModel({
-  modelId: ‘anthropic.claude-sonnet-4-20250514-v1:0’,
+  modelId: ‘global.anthropic.claude-sonnet-5’,
   useNativeTokenCount: true,
 })
 ```
@@ -991,13 +988,13 @@ This typically indicates that the model requires Cross-Region Inference, as docu
 Instead of: 
 
 ```
-anthropic.claude-sonnet-4-20250514-v1:0
+anthropic.claude-sonnet-5
 ```
 
 Use: 
 
 ```
-us.anthropic.claude-sonnet-4-20250514-v1:0
+us.anthropic.claude-sonnet-5
 ```
 
 
@@ -1006,7 +1003,7 @@ If you encounter the error:
 
 > ValidationException: An error occurred (ValidationException) when calling the ConverseStream operation: The provided model identifier is invalid
 
-This is very likely due to calling Bedrock with an inference model id, such as: `us.anthropic.claude-sonnet-4-20250514-v1:0` from a region that does not [support inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html). If so, pass in a valid model id, as follows:
+This is very likely due to calling Bedrock with an inference model id, such as: `us.anthropic.claude-sonnet-5` from a region that does not [support inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html). If so, pass in a valid model id, as follows:
 
 <Tabs>
 <Tab label="Python">
@@ -1035,7 +1032,7 @@ Strands uses a default Claude 4 Sonnet inference model from the region of your c
 
 If you're using an ARN-based application inference profile as your `model_id` (e.g., `arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123`), `CacheConfig(strategy="auto")` will not automatically enable prompt caching.
 
-The `strategy="auto"` detection checks the model ID string for `"claude"` or `"anthropic"` substrings. Cross-region inference profile IDs like `us.anthropic.claude-sonnet-4-20250514-v1:0` contain `"anthropic"` and are detected correctly, but application inference profiles use opaque resource IDs (`application-inference-profile/abc123`) that carry no model name information, so detection returns `None`, caching is skipped, and Strands logs a warning: `model_id=<your-arn> | cache_config is enabled but this model does not support automatic caching`.
+The `strategy="auto"` detection checks the model ID string for `"claude"` or `"anthropic"` substrings. Cross-region inference profile IDs like `us.anthropic.claude-sonnet-5` contain `"anthropic"` and are detected correctly, but application inference profiles use opaque resource IDs (`application-inference-profile/abc123`) that carry no model name information, so detection returns `None`, caching is skipped, and Strands logs a warning: `model_id=<your-arn> | cache_config is enabled but this model does not support automatic caching`.
 
 Use `strategy="anthropic"` explicitly to fix this:
 
