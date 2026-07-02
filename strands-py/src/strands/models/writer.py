@@ -150,9 +150,8 @@ class WriterModel(Model):
 
         content_blocks = list(
             filter(
-                lambda content: (
-                    content.get("text") and not any(block_type in content for block_type in ["toolResult", "toolUse"])
-                ),
+                lambda content: content.get("text")
+                and not any(block_type in content for block_type in ["toolResult", "toolUse"]),
                 contents,
             )
         )

@@ -2903,8 +2903,7 @@ class TestResumeBypassedNodes:
         # C should NOT be ready — B is touched (interrupted) but not completed
         # AND-join requires all touched sources to be completed
         assert "C" not in ready_ids, "AND-join should still wait for interrupted node B to complete"
-        # B should be ready (it's interrupted and has completed source... wait, B has no incoming edge)
-        # Actually B is an entry point here
+        # B is an entry point (no incoming edges), so it is always ready.
         assert "B" in ready_ids
 
     @pytest.mark.asyncio
@@ -2957,3 +2956,57 @@ class TestResumeBypassedNodes:
         graph2.deserialize_state(payload)
 
         assert graph2._resume_from_session is True, "Graph should resume from session, not reset"
+
+    @pytest.mark.asyncio
+    async def test_resume_executes_bypassed_join_target_end_to_end(self):
+        """Resuming after deserialize actually runs C — the node blocked by a bypassed source.
+
+        Guards the full serialize→deserialize→resume path (not just the computed
+        next_nodes_to_execute) for strands-agents/sdk-python#3068.
+        """
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        def bypass_to_c(state, *, invocation_state, **kwargs):
+            return (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("A", "C", condition=bypass_to_c)
+        builder.add_edge("B", "C")
+
+        graph = builder.build()
+
+        # Simulate state after: A completed, B bypassed, C interrupted
+        node_a = graph.nodes["A"]
+        node_c = graph.nodes["C"]
+        node_a.execution_status = Status.COMPLETED
+        node_c.execution_status = Status.INTERRUPTED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_c}
+        graph.state.execution_order = [node_a]
+        graph.state.results = {}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        payload = graph.serialize_state()
+
+        # Deserialize into a fresh graph and resume execution
+        graph2 = builder.build()
+        graph2.deserialize_state(payload)
+        result = await graph2.invoke_async("resume", invocation_state={"skip_flag": True})
+
+        # C runs to completion on resume; B (bypassed) never executes
+        assert result.status == Status.COMPLETED
+        assert "C" in result.results
+        graph2.nodes["C"].executor.stream_async.assert_called()
+        graph2.nodes["B"].executor.stream_async.assert_not_called()

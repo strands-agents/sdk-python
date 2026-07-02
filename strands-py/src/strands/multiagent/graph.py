@@ -1362,7 +1362,7 @@ class Graph(MultiAgentBase):
         # during execution (not completed, not interrupted, not failed).
         # These represent dead branches from conditional routing where the
         # source node was intentionally skipped.
-        all_touched = self.state.completed_nodes | self.state.interrupted_nodes | self.state.failed_nodes
+        all_touched = completed_nodes | self.state.interrupted_nodes | self.state.failed_nodes
         relevant_edges = [e for e in traversable_edges if e.from_node in all_touched]
 
         # If no relevant edges remain (all sources are bypassed), the node

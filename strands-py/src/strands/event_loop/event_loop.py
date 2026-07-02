@@ -559,7 +559,8 @@ async def _handle_model_execution(
 
             if last_event is None:
                 raise RuntimeError(
-                    "Middleware chain did not yield a result event. Ensure middleware forwards events from next()."
+                    "Middleware chain did not yield a result event. "
+                    "Ensure middleware forwards events from next()."
                 )
 
             # Write the post-stream model state back to the agent. Skipped on error
