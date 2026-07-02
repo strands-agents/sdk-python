@@ -2907,6 +2907,43 @@ class TestResumeBypassedNodes:
         assert "B" in ready_ids
 
     @pytest.mark.asyncio
+    async def test_node_with_only_bypassed_source_is_not_ready(self):
+        """A node whose only incoming edge comes from a bypassed source is not ready for resume."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        # A→B: skipped when skip_flag is truthy, so B is bypassed
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("B", "C")  # C's only source is the bypassed B
+
+        graph = builder.build()
+
+        # A completed, B bypassed (never touched)
+        node_a = graph.nodes["A"]
+        node_a.execution_status = Status.COMPLETED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = [n.node_id for n in ready]
+
+        # C is not ready — its only incoming edge is from the bypassed B
+        assert "C" not in ready_ids, "Node with only a bypassed source should not be ready"
+        # B is not ready — its enter condition is False
+        assert "B" not in ready_ids
+
+    @pytest.mark.asyncio
     async def test_serialize_deserialize_with_bypassed_node(self):
         """Full serialize/deserialize cycle with a bypassed node produces correct resume."""
         agent_a = create_mock_agent("A", "a done")
