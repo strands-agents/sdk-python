@@ -15,7 +15,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "commander": "^14"
+    "commander": "^15"
   },
   "devDependencies": {
     "@types/node": "^25",
