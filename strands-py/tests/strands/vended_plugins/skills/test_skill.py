@@ -572,22 +572,11 @@ class TestSkillFromUrl:
         ):
             yield
 
-    def _mock_urlopen(self, content):
-        """Create a mock urlopen context manager returning the given content."""
-        from unittest.mock import MagicMock
-
-        mock_response = MagicMock()
-        mock_response.read.return_value = content.encode("utf-8")
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=False)
-        return mock_response
-
     def test_from_url_returns_skill(self):
         """Test loading a skill from a URL returns a single Skill."""
         from unittest.mock import patch
 
-        mock_response = self._mock_urlopen(self._SAMPLE_CONTENT)
-        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=mock_response):
+        with patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=self._SAMPLE_CONTENT):
             skill = Skill.from_url("https://raw.githubusercontent.com/org/repo/main/SKILL.md")
 
         assert isinstance(skill, Skill)
@@ -608,26 +597,22 @@ class TestSkillFromUrl:
 
     def test_from_url_http_error_raises(self):
         """Test that HTTP errors propagate as RuntimeError."""
-        import urllib.error
         from unittest.mock import patch
 
         with patch(
-            f"{self._SKILL_MODULE}.urllib.request.urlopen",
-            side_effect=urllib.error.HTTPError(
-                url="https://example.com", code=404, msg="Not Found", hdrs=None, fp=None
-            ),
+            f"{self._SKILL_MODULE}._fetch_url_content",
+            side_effect=RuntimeError("url=<https://example.com/SKILL.md> | HTTP 404: Not Found"),
         ):
             with pytest.raises(RuntimeError, match="HTTP 404"):
                 Skill.from_url("https://example.com/SKILL.md")
 
     def test_from_url_network_error_raises(self):
         """Test that network errors propagate as RuntimeError."""
-        import urllib.error
         from unittest.mock import patch
 
         with patch(
-            f"{self._SKILL_MODULE}.urllib.request.urlopen",
-            side_effect=urllib.error.URLError("Connection refused"),
+            f"{self._SKILL_MODULE}._fetch_url_content",
+            side_effect=RuntimeError("url=<https://example.com/SKILL.md> | failed to fetch skill: refused"),
         ):
             with pytest.raises(RuntimeError, match="failed to fetch"):
                 Skill.from_url("https://example.com/SKILL.md")
@@ -638,7 +623,7 @@ class TestSkillFromUrl:
 
         bad_content = "---\nname: BAD_NAME\ndescription: Bad\n---\nBody."
 
-        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(bad_content)):
+        with patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=bad_content):
             with pytest.raises(ValueError):
                 Skill.from_url("https://example.com/SKILL.md", strict=True)
 
@@ -648,7 +633,7 @@ class TestSkillFromUrl:
 
         html_content = "<html><body>Not a SKILL.md</body></html>"
 
-        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(html_content)):
+        with patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=html_content):
             with pytest.raises(ValueError, match="frontmatter"):
                 Skill.from_url("https://example.com/SKILL.md")
 
@@ -663,53 +648,295 @@ class TestSkillFromUrl:
         ],
     )
     def test_from_url_literal_disallowed_host_rejected(self, url):
-        """Test that non-public IP literals are rejected before any fetch."""
+        """Test that non-public IP literals are rejected before any connection."""
         from unittest.mock import patch
 
-        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
+        with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection") as mock_conn:
             with pytest.raises(ValueError, match="not allowed"):
                 Skill.from_url(url)
-            mock_urlopen.assert_not_called()
+            mock_conn.assert_not_called()
 
     def test_from_url_resolved_disallowed_host_rejected(self):
-        """Test that a hostname resolving to a non-public address is rejected before any fetch."""
+        """Test that a hostname resolving to a non-public address is rejected before any connection."""
         from unittest.mock import patch
 
         with patch(
             f"{self._SKILL_MODULE}.socket.getaddrinfo",
             return_value=[(None, None, None, "", ("169.254.169.254", 0))],
         ):
-            with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection") as mock_conn:
                 with pytest.raises(ValueError, match="not allowed"):
                     Skill.from_url("https://internal.example.com/SKILL.md")
-                mock_urlopen.assert_not_called()
+                mock_conn.assert_not_called()
 
     def test_from_url_unresolvable_host_rejected(self):
-        """Test that a host that cannot be resolved is rejected before any fetch."""
+        """Test that a host that cannot be resolved is rejected before any connection."""
         import socket
         from unittest.mock import patch
 
         with patch(f"{self._SKILL_MODULE}.socket.getaddrinfo", side_effect=socket.gaierror("no such host")):
-            with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen") as mock_urlopen:
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection") as mock_conn:
                 with pytest.raises(ValueError, match="could not resolve host"):
                     Skill.from_url("https://does-not-exist.invalid/SKILL.md")
-                mock_urlopen.assert_not_called()
+                mock_conn.assert_not_called()
 
     def test_from_url_public_host_allowed(self):
         """Test that a host resolving to a public address is allowed to fetch."""
         from unittest.mock import patch
 
+        with patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=self._SAMPLE_CONTENT):
+            skill = Skill.from_url("https://example.com/SKILL.md")
+
+        assert skill.name == "my-skill"
+
+
+def _make_ip(addr: str):
+    """Parse an IP literal into an ipaddress object for host-check tests."""
+    import ipaddress
+
+    return ipaddress.ip_address(addr)
+
+
+class TestIsDisallowedAddress:
+    """Tests for _is_disallowed_address, including IPv6-embedded IPv4 encodings."""
+
+    @pytest.mark.parametrize(
+        "addr",
+        [
+            "169.254.169.254",  # IMDS link-local
+            "127.0.0.1",  # loopback
+            "10.0.0.5",  # private
+            "::1",  # IPv6 loopback
+            "fd00:ec2::254",  # extra non-public
+            "::ffff:169.254.169.254",  # IPv4-mapped IMDS
+            "::ffff:127.0.0.1",  # IPv4-mapped loopback
+            "64:ff9b::a9fe:a9fe",  # NAT64 IMDS
+            "2002:a9fe:a9fe::",  # 6to4 IMDS
+        ],
+    )
+    def test_disallowed(self, addr):
+        """Non-public addresses (including IPv6-embedded IPv4) are rejected."""
+        from strands.vended_plugins.skills.skill import _is_disallowed_address
+
+        assert _is_disallowed_address(_make_ip(addr)) is True
+
+    @pytest.mark.parametrize(
+        "addr",
+        [
+            "8.8.8.8",  # public IPv4
+            "93.184.216.34",  # public IPv4
+            "2606:4700:4700::1111",  # public IPv6
+            "::ffff:8.8.8.8",  # IPv4-mapped public IPv4
+        ],
+    )
+    def test_allowed(self, addr):
+        """Public addresses are allowed."""
+        from strands.vended_plugins.skills.skill import _is_disallowed_address
+
+        assert _is_disallowed_address(_make_ip(addr)) is False
+
+
+class _FakeResponse:
+    """Minimal stand-in for http.client.HTTPResponse."""
+
+    def __init__(self, status, body="", headers=None, reason="OK"):
+        self.status = status
+        self.reason = reason
+        self._body = body.encode("utf-8") if isinstance(body, str) else body
+        self.headers = headers or {}
+
+    def read(self, amt=None):
+        if amt is None:
+            return self._body
+        return self._body[:amt]
+
+
+class _FakeConnectionFactory:
+    """Builds fake pinned-connection classes that record connect IPs.
+
+    Each queued response is returned in order. The factory records the pinned
+    IP each connection was constructed with, so tests can assert the socket was
+    dialed at the pre-validated address rather than a re-resolved one.
+    """
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.pinned_ips = []
+        self.hosts = []
+        factory = self
+
+        class _FakeConn:
+            def __init__(self, host, pinned_ip, *args, **kwargs):
+                factory.pinned_ips.append(pinned_ip)
+                factory.hosts.append(host)
+                self._response = factory._responses.pop(0)
+
+            def request(self, method, target, headers=None):
+                self._headers = headers
+
+            def getresponse(self):
+                return self._response
+
+            def close(self):
+                pass
+
+        self.conn_cls = _FakeConn
+
+
+class TestFetchUrlIntegration:
+    """Integration-style tests for the SSRF-hardened fetch path.
+
+    These exercise the connection/redirect layer where the DNS-rebinding,
+    redirect, and IPv6-encoding bypasses lived, rather than the host-check
+    helper in isolation.
+    """
+
+    _SKILL_MODULE = "strands.vended_plugins.skills.skill"
+    _SAMPLE_CONTENT = "---\nname: my-skill\ndescription: A remote skill\n---\nRemote instructions.\n"
+
+    def test_pins_validated_ip_for_connection(self):
+        """The connection is dialed at the pre-validated IP, not a re-resolved name."""
+        from unittest.mock import patch
+
+        factory = _FakeConnectionFactory([_FakeResponse(200, self._SAMPLE_CONTENT)])
         with patch(
             f"{self._SKILL_MODULE}.socket.getaddrinfo",
             return_value=[(None, None, None, "", ("93.184.216.34", 0))],
         ):
-            with patch(
-                f"{self._SKILL_MODULE}.urllib.request.urlopen",
-                return_value=self._mock_urlopen(self._SAMPLE_CONTENT),
-            ):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
                 skill = Skill.from_url("https://example.com/SKILL.md")
 
         assert skill.name == "my-skill"
+        # The socket must have been dialed at the validated address.
+        assert factory.pinned_ips == ["93.184.216.34"]
+        assert factory.hosts == ["example.com"]
+
+    def test_rebinding_shape_rejected(self):
+        """A host that resolves to an IMDS IP is rejected even though the check ran separately.
+
+        The validation resolves once and pins that IP, so a name resolving to a
+        disallowed address can never reach the connection layer.
+        """
+        from unittest.mock import patch
+
+        factory = _FakeConnectionFactory([_FakeResponse(200, self._SAMPLE_CONTENT)])
+        with patch(
+            f"{self._SKILL_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("169.254.169.254", 0))],
+        ):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
+                with pytest.raises(ValueError, match="not allowed"):
+                    Skill.from_url("https://rebind.example.com/SKILL.md")
+
+        assert factory.pinned_ips == []  # never connected
+
+    def test_redirect_to_imds_blocked(self):
+        """A 302 redirect to http://169.254.169.254/ is blocked on the redirect hop."""
+        from unittest.mock import patch
+
+        resolves = {
+            "public.example.com": "93.184.216.34",
+            "169.254.169.254": "169.254.169.254",
+        }
+
+        def fake_getaddrinfo(host, *args, **kwargs):
+            return [(None, None, None, "", (resolves[host], 0))]
+
+        # First hop: public host returns a 302 to the IMDS endpoint.
+        factory = _FakeConnectionFactory(
+            [_FakeResponse(302, "", headers={"Location": "http://169.254.169.254/latest/meta-data/"})]
+        )
+        with patch(f"{self._SKILL_MODULE}.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
+                with patch(f"{self._SKILL_MODULE}._PinnedHTTPConnection", factory.conn_cls):
+                    with pytest.raises(ValueError, match="not allowed|https to http"):
+                        Skill.from_url("https://public.example.com/SKILL.md")
+
+    def test_https_redirect_to_imds_revalidated(self):
+        """An https->https 302 to the IMDS endpoint is blocked by host re-validation on the hop."""
+        from unittest.mock import patch
+
+        resolves = {
+            "public.example.com": "93.184.216.34",
+            "169.254.169.254": "169.254.169.254",
+        }
+
+        def fake_getaddrinfo(host, *args, **kwargs):
+            return [(None, None, None, "", (resolves[host], 0))]
+
+        factory = _FakeConnectionFactory(
+            [_FakeResponse(302, "", headers={"Location": "https://169.254.169.254/latest/meta-data/"})]
+        )
+        with patch(f"{self._SKILL_MODULE}.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
+                with pytest.raises(ValueError, match="not allowed"):
+                    Skill.from_url("https://public.example.com/SKILL.md")
+
+        # Only the first (public) hop connected; the redirect target was rejected.
+        assert factory.pinned_ips == ["93.184.216.34"]
+
+    def test_redirect_to_public_https_followed(self):
+        """A redirect to another public https host is followed and re-validated."""
+        from unittest.mock import patch
+
+        resolves = {
+            "first.example.com": "93.184.216.34",
+            "second.example.com": "93.184.216.35",
+        }
+
+        def fake_getaddrinfo(host, *args, **kwargs):
+            return [(None, None, None, "", (resolves[host], 0))]
+
+        factory = _FakeConnectionFactory(
+            [
+                _FakeResponse(302, "", headers={"Location": "https://second.example.com/SKILL.md"}),
+                _FakeResponse(200, self._SAMPLE_CONTENT),
+            ]
+        )
+        with patch(f"{self._SKILL_MODULE}.socket.getaddrinfo", side_effect=fake_getaddrinfo):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
+                skill = Skill.from_url("https://first.example.com/SKILL.md")
+
+        assert skill.name == "my-skill"
+        assert factory.pinned_ips == ["93.184.216.34", "93.184.216.35"]
+
+    @pytest.mark.parametrize(
+        "resolved_ip",
+        [
+            "::ffff:169.254.169.254",  # IPv4-mapped IMDS
+            "64:ff9b::a9fe:a9fe",  # NAT64 IMDS
+            "2002:a9fe:a9fe::",  # 6to4 IMDS
+        ],
+    )
+    def test_ipv6_encoded_imds_rejected(self, resolved_ip):
+        """Hosts resolving to IPv6-encoded IMDS addresses are rejected before connecting."""
+        from unittest.mock import patch
+
+        factory = _FakeConnectionFactory([_FakeResponse(200, self._SAMPLE_CONTENT)])
+        with patch(
+            f"{self._SKILL_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, "", (resolved_ip, 0))],
+        ):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
+                with pytest.raises(ValueError, match="not allowed"):
+                    Skill.from_url("https://sneaky.example.com/SKILL.md")
+
+        assert factory.pinned_ips == []
+
+    def test_too_many_redirects_error(self):
+        """A redirect loop is capped and surfaced as an error."""
+        from unittest.mock import patch
+
+        factory = _FakeConnectionFactory(
+            [_FakeResponse(302, "", headers={"Location": "https://public.example.com/next"}) for _ in range(12)]
+        )
+        with patch(
+            f"{self._SKILL_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 0))],
+        ):
+            with patch(f"{self._SKILL_MODULE}._PinnedHTTPSConnection", factory.conn_cls):
+                with pytest.raises(RuntimeError, match="too many redirects"):
+                    Skill.from_url("https://public.example.com/SKILL.md")
 
 
 class TestSkillClassmethods:

@@ -8,12 +8,13 @@ frontmatter metadata and markdown instructions.
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import logging
 import re
 import socket
-import urllib.error
-import urllib.request
+import ssl
+import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -26,9 +27,57 @@ logger = logging.getLogger(__name__)
 _SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _MAX_SKILL_NAME_LENGTH = 64
 
+# Schemes a remote skill may be fetched over. Anything else (file, gopher, ftp,
+# data, ...) is rejected so the fetch cannot be redirected onto a non-network or
+# lower-trust transport.
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+# Maximum number of bytes read from a remote SKILL.md response.
+_MAX_FETCH_BYTES = 5 * 1024 * 1024
+
 # A small set of non-public IPv6 addresses that ``ipaddress`` does not flag via
 # its is_* properties, so they are matched explicitly.
 _EXTRA_NON_PUBLIC_IPS = frozenset({ipaddress.ip_address("fd00:ec2::254")})
+
+# The well-known NAT64 (64:ff9b::/96) prefix embeds an IPv4 address that
+# ``ipaddress`` does not surface via ``ipv4_mapped`` or ``sixtofour``.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
+def _embedded_ipv4(ip: ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """Extract any IPv4 address embedded in an IPv6 address.
+
+    Covers IPv4-mapped / IPv4-compatible addresses (``::ffff:a.b.c.d`` and
+    ``::a.b.c.d``), 6to4 (``2002:AABB:CCDD::/48``), and the well-known NAT64
+    prefix (``64:ff9b::a.b.c.d``). These encodings can carry an IPv4 address
+    such as ``169.254.169.254`` past the standard ``is_*`` checks, so the
+    embedded IPv4 must be validated in its own right.
+
+    Args:
+        ip: The IPv6 address to inspect.
+
+    Returns:
+        The embedded IPv4 address, or None if the address does not embed one.
+    """
+    mapped = ip.ipv4_mapped
+    if mapped is not None:
+        return mapped
+
+    packed = int(ip)
+
+    # IPv4-compatible (deprecated) addresses: ``::a.b.c.d`` where only the low
+    # 32 bits are set. ``::`` and ``::1`` are excluded as they are already
+    # covered by the unspecified/loopback checks.
+    if packed >> 32 == 0 and packed > 1:
+        return ipaddress.IPv4Address(packed & 0xFFFFFFFF)
+
+    if ip.sixtofour is not None:
+        return ip.sixtofour
+
+    if ip in _NAT64_PREFIX:
+        return ipaddress.IPv4Address(packed & 0xFFFFFFFF)
+
+    return None
 
 
 def _is_disallowed_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
@@ -36,7 +85,10 @@ def _is_disallowed_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
 
     Allows only public, routable addresses. Loopback, link-local, private,
     multicast, reserved, and unspecified ranges are rejected, along with a few
-    extra non-public addresses not covered by the standard properties.
+    extra non-public addresses not covered by the standard properties. For IPv6
+    addresses that embed an IPv4 address (IPv4-mapped/compatible, 6to4, NAT64),
+    the embedded IPv4 is checked as well so encodings like
+    ``::ffff:169.254.169.254`` cannot slip past.
 
     Args:
         ip: The resolved IP address to check.
@@ -46,23 +98,34 @@ def _is_disallowed_address(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) ->
     """
     if ip in _EXTRA_NON_PUBLIC_IPS:
         return True
-    return ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+    if ip.is_loopback or ip.is_link_local or ip.is_private or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+        return True
+
+    if isinstance(ip, ipaddress.IPv6Address):
+        embedded = _embedded_ipv4(ip)
+        if embedded is not None and _is_disallowed_address(embedded):
+            return True
+
+    return False
 
 
-def _validate_fetch_host(url: str) -> None:
-    """Validate that a URL's host does not resolve to a non-public address.
+def _resolve_and_validate_host(url: str) -> list[str]:
+    """Resolve a URL's host and validate every resolved address.
 
-    Resolves the host to all of its addresses and rejects the fetch if any of
-    them fall in a loopback, link-local, private, or otherwise non-public
-    range. Resolving up front (rather than trusting a literal host) keeps the
-    set of addresses that are checked aligned with the set the fetch will
-    actually connect to.
+    The host is resolved exactly once here and the resulting IP address(es) are
+    both validated and returned so the caller can connect to a pre-validated
+    address rather than letting the socket layer re-resolve the name (which
+    would reopen a DNS-rebinding / TOCTOU window).
 
     Args:
-        url: The URL whose host should be validated.
+        url: The URL whose host should be resolved and validated.
+
+    Returns:
+        The list of validated IP address strings the host resolves to.
 
     Raises:
-        ValueError: If the host is missing or resolves to a disallowed address.
+        ValueError: If the host is missing, unresolvable, or any resolved
+            address is in a disallowed range.
     """
     host = urlsplit(url).hostname
     if not host:
@@ -80,9 +143,150 @@ def _validate_fetch_host(url: str) -> None:
             raise ValueError(f"url=<{url}> | could not resolve host") from e
         candidates = [ipaddress.ip_address(info[4][0]) for info in infos]
 
+    if not candidates:
+        raise ValueError(f"url=<{url}> | could not resolve host")
+
     for ip in candidates:
         if _is_disallowed_address(ip):
             raise ValueError(f"url=<{url}> | host is not allowed")
+
+    return [str(ip) for ip in candidates]
+
+
+def _validate_fetch_url(url: str) -> list[str]:
+    """Validate a fetch URL's scheme and host, returning validated IPs.
+
+    Enforces the scheme allowlist (http/https only) and then resolves and
+    validates the host. Used for the initial URL and re-run on every redirect
+    hop.
+
+    Args:
+        url: The URL to validate.
+
+    Returns:
+        The list of validated IP address strings the host resolves to.
+
+    Raises:
+        ValueError: If the scheme is not allowed or the host is disallowed.
+    """
+    scheme = urlsplit(url).scheme.lower()
+    if scheme not in _ALLOWED_SCHEMES:
+        raise ValueError(f"url=<{url}> | scheme is not allowed")
+    return _resolve_and_validate_host(url)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """HTTPS connection that dials a pre-validated IP but keeps the real host.
+
+    ``urllib`` re-resolves the hostname independently at connect time, so the
+    address validated in :func:`_resolve_and_validate_host` is never the one the
+    socket actually connects to (a DNS-rebinding / TOCTOU hole). This subclass
+    connects to a specific, already-validated IP address while leaving ``host``
+    (and therefore the TLS SNI and certificate hostname check) set to the
+    original hostname, so certificate verification stays intact.
+    """
+
+    def __init__(self, host: str, pinned_ip: str, ssl_context: ssl.SSLContext, **kwargs: Any) -> None:
+        super().__init__(host, context=ssl_context, **kwargs)
+        self._pinned_ip = pinned_ip
+        self._ssl_context = ssl_context
+
+    def connect(self) -> None:
+        # Open the raw socket to the validated IP rather than re-resolving, then
+        # wrap with TLS using the original hostname for SNI and cert validation.
+        sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
+        self.sock = self._ssl_context.wrap_socket(sock, server_hostname=self.host)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection that dials a pre-validated IP but keeps the real host.
+
+    The plaintext counterpart to :class:`_PinnedHTTPSConnection`; used only when
+    a validated redirect target is served over http.
+    """
+
+    def __init__(self, host: str, pinned_ip: str, **kwargs: Any) -> None:
+        super().__init__(host, **kwargs)
+        self._pinned_ip = pinned_ip
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self._pinned_ip, self.port), self.timeout)
+
+
+def _fetch_url_content(url: str, *, timeout: float = 30.0) -> str:
+    """Fetch text content from a URL with SSRF protections.
+
+    Enforces the scheme allowlist and host validation on the initial URL and on
+    every redirect hop, and pins each connection to a pre-validated IP so the
+    socket cannot be steered to a different address than the one that was
+    checked.
+
+    Args:
+        url: The URL to fetch.
+        timeout: Per-connection timeout in seconds.
+
+    Returns:
+        The decoded UTF-8 response body.
+
+    Raises:
+        ValueError: If the URL (or any redirect target) fails validation.
+        RuntimeError: If the content cannot be fetched.
+    """
+    context = ssl.create_default_context()
+    current_url = url
+    initial_scheme = urlsplit(url).scheme.lower()
+    # Follow a bounded number of redirects, re-validating each hop ourselves.
+    for _ in range(10):
+        # Block a downgrade from https to http (e.g. an https->http redirect to
+        # an internal endpoint) on top of the scheme allowlist.
+        if initial_scheme == "https" and urlsplit(current_url).scheme.lower() == "http":
+            raise ValueError(f"url=<{current_url}> | insecure redirect from https to http is not allowed")
+
+        validated_ips = _validate_fetch_url(current_url)
+        parts = urlsplit(current_url)
+        host = parts.hostname or ""
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        pinned_ip = validated_ips[0]
+
+        conn: http.client.HTTPConnection
+        if parts.scheme == "https":
+            conn = _PinnedHTTPSConnection(host, pinned_ip, context, port=port, timeout=timeout)
+        else:
+            conn = _PinnedHTTPConnection(host, pinned_ip, port=port, timeout=timeout)
+
+        request_target = parts.path or "/"
+        if parts.query:
+            request_target = f"{request_target}?{parts.query}"
+
+        try:
+            # The connection host is the original hostname, so http.client emits
+            # the correct Host header (and TLS SNI) for the pinned IP socket.
+            conn.request("GET", request_target, headers={"User-Agent": "strands-agents-sdk"})
+            response = conn.getresponse()
+
+            if response.status in (301, 302, 303, 307, 308):
+                location = response.headers.get("Location")
+                response.read()
+                if not location:
+                    raise RuntimeError(f"url=<{current_url}> | redirect without Location header")
+                # Resolve relative redirects against the current URL, then loop
+                # so the scheme and host of the target are validated afresh.
+                current_url = urllib.parse.urljoin(current_url, location)
+                continue
+
+            if response.status >= 400:
+                raise RuntimeError(f"url=<{current_url}> | HTTP {response.status}: {response.reason}")
+
+            body = response.read(_MAX_FETCH_BYTES + 1)
+            if len(body) > _MAX_FETCH_BYTES:
+                raise RuntimeError(f"url=<{current_url}> | skill content exceeds size limit")
+            return body.decode("utf-8")
+        except (OSError, http.client.HTTPException) as e:
+            raise RuntimeError(f"url=<{current_url}> | failed to fetch skill: {e}") from e
+        finally:
+            conn.close()
+
+    raise RuntimeError(f"url=<{url}> | too many redirects")
 
 
 def _find_skill_md(skill_dir: Path) -> Path:
@@ -423,24 +627,16 @@ class Skill:
 
         Raises:
             ValueError: If ``url`` is not an ``https://`` URL, or if its host
-                resolves to a loopback, link-local, or other non-public address.
+                (or any redirect target's host) resolves to a loopback,
+                link-local, or other non-public address.
             RuntimeError: If the SKILL.md content cannot be fetched.
         """
         if not url.startswith("https://"):
             raise ValueError(f"url=<{url}> | not a valid HTTPS URL")
 
-        _validate_fetch_host(url)
-
         logger.info("url=<%s> | fetching skill content", url)
 
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "strands-agents-sdk"})  # noqa: S310
-            with urllib.request.urlopen(req, timeout=30) as response:  # noqa: S310
-                content: str = response.read().decode("utf-8")
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"url=<{url}> | HTTP {e.code}: {e.reason}") from e
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"url=<{url}> | failed to fetch skill: {e.reason}") from e
+        content = _fetch_url_content(url)
 
         return cls.from_content(content, strict=strict)
 

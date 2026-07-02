@@ -857,21 +857,11 @@ class TestResolveUrlSkills:
     _SKILL_MODULE = "strands.vended_plugins.skills.skill"
     _SAMPLE_CONTENT = "---\nname: url-skill\ndescription: A URL skill\n---\n# Instructions\n"
 
-    def _mock_urlopen(self, content):
-        """Create a mock urlopen context manager returning the given content."""
-        mock_response = MagicMock()
-        mock_response.read.return_value = content.encode("utf-8")
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=False)
-        return mock_response
-
     def test_resolve_url_source(self):
         """Test resolving a URL string as a skill source (available without an agent)."""
         from unittest.mock import patch
 
-        with patch(
-            f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(self._SAMPLE_CONTENT)
-        ):
+        with patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=self._SAMPLE_CONTENT):
             plugin = AgentSkills(skills=["https://example.com/SKILL.md"])
 
         assert len(plugin.get_available_skills()) == 1
@@ -884,9 +874,7 @@ class TestResolveUrlSkills:
 
         _make_skill_dir(tmp_path, "local-skill")
 
-        with patch(
-            f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(self._SAMPLE_CONTENT)
-        ):
+        with patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=self._SAMPLE_CONTENT):
             plugin = AgentSkills(
                 skills=[
                     "https://example.com/SKILL.md",
@@ -904,15 +892,12 @@ class TestResolveUrlSkills:
     def test_resolve_url_failure_skips_gracefully(self, caplog):
         """Test that a failed URL fetch is skipped with a warning."""
         import logging
-        import urllib.error
         from unittest.mock import patch
 
         with (
             patch(
-                f"{self._SKILL_MODULE}.urllib.request.urlopen",
-                side_effect=urllib.error.HTTPError(
-                    url="https://example.com", code=404, msg="Not Found", hdrs=None, fp=None
-                ),
+                f"{self._SKILL_MODULE}._fetch_url_content",
+                side_effect=RuntimeError("url=<https://example.com/broken/SKILL.md> | HTTP 404: Not Found"),
             ),
             caplog.at_level(logging.WARNING),
         ):
@@ -927,10 +912,7 @@ class TestResolveUrlSkills:
         from unittest.mock import patch
 
         with (
-            patch(
-                f"{self._SKILL_MODULE}.urllib.request.urlopen",
-                return_value=self._mock_urlopen(self._SAMPLE_CONTENT),
-            ),
+            patch(f"{self._SKILL_MODULE}._fetch_url_content", return_value=self._SAMPLE_CONTENT),
             caplog.at_level(logging.WARNING),
         ):
             plugin = AgentSkills(
