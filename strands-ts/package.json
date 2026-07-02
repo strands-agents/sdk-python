@@ -12,6 +12,9 @@
   ],
   "files": [
     "dist",
+    "!dist/**/__tests__",
+    "!dist/**/__fixtures__",
+    "!dist/**/*.test.*",
     "README.md",
     "LICENSE"
   ],
@@ -136,8 +139,7 @@
   },
   "scripts": {
     "build": "tsc --project src/tsconfig.json",
-    "prepack": "npm run build && node scripts/prune-package-artifacts.js",
-    "postpack": "rm -rf dist && npm run build",
+    "prepack": "npm run build",
     "check": "npm run lint && npm run format && npm run type-check && npm run check:browser-bundle && npm run test:coverage && npm run test:package",
     "check:browser-bundle": "esbuild src/index.ts --bundle --platform=browser --format=esm --packages=external --outfile=/dev/null",
     "clean": "rm -rf node_modules dist",
