@@ -50,13 +50,18 @@ Role = Literal["user", "assistant"]
 _VALID_ROLES: tuple[str, ...] = ("user", "assistant")
 
 
-def normalize_role(role: Any, default: Role = "assistant") -> Role:
+def normalize_role(role: Any, default: Role = "user") -> Role:
     """Normalize a role value to a supported `Role`.
 
     Provider outputs and transcript events may carry role values in arbitrary
-    casing or outside the supported set. This coerces the value to lowercase
-    and falls back to `default` when it is not one of the supported roles, so
-    that messages persisted to the conversation always carry a valid role.
+    casing or outside the supported set. This trims surrounding whitespace,
+    coerces the value to lowercase, and falls back to `default` when it is not
+    one of the supported roles, so that messages persisted to the conversation
+    always carry a valid role.
+
+    The default is the lowest-trust role (`"user"`): unknown or spoofed role
+    values are never attributed to the assistant. Legitimate assistant output
+    passes an explicit `role="assistant"`, which the allowlist accepts verbatim.
 
     Args:
         role: The incoming role value (any type).
@@ -65,7 +70,7 @@ def normalize_role(role: Any, default: Role = "assistant") -> Role:
     Returns:
         A role guaranteed to be one of the supported `Role` values.
     """
-    normalized = role.lower() if isinstance(role, str) else default
+    normalized = role.strip().lower() if isinstance(role, str) else default
     if normalized not in _VALID_ROLES:
         normalized = default
     return cast(Role, normalized)
@@ -352,7 +357,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
                 "type": "bidi_transcript_stream",
                 "delta": delta,
                 "text": text,
-                "role": normalize_role(role),
+                "role": normalize_role(role, default="user"),
                 "is_final": is_final,
                 "current_transcript": current_transcript,
             }

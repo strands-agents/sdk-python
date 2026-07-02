@@ -180,17 +180,31 @@ def test_normalize_role_accepts_supported_roles(raw_role, expected):
 
 @pytest.mark.parametrize(
     "raw_role",
-    ["system", "SYSTEM", "tool", "", "unknown", None, 123],
+    ["system", "admin", "SYSTEM", "tool", "", "unknown", None, 123],
 )
-def test_normalize_role_falls_back_for_unsupported_roles(raw_role):
-    """normalize_role coerces out-of-range values to the default role."""
-    assert normalize_role(raw_role) == "assistant"
-    assert normalize_role(raw_role, default="user") == "user"
+def test_normalize_role_falls_back_to_lowest_trust_role(raw_role):
+    """normalize_role coerces out-of-range values to the lowest-trust default ("user")."""
+    assert normalize_role(raw_role) == "user"
+    assert normalize_role(raw_role, default="assistant") == "assistant"
 
 
-@pytest.mark.parametrize("raw_role", ["system", "SYSTEM", "tool", "developer", "unknown"])
-def test_transcript_stream_event_rejects_out_of_range_role(raw_role):
-    """An out-of-range transcript role is normalized and never persisted verbatim."""
+@pytest.mark.parametrize(
+    "raw_role,expected",
+    [
+        (" user ", "user"),
+        (" User ", "user"),
+        ("\tassistant\n", "assistant"),
+        ("  USER", "user"),
+    ],
+)
+def test_normalize_role_strips_whitespace(raw_role, expected):
+    """normalize_role trims surrounding whitespace before the allowlist check."""
+    assert normalize_role(raw_role) == expected
+
+
+@pytest.mark.parametrize("raw_role", ["system", "admin", "SYSTEM", "tool", "developer", "unknown", ""])
+def test_transcript_stream_event_coerces_out_of_range_role_to_user(raw_role):
+    """An out-of-range transcript role is coerced to the lowest-trust role ("user")."""
     event = BidiTranscriptStreamEvent(
         delta={"text": "hi"},
         text="hi",
@@ -199,9 +213,23 @@ def test_transcript_stream_event_rejects_out_of_range_role(raw_role):
         current_transcript="hi",
     )
 
-    assert event.role in ("user", "assistant")
-    assert event["role"] in ("user", "assistant")
+    # Attacker-controlled content is never attributed to the assistant.
+    assert event.role == "user"
+    assert event["role"] == "user"
     assert event.role != raw_role.lower()
+
+
+def test_transcript_stream_event_strips_whitespace_role():
+    """A legitimately-spaced role is trimmed rather than mislabeled as the default."""
+    event = BidiTranscriptStreamEvent(
+        delta={"text": "hi"},
+        text="hi",
+        role=" user ",
+        is_final=True,
+        current_transcript="hi",
+    )
+
+    assert event.role == "user"
 
 
 def test_transcript_stream_event_normalizes_role_casing():
