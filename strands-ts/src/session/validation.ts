@@ -33,7 +33,7 @@ const VALID_SCOPES = { agent: true, multiAgent: true } satisfies Record<Scope, t
  * @throws Error if scope is not a recognized value
  */
 export function validateScope(scope: string): string {
-  if (!(scope in VALID_SCOPES)) {
+  if (!Object.hasOwn(VALID_SCOPES, scope)) {
     throw new Error(`Scope '${scope}' is not a recognized session scope`)
   }
   return scope

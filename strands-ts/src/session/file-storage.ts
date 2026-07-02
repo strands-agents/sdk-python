@@ -222,14 +222,10 @@ export class FileStorage implements SnapshotStorage {
 
   /**
    * Returns the file path for an immutable snapshot in `immutable_history/`.
-   * Validates the snapshotId and guards against path traversal outside `_baseDir`.
+   * Validates the snapshotId; `_getPath` enforces resolve+sep containment within `_baseDir`.
    */
   private async _getHistorySnapshotPath(location: SnapshotLocation, snapshotId: string): Promise<string> {
     validateIdentifier(snapshotId)
-    const resolved = await this._getPath(location, `${IMMUTABLE_HISTORY}/snapshot_${snapshotId}.json`)
-    if (!resolved.startsWith(this._baseDir)) {
-      throw new SessionError(`Invalid snapshotId '${snapshotId}': resolves outside storage directory`)
-    }
-    return resolved
+    return this._getPath(location, `${IMMUTABLE_HISTORY}/snapshot_${snapshotId}.json`)
   }
 }

@@ -49,6 +49,20 @@ describe('validateScope', () => {
       expect(() => validateScope('unknown')).toThrow("Scope 'unknown' is not a recognized session scope")
     })
   })
+
+  describe('when scope is an inherited Object.prototype property', () => {
+    it('rejects constructor', () => {
+      expect(() => validateScope('constructor')).toThrow("Scope 'constructor' is not a recognized session scope")
+    })
+
+    it('rejects __proto__', () => {
+      expect(() => validateScope('__proto__')).toThrow("Scope '__proto__' is not a recognized session scope")
+    })
+
+    it('rejects toString', () => {
+      expect(() => validateScope('toString')).toThrow("Scope 'toString' is not a recognized session scope")
+    })
+  })
 })
 
 describe('validateUuidV7', () => {
