@@ -60,6 +60,15 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
+# Serializes the pseudo-terminal descriptor snapshots taken across all clients.
+# File descriptor numbers are process-wide and can be reused the instant one is
+# closed, so two clients starting or stopping concurrently could otherwise
+# interleave their before/after snapshots and mis-attribute a descriptor. Holding
+# this lock while a client records the descriptors it opened, and again while it
+# releases them, keeps each client's view of "the descriptors I created"
+# internally consistent.
+_PTMX_SNAPSHOT_LOCK = threading.Lock()
+
 
 class _ToolFilterCallback(Protocol):
     def __call__(self, tool: AgentTool, **kwargs: Any) -> bool: ...
@@ -162,10 +171,16 @@ class MCPClient(ToolProvider):
         self._background_thread: threading.Thread | None = None
         self._background_thread_session: ClientSession | None = None
         self._background_thread_event_loop: AbstractEventLoop | None = None
-        # Pseudo-terminal file descriptors observed before the background thread starts.
-        # Used to identify and release descriptors opened by the transport subprocess
-        # if its context managers fail to unwind cleanly. None until start() runs.
+        # Pseudo-terminal file descriptors observed immediately before this client's
+        # transport starts. Compared against the post-start snapshot to derive the set of
+        # descriptors this client's own start created. None until start() runs.
         self._pre_start_ptmx_fds: set[int] | None = None
+        # Pseudo-terminal descriptors this client opened, mapped to the pty path each
+        # pointed at when opened (e.g. /dev/ptmx or /dev/pts/N). stop() closes only these
+        # descriptors, and only when they still resolve to the same path, so a descriptor
+        # number reused by another client after this one closed is never closed here.
+        # None until the transport is established.
+        self._owned_ptmx_fds: dict[int, str] | None = None
         self._loaded_tools: list[MCPAgentTool] | None = None
         self._tool_provider_started = False
         self.server_instructions: str | None = None
@@ -214,9 +229,14 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session is currently running")
 
         self._log_debug_with_thread("entering MCPClient context")
-        # Record the pseudo-terminal descriptors already open before the transport starts so
-        # stop() can release only the ones this client opens. See _snapshot_ptmx_fds.
-        self._pre_start_ptmx_fds = self._snapshot_ptmx_fds()
+        # Record the pseudo-terminal descriptors already open before the transport starts.
+        # After the transport is established, _record_owned_ptmx_fds() takes a second
+        # snapshot and records the difference as the descriptors this client owns, so
+        # stop() releases only those. Held under the process-wide lock so a concurrent
+        # client's start/stop cannot interleave with this snapshot. See _snapshot_ptmx_fds.
+        with _PTMX_SNAPSHOT_LOCK:
+            self._pre_start_ptmx_fds = set(self._snapshot_ptmx_fds())
+            self._owned_ptmx_fds = None
         # Copy context vars to propagate to the background thread
         # This ensures that context set in the main thread is accessible in the background thread
         # See: https://github.com/strands-agents/harness-sdk/issues/1440
@@ -377,29 +397,41 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("interpreter is finalizing, skipping MCPClient cleanup")
             return
 
-        # Only try to signal close future if we have a background thread
-        if self._background_thread is not None:
-            # Signal close future if event loop exists
+        # Teardown runs in a try/finally so the descriptor cleanup always runs, even if an
+        # earlier teardown step (joining the thread, closing the event loop) raises. That
+        # abnormal-unwind path is exactly the case that leaks descriptors, so it must not
+        # skip the cleanup.
+        try:
+            # Only try to signal close future if we have a background thread
+            if self._background_thread is not None:
+                # Signal close future if event loop exists
+                if self._background_thread_event_loop is not None:
+
+                    async def _set_close_event() -> None:
+                        if self._close_future and not self._close_future.done():
+                            self._close_future.set_result(None)
+
+                    # Not calling _invoke_on_background_thread since the session does not need to exist
+                    # we only need the thread and event loop to exist.
+                    asyncio.run_coroutine_threadsafe(coro=_set_close_event(), loop=self._background_thread_event_loop)
+
+                self._log_debug_with_thread("waiting for background thread to join")
+                self._background_thread.join()
+
             if self._background_thread_event_loop is not None:
-
-                async def _set_close_event() -> None:
-                    if self._close_future and not self._close_future.done():
-                        self._close_future.set_result(None)
-
-                # Not calling _invoke_on_background_thread since the session does not need to exist
-                # we only need the thread and event loop to exist.
-                asyncio.run_coroutine_threadsafe(coro=_set_close_event(), loop=self._background_thread_event_loop)
-
-            self._log_debug_with_thread("waiting for background thread to join")
-            self._background_thread.join()
-
-        if self._background_thread_event_loop is not None:
-            self._background_thread_event_loop.close()
-
-        # The background thread has joined, so no async code references the transport's
-        # descriptors anymore. Release any pseudo-terminal descriptors the transport
-        # subprocess opened but did not close when its context managers failed to unwind.
-        self._close_leaked_ptmx_fds()
+                self._background_thread_event_loop.close()
+        finally:
+            # The background thread has joined (or teardown failed), so no async code
+            # references the transport's descriptors anymore. Release any pseudo-terminal
+            # descriptors this client opened but the transport did not close when its
+            # context managers failed to unwind.
+            #
+            # Note: closing this parent-side descriptor does not reap the transport's child
+            # process, which holds its own copies of the pty and stdio descriptors.
+            # Terminating and waiting on that subprocess is the transport's responsibility
+            # and happens as its async context managers unwind above; this cleanup only
+            # covers the descriptors the parent leaks when that unwind is skipped.
+            self._close_leaked_ptmx_fds()
 
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
@@ -409,6 +441,7 @@ class MCPClient(ToolProvider):
         self._background_thread_session = None
         self._background_thread_event_loop = None
         self._pre_start_ptmx_fds = None
+        self._owned_ptmx_fds = None
         self._session_id = uuid.uuid4()
         self._loaded_tools = None
         self._tool_provider_started = False
@@ -421,16 +454,19 @@ class MCPClient(ToolProvider):
             self._close_exception = None
             raise RuntimeError("Connection to the MCP server was closed") from exception
 
-    def _snapshot_ptmx_fds(self) -> set[int]:
-        """Return the set of open pseudo-terminal file descriptors for this process.
+    def _snapshot_ptmx_fds(self) -> dict[int, str]:
+        """Return the open pseudo-terminal file descriptors mapped to their target paths.
 
         The transport callable may spawn a subprocess that opens pseudo-terminal
         descriptors in the parent process. This inspects ``/proc/self/fd`` to find those
-        descriptors so stop() can release any that are left open. Returns an empty set on
-        platforms without ``/proc/self/fd`` (anything other than Linux), making the
-        cleanup a no-op there.
+        descriptors, mapping each to the pty path it currently resolves to (for example
+        ``/dev/ptmx`` for the master or ``/dev/pts/N`` for a slave). Recording the path
+        lets stop() re-verify a descriptor still points at the same pty before closing it,
+        so a descriptor number reused by another client is never closed by mistake. Returns
+        an empty mapping on platforms without ``/proc/self/fd`` (anything other than Linux),
+        making the cleanup a no-op there.
         """
-        ptmx_fds: set[int] = set()
+        ptmx_fds: dict[int, str] = {}
         if not os.path.isdir("/proc/self/fd"):
             return ptmx_fds
         try:
@@ -445,34 +481,74 @@ class MCPClient(ToolProvider):
                 # FD may have been closed between listing and readlink; skip it.
                 continue
             if "/dev/ptmx" in target or "/dev/pts/" in target:
-                ptmx_fds.add(fd)
+                ptmx_fds[fd] = target
         return ptmx_fds
 
-    def _close_leaked_ptmx_fds(self) -> None:
-        """Close pseudo-terminal descriptors opened during this client's lifetime.
+    def _record_owned_ptmx_fds(self) -> None:
+        """Record the pseudo-terminal descriptors this client's own start created.
 
-        Compares the current set of pseudo-terminal descriptors against the snapshot taken
-        in start() and closes only the difference. This releases descriptors the transport
-        subprocess left open while leaving descriptors owned by the parent process or other
-        clients untouched. Must only be called after the background thread has joined so no
-        async code still references these descriptors.
+        Called once the transport has been established. Takes a second snapshot and records
+        the descriptors present now but absent from the pre-start snapshot, together with
+        the pty path each resolves to. stop() later closes only these descriptors, and only
+        while they still resolve to the same path. Held under the process-wide lock so it
+        cannot interleave with another client's snapshot.
+
+        Limitation: ownership is inferred from a before/after diff of process-wide pseudo-
+        terminal descriptors rather than correlated to this client's own subprocess. If a
+        third party (not this client's transport) opens a pty in the window between the two
+        snapshots, that descriptor would be attributed to this client. The lock narrows the
+        window to this client's own transport startup, and the path re-check on close guards
+        against closing a descriptor another client has since reused, so the worst residual
+        case is failing to release a descriptor this client did open, never closing one it
+        did not.
         """
         pre_start = self._pre_start_ptmx_fds
         if pre_start is None:
             return
+        with _PTMX_SNAPSHOT_LOCK:
+            current = self._snapshot_ptmx_fds()
+            self._owned_ptmx_fds = {fd: target for fd, target in current.items() if fd not in pre_start}
 
-        leaked = self._snapshot_ptmx_fds() - pre_start
-        if not leaked:
+    def _close_leaked_ptmx_fds(self) -> None:
+        """Close the pseudo-terminal descriptors this client opened, if still leaked.
+
+        Closes only descriptors recorded as owned by this client in _record_owned_ptmx_fds()
+        that are still open AND still resolve to the same pty path observed at open time. If
+        a descriptor number now resolves elsewhere (or no longer exists), it was reused by
+        another client after this one closed it, so it is left alone to avoid stealing a live
+        descriptor from a concurrent client. Must only be called after the background thread
+        has joined so no async code still references these descriptors. Held under the
+        process-wide lock so the verify-then-close is not raced by another client's snapshot.
+        """
+        owned = self._owned_ptmx_fds
+        if not owned:
             return
 
         closed = 0
-        for fd in leaked:
-            try:
-                os.close(fd)
-                closed += 1
-            except OSError:
-                # Already closed elsewhere; nothing to do.
-                pass
+        with _PTMX_SNAPSHOT_LOCK:
+            for fd, expected_target in owned.items():
+                try:
+                    # Re-verify the descriptor still points at the pty this client opened.
+                    # If the number was reused by another client its target will differ,
+                    # so we must not close it.
+                    current_target = os.readlink(f"/proc/self/fd/{fd}")
+                except OSError:
+                    # Already closed elsewhere; nothing to do.
+                    continue
+                if current_target != expected_target:
+                    self._log_debug_with_thread(
+                        "pseudo-terminal descriptor %d now points at %s, not %s; leaving it open",
+                        fd,
+                        current_target,
+                        expected_target,
+                    )
+                    continue
+                try:
+                    os.close(fd)
+                    closed += 1
+                except OSError:
+                    # Closed between the readlink check and now; nothing to do.
+                    pass
 
         if closed:
             self._log_debug_with_thread("released %d pseudo-terminal file descriptor(s) on stop", closed)
@@ -878,6 +954,11 @@ class MCPClient(ToolProvider):
         try:
             async with self._transport_callable() as (read_stream, write_stream, *_):
                 self._log_debug_with_thread("transport connection established")
+                # The transport (e.g. stdio) may have spawned a subprocess that opened
+                # pseudo-terminal descriptors in this process. Record the descriptors that
+                # appeared during transport startup as this client's owned set so stop() can
+                # release only those if the transport context managers fail to unwind cleanly.
+                self._record_owned_ptmx_fds()
                 async with ClientSession(
                     read_stream,
                     write_stream,

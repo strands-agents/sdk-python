@@ -1247,7 +1247,7 @@ def test_start_records_pseudo_terminal_fd_snapshot():
     client = MCPClient(MagicMock())
     assert client._pre_start_ptmx_fds is None
 
-    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3, 4}):
+    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3: "/dev/ptmx", 4: "/dev/pts/4"}):
         # Keep the thread from doing real work; we only care about the snapshot.
         with patch("threading.Thread"), patch.object(client._init_future, "result", return_value=None):
             client.start()
@@ -1255,33 +1255,48 @@ def test_start_records_pseudo_terminal_fd_snapshot():
     assert client._pre_start_ptmx_fds == {3, 4}
 
 
-def test_stop_releases_pseudo_terminal_fds_opened_after_start():
-    """stop() closes pseudo-terminal descriptors that appeared after start()."""
+def test_record_owned_ptmx_fds_captures_only_new_descriptors():
+    """_record_owned_ptmx_fds records descriptors that appeared after start, with their paths."""
+    client = MCPClient(MagicMock())
+    client._pre_start_ptmx_fds = {3}
+
+    # Descriptor 7 (and its path) appeared while the transport started.
+    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3: "/dev/ptmx", 7: "/dev/pts/7"}):
+        client._record_owned_ptmx_fds()
+
+    assert client._owned_ptmx_fds == {7: "/dev/pts/7"}
+
+
+def test_stop_releases_pseudo_terminal_fds_this_client_owns():
+    """stop() closes the descriptors this client opened when they still point at the same pty."""
     client = MCPClient(MagicMock())
     client._background_thread = MagicMock()
     client._background_thread_event_loop = MagicMock()
-    client._pre_start_ptmx_fds = {3}
+    client._owned_ptmx_fds = {7: "/dev/pts/7"}
 
-    # Descriptor 7 was opened by the transport after the snapshot was taken.
-    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3, 7}):
+    with patch("strands.tools.mcp.mcp_client.os.readlink", return_value="/dev/pts/7"):
         with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
             client.stop(None, None, None)
 
     mock_close.assert_called_once_with(7)
 
 
-def test_stop_leaves_unrelated_descriptors_open():
-    """stop() only closes pseudo-terminal descriptors, not sockets, pipes, or files."""
-    client = MCPClient(MagicMock())
-    client._background_thread = MagicMock()
-    client._background_thread_event_loop = MagicMock()
-    # Snapshot only ever contains pseudo-terminal descriptors, so a stable snapshot
-    # means nothing pseudo-terminal was opened, even if other descriptors changed.
-    client._pre_start_ptmx_fds = {3}
+def test_stop_does_not_close_fd_reused_by_another_client():
+    """Concurrency guard: A's stop() must not close a descriptor number another client reused.
 
-    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3}):
+    Client A owned descriptor 7 pointing at /dev/pts/7. Before A stops, client B opens a pty
+    that reuses descriptor number 7, now pointing at /dev/pts/9. A's stop() must re-verify the
+    target and, seeing the mismatch, leave B's live descriptor open rather than stealing it.
+    """
+    client_a = MCPClient(MagicMock())
+    client_a._background_thread = MagicMock()
+    client_a._background_thread_event_loop = MagicMock()
+    client_a._owned_ptmx_fds = {7: "/dev/pts/7"}
+
+    # Descriptor 7 now resolves to a different pty: it belongs to client B.
+    with patch("strands.tools.mcp.mcp_client.os.readlink", return_value="/dev/pts/9"):
         with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
-            client.stop(None, None, None)
+            client_a.stop(None, None, None)
 
     mock_close.assert_not_called()
 
@@ -1291,12 +1306,15 @@ def test_stop_leaves_pre_existing_pseudo_terminal_fds_open():
     client = MCPClient(MagicMock())
     client._background_thread = MagicMock()
     client._background_thread_event_loop = MagicMock()
+    # Descriptors 3 and 4 predate this client, so recording owned FDs yields nothing.
     client._pre_start_ptmx_fds = {3, 4}
+    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3: "/dev/ptmx", 4: "/dev/pts/4"}):
+        client._record_owned_ptmx_fds()
 
-    # Same descriptors as before start(); none belong to this client.
-    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3, 4}):
-        with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
-            client.stop(None, None, None)
+    assert client._owned_ptmx_fds == {}
+
+    with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
+        client.stop(None, None, None)
 
     mock_close.assert_not_called()
 
@@ -1306,7 +1324,7 @@ def test_cleanup_is_noop_without_proc_self_fd():
     client = MCPClient(MagicMock())
 
     with patch("strands.tools.mcp.mcp_client.os.path.isdir", return_value=False):
-        assert client._snapshot_ptmx_fds() == set()
+        assert client._snapshot_ptmx_fds() == {}
 
 
 def test_cleanup_tolerates_close_errors():
@@ -1314,12 +1332,33 @@ def test_cleanup_tolerates_close_errors():
     client = MCPClient(MagicMock())
     client._background_thread = MagicMock()
     client._background_thread_event_loop = MagicMock()
-    client._pre_start_ptmx_fds = set()
+    client._owned_ptmx_fds = {7: "/dev/pts/7"}
 
-    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={7}):
+    with patch("strands.tools.mcp.mcp_client.os.readlink", return_value="/dev/pts/7"):
         with patch("strands.tools.mcp.mcp_client.os.close", side_effect=OSError("bad file descriptor")):
             # Must not raise.
             client.stop(None, None, None)
+
+
+def test_cleanup_runs_when_event_loop_close_raises():
+    """The finally path releases descriptors even if event-loop teardown raises first.
+
+    This is the abnormal-unwind case the cleanup exists for: if closing the event loop
+    raises, the owned descriptors must still be released rather than leaked.
+    """
+    client = MCPClient(MagicMock())
+    client._background_thread = MagicMock()
+    loop = MagicMock()
+    loop.close.side_effect = RuntimeError("teardown boom")
+    client._background_thread_event_loop = loop
+    client._owned_ptmx_fds = {7: "/dev/pts/7"}
+
+    with patch("strands.tools.mcp.mcp_client.os.readlink", return_value="/dev/pts/7"):
+        with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
+            with pytest.raises(RuntimeError, match="teardown boom"):
+                client.stop(None, None, None)
+
+    mock_close.assert_called_once_with(7)
 
 
 def test_snapshot_skips_descriptors_that_disappear():
@@ -1329,27 +1368,28 @@ def test_snapshot_skips_descriptors_that_disappear():
     with patch("strands.tools.mcp.mcp_client.os.path.isdir", return_value=True):
         with patch("strands.tools.mcp.mcp_client.os.listdir", return_value=["5"]):
             with patch("strands.tools.mcp.mcp_client.os.readlink", side_effect=OSError("gone")):
-                assert client._snapshot_ptmx_fds() == set()
+                assert client._snapshot_ptmx_fds() == {}
 
 
 def test_fd_snapshot_reset_after_stop():
-    """stop() clears the snapshot so the instance can be reused cleanly."""
+    """stop() clears the owned-descriptor state so the instance can be reused cleanly."""
     client = MCPClient(MagicMock())
     client._background_thread = MagicMock()
     client._background_thread_event_loop = MagicMock()
     client._pre_start_ptmx_fds = {3}
+    client._owned_ptmx_fds = {}
 
-    with patch.object(MCPClient, "_snapshot_ptmx_fds", return_value={3}):
-        client.stop(None, None, None)
+    client.stop(None, None, None)
 
     assert client._pre_start_ptmx_fds is None
+    assert client._owned_ptmx_fds is None
 
 
 def test_stop_returns_pseudo_terminal_fd_count_to_baseline():
     """End-to-end: a real leaked pseudo-terminal descriptor is released on stop().
 
-    Opens a pseudo-terminal directly, registers it as a descriptor that appeared after
-    start(), and verifies stop() closes it and returns the count to the baseline.
+    Opens a pseudo-terminal directly, records it as a descriptor this client owns, and
+    verifies stop() closes it and returns the count to the baseline.
     """
     if not os.path.isdir("/proc/self/fd"):
         pytest.skip("requires /proc/self/fd")
@@ -1359,12 +1399,13 @@ def test_stop_returns_pseudo_terminal_fd_count_to_baseline():
     client._background_thread_event_loop = MagicMock()
 
     baseline = client._snapshot_ptmx_fds()
-    client._pre_start_ptmx_fds = baseline
+    client._pre_start_ptmx_fds = set(baseline)
 
     master_fd, slave_fd = os.openpty()
     try:
-        after_open = client._snapshot_ptmx_fds()
-        assert after_open - baseline, "expected a new pseudo-terminal descriptor to be observed"
+        # Record ownership the way the background thread does once the transport is up.
+        client._record_owned_ptmx_fds()
+        assert client._owned_ptmx_fds, "expected a new pseudo-terminal descriptor to be observed"
 
         client.stop(None, None, None)
 
@@ -1372,6 +1413,39 @@ def test_stop_returns_pseudo_terminal_fd_count_to_baseline():
         # The master descriptor was released by stop().
         with pytest.raises(OSError):
             os.fstat(master_fd)
+    finally:
+        for fd in (master_fd, slave_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def test_stop_does_not_close_leaked_fd_reused_by_another_pty():
+    """End-to-end concurrency guard: a reused descriptor number is not closed.
+
+    Simulates client A owning a descriptor whose number is later reused by another pty
+    (standing in for client B). A's stop() must detect the target mismatch via readlink and
+    leave the live descriptor open.
+    """
+    if not os.path.isdir("/proc/self/fd"):
+        pytest.skip("requires /proc/self/fd")
+
+    client = MCPClient(MagicMock())
+    client._background_thread = MagicMock()
+    client._background_thread_event_loop = MagicMock()
+
+    # Open a real pty and record it as owned, but with a stale path so the readlink
+    # re-check mismatches, exactly as it would if the number had been reused by client B.
+    master_fd, slave_fd = os.openpty()
+    try:
+        real_target = os.readlink(f"/proc/self/fd/{master_fd}")
+        client._owned_ptmx_fds = {master_fd: real_target + "-stale"}
+
+        client.stop(None, None, None)
+
+        # The live descriptor was left open because its target no longer matched.
+        os.fstat(master_fd)  # Must not raise.
     finally:
         for fd in (master_fd, slave_fd):
             try:
