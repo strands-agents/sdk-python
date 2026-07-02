@@ -299,7 +299,7 @@ async function toolCachingFull() {
 async function automaticCacheStrategy() {
   // --8<-- [start:automatic_cache_strategy]
   const bedrockModel = new BedrockModel({
-    modelId: 'us.anthropic.claude-sonnet-4-6',
+    modelId: 'global.anthropic.claude-sonnet-5',
     cacheConfig: { strategy: 'auto' },
   })
 
@@ -428,7 +428,7 @@ async function guardrailsExample() {
 async function requestTimeoutExample() {
   // --8<-- [start:request_timeout]
   const bedrockModel = new BedrockModel({
-    modelId: 'us.anthropic.claude-sonnet-4-6',
+    modelId: 'global.anthropic.claude-sonnet-5',
     clientConfig: {
       requestHandler: { requestTimeout: 60_000 },
     },
