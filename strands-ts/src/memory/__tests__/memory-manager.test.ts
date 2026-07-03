@@ -793,6 +793,25 @@ describe('MemoryManager', () => {
         expect(store.search).toHaveBeenCalledWith('ask', { maxSearchResults: 2 })
         expect(text).toBe('A,B')
       })
+
+      it('uses store maxSearchResults before injection maxEntries when fetching injected memory', async () => {
+        const store = createMockStore('s', {
+          maxSearchResults: 1,
+          entries: [{ content: 'A' }, { content: 'B' }, { content: 'C' }],
+        })
+        vi.mocked(store.search).mockImplementation(async (_query, options) =>
+          [{ content: 'A' }, { content: 'B' }, { content: 'C' }].slice(0, options?.maxSearchResults)
+        )
+        const mm = new MemoryManager({
+          stores: [store],
+          injection: { maxEntries: 10, format: ({ entries }) => entries.map((e) => e.content).join(',') },
+        })
+
+        const text = await provide(mm, [assistant('prior'), user('ask')])
+
+        expect(store.search).toHaveBeenCalledWith('ask', { maxSearchResults: 1 })
+        expect(text).toBe('A')
+      })
     })
 
     describe('format', () => {
