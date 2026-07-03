@@ -305,7 +305,7 @@ export class MemoryManager implements Plugin {
         return undefined
       }
 
-      const entries = (await this.search(query, { maxSearchResults: maxResults })).slice(0, maxResults)
+      const entries = (await this._search(query, { maxSearchResults: maxResults }, true)).slice(0, maxResults)
       if (entries.length === 0) {
         end(false)
         return undefined
@@ -449,6 +449,21 @@ export class MemoryManager implements Plugin {
    * @returns Array of memory entries from matching stores
    */
   async search(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
+    return this._search(query, options)
+  }
+
+  /**
+   * Internal search implementation.
+   *
+   * Public/tool searches treat `options.maxSearchResults` as an explicit caller override. Injection uses
+   * `maxEntries` as a fallback fetch size only: a store-level `maxSearchResults` remains the tighter
+   * per-store retrieval policy, then injection slices the combined results to `maxEntries` before rendering.
+   */
+  private async _search(
+    query: string,
+    options?: MemorySearchOptions,
+    preferStoreMaxSearchResults = false
+  ): Promise<MemoryEntry[]> {
     logger.debug(
       `query=<${query}>, max_search_results=<${options?.maxSearchResults}>, stores=<${options?.stores}> | searching stores`
     )
@@ -477,7 +492,9 @@ export class MemoryManager implements Plugin {
       settled = await Promise.allSettled(
         targetStores.map((store) =>
           store.search(query, {
-            maxSearchResults: options?.maxSearchResults ?? store.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS,
+            maxSearchResults: preferStoreMaxSearchResults
+              ? (store.maxSearchResults ?? options?.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS)
+              : (options?.maxSearchResults ?? store.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS),
           })
         )
       )
