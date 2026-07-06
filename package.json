@@ -8,7 +8,7 @@
   ],
   "devDependencies": {
     "husky": "^9.1.7",
-    "prettier": "^3.8.5"
+    "prettier": "^3.9.1"
   },
   "scripts": {
     "dev": "strandly",
