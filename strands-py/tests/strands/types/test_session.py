@@ -97,12 +97,12 @@ def test_session_message_with_bytes():
 
 
 def test_session_message_preserves_durable_id():
-    message = {"role": "user", "content": [{"text": "Hello!"}], "id": "durable-abc"}
+    message = {"role": "user", "content": [{"text": "Hello!"}], "tracking_id": "durable-abc"}
 
     session_message = SessionMessage.from_message(message, 0)
     loaded_message = SessionMessage.from_dict(json.loads(json.dumps(session_message.to_dict())))
 
-    assert loaded_message.to_message()["id"] == "durable-abc"
+    assert loaded_message.to_message()["tracking_id"] == "durable-abc"
 
 
 def test_session_message_without_durable_id():
@@ -112,19 +112,19 @@ def test_session_message_without_durable_id():
     session_message = SessionMessage.from_message(message, 0)
     loaded_message = SessionMessage.from_dict(json.loads(json.dumps(session_message.to_dict())))
 
-    assert "id" not in loaded_message.to_message()
+    assert "tracking_id" not in loaded_message.to_message()
 
 
 def test_session_message_redaction_preserves_durable_id():
-    message = {"role": "user", "content": [{"text": "secret"}], "id": "durable-xyz"}
+    message = {"role": "user", "content": [{"text": "secret"}], "tracking_id": "durable-xyz"}
 
     session_message = SessionMessage.from_message(message, 0)
     # Redaction mutates content in place, leaving the top-level id on the same dict.
-    session_message.redact_message = {"role": "user", "content": [{"text": "REDACTED"}], "id": "durable-xyz"}
+    session_message.redact_message = {"role": "user", "content": [{"text": "REDACTED"}], "tracking_id": "durable-xyz"}
     loaded_message = SessionMessage.from_dict(json.loads(json.dumps(session_message.to_dict())))
 
     redacted = loaded_message.to_message()
-    assert redacted["id"] == "durable-xyz"
+    assert redacted["tracking_id"] == "durable-xyz"
     assert redacted["content"] == [{"text": "REDACTED"}]
 
 

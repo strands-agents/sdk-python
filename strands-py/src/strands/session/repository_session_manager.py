@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
-from ..types.content import Message, _generate_message_id
+from ..types.content import Message, _generate_tracking_id
 from ..types.exceptions import SessionException
 from ..types.session import (
     Session,
@@ -313,10 +313,10 @@ class RepositorySessionManager(SessionManager):
             else:
                 # The message following the toolUse was not a toolResult, so lets insert it.
                 # This synthesized message bypasses the append chokepoint, so give it a durable
-                # id to keep the "every message has an id" invariant.
+                # tracking id — matching messages appended through the normal path.
                 messages.insert(
                     index + 1,
-                    {"role": "user", "content": missing_content_blocks, "id": _generate_message_id()},
+                    {"role": "user", "content": missing_content_blocks, "tracking_id": _generate_tracking_id()},
                 )
         return messages
 

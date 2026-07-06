@@ -51,7 +51,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'user',
             content: [new TextBlock('Hi')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           }),
           invocationState: {},
         })
@@ -75,7 +75,7 @@ describe('Agent Hooks Integration', () => {
             message: new Message({
               role: 'assistant',
               content: [new TextBlock('Hello')],
-              id: expect.any(String) as unknown as string,
+              trackingId: expect.any(String) as unknown as string,
             }),
           },
         })
@@ -86,7 +86,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'assistant',
             content: [new TextBlock('Hello')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           }),
           invocationState: {},
         })
@@ -111,7 +111,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'user',
             content: [new TextBlock('Hi')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           }),
           invocationState: {},
         })
@@ -135,7 +135,7 @@ describe('Agent Hooks Integration', () => {
             message: new Message({
               role: 'assistant',
               content: [new TextBlock('Hello')],
-              id: expect.any(String) as unknown as string,
+              trackingId: expect.any(String) as unknown as string,
             }),
           },
         })
@@ -146,7 +146,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'assistant',
             content: [new TextBlock('Hello')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           }),
           invocationState: {},
         })
@@ -357,7 +357,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'user',
             content: [new TextBlock('New message')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           }),
           invocationState: {},
         })
@@ -368,7 +368,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'assistant',
             content: [new TextBlock('Response')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           }),
           invocationState: {},
         })

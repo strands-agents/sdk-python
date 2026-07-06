@@ -1235,7 +1235,7 @@ async def test_stream_messages_strips_id_before_model_call(agenerator, alist):
             {
                 "role": "user",
                 "content": [{"text": "hi"}],
-                "id": "durable-1",
+                "tracking_id": "durable-1",
                 "metadata": {"usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}},
             }
         ],
@@ -1247,7 +1247,7 @@ async def test_stream_messages_strips_id_before_model_call(agenerator, alist):
 
     sent_messages = mock_model.stream.call_args[0][0]
     assert sent_messages == [{"role": "user", "content": [{"text": "hi"}]}]
-    assert "id" not in sent_messages[0]
+    assert "tracking_id" not in sent_messages[0]
     assert "metadata" not in sent_messages[0]
 
 

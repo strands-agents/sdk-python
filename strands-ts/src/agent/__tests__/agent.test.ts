@@ -147,7 +147,7 @@ describe('Agent', () => {
             message: new Message({
               role: 'assistant',
               content: [new ToolUseBlock({ name: 'testTool', toolUseId: 'tool-1', input: {} })],
-              id: expect.any(String) as unknown as string,
+              trackingId: expect.any(String) as unknown as string,
             }),
             invocationState: {},
           })
@@ -158,7 +158,7 @@ describe('Agent', () => {
         expect(afterTools?.message).toEqual({
           type: 'message',
           role: 'user',
-          id: expect.any(String) as unknown as string,
+          trackingId: expect.any(String) as unknown as string,
           content: [
             {
               type: 'toolResultBlock',
@@ -1006,7 +1006,7 @@ describe('Agent', () => {
   })
 
   describe('durable message id', () => {
-    it('assigns a durable id to every recorded message', async () => {
+    it('assigns a durable tracking id to every recorded message', async () => {
       const model = new MockMessageModel().addTurn(new TextBlock('Response'))
       const agent = new Agent({ model })
 
@@ -1014,22 +1014,22 @@ describe('Agent', () => {
 
       expect(agent.messages).toHaveLength(2)
       for (const message of agent.messages) {
-        expect(typeof message.id).toBe('string')
+        expect(typeof message.trackingId).toBe('string')
       }
       // Ids are unique per message.
-      expect(agent.messages[0]!.id).not.toBe(agent.messages[1]!.id)
+      expect(agent.messages[0]!.trackingId).not.toBe(agent.messages[1]!.trackingId)
     })
 
     it('preserves a caller-supplied id on input messages', async () => {
       const model = new MockMessageModel().addTurn(new TextBlock('Response'))
       const agent = new Agent({
         model,
-        messages: [{ role: 'user', content: [{ text: 'Earlier' }], id: 'caller-supplied' }],
+        messages: [{ role: 'user', content: [{ text: 'Earlier' }], trackingId: 'caller-supplied' }],
       })
 
       await agent.invoke('Hello')
 
-      expect(agent.messages[0]!.id).toBe('caller-supplied')
+      expect(agent.messages[0]!.trackingId).toBe('caller-supplied')
     })
   })
 
@@ -1046,7 +1046,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('Hello')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1064,7 +1064,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('Hello')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1082,7 +1082,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: contentBlocks,
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1124,7 +1124,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: contentBlocks,
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1267,14 +1267,14 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('First message')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           })
         )
         expect(agent.messages[1]).toEqual(
           new Message({
             role: 'assistant',
             content: [new TextBlock('Second message')],
-            id: expect.any(String) as unknown as string,
+            trackingId: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1615,6 +1615,25 @@ describe('Agent._redactLastMessage', () => {
     expect(lastMessage.content).toHaveLength(1)
     expect(lastMessage.content[0]!.type).toBe('textBlock')
     expect((lastMessage.content[0] as TextBlock).text).toBe(redactMessage)
+  })
+
+  it('preserves the durable tracking id when redacting', () => {
+    // Redaction rebuilds the message as a new Message that stays in history, so its tracking id
+    // must survive.
+    const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Response' })
+    const agent = new Agent({ model })
+
+    agent['messages'].push(
+      new Message({
+        role: 'user',
+        content: [new TextBlock('sensitive content')],
+        trackingId: 'durable-1',
+      })
+    )
+
+    agent['_redactLastMessage'](redactMessage)
+
+    expect(agent['messages'][agent['messages'].length - 1]!.trackingId).toBe('durable-1')
   })
 
   it('preserves tool result blocks with redacted content', () => {

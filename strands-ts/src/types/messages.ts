@@ -44,10 +44,10 @@ export interface MessageData {
   content: ContentBlockData[]
 
   /**
-   * Durable, stable identifier for the message, assigned when the message is added to the
+   * Durable, stable tracking identifier for the message, assigned when the message is added to the
    * conversation. Survives session save/restore, and is stripped before model calls.
    */
-  id?: string
+  trackingId?: string
 
   /**
    * Optional metadata, not sent to model providers.
@@ -56,37 +56,38 @@ export interface MessageData {
 }
 
 /**
- * Generate a durable identifier for a message.
+ * Generate a durable tracking identifier for a message.
  * @internal
  */
-export function generateMessageId(): string {
+export function generateTrackingId(): string {
   return globalThis.crypto.randomUUID()
 }
 
 /**
- * Assign a durable id to the message in place if it does not already have a usable one.
+ * Assign a durable tracking id to the message in place if it does not already have a usable one.
  *
- * A message that already carries a non-empty id (e.g. restored from a session or supplied by a
- * caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
- * missing or empty-string id is treated as absent and replaced, since an empty id cannot serve as
- * a durable key.
+ * A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
+ * by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
+ * missing or empty-string tracking id is treated as absent and replaced, since an empty id cannot
+ * serve as a durable key.
  * @internal
  */
-export function ensureMessageId(message: Message): void {
-  if (!message.id) {
-    message.id = generateMessageId()
+export function ensureTrackingId(message: Message): void {
+  if (!message.trackingId) {
+    message.trackingId = generateTrackingId()
   }
 }
 
 /**
- * Get the durable identifier for a message, or undefined if it has not been assigned one.
+ * Get the durable tracking identifier for a message, or undefined if it has not been assigned one.
  *
- * Mirrors the Python SDK's `get_message_id` so message-id access reads the same across both SDKs.
- * @param message - The message to read the id from.
- * @returns The message's durable id, or undefined if none has been assigned.
+ * Mirrors the Python SDK's `_get_tracking_id`. The `trackingId` field is already null-safe to read
+ * directly (`message.trackingId`); this helper exists for internal call sites that want an explicit
+ * accessor.
+ * @internal
  */
-export function getMessageId(message: Message): string | undefined {
-  return message.id
+export function getTrackingId(message: Message): string | undefined {
+  return message.trackingId
 }
 
 /**
@@ -110,21 +111,21 @@ export class Message implements JSONSerializable<MessageData> {
   readonly content: ContentBlock[]
 
   /**
-   * Durable, stable identifier for the message, assigned when the message is added to the
+   * Durable, stable tracking identifier for the message, assigned when the message is added to the
    * conversation. Survives session save/restore, and is stripped before model calls.
    */
-  id?: string
+  trackingId?: string
 
   /**
    * Optional metadata, not sent to model providers.
    */
   metadata?: MessageMetadata
 
-  constructor(data: { role: Role; content: ContentBlock[]; id?: string; metadata?: MessageMetadata }) {
+  constructor(data: { role: Role; content: ContentBlock[]; trackingId?: string; metadata?: MessageMetadata }) {
     this.role = data.role
     this.content = data.content
-    if (data.id !== undefined) {
-      this.id = data.id
+    if (data.trackingId !== undefined) {
+      this.trackingId = data.trackingId
     }
     if (data.metadata !== undefined) {
       this.metadata = data.metadata
@@ -140,7 +141,7 @@ export class Message implements JSONSerializable<MessageData> {
     return new Message({
       role: data.role,
       content: contentBlocks,
-      ...(data.id !== undefined && { id: data.id }),
+      ...(data.trackingId !== undefined && { trackingId: data.trackingId }),
       ...(data.metadata !== undefined && { metadata: data.metadata }),
     })
   }
@@ -153,7 +154,7 @@ export class Message implements JSONSerializable<MessageData> {
     return {
       role: this.role,
       content: this.content.map((block) => block.toJSON() as ContentBlockData),
-      ...(this.id !== undefined && { id: this.id }),
+      ...(this.trackingId !== undefined && { trackingId: this.trackingId }),
       ...(this.metadata !== undefined && { metadata: this.metadata }),
     }
   }

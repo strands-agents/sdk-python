@@ -429,8 +429,8 @@ export class SlidingWindowConversationManager extends ConversationManager {
     messages[msgIdx] = new Message({
       role: message.role,
       content: newContent,
-      // Preserve the durable id: this message stays in history, only its content is truncated.
-      ...(message.id !== undefined && { id: message.id }),
+      // Preserve the durable tracking id: this message stays in history, only its content is truncated.
+      ...(message.trackingId !== undefined && { trackingId: message.trackingId }),
     })
 
     return true

@@ -204,15 +204,15 @@ describe('SlidingWindowConversationManager', () => {
           content: [
             new ToolResultBlock({ toolUseId: 'tool-1', status: 'success', content: [new TextBlock(original)] }),
           ],
-          id: 'durable-1',
+          trackingId: 'durable-1',
         }),
       ]
 
       const changed = (manager as any)._truncateToolResults(messages, 0)
 
       expect(changed).toBe(true)
-      // The message stays in history with its content truncated, so its id must survive.
-      expect(messages[0]!.id).toBe('durable-1')
+      // The message stays in history with its content truncated, so its tracking id must survive.
+      expect(messages[0]!.trackingId).toBe('durable-1')
     })
 
     it('leaves small tool results unchanged', () => {

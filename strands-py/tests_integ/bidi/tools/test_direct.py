@@ -40,7 +40,7 @@ def test_bidi_agent_tool_direct_call(agent):
                 },
             ],
             "role": "user",
-            "id": unittest.mock.ANY,
+            "tracking_id": unittest.mock.ANY,
         },
         {
             "content": [
@@ -53,7 +53,7 @@ def test_bidi_agent_tool_direct_call(agent):
                 },
             ],
             "role": "assistant",
-            "id": unittest.mock.ANY,
+            "tracking_id": unittest.mock.ANY,
         },
         {
             "content": [
@@ -66,12 +66,12 @@ def test_bidi_agent_tool_direct_call(agent):
                 },
             ],
             "role": "user",
-            "id": unittest.mock.ANY,
+            "tracking_id": unittest.mock.ANY,
         },
         {
             "content": [{"text": "agent.tool.weather_tool was called."}],
             "role": "assistant",
-            "id": unittest.mock.ANY,
+            "tracking_id": unittest.mock.ANY,
         },
     ]
     assert tru_messages == exp_messages

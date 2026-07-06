@@ -472,16 +472,16 @@ describe('AnthropicModel', () => {
         new Message({
           role: 'user',
           content: [new TextBlock('Hello')],
-          id: 'durable-1',
+          trackingId: 'durable-1',
           metadata: { usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } },
         }),
       ]
 
       await collectIterator(provider.stream(messages))
 
-      // The request the provider receives carries only role and content — never id or metadata.
+      // The request the provider receives carries only role and content — never trackingId or metadata.
       expect(captured.request.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }])
-      expect('id' in captured.request.messages[0]).toBe(false)
+      expect('trackingId' in captured.request.messages[0]).toBe(false)
     })
 
     it('formats tools correctly', async () => {

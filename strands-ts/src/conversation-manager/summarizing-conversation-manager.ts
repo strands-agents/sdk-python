@@ -18,7 +18,7 @@ import {
   generateSummary,
   DEFAULT_SUMMARIZATION_PROMPT,
 } from './compression/context-compression.js'
-import { ensureMessageId } from '../types/messages.js'
+import { ensureTrackingId } from '../types/messages.js'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
 import type { Model } from '../models/model.js'
@@ -167,8 +167,8 @@ export class SummarizingConversationManager extends ConversationManager {
     // Generate summary via model call
     const summaryMessage = await generateSummary(toSummarize, model, this._summarizationSystemPrompt)
     // The summary is a newly created message that bypasses the append chokepoint, so assign it
-    // a durable id here to keep the "every message has an id" invariant.
-    ensureMessageId(summaryMessage)
+    // a durable tracking id here — matching messages appended through the normal path.
+    ensureTrackingId(summaryMessage)
 
     // Replace summarized range with protected messages + summary
     messages.splice(0, messagesToSummarizeCount, ...protectedToPreserve, summaryMessage)

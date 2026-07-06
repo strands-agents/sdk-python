@@ -299,7 +299,7 @@ class TestGuide:
 
         assert event.retry is True
         assert agent.messages == [
-            {"role": "user", "content": [{"text": "[model-guide] be more specific"}], "id": unittest.mock.ANY}
+            {"role": "user", "content": [{"text": "[model-guide] be more specific"}], "tracking_id": unittest.mock.ANY}
         ]
 
 
@@ -538,7 +538,11 @@ class TestEdgeCases:
 
         assert event.cancel is False
         assert agent.messages == [
-            {"role": "user", "content": [{"text": "[model-guide] check your sources"}], "id": unittest.mock.ANY}
+            {
+                "role": "user",
+                "content": [{"text": "[model-guide] check your sources"}],
+                "tracking_id": unittest.mock.ANY,
+            }
         ]
 
     @pytest.mark.asyncio

@@ -8,7 +8,7 @@ from typing_extensions import override
 from ..._async import run_async
 from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
-from ...types.content import Message, _ensure_message_id
+from ...types.content import Message, _ensure_tracking_id
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
 from .compression.context_compression import (
@@ -193,8 +193,8 @@ class SummarizingConversationManager(ConversationManager):
         # Generate summary
         self._summary_message = self._generate_summary(to_summarize, agent)
         # The summary is a newly created message that bypasses the append chokepoint, so assign it
-        # a durable id here to keep the "every message has an id" invariant.
-        _ensure_message_id(self._summary_message)
+        # a durable tracking id here — matching messages appended through the normal path.
+        _ensure_tracking_id(self._summary_message)
 
         # Replace summarized range with protected messages + summary + remaining
         agent.messages[:] = protected_to_preserve + [self._summary_message] + remaining_messages

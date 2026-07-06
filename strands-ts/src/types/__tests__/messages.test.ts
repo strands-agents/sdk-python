@@ -8,9 +8,9 @@ import {
   CachePointBlock,
   GuardContentBlock,
   JsonBlock,
-  ensureMessageId,
-  generateMessageId,
-  getMessageId,
+  ensureTrackingId,
+  generateTrackingId,
+  getTrackingId,
   type MessageData,
   type SystemPromptData,
   systemPromptFromData,
@@ -118,71 +118,71 @@ describe('Message metadata', () => {
 describe('Message id', () => {
   test('constructor does not assign an id by default', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    expect(message.id).toBeUndefined()
+    expect(message.trackingId).toBeUndefined()
   })
 
   test('constructor accepts an explicit id', () => {
-    const message = new Message({ role: 'user', content: [new TextBlock('test')], id: 'abc123' })
-    expect(message.id).toBe('abc123')
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: 'abc123' })
+    expect(message.trackingId).toBe('abc123')
   })
 
-  test('generateMessageId produces unique strings', () => {
-    const ids = new Set(Array.from({ length: 1000 }, () => generateMessageId()))
+  test('generateTrackingId produces unique strings', () => {
+    const ids = new Set(Array.from({ length: 1000 }, () => generateTrackingId()))
     expect(ids.size).toBe(1000)
   })
 
-  test('ensureMessageId assigns an id when absent', () => {
+  test('ensureTrackingId assigns an id when absent', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    ensureMessageId(message)
-    expect(typeof message.id).toBe('string')
+    ensureTrackingId(message)
+    expect(typeof message.trackingId).toBe('string')
   })
 
-  test('ensureMessageId preserves an existing id', () => {
-    const message = new Message({ role: 'user', content: [new TextBlock('test')], id: 'caller-supplied' })
-    ensureMessageId(message)
-    expect(message.id).toBe('caller-supplied')
+  test('ensureTrackingId preserves an existing id', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: 'caller-supplied' })
+    ensureTrackingId(message)
+    expect(message.trackingId).toBe('caller-supplied')
   })
 
-  test('ensureMessageId replaces an empty-string id', () => {
+  test('ensureTrackingId replaces an empty-string id', () => {
     // An empty id cannot serve as a durable key, so it is treated as absent and replaced.
-    const message = new Message({ role: 'user', content: [new TextBlock('test')], id: '' })
-    ensureMessageId(message)
-    expect(message.id).toBeTruthy()
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: '' })
+    ensureTrackingId(message)
+    expect(message.trackingId).toBeTruthy()
   })
 
   test('toJSON includes id when present', () => {
-    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'abc123' })
-    expect(message.toJSON().id).toBe('abc123')
+    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'abc123' })
+    expect(message.toJSON().trackingId).toBe('abc123')
   })
 
   test('toJSON omits id when not present', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    expect('id' in message.toJSON()).toBe(false)
+    expect('trackingId' in message.toJSON()).toBe(false)
   })
 
   test('fromMessageData preserves id', () => {
-    const data: MessageData = { role: 'assistant', content: [{ text: 'hello' }], id: 'abc123' }
-    expect(Message.fromMessageData(data).id).toBe('abc123')
+    const data: MessageData = { role: 'assistant', content: [{ text: 'hello' }], trackingId: 'abc123' }
+    expect(Message.fromMessageData(data).trackingId).toBe('abc123')
   })
 
   test('round-trips id through toJSON/fromJSON', () => {
-    const original = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
-    expect(Message.fromJSON(original.toJSON()).id).toBe('durable-1')
+    const original = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'durable-1' })
+    expect(Message.fromJSON(original.toJSON()).trackingId).toBe('durable-1')
   })
 
   test('clone preserves id', () => {
-    const original = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
-    expect(original.clone().id).toBe('durable-1')
+    const original = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'durable-1' })
+    expect(original.clone().trackingId).toBe('durable-1')
   })
 
-  test('getMessageId returns the id when present', () => {
-    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
-    expect(getMessageId(message)).toBe('durable-1')
+  test('getTrackingId returns the id when present', () => {
+    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'durable-1' })
+    expect(getTrackingId(message)).toBe('durable-1')
   })
 
-  test('getMessageId returns undefined when absent', () => {
+  test('getTrackingId returns undefined when absent', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    expect(getMessageId(message)).toBeUndefined()
+    expect(getTrackingId(message)).toBeUndefined()
   })
 })
 

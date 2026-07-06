@@ -36,7 +36,7 @@ async def test_agent_cancel_before_invocation():
         "role": "assistant",
         "content": [{"text": "Cancelled by user"}],
         "metadata": ANY,
-        "id": ANY,
+        "tracking_id": ANY,
     }
 
 

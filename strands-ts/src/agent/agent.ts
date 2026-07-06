@@ -28,7 +28,7 @@ import type { JSONValue } from '../types/json.js'
 import { McpClient } from '../mcp/index.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
-import { cloneSystemPrompt, ensureMessageId, systemPromptFromData } from '../types/messages.js'
+import { cloneSystemPrompt, ensureTrackingId, systemPromptFromData } from '../types/messages.js'
 import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from '../errors.js'
 import { Model } from '../models/model.js'
 import type { BaseModelConfig, StreamAggregatedResult, StreamOptions } from '../models/model.js'
@@ -2651,7 +2651,7 @@ export class Agent implements LocalAgent, InvokableAgent {
         this.messages[lastIndex] = new Message({
           role: 'user',
           content: redactedContent,
-          ...(lastMessage.id !== undefined && { id: lastMessage.id }),
+          ...(lastMessage.trackingId !== undefined && { trackingId: lastMessage.trackingId }),
         })
       } else if (lastMessage) {
         // Unexpected state: redaction requested but last message is not from user
@@ -2712,7 +2712,7 @@ export class Agent implements LocalAgent, InvokableAgent {
    * private — callers outside the agent should never directly mutate messages.
    */
   private async _appendMessageAndFireHooks(message: Message, invocationState: InvocationState = {}): Promise<void> {
-    ensureMessageId(message)
+    ensureTrackingId(message)
     this.messages.push(message)
     await this._hooksRegistry.invokeCallbacks(new MessageAddedEvent({ agent: this, message, invocationState }))
   }
@@ -2724,7 +2724,7 @@ export class Agent implements LocalAgent, InvokableAgent {
    * @returns MessageAddedEvent to be yielded
    */
   private _appendMessage(message: Message, invocationState: InvocationState): MessageAddedEvent {
-    ensureMessageId(message)
+    ensureTrackingId(message)
     this.messages.push(message)
     return new MessageAddedEvent({ agent: this, message, invocationState })
   }

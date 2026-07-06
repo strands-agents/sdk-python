@@ -18,7 +18,7 @@ from ..hooks.events import (
 )
 from ..hooks.registry import HookOrder, HookRegistry
 from ..interrupt import InterruptException
-from ..types.content import _generate_message_id
+from ..types.content import _generate_tracking_id
 from .actions import Confirm, Deny, Guide, InterventionAction, LifecycleEvent, Proceed, Transform, default_evaluate
 from .handler import InterventionHandler
 
@@ -165,7 +165,7 @@ class InterventionRegistry:
             return True
         elif isinstance(action, Guide):
             event.agent.messages.append(
-                {"role": "user", "content": [{"text": action.feedback}], "id": _generate_message_id()}
+                {"role": "user", "content": [{"text": action.feedback}], "tracking_id": _generate_tracking_id()}
             )
             return False
         elif isinstance(action, Transform):
@@ -180,7 +180,7 @@ class InterventionRegistry:
         if isinstance(action, Guide):
             event.retry = True
             event.agent.messages.append(
-                {"role": "user", "content": [{"text": action.feedback}], "id": _generate_message_id()}
+                {"role": "user", "content": [{"text": action.feedback}], "tracking_id": _generate_tracking_id()}
             )
             return False
         elif isinstance(action, Transform):

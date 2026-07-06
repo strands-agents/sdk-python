@@ -233,16 +233,16 @@ class Message(TypedDict):
     Attributes:
         content: The message content.
         role: The role of the message sender.
-        id: Durable, stable identifier for the message, assigned when the message is added to the
-            conversation. Survives session save/restore and snapshots, and is stripped before model
-            calls. Combined with a session id, it gives memory stores a key to deduplicate messages
-            across sessions.
+        tracking_id: Durable, stable identifier for the message, assigned when the message is added
+            to the conversation. Survives session save/restore and snapshots, and is stripped before
+            model calls. Combined with a session id, it gives memory stores a key to deduplicate
+            messages across sessions.
         metadata: Optional metadata, stripped before model calls.
     """
 
     content: list[ContentBlock]
     role: Role
-    id: NotRequired[str]
+    tracking_id: NotRequired[str]
     metadata: NotRequired[MessageMetadata]
 
 
@@ -250,30 +250,34 @@ Messages = list[Message]
 """A list of messages representing a conversation."""
 
 
-def _generate_message_id() -> str:
-    """Generate a durable identifier for a message.
+def _generate_tracking_id() -> str:
+    """Generate a durable tracking identifier for a message.
 
     Returns a canonical (hyphenated) UUID v4 string, matching the format the TypeScript SDK
-    produces via ``crypto.randomUUID()``, so message ids have the same shape across both SDKs.
+    produces via ``crypto.randomUUID()``, so tracking ids have the same shape across both SDKs.
     """
     return str(uuid.uuid4())
 
 
-def _ensure_message_id(message: Message) -> None:
-    """Assign a durable id to the message in place if it does not already have a usable one.
+def _ensure_tracking_id(message: Message) -> None:
+    """Assign a durable tracking id to the message in place if it does not already have a usable one.
 
-    A message that already carries a non-empty id (e.g. restored from a session or supplied by a
-    caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
-    missing, ``None``, or empty-string id is treated as absent and replaced, since an empty id
-    cannot serve as a durable key.
+    A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
+    by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
+    missing, ``None``, or empty-string tracking id is treated as absent and replaced, since an empty
+    id cannot serve as a durable key.
     """
-    if not message.get("id"):
-        message["id"] = _generate_message_id()
+    if not message.get("tracking_id"):
+        message["tracking_id"] = _generate_tracking_id()
 
 
-def get_message_id(message: Message) -> str | None:
-    """Get the durable identifier for a message, or None if it has not been assigned one."""
-    return message.get("id")
+def _get_tracking_id(message: Message) -> str | None:
+    """Get the durable tracking identifier for a message, or None if it has not been assigned one.
+
+    The ``tracking_id`` field is already null-safe to read directly (``message.get("tracking_id")``);
+    this helper exists for internal call sites that want an explicit accessor.
+    """
+    return message.get("tracking_id")
 
 
 def get_message_metadata(message: Message) -> MessageMetadata:

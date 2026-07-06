@@ -221,7 +221,7 @@ def test_message_durable_id_persists(file_manager, sample_session, sample_agent)
     file_manager.create_agent(sample_session.session_id, sample_agent)
 
     message = SessionMessage.from_message(
-        message={"role": "user", "content": [ContentBlock(text="Hello")], "id": "durable-1"},
+        message={"role": "user", "content": [ContentBlock(text="Hello")], "tracking_id": "durable-1"},
         index=0,
     )
     file_manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
@@ -229,10 +229,10 @@ def test_message_durable_id_persists(file_manager, sample_session, sample_agent)
     message_path = file_manager._get_message_path(sample_session.session_id, sample_agent.agent_id, message.message_id)
     with open(message_path) as f:
         data = json.load(f)
-    assert data["message"]["id"] == "durable-1"
+    assert data["message"]["tracking_id"] == "durable-1"
 
     result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, message.message_id)
-    assert result.to_message()["id"] == "durable-1"
+    assert result.to_message()["tracking_id"] == "durable-1"
 
 
 def test_read_message(file_manager, sample_session, sample_agent, sample_message):

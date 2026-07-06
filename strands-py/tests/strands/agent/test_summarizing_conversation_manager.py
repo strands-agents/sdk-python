@@ -144,7 +144,7 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
 
 
 def test_reduce_context_summary_message_has_durable_id(summarizing_manager, mock_agent):
-    """The generated summary message should carry a durable id like any other message."""
+    """The generated summary message should carry a durable tracking id like any other message."""
     mock_agent.messages = [
         {"role": "user", "content": [{"text": "Message 1"}]},
         {"role": "assistant", "content": [{"text": "Response 1"}]},
@@ -157,8 +157,8 @@ def test_reduce_context_summary_message_has_durable_id(summarizing_manager, mock
     summarizing_manager.reduce_context(mock_agent)
 
     summary_message = mock_agent.messages[0]
-    assert isinstance(summary_message.get("id"), str)
-    assert summary_message["id"]
+    assert isinstance(summary_message.get("tracking_id"), str)
+    assert summary_message["tracking_id"]
 
 
 def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, mock_agent):
