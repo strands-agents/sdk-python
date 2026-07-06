@@ -94,14 +94,13 @@ async function updateConfiguration() {
   // --8<-- [start:update_config]
   // Create the model with initial configuration
   const bedrockModel = new BedrockModel({
-    modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     temperature: 0.7,
   })
 
   // Update configuration later
   bedrockModel.updateConfig({
     temperature: 0.3,
-    topP: 0.2,
   })
   // --8<-- [end:update_config]
 }
@@ -126,7 +125,7 @@ async function toolBasedConfigUpdate() {
   })
 
   const agent = new Agent({
-    model: new BedrockModel({ modelId: 'anthropic.claude-sonnet-4-20250514-v1:0' }),
+    model: new BedrockModel({ modelId: 'global.anthropic.claude-sonnet-4-6' }),
     tools: [updateTemperature],
   })
   // --8<-- [end:tool_update_config]
