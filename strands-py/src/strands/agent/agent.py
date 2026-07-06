@@ -97,6 +97,9 @@ logger = logging.getLogger(__name__)
 # TypeVar for generic structured output
 T = TypeVar("T", bound=BaseModel)
 
+# TypeVar for generic plugin lookup by type
+TPlugin = TypeVar("TPlugin", bound=Plugin)
+
 
 # Sentinel class and object to distinguish between explicit None and default parameter value
 class _DefaultCallbackHandlerSentinel:
@@ -1619,3 +1622,21 @@ class Agent(AgentBase):
             redacted_content = [{"text": redact_message}]
 
         return redacted_content
+
+    def get_plugin(self, plugin_type: type[TPlugin]) -> TPlugin | None:
+        """Return the registered plugin of type ``plugin_type``, or ``None`` if none is registered.
+
+        Args:
+            plugin_type: The plugin class to look up.
+
+        Returns:
+            The matching plugin instance, or ``None`` if no registered plugin matches.
+        """
+        for plugin in self._plugin_registry._plugins.values():
+            if isinstance(plugin, plugin_type):
+                return plugin
+        return None
+
+    def get_plugins(self) -> list[Plugin]:
+        """Return all plugins registered on this agent, in registration order."""
+        return list(self._plugin_registry._plugins.values())

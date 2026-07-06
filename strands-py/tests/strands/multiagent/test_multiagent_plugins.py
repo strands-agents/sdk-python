@@ -281,3 +281,56 @@ def test_graph_add_hook_infers_event_type(mock_graph_agent):
     graph.add_hook(on_before_node)
 
     assert len(graph.hooks._registered_callbacks.get(BeforeNodeCallEvent, [])) == 1
+
+
+# --- get_plugin / get_plugins tests ---
+
+
+class _PluginX(MultiAgentPlugin):
+    name = "plugin-x"
+
+
+class _PluginY(MultiAgentPlugin):
+    name = "plugin-y"
+
+
+def test_swarm_get_plugin_returns_registered_instance_by_type(mock_swarm_agent):
+    plugin = _PluginX()
+    swarm = _make_swarm(mock_swarm_agent, plugins=[plugin])
+
+    assert swarm.get_plugin(_PluginX) is plugin
+
+
+def test_swarm_get_plugin_returns_none_when_type_absent(mock_swarm_agent):
+    swarm = _make_swarm(mock_swarm_agent, plugins=[_PluginX()])
+
+    assert swarm.get_plugin(_PluginY) is None
+
+
+def test_swarm_get_plugins_lists_all_registered_plugins(mock_swarm_agent):
+    first = _PluginX()
+    second = _PluginY()
+    swarm = _make_swarm(mock_swarm_agent, plugins=[first, second])
+
+    assert swarm.get_plugins() == [first, second]
+
+
+def test_graph_get_plugin_returns_registered_instance_by_type(mock_graph_agent):
+    plugin = _PluginX()
+    graph = _make_graph(mock_graph_agent, plugins=[plugin])
+
+    assert graph.get_plugin(_PluginX) is plugin
+
+
+def test_graph_get_plugin_returns_none_when_type_absent(mock_graph_agent):
+    graph = _make_graph(mock_graph_agent, plugins=[_PluginX()])
+
+    assert graph.get_plugin(_PluginY) is None
+
+
+def test_graph_get_plugins_lists_all_registered_plugins(mock_graph_agent):
+    first = _PluginX()
+    second = _PluginY()
+    graph = _make_graph(mock_graph_agent, plugins=[first, second])
+
+    assert graph.get_plugins() == [first, second]

@@ -56,7 +56,7 @@ from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, TMultiAgentPlugin
 
 logger = logging.getLogger(__name__)
 
@@ -574,6 +574,24 @@ class Graph(MultiAgentBase):
             order: Execution priority. Lower values execute first.
         """
         self.hooks.add_callback(event_type, callback, order=order)
+
+    def get_plugin(self, plugin_type: type[TMultiAgentPlugin]) -> TMultiAgentPlugin | None:
+        """Return the registered plugin of type ``plugin_type``, or ``None`` if none is registered.
+
+        Args:
+            plugin_type: The plugin class to look up.
+
+        Returns:
+            The matching plugin instance, or ``None`` if no registered plugin matches.
+        """
+        for plugin in self._plugin_registry._plugins.values():
+            if isinstance(plugin, plugin_type):
+                return plugin
+        return None
+
+    def get_plugins(self) -> list[MultiAgentPlugin]:
+        """Return all plugins registered on this graph, in registration order."""
+        return list(self._plugin_registry._plugins.values())
 
     def __call__(
         self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any

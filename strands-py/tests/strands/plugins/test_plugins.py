@@ -207,3 +207,37 @@ def test_plugin_registry_raises_reference_error_after_agent_collected():
 
     with pytest.raises(ReferenceError, match="Agent has been garbage collected"):
         _ = registry._agent
+
+
+# Agent.get_plugin / Agent.get_plugins Tests
+
+
+class _PluginA(Plugin):
+    name = "plugin-a"
+
+
+class _PluginB(Plugin):
+    name = "plugin-b"
+
+
+def test_agent_get_plugin_returns_registered_instance():
+    plugin = _PluginA()
+    agent = Agent(plugins=[plugin])
+
+    assert agent.get_plugin(_PluginA) is plugin
+
+
+def test_agent_get_plugin_returns_none_when_type_absent():
+    agent = Agent(plugins=[_PluginA()])
+
+    assert agent.get_plugin(_PluginB) is None
+
+
+def test_agent_get_plugins_includes_user_plugins_in_registration_order():
+    first = _PluginA()
+    second = _PluginB()
+    agent = Agent(plugins=[first, second])
+
+    tru_plugins = agent.get_plugins()
+    # Built-in plugins (e.g., ModelPlugin) may also be registered; assert order among user plugins.
+    assert tru_plugins.index(first) < tru_plugins.index(second)
