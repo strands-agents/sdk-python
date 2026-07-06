@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config'
+import { unified } from '@astrojs/markdown-remark'
 import starlight from '@astrojs/starlight'
 import path from 'node:path'
 import remarkMkdocsSnippets from './src/plugins/remark-mkdocs-snippets.ts'
@@ -34,6 +35,7 @@ export default defineConfig({
 		},
 	},
   markdown: {
+    processor: unified(),
     remarkPlugins: [remarkMkdocsSnippets, remarkReadingTime],
   },
   integrations: [
