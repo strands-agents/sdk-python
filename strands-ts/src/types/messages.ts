@@ -79,6 +79,17 @@ export function ensureMessageId(message: Message): void {
 }
 
 /**
+ * Get the durable identifier for a message, or undefined if it has not been assigned one.
+ *
+ * Mirrors the Python SDK's `get_message_id` so message-id access reads the same across both SDKs.
+ * @param message - The message to read the id from.
+ * @returns The message's durable id, or undefined if none has been assigned.
+ */
+export function getMessageId(message: Message): string | undefined {
+  return message.id
+}
+
+/**
  * A message in a conversation between user and assistant.
  * Each message has a role (user or assistant) and an array of content blocks.
  */

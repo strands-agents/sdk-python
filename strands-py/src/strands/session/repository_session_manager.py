@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
-from ..types.content import Message
+from ..types.content import Message, _generate_message_id
 from ..types.exceptions import SessionException
 from ..types.session import (
     Session,
@@ -311,8 +311,13 @@ class RepositorySessionManager(SessionManager):
                 # If there were any toolResult ids, that means only some of the content blocks are missing
                 messages[index + 1]["content"].extend(missing_content_blocks)
             else:
-                # The message following the toolUse was not a toolResult, so lets insert it
-                messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
+                # The message following the toolUse was not a toolResult, so lets insert it.
+                # This synthesized message bypasses the append chokepoint, so give it a durable
+                # id to keep the "every message has an id" invariant.
+                messages.insert(
+                    index + 1,
+                    {"role": "user", "content": missing_content_blocks, "id": _generate_message_id()},
+                )
         return messages
 
     def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:

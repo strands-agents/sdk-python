@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Message, TextBlock } from '../../../types/messages.js'
+import { Message, TextBlock, ensureMessageId } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
 import { pinMessage, unpinMessage, isPinned } from '../../../conversation-manager/compression/pin-message.js'
 import {
@@ -119,6 +119,9 @@ export const summarizeContextTool = tool({
       return `Summarization failed: ${err instanceof Error ? err.message : 'unknown error'}`
     }
 
+    // The summary is a newly created message that bypasses the append chokepoint, so assign it
+    // a durable id here to keep the "every message has an id" invariant.
+    ensureMessageId(summaryMessage)
     messages.splice(0, splitPoint, ...preserved, summaryMessage)
 
     const removed = originalMessageCount - messages.length

@@ -10,6 +10,7 @@ import {
   JsonBlock,
   ensureMessageId,
   generateMessageId,
+  getMessageId,
   type MessageData,
   type SystemPromptData,
   systemPromptFromData,
@@ -172,6 +173,16 @@ describe('Message id', () => {
   test('clone preserves id', () => {
     const original = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
     expect(original.clone().id).toBe('durable-1')
+  })
+
+  test('getMessageId returns the id when present', () => {
+    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
+    expect(getMessageId(message)).toBe('durable-1')
+  })
+
+  test('getMessageId returns undefined when absent', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
+    expect(getMessageId(message)).toBeUndefined()
   })
 })
 

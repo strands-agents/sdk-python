@@ -22,7 +22,7 @@ from ....agent.conversation_manager.compression.context_compression import (
 from ....agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
 from ....agent.conversation_manager.conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
 from ....tools.decorator import tool
-from ....types.content import Message
+from ....types.content import Message, _ensure_message_id
 from ....types.exceptions import ContextWindowOverflowException
 from ....types.tools import ToolContext
 
@@ -139,6 +139,9 @@ async def summarize_context(
     except Exception as err:
         return f"Summarization failed: {err}"
 
+    # The summary is a newly created message that bypasses the append chokepoint, so assign it
+    # a durable id here to keep the "every message has an id" invariant.
+    _ensure_message_id(summary_message)
     messages[:split_point] = preserved + [summary_message]
 
     removed = original_message_count - len(messages)

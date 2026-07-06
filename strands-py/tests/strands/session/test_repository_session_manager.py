@@ -314,6 +314,10 @@ def test_fix_broken_tool_use_adds_missing_tool_results(existing_session_manager)
     assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
     assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
     assert fixed_messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+    # The synthesized message is spliced into history outside the append chokepoint, so it must
+    # still carry a durable id like any other message.
+    assert isinstance(fixed_messages[1].get("id"), str)
+    assert fixed_messages[1]["id"]
 
 
 def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manager):
