@@ -1,10 +1,9 @@
 // Enrich a parsed line from its linked PR: area-* labels, breaking flag,
 // short merge-commit SHA, author, and (for monorepo PRs) which SDK languages
-// the PR actually touches -- derived from changed-file paths because language
-// labels are too sparse to rely on. Pure given an injected fetcher (no network
-// here), so it's unit-testable. Degrades to empty enrichment when the PR can't
-// be fetched (deleted PR, missing permissions, old repo) -- callers still emit
-// the entry, just without areas/commit, and with languages unknown.
+// the PR touches -- derived from changed-file paths because language labels
+// are too sparse to rely on. Pure given an injected fetcher, so unit-testable.
+// A null fetch (404: permission/cross-repo edge cases) degrades to an
+// unenriched entry; rate limits fail the run in github-client instead.
 
 import type { PrData, Enrichment } from './types'
 
@@ -78,8 +77,8 @@ export async function enrichFromPr(
   fetcher: (repo: string, num: number) => Promise<PrData | null>
 ): Promise<Enrichment> {
   const pr = await fetcher(repo, num)
-  // Unfetchable PR (deleted / rate-limited): degrade open -- keep the entry,
-  // languages unknown, not docs-only (explicit, not relying on falsy undefined).
+  // Unfetchable PR (404): degrade open -- keep the entry, languages unknown,
+  // not docs-only. Rate limits throw in the fetcher and never reach here.
   if (!pr) return { areas: [], breaking: false, commit: null, author: null, languages: null, docsOnly: false }
   const areas = (pr.labels || []).filter((l) => l.startsWith('area-')).map((l) => l.slice('area-'.length))
   const breaking = (pr.labels || []).some((l) => l.toLowerCase() === 'breaking change')

@@ -27,16 +27,9 @@ jobs:
       startsWith(github.event.release.tag_name, 'typescript/v') ||
       startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
-    # De-dupe overlapping runs of the SAME event type + tag (e.g. two release
-    # events for one tag, or two manual dispatches). The group includes
-    # github.event_name, so it deliberately does NOT serialize a release run
-    # against the daily cron: cron runs in backfill mode with no tag, so its key
-    # is always `...-schedule-backfill` and can't match a release's
-    # `...-release-<tag>`. A cross-event duplicate (cron regenerating a release
-    # whose single-mode PR is still open) is tolerated -- the content is
-    # identical and the stray PR is closed manually (see the notes block below).
-    # cancel-in-progress: false so an in-flight sync finishes rather than being
-    # interrupted.
+    # De-dupes runs of the same event type + tag. Deliberately does NOT
+    # serialize release vs. cron: a cross-event duplicate PR has identical
+    # content and is closed manually. In-flight syncs finish (no cancel).
     concurrency:
       group: changelog-sync-${{ github.event_name }}-${{ github.event.release.tag_name || inputs.tag || 'backfill' }}
       cancel-in-progress: false
@@ -47,16 +40,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      # Notes:
-      # - Historical backfill is a deliberate one-time manual operation (run
-      #   the action against a branch and open a hand-reviewed PR) -- not wired
-      #   here.
-      # - Duplicate-PR window: skip-existing checks files on main, not open
-      #   PRs, and release vs. cron runs use different PR branch names, so a
-      #   release-triggered PR is NOT auto-closed by a later cron run. The
-      #   concurrency group only de-dupes within the same event type; a
-      #   release-vs-cron duplicate is tolerated because the content is
-      #   identical -- close the stray PR manually.
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -65,16 +48,8 @@ jobs:
           node-version-file: .node-version
       - run: npm ci --prefix site
 
-      - name: Generate harness changelog files
-        working-directory: site
-        env:
-          GITHUB_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
-          SOURCE_REPO: strands-agents/harness-sdk
-          MODE: ${{ github.event_name == 'schedule' && 'backfill' || 'single' }}
-          SKIP_EXISTING: ${{ github.event_name == 'schedule' }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: npm run changelog:sync
-
+      # Cheap step first: if branch-name computation is going to fail, fail
+      # before the expensive Generate step.
       - name: Compute harness branch name
         id: harness_branch
         env:
@@ -86,6 +61,16 @@ jobs:
             SUFFIX=backfill
           fi
           echo "name=changelog/sync-harness-sdk-$SUFFIX" >> "$GITHUB_OUTPUT"
+
+      - name: Generate harness changelog files
+        working-directory: site
+        env:
+          GITHUB_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
+          SOURCE_REPO: strands-agents/harness-sdk
+          MODE: ${{ github.event_name == 'schedule' && 'backfill' || 'single' }}
+          SKIP_EXISTING: ${{ github.event_name == 'schedule' }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: npm run changelog:sync
 
       # Dedicated agent account (outside the org): a classic PAT with the
       # public_repo scope. Authors the PR as a real user, so the PR triggers

@@ -47,10 +47,18 @@ export function makeClient(token: string, warn: (msg: string) => void = () => {}
           })
           out.files = files.map((f: any) => f.filename)
         } catch (e: any) {
+          // Rate limiting must fail the run rather than silently produce
+          // release notes with degraded gating/enrichment.
+          if (e.status === 403 || e.status === 429) throw e
           warn(`PR ${repoFull}#${num} files: ${e.status || e.message} -- gating skipped`)
         }
         return out
       } catch (e: any) {
+        if (e.status === 403 || e.status === 429) {
+          throw new Error(`rate limited fetching PR ${repoFull}#${num} -- re-run once the limit resets`)
+        }
+        // 404: cross-repo or permission edge cases -- degrade to an
+        // unenriched entry rather than failing the whole sync.
         if (e.status !== 404) warn(`PR ${repoFull}#${num}: ${e.status || e.message} -- skipping enrichment`)
         return null
       }

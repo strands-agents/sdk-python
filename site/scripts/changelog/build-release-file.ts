@@ -29,45 +29,22 @@ export async function buildReleaseFile(
   const path = `site/src/content/changelog/${fileNameFor(meta.sdk, meta.language, meta.version)}`
   const existing = await deps.readExisting(path)
 
-  // skipExisting (used by the daily cron backstop): only generate files for
-  // releases that don't have one yet. Checked BEFORE enrichment so a skipped
-  // release costs zero PR API calls, and existing files (possibly carrying
-  // richer enrichment from when labels were fresher) are never regressed by a
-  // rate-limited re-run. A full refresh is an explicit backfill dispatch.
+  // Checked BEFORE enrichment so a skipped release costs zero PR API calls
+  // and existing files are never regressed by a degraded re-run.
   if (deps.skipExisting && existing) return null
 
-  // Entries come from the GitHub compare API (every merged PR between the prior
-  // tag and this one) -- deterministic and independent of release-note format.
-  // The release body is NOT parsed for entries; it's preserved as curated
-  // narrative via mergePreserving below.
+  // Entries come from the compare API, not the release body (which is only
+  // preserved as curated narrative via mergePreserving below).
   const { entries: parsed, warning } = await deps.deriveEntries(repo, release)
 
-  // Two gates apply to every entry:
-  //
-  // 1. Docs-only (ALL streams): a PR confined to docs/blog/website dirs never
-  //    lines up with an SDK+language, so it's dropped everywhere -- including
-  //    pre-monorepo bare-`v` and evals, which are otherwise unfiltered. This
-  //    keeps the changelog focused on SDK+language work (a blog-only PR or a
-  //    pure docs change won't appear in any stream).
-  // 2. Language (monorepo prefixed tags only): those releases list every merged
-  //    PR regardless of language, so gate by which SDK dirs the PR touched --
-  //    python stream keeps python-touching PRs, ts keeps ts-touching, both ->
-  //    both. Unknown file info -> kept (degrade open).
-  //
-  //    CRUCIAL: only gate when the PR has a POSITIVE dir signal -- i.e. it
-  //    touches strands-py/ and/or strands-ts/. A PR with EMPTY languages
-  //    (touches neither: root config/CI, or a pre-monorepo flat-layout PR whose
-  //    code lived under src/ before the strands-py/ dir existed) must be KEPT,
-  //    not dropped. Gating on empty languages would wrongly empty pre-monorepo
-  //    releases whose tags were re-applied as python/v* in the monorepo.
-  //    Pre-monorepo bare-`v` and evals are single-language: no language gate.
+  // Entry gates: docs-only PRs drop on every stream; monorepo streams also
+  // drop a PR that touches ONLY the other language's dir. Only a POSITIVE dir
+  // signal gates -- empty/unknown languages are kept (pre-monorepo PRs have no
+  // strands-py/strands-ts dirs; gating on empty would wrongly empty those
+  // releases).
   const isMonorepoStream =
     meta.sdk === 'harness' && (release.tag_name.startsWith('python/') || release.tag_name.startsWith('typescript/'))
 
-  // Shared keep/drop decision for both entries and new contributors: drop a
-  // docs-only PR from every stream, and on a monorepo stream drop a PR with a
-  // POSITIVE dir signal for the OTHER language (empty/unknown languages are
-  // kept -- see the language-gate note above).
   const dropFromStream = (enr: Enrichment) =>
     enr.docsOnly ||
     (isMonorepoStream &&
@@ -97,16 +74,12 @@ export async function buildReleaseFile(
     })
   }
 
-  // New contributors use the same keep/drop rule as entries (dropFromStream):
-  // a docs-only first PR doesn't belong in an SDK+language changelog, and a
-  // monorepo PR with a positive other-language signal is gated out -- but a
-  // first PR touching no sdk dir (e.g. ci) or with unknown files is kept in
-  // both streams: people aren't noise.
+  // New contributors share dropFromStream; a first PR touching no sdk dir
+  // (e.g. ci) is kept in both streams.
   const rawContributors = parseNewContributors(release.body)
   const newContributors = []
   for (const c of rawContributors) {
-    // Use the PR's own repo (mirrors the entries path) -- first-contribution
-    // links can point at the pre-monorepo repos.
+    // Enrich against the PR's own repo (may be a pre-monorepo repo).
     const enr = await deps.enrich(c.prRepo || repo, c.pr)
     if (dropFromStream(enr)) continue
     newContributors.push(c)

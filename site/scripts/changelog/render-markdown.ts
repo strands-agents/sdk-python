@@ -6,13 +6,10 @@
 
 import type { ReleaseFile } from './types'
 
+// JSON string encoding is a strict subset of YAML double-quoted scalar syntax,
+// so this always yields a valid YAML string.
 function q(s: unknown): string {
-  return `"${String(s)
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"')
-    .replace(/\t/g, '\\t')
-    .replace(/\r/g, '\\r')
-    .replace(/\n/g, '\\n')}"`
+  return JSON.stringify(String(s))
 }
 
 // YAML 1.1 words that, left bare, parse as booleans/null instead of strings.
