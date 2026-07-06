@@ -34,10 +34,12 @@ if (!files || files.length === 0) {
   throw new Error('[package-contents] pack produced no file list — refusing to pass on an empty payload')
 }
 
+// These mirror the `!dist/**` negations in package.json's `files` array — keep
+// the two lists in sync (adding e.g. `!dist/**/__mocks__` means adding it here).
 const forbiddenPatterns = [
   /(^|\/)__tests__(\/|$)/,
   /(^|\/)__fixtures__(\/|$)/,
-  /\.test(?:\.[^/.]+)*\.(?:js|d\.ts)(?:\.map)?$/,
+  /\.test\./,
 ]
 
 const forbiddenFiles = files.filter((file) => forbiddenPatterns.some((pattern) => pattern.test(file)))
