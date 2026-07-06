@@ -26,7 +26,7 @@ async function basicUsageDefault() {
 async function basicUsageModelId() {
   // --8<-- [start:basic_model_id]
   // Create an agent using the model
-  const agent = new Agent({ model: 'global.anthropic.claude-sonnet-5' })
+  const agent = new Agent({ model: 'global.anthropic.claude-sonnet-4-6' })
 
   const response = await agent.invoke('Tell me about Amazon Bedrock.')
   // --8<-- [end:basic_model_id]
@@ -54,9 +54,10 @@ async function configurationExample() {
   // --8<-- [start:configuration]
   // Create a configured Bedrock model
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     region: 'us-east-1', // Specify a different region than the default
     stopSequences: ['###', 'END'],
+    temperature: 0.3,
     clientConfig: {
       retryMode: 'standard',
       maxAttempts: 3,
@@ -76,7 +77,7 @@ async function streamingExample() {
   // --8<-- [start:streaming]
   // Streaming model (default)
   const streamingModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     stream: true, // This is the default
   })
 
@@ -136,10 +137,11 @@ async function reasoningSupport() {
   // --8<-- [start:reasoning]
   // Create a Bedrock model with reasoning configuration
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     additionalRequestFields: {
       thinking: {
-        type: 'adaptive',
+        type: 'enabled',
+        budget_tokens: 4096, // Minimum of 1,024
       },
     },
   })
@@ -162,7 +164,7 @@ async function customCredentials() {
   // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html
 
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     region: 'us-west-2',
     clientConfig: {
       credentials: {
@@ -179,7 +181,7 @@ async function customCredentials() {
 async function multimodalSupport() {
   // --8<-- [start:multimodal_full]
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
   })
 
   const agent = new Agent({ model: bedrockModel })
@@ -261,7 +263,7 @@ async function systemPromptCachingFull() {
 async function toolCachingFull() {
   // --8<-- [start:tool_caching_full]
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     cacheConfig: { strategy: 'auto' },
   })
 
@@ -299,7 +301,7 @@ async function toolCachingFull() {
 async function automaticCacheStrategy() {
   // --8<-- [start:automatic_cache_strategy]
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     cacheConfig: { strategy: 'auto' },
   })
 
@@ -403,7 +405,7 @@ async function guardrailsExample() {
   // --8<-- [start:guardrails]
   // Using guardrails with BedrockModel
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     guardrailConfig: {
       guardrailIdentifier: 'your-guardrail-id',
       guardrailVersion: 'DRAFT',
@@ -428,7 +430,7 @@ async function guardrailsExample() {
 async function requestTimeoutExample() {
   // --8<-- [start:request_timeout]
   const bedrockModel = new BedrockModel({
-    modelId: 'global.anthropic.claude-sonnet-5',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
     clientConfig: {
       requestHandler: { requestTimeout: 60_000 },
     },
