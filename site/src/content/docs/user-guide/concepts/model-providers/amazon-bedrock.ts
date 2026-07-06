@@ -56,8 +56,8 @@ async function configurationExample() {
   const bedrockModel = new BedrockModel({
     modelId: 'global.anthropic.claude-sonnet-4-6',
     region: 'us-east-1', // Specify a different region than the default
-    stopSequences: ['###', 'END'],
     temperature: 0.3,
+    stopSequences: ['###', 'END'],
     clientConfig: {
       retryMode: 'standard',
       maxAttempts: 3,

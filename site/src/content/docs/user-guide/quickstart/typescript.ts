@@ -81,6 +81,7 @@ import { BedrockModel } from '@strands-agents/sdk'
 const bedrockModel = new BedrockModel({
   modelId: 'global.anthropic.claude-opus-4-6-v1',
   region: 'us-west-2',
+  temperature: 0.3,
 })
 
 const bedrockAgent = new Agent({ model: bedrockModel })
