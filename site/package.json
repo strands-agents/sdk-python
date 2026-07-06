@@ -54,7 +54,7 @@
   },
   "devDependencies": {
     "@astrojs/markdown-satteri": "^0.3.3",
-    "@astrojs/starlight": "^0.41.2",
+    "@astrojs/starlight": "^0.41.3",
     "@types/js-yaml": "^4.0.9",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.10.1",
