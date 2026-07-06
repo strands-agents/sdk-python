@@ -48,6 +48,10 @@
       "types": "./dist/src/multiagent/index.d.ts",
       "default": "./dist/src/multiagent/index.js"
     },
+    "./experimental": {
+      "types": "./dist/src/experimental/index.d.ts",
+      "default": "./dist/src/experimental/index.js"
+    },
     "./vended-tools/notebook": {
       "types": "./dist/src/vended-tools/notebook/index.d.ts",
       "default": "./dist/src/vended-tools/notebook/index.js"

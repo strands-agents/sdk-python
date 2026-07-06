@@ -6,6 +6,7 @@ import { Message } from '../messages.js'
 import { TextBlock, ReasoningBlock, ToolUseBlock, ToolResultBlock, CachePointBlock } from '../messages.js'
 import { CitationsBlock } from '../citations.js'
 import { Interrupt } from '../../interrupt.js'
+import { Checkpoint } from '../../experimental/checkpoint.js'
 
 describe('AgentResult', () => {
   describe('toString', () => {
@@ -566,6 +567,60 @@ describe('AgentResult', () => {
       })
       expect(apiResponse).not.toHaveProperty('traces')
       expect(apiResponse).not.toHaveProperty('metrics')
+    })
+  })
+
+  describe('checkpoint', () => {
+    const toolUseMessage = new Message({
+      role: 'assistant',
+      content: [new ToolUseBlock({ toolUseId: '1', name: 't', input: {} })],
+    })
+
+    it('defaults checkpoint to undefined', () => {
+      const result = new AgentResult({
+        stopReason: 'endTurn',
+        lastMessage: new Message({ role: 'assistant', content: [new TextBlock('hi')] }),
+        metrics: new AgentMetrics(),
+        invocationState: {},
+      })
+      expect(result.checkpoint).toBeUndefined()
+    })
+
+    it('accepts a checkpoint', () => {
+      const checkpoint = new Checkpoint({ position: 'after_model', cycleIndex: 0 })
+      const result = new AgentResult({
+        stopReason: 'checkpoint',
+        lastMessage: toolUseMessage,
+        metrics: new AgentMetrics(),
+        invocationState: {},
+        checkpoint,
+      })
+      expect(result.checkpoint).toBe(checkpoint)
+      expect(result.checkpoint?.position).toBe('after_model')
+    })
+
+    it('includes the serialized checkpoint in toJSON when present', () => {
+      const result = new AgentResult({
+        stopReason: 'checkpoint',
+        lastMessage: toolUseMessage,
+        metrics: new AgentMetrics(),
+        invocationState: {},
+        checkpoint: new Checkpoint({ position: 'after_tools', cycleIndex: 3 }),
+      })
+      const json = result.toJSON() as { checkpoint?: { position: string; cycleIndex: number } }
+      expect(json.checkpoint).toBeDefined()
+      expect(json.checkpoint?.position).toBe('after_tools')
+      expect(json.checkpoint?.cycleIndex).toBe(3)
+    })
+
+    it('omits checkpoint from toJSON when absent', () => {
+      const result = new AgentResult({
+        stopReason: 'endTurn',
+        lastMessage: new Message({ role: 'assistant', content: [new TextBlock('hi')] }),
+        metrics: new AgentMetrics(),
+        invocationState: {},
+      })
+      expect(result.toJSON()).not.toHaveProperty('checkpoint')
     })
   })
 })
