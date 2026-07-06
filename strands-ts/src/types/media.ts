@@ -268,8 +268,7 @@ export type VideoSourceData = { bytes: Uint8Array } | { location: S3LocationData
  * Source for a video (Class version).
  */
 export type VideoSource =
-  | { type: 'videoSourceBytes'; bytes: Uint8Array }
-  | { type: 'videoSourceS3Location'; location: S3Location }
+  { type: 'videoSourceBytes'; bytes: Uint8Array } | { type: 'videoSourceS3Location'; location: S3Location }
 
 /**
  * Data for a video block.

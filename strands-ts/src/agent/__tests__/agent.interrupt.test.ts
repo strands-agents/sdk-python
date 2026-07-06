@@ -287,8 +287,7 @@ describe('Agent interrupt system', () => {
       )
       expect(toolResultMessage).toBeDefined()
       const toolResult = toolResultMessage?.content.find((b) => b.type === 'toolResultBlock') as
-        | ToolResultBlock
-        | undefined
+        ToolResultBlock | undefined
       expect(toolResult?.content[0]).toMatchObject({ type: 'textBlock', text: 'Transfer approved' })
     })
 

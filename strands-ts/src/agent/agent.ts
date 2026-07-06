@@ -716,9 +716,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       | MiddlewareWrapPhase<TContext, TResult, TEvent>
       | MiddlewareOutputPhase<TContext, TResult, TEvent>,
     handler:
-      | MiddlewareHandler<TContext, TResult, TEvent>
-      | MiddlewareInputHandler<TContext>
-      | MiddlewareOutputHandler<TResult>
+      MiddlewareHandler<TContext, TResult, TEvent> | MiddlewareInputHandler<TContext> | MiddlewareOutputHandler<TResult>
   ): () => void {
     if ('_phase' in stageOrPhase) {
       const phase = stageOrPhase as { _phase: MiddlewarePhaseKind; _stage: MiddlewareStage<TContext, TResult, TEvent> }

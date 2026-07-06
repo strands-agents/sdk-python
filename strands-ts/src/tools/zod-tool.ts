@@ -106,9 +106,7 @@ export class ZodTool<TInput extends z.ZodType | undefined, TReturn = JSONValue>
         const validatedInput = this._inputSchema instanceof ZodVoid ? input : this._inputSchema.parse(input)
         // Execute user callback with validated input
         return callback(validatedInput as ZodInferred<TInput>, toolContext) as
-          | AsyncGenerator<JSONValue, JSONValue, never>
-          | Promise<JSONValue>
-          | JSONValue
+          AsyncGenerator<JSONValue, JSONValue, never> | Promise<JSONValue> | JSONValue
       },
     })
   }

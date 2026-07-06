@@ -65,11 +65,9 @@ function mockBedrockClientImplementation(options?: {
  */
 function setupMockSend(streamGenerator: () => AsyncGenerator<unknown>): void {
   vi.clearAllMocks()
-  const mockSend = vi.fn(
-    async (): Promise<{ stream: AsyncIterable<unknown> }> => ({
-      stream: streamGenerator(),
-    })
-  )
+  const mockSend = vi.fn(async (): Promise<{ stream: AsyncIterable<unknown> }> => ({
+    stream: streamGenerator(),
+  }))
   mockBedrockClientImplementation({ send: mockSend })
 }
 
