@@ -93,9 +93,6 @@ import { LANGUAGE_STORAGE_KEY } from '../util/language-preference'
     // sync logic only need to run once. Skip on subsequent invocations.
     if (window.__strandsLanguageToggleInit) return;
     window.__strandsLanguageToggleInit = true;
-    // STORAGE_KEY is injected via define:vars from the shared
-    // language-preference module (single source of truth for the Starlight
-    // synced-tabs key).
     var DEFAULT_LANG = 'TypeScript';
 
     // IMPORTANT: Keep in sync with navigation.yml navbar entries.
