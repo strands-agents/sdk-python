@@ -313,12 +313,12 @@ describe('SshSandbox', () => {
   describe('getTools', () => {
     it('vends the sandbox-routed fileEditor and bash tools', () => {
       const tools = new SshSandbox({ host: 'myhost', workingDir: '/workspace' }).getTools()
-      expect(tools.map((t) => t.name)).toStrictEqual(['fileEditor', 'bash'])
+      expect(tools.map((t) => t.name)).toStrictEqual(['sandbox_file_editor', 'sandbox_bash'])
     })
 
     it('vends bash with the sandbox description', () => {
       const tools = new SshSandbox({ host: 'myhost', workingDir: '/workspace' }).getTools()
-      const bashTool = tools.find((t) => t.name === 'bash')!
+      const bashTool = tools.find((t) => t.name === 'sandbox_bash')!
       expect(bashTool.description).toContain(SANDBOX_BASH_DESCRIPTION)
       expect(bashTool.description).toContain('myhost')
     })

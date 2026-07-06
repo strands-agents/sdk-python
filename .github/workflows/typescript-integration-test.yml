@@ -5,18 +5,73 @@ on:
     branches: [main]
     paths:
       - 'strands-ts/**'
-      - 'strands-wasm/**'
-      - 'strands-py-wasm/**'
       - 'strandly/**'
-      - 'wit/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/typescript-*'
   merge_group:
     types: [checks_requested]
+  # workflow_call entry — TRUST INVARIANT.
+  #
+  # Lets another workflow in this repo reuse the integ tests against an
+  # arbitrary `ref` while keeping AWS_*. The authorization-check below is
+  # skipped on this path because the only callers
+  # (release-python.yml / release-typescript.yml) are workflow_dispatch-
+  # gated, which already requires repo write access.
+  #
+  # Before adding another caller, check all of:
+  #   1. Cannot be triggered by an unauthenticated user or a fork
+  #      (no pull_request; no pull_request_target without an auth gate;
+  #      no push from non-main branches).
+  #   2. Cannot be coerced into a fork-PR ref. validate-call-ref below is
+  #      the runtime guard, but condition 1 should make that unnecessary.
+  #   3. AWS_ROLE / STRANDS_INTEG_TEST_ROLE are scoped to least privilege.
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
 jobs:
+  validate-call-ref:
+    name: Validate workflow_call ref
+    if: inputs.ref != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Reject ref shapes that could check out untrusted code:
+    # `refs/pull/*` (fork-PR merge refs) and `owner:branch` (cross-repo
+    # refs) fail; plain branches and SHAs pass.
+    #
+    # We do not also block on `github.event.repository.fork`. That flag is
+    # only `true` when this workflow runs on a fork's own runner — which
+    # is a legitimate case (release-python.yml's `run_integ_tests: true`
+    # lets a fork-owner test the pipeline with their own secrets). The
+    # ref-shape check above is what actually rejects untrusted refs.
+    steps:
+      - name: Reject untrusted-shaped refs
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          case "$REF" in
+            refs/pull/*|*:*)
+              echo "::error::workflow_call ref '$REF' looks like a fork PR or cross-repo ref."
+              exit 1
+              ;;
+          esac
+          echo "ref '$REF' passed shape check."
+
   authorization-check:
     name: Check access
+    needs: [validate-call-ref]
+    # `needs` only runs after non-skipped predecessors. validate-call-ref is
+    # skipped on pull_request_target / merge_group (inputs.ref is empty), so
+    # we use `if: always()` to ensure auth-check still runs there. On
+    # workflow_call, validate-call-ref must have succeeded.
+    if: |
+      always() &&
+      (needs.validate-call-ref.result == 'success' || needs.validate-call-ref.result == 'skipped')
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -27,7 +82,10 @@ jobs:
         id: auth
         uses: strands-agents/devtools/authorization-check@main
         with:
-          skip-check: ${{ github.event_name == 'merge_group' }}
+          # Skip on merge_group (gated by branch protection) and on
+          # workflow_call (the caller — release.yml — is workflow_dispatch
+          # gated, see the trigger comment above).
+          skip-check: ${{ github.event_name == 'merge_group' || github.event_name == 'workflow_call' }}
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
           allowed-roles: 'triage,write,maintain,admin'
 
@@ -51,10 +109,12 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout head commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha }} # PR commit, or release.yml's ref
+          fetch-depth: 0  # full history so selective testing can diff against the base
           persist-credentials: false  # Don't persist credentials for subsequent actions
+          allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -71,7 +131,13 @@ jobs:
         run: npm run build
 
       - name: Run integration tests
-        run: npm run test:integ:all
+        env:
+          # PR events expose the base SHA directly; merge_group exposes it as
+          # merge_group.base_sha. Falling back to the merge-queue base avoids
+          # diffing against origin/main (which would miss interactions with
+          # earlier-enqueued PRs and could narrow the test set unsafely).
+          SELECTIVE_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        run: npm run test:integ:selective
 
       - name: Upload test artifacts
         if: always()

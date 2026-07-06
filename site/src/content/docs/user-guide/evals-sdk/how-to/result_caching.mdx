@@ -12,6 +12,8 @@ The `EvaluationDataStore` lets you cache task execution results so you can re-ru
 ## Quick Start
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment, LocalFileTaskResultStore
 from strands_evals.evaluators import OutputEvaluator
 
@@ -24,11 +26,14 @@ cases = [
 
 experiment = Experiment(cases=cases, evaluators=[OutputEvaluator(rubric="Score 1.0 if correct.")])
 
-# First run: executes the task and caches results
-report = experiment.run_evaluations(my_task, evaluation_data_store=store)
+async def main():
+    # First run: executes the task and caches results
+    report = await experiment.run_evaluations_async(my_task, evaluation_data_store=store)
 
-# Second run: loads cached results, skips task execution
-report = experiment.run_evaluations(my_task, evaluation_data_store=store)
+    # Second run: loads cached results, skips task execution
+    report = await experiment.run_evaluations_async(my_task, evaluation_data_store=store)
+
+asyncio.run(main())
 ```
 
 ## How It Works

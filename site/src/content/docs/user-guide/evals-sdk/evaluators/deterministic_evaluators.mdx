@@ -103,6 +103,8 @@ evaluator = StateEquals(name="temperature")
 ## Usage Example
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import Equals, Contains, ToolCalled
@@ -126,8 +128,12 @@ def get_response(case: Case) -> str:
     return str(agent(case.input))
 
 experiment = Experiment(cases=cases, evaluators=evaluators)
-report = experiment.run_evaluations(get_response)
-report.run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(get_response)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Combining with LLM Evaluators

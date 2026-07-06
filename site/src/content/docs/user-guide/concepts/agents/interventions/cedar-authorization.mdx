@@ -1,15 +1,17 @@
 ---
 title: Cedar Authorization
 description: "Control which tools an agent can invoke using Cedar policies. Enforce identity-aware access control, role-based permissions, and rate limits at the tool-call boundary."
-languages: [typescript]
 tags: [safety, interventions, tool-execution]
+sourceLinks:
+  - path: strands-py/src/strands/vended_interventions/cedar/cedar_authorization.py
+  - path: strands-ts/src/vended-interventions/cedar/cedar.ts
 sidebar:
   badge:
     text: New
     variant: tip
 ---
 
-Cedar Authorization evaluates [Cedar](https://cedarpolicy.com) policies before each tool call, giving you declarative, identity-aware access control over agent behavior. It ships as a vended intervention in the TypeScript SDK.
+Cedar Authorization evaluates [Cedar](https://cedarpolicy.com) policies before each tool call, giving you declarative, identity-aware access control over agent behavior. It ships as a vended intervention handler in both the Python and TypeScript SDKs.
 
 ## How it works
 
@@ -29,69 +31,135 @@ The design is fail-closed: if principal identity cannot be resolved, all tool ca
 
 Permit specific tools and deny everything else:
 
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:basic_example"
+```
+</Tab>
+<Tab label="TypeScript">
+
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:basic_example_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:basic_example"
 ```
+</Tab>
+</Tabs>
 
 Cedar uses default-deny semantics. Tools without a matching `permit` statement are automatically blocked.
 
 ## Role-based access control
 
-For multi-tenant agents where each request carries user identity, use `principalResolver` to extract the principal from `invocationState` and `contextEnricher` to forward role information into Cedar context:
+For multi-tenant agents where each request carries user identity, use <Syntax py="principal_resolver" ts="principalResolver" /> to extract the principal from <Syntax py="invocation_state" ts="invocationState" /> and <Syntax py="context_enricher" ts="contextEnricher" /> to forward role information into Cedar context:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:role_based"
+```
+</Tab>
+<Tab label="TypeScript">
 
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:role_based_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:role_based"
 ```
+</Tab>
+</Tabs>
 
-When `principalResolver` returns `undefined` (no identity found), the handler denies all tool calls for that request.
+When <Syntax py="principal_resolver" ts="principalResolver" /> returns <Syntax py="None" ts="undefined" /> (no identity found), the handler denies all tool calls for that request.
 
 ## Rate limiting
 
 Cedar policies can reference `context.session.call_count`, which tracks how many times each tool has been invoked successfully during the session:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:rate_limit"
+```
+</Tab>
+<Tab label="TypeScript">
 
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:rate_limit_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:rate_limit"
 ```
+</Tab>
+</Tabs>
 
-Call counts persist with the agent's `appState` and survive session reloads. Only successful tool calls increment the counter.
+Call counts persist with the agent's state and survive session reloads. Only successful tool calls increment the counter.
 
 ## Schema validation
 
-Pass your `tools` array to catch policy typos at construction time. The handler generates a Cedar schema from tool definitions and validates policies against it:
+Pass your tool definitions to catch policy typos at construction time. The handler generates a Cedar schema from tool definitions and validates policies against it:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:schema_validation"
+```
+</Tab>
+<Tab label="TypeScript">
 
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:schema_validation_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:schema_validation"
 ```
+</Tab>
+</Tabs>
 
-Schema validation integrates with the [`cedar-for-agents`](https://github.com/cedar-policy/cedar-for-agents) ecosystem via `@cedar-policy/mcp-schema-generator-wasm`.
+Schema validation integrates with the [`cedar-for-agents`](https://github.com/cedar-policy/cedar-for-agents) ecosystem via `@cedar-policy/mcp-schema-generator-wasm` (TypeScript) and `cedar-policy-mcp-schema-generator` (Python).
 
 ## Environment gating
 
-Block tools based on deployment context by forwarding environment metadata through `contextEnricher`:
+Block tools based on deployment context by forwarding environment metadata through <Syntax py="context_enricher" ts="contextEnricher" />:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:env_gating"
+```
+</Tab>
+<Tab label="TypeScript">
 
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:env_gating_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:env_gating"
 ```
+</Tab>
+</Tabs>
 
 ## File-based policies
 
 For production deployments, keep policies in `.cedar` files rather than inline strings:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:file_policies"
+```
+</Tab>
+<Tab label="TypeScript">
 
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:file_policies_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:file_policies"
 ```
+</Tab>
+</Tabs>
 
 The handler reads and parses files at construction time. Invalid syntax throws immediately.
 
@@ -99,11 +167,22 @@ The handler reads and parses files at construction time. Invalid syntax throws i
 
 Update policies without restarting your agent process:
 
+<Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:hot_reload"
+```
+</Tab>
+<Tab label="TypeScript">
+
 ```typescript
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:hot_reload_imports"
 
 --8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:hot_reload"
 ```
+</Tab>
+</Tabs>
 
 `reload()` reads fresh policy, entity, and schema files, validates them, and atomically swaps the active policy set. If validation fails, the previous policies remain in effect and the method throws.
 
@@ -125,15 +204,38 @@ Every authorization request includes a structured context object:
 - `context.input` contains the tool's input arguments, accessible in policies via `context.input.fieldName`
 - `context.session.hour_utc` is auto-populated with the current UTC hour (0-23)
 - `context.session.call_count` tracks per-tool invocation count
-- Additional `context.session` fields come from your `contextEnricher`
+- Additional `context.session` fields come from your <Syntax py="context_enricher" ts="contextEnricher" />
 
 ## Error handling
 
-The `onError` option controls behavior when Cedar evaluation itself fails (malformed context, WASM errors):
+Cedar engine failures (malformed policies, evaluation errors) are always fail-closed: the tool call is denied regardless of configuration.
 
-- `'throw'` (default): raises the error to the caller
-- `'deny'`: treats evaluation failure as a denial (fail-closed)
-- `'proceed'`: allows the tool call despite the error (fail-open, use with caution)
+The <Syntax py="on_error" ts="onError" /> option controls what happens when your user-supplied callbacks (<Syntax py="principal_resolver" ts="principalResolver" /> or <Syntax py="context_enricher" ts="contextEnricher" />) raise an exception:
+
+- `'throw'` (default): re-raises the exception to the caller
+- `'deny'`: treats the callback failure as a denial (fail-closed)
+- `'proceed'`: allows the tool call despite the callback error (fail-open, use with caution)
+
+## Installation
+
+<Tabs>
+<Tab label="Python">
+
+```bash
+pip install strands-agents[cedar]
+```
+
+Requires `cedarpy` and `cedar-policy-mcp-schema-generator` (installed automatically with the extra).
+</Tab>
+<Tab label="TypeScript">
+
+```bash
+npm install @strands-agents/sdk
+```
+
+Cedar support is included in the core package via `@cedar-policy/mcp-schema-generator-wasm`.
+</Tab>
+</Tabs>
 
 ## Cedar policy syntax
 

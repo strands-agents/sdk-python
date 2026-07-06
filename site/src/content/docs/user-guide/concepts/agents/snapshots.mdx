@@ -1,6 +1,9 @@
 ---
 title: Snapshots
 description: "Capture and restore agent state at any point in time. Use snapshots for checkpointing, undo/redo, branching conversations, and custom persistence."
+sourceLinks:
+  - path: strands-py/src/strands/types/_snapshot.py
+  - path: strands-ts/src/agent/snapshot.ts
 ---
 
 Snapshots capture agent state at a point in time so you can save and restore it later. You choose which fields to include — either by picking a preset (a preconfigured set of fields) or by specifying fields directly — and you can further refine with includes and excludes. Snapshots are plain JSON-serializable objects — persistence is up to you.

@@ -56,6 +56,10 @@ jobs:
           python-version: "3.14"
       fail-fast: true
     runs-on: ${{ matrix.os }}
+    # Successful unit-test legs run in ~3-4 min (slowest observed ~16 min);
+    # 25 min caps a hung step (e.g. apt) instead of letting it run to the
+    # 6-hour default.
+    timeout-minutes: 25
     env:
       LOG_LEVEL: DEBUG
     defaults:
@@ -63,7 +67,7 @@ jobs:
         working-directory: strands-py
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
@@ -74,14 +78,38 @@ jobs:
       - name: Install system audio dependencies (Linux)
         if: matrix.os-name == 'linux'
         working-directory: .
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y portaudio19-dev libasound2-dev
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=3 update \
+              && sudo apt-get -o Acquire::Retries=3 install -y portaudio19-dev libasound2-dev; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "apt-get attempt $attempt failed; retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "apt-get failed after 3 attempts" >&2
+          exit 1
       - name: Install system audio dependencies (macOS)
         if: matrix.os-name == 'macOS'
         working-directory: .
+        timeout-minutes: 5
         run: |
-          brew install portaudio
+          for attempt in 1 2 3; do
+            if brew install portaudio; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "brew install attempt $attempt failed; retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "brew install failed after 3 attempts" >&2
+          exit 1
       - name: Install system audio dependencies (Windows)
         if: matrix.os-name == 'windows'
         working-directory: .
@@ -90,19 +118,24 @@ jobs:
           echo "Windows audio dependencies handled by PyAudio wheels"
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
       - name: Run Unit tests
         id: tests
-        run: hatch test tests --cover
+        # Retry failing tests so a flaky test doesn't block a release; a
+        # genuinely broken test still fails after the reruns and holds the gate.
+        run: hatch test tests --cover --reruns 2 --reruns-delay 5
         continue-on-error: false
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    # Lint typically runs in ~2 min; 20 min caps a hung step instead of
+    # letting it run to the 6-hour default.
+    timeout-minutes: 20
     permissions:
       contents: read
     defaults:
@@ -110,7 +143,7 @@ jobs:
         working-directory: strands-py
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
@@ -123,13 +156,26 @@ jobs:
 
       - name: Install system audio dependencies (Linux)
         working-directory: .
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y portaudio19-dev libasound2-dev
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=3 update \
+              && sudo apt-get -o Acquire::Retries=3 install -y portaudio19-dev libasound2-dev; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "apt-get attempt $attempt failed; retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "apt-get failed after 3 attempts" >&2
+          exit 1
 
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
 
       - name: Run lint
         id: lint

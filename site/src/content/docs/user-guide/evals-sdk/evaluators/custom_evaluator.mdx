@@ -245,6 +245,8 @@ class KeywordPresenceEvaluator(Evaluator[InputT, OutputT]):
 ## Using Custom Evaluators
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment
 
 # Create test cases
@@ -261,8 +263,12 @@ evaluator = ToneEvaluator(expected_tone="professional")
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-report = experiment.run_evaluations(task_function)
-report.run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Best Practices

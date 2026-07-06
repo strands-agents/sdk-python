@@ -20,10 +20,9 @@ import { SessionManager } from '$/sdk/session/session-manager.js'
 import { FileStorage } from '$/sdk/session/file-storage.js'
 import { S3Storage } from '$/sdk/session/s3-storage.js'
 import { bedrock, openaiResponses } from './__fixtures__/model-providers.js'
+import { AWS_REGION } from './__fixtures__/_aws.js'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1'
 
 async function getBucketName(credentials: any): Promise<string> {
   const sts = new STSClient({ region: AWS_REGION, credentials })

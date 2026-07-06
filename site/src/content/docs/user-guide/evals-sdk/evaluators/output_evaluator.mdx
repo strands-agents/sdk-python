@@ -56,6 +56,8 @@ Use the `OutputEvaluator` when you need to:
 ## Basic Usage
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import OutputEvaluator
@@ -96,8 +98,12 @@ evaluator = OutputEvaluator(
 
 # Create and run experiment
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-report = experiment.run_evaluations(get_response)
-report.run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(get_response)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Evaluation Output

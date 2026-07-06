@@ -25,7 +25,7 @@ import {
 } from '../types/messages.js'
 import { deepCopy } from '../types/json.js'
 import type { JSONValue } from '../types/json.js'
-import { McpClient } from '../mcp.js'
+import { McpClient } from '../mcp/index.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'
@@ -716,9 +716,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       | MiddlewareWrapPhase<TContext, TResult, TEvent>
       | MiddlewareOutputPhase<TContext, TResult, TEvent>,
     handler:
-      | MiddlewareHandler<TContext, TResult, TEvent>
-      | MiddlewareInputHandler<TContext>
-      | MiddlewareOutputHandler<TResult>
+      MiddlewareHandler<TContext, TResult, TEvent> | MiddlewareInputHandler<TContext> | MiddlewareOutputHandler<TResult>
   ): () => void {
     if ('_phase' in stageOrPhase) {
       const phase = stageOrPhase as { _phase: MiddlewarePhaseKind; _stage: MiddlewareStage<TContext, TResult, TEvent> }
@@ -770,23 +768,16 @@ export class Agent implements LocalAgent, InvokableAgent {
       })
     )
 
-    // Register tools vended by an explicitly-configured sandbox, applying the sandbox's
-    // toolPrefix to names (like MCP's prefix for server-vended tools).
+    // Register tools vended by the sandbox. The host default vends nothing. A tool
+    // is skipped if the user already registered one with that name.
     if (this._sandbox) {
-      const prefix = this._sandbox.toolPrefix
-      for (const tool of this._sandbox.getTools()) {
-        const prefixed = prefix
-          ? Object.create(tool, {
-              name: { value: `${prefix}_${tool.name}` },
-              toolSpec: { value: { ...tool.toolSpec, name: `${prefix}_${tool.name}` } },
-            })
-          : tool
-        if (this._toolRegistry.get(prefixed.name)) {
+      for (const sandboxTool of this._sandbox.getTools()) {
+        if (this._toolRegistry.get(sandboxTool.name)) {
           logger.debug(
-            `tool_name=<${prefixed.name}> | sandbox-vended tool skipped, user has already registered tool with this name`
+            `tool_name=<${sandboxTool.name}> | sandbox-vended tool skipped, user already registered a tool with this name`
           )
         } else {
-          this._toolRegistry.add(prefixed)
+          this._toolRegistry.add(sandboxTool)
         }
       }
     }

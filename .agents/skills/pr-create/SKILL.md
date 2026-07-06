@@ -26,6 +26,8 @@ If you find any such steps, **list them and ask the user which ones they'd like 
 
 If neither file exists or they contain no actionable pre-PR steps, skip this and move on.
 
+To run the local equivalent of the CI merge gate before opening the PR (lint, format, type-check, tests for the areas the change touches), use the `pre-push` skill — `bash .agents/skills/pre-push/run-checks.sh`.
+
 ### 3. Push the Branch (if needed)
 
 Check whether the current branch has an upstream tracking branch with all commits pushed. If not, push before creating the PR. If the push fails, show the error and stop.

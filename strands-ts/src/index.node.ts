@@ -4,7 +4,10 @@
 // or bundlers will tree-shake the registrations.
 import { defaultSandbox } from './sandbox/default.js'
 import { NotASandboxLocalEnvironment } from './sandbox/not-a-sandbox-local-environment.js'
+import { mcpServerLoader } from './mcp/config.js'
+import { resolveServerConfigs } from './mcp/config.node.js'
 
 defaultSandbox.set(new NotASandboxLocalEnvironment())
+mcpServerLoader.set(resolveServerConfigs)
 
 export * from './index.js'

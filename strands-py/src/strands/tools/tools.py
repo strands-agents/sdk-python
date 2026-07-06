@@ -23,6 +23,14 @@ _COMPOSITION_KEYWORDS = ("anyOf", "oneOf", "allOf", "not")
 Properties with these should not get a default type: "string" added.
 """
 
+_MAX_SCHEMA_DEPTH = 64
+"""Maximum nesting depth permitted when normalizing a tool inputSchema.
+
+Bounds the mutual recursion between normalize_schema and _normalize_property so that a
+maliciously deep schema (e.g. from an untrusted MCP server) raises ValueError instead of
+exhausting the interpreter stack with RecursionError.
+"""
+
 
 class InvalidToolUseNameException(Exception):
     """Exception raised when a tool use has an invalid name."""
@@ -71,21 +79,25 @@ def validate_tool_use_name(tool: ToolUse) -> None:
         raise InvalidToolUseNameException(message)
 
 
-def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
+def _normalize_property(prop_name: str, prop_def: Any, *, _depth: int = 0) -> dict[str, Any]:
     """Normalize a single property definition.
 
     Args:
         prop_name: The name of the property.
         prop_def: The property definition to normalize.
+        _depth: Current nesting depth, used to bound recursion into nested object schemas.
 
     Returns:
         The normalized property definition.
+
+    Raises:
+        ValueError: If the schema nesting exceeds _MAX_SCHEMA_DEPTH.
     """
     if not isinstance(prop_def, dict):
         return {"type": "string", "description": f"Property {prop_name}"}
 
     if prop_def.get("type") == "object" and "properties" in prop_def:
-        return normalize_schema(prop_def)  # Recursive call
+        return normalize_schema(prop_def, _depth=_depth + 1)  # Recursive call
 
     # Copy existing property, ensuring defaults
     normalized_prop = prop_def.copy()
@@ -101,7 +113,7 @@ def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
     return normalized_prop
 
 
-def normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def normalize_schema(schema: dict[str, Any], *, _depth: int = 0) -> dict[str, Any]:
     """Normalize a JSON schema to match expectations.
 
     This function recursively processes nested objects to preserve the complete schema structure.
@@ -109,10 +121,17 @@ def normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
 
     Args:
         schema: The schema to normalize.
+        _depth: Current nesting depth, used to bound recursion into nested object schemas.
 
     Returns:
         The normalized schema.
+
+    Raises:
+        ValueError: If the schema is nested too deeply.
     """
+    if _depth > _MAX_SCHEMA_DEPTH:
+        raise ValueError(f"tool inputSchema nesting exceeds {_MAX_SCHEMA_DEPTH} levels")
+
     # Start with a complete copy to preserve all existing properties
     normalized = schema.copy()
 
@@ -125,7 +144,7 @@ def normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     if "properties" in normalized:
         properties = normalized["properties"]
         for prop_name, prop_def in properties.items():
-            normalized["properties"][prop_name] = _normalize_property(prop_name, prop_def)
+            normalized["properties"][prop_name] = _normalize_property(prop_name, prop_def, _depth=_depth)
 
     return normalized
 
@@ -138,6 +157,9 @@ def normalize_tool_spec(tool_spec: ToolSpec) -> ToolSpec:
 
     Returns:
         The normalized tool specification.
+
+    Raises:
+        ValueError: If the inputSchema is nested too deeply.
     """
     normalized = tool_spec.copy()
 

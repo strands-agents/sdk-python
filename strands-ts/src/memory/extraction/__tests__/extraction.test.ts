@@ -8,6 +8,7 @@ import {
   type ExtractionBinding,
 } from '../coordinator.js'
 import { resolveExtractionConfig } from '../resolve-extraction-config.js'
+import { Tracer } from '../../../telemetry/tracer.js'
 import type { Model } from '../../../models/model.js'
 import type { ExtractionConfig, Extractor } from '../types.js'
 import type { MemoryStore, MemoryEntry, AddMessagesContext } from '../../types.js'
@@ -124,7 +125,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', true, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('remember this'))
       // The default trigger fires every DEFAULT_EXTRACTION_TRIGGER_TURNS turns; flush forces the write.
@@ -136,7 +137,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', false, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('ignored'))
       await mm.flush()
@@ -151,7 +152,7 @@ describe('MemoryManager extraction', () => {
       model.addTurn({ type: 'textBlock', text: '[{"content":"a durable fact"}]' })
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent({ extra: { model: model as unknown as Model } })
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('I like dark mode'))
       await fireInvocation(agent, mm)
@@ -163,7 +164,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'both')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('hi'))
       await fireInvocation(agent, mm)
@@ -178,7 +179,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(
         agent,
@@ -200,7 +201,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('first'), userMsg('second'))
       await fireInvocation(agent, mm)
@@ -216,7 +217,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       // seq 0 (kept), seq 1 (tool-only, filtered to empty and dropped), seq 2 (kept).
       const toolOnly = new Message({
@@ -238,7 +239,7 @@ describe('MemoryManager extraction', () => {
       store.addMessages.mockRejectedValueOnce(new Error('backend down'))
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('first'), userMsg('second'))
       await fireInvocation(agent, mm) // fails, mark rolled back
@@ -256,7 +257,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       // First turn (seq 0) saves cleanly; second turn (seq 1) fails then retries.
       await addMessages(agent, userMsg('turn one'))
@@ -277,7 +278,7 @@ describe('MemoryManager extraction', () => {
       const b = createExtractionStore('b', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [a, b] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('first'), userMsg('second'))
       await fireInvocation(agent, mm)
@@ -293,18 +294,19 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'both')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('something happened'))
       await fireInvocation(agent, mm)
 
       expect(store.addMessages).not.toHaveBeenCalled()
-      // The extractor receives (messages, context); the context is the extractor envelope only, with
-      // no sequenceNumbers. Assert the whole object so a future stray field is caught positively.
+      // The extractor receives (messages, context); the context is the extractor envelope only
+      // (defaultModel + tracer), with no sequenceNumbers — that field is for the addMessages route.
       expect(extractor.extract).toHaveBeenCalledTimes(1)
       const extractArgs = (extractor.extract as ReturnType<typeof vi.fn>).mock.calls[0]!
       expect(extractArgs).toHaveLength(2)
-      expect(extractArgs[1]).toEqual({ defaultModel: undefined })
+      expect(extractArgs[1]).not.toHaveProperty('sequenceNumbers')
+      expect(extractArgs[1]).toHaveProperty('defaultModel')
     })
   })
 
@@ -316,7 +318,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'both')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('something happened'))
       await fireInvocation(agent, mm)
@@ -336,12 +338,15 @@ describe('MemoryManager extraction', () => {
       const mm = new MemoryManager({ stores: [store] })
       const fakeModel = { id: 'model' }
       const agent = createMockAgent({ extra: { model: fakeModel } as never })
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('hi'))
       await fireInvocation(agent, mm)
 
-      expect(extractor.extract).toHaveBeenCalledWith(expect.any(Array), { defaultModel: fakeModel })
+      expect(extractor.extract).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({ defaultModel: fakeModel })
+      )
     })
 
     it('writes entries concurrently rather than serially', async () => {
@@ -372,7 +377,7 @@ describe('MemoryManager extraction', () => {
 
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
       await addMessages(agent, userMsg('x'))
       await fireInvocation(agent, mm)
 
@@ -390,7 +395,7 @@ describe('MemoryManager extraction', () => {
 
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
       await addMessages(agent, userMsg('x'))
       await fireInvocation(agent, mm) // fails, rolled back
       await fireInvocation(agent, mm) // retries the same batch
@@ -406,7 +411,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       const toolOnly = new Message({
         role: 'assistant',
@@ -429,7 +434,7 @@ describe('MemoryManager extraction', () => {
       )
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('this is text and should be excluded'))
       await fireInvocation(agent, mm)
@@ -444,7 +449,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('turn one'))
       await fireInvocation(agent, mm)
@@ -462,7 +467,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('only turn'))
       await fireInvocation(agent, mm)
@@ -476,7 +481,7 @@ describe('MemoryManager extraction', () => {
       store.addMessages.mockRejectedValueOnce(new Error('backend down'))
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('important'))
       await fireInvocation(agent, mm) // fails, mark rolled back
@@ -501,7 +506,7 @@ describe('MemoryManager extraction', () => {
     } {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       store.addMessages.mockRejectedValue(new Error('backend down'))
-      const coordinator = new ExtractionCoordinator([asExtractionStore(store)], {} as Model)
+      const coordinator = new ExtractionCoordinator([asExtractionStore(store)], {} as Model, new Tracer())
       return { coordinator, store }
     }
 
@@ -525,7 +530,7 @@ describe('MemoryManager extraction', () => {
       store.addMessages.mockRejectedValue(new Error('down'))
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       // Enter backoff.
       for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF; i++) {
@@ -550,7 +555,11 @@ describe('MemoryManager extraction', () => {
       const bad = createExtractionStore('bad', { trigger: [new InvocationTrigger()] }, 'addMessages')
       bad.addMessages.mockRejectedValue(new Error('down'))
       const good = createExtractionStore('good', { trigger: [new InvocationTrigger()] }, 'addMessages')
-      const coordinator = new ExtractionCoordinator([asExtractionStore(bad), asExtractionStore(good)], {} as Model)
+      const coordinator = new ExtractionCoordinator(
+        [asExtractionStore(bad), asExtractionStore(good)],
+        {} as Model,
+        new Tracer()
+      )
 
       const PROBES = 2
       const requests = SAVE_FAILURES_BEFORE_BACKOFF + BACKOFF_PROBE_INTERVAL * PROBES
@@ -570,7 +579,7 @@ describe('MemoryManager extraction', () => {
       store.addMessages.mockRejectedValue(new Error('down'))
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('x'))
       await expect(fireInvocation(agent, mm)).resolves.toBeUndefined()
@@ -580,7 +589,7 @@ describe('MemoryManager extraction', () => {
     it('flush bypasses backoff and writes the backlog of a recovered store', async () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       store.addMessages.mockRejectedValue(new Error('down'))
-      const coordinator = new ExtractionCoordinator([asExtractionStore(store)], {} as Model)
+      const coordinator = new ExtractionCoordinator([asExtractionStore(store)], {} as Model, new Tracer())
 
       // Drive the store into backoff.
       for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF; i++) {
@@ -609,7 +618,7 @@ describe('MemoryManager extraction', () => {
       // clear the prior failures. We prove that by showing backoff still engages at the threshold.
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       store.addMessages.mockRejectedValue(new Error('down'))
-      const coordinator = new ExtractionCoordinator([asExtractionStore(store)], {} as Model)
+      const coordinator = new ExtractionCoordinator([asExtractionStore(store)], {} as Model, new Tracer())
 
       // One short of backoff.
       for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF - 1; i++) {
@@ -640,7 +649,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new IntervalTrigger({ turns: 2 })] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       // Fire the raw hook (not the flushing helper) so we observe interval gating, not flush's
       // force-completion.
@@ -662,7 +671,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: new InvocationTrigger() }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('hi'))
       await fireInvocation(agent, mm)
@@ -679,7 +688,7 @@ describe('MemoryManager extraction', () => {
       )
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('a'))
       await fireInvocation(agent, mm)
@@ -688,11 +697,11 @@ describe('MemoryManager extraction', () => {
       expect(store.addMessages).toHaveBeenCalledTimes(1)
     })
 
-    it('does not register hooks when no store has extraction', () => {
+    it('does not register hooks when no store has extraction', async () => {
       const store: MemoryStore = { name: 's', writable: true, search: vi.fn(), add: vi.fn() }
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
       expect(agent.trackedHooks).toHaveLength(0)
     })
   })
@@ -710,7 +719,7 @@ describe('MemoryManager extraction', () => {
 
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
       await addMessages(agent, userMsg('hello'))
 
       // Fire the hook directly (not via the flushing helper) — it must resolve while the write hangs.
@@ -736,7 +745,7 @@ describe('MemoryManager extraction', () => {
 
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
       await addMessages(agent, userMsg('hello'))
       await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} }))
 
@@ -759,7 +768,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new IntervalTrigger({ turns: 5 })] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('a'))
       await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} })) // count 1, no fire
@@ -777,7 +786,7 @@ describe('MemoryManager extraction', () => {
       const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       await addMessages(agent, userMsg('a'))
       await fireInvocation(agent, mm) // invocation trigger already extracted + flushed

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
+from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -33,6 +34,13 @@ class OllamaModel(Model):
     - Streaming responses
     - Tool/function calling
     """
+
+    OVERFLOW_MESSAGES = {
+        "the prompt is longer than the context length",
+        "the input length exceeds the context length",
+        "exceeds the available context",
+        "exceeded max context length",
+    }
 
     class OllamaConfig(BaseModelConfig, total=False):
         """Configuration parameters for Ollama models.
@@ -140,7 +148,7 @@ class OllamaModel(Model):
                 for formatted_tool_result_content in self._format_request_message_contents(
                     "tool",
                     (
-                        {"text": json.dumps(tool_result_content["json"])}
+                        {"text": json.dumps(tool_result_content["json"], ensure_ascii=False)}
                         if "json" in tool_result_content
                         else cast(ContentBlock, tool_result_content)
                     ),
@@ -310,6 +318,9 @@ class OllamaModel(Model):
 
         Yields:
             Formatted message chunks from the model.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
         """
         warn_on_tool_choice_not_supported(tool_choice)
 
@@ -319,28 +330,39 @@ class OllamaModel(Model):
 
         logger.debug("invoking model")
         tool_requested = False
+        event = None
 
         client = ollama.AsyncClient(self.host, **self.client_args)
-        response = await client.chat(**request)
 
-        logger.debug("got response from model")
-        yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+        # Ollama issues the request lazily, so overflow can surface at chat() or during iteration.
+        try:
+            response = await client.chat(**request)
 
-        async for event in response:
-            for tool_call in event.message.tool_calls or []:
-                yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_call})
-                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call})
-                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": tool_call})
-                tool_requested = True
+            logger.debug("got response from model")
+            yield self.format_chunk({"chunk_type": "message_start"})
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-            yield self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": event.message.content})
+            async for event in response:
+                for tool_call in event.message.tool_calls or []:
+                    yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_call})
+                    yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call})
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": tool_call})
+                    tool_requested = True
+
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "text", "data": event.message.content}
+                )
+        except ollama.ResponseError as error:
+            if any(message in str(error).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(error)) from error
+            raise
+
+        stop_reason = "tool_use" if tool_requested else (event.done_reason if event else None)
 
         yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
-        yield self.format_chunk(
-            {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else event.done_reason}
-        )
-        yield self.format_chunk({"chunk_type": "metadata", "data": event})
+        yield self.format_chunk({"chunk_type": "message_stop", "data": stop_reason})
+        if event is not None:
+            yield self.format_chunk({"chunk_type": "metadata", "data": event})
 
         logger.debug("finished streaming response from model")
 
@@ -358,13 +380,21 @@ class OllamaModel(Model):
 
         Yields:
             Model events with the last being the structured output.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
         """
         formatted_request = self.format_request(messages=prompt, system_prompt=system_prompt)
         formatted_request["format"] = output_model.model_json_schema()
         formatted_request["stream"] = False
 
         client = ollama.AsyncClient(self.host, **self.client_args)
-        response = await client.chat(**formatted_request)
+        try:
+            response = await client.chat(**formatted_request)
+        except ollama.ResponseError as error:
+            if any(message in str(error).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(error)) from error
+            raise
 
         try:
             content = response.message.content.strip()

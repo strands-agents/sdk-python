@@ -16,10 +16,60 @@ const authorSchema = z.object({
 })
 
 export const sourceLinkSchema = z.object({
-  repo: z.enum(['sdk-python', 'sdk-typescript']),
+  // Repo-relative path to the implementation,
+  // e.g. 'strands-py/src/strands/agent/agent.py'.
   path: z.string(),
+  // SDK language this implementation is for. Optional — by default it is
+  // inferred from the file extension (see resolveLanguage in util/source-links).
+  // Set it explicitly only to override inference: a backing file whose
+  // extension doesn't map to a language, or a future language. Free-form string
+  // (not an enum) so a new language works without a schema change.
+  language: z.string().optional(),
+  // GitHub repo slug under the strands-agents org. Defaults to the monorepo;
+  // override only for code that lives in a different org repo.
+  repo: z.string().default('harness-sdk'),
 })
 export type SourceLink = z.infer<typeof sourceLinkSchema>
+
+export const changelogEntrySchema = z.object({
+  type: z.enum(['feat', 'fix', 'breaking', 'chore', 'docs', 'perf', 'refactor', 'test', 'other']),
+  breaking: z.boolean().default(false),
+  scope: z.string().nullable().default(null),
+  areas: z.array(z.string()).default([]),
+  title: z.string(),
+  pr: z.number().nullable().default(null),
+  prUrl: z.string().url().nullable().default(null),
+  commit: z.string().nullable().default(null),
+  commitUrl: z.string().url().nullable().default(null),
+  author: z.string().nullable().default(null),
+})
+export type ChangelogEntry = z.infer<typeof changelogEntrySchema>
+
+export const changelogFrontmatterSchema = z
+  .object({
+    sdk: z.enum(['harness', 'evals']),
+    language: z.enum(['python', 'typescript']).optional(),
+    version: z.string(),
+    tag: z.string(),
+    date: z.coerce.date(),
+    releaseUrl: z.string().url(),
+    packageUrl: z.string().url(),
+    highlights: z.string().optional(),
+    entries: z.array(changelogEntrySchema).default([]),
+    newContributors: z.array(z.object({ login: z.string(), pr: z.number() })).default([]),
+  })
+  // Tie `language` to `sdk` so bad data can't create bogus streams/routes:
+  // harness releases are per-language (python|typescript); evals is python-only
+  // and omits the field entirely.
+  .superRefine((d, ctx) => {
+    if (d.sdk === 'harness' && d.language === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['language'], message: 'harness releases require a language (python or typescript)' })
+    }
+    if (d.sdk === 'evals' && d.language !== undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['language'], message: 'evals releases must not set a language (evals is python-only)' })
+    }
+  })
+export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
 const blogSchema = z.object({
   title: z.string(),
@@ -46,6 +96,13 @@ export const collections = {
       pattern: '**/*.{md,mdx}',
     }),
     schema: blogSchema,
+  }),
+  changelog: defineCollection({
+    loader: glob({
+      base: 'src/content/changelog',
+      pattern: '**/*.{md,mdx}',
+    }),
+    schema: changelogFrontmatterSchema,
   }),
   testimonials: defineCollection({
     loader: glob({

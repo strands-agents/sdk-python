@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+from urllib.parse import urlparse
 
 import openai as openai_sdk
 import pydantic
@@ -123,6 +124,25 @@ def test_agent_invoke(agent, model):
 @pytest.mark.asyncio
 async def test_agent_invoke_async(agent, model):
     result = await agent.invoke_async("What is the time and weather in New York?")
+    text = result.message["content"][0]["text"].lower()
+
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
+def test_agent_invoke_non_streaming_with_tools(tools):
+    """Integration test for non-streaming (stream=False) chat completions that invoke tools.
+
+    Verifies that when streaming is disabled, the OpenAI provider converts the completion
+    into Strands stream events and that tool calls still execute end-to-end.
+    """
+    model = OpenAIModel(
+        model_id="gpt-4o",
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+        stream=False,
+    )
+    agent = Agent(model=model, tools=tools)
+
+    result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
@@ -353,7 +373,12 @@ def test_responses_builtin_tool_web_search():
 
     assert "citationsContent" in content
     citations = content["citationsContent"]["citations"]
-    assert any("strandsagents.com" in c["location"]["web"]["url"] for c in citations)
+
+    def _is_strands_host(url: str) -> bool:
+        host = urlparse(url).hostname or ""
+        return host == "strandsagents.com" or host.endswith(".strandsagents.com")
+
+    assert any(_is_strands_host(c["location"]["web"]["url"]) for c in citations)
 
 
 @pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")

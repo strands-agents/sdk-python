@@ -6,12 +6,12 @@ import pytest
 
 import strands
 from strands.models.mistral import MistralModel
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
 @pytest.fixture
 def mistral_client():
-    with unittest.mock.patch.object(strands.models.mistral.mistralai, "Mistral") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.mistral, "Mistral") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
         yield mock_client
@@ -147,6 +147,74 @@ def test_format_request_with_system_prompt(model, messages, model_id, system_pro
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": "test"},
+        ],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    assert actual_request == exp_request
+
+
+def test_format_request_with_tool_use_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "c1", "name": "search", "input": {"query": "東京"}}}],
+        },
+    ]
+
+    actual_request = model.format_request(messages)
+    exp_request = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "search",
+                            "arguments": '{"query": "東京"}',
+                        },
+                        "id": "c1",
+                        "type": "function",
+                    }
+                ],
+            }
+        ],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    assert actual_request == exp_request
+
+
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    actual_request = model.format_request(messages)
+    exp_request = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "tool",
+                "name": "c1",
+                "content": '{"city": "東京"}',
+                "tool_call_id": "c1",
+            }
         ],
         "max_tokens": 100,
         "stream": True,
@@ -573,6 +641,47 @@ async def test_stream_other_error(mistral_client, model, alist):
     messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(Exception, match="some other error"):
         await alist(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_error(mistral_client, model, alist):
+    overflow_message = (
+        "Prompt contains 152960 tokens and 0 draft tokens, too large for model with 131072 maximum context length"
+    )
+    error = Exception(overflow_message)
+    mistral_client.chat.stream_async.side_effect = error
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.stream(messages))
+
+    assert overflow_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_error(mistral_client, model, test_output_model_cls, alist):
+    overflow_message = (
+        "Prompt contains 152960 tokens and 0 draft tokens, too large for model with 131072 maximum context length"
+    )
+    error = Exception(overflow_message)
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.structured_output(test_output_model_cls, messages))
+
+    assert overflow_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_other_error(mistral_client, model, test_output_model_cls, alist):
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(side_effect=Exception("some other error"))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(Exception, match="some other error"):
+        await alist(model.structured_output(test_output_model_cls, messages))
 
 
 @pytest.mark.asyncio

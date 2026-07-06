@@ -186,6 +186,8 @@ opentelemetry-instrument python evaluation_agentcore_dashboard.py
 ### Example Evaluation Script
 
 ```python
+import asyncio
+
 from strands_evals import Experiment, Case
 from strands_evals.evaluators import OutputEvaluator
 
@@ -220,10 +222,13 @@ def my_agent_task(case: Case) -> str:
     return f"Response to: {case.input}"
 
 # Run evaluations
-report = experiment.run_evaluations(my_agent_task)
+async def main():
+    report = await experiment.run_evaluations_async(my_agent_task)
 
-print(f"Overall Score: {report.overall_score}")
-print(f"Pass Rate: {sum(report.test_passes)}/{len(report.test_passes)}")
+    print(f"Overall Score: {report.overall_score}")
+    print(f"Pass Rate: {sum(report.test_passes)}/{len(report.test_passes)}")
+
+asyncio.run(main())
 ```
 
 ### For Containerized Environments (Docker)

@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 from enum import Enum
 from pydantic import BaseModel, Field
@@ -89,5 +90,10 @@ evaluators = [GoalSuccessRateEvaluator()]
 experiment = Experiment[str, str](cases=test_cases, evaluators=evaluators)
 
 # Run evaluations
-report = experiment.run_evaluations(user_task_function)
-report.run_display()
+async def main():
+    report = await experiment.run_evaluations_async(user_task_function)
+    report.run_display()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

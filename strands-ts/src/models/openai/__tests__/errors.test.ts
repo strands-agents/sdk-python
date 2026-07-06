@@ -31,4 +31,15 @@ describe('classifyOpenAIError', () => {
   it('returns undefined for unrelated errors', () => {
     expect(classifyOpenAIError(new Error('a totally unrelated failure'))).toBeUndefined()
   })
+
+  it('handles numeric error codes without throwing', () => {
+    const err = Object.assign(new Error('some error'), { code: 400 })
+    expect(() => classifyOpenAIError(err as any)).not.toThrow()
+    expect(classifyOpenAIError(err as any)).toBeUndefined()
+  })
+
+  it('handles null error code without throwing', () => {
+    const err = Object.assign(new Error('some error'), { code: null })
+    expect(() => classifyOpenAIError(err as any)).not.toThrow()
+  })
 })

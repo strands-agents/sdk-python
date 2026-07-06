@@ -9,17 +9,16 @@ interface from ``strands-ts/src/sandbox/`` (the behavioral oracle):
 - :class:`PosixShellSandbox` — an abstract sandbox that implements file and code
   operations via shell commands; subclasses implement only
   :meth:`~strands.sandbox.base.Sandbox.execute_streaming`.
-- :class:`DockerSandbox` — run commands in a Docker container via ``docker exec``.
-- :class:`SshSandbox` — run commands on a remote host via OpenSSH.
 - Data types: :class:`StreamChunk`, :class:`FileInfo`, :class:`OutputFile`,
   :class:`ExecutionResult`, and the :data:`StreamType` literal.
 - :data:`LANGUAGE_PATTERN` — interpreter-name validation pattern.
 
-.. note::
-   Per the "Prefer Flat Namespaces Over Nested Modules" decision record, the
-   commonly-used symbols here will be re-exported from the top-level ``strands``
-   package. That re-export is deferred to the Agent↔Sandbox integration
-   follow-up (where the public surface stabilizes).
+Concrete sandboxes:
+
+- :class:`DockerSandbox` — run commands in a Docker container via ``docker exec``.
+- :class:`SshSandbox` — run commands on a remote host via OpenSSH.
+The sandbox error types (:class:`SandboxTimeoutError`, :class:`SandboxPathNotFoundError`)
+are re-exported from the top-level ``strands`` package, as in the TS oracle.
 
 Example:
     A minimal shell-backed sandbox needs only ``execute_streaming``::
@@ -33,20 +32,16 @@ Example:
 
 from .base import Sandbox
 from .constants import LANGUAGE_PATTERN
-from .docker import DockerSandbox
-from .shell import PosixShellSandbox
-from .ssh import SshSandbox
+from .posix_shell import PosixShellSandbox
 from .types import ExecutionResult, FileInfo, OutputFile, StreamChunk, StreamType
 
 __all__ = [
-    "DockerSandbox",
     "ExecutionResult",
     "FileInfo",
     "LANGUAGE_PATTERN",
     "OutputFile",
     "PosixShellSandbox",
     "Sandbox",
-    "SshSandbox",
     "StreamChunk",
     "StreamType",
 ]

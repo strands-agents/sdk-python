@@ -64,6 +64,8 @@ from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
+from ..sandbox import Sandbox
+from ..sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
@@ -80,6 +82,7 @@ from ..types.exceptions import ConcurrencyException, ContextWindowOverflowExcept
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
 from ._agent_as_tool import _AgentAsTool
+from ._concurrency import _ConcurrencyController
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
@@ -176,6 +179,7 @@ class Agent(AgentBase):
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
         checkpointing: bool = False,
+        sandbox: Sandbox | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -271,12 +275,21 @@ class Agent(AgentBase):
                 The SDK does not capture conversation state in the checkpoint;
                 pair with a SessionManager for cross-process state continuity.
                 Defaults to False. See :mod:`strands.experimental.checkpoint`.
+            sandbox: Execution environment for running commands, code, and file operations.
+                When provided, sandbox-aware tools route operations through it via
+                ``context.agent.sandbox``. Defaults to ``None``, which falls back to a
+                :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host
+                with no isolation.
 
         Raises:
             ValueError: If agent id contains path separators.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
+        if sandbox is not None and not isinstance(sandbox, Sandbox):
+            raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
+        # Resolve once: configured sandbox, or this agent's own host default (not shared across agents).
+        self._sandbox: Sandbox = sandbox or NotASandboxLocalEnvironment()
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
@@ -352,6 +365,17 @@ class Agent(AgentBase):
         if load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
+        # Register tools vended by the sandbox. The host default vends nothing. A tool
+        # is skipped if the user already registered one with that name.
+        for sandbox_tool in self._sandbox.get_tools():
+            if sandbox_tool.tool_name in self.tool_registry.registry:
+                logger.debug(
+                    "tool_name=<%s> | sandbox-vended tool skipped, user already registered a tool with this name",
+                    sandbox_tool.tool_name,
+                )
+            else:
+                self.tool_registry.register_tool(sandbox_tool)
+
         self.event_loop_metrics = EventLoopMetrics()
 
         # Initialize tracer instance (no-op if not configured)
@@ -395,11 +419,7 @@ class Agent(AgentBase):
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
 
-        # Initialize lock for guarding concurrent invocations
-        # Using threading.Lock instead of asyncio.Lock because run_async() creates
-        # separate event loops in different threads, so asyncio.Lock wouldn't work
-        self._invocation_lock = threading.Lock()
-        self._concurrent_invocation_mode = concurrent_invocation_mode
+        self._concurrency = _ConcurrencyController(concurrent_invocation_mode)
 
         # In the future, we'll have a RetryStrategy base class but until
         # that API is determined we only allow ModelRetryStrategy
@@ -591,6 +611,16 @@ class Agent(AgentBase):
         self._cancel_signal.set()
 
     @property
+    def sandbox(self) -> Sandbox:
+        """Execution environment for running commands, code, and file operations.
+
+        Returns the configured sandbox, or a per-agent host default
+        (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation) when none was
+        configured.
+        """
+        return self._sandbox
+
+    @property
     def system_prompt(self) -> str | None:
         """Get the system prompt as a string for backwards compatibility.
 
@@ -656,6 +686,14 @@ class Agent(AgentBase):
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
+    @property
+    def concurrent_invocation_mode(self) -> ConcurrentInvocationMode:
+        """The concurrency posture this agent was configured with.
+
+        Mirrors the ``concurrent_invocation_mode`` constructor argument.
+        """
+        return self._concurrency.mode
+
     def __call__(
         self,
         prompt: AgentInput = None,
@@ -663,6 +701,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        idempotency_token: Any = None,
         limits: Limits | None = None,
         **kwargs: Any,
     ) -> AgentResult:
@@ -683,6 +722,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            idempotency_token: Dedup token for THROW mode (ignored in UNSAFE_REENTRANT). If a matching
+                token is already inflight, this call blocks until the original finishes, then gets its
+                final result — only the result, not the streamed events, though ``callback_handler``
+                still fires once with it. Matched by ``==`` (any equatable object; need not be hashable).
+                Raises ``IdempotencyAbortedError`` if the original is aborted before producing a result.
             limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
                 See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
                 terminates gracefully at the next turn boundary with a corresponding
@@ -699,6 +743,13 @@ class Agent(AgentBase):
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
                 - structured_output: Parsed structured output when structured_output_model was specified
+
+        Raises:
+            ConcurrencyException: If another invocation is already in progress on this agent instance.
+            IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
+                whose primary invocation was aborted before producing a result.
+            TypeError: If a value in ``limits`` is not a positive integer.
+            Exception: Any exceptions from the agent invocation will be propagated to the caller.
         """
         return run_async(
             lambda: self._invoke_async_and_flush(
@@ -706,6 +757,7 @@ class Agent(AgentBase):
                 invocation_state=invocation_state,
                 structured_output_model=structured_output_model,
                 structured_output_prompt=structured_output_prompt,
+                idempotency_token=idempotency_token,
                 limits=limits,
                 **kwargs,
             )
@@ -731,6 +783,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        idempotency_token: Any = None,
         limits: Limits | None = None,
         **kwargs: Any,
     ) -> AgentResult:
@@ -751,6 +804,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            idempotency_token: Dedup token for THROW mode (ignored in UNSAFE_REENTRANT). If a matching
+                token is already inflight, this call blocks until the original finishes, then gets its
+                final result — only the result, not the streamed events, though ``callback_handler``
+                still fires once with it. Matched by ``==`` (any equatable object; need not be hashable).
+                Raises ``IdempotencyAbortedError`` if the original is aborted before producing a result.
             limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
                 See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
                 terminates gracefully at the next turn boundary with a corresponding
@@ -766,12 +824,20 @@ class Agent(AgentBase):
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
+
+        Raises:
+            ConcurrencyException: If another invocation is already in progress on this agent instance.
+            IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
+                whose primary invocation was aborted before producing a result.
+            TypeError: If a value in ``limits`` is not a positive integer.
+            Exception: Any exceptions from the agent invocation will be propagated to the caller.
         """
         events = self.stream_async(
             prompt,
             invocation_state=invocation_state,
             structured_output_model=structured_output_model,
             structured_output_prompt=structured_output_prompt,
+            idempotency_token=idempotency_token,
             limits=limits,
             **kwargs,
         )
@@ -804,7 +870,7 @@ class Agent(AgentBase):
         warnings.warn(
             "Agent.structured_output method is deprecated."
             " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            " see: https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/",
             category=DeprecationWarning,
             stacklevel=2,
         )
@@ -835,7 +901,7 @@ class Agent(AgentBase):
         warnings.warn(
             "Agent.structured_output_async method is deprecated."
             " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            " see: https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/",
             category=DeprecationWarning,
             stacklevel=2,
         )
@@ -984,7 +1050,7 @@ class Agent(AgentBase):
             agent.add_hook(multi_handler, [BeforeModelCallEvent, AfterModelCallEvent])
             ```
         Docs:
-            https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/hooks/
+            https://strandsagents.com/docs/user-guide/concepts/agents/hooks/
         """
         self.hooks.add_callback(event_type, callback, order=order)
 
@@ -1002,6 +1068,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        idempotency_token: Any = None,
         limits: Limits | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
@@ -1022,6 +1089,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            idempotency_token: Dedup token for THROW mode (ignored in UNSAFE_REENTRANT). If a matching
+                token is already inflight, this call blocks until the original finishes, then gets its
+                final result — only the result, not the streamed events, though ``callback_handler``
+                still fires once with it. Matched by ``==`` (any equatable object; need not be hashable).
+                Raises ``IdempotencyAbortedError`` if the original is aborted before producing a result.
             limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
                 See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
                 terminates gracefully at the next turn boundary with a corresponding
@@ -1041,6 +1113,8 @@ class Agent(AgentBase):
 
         Raises:
             ConcurrencyException: If another invocation is already in progress on this agent instance.
+            IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
+                whose primary invocation was aborted before producing a result.
             TypeError: If a value in ``limits`` is not a positive integer.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
@@ -1052,15 +1126,33 @@ class Agent(AgentBase):
             ```
         """
         self._validate_limits(limits)
-        # Conditionally acquire lock based on concurrent_invocation_mode
-        # Using threading.Lock instead of asyncio.Lock because run_async() creates
-        # separate event loops in different threads
-        if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
-            lock_acquired = self._invocation_lock.acquire(blocking=False)
-            if not lock_acquired:
-                raise ConcurrencyException(
-                    "Agent is already processing a request. Concurrent invocations are not supported."
-                )
+
+        begin = self._concurrency.begin(idempotency_token)
+
+        if begin.waiting_on is not None:
+            logger.debug("idempotency_token=<%s> | duplicate request detected, waiting for original", idempotency_token)
+            await begin.waiting_on.register_waiter()
+            if begin.waiting_on.error is not None:
+                raise begin.waiting_on.error
+            if begin.waiting_on.result is not None:
+                dup_result = begin.waiting_on.result
+                # Mirror the primary path: drive this caller's callback_handler with the
+                # deduplicated result before yielding, so callback consumers don't miss it.
+                dup_callback_handler = self.callback_handler
+                if kwargs:
+                    dup_callback_handler = kwargs.get("callback_handler", self.callback_handler)
+                dup_callback_handler(result=dup_result)
+                yield AgentResultEvent(result=dup_result).as_dict()
+            return
+
+        if not begin.lock_acquired:
+            exc = ConcurrencyException(
+                "Agent is already processing a request. Concurrent invocations are not supported."
+            )
+            self._concurrency.complete(begin.registered_token, error=exc)
+            raise exc
+
+        result: AgentResult | None = None
 
         try:
             self._interrupt_state.resume(prompt)
@@ -1114,14 +1206,16 @@ class Agent(AgentBase):
 
                 except Exception as e:
                     self._end_agent_trace_span(error=e)
+                    self._concurrency.complete(begin.registered_token, error=e)
                     raise
 
         finally:
             # Clear cancel signal to allow agent reuse after cancellation
             self._cancel_signal.clear()
 
-            if self._invocation_lock.locked():
-                self._invocation_lock.release()
+            self._concurrency.complete(begin.registered_token, result=result)
+            if self._concurrency.mode == ConcurrentInvocationMode.THROW:
+                self._concurrency.release_lock()
 
     async def _run_loop(
         self,
@@ -1339,6 +1433,14 @@ class Agent(AgentBase):
                         # Treat as List[ContentBlock] input - convert to user message
                         # This allows invalid structures to be passed through to the model
                         messages = [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
+
+                    # Check if all items are interrupt responses
+                    elif all("interruptResponse" in item for item in prompt):
+                        raise ValueError(
+                            "Received interrupt responses but agent is not in interrupt state. "
+                            "Ensure the agent instance is preserved between calls, or use session "
+                            "management to persist interrupt state across requests."
+                        )
         else:
             messages = []
         if messages is None:

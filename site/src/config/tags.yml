@@ -46,6 +46,7 @@
 - hooks
 - interventions
 - local-models
+- memory
 - multi-agent
 - multimodal-evaluation
 - prompt-authoring
@@ -59,6 +60,7 @@
 - tool-authoring
 - tool-evaluation
 - tool-execution
+- sandbox
 
 # Lifecycle / practice — where in the dev lifecycle this sits
 - deployment

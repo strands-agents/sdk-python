@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config'
+import { unified } from '@astrojs/markdown-remark'
 import starlight from '@astrojs/starlight'
 import path from 'node:path'
 import remarkMkdocsSnippets from './src/plugins/remark-mkdocs-snippets.ts'
@@ -34,6 +35,7 @@ export default defineConfig({
 		},
 	},
   markdown: {
+    processor: unified(),
     remarkPlugins: [remarkMkdocsSnippets, remarkReadingTime],
   },
   integrations: [
@@ -63,8 +65,8 @@ export default defineConfig({
         // rehype plugins (e.g. heading anchor links) run on the real resolved paths.
         processedDirs: [path.resolve('.build/api-docs')],
       },
-      title: 'Strands Agents SDK',
-      description: 'A model-driven approach to building AI agents in just a few lines of code.',
+      title: 'Strands Agents',
+      description: 'The open source toolkit for building production agents.',
       sidebar: sidebar,
       routeMiddleware: './src/route-middleware.ts',
       customCss: [

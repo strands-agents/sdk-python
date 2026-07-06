@@ -24,18 +24,16 @@ function createMockModel(parts: LanguageModelV3StreamPart[]): LanguageModelV3 {
     modelId: 'test-model',
     supportedUrls: {},
     doGenerate: vi.fn(),
-    doStream: vi.fn(
-      async (): Promise<LanguageModelV3StreamResult> => ({
-        stream: new ReadableStream({
-          start(controller) {
-            for (const part of parts) {
-              controller.enqueue(part)
-            }
-            controller.close()
-          },
-        }),
-      })
-    ),
+    doStream: vi.fn(async (): Promise<LanguageModelV3StreamResult> => ({
+      stream: new ReadableStream({
+        start(controller) {
+          for (const part of parts) {
+            controller.enqueue(part)
+          }
+          controller.close()
+        },
+      }),
+    })),
   }
 }
 

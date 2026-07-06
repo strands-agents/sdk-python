@@ -137,6 +137,7 @@ async function schemaValidationExample() {
     callback: (input) => `Deleted ${input.record_id}`,
   })
 
+  // Valid policies pass schema validation
   const cedar = new CedarAuthorization({
     policies: `
       permit(principal, action == Action::"search", resource);
@@ -148,8 +149,13 @@ async function schemaValidationExample() {
       role: String(invocationState.role ?? 'none'),
     }),
   })
-  // If a policy references Action::"deleet_record" (typo),
-  // construction throws a "Cedar policy validation failed" error naming the unrecognized action
+
+  // A typo in the action name throws at construction:
+  // new CedarAuthorization({
+  //   policies: 'permit(principal, action == Action::"deleet_record", resource);',
+  //   tools: [searchTool, deleteTool],
+  // })
+  // throws "Cedar policy validation failed: unrecognized action"
   // --8<-- [end:schema_validation]
 }
 

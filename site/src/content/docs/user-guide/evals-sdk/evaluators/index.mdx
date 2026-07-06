@@ -186,6 +186,26 @@ Evaluators operate at different levels of granularity:
 - **Purpose**: Determine if user goals were successfully achieved
 - **Use Case**: Measure end-to-end task completion success
 
+### Resilience Evaluators
+
+**[FailureCommunicationEvaluator](failure_communication_evaluator.md)**
+
+- **Level**: TRACE_LEVEL
+- **Purpose**: Assess how well agents communicate failures to users
+- **Use Case**: Evaluate transparency, clarity, and actionability of error messages under chaos testing
+
+**[PartialCompletionEvaluator](partial_completion_evaluator.md)**
+
+- **Level**: TRACE_LEVEL
+- **Purpose**: Measure what fraction of a goal was achieved despite failures
+- **Use Case**: Quantify graceful degradation and partial progress under tool failures
+
+**[RecoveryStrategyEvaluator](recovery_strategy_evaluator.md)**
+
+- **Level**: TRACE_LEVEL
+- **Purpose**: Evaluate the quality of agent recovery actions when tools fail
+- **Use Case**: Assess retry discipline, exploration breadth, and approach variation under chaos
+
 ### Deterministic Evaluators
 
 **[Deterministic Evaluators](deterministic_evaluators.md)**
@@ -228,6 +248,8 @@ When using `StrandsInMemorySessionMapper`, you **must** include session ID trace
 :::
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment, ActorSimulator
 from strands_evals.evaluators import HelpfulnessEvaluator, GoalSuccessRateEvaluator
@@ -271,7 +293,11 @@ evaluators = [
 ]
 
 experiment = Experiment(cases=test_cases, evaluators=evaluators)
-report = experiment.run_evaluations(task_function)
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+
+asyncio.run(main())
 ```
 
 ## Best Practices

@@ -13,6 +13,12 @@
 export const LANGUAGE_STORAGE_KEY = 'starlight-synced-tabs__jarkqt'
 
 /**
+ * Language assumed when no preference is stored yet. Label form ("TypeScript"/
+ * "Python") because that is what Starlight's synced tabs write to storage.
+ */
+export const DEFAULT_LANGUAGE_LABEL = 'TypeScript'
+
+/**
  * Copy text to the clipboard, resolving to whether it succeeded. Returns false
  * instead of throwing when the Clipboard API is unavailable (non-secure
  * contexts) or permission is denied, so callers can avoid showing a success

@@ -3,6 +3,8 @@
 Fast, code-based evaluation without LLM judges.
 """
 
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import Contains, Equals, StartsWith, ToolCalled
@@ -30,8 +32,6 @@ experiment = Experiment(
         Equals(),  # compares against expected_output
     ],
 )
-report = experiment.run_evaluations(get_response)
-report.run_display()
 
 # --- Trajectory evaluator ---
 
@@ -54,5 +54,14 @@ tool_experiment = Experiment(
     cases=tool_cases,
     evaluators=[ToolCalled(tool_name="calculator")],
 )
-tool_report = tool_experiment.run_evaluations(get_response_with_tools)
-tool_report.run_display()
+
+
+async def main():
+    report = await experiment.run_evaluations_async(get_response)
+    report.run_display()
+    tool_report = await tool_experiment.run_evaluations_async(get_response_with_tools)
+    tool_report.run_display()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

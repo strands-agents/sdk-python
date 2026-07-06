@@ -26,10 +26,6 @@ __pycache__*
 *.dylib
 *.pdb
 
-# Generated type bindings (committed only for strands-py-wasm/src/strands/_generated.py)
-strands-ts/generated/
-strands-wasm/generated/
-
 # Coverage reports
 coverage/
 

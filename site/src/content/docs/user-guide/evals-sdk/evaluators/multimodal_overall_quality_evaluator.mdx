@@ -68,6 +68,8 @@ A response typically passes if the score is `>= 0.75`.
 ## Basic Usage
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import MultimodalOverallQualityEvaluator
 from strands_evals.types import MultimodalInput
@@ -90,8 +92,12 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[MultimodalOverallQualityEvaluator()])
-report = experiment.run_evaluations(task_function)
-report.run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Related Evaluators

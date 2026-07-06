@@ -271,7 +271,9 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       })
 
       const entries = await store.search(marker, { maxSearchResults: 10 })
-      expect(entries.find((e: MemoryEntry) => e.content.includes(marker))).toBeDefined()
+      const match = entries.find((e: MemoryEntry) => e.content.includes(marker))
+      expect(match).toBeDefined()
+      expect(match!.metadata?.namespace).toBe(scope)
     }, 60_000)
 
     it('scope isolates S3 documents from other scopes', async () => {
@@ -351,7 +353,10 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       })
 
       const entries = await store.search(marker, { maxSearchResults: 10 })
-      expect(entries.find((e: MemoryEntry) => e.content.includes(marker))).toBeDefined()
+      const match = entries.find((e: MemoryEntry) => e.content.includes(marker))
+      expect(match).toBeDefined()
+      expect(match!.metadata?.category).toBe('testing')
+      expect(match!.metadata?.count).toBe(7)
     }, 60_000)
   })
 

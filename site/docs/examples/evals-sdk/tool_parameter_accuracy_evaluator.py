@@ -1,3 +1,5 @@
+import asyncio
+
 from strands import Agent
 from strands_tools import calculator
 
@@ -13,7 +15,6 @@ memory_exporter = telemetry.in_memory_exporter
 # 1. Define a task function
 def user_task_function(case: Case) -> dict:
     """Execute agent with tools and capture trajectory."""
-    memory_exporter.clear()
     agent = Agent(
         # IMPORTANT: trace_attributes with session IDs are required when using StrandsInMemorySessionMapper
         # to prevent spans from different test cases from being mixed together in the memory exporter
@@ -55,5 +56,10 @@ evaluators = [ToolParameterAccuracyEvaluator()]
 experiment = Experiment[str, str](cases=test_cases, evaluators=evaluators)
 
 # 5. Run evaluations
-report = experiment.run_evaluations(user_task_function)
-report.run_display()
+async def main():
+    report = await experiment.run_evaluations_async(user_task_function)
+    report.run_display()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

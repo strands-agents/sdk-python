@@ -8,6 +8,14 @@ async function basic() {
   // --8<-- [end:basic]
 }
 
+async function agentic() {
+  // --8<-- [start:agentic]
+  const agent = new Agent({
+    contextManager: 'agentic',
+  })
+  // --8<-- [end:agentic]
+}
+
 async function customConversationManager() {
   // --8<-- [start:custom_conversation_manager]
   // Your conversation manager is used;

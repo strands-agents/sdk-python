@@ -12,7 +12,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from strands.sandbox import DockerSandbox
+from strands.sandbox.docker import DockerSandbox
 
 
 def _docker_available() -> bool:

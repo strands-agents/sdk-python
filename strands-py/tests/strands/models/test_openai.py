@@ -179,6 +179,41 @@ def test_format_request_message_content_unsupported_type():
         OpenAIModel.format_request_message_content(content)
 
 
+def test_format_request_message_tool_call_preserves_non_ascii():
+    tool_use = {
+        "input": {"query": "東京"},
+        "name": "search",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_message_tool_call(tool_use)
+    exp_result = {
+        "function": {
+            "arguments": '{"query": "東京"}',
+            "name": "search",
+        },
+        "id": "c1",
+        "type": "function",
+    }
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_message_preserves_non_ascii():
+    tool_result = {
+        "content": [{"json": {"city": "東京"}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"city": "東京"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
 def test_format_request_message_tool_call():
     tool_use = {
         "input": {"expression": "2+2"},
@@ -659,6 +694,31 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         "max_tokens": 1,
     }
     assert tru_request == exp_request
+
+
+def test_format_request_can_disable_stream(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        "model": model_id,
+        "stream": False,
+        "tools": [],
+        "max_tokens": 1,
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_respects_legacy_stream_param(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 1, "stream": False})
+
+    tru_request = model.format_request(messages)
+
+    assert tru_request["stream"] is False
+    assert "stream_options" not in tru_request
 
 
 def test_format_request_with_tool_choice_auto(model, messages, tool_specs, system_prompt):
@@ -1144,6 +1204,41 @@ async def test_stream_with_empty_choices(openai_client, model, agenerator, alist
 
 
 @pytest.mark.asyncio
+async def test_stream_can_use_non_streaming_chat_completion(openai_client, model_id, messages, alist):
+    mock_usage = unittest.mock.Mock(prompt_tokens=7, completion_tokens=3, total_tokens=10, prompt_tokens_details=None)
+    mock_message = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
+    mock_choice = unittest.mock.Mock(message=mock_message, finish_reason="stop")
+    mock_response = unittest.mock.Mock(choices=[mock_choice], usage=mock_usage)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    tru_events = await alist(model.stream(messages))
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "done"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10},
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+
+    assert tru_events == exp_events
+    openai_client.chat.completions.create.assert_called_once_with(
+        max_tokens=1,
+        model=model_id,
+        messages=[{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        stream=False,
+        tools=[],
+    )
+
+
+@pytest.mark.asyncio
 async def test_structured_output(openai_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
@@ -1161,6 +1256,38 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
     tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_structured_output_forwards_request_params(openai_client, model_id, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 100, "temperature": 0.5})
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock(choices=[mock_choice])
+    openai_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    stream = model.structured_output(test_output_model_cls, messages, system_prompt="Be precise.")
+    events = await alist(stream)
+
+    tru_result = events[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result
+
+    # Config params are forwarded; the streaming-only fields (stream, stream_options) are dropped.
+    openai_client.beta.chat.completions.parse.assert_called_once_with(
+        messages=[
+            {"role": "system", "content": "Be precise."},
+            {"role": "user", "content": [{"text": "Generate a person", "type": "text"}]},
+        ],
+        model=model_id,
+        tools=[],
+        max_tokens=100,
+        temperature=0.5,
+        response_format=test_output_model_cls,
+    )
 
 
 def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
@@ -1794,6 +1921,15 @@ class TestOpenAIModelBedrockMantleConfig:
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
         # Optional kwargs aren't forwarded so provide_token's own defaults apply.
         mock_provide_token.assert_called_once_with(region="us-east-1")
+
+    def test_bedrock_mantle_config_uses_openai_path_for_gpt5(self, openai_client, mock_provide_token):
+        """gpt-5.* models are routed through the /openai/v1 Mantle path."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIModel(model_id="openai.gpt-5.4", bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
 
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         """Optional credentials_provider and expiry are forwarded to provide_token."""

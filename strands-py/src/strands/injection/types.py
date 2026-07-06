@@ -78,4 +78,4 @@ class InjectionConfig(TypedDict, total=False):
             skipped, the model call proceeds). Defaults to ``"userTurn"``.
     """
 
-    trigger: InjectionTriggerPredicate | None
+    trigger: InjectionTriggerPredicate

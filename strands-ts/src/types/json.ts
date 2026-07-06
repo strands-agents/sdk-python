@@ -57,7 +57,7 @@ export function deepCopy(value: unknown): JSONValue {
     return JSON.parse(JSON.stringify(value)) as JSONValue
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    throw new Error(`Unable to serialize tool result: ${errorMessage}`)
+    throw new Error(`Unable to serialize tool result: ${errorMessage}`, { cause: error })
   }
 }
 
@@ -117,7 +117,7 @@ export function deepCopyWithValidation(value: unknown, contextPath: string = 'va
     }
     // Otherwise, wrap it
     const errorMessage = error instanceof Error ? error.message : String(error)
-    throw new Error(`Unable to serialize value: ${errorMessage}`)
+    throw new Error(`Unable to serialize value: ${errorMessage}`, { cause: error })
   }
 }
 

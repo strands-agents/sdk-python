@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro'
 import type { CollectionEntry } from 'astro:content'
 import { getCollection } from 'astro:content'
 import { getBase, getSiteOrigin } from '@util/links'
+import { getReleases, releaseSlug, type ChangelogRelease } from '@util/changelog'
+import { streamLabel } from '../config/changelog'
 import { loadSidebarFromConfig, type StarlightSidebarItem } from '../sidebar'
 import path from 'node:path'
 
@@ -40,7 +42,7 @@ function extractLinks(
   return lines
 }
 
-function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebarItem[], blogPosts: CollectionEntry<'blog'>[]): string {
+function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebarItem[], blogPosts: CollectionEntry<'blog'>[], releases: ChangelogRelease[]): string {
   const base = getSiteOrigin() + getBase()
   const lines: string[] = []
 
@@ -102,6 +104,25 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
     lines.push('')
   }
 
+  // Changelog - aggregated index plus one machine-readable page per release,
+  // grouped by stream (sdk + language). Releases arrive newest-first.
+  lines.push(`## Changelog`)
+  lines.push('')
+  lines.push(`- [Changelog](${base}/changelog/index.md): All releases across the Harness and Evals SDKs`)
+  const byStream = new Map<string, ChangelogRelease[]>()
+  for (const r of releases) {
+    const label = streamLabel(r.data.sdk, r.data.language)
+    if (!byStream.has(label)) byStream.set(label, [])
+    byStream.get(label)!.push(r)
+  }
+  for (const [label, group] of byStream) {
+    lines.push(`- ${label}`)
+    for (const r of group) {
+      lines.push(`  - [v${r.data.version}](${base}/changelog/${releaseSlug(r)}/index.md): ${label} v${r.data.version} (${r.data.date.toISOString().slice(0, 10)})`)
+    }
+  }
+  lines.push('')
+
   return lines.join('\n')
 }
 
@@ -113,7 +134,8 @@ export const GET: APIRoute = async () => {
   )
 
   const blogPosts = await getCollection('blog', ({ data }) => !data.draft)
-  const content = buildLlmsTxt(docs, sidebar, blogPosts)
+  const releases = await getReleases()
+  const content = buildLlmsTxt(docs, sidebar, blogPosts, releases)
 
   return new Response(content, {
     headers: {

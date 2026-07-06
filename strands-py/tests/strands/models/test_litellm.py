@@ -556,7 +556,7 @@ async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alis
         "model": model_id,
         "messages": [{"role": "user", "content": [{"text": "What is 123981723 + 234982734?", "type": "text"}]}],
         "stream": False,  # Verify that stream=False was passed to litellm
-        "stream_options": {"include_usage": True},
+        # stream_options is only sent for streaming requests
         "tools": [],
     }
     litellm_acompletion.assert_called_once_with(**expected_request)
@@ -1019,3 +1019,26 @@ def test_thought_signature_round_trip():
     tool_call = LiteLLMModel.format_request_message_tool_call(internal_tool_use)
     assert "__thought__" in tool_call["id"]
     assert signature in tool_call["id"]
+
+
+@pytest.mark.asyncio
+async def test_stream_generates_tool_call_id_when_null(litellm_acompletion, model, agenerator, alist):
+    mock_tool_call = unittest.mock.Mock(index=0)
+    mock_tool_call.id = None
+    mock_tool_call.function.name = "test_tool"
+    mock_tool_call.function.arguments = '{"arg": "value"}'
+
+    mock_delta_1 = unittest.mock.Mock(content=None, tool_calls=[mock_tool_call], reasoning_content=None)
+    mock_delta_2 = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_2)])
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=agenerator([mock_event_1, mock_event_2]))
+
+    response = model.stream([{"role": "user", "content": [{"text": "test"}]}])
+    events = await alist(response)
+
+    start = next(e for e in events if "contentBlockStart" in e and "toolUse" in e["contentBlockStart"]["start"])
+    tool_id = start["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
+    assert tool_id and tool_id.startswith("call_")

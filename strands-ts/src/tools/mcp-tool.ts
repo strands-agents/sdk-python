@@ -6,7 +6,7 @@ import type { JSONSchema, JSONValue } from '../types/json.js'
 import { JsonBlock, TextBlock, ToolResultBlock, type ToolResultContent } from '../types/messages.js'
 import { ImageBlock, decodeBase64 } from '../types/media.js'
 import { toMediaFormat, IMAGE_FORMATS, type ImageFormat } from '../mime.js'
-import type { McpClient } from '../mcp.js'
+import type { McpClient } from '../mcp/index.js'
 import { logger } from '../logging/logger.js'
 
 export interface McpToolConfig {
