@@ -114,6 +114,46 @@ async def test_load_tools_raises_exception_on_client_start_failure(mock_transpor
 
 
 @pytest.mark.asyncio
+async def test_load_tools_returns_empty_when_continue_on_error_and_start_fails(mock_transport):
+    """With continue_on_error, a start failure yields no tools instead of raising."""
+    client = MCPClient(mock_transport, continue_on_error=True)
+
+    with patch.object(client, "start") as mock_start:
+        mock_start.side_effect = Exception("Client start failed")
+
+        tools = await client.load_tools()
+
+    assert tools == []
+
+
+@pytest.mark.asyncio
+async def test_load_tools_logs_warning_when_continue_on_error_swallows_failure(mock_transport, caplog):
+    client = MCPClient(mock_transport, continue_on_error=True)
+
+    with patch.object(client, "start") as mock_start:
+        mock_start.side_effect = Exception("Client start failed")
+        with caplog.at_level("WARNING", logger="strands.tools.mcp.mcp_client"):
+            await client.load_tools()
+
+    assert "MCP server failed to start" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_load_tools_does_not_retry_start_after_continue_on_error_failure(mock_transport):
+    """A swallowed failure is not retried: a second load_tools call doesn't re-run start()."""
+    client = MCPClient(mock_transport, continue_on_error=True)
+
+    with patch.object(client, "start") as mock_start:
+        mock_start.side_effect = Exception("Client start failed")
+
+        await client.load_tools()  # first call swallows the failure
+        tools = await client.load_tools()  # second must short-circuit, not retry start()
+
+        assert tools == []
+        mock_start.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_load_tools_caches_tools(mock_transport, mock_agent_tool):
     """Test that load_tools caches tools and doesn't reload them."""
     client = MCPClient(mock_transport)
