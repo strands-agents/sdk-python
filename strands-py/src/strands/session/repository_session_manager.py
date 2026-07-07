@@ -312,8 +312,7 @@ class RepositorySessionManager(SessionManager):
                 messages[index + 1]["content"].extend(missing_content_blocks)
             else:
                 # The message following the toolUse was not a toolResult, so lets insert it.
-                # This synthesized message bypasses the append chokepoint, so give it a durable
-                # tracking id — matching messages appended through the normal path.
+                # Assign tracking id to the message since it bypasses the append method
                 messages.insert(
                     index + 1,
                     {"role": "user", "content": missing_content_blocks, "tracking_id": _generate_tracking_id()},

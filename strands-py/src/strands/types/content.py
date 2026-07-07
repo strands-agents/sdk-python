@@ -253,8 +253,7 @@ Messages = list[Message]
 def _generate_tracking_id() -> str:
     """Generate a durable tracking identifier for a message.
 
-    Returns a canonical (hyphenated) UUID v4 string, matching the format the TypeScript SDK
-    produces via ``crypto.randomUUID()``, so tracking ids have the same shape across both SDKs.
+    Returns a canonical UUID v4 string
     """
     return str(uuid.uuid4())
 
@@ -264,8 +263,7 @@ def _ensure_tracking_id(message: Message) -> None:
 
     A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
     by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
-    missing, ``None``, or empty-string tracking id is treated as absent and replaced, since an empty
-    id cannot serve as a durable key.
+    missing, ``None``, or empty-string tracking id is treated as absent and replaced.
     """
     if not message.get("tracking_id"):
         message["tracking_id"] = _generate_tracking_id()

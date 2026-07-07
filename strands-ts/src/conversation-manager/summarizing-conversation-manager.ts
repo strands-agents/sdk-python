@@ -166,8 +166,7 @@ export class SummarizingConversationManager extends ConversationManager {
 
     // Generate summary via model call
     const summaryMessage = await generateSummary(toSummarize, model, this._summarizationSystemPrompt)
-    // The summary is a newly created message that bypasses the append chokepoint, so assign it
-    // a durable tracking id here — matching messages appended through the normal path.
+    // Assign tracking id to the summary message since it bypasses the append method.
     ensureTrackingId(summaryMessage)
 
     // Replace summarized range with protected messages + summary

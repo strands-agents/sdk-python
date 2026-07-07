@@ -139,8 +139,7 @@ async def summarize_context(
     except Exception as err:
         return f"Summarization failed: {err}"
 
-    # The summary is a newly created message that bypasses the append chokepoint, so assign it
-    # a durable tracking id here — matching messages appended through the normal path.
+    # Assign tracking id to the summary message since it bypasses the append method.
     _ensure_tracking_id(summary_message)
     messages[:split_point] = preserved + [summary_message]
 

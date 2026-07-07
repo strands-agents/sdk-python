@@ -1522,10 +1522,7 @@ class Agent(AgentBase):
     async def _append_messages(self, *messages: Message) -> None:
         """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
 
-        Assigns a durable tracking id to any message that does not already have one, so the same message
-        carries a stable identifier everywhere it is observed (MessageAddedEvent subscribers,
-        session persistence, snapshots). A message that arrives with an id (e.g. restored from a
-        session or supplied by a caller) keeps it.
+        Assigns a durable tracking id to any message that does not already have one.
         """
         for message in messages:
             _ensure_tracking_id(message)

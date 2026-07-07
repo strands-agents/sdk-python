@@ -68,8 +68,7 @@ export function generateTrackingId(): string {
  *
  * A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
  * by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
- * missing or empty-string tracking id is treated as absent and replaced, since an empty id cannot
- * serve as a durable key.
+ * missing or empty-string tracking id is treated as absent and replaced.
  * @internal
  */
 export function ensureTrackingId(message: Message): void {

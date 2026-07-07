@@ -119,8 +119,7 @@ export const summarizeContextTool = tool({
       return `Summarization failed: ${err instanceof Error ? err.message : 'unknown error'}`
     }
 
-    // The summary is a newly created message that bypasses the append chokepoint, so assign it
-    // a durable tracking id here — matching messages appended through the normal path.
+    // Assign tracking id to the summary message since it bypasses the append method.
     ensureTrackingId(summaryMessage)
     messages.splice(0, splitPoint, ...preserved, summaryMessage)
 

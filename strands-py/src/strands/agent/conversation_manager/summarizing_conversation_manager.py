@@ -192,8 +192,7 @@ class SummarizingConversationManager(ConversationManager):
 
         # Generate summary
         self._summary_message = self._generate_summary(to_summarize, agent)
-        # The summary is a newly created message that bypasses the append chokepoint, so assign it
-        # a durable tracking id here — matching messages appended through the normal path.
+        # Assign tracking id to the summary message since it bypasses the append method.
         _ensure_tracking_id(self._summary_message)
 
         # Replace summarized range with protected messages + summary + remaining
