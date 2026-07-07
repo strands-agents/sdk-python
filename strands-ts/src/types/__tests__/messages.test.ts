@@ -130,16 +130,18 @@ describe('Message id', () => {
     expect(ids.size).toBe(1000)
   })
 
-  test('ensureTrackingId assigns an id when absent', () => {
+  test('ensureTrackingId assigns an id when absent and returns it', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    ensureTrackingId(message)
+    const returned = ensureTrackingId(message)
     expect(typeof message.trackingId).toBe('string')
+    expect(returned).toBe(message.trackingId)
   })
 
-  test('ensureTrackingId preserves an existing id', () => {
+  test('ensureTrackingId preserves an existing id and returns it', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: 'caller-supplied' })
-    ensureTrackingId(message)
+    const returned = ensureTrackingId(message)
     expect(message.trackingId).toBe('caller-supplied')
+    expect(returned).toBe('caller-supplied')
   })
 
   test('ensureTrackingId replaces an empty-string id', () => {

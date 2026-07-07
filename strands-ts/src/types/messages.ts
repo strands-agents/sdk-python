@@ -64,17 +64,20 @@ export function generateTrackingId(): string {
 }
 
 /**
- * Assign a durable tracking id to the message in place if it does not already have a usable one.
+ * Assign a durable tracking id to the message in place if it does not already have a usable one,
+ * and return it.
  *
  * A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
  * by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
  * missing or empty-string tracking id is treated as absent and replaced.
+ * @returns The message's tracking id (existing or newly assigned).
  * @internal
  */
-export function ensureTrackingId(message: Message): void {
+export function ensureTrackingId(message: Message): string {
   if (!message.trackingId) {
     message.trackingId = generateTrackingId()
   }
+  return message.trackingId
 }
 
 /**

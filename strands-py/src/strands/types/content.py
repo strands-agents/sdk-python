@@ -235,8 +235,7 @@ class Message(TypedDict):
         role: The role of the message sender.
         tracking_id: Durable, stable identifier for the message, assigned when the message is added
             to the conversation. Survives session save/restore and snapshots, and is stripped before
-            model calls. Combined with a session id, it gives memory stores a key to deduplicate
-            messages across sessions.
+            model calls.
         metadata: Optional metadata, stripped before model calls.
     """
 
@@ -258,15 +257,19 @@ def _generate_tracking_id() -> str:
     return str(uuid.uuid4())
 
 
-def _ensure_tracking_id(message: Message) -> None:
+def _ensure_tracking_id(message: Message) -> str:
     """Assign a durable tracking id to the message in place if it does not already have a usable one.
 
     A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
     by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
     missing, ``None``, or empty-string tracking id is treated as absent and replaced.
+
+    Returns:
+        The message's tracking id (existing or newly assigned).
     """
     if not message.get("tracking_id"):
         message["tracking_id"] = _generate_tracking_id()
+    return message["tracking_id"]
 
 
 def get_message_metadata(message: Message) -> MessageMetadata:

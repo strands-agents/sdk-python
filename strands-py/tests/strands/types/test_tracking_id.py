@@ -27,14 +27,17 @@ def test_tracking_id_does_not_affect_role_and_content():
 
 def test_ensure_tracking_id_assigns_when_absent():
     msg: Message = {"role": "user", "content": [{"text": "hi"}]}
-    _ensure_tracking_id(msg)
+    returned = _ensure_tracking_id(msg)
     assert isinstance(msg["tracking_id"], str) and msg["tracking_id"]
+    # Returns the assigned id for caller convenience.
+    assert returned == msg["tracking_id"]
 
 
 def test_ensure_tracking_id_preserves_existing():
     msg: Message = {"role": "user", "content": [{"text": "hi"}], "tracking_id": "caller-supplied"}
-    _ensure_tracking_id(msg)
+    returned = _ensure_tracking_id(msg)
     assert msg["tracking_id"] == "caller-supplied"
+    assert returned == "caller-supplied"
 
 
 def test_ensure_tracking_id_replaces_empty_id():
