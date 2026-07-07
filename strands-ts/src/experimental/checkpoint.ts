@@ -63,6 +63,7 @@ export type CheckpointPosition = 'after_model' | 'after_tools'
 export interface CheckpointData {
   position: CheckpointPosition
   cycleIndex?: number
+  /** Populated by {@link Checkpoint.toJSON}. {@link Checkpoint.fromJSON} requires it to match the current version. */
   schemaVersion?: string
 }
 
@@ -70,13 +71,9 @@ export interface CheckpointData {
  * Resume payload passed back to a checkpointing agent to continue a durable run.
  * The whole invocation argument is this object; the agent consumes it, restores
  * its cycle position, and continues without appending any new input messages.
+ * Resume with `{ checkpointResume: { checkpoint: ckpt.toJSON() } }`.
  *
  * @experimental
- *
- * @example
- * ```typescript
- * const result = await agent.invoke({ checkpointResume: { checkpoint: saved } })
- * ```
  */
 export interface CheckpointResumeContent {
   checkpointResume: { checkpoint: CheckpointData }

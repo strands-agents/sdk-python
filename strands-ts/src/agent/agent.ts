@@ -107,7 +107,7 @@ import { Tracer } from '../telemetry/tracer.js'
 import { AgentMetrics, Meter } from '../telemetry/meter.js'
 import type { AttributeValue } from '@opentelemetry/api'
 import { logger } from '../logging/logger.js'
-import { CancelledError } from '../errors.js'
+import { CancelledError, CheckpointError } from '../errors.js'
 import { DefaultModelRetryStrategy } from '../retry/default-model-retry-strategy.js'
 import type { RetryStrategy } from '../retry/retry-strategy.js'
 import { warnOnDuplicateRetryStrategyTypes } from '../retry/retry-strategy.js'
@@ -1817,10 +1817,9 @@ export class Agent implements LocalAgent, InvokableAgent {
    * returning the reconstructed {@link Checkpoint} or `undefined` when the args
    * are not a checkpoint-resume payload.
    *
-   * @throws Error if a checkpointResume block is passed but the agent was
-   *   created with `checkpointing: false`, or if the block is missing its
-   *   `checkpoint` key.
-   * @throws CheckpointError if the checkpoint schema version is incompatible.
+   * @throws CheckpointError if a checkpointResume block is passed but the agent
+   *   was created with `checkpointing: false`, if the block is missing its
+   *   `checkpoint` key, or if the checkpoint schema version is incompatible.
    */
   private _extractCheckpointResume(args: InvokeArgs): Checkpoint | undefined {
     if (typeof args !== 'object' || args === null || Array.isArray(args) || !('checkpointResume' in args)) {
@@ -1828,15 +1827,15 @@ export class Agent implements LocalAgent, InvokableAgent {
     }
 
     if (!this._checkpointing) {
-      throw new Error(
-        'Received checkpointResume block but agent was created with checkpointing: false. ' +
+      throw new CheckpointError(
+        'Received a checkpointResume block but the agent was created with checkpointing: false. ' +
           'Pass checkpointing: true when constructing the Agent.'
       )
     }
 
     const payload = (args as CheckpointResumeContent).checkpointResume
     if (typeof payload !== 'object' || payload === null || !('checkpoint' in payload)) {
-      throw new Error('checkpoint | missing required key in checkpointResume block')
+      throw new CheckpointError('The checkpointResume block is missing its required "checkpoint" key.')
     }
 
     return Checkpoint.fromJSON(payload.checkpoint)

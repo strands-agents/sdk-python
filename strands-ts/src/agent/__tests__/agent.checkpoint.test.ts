@@ -40,18 +40,18 @@ describe('Agent checkpointing', () => {
   })
 
   describe('resume validation', () => {
-    it('throws when a checkpointResume block is passed but checkpointing is false', async () => {
+    it('throws CheckpointError when a checkpointResume block is passed but checkpointing is false', async () => {
       const agent = new Agent({ model: toolUseModel(), printer: false })
       const args = { checkpointResume: { checkpoint: {} } } as unknown as InvokeArgs
 
-      await expect(agent.invoke(args)).rejects.toThrow(/checkpointing: true/)
+      await expect(agent.invoke(args)).rejects.toThrow(CheckpointError)
     })
 
-    it('throws when the checkpointResume block is missing its checkpoint key', async () => {
+    it('throws CheckpointError when the checkpointResume block is missing its checkpoint key', async () => {
       const agent = new Agent({ model: toolUseModel(), checkpointing: true, printer: false })
       const args = { checkpointResume: {} } as unknown as InvokeArgs
 
-      await expect(agent.invoke(args)).rejects.toThrow(/checkpoint/)
+      await expect(agent.invoke(args)).rejects.toThrow(CheckpointError)
     })
 
     it('throws CheckpointError when the checkpoint schema version is incompatible', async () => {

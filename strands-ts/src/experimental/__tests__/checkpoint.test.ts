@@ -13,9 +13,11 @@ describe('Checkpoint serialization', () => {
 
     const restored = Checkpoint.fromJSON(checkpoint.toJSON())
 
-    expect(restored.position).toBe('after_model')
-    expect(restored.cycleIndex).toBe(1)
-    expect(restored.schemaVersion).toBe(CHECKPOINT_SCHEMA_VERSION)
+    expect(restored.toJSON()).toEqual({
+      position: 'after_model',
+      cycleIndex: 1,
+      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+    })
   })
 
   it('always sets schemaVersion to the current constant', () => {

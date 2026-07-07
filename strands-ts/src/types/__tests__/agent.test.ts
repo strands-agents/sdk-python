@@ -6,7 +6,7 @@ import { Message } from '../messages.js'
 import { TextBlock, ReasoningBlock, ToolUseBlock, ToolResultBlock, CachePointBlock } from '../messages.js'
 import { CitationsBlock } from '../citations.js'
 import { Interrupt } from '../../interrupt.js'
-import { Checkpoint } from '../../experimental/checkpoint.js'
+import { Checkpoint, CHECKPOINT_SCHEMA_VERSION } from '../../experimental/checkpoint.js'
 
 describe('AgentResult', () => {
   describe('toString', () => {
@@ -607,10 +607,12 @@ describe('AgentResult', () => {
         invocationState: {},
         checkpoint: new Checkpoint({ position: 'after_tools', cycleIndex: 3 }),
       })
-      const json = result.toJSON() as { checkpoint?: { position: string; cycleIndex: number } }
-      expect(json.checkpoint).toBeDefined()
-      expect(json.checkpoint?.position).toBe('after_tools')
-      expect(json.checkpoint?.cycleIndex).toBe(3)
+      const json = result.toJSON() as { checkpoint?: unknown }
+      expect(json.checkpoint).toEqual({
+        position: 'after_tools',
+        cycleIndex: 3,
+        schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+      })
     })
 
     it('omits checkpoint from toJSON when absent', () => {
