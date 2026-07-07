@@ -79,18 +79,6 @@ export function ensureTrackingId(message: Message): void {
 }
 
 /**
- * Get the durable tracking identifier for a message, or undefined if it has not been assigned one.
- *
- * Mirrors the Python SDK's `_get_tracking_id`. The `trackingId` field is already null-safe to read
- * directly (`message.trackingId`); this helper exists for internal call sites that want an explicit
- * accessor.
- * @internal
- */
-export function getTrackingId(message: Message): string | undefined {
-  return message.trackingId
-}
-
-/**
  * A message in a conversation between user and assistant.
  * Each message has a role (user or assistant) and an array of content blocks.
  */

@@ -1,18 +1,8 @@
-"""Tests for the durable message tracking id, its generator, and _get_tracking_id."""
+"""Tests for the durable message tracking id and its generator."""
 
 from uuid import UUID
 
-from strands.types.content import Message, _ensure_tracking_id, _generate_tracking_id, _get_tracking_id
-
-
-def test__get_tracking_id_without_id():
-    msg: Message = {"role": "assistant", "content": [{"text": "hello"}]}
-    assert _get_tracking_id(msg) is None
-
-
-def test__get_tracking_id_with_id():
-    msg: Message = {"role": "assistant", "content": [{"text": "hello"}], "tracking_id": "abc123"}
-    assert _get_tracking_id(msg) == "abc123"
+from strands.types.content import Message, _ensure_tracking_id, _generate_tracking_id
 
 
 def test_generate_tracking_id_is_unique():

@@ -10,7 +10,6 @@ import {
   JsonBlock,
   ensureTrackingId,
   generateTrackingId,
-  getTrackingId,
   type MessageData,
   type SystemPromptData,
   systemPromptFromData,
@@ -173,16 +172,6 @@ describe('Message id', () => {
   test('clone preserves id', () => {
     const original = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'durable-1' })
     expect(original.clone().trackingId).toBe('durable-1')
-  })
-
-  test('getTrackingId returns the id when present', () => {
-    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'durable-1' })
-    expect(getTrackingId(message)).toBe('durable-1')
-  })
-
-  test('getTrackingId returns undefined when absent', () => {
-    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    expect(getTrackingId(message)).toBeUndefined()
   })
 })
 

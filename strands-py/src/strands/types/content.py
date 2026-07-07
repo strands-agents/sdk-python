@@ -271,15 +271,6 @@ def _ensure_tracking_id(message: Message) -> None:
         message["tracking_id"] = _generate_tracking_id()
 
 
-def _get_tracking_id(message: Message) -> str | None:
-    """Get the durable tracking identifier for a message, or None if it has not been assigned one.
-
-    The ``tracking_id`` field is already null-safe to read directly (``message.get("tracking_id")``);
-    this helper exists for internal call sites that want an explicit accessor.
-    """
-    return message.get("tracking_id")
-
-
 def get_message_metadata(message: Message) -> MessageMetadata:
     """Get metadata for a message, returning empty dict if not present.
 
