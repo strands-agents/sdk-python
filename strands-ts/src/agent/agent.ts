@@ -48,7 +48,7 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
-import { InMemoryStorage } from '../vended-plugins/context-offloader/storage.js'
+import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { MiddlewareRegistry, InvokeModelStage, ExecuteToolStage, AgentStreamStage } from '../middleware/index.js'
 import type {
@@ -119,6 +119,7 @@ import type { TakeSnapshotOptions } from './snapshot.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { Sandbox } from '../sandbox/base.js'
 import { defaultSandbox } from '../sandbox/default.js'
+import type { Storage } from '../storage/storage.js'
 import {
   summarizeContextTool,
   truncateContextTool,
@@ -295,6 +296,12 @@ export type AgentConfig = {
    * Defaults to `'concurrent'`. See {@link ToolExecutorStrategy} for details.
    */
   toolExecutor?: ToolExecutorStrategy
+  /**
+   * Unified storage backend shared with all plugins that implement `initStorage`.
+   * Plugins receive this instance during initialization and use it for persistence
+   * rather than requiring the user to pass storage to each plugin separately.
+   */
+  storage?: Storage
   /**
    * Execution environment for running commands, code, and file operations.
    * When provided, sandbox-aware tools route operations through it.
@@ -569,7 +576,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
-              storage: new InMemoryStorage(),
+              storage: new InMemoryStorage({ maxEntries: 200 }),
               maxResultTokens:
                 config?.contextManager === 'agentic'
                   ? AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
@@ -582,6 +589,10 @@ export class Agent implements LocalAgent, InvokableAgent {
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
+
+    if (config?.storage) {
+      this._pluginRegistry.setStorage(config.storage)
+    }
 
     if (config?.systemPrompt !== undefined) {
       this.systemPrompt = systemPromptFromData(config.systemPrompt)
@@ -716,7 +727,9 @@ export class Agent implements LocalAgent, InvokableAgent {
       | MiddlewareWrapPhase<TContext, TResult, TEvent>
       | MiddlewareOutputPhase<TContext, TResult, TEvent>,
     handler:
-      MiddlewareHandler<TContext, TResult, TEvent> | MiddlewareInputHandler<TContext> | MiddlewareOutputHandler<TResult>
+      | MiddlewareHandler<TContext, TResult, TEvent>
+      | MiddlewareInputHandler<TContext>
+      | MiddlewareOutputHandler<TResult>
   ): () => void {
     if ('_phase' in stageOrPhase) {
       const phase = stageOrPhase as { _phase: MiddlewarePhaseKind; _stage: MiddlewareStage<TContext, TResult, TEvent> }

@@ -5,6 +5,7 @@
  * add behavior changes to agents through hook registration and custom initialization.
  */
 
+import type { Storage } from '../storage/storage.js'
 import type { Tool } from '../tools/tool.js'
 import type { LocalAgent } from '../types/agent.js'
 
@@ -66,6 +67,20 @@ export interface Plugin {
    * @param agent - The agent instance this plugin is being attached to
    */
   initAgent(agent: LocalAgent): void | Promise<void>
+
+  /**
+   * Receives the agent's configured storage instance.
+   *
+   * Called by the plugin registry during initialization when the agent has a
+   * `storage` configured. Plugins that need persistence should use this storage
+   * instance rather than requiring the user to pass storage separately.
+   *
+   * A plugin that already has storage configured via its constructor should
+   * ignore this call (constructor override takes priority).
+   *
+   * @param storage - The agent-level storage instance
+   */
+  initStorage?(storage: Storage): void | Promise<void>
 
   /**
    * Returns tools provided by this plugin for auto-registration.

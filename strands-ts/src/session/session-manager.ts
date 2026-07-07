@@ -1,4 +1,7 @@
 import type { SnapshotStorage, SnapshotLocation } from './storage.js'
+import type { Storage } from '../storage/storage.js'
+import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
+import { SessionError } from '../errors.js'
 import { validateIdentifier } from './validation.js'
 import type { SnapshotTriggerCallback } from './types.js'
 import type { Plugin } from '../plugins/plugin.js'
@@ -53,10 +56,16 @@ export type SaveLatestStrategy = 'message' | 'invocation' | 'trigger'
 export type MultiAgentSaveLatestStrategy = 'node' | 'invocation'
 
 export interface SessionManagerConfig {
-  /** Pluggable storage backends for snapshot persistence. Defaults to FileStorage in Node.js; required in browser environments. */
-  storage: {
-    snapshot: SnapshotStorage
-  }
+  /**
+   * Storage backend for snapshot persistence.
+   *
+   * Accepts either:
+   * - A unified {@link Storage} instance (recommended) — wrapped internally with {@link SnapshotStorageAdapter}
+   * - A legacy `{ snapshot: SnapshotStorage }` object for backwards compatibility
+   *
+   * When omitted, the session manager receives storage from the agent via `initStorage`.
+   */
+  storage?: Storage | { snapshot: SnapshotStorage }
   /** Unique session identifier. Defaults to `'default-session'`. */
   sessionId?: string
   /** When to save snapshot_latest. Default: `'invocation'` (after each agent invocation completes). See {@link SaveLatestStrategy} for details. */
@@ -91,11 +100,12 @@ export interface SessionManagerConfig {
  */
 export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _sessionId: string
-  private readonly _storage: { snapshot: SnapshotStorage }
+  private _storage: { snapshot: SnapshotStorage } | undefined
   private readonly _saveLatestOn: SaveLatestStrategy
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
   private _multiAgentRestoredIds = new Set<string>()
+  private readonly _hasExplicitStorage: boolean
 
   /**
    * Unique identifier for this plugin.
@@ -104,16 +114,45 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     return 'strands:session-manager'
   }
 
-  constructor(config: SessionManagerConfig) {
+  constructor(config: SessionManagerConfig = {}) {
     this._sessionId = validateIdentifier(config.sessionId ?? 'default-session')
-    this._storage = { snapshot: config.storage.snapshot }
+    this._storage = config.storage ? { snapshot: this._resolveSnapshotStorage(config.storage) } : undefined
+    this._hasExplicitStorage = config.storage !== undefined
     this._saveLatestOn = config.saveLatestOn ?? 'invocation'
     this._multiAgentSaveLatestOn = config.multiAgentSaveLatestOn ?? 'node'
     this._snapshotTrigger = config.snapshotTrigger
   }
 
+  /**
+   * Receives the agent-level unified storage when no explicit storage was provided.
+   *
+   * @param storage - The agent-level storage instance
+   */
+  initStorage(storage: Storage): void {
+    if (this._hasExplicitStorage) return
+    this._storage = { snapshot: new SnapshotStorageAdapter(storage) }
+  }
+
+  private get _snapshotStorage(): SnapshotStorage {
+    if (!this._storage) {
+      throw new SessionError('SessionManager storage not initialized')
+    }
+    return this._storage.snapshot
+  }
+
+  private _resolveSnapshotStorage(storage: Storage | { snapshot: SnapshotStorage }): SnapshotStorage {
+    if ('snapshot' in storage) return storage.snapshot
+    return new SnapshotStorageAdapter(storage)
+  }
+
   /** Initializes the plugin by registering lifecycle hook callbacks. */
   public initAgent(agent: LocalAgent): void {
+    if (!this._storage) {
+      throw new Error(
+        'SessionManager requires a storage backend. ' +
+          'Pass storage in the SessionManager config or set storage on the Agent config.'
+      )
+    }
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
@@ -156,17 +195,17 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     const location = isAgent
       ? this._location(params.target as LocalAgent)
       : this._multiAgentLocation(params.target as MultiAgent)
-    await this._storage.snapshot.saveSnapshot({ location, snapshotId, isLatest: params.isLatest, snapshot })
+    await this._snapshotStorage.saveSnapshot({ location, snapshotId, isLatest: params.isLatest, snapshot })
   }
 
   /** Deletes all snapshots and manifests for this session from storage. */
   async deleteSession(): Promise<void> {
-    await this._storage.snapshot.deleteSession({ sessionId: this._sessionId })
+    await this._snapshotStorage.deleteSession({ sessionId: this._sessionId })
   }
 
   /** Lists all available immutable snapshot IDs for the given agent target. */
   async listSnapshotIds(params: { target: LocalAgent; limit?: number; startAfter?: string }): Promise<string[]> {
-    return this._storage.snapshot.listSnapshotIds({
+    return this._snapshotStorage.listSnapshotIds({
       location: this._location(params.target),
       ...(params.limit !== undefined && { limit: params.limit }),
       ...(params.startAfter !== undefined && { startAfter: params.startAfter }),
@@ -189,7 +228,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     const location = isAgent
       ? this._location(params.target as LocalAgent)
       : this._multiAgentLocation(params.target as MultiAgent)
-    const snapshot = await this._storage.snapshot.loadSnapshot({
+    const snapshot = await this._snapshotStorage.loadSnapshot({
       location,
       ...(params.snapshotId !== undefined && { snapshotId: params.snapshotId }),
     })
@@ -259,8 +298,8 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     const snapshot = agent.takeSnapshot({ preset: 'session' })
     const snapshotId = uuidV7()
     await Promise.all([
-      this._storage.snapshot.saveSnapshot({ location: this._location(agent), snapshotId, isLatest: false, snapshot }),
-      this._storage.snapshot.saveSnapshot({
+      this._snapshotStorage.saveSnapshot({ location: this._location(agent), snapshotId, isLatest: false, snapshot }),
+      this._snapshotStorage.saveSnapshot({
         location: this._location(agent),
         snapshotId: 'latest',
         isLatest: true,
@@ -298,7 +337,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     this._multiAgentRestoredIds.add(event.orchestrator.id)
 
     const location = this._multiAgentLocation(event.orchestrator)
-    const snapshot = await this._storage.snapshot.loadSnapshot({ location })
+    const snapshot = await this._snapshotStorage.loadSnapshot({ location })
     if (!snapshot) return
 
     loadMultiAgentSnapshot(event.orchestrator as Graph | Swarm, snapshot, event.state)

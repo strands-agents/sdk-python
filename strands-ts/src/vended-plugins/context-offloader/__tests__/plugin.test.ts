@@ -659,4 +659,38 @@ describe('ContextOffloader', () => {
       expect(() => hook.callback(event)).not.toThrow()
     })
   })
+
+  describe('unified Storage content-type round-trip', () => {
+    it('stores content and content-type in a single framed key', async () => {
+      const { InMemoryStorage: UnifiedInMemoryStorage } = await import('../../../storage/in-memory-storage.js')
+      const unifiedStorage = new UnifiedInMemoryStorage({ maxEntries: null })
+
+      const plugin = new ContextOffloader({
+        storage: unifiedStorage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+        includeRetrievalTool: true,
+      })
+      const agent = createMockAgent()
+      plugin.initAgent(agent)
+
+      const event = makeEvent([new TextBlock('hello world '.repeat(100))])
+      await invokeTrackedHook(agent, event)
+
+      const preview = (event.result.content[0] as TextBlock).text
+      const refMatch = preview.match(/tool-123_0/)
+      expect(refMatch).not.toBeNull()
+
+      // Only one key per block — no sidecar .contenttype key
+      const keys = await unifiedStorage.list('')
+      expect(keys).toEqual(['tool-123_0'])
+
+      const tools = plugin.getTools()
+      const retrievalTool = tools[0]!
+      const result = await (retrievalTool as unknown as { invoke(input: unknown): Promise<unknown> }).invoke({
+        reference: 'tool-123_0',
+      })
+      expect(result).toBe('hello world '.repeat(100))
+    })
+  })
 })
