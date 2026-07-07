@@ -67,16 +67,37 @@ class ToolUse(TypedDict):
     reasoningSignature: NotRequired[str]
 
 
+class ContentAnnotations(TypedDict, total=False):
+    """Optional annotations describing how content should be handled.
+
+    Modeled after MCP content annotations (MCP spec 2025-06-18). All fields are
+    optional; producers may set any subset.
+
+    Attributes:
+        audience: Intended audience(s) for the content ("user" and/or "assistant").
+        priority: Relative importance of the content, from 0.0 to 1.0.
+        lastModified: ISO 8601 timestamp of when the content was last modified.
+    """
+
+    audience: list[Literal["user", "assistant"]]
+    priority: float
+    lastModified: str
+
+
 class ToolResultContent(TypedDict, total=False):
     """Content returned by a tool execution.
 
     Attributes:
+        annotations: Optional annotations describing how the content should be
+            handled (e.g. intended audience, priority). Preserved from MCP
+            content when present.
         document: Document content returned by the tool.
         image: Image content returned by the tool.
         json: JSON-serializable data returned by the tool.
         text: Text content returned by the tool.
     """
 
+    annotations: ContentAnnotations
     document: DocumentContent
     image: ImageContent
     json: Any
