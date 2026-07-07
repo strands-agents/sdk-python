@@ -31,6 +31,14 @@
  * - Metrics reset per invocation; aggregate yourself if needed.
  * - `BeforeInvocationEvent` / `AfterInvocationEvent` fire on every resume,
  *   same as interrupts.
+ * - Resuming from `after_model` re-invokes the model. The agent loop defers
+ *   appending the assistant tool-use message until after tools run (so history
+ *   never holds a dangling tool-use), which means the tool-use message is not
+ *   persisted at `after_model`; on resume the model runs again to regenerate it.
+ *   Completed tools are still never re-run — they execute once and their results
+ *   persist at `after_tools`, which is the deterministic boundary. (In the Python
+ *   SDK the assistant message is appended eagerly, so its `after_model` resume
+ *   reuses the persisted message instead of re-invoking the model.)
  */
 
 import { logger } from '../logging/logger.js'

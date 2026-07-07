@@ -1560,9 +1560,11 @@ export class Agent implements LocalAgent, InvokableAgent {
             }
 
             // after_model checkpoint: model returned tool use, tools have not run
-            // yet. Skipped when resuming from an after_model checkpoint (we already
-            // emitted it last time and now proceed to run the tools). Cancel wins —
-            // the isCancelled branch above returns before we reach here.
+            // yet. Skipped when resuming from an after_model checkpoint: the
+            // assistant tool-use message was not persisted (deferred append), so
+            // this cycle re-invoked the model to regenerate it — now fall through
+            // to run the tools. Cancel wins — the isCancelled branch above returns
+            // before we reach here.
             if (this._checkpointing) {
               const priorResumePosition = resumePosition
               resumePosition = undefined
