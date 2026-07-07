@@ -90,6 +90,7 @@ jobs:
     name: Run integration tests
     runs-on: ubuntu-latest
     needs: authorization-check
+    if: always() && needs.authorization-check.result == 'success'
     environment:
       name: ${{ needs.authorization-check.outputs.approval-env }}
       deployment: false
