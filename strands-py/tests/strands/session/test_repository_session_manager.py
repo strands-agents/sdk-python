@@ -372,7 +372,7 @@ def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manag
 
 
 def test_fix_broken_tool_use_removes_stale_tool_results(session_manager):
-    """Test that toolResults with IDs not matching any preceding toolUse are dropped."""
+    """Test that toolResults with IDs not matching any preceding toolUse are dropped (#2296)."""
     messages = [
         {
             "role": "assistant",
@@ -393,9 +393,9 @@ def test_fix_broken_tool_use_removes_stale_tool_results(session_manager):
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
     assert len(fixed_messages) == 3
-    assert len(fixed_messages[1]["content"]) == 1
-    assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "valid-123"
-    assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "success"
+    assert fixed_messages[1]["content"] == [
+        {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}}
+    ]
 
 
 def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_manager):

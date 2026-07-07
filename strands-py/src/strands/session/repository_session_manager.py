@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ..agent.state import AgentState
+from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types.content import ContentBlock, Message
 from ..types.exceptions import SessionException
 from ..types.session import (
@@ -26,13 +27,7 @@ logger = logging.getLogger(__name__)
 
 def _make_error_result(tool_use_id: str) -> ContentBlock:
     """Create a single error toolResult content block for an interrupted tool."""
-    return {
-        "toolResult": {
-            "toolUseId": tool_use_id,
-            "status": "error",
-            "content": [{"text": "Tool was interrupted."}],
-        }
-    }
+    return generate_missing_tool_result_content([tool_use_id])[0]
 
 
 class RepositorySessionManager(SessionManager):
