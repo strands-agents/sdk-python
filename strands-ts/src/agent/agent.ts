@@ -104,7 +104,7 @@ import { MemoryManager } from '../memory/memory-manager.js'
 import type { MemoryManagerConfig } from '../memory/index.js'
 import { SessionManager } from '../session/session-manager.js'
 import { Tracer } from '../telemetry/tracer.js'
-import { Meter } from '../telemetry/meter.js'
+import { AgentMetrics, Meter } from '../telemetry/meter.js'
 import type { AttributeValue } from '@opentelemetry/api'
 import { logger } from '../logging/logger.js'
 import { CancelledError } from '../errors.js'
@@ -889,6 +889,13 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   get toolRegistry(): ToolRegistry {
     return this._toolRegistry
+  }
+
+  /**
+   * Read-only snapshot of accumulated agent metrics (cycles, token usage, tool stats).
+   */
+  get metrics(): AgentMetrics {
+    return this._meter.metrics
   }
 
   /**

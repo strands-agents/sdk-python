@@ -403,6 +403,19 @@ describe('Agent', () => {
       })
     })
 
+    describe('metrics getter', () => {
+      it('exposes accumulated metrics on the agent instance', async () => {
+        const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+        const agent = new Agent({ model })
+
+        expect(agent.metrics.cycleCount).toBe(0)
+
+        await agent.invoke('Test')
+
+        expect(agent.metrics.cycleCount).toBe(1)
+      })
+    })
+
     describe('metrics on errors', () => {
       it('tracks cycle count when maxTokens error occurs', async () => {
         const model = new MockMessageModel()
