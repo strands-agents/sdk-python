@@ -34,7 +34,6 @@
  */
 
 import { logger } from '../logging/logger.js'
-import type { JSONValue } from '../types/json.js'
 import { CheckpointError } from '../errors.js'
 
 /**
@@ -64,8 +63,6 @@ export type CheckpointPosition = 'after_model' | 'after_tools'
 export interface CheckpointData {
   position: CheckpointPosition
   cycleIndex?: number
-  snapshot?: Record<string, JSONValue>
-  appData?: Record<string, JSONValue>
   schemaVersion?: string
 }
 
@@ -97,12 +94,6 @@ export class Checkpoint {
   /** ReAct loop cycle (0-based). */
   readonly cycleIndex: number
 
-  /** Reserved for forward extensibility. Not read by the SDK; round-trips through serialization. */
-  readonly snapshot: Record<string, JSONValue>
-
-  /** Reserved for caller metadata. Not read by the SDK; round-trips through serialization. */
-  readonly appData: Record<string, JSONValue>
-
   /**
    * Schema version. Always set to {@link CHECKPOINT_SCHEMA_VERSION}; not accepted
    * from the constructor so it cannot be forged. Rejects incompatible checkpoints
@@ -110,16 +101,9 @@ export class Checkpoint {
    */
   readonly schemaVersion: string = CHECKPOINT_SCHEMA_VERSION
 
-  constructor(data: {
-    position: CheckpointPosition
-    cycleIndex?: number
-    snapshot?: Record<string, JSONValue>
-    appData?: Record<string, JSONValue>
-  }) {
+  constructor(data: { position: CheckpointPosition; cycleIndex?: number }) {
     this.position = data.position
     this.cycleIndex = data.cycleIndex ?? 0
-    this.snapshot = data.snapshot ?? {}
-    this.appData = data.appData ?? {}
   }
 
   /**
@@ -129,8 +113,6 @@ export class Checkpoint {
     return {
       position: this.position,
       cycleIndex: this.cycleIndex,
-      snapshot: this.snapshot,
-      appData: this.appData,
       schemaVersion: this.schemaVersion,
     }
   }
@@ -152,7 +134,7 @@ export class Checkpoint {
       )
     }
 
-    const knownKeys = new Set(['position', 'cycleIndex', 'snapshot', 'appData', 'schemaVersion'])
+    const knownKeys = new Set(['position', 'cycleIndex', 'schemaVersion'])
     const unknownKeys = Object.keys(data).filter((key) => !knownKeys.has(key))
     if (unknownKeys.length > 0) {
       logger.warn(`unknown_keys=<${unknownKeys.join(', ')}> | ignoring unknown fields in checkpoint data`)
@@ -161,8 +143,6 @@ export class Checkpoint {
     return new Checkpoint({
       position: data.position,
       ...(data.cycleIndex !== undefined && { cycleIndex: data.cycleIndex }),
-      ...(data.snapshot !== undefined && { snapshot: data.snapshot }),
-      ...(data.appData !== undefined && { appData: data.appData }),
     })
   }
 }

@@ -9,19 +9,12 @@ describe('Checkpoint serialization', () => {
   })
 
   it('round-trips through toJSON/fromJSON', () => {
-    const checkpoint = new Checkpoint({
-      position: 'after_model',
-      cycleIndex: 1,
-      snapshot: { messages: [] },
-      appData: { workflowId: 'wf-123' },
-    })
+    const checkpoint = new Checkpoint({ position: 'after_model', cycleIndex: 1 })
 
     const restored = Checkpoint.fromJSON(checkpoint.toJSON())
 
     expect(restored.position).toBe('after_model')
     expect(restored.cycleIndex).toBe(1)
-    expect(restored.snapshot).toEqual({ messages: [] })
-    expect(restored.appData).toEqual({ workflowId: 'wf-123' })
     expect(restored.schemaVersion).toBe(CHECKPOINT_SCHEMA_VERSION)
   })
 
@@ -30,11 +23,9 @@ describe('Checkpoint serialization', () => {
     expect(checkpoint.schemaVersion).toBe(CHECKPOINT_SCHEMA_VERSION)
   })
 
-  it('applies defaults for cycleIndex, snapshot, and appData', () => {
+  it('defaults cycleIndex to 0', () => {
     const checkpoint = new Checkpoint({ position: 'after_model' })
     expect(checkpoint.cycleIndex).toBe(0)
-    expect(checkpoint.snapshot).toEqual({})
-    expect(checkpoint.appData).toEqual({})
   })
 
   it('throws CheckpointError on schema version mismatch', () => {
@@ -44,7 +35,7 @@ describe('Checkpoint serialization', () => {
   })
 
   it('throws CheckpointError when schemaVersion is missing', () => {
-    const data: CheckpointData = { position: 'after_model', cycleIndex: 0, snapshot: {}, appData: {} }
+    const data: CheckpointData = { position: 'after_model', cycleIndex: 0 }
     expect(() => Checkpoint.fromJSON(data)).toThrow(CheckpointError)
     expect(() => Checkpoint.fromJSON(data)).toThrow(/not compatible with current version/)
   })
@@ -60,5 +51,26 @@ describe('Checkpoint serialization', () => {
     // The unknown field is ignored, not carried onto the reconstructed checkpoint.
     expect(restored).not.toHaveProperty('unknownFutureField')
     expect(restored.toJSON()).not.toHaveProperty('unknownFutureField')
+  })
+
+  it('ignores legacy snapshot/appData fields from older serialized checkpoints', () => {
+    // Checkpoints serialized before snapshot/appData were removed must still
+    // deserialize: the now-unknown keys are warned about and dropped.
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+    const data = {
+      position: 'after_tools',
+      cycleIndex: 2,
+      snapshot: { messages: [] },
+      appData: { workflowId: 'wf-123' },
+      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+    } as unknown as CheckpointData
+
+    const restored = Checkpoint.fromJSON(data)
+
+    expect(restored.position).toBe('after_tools')
+    expect(restored.cycleIndex).toBe(2)
+    expect(restored).not.toHaveProperty('snapshot')
+    expect(restored).not.toHaveProperty('appData')
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('snapshot'))
   })
 })
