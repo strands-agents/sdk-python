@@ -616,7 +616,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
-                role=text_output["role"].lower(),
+                role=text_output["role"],
                 is_final=self._generation_stage == "FINAL",
                 current_transcript=text_content,
             )

@@ -21,7 +21,7 @@ from strands.experimental.bidi.types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
-    normalize_role,
+    _normalize_role,
 )
 
 
@@ -175,7 +175,7 @@ def test_transcript_stream_event_extends_model_stream_event():
 )
 def test_normalize_role_accepts_supported_roles(raw_role, expected):
     """normalize_role lowercases and preserves supported roles."""
-    assert normalize_role(raw_role) == expected
+    assert _normalize_role(raw_role) == expected
 
 
 @pytest.mark.parametrize(
@@ -184,8 +184,8 @@ def test_normalize_role_accepts_supported_roles(raw_role, expected):
 )
 def test_normalize_role_falls_back_to_lowest_trust_role(raw_role):
     """normalize_role coerces out-of-range values to the lowest-trust default ("user")."""
-    assert normalize_role(raw_role) == "user"
-    assert normalize_role(raw_role, default="assistant") == "assistant"
+    assert _normalize_role(raw_role) == "user"
+    assert _normalize_role(raw_role, default="assistant") == "assistant"
 
 
 @pytest.mark.parametrize(
@@ -199,7 +199,7 @@ def test_normalize_role_falls_back_to_lowest_trust_role(raw_role):
 )
 def test_normalize_role_strips_whitespace(raw_role, expected):
     """normalize_role trims surrounding whitespace before the allowlist check."""
-    assert normalize_role(raw_role) == expected
+    assert _normalize_role(raw_role) == expected
 
 
 @pytest.mark.parametrize("raw_role", ["system", "admin", "SYSTEM", "tool", "developer", "unknown", ""])
@@ -216,7 +216,6 @@ def test_transcript_stream_event_coerces_out_of_range_role_to_user(raw_role):
     # Attacker-controlled content is never attributed to the assistant.
     assert event.role == "user"
     assert event["role"] == "user"
-    assert event.role != raw_role.lower()
 
 
 def test_transcript_stream_event_strips_whitespace_role():

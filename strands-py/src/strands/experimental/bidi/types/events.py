@@ -21,13 +21,16 @@ Audio format normalization:
 - Audio data stored as base64-encoded strings for JSON compatibility
 """
 
-from typing import TYPE_CHECKING, Any, Literal, cast
+import logging
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
 
 if TYPE_CHECKING:
     from ..models.model import BidiModelTimeoutError
+
+logger = logging.getLogger(__name__)
 
 AudioChannel = Literal[1, 2]
 """Number of audio channels.
@@ -47,10 +50,10 @@ Role = Literal["user", "assistant"]
 - "assistant": Messages from the assistant to the user.
 """
 
-_VALID_ROLES: tuple[str, ...] = ("user", "assistant")
+_VALID_ROLES: tuple[str, ...] = get_args(Role)
 
 
-def normalize_role(role: Any, default: Role = "user") -> Role:
+def _normalize_role(role: Any, default: Role = "user") -> Role:
     """Normalize a role value to a supported `Role`.
 
     Provider outputs and transcript events may carry role values in arbitrary
@@ -70,9 +73,10 @@ def normalize_role(role: Any, default: Role = "user") -> Role:
     Returns:
         A role guaranteed to be one of the supported `Role` values.
     """
-    normalized = role.strip().lower() if isinstance(role, str) else default
+    normalized = role.strip().lower() if isinstance(role, str) else None
     if normalized not in _VALID_ROLES:
-        normalized = default
+        logger.debug("role=<%s>, default=<%s> | coercing unsupported transcript role", role, default)
+        return default
     return cast(Role, normalized)
 
 
@@ -357,7 +361,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
                 "type": "bidi_transcript_stream",
                 "delta": delta,
                 "text": text,
-                "role": normalize_role(role, default="user"),
+                "role": _normalize_role(role, default="user"),
                 "is_final": is_final,
                 "current_transcript": current_transcript,
             }
