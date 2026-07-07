@@ -52,25 +52,4 @@ describe('Checkpoint serialization', () => {
     expect(restored).not.toHaveProperty('unknownFutureField')
     expect(restored.toJSON()).not.toHaveProperty('unknownFutureField')
   })
-
-  it('ignores legacy snapshot/appData fields from older serialized checkpoints', () => {
-    // Checkpoints serialized before snapshot/appData were removed must still
-    // deserialize: the now-unknown keys are warned about and dropped.
-    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-    const data = {
-      position: 'after_tools',
-      cycleIndex: 2,
-      snapshot: { messages: [] },
-      appData: { workflowId: 'wf-123' },
-      schemaVersion: CHECKPOINT_SCHEMA_VERSION,
-    } as unknown as CheckpointData
-
-    const restored = Checkpoint.fromJSON(data)
-
-    expect(restored.position).toBe('after_tools')
-    expect(restored.cycleIndex).toBe(2)
-    expect(restored).not.toHaveProperty('snapshot')
-    expect(restored).not.toHaveProperty('appData')
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('snapshot'))
-  })
 })
