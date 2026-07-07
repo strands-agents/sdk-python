@@ -1504,9 +1504,11 @@ def test_handle_content_block_delta_captures_tool_use_id_and_name_from_delta():
 
     updated_state, _ = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
-    assert updated_state["current_tool_use"]["toolUseId"] == "abc123"
-    assert updated_state["current_tool_use"]["name"] == "output_slide"
-    assert updated_state["current_tool_use"]["input"] == '{"x": 1}'
+    assert updated_state["current_tool_use"] == {
+        "toolUseId": "abc123",
+        "name": "output_slide",
+        "input": '{"x": 1}',
+    }
 
 
 def test_handle_content_block_delta_does_not_override_existing_tool_use_id_and_name():
@@ -1516,8 +1518,11 @@ def test_handle_content_block_delta_does_not_override_existing_tool_use_id_and_n
 
     updated_state, _ = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
-    assert updated_state["current_tool_use"]["toolUseId"] == "from_start"
-    assert updated_state["current_tool_use"]["name"] == "from_start"
+    assert updated_state["current_tool_use"] == {
+        "toolUseId": "from_start",
+        "name": "from_start",
+        "input": '{"x": 1}',
+    }
 
 
 def test_handle_content_block_delta_tool_use_without_input_key():
@@ -1547,7 +1552,7 @@ def test_handle_content_block_stop_skips_incomplete_tool_use_missing_id(caplog):
 
     assert updated_state["content"] == []
     assert updated_state["current_tool_use"] == {}
-    assert "Incomplete tool use block" in caplog.text
+    assert "incomplete tool use block" in caplog.text
 
 
 def test_handle_content_block_stop_skips_incomplete_tool_use_missing_name(caplog):
@@ -1567,7 +1572,7 @@ def test_handle_content_block_stop_skips_incomplete_tool_use_missing_name(caplog
 
     assert updated_state["content"] == []
     assert updated_state["current_tool_use"] == {}
-    assert "Incomplete tool use block" in caplog.text
+    assert "incomplete tool use block" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -1599,6 +1604,4 @@ async def test_process_stream_tool_use_info_in_delta(agenerator, alist):
     assert stop_reason == "tool_use"
     assert len(message["content"]) == 1
     tool_use = message["content"][0]["toolUse"]
-    assert tool_use["toolUseId"] == "xyz789"
-    assert tool_use["name"] == "output_slide"
-    assert tool_use["input"] == {"title": "Test"}
+    assert tool_use == {"toolUseId": "xyz789", "name": "output_slide", "input": {"title": "Test"}}

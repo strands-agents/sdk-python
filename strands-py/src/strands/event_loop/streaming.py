@@ -224,12 +224,10 @@ def handle_content_block_delta(
 
         state["current_tool_use"]["input"] += tool_use_delta.get("input", "")
 
-        # Some models provide toolUseId and name in contentBlockDelta instead of contentBlockStart.
-        # Capture them here if not already set from a prior contentBlockStart event.
-        if "toolUseId" not in state["current_tool_use"] and "toolUseId" in tool_use_delta:
-            state["current_tool_use"]["toolUseId"] = tool_use_delta["toolUseId"]
-        if "name" not in state["current_tool_use"] and "name" in tool_use_delta:
-            state["current_tool_use"]["name"] = tool_use_delta["name"]
+        # Some models emit toolUseId/name in the delta instead of contentBlockStart; keep values already set.
+        for field in ("toolUseId", "name"):
+            if field not in state["current_tool_use"] and field in tool_use_delta:
+                state["current_tool_use"][field] = tool_use_delta[field]
 
         typed_event = ToolUseStreamEvent(delta_content, state["current_tool_use"])
 
@@ -302,9 +300,12 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         tool_use_name = current_tool_use.get("name", "")
 
         if not tool_use_id or not tool_use_name:
+            # Skip, don't raise: an empty tool_uses list still appends a valid toolResult, so the loop continues.
             logger.warning(
-                "Incomplete tool use block (missing toolUseId or name); skipping content block. "
-                "The model may be using a non-standard streaming format."
+                "tool_use_id=<%s>, tool_name=<%s> | incomplete tool use block, skipping content block "
+                "(model may be using a non-standard streaming format)",
+                tool_use_id,
+                tool_use_name,
             )
             state["current_tool_use"] = {}
             return state
