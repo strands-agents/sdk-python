@@ -23,6 +23,7 @@ import { AgentMetrics } from '../../telemetry/meter.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 import { FunctionTool } from '../../tools/function-tool.js'
 import { ToolStreamEvent } from '../../tools/tool.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 describe('InitializedEvent', () => {
   it('creates instance with correct properties', () => {
@@ -830,7 +831,7 @@ describe('toJSON serialization', () => {
 
       expect(json).toStrictEqual({
         type: 'messageAddedEvent',
-        message: { role: 'assistant', content: [{ text: 'Hello' }] },
+        message: { role: 'assistant', content: [{ text: 'Hello' }], trackingId: anyTrackingId },
       })
     })
   })
@@ -875,7 +876,7 @@ describe('toJSON serialization', () => {
 
       expect(json).toStrictEqual({
         type: 'modelMessageEvent',
-        message: { role: 'assistant', content: [{ text: 'Done' }] },
+        message: { role: 'assistant', content: [{ text: 'Done' }], trackingId: anyTrackingId },
         stopReason: 'endTurn',
       })
     })
@@ -930,7 +931,11 @@ describe('toJSON serialization', () => {
         result: {
           type: 'agentResult',
           stopReason: 'endTurn',
-          lastMessage: { role: 'assistant', content: [{ text: 'Done' }] },
+          lastMessage: {
+            role: 'assistant',
+            content: [{ text: 'Done' }],
+            trackingId: anyTrackingId,
+          },
         },
       })
     })
@@ -1015,7 +1020,7 @@ describe('toJSON serialization', () => {
         type: 'afterModelCallEvent',
         attemptCount: 2,
         stopData: {
-          message: { role: 'assistant', content: [{ text: 'Hi' }] },
+          message: { role: 'assistant', content: [{ text: 'Hi' }], trackingId: anyTrackingId },
           stopReason: 'endTurn',
         },
       })
@@ -1049,7 +1054,11 @@ describe('toJSON serialization', () => {
 
       expect(json).toStrictEqual({
         type: 'beforeToolsEvent',
-        message: { role: 'assistant', content: [{ toolUse: { name: 'calc', toolUseId: 'id-1', input: {} } }] },
+        message: {
+          role: 'assistant',
+          content: [{ toolUse: { name: 'calc', toolUseId: 'id-1', input: {} } }],
+          trackingId: anyTrackingId,
+        },
       })
     })
   })
@@ -1075,6 +1084,7 @@ describe('toJSON serialization', () => {
         message: {
           role: 'user',
           content: [{ toolResult: { toolUseId: 'id-1', status: 'success', content: [{ text: 'Done' }] } }],
+          trackingId: anyTrackingId,
         },
       })
     })

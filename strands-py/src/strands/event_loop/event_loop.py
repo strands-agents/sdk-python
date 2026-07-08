@@ -36,7 +36,7 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.agent import Limits
-from ..types.content import Message, Messages, split_system_prompt
+from ..types.content import Message, Messages, _ensure_tracking_id, split_system_prompt
 from ..types.event_loop import Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
@@ -391,7 +391,8 @@ async def event_loop_cycle(
             tracer.end_span_with_error(cycle_span, str(e), e)
             # Handle any other exceptions
             yield ForceStopEvent(reason=e)
-            logger.exception("cycle failed")
+            logger.error("exception=<%s> | event loop cycle failed", type(e).__name__)
+            logger.debug("event loop cycle failed", exc_info=True)
             raise EventLoopException(e, invocation_state["request_state"]) from e
 
 
@@ -636,6 +637,7 @@ async def _handle_model_execution(
         stream_trace.end()
 
         # Add the response message to the conversation
+        _ensure_tracking_id(message)
         agent.messages.append(message)
         await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
 
@@ -645,7 +647,8 @@ async def _handle_model_execution(
 
     except Exception as e:
         yield ForceStopEvent(reason=e)
-        logger.exception("cycle failed")
+        logger.error("exception=<%s> | event loop cycle failed", type(e).__name__)
+        logger.debug("event loop cycle failed", exc_info=True)
         raise EventLoopException(e, invocation_state["request_state"]) from e
 
 
@@ -768,6 +771,7 @@ async def _handle_tool_execution(
                 "content": [{"toolResult": result} for result in tool_results],
             }
             cancelled_tool_result_message = _cancelled_msg
+            _ensure_tracking_id(_cancelled_msg)
             agent.messages.append(_cancelled_msg)
             await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=_cancelled_msg))
             yield ToolResultMessageEvent(message=_cancelled_msg)
@@ -829,6 +833,7 @@ async def _handle_tool_execution(
         "content": [{"toolResult": result} for result in tool_results],
     }
 
+    _ensure_tracking_id(tool_result_message)
     agent.messages.append(tool_result_message)
     await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=tool_result_message))
 

@@ -96,6 +96,38 @@ def test_session_message_with_bytes():
     assert original_message["content"][1]["binary_data"] == message["content"][1]["binary_data"]
 
 
+def test_session_message_preserves_durable_id():
+    message = {"role": "user", "content": [{"text": "Hello!"}], "tracking_id": "durable-abc"}
+
+    session_message = SessionMessage.from_message(message, 0)
+    loaded_message = SessionMessage.from_dict(json.loads(json.dumps(session_message.to_dict())))
+
+    assert loaded_message.to_message()["tracking_id"] == "durable-abc"
+
+
+def test_session_message_without_durable_id():
+    # Legacy messages persisted before durable ids have no id, and none is backfilled.
+    message = {"role": "user", "content": [{"text": "Hello!"}]}
+
+    session_message = SessionMessage.from_message(message, 0)
+    loaded_message = SessionMessage.from_dict(json.loads(json.dumps(session_message.to_dict())))
+
+    assert "tracking_id" not in loaded_message.to_message()
+
+
+def test_session_message_redaction_preserves_durable_id():
+    message = {"role": "user", "content": [{"text": "secret"}], "tracking_id": "durable-xyz"}
+
+    session_message = SessionMessage.from_message(message, 0)
+    # Redaction mutates content in place, leaving the top-level id on the same dict.
+    session_message.redact_message = {"role": "user", "content": [{"text": "REDACTED"}], "tracking_id": "durable-xyz"}
+    loaded_message = SessionMessage.from_dict(json.loads(json.dumps(session_message.to_dict())))
+
+    redacted = loaded_message.to_message()
+    assert redacted["tracking_id"] == "durable-xyz"
+    assert redacted["content"] == [{"text": "REDACTED"}]
+
+
 def test_session_agent_from_agent():
     agent = unittest.mock.Mock()
     agent.agent_id = "a1"
@@ -140,3 +172,20 @@ def test_session_agent_initialize_internal_state():
     tru_model_state = agent._model_state
     exp_model_state = {"response_id": "resp_abc"}
     assert tru_model_state == exp_model_state
+
+
+def test_session_agent_with_bytes():
+    # Agent state can hold binary content (e.g. inline PDF bytes from a multimodal prompt), which
+    # crashes json.dumps() unless to_dict() encodes it. Regression test for #1864.
+    session_agent = SessionAgent(
+        agent_id="a1",
+        conversation_manager_state={},
+        state={"document": {"format": "pdf", "source": {"bytes": b"This is binary data"}}},
+    )
+
+    # json dumps will fail if it's not json serializable
+    agent_json_string = json.dumps(session_agent.to_dict())
+
+    # Load it back and verify the full state round-trips, bytes included
+    loaded_agent = SessionAgent.from_dict(json.loads(agent_json_string))
+    assert loaded_agent.state == session_agent.state

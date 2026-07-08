@@ -497,7 +497,6 @@ def test_start_swarm_call_span_with_string_task(mock_tracer):
             {
                 "gen_ai.operation.name": "invoke_swarm",
                 "gen_ai.system": "strands-agents",
-                "gen_ai.agent.name": "swarm",
                 "workflow_id": "wf-789",
                 "priority": "high",
             }
@@ -526,7 +525,6 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
             {
                 "gen_ai.operation.name": "invoke_swarm",
                 "gen_ai.system": "strands-agents",
-                "gen_ai.agent.name": "swarm",
             }
         )
         mock_span.add_event.assert_any_call(
@@ -584,7 +582,6 @@ def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer,
             {
                 "gen_ai.operation.name": "invoke_swarm",
                 "gen_ai.provider.name": "strands-agents",
-                "gen_ai.agent.name": "swarm",
             }
         )
         mock_span.add_event.assert_any_call(

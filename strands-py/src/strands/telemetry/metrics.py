@@ -298,7 +298,7 @@ class EventLoopMetrics:
         duration: float,
         tool_trace: Trace,
         success: bool,
-        message: Message,
+        message: Message | None = None,
     ) -> None:
         """Record metrics for a tool invocation.
 
@@ -307,7 +307,8 @@ class EventLoopMetrics:
             duration: How long the tool call took in seconds.
             tool_trace: The trace object for this tool call.
             success: Whether the tool call was successful.
-            message: The message associated with the tool call.
+            message: The message associated with the tool call, if any. Pass ``None``
+                when the call ended without producing a tool result (e.g. on interrupt).
         """
         tool_name = tool.get("name", "unknown_tool")
         tool_use_id = tool.get("toolUseId", "unknown")
@@ -319,7 +320,8 @@ class EventLoopMetrics:
             }
         )
         tool_trace.raw_name = f"{tool_name} - {tool_use_id}"
-        tool_trace.add_message(message)
+        if message is not None:
+            tool_trace.add_message(message)
 
         self.tool_metrics.setdefault(tool_name, ToolMetrics(tool)).add_call(
             tool,

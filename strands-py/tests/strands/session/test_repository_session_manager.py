@@ -1,5 +1,6 @@
 """Tests for AgentSessionManager."""
 
+import copy
 from unittest.mock import Mock
 
 import pytest
@@ -313,6 +314,10 @@ def test_fix_broken_tool_use_adds_missing_tool_results(existing_session_manager)
     assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
     assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
     assert fixed_messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+    # The synthesized message is spliced into history outside the append chokepoint, so it must
+    # still carry a durable tracking id like any other message.
+    assert isinstance(fixed_messages[1].get("tracking_id"), str)
+    assert fixed_messages[1]["tracking_id"]
 
 
 def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manager):
@@ -368,6 +373,33 @@ def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manag
     missing_result = next(tr for tr in fixed_messages[1]["content"] if tr["toolResult"]["toolUseId"] == "missing-456")
     assert missing_result["toolResult"]["status"] == "error"
     assert missing_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+
+
+def test_fix_broken_tool_use_removes_stale_tool_results(session_manager):
+    """Test that toolResults with IDs not matching any preceding toolUse are dropped (#2296)."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "valid-123", "name": "test_tool", "input": {"input": "test"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "stale-999", "status": "success", "content": [{"text": "stale"}]}},
+                {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}},
+            ],
+        },
+        {"role": "user", "content": [{"text": "Final message"}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    assert len(fixed_messages) == 3
+    assert fixed_messages[1]["content"] == [
+        {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}}
+    ]
 
 
 def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_manager):
@@ -427,11 +459,90 @@ def test_fix_broken_tool_use_ignores_last_message(session_manager):
             ],
         },
     ]
+    original = copy.deepcopy(messages)
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
     # Should remain unchanged since toolUse is in last message
-    assert fixed_messages == messages
+    assert fixed_messages == original
+
+
+def test_fix_broken_tool_use_ignores_single_orphaned_tool_use(session_manager):
+    """Test that a conversation with only a single orphaned toolUse is left untouched."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "only-message-123", "name": "test_tool", "input": {"input": "test"}}}
+            ],
+        },
+    ]
+    original = copy.deepcopy(messages)
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    assert fixed_messages == original
+
+
+def test_fix_broken_tool_use_consecutive_orphaned_tool_uses(session_manager):
+    """Consecutive non-trailing orphaned toolUse messages each receive a toolResult (issue #2028).
+
+    The trailing message is intentionally left for the agent class to handle at prompt-arrival
+    time, so this covers the mid-iteration skip caused by enumerate+insert against a live
+    ``len(messages)`` guard: with two orphans followed by a text message, the second orphan
+    used to end up as the new "last" index mid-loop and get skipped.
+    """
+    tru_messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "first-123", "name": "test_tool", "input": {"input": "test1"}}}],
+        },
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "second-456", "name": "test_tool", "input": {"input": "test2"}}}],
+        },
+        {"role": "user", "content": [{"text": "Next message"}]},
+    ]
+    exp_messages = [
+        tru_messages[0],
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "first-123",
+                        "status": "error",
+                        "content": [{"text": "Tool was interrupted."}],
+                    }
+                }
+            ],
+        },
+        tru_messages[1],
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "second-456",
+                        "status": "error",
+                        "content": [{"text": "Tool was interrupted."}],
+                    }
+                }
+            ],
+        },
+        tru_messages[2],
+    ]
+
+    tru_fixed = session_manager._fix_broken_tool_use(tru_messages)
+
+    # Each synthesized toolResult message is spliced in outside the append chokepoint, so it
+    # carries its own durable tracking id. Assert those are present, then fold the actual ids into
+    # the expected messages so the structural comparison still holds.
+    assert tru_fixed[1]["tracking_id"] and tru_fixed[3]["tracking_id"]
+    exp_messages[1]["tracking_id"] = tru_fixed[1]["tracking_id"]
+    exp_messages[3]["tracking_id"] = tru_fixed[3]["tracking_id"]
+
+    assert tru_fixed == exp_messages
 
 
 def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):

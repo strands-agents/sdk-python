@@ -1218,6 +1218,40 @@ async def test_stream_messages(agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_messages_strips_id_before_model_call(agenerator, alist):
+    """The durable message id must never leak to the model provider."""
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt_content=None,
+        messages=[
+            {
+                "role": "user",
+                "content": [{"text": "hi"}],
+                "tracking_id": "durable-1",
+                "metadata": {"usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}},
+            }
+        ],
+        tool_specs=None,
+        system_prompt=None,
+    )
+
+    await alist(stream)
+
+    sent_messages = mock_model.stream.call_args[0][0]
+    assert sent_messages == [{"role": "user", "content": [{"text": "hi"}]}]
+    assert "tracking_id" not in sent_messages[0]
+    assert "metadata" not in sent_messages[0]
+
+
+@pytest.mark.asyncio
 async def test_stream_messages_with_system_prompt_content(agenerator, alist):
     """Test stream_messages with SystemContentBlock input."""
     mock_model = unittest.mock.MagicMock()

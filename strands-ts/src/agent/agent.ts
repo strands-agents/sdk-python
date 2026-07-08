@@ -25,7 +25,7 @@ import {
 } from '../types/messages.js'
 import { deepCopy } from '../types/json.js'
 import type { JSONValue } from '../types/json.js'
-import { McpClient } from '../mcp.js'
+import { McpClient } from '../mcp/index.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'
@@ -104,7 +104,7 @@ import { MemoryManager } from '../memory/memory-manager.js'
 import type { MemoryManagerConfig } from '../memory/index.js'
 import { SessionManager } from '../session/session-manager.js'
 import { Tracer } from '../telemetry/tracer.js'
-import { Meter } from '../telemetry/meter.js'
+import { AgentMetrics, Meter } from '../telemetry/meter.js'
 import type { AttributeValue } from '@opentelemetry/api'
 import { logger } from '../logging/logger.js'
 import { CancelledError } from '../errors.js'
@@ -716,9 +716,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       | MiddlewareWrapPhase<TContext, TResult, TEvent>
       | MiddlewareOutputPhase<TContext, TResult, TEvent>,
     handler:
-      | MiddlewareHandler<TContext, TResult, TEvent>
-      | MiddlewareInputHandler<TContext>
-      | MiddlewareOutputHandler<TResult>
+      MiddlewareHandler<TContext, TResult, TEvent> | MiddlewareInputHandler<TContext> | MiddlewareOutputHandler<TResult>
   ): () => void {
     if ('_phase' in stageOrPhase) {
       const phase = stageOrPhase as { _phase: MiddlewarePhaseKind; _stage: MiddlewareStage<TContext, TResult, TEvent> }
@@ -891,6 +889,13 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   get toolRegistry(): ToolRegistry {
     return this._toolRegistry
+  }
+
+  /**
+   * Read-only snapshot of accumulated agent metrics (cycles, token usage, tool stats).
+   */
+  get metrics(): AgentMetrics {
+    return this._meter.metrics
   }
 
   /**
@@ -2653,6 +2658,8 @@ export class Agent implements LocalAgent, InvokableAgent {
         this.messages[lastIndex] = new Message({
           role: 'user',
           content: redactedContent,
+          // Redaction rewrites content but it's the same logical message, so keep its tracking id.
+          trackingId: lastMessage.trackingId,
         })
       } else if (lastMessage) {
         // Unexpected state: redaction requested but last message is not from user

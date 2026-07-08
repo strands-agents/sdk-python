@@ -201,7 +201,7 @@ async def test_event_loop_cycle_text_response(
     tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "tracking_id": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -233,7 +233,7 @@ async def test_event_loop_cycle_text_response_throttling(
     tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "tracking_id": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -272,7 +272,7 @@ async def test_event_loop_cycle_exponential_backoff(
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
-    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "tracking_id": ANY}
     assert tru_request_state == {}
 
     # Verify that sleep was called with increasing delays
@@ -362,7 +362,7 @@ async def test_event_loop_cycle_tool_result(
     tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "tracking_id": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -492,6 +492,7 @@ async def test_event_loop_cycle_stop(
             }
         ],
         "metadata": ANY,
+        "tracking_id": ANY,
     }
     exp_request_state = {"stop_event_loop": True}
 
@@ -524,6 +525,91 @@ async def test_cycle_exception(
             tru_stop_event = event
 
     assert tru_stop_event == exp_stop_event
+
+
+@pytest.mark.asyncio
+async def test_cycle_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    caplog,
+):
+    """A failed cycle logs the exception type at ERROR without attaching a full traceback.
+
+    The ERROR-level cycle-failure record names the exception type and carries no exc_info, so the
+    handler's exception arguments and stack frames are not emitted into application logs.
+    """
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        ValueError("Invalid error presented"),
+    ]
+
+    with caplog.at_level("DEBUG", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            async for _event in stream:
+                pass
+
+    cycle_records = [r for r in caplog.records if "event loop cycle failed" in r.getMessage()]
+
+    # The ERROR record names the exception type but carries no traceback (payload-free by default).
+    error_records = [record for record in cycle_records if record.levelname == "ERROR"]
+    assert error_records
+    cycle_record = error_records[0]
+    assert "ValueError" in cycle_record.getMessage()
+    assert cycle_record.exc_info is None
+
+    # The full traceback remains available opt-in at DEBUG.
+    debug_records = [record for record in cycle_records if record.levelname == "DEBUG"]
+    assert debug_records
+    assert debug_records[0].exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_post_stream_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    agenerator,
+    alist,
+    caplog,
+):
+    """A failure while finalizing a completed stream logs the type at ERROR and the traceback at DEBUG.
+
+    This exercises the post-stream handler (the metrics/message-append block) rather than the
+    model-invocation handler, so both cycle-failure log sites share the same payload-free behavior.
+    """
+    model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+    agent.event_loop_metrics.update_metrics = MagicMock(side_effect=ValueError("Invalid error presented"))
+
+    with caplog.at_level("DEBUG", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            await alist(stream)
+
+    cycle_records = [r for r in caplog.records if "event loop cycle failed" in r.getMessage()]
+
+    error_records = [record for record in cycle_records if record.levelname == "ERROR"]
+    assert error_records
+    assert "ValueError" in error_records[0].getMessage()
+    assert error_records[0].exc_info is None
+
+    debug_records = [record for record in cycle_records if record.levelname == "DEBUG"]
+    assert debug_records
+    assert debug_records[0].exc_info is not None
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
@@ -962,14 +1048,16 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY}, stop_reason="end_turn"
+            message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY, "tracking_id": ANY},
+            stop_reason="end_turn",
         ),
         exception=None,
     )
 
     # Final message
     assert next(events) == MessageAddedEvent(
-        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY}
+        agent=agent,
+        message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY, "tracking_id": ANY},
     )
 
 
@@ -1014,6 +1102,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
                 ],
                 "role": "assistant",
                 "metadata": ANY,
+                "tracking_id": ANY,
             },
         },
         "interrupts": {
@@ -1103,6 +1192,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
                 },
             },
         ],
+        "tracking_id": ANY,
     }
     assert tru_result_message == exp_result_message
 
@@ -1148,7 +1238,7 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
     # ensure that we got end_turn and not tool_use
     assert events[-1] == EventLoopStopEvent(
         stop_reason="end_turn",
-        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant", "metadata": ANY},
+        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant", "metadata": ANY, "tracking_id": ANY},
         metrics=ANY,
         request_state={},
     )
@@ -1165,6 +1255,7 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
             }
         ],
         "role": "user",
+        "tracking_id": ANY,
     }
 
 

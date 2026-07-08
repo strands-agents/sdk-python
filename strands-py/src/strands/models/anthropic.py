@@ -17,6 +17,7 @@ from typing_extensions import Required, Unpack, override
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
@@ -371,14 +372,23 @@ class AnthropicModel(Model):
 
             case "metadata":
                 usage = event["usage"]
+                input_tokens = usage["input_tokens"]
+                output_tokens = usage["output_tokens"]
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                cache_write = usage.get("cache_creation_input_tokens") or 0
+                usage_chunk: Usage = {
+                    "inputTokens": input_tokens,
+                    "outputTokens": output_tokens,
+                    "totalTokens": input_tokens + output_tokens,
+                }
+                if cache_read:
+                    usage_chunk["cacheReadInputTokens"] = cache_read
+                if cache_write:
+                    usage_chunk["cacheWriteInputTokens"] = cache_write
 
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": usage["input_tokens"],
-                            "outputTokens": usage["output_tokens"],
-                            "totalTokens": usage["input_tokens"] + usage["output_tokens"],
-                        },
+                        "usage": usage_chunk,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

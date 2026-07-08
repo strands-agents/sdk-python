@@ -383,7 +383,12 @@ def test_agent__call__(
         "stop_reason": result.stop_reason,
     }
     exp_result = {
-        "message": {"content": [{"text": "test text"}], "role": "assistant", "metadata": unittest.mock.ANY},
+        "message": {
+            "content": [{"text": "test text"}],
+            "role": "assistant",
+            "metadata": unittest.mock.ANY,
+            "tracking_id": unittest.mock.ANY,
+        },
         "state": {},
         "stop_reason": "end_turn",
     }
@@ -833,6 +838,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                     {"text": "value"},
                 ],
                 "metadata": unittest.mock.ANY,
+                "tracking_id": unittest.mock.ANY,
             },
         ),
         unittest.mock.call(
@@ -846,6 +852,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                         {"text": "value"},
                     ],
                     "metadata": unittest.mock.ANY,
+                    "tracking_id": unittest.mock.ANY,
                 },
                 metrics=unittest.mock.ANY,
                 state={},
@@ -870,7 +877,12 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
     result = agent("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
+    exp_message = {
+        "content": [{"text": "abc"}],
+        "role": "assistant",
+        "metadata": unittest.mock.ANY,
+        "tracking_id": unittest.mock.ANY,
+    }
     assert tru_message == exp_message
 
 
@@ -890,8 +902,47 @@ async def test_agent_invoke_async(mock_model, agent, agenerator):
     result = await agent.invoke_async("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
+    exp_message = {
+        "content": [{"text": "abc"}],
+        "role": "assistant",
+        "metadata": unittest.mock.ANY,
+        "tracking_id": unittest.mock.ANY,
+    }
     assert tru_message == exp_message
+
+
+@pytest.mark.asyncio
+async def test_append_messages_assigns_durable_tracking_id(agent):
+    message = {"role": "user", "content": [{"text": "hello"}]}
+
+    await agent._append_messages(message)
+
+    assert "tracking_id" in agent.messages[-1]
+    assert isinstance(agent.messages[-1]["tracking_id"], str)
+
+
+@pytest.mark.asyncio
+async def test_append_messages_preserves_existing_id(agent):
+    message = {"role": "user", "content": [{"text": "hello"}], "tracking_id": "caller-supplied"}
+
+    await agent._append_messages(message)
+
+    assert agent.messages[-1]["tracking_id"] == "caller-supplied"
+
+
+@pytest.mark.asyncio
+async def test_append_messages_id_visible_to_message_added_hook(agent):
+    from strands.hooks import MessageAddedEvent
+
+    observed_ids = []
+    agent.hooks.add_callback(MessageAddedEvent, lambda event: observed_ids.append(event.message.get("tracking_id")))
+
+    message = {"role": "user", "content": [{"text": "hello"}]}
+    await agent._append_messages(message)
+
+    # The id the hook observed is the same id that ends up on the stored message.
+    assert observed_ids == [agent.messages[-1]["tracking_id"]]
+    assert observed_ids[0] is not None
 
 
 @pytest.mark.parametrize("tools", [None, [tool_decorated]], indirect=True)
@@ -1180,8 +1231,13 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
 
     tru_message = agent.messages
     exp_message = [
-        {"content": prompt, "role": "user"},
-        {"content": [{"text": "I see text and an image"}], "role": "assistant", "metadata": unittest.mock.ANY},
+        {"content": prompt, "role": "user", "tracking_id": unittest.mock.ANY},
+        {
+            "content": [{"text": "I see text and an image"}],
+            "role": "assistant",
+            "metadata": unittest.mock.ANY,
+            "tracking_id": unittest.mock.ANY,
+        },
     ]
     assert tru_message == exp_message
 
@@ -1377,7 +1433,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
+        messages=[{"content": [{"text": "test prompt"}], "role": "user", "tracking_id": unittest.mock.ANY}],
         agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
@@ -1414,7 +1470,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
+        messages=[{"content": [{"text": "test prompt"}], "role": "user", "tracking_id": unittest.mock.ANY}],
         agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
@@ -1453,7 +1509,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
+        messages=[{"content": [{"text": "test prompt"}], "role": "user", "tracking_id": unittest.mock.ANY}],
         agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
@@ -1490,7 +1546,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
+        messages=[{"content": [{"text": "test prompt"}], "role": "user", "tracking_id": unittest.mock.ANY}],
         agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
@@ -1922,6 +1978,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
                 },
             },
         ],
+        "tracking_id": unittest.mock.ANY,
     }
     assert tru_result_message == exp_result_message
 
@@ -2052,6 +2109,7 @@ def test_agent__call__invalid_tool_name():
             }
         ],
         "role": "user",
+        "tracking_id": unittest.mock.ANY,
     }
 
     # And that it continued to the LLM call
@@ -2059,6 +2117,7 @@ def test_agent__call__invalid_tool_name():
         "content": [{"text": "I invoked a tool!"}],
         "role": "assistant",
         "metadata": unittest.mock.ANY,
+        "tracking_id": unittest.mock.ANY,
     }
 
 
@@ -2233,6 +2292,7 @@ def test_agent_fixes_orphaned_tool_use_on_new_prompt(mock_model, agenerator):
                 }
             }
         ],
+        "tracking_id": unittest.mock.ANY,
     }
 
 
@@ -2292,6 +2352,7 @@ def test_agent_fixes_multiple_orphaned_tool_uses(mock_model, agenerator):
                 }
             },
         ],
+        "tracking_id": unittest.mock.ANY,
     }
 
 
@@ -2612,6 +2673,7 @@ def test_agent_direct_tool_call_during_invocation_raises_exception(tool_decorate
             }
         ],
         "role": "user",
+        "tracking_id": unittest.mock.ANY,
     }
 
 
@@ -2663,6 +2725,7 @@ def test_agent_direct_tool_call_during_invocation_succeeds_with_record_false(too
             }
         ],
         "role": "user",
+        "tracking_id": unittest.mock.ANY,
     }
 
 

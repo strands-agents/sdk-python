@@ -50,7 +50,7 @@ class _BidiAgentLoop:
             This allows passing custom data (user_id, session_id, database connections, etc.)
             that tools can access via their invocation_state parameter.
         _send_gate: Gate the sending of events to the model.
-            Blocks when agent is reseting the model connection after timeout.
+            Blocks when agent is resetting the model connection after timeout.
     """
 
     def __init__(self, agent: "BidiAgent") -> None:
@@ -182,7 +182,7 @@ class _BidiAgentLoop:
         Args:
             timeout_error: Timeout error reported by the model.
         """
-        logger.debug("reseting model connection")
+        logger.debug("resetting model connection")
 
         self._send_gate.clear()
 

@@ -331,6 +331,10 @@ class ToolExecutor(abc.ABC):
                 yield event
 
             if isinstance(event, ToolInterruptEvent):
+                tool_duration = time.time() - tool_start_time
+                if ToolExecutor._is_agent(agent):
+                    agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, False)
+                cycle_trace.add_child(tool_trace)
                 tracer.end_tool_call_span(tool_call_span, tool_result=None)
                 return
 

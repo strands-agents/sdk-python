@@ -54,6 +54,19 @@ describe('summarizeContextTool', () => {
     expect(messages[0]!.role).toBe('user')
   })
 
+  it('assigns a durable tracking id to the generated summary', async () => {
+    // The summary message is spliced straight into agent.messages, bypassing the append
+    // chokepoint, so summarizeContextTool must assign it a durable tracking id itself.
+    const model = mockModel('Summary')
+    const messages = makeMessages(20)
+
+    await summarizeContextTool.invoke({ keepRecent: 10, summaryRatio: 0.5 }, makeContext(messages, model))
+
+    const summaryMessage = messages.find((message) => (message.content[0] as TextBlock).text === 'Summary')!
+    expect(typeof summaryMessage.trackingId).toBe('string')
+    expect(summaryMessage.trackingId).toBeTruthy()
+  })
+
   it('preserves pinned messages during summarization', async () => {
     const model = mockModel('Summary')
     const messages = makeMessages(20)
