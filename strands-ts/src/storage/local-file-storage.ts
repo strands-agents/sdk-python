@@ -28,7 +28,7 @@ function isFileNotFoundError(error: unknown): boolean {
  * ```typescript
  * import { LocalFileStorage } from '@strands-agents/sdk/storage'
  *
- * const storage = new LocalFileStorage('./.strands/storage')
+ * const storage = new LocalFileStorage('./.strands/')
  * await storage.put('sessions/abc/snapshot.json', bytes)
  * ```
  */
@@ -37,10 +37,10 @@ export class LocalFileStorage implements Storage {
   private readonly _sandbox: Sandbox | undefined
 
   /**
-   * @param baseDir - Root directory under which keys are stored. Defaults to `./.strands/storage`.
+   * @param baseDir - Root directory under which keys are stored. Defaults to `./.strands/`.
    * @param sandbox - Optional sandbox to route I/O through. Usually set via {@link forSandbox}.
    */
-  constructor(baseDir: string = './.strands/storage', sandbox?: Sandbox) {
+  constructor(baseDir: string = './.strands/', sandbox?: Sandbox) {
     this._baseDir = baseDir
     this._sandbox = sandbox
   }

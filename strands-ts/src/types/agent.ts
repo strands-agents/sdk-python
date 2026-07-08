@@ -281,6 +281,12 @@ export interface LocalAgent {
   readonly sandbox: Sandbox
 
   /**
+   * Aggregated metrics for the agent's loop execution.
+   * Tracks cycle counts, token usage, tool execution stats, and model latency.
+   */
+  readonly metrics: AgentMetrics
+
+  /**
    * The model provider used by the agent for inference.
    */
   readonly model: Model

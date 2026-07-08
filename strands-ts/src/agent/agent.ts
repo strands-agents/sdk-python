@@ -104,7 +104,7 @@ import { MemoryManager } from '../memory/memory-manager.js'
 import type { MemoryManagerConfig } from '../memory/index.js'
 import { SessionManager } from '../session/session-manager.js'
 import { Tracer } from '../telemetry/tracer.js'
-import { Meter } from '../telemetry/meter.js'
+import { AgentMetrics, Meter } from '../telemetry/meter.js'
 import type { AttributeValue } from '@opentelemetry/api'
 import { logger } from '../logging/logger.js'
 import { CancelledError } from '../errors.js'
@@ -119,7 +119,6 @@ import type { TakeSnapshotOptions } from './snapshot.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { Sandbox } from '../sandbox/base.js'
 import { defaultSandbox } from '../sandbox/default.js'
-import type { Storage } from '../storage/storage.js'
 import {
   summarizeContextTool,
   truncateContextTool,
@@ -297,12 +296,6 @@ export type AgentConfig = {
    */
   toolExecutor?: ToolExecutorStrategy
   /**
-   * Unified storage backend shared with all plugins that implement `initStorage`.
-   * Plugins receive this instance during initialization and use it for persistence
-   * rather than requiring the user to pass storage to each plugin separately.
-   */
-  storage?: Storage
-  /**
    * Execution environment for running commands, code, and file operations.
    * When provided, sandbox-aware tools route operations through it.
    *
@@ -467,6 +460,10 @@ export class Agent implements LocalAgent, InvokableAgent {
     return this._sandbox || defaultSandbox.get()
   }
 
+  get metrics(): AgentMetrics {
+    return this._meter.metrics
+  }
+
   private readonly _hooksRegistry: HookRegistryImplementation
   private readonly _middlewareRegistry: MiddlewareRegistry
   private readonly _pluginRegistry: PluginRegistry
@@ -576,7 +573,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
-              storage: new InMemoryStorage({ maxEntries: 200 }),
+              storage: new InMemoryStorage(),
               maxResultTokens:
                 config?.contextManager === 'agentic'
                   ? AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
@@ -589,10 +586,6 @@ export class Agent implements LocalAgent, InvokableAgent {
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
-
-    if (config?.storage) {
-      this._pluginRegistry.setStorage(config.storage)
-    }
 
     if (config?.systemPrompt !== undefined) {
       this.systemPrompt = systemPromptFromData(config.systemPrompt)

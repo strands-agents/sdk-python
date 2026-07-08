@@ -154,12 +154,11 @@ export interface ContextOffloaderConfig {
    *
    * Accepts either:
    * - A unified `Storage` (from `@strands-agents/sdk/storage`) — each offloaded content block
-   *   occupies exactly one key (content-type is framed into the stored bytes). Eviction is
-   *   controlled by the storage's own `maxEntries` (LRU). No turn-based eviction is performed.
+   *   occupies exactly one key (content-type is framed into the stored bytes).
    * - A legacy offloader `Storage` (deprecated, from this module) — manages its own turn-based
    *   eviction internally via its `evictAfterTurns` constructor parameter.
    *
-   * When omitted, the plugin uses the agent-level storage provided via `initStorage`.
+   * Required — must be provided in the plugin constructor.
    */
   storage?: Storage | OffloaderStorage
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
@@ -168,6 +167,13 @@ export interface ContextOffloaderConfig {
   previewTokens?: number
   /** Whether to register the `retrieve_offloaded_content` tool. Defaults to true. */
   includeRetrievalTool?: boolean
+  /**
+   * Number of agent loop cycles before an offloaded entry is evicted.
+   * Entries stored more than this many cycles ago are deleted.
+   * Defaults to 20. Set to `null` to disable eviction.
+   * Only applies to unified `Storage` backends — legacy backends manage their own eviction.
+   */
+  evictAfterCycles?: number | null
 }
 
 /**
@@ -181,10 +187,9 @@ export interface ContextOffloaderConfig {
  *
  * How offloaded entries are evicted depends on the storage backend:
  *
- * - **Unified `Storage`** (from `@strands-agents/sdk/storage`): eviction is handled by the
- *   storage implementation itself via LRU (`maxEntries`). The offloader does not track turns
- *   or perform any time-based cleanup. Configure `maxEntries` on the storage to control
- *   how many offloaded entries are retained.
+ * - **Unified `Storage`** (from `@strands-agents/sdk/storage`): the plugin tracks each
+ *   stored key's last-access cycle (from `agent.metrics.cycleCount`). Entries not accessed
+ *   within `evictAfterCycles` agent loop cycles are deleted. Defaults to 20 cycles.
  *
  * - **Legacy offloader storage** (deprecated `InMemoryStorage` from this module): the storage
  *   manages its own turn-based eviction internally. Entries not accessed within
@@ -198,7 +203,7 @@ export interface ContextOffloaderConfig {
  * const agent = new Agent({
  *   model,
  *   plugins: [new ContextOffloader({
- *     storage: new InMemoryStorage({ maxEntries: 200 }),
+ *     storage: new InMemoryStorage(),
  *   })],
  * })
  * ```
@@ -206,14 +211,17 @@ export interface ContextOffloaderConfig {
 export class ContextOffloader implements Plugin {
   readonly name = 'strands:context-offloader'
 
-  // Assigned in constructor or initStorage, then effectively final
-  private _storage: Storage | OffloaderStorage | undefined
+  private static readonly _DEFAULT_EVICT_AFTER_CYCLES = 20
+
+  private readonly _storage: Storage | OffloaderStorage | undefined
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
   private readonly _includeRetrievalTool: boolean
+  private readonly _evictAfterCycles: number | null
   private readonly _storageByAgent = new WeakMap<LocalAgent, Storage | OffloaderStorage>()
+  private readonly _keyStoredAt = new Map<string, number>()
+  private _agent: LocalAgent | undefined
   private _retrievalTool: Tool | undefined
-  private readonly _hasExplicitStorage: boolean
 
   constructor(config: ContextOffloaderConfig = {}) {
     const maxResultTokens = config.maxResultTokens ?? DEFAULT_MAX_RESULT_TOKENS
@@ -223,44 +231,56 @@ export class ContextOffloader implements Plugin {
     if (previewTokens < 0) throw new Error('previewTokens must be non-negative')
     if (previewTokens >= maxResultTokens) throw new Error('previewTokens must be less than maxResultTokens')
 
+    const evictAfterCycles = config.evictAfterCycles === undefined
+      ? ContextOffloader._DEFAULT_EVICT_AFTER_CYCLES
+      : config.evictAfterCycles
+    if (evictAfterCycles !== null && evictAfterCycles < 1) {
+      throw new Error('evictAfterCycles must be a positive integer')
+    }
+
     this._storage = config.storage
-    this._hasExplicitStorage = config.storage !== undefined
     this._maxResultTokens = maxResultTokens
     this._previewTokens = previewTokens
     this._includeRetrievalTool = config.includeRetrievalTool ?? true
-  }
-
-  /**
-   * Receives the agent-level unified storage when no explicit storage was provided.
-   *
-   * @param storage - The agent-level storage instance
-   */
-  initStorage(storage: Storage): void {
-    if (this._hasExplicitStorage) return
-    this._storage = storage
+    this._evictAfterCycles = evictAfterCycles
   }
 
   initAgent(agent: LocalAgent): void {
     if (!this._storage) {
-      throw new Error(
-        'ContextOffloader requires a storage backend. ' +
-          'Pass storage in the plugin config or set storage on the Agent config.'
-      )
+      throw new Error('ContextOffloader requires a storage backend. Pass storage in the plugin config.')
     }
     if (this._storage instanceof LegacyInMemoryStorage) {
       this._storage._bind(agent)
     }
+    this._agent = agent
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
-    // Legacy backends manage their own turn-based eviction internally.
-    // Unified Storage backends rely on LRU (maxEntries) for eviction — no turn tracking needed.
-    let cycleCount = 0
+
     agent.addHook(BeforeModelCallEvent, () => {
-      cycleCount++
+      const cycleCount = agent.metrics.cycleCount
       if (this._storage instanceof LegacyInMemoryStorage) {
         this._storage._evict(cycleCount)
+      } else if (this._evictAfterCycles !== null) {
+        this._evict(cycleCount)
       }
     })
+  }
+
+  private _evict(currentCycle: number): void {
+    const threshold = currentCycle - this._evictAfterCycles!
+    const toEvict: string[] = []
+    for (const [key, lastAccess] of this._keyStoredAt) {
+      if (lastAccess < threshold) {
+        toEvict.push(key)
+      }
+    }
+    if (toEvict.length === 0) return
+    const storage = this._storage as Storage
+    for (const key of toEvict) {
+      this._keyStoredAt.delete(key)
+      storage.delete(key).catch(() => {})
+    }
+    logger.debug(`evicted=<${toEvict.length}>, threshold=<${threshold}> | evicted stale offloaded entries`)
   }
 
   getTools(): Tool[] {
@@ -432,6 +452,12 @@ export class ContextOffloader implements Plugin {
     try {
       const storage = this._storageForAgent(event.agent)
       references = await Promise.all(content.map((block, i) => this._storeBlock(storage, block, `${toolUseId}_${i}`)))
+      if (!isOffloaderStorage(storage)) {
+        const storedAt = this._agent!.metrics.cycleCount
+        for (const entry of references) {
+          if (entry.ref) this._keyStoredAt.set(entry.ref, storedAt)
+        }
+      }
     } catch (err) {
       logger.warn(`tool_use_id=<${toolUseId}> | failed to offload tool result, keeping original`, err)
       return

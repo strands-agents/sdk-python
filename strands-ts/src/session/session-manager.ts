@@ -62,8 +62,6 @@ export interface SessionManagerConfig {
    * Accepts either:
    * - A unified {@link Storage} instance (recommended) — wrapped internally with {@link SnapshotStorageAdapter}
    * - A legacy `{ snapshot: SnapshotStorage }` object for backwards compatibility
-   *
-   * When omitted, the session manager receives storage from the agent via `initStorage`.
    */
   storage?: Storage | { snapshot: SnapshotStorage }
   /** Unique session identifier. Defaults to `'default-session'`. */
@@ -105,7 +103,6 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
   private _multiAgentRestoredIds = new Set<string>()
-  private readonly _hasExplicitStorage: boolean
 
   /**
    * Unique identifier for this plugin.
@@ -117,20 +114,9 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   constructor(config: SessionManagerConfig = {}) {
     this._sessionId = validateIdentifier(config.sessionId ?? 'default-session')
     this._storage = config.storage ? { snapshot: this._resolveSnapshotStorage(config.storage) } : undefined
-    this._hasExplicitStorage = config.storage !== undefined
     this._saveLatestOn = config.saveLatestOn ?? 'invocation'
     this._multiAgentSaveLatestOn = config.multiAgentSaveLatestOn ?? 'node'
     this._snapshotTrigger = config.snapshotTrigger
-  }
-
-  /**
-   * Receives the agent-level unified storage when no explicit storage was provided.
-   *
-   * @param storage - The agent-level storage instance
-   */
-  initStorage(storage: Storage): void {
-    if (this._hasExplicitStorage) return
-    this._storage = { snapshot: new SnapshotStorageAdapter(storage) }
   }
 
   private get _snapshotStorage(): SnapshotStorage {

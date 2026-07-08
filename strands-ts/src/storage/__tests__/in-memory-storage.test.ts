@@ -6,7 +6,7 @@ describe('InMemoryStorage', () => {
   let storage: InMemoryStorage
 
   beforeEach(() => {
-    storage = new InMemoryStorage({ maxEntries: null })
+    storage = new InMemoryStorage()
   })
 
   describe('put', () => {
@@ -105,68 +105,6 @@ describe('InMemoryStorage', () => {
     })
   })
 
-  describe('LRU eviction', () => {
-    it('evicts the least-recently-used entry when maxEntries is exceeded', async () => {
-      const bounded = new InMemoryStorage({ maxEntries: 2 })
-      await bounded.put('a', new Uint8Array([1]))
-      await bounded.put('b', new Uint8Array([2]))
-      await bounded.put('c', new Uint8Array([3]))
-
-      expect(await bounded.get('a')).toBeNull()
-      expect(await bounded.get('b')).not.toBeNull()
-      expect(await bounded.get('c')).not.toBeNull()
-    })
-
-    it('get promotes an entry so it is not evicted next', async () => {
-      const bounded = new InMemoryStorage({ maxEntries: 2 })
-      await bounded.put('a', new Uint8Array([1]))
-      await bounded.put('b', new Uint8Array([2]))
-      await bounded.get('a')
-      await bounded.put('c', new Uint8Array([3]))
-
-      expect(await bounded.get('a')).not.toBeNull()
-      expect(await bounded.get('b')).toBeNull()
-      expect(await bounded.get('c')).not.toBeNull()
-    })
-
-    it('works with maxEntries: 1', async () => {
-      const bounded = new InMemoryStorage({ maxEntries: 1 })
-      await bounded.put('a', new Uint8Array([1]))
-      await bounded.put('b', new Uint8Array([2]))
-
-      expect(await bounded.get('a')).toBeNull()
-      expect(await bounded.get('b')).not.toBeNull()
-    })
-
-    it('overwriting an existing key does not trigger eviction', async () => {
-      const bounded = new InMemoryStorage({ maxEntries: 2 })
-      await bounded.put('a', new Uint8Array([1]))
-      await bounded.put('b', new Uint8Array([2]))
-      await bounded.put('a', new Uint8Array([99]))
-
-      expect(await bounded.get('a')).toEqual(new Uint8Array([99]))
-      expect(await bounded.get('b')).not.toBeNull()
-    })
-
-    it('does not evict when maxEntries is null', async () => {
-      const unbounded = new InMemoryStorage({ maxEntries: null })
-      for (let i = 0; i < 1000; i++) {
-        await unbounded.put(`key-${i}`, new Uint8Array([i]))
-      }
-      const keys = await unbounded.list('')
-      expect(keys).toHaveLength(1000)
-    })
-
-    it('rejects maxEntries less than 1', () => {
-      expect(() => new InMemoryStorage({ maxEntries: 0 })).toThrow()
-      expect(() => new InMemoryStorage({ maxEntries: -1 })).toThrow()
-    })
-
-    it('rejects non-integer maxEntries', () => {
-      expect(() => new InMemoryStorage({ maxEntries: 1.5 })).toThrow()
-      expect(() => new InMemoryStorage({ maxEntries: 0.9 })).toThrow()
-    })
-  })
 
   describe('key normalization', () => {
     it('normalizes slashes so equivalent keys resolve to the same entry', async () => {

@@ -26,7 +26,7 @@ describe('SnapshotStorageAdapter', () => {
   let adapter: SnapshotStorageAdapter
 
   beforeEach(() => {
-    backend = new InMemoryStorage({ maxEntries: null })
+    backend = new InMemoryStorage()
     adapter = new SnapshotStorageAdapter(backend)
   })
 
@@ -37,7 +37,7 @@ describe('SnapshotStorageAdapter', () => {
 
       await adapter.saveSnapshot({ location, snapshotId: uuidV7(1), isLatest: true, snapshot })
 
-      const keys = await backend.list('sessions/')
+      const keys = await backend.list('session/')
       expect(keys).toContainEqual(expect.stringContaining('snapshot_latest.json'))
     })
 
@@ -48,7 +48,7 @@ describe('SnapshotStorageAdapter', () => {
 
       await adapter.saveSnapshot({ location, snapshotId: id, isLatest: false, snapshot })
 
-      const keys = await backend.list('sessions/')
+      const keys = await backend.list('session/')
       expect(keys).toContainEqual(expect.stringContaining(`immutable_history/snapshot_${id}.json`))
     })
 
@@ -185,7 +185,7 @@ describe('SnapshotStorageAdapter', () => {
 
       await adapter.deleteSession({ sessionId: 'test-session' })
 
-      const keys = await backend.list('sessions/test-session/')
+      const keys = await backend.list('session/test-session/')
       expect(keys).toHaveLength(0)
     })
 
@@ -208,8 +208,8 @@ describe('SnapshotStorageAdapter', () => {
 
       await adapter.deleteSession({ sessionId: 'session-1' })
 
-      const keys1 = await backend.list('sessions/session-1/')
-      const keys2 = await backend.list('sessions/session-2/')
+      const keys1 = await backend.list('session/session-1/')
+      const keys2 = await backend.list('session/session-2/')
       expect(keys1).toHaveLength(0)
       expect(keys2.length).toBeGreaterThan(0)
     })
@@ -252,7 +252,7 @@ describe('SnapshotStorageAdapter', () => {
         snapshot: createTestSnapshot(),
       })
 
-      const defaultKeys = await backend.list('sessions/')
+      const defaultKeys = await backend.list('session/')
       const customKeys = await backend.list('custom/prefix/')
       expect(defaultKeys).toHaveLength(0)
       expect(customKeys.length).toBeGreaterThan(0)
@@ -261,7 +261,7 @@ describe('SnapshotStorageAdapter', () => {
 
   describe('error handling', () => {
     it('wraps storage write errors in SessionError', async () => {
-      const failingBackend: InMemoryStorage = new InMemoryStorage({ maxEntries: null })
+      const failingBackend: InMemoryStorage = new InMemoryStorage()
       failingBackend.put = async () => {
         throw new Error('disk full')
       }
@@ -274,7 +274,7 @@ describe('SnapshotStorageAdapter', () => {
     })
 
     it('wraps storage read errors in SessionError', async () => {
-      const failingBackend: InMemoryStorage = new InMemoryStorage({ maxEntries: null })
+      const failingBackend: InMemoryStorage = new InMemoryStorage()
       failingBackend.get = async () => {
         throw new Error('network timeout')
       }
@@ -286,7 +286,7 @@ describe('SnapshotStorageAdapter', () => {
 
     it('throws SessionError on corrupted JSON', async () => {
       const location = createLocation()
-      const key = 'sessions/test-session/scopes/agent/test-agent/snapshots/snapshot_latest.json'
+      const key = 'session/test-session/scopes/agent/test-agent/snapshots/snapshot_latest.json'
       await backend.put(key, new TextEncoder().encode('not valid json{{{'))
 
       await expect(adapter.loadSnapshot({ location })).rejects.toThrow(SessionError)

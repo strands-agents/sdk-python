@@ -20,18 +20,18 @@ const SNAPSHOT_REGEX = /snapshot_([\w-]+)\.json$/
  * expected by the session manager.
  *
  * Keys follow the same layout as the filesystem-based storage:
- * `sessions/<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`
+ * `session/<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`
  *
  * @deprecated Remove in v2 when SnapshotStorage is dropped and SessionManager calls Storage directly.
  * @internal
  * @param storage - The unified Storage backend to delegate to
- * @param basePrefix - Optional key prefix. Defaults to `'sessions'`.
+ * @param basePrefix - Optional key prefix. Defaults to `'session'`.
  */
 export class SnapshotStorageAdapter implements SnapshotStorage {
   private readonly _storage: Storage
   private readonly _basePrefix: string
 
-  constructor(storage: Storage, basePrefix: string = 'sessions') {
+  constructor(storage: Storage, basePrefix: string = 'session') {
     this._storage = storage
     this._basePrefix = basePrefix
   }

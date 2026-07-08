@@ -2,7 +2,6 @@
  * Plugin registry for managing plugins attached to an agent.
  */
 
-import type { Storage } from '../storage/storage.js'
 import type { Plugin } from './plugin.js'
 import type { LocalAgent } from '../types/agent.js'
 
@@ -15,20 +14,10 @@ import type { LocalAgent } from '../types/agent.js'
 export class PluginRegistry {
   private readonly _plugins: Map<string, Plugin>
   private readonly _pending: Plugin[]
-  private _storage: Storage | undefined
 
   constructor(plugins: Plugin[] = []) {
     this._plugins = new Map()
     this._pending = [...plugins]
-  }
-
-  /**
-   * Sets the storage instance to distribute to plugins during initialization.
-   *
-   * @param storage - The agent-level storage instance
-   */
-  setStorage(storage: Storage): void {
-    this._storage = storage
   }
 
   /**
@@ -53,11 +42,6 @@ export class PluginRegistry {
     const tools = plugin.getTools?.() ?? []
     if (tools.length > 0) {
       agent.toolRegistry.add(tools)
-    }
-
-    // initStorage runs first so plugins can fall back to agent-level storage before initAgent wires hooks
-    if (this._storage && plugin.initStorage) {
-      await plugin.initStorage(this._storage)
     }
 
     await plugin.initAgent(agent)
