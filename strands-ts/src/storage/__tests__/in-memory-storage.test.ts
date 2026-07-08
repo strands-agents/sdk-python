@@ -105,7 +105,6 @@ describe('InMemoryStorage', () => {
     })
   })
 
-
   describe('key normalization', () => {
     it('normalizes slashes so equivalent keys resolve to the same entry', async () => {
       await storage.put('/a//b/', new Uint8Array([1]))

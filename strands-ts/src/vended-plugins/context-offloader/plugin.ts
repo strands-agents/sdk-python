@@ -230,9 +230,8 @@ export class ContextOffloader implements Plugin {
     if (previewTokens < 0) throw new Error('previewTokens must be non-negative')
     if (previewTokens >= maxResultTokens) throw new Error('previewTokens must be less than maxResultTokens')
 
-    const evictAfterCycles = config.evictAfterCycles === undefined
-      ? ContextOffloader._DEFAULT_EVICT_AFTER_CYCLES
-      : config.evictAfterCycles
+    const evictAfterCycles =
+      config.evictAfterCycles === undefined ? ContextOffloader._DEFAULT_EVICT_AFTER_CYCLES : config.evictAfterCycles
     if (evictAfterCycles !== null && (!Number.isInteger(evictAfterCycles) || evictAfterCycles < 1)) {
       throw new Error('evictAfterCycles must be a positive integer')
     }
