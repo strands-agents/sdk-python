@@ -10,7 +10,7 @@ from typing import Any
 
 __all__ = [
     "BedrockKnowledgeBaseStore",
-    "JsonMemoryStore",
+    "TestMemoryStore",
 ]
 
 
@@ -23,18 +23,18 @@ def __getattr__(name: str) -> Any:
         from .bedrock_knowledge_base import BedrockKnowledgeBaseStore
 
         return BedrockKnowledgeBaseStore
-    if name == "JsonMemoryStore":
-        from .local import JsonMemoryStore
+    if name == "TestMemoryStore":
+        from .local import TestMemoryStore
 
-        return JsonMemoryStore
+        return TestMemoryStore
     if name == "LocalMemoryStore":
-        from .local import JsonMemoryStore
+        from .local import TestMemoryStore
 
         warnings.warn(
-            "LocalMemoryStore has been renamed to JsonMemoryStore. "
-            "Use JsonMemoryStore from strands.vended_memory_stores instead.",
+            "LocalMemoryStore has been renamed to TestMemoryStore. "
+            "Use TestMemoryStore from strands.vended_memory_stores instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        return JsonMemoryStore
+        return TestMemoryStore
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")

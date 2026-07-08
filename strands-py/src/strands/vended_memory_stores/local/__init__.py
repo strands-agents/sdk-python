@@ -5,30 +5,30 @@ resources required. Persists to disk by default so an agent remembers across res
 
 Example:
     ```python
-    from strands.vended_memory_stores.local import JsonMemoryStore
+    from strands.vended_memory_stores.local import TestMemoryStore
 
-    store = JsonMemoryStore(name="notes")
+    store = TestMemoryStore(name="notes")
     ```
 """
 
 import warnings
 from typing import Any
 
-from .store import JsonMemoryStore
-from .types import JsonMemoryAddResult, JsonMemoryStoreConfig
+from .store import TestMemoryStore
+from .types import TestMemoryAddResult, TestMemoryStoreConfig
 
 __all__ = [
-    "JsonMemoryAddResult",
-    "JsonMemoryStore",
-    "JsonMemoryStoreConfig",
+    "TestMemoryAddResult",
+    "TestMemoryStore",
+    "TestMemoryStoreConfig",
 ]
 
 # Deprecated aliases - warning emitted on access via __getattr__. Each maps its former name to the
 # renamed symbol so old imports keep the same object identity.
 _DEPRECATED_ALIASES = {
-    "LocalMemoryStore": JsonMemoryStore,
-    "LocalMemoryStoreConfig": JsonMemoryStoreConfig,
-    "LocalMemoryAddResult": JsonMemoryAddResult,
+    "LocalMemoryStore": TestMemoryStore,
+    "LocalMemoryStoreConfig": TestMemoryStoreConfig,
+    "LocalMemoryAddResult": TestMemoryAddResult,
 }
 
 

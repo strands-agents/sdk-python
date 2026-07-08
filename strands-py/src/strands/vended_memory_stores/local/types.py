@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from ...memory.types import MemoryStoreConfig
 
 
-class JsonMemoryStoreConfig(MemoryStoreConfig, total=False):
-    """Full configuration for a :class:`JsonMemoryStore`, passed as its constructor kwargs.
+class TestMemoryStoreConfig(MemoryStoreConfig, total=False):
+    """Full configuration for a :class:`TestMemoryStore`, passed as its constructor kwargs.
 
     The store persists to disk by default so memories persist across sessions.
     Set ``persist`` to ``False`` for an ephemeral, single-session store.
@@ -25,12 +25,20 @@ class JsonMemoryStoreConfig(MemoryStoreConfig, total=False):
     path: str
 
 
+# Tell pytest not to collect this class as a test suite despite its ``Test`` prefix. A TypedDict
+# rejects a ``__test__`` entry in its body, so it is assigned after the class instead.
+TestMemoryStoreConfig.__test__ = False  # type: ignore[attr-defined]
+
+
 @dataclass
-class JsonMemoryAddResult:
-    """Result returned by :meth:`JsonMemoryStore.add`.
+class TestMemoryAddResult:
+    """Result returned by :meth:`TestMemoryStore.add`.
 
     Attributes:
         id: The generated id of the stored (or already-present, on dedup) record.
     """
+
+    # Tell pytest not to collect this class as a test suite despite its ``Test`` prefix.
+    __test__ = False
 
     id: str

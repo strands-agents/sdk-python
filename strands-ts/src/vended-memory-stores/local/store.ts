@@ -15,7 +15,7 @@ const RELEVANCE_SCORE_KEY = '_relevanceScore'
 /**
  * A stored memory, as it is persisted on disk.
  */
-interface JsonMemoryRecord {
+interface TestMemoryRecord {
   id: string
   content: string
   metadata?: Record<string, JSONValue>
@@ -23,12 +23,12 @@ interface JsonMemoryRecord {
 }
 
 /**
- * Configuration for {@link JsonMemoryStore}.
+ * Configuration for {@link TestMemoryStore}.
  *
  * The store persists to disk by default so the memory records persist across restarts. Set
  * {@link persist} to `false` for an ephemeral, single session store (useful for e.g. testing).
  */
-export interface JsonMemoryStoreConfig extends MemoryStoreConfig {
+export interface TestMemoryStoreConfig extends MemoryStoreConfig {
   /**
    * Whether to persist entries to disk so they survive across sessions.
    * - `true` (default): writes are flushed to {@link path} (or the default location).
@@ -44,8 +44,8 @@ export interface JsonMemoryStoreConfig extends MemoryStoreConfig {
   path?: string
 }
 
-/** Result returned by {@link JsonMemoryStore.add}. */
-export interface JsonMemoryAddResult {
+/** Result returned by {@link TestMemoryStore.add}. */
+export interface TestMemoryAddResult {
   /** The id of the stored record. */
   id: string
 }
@@ -100,22 +100,22 @@ function tokenOverlapScore(queryTokens: Set<string>, content: string): number {
  * Each {@link add} rewrites the whole file, so this fits modest volumes, not fit for high volume
  * production workloads. Use a managed store like {@link BedrockKnowledgeBaseStore} for that.
  *
- * The on-disk format is shared with the Python SDK's `JsonMemoryStore`: records use the same
+ * The on-disk format is shared with the Python SDK's `TestMemoryStore`: records use the same
  * camelCase keys (`id`, `content`, `metadata`, `createdAt`) and the same timestamp shape, so a
  * backing file written by either SDK can be read by the other.
  *
  * @example
  * ```typescript
- * import { JsonMemoryStore } from '@strands-agents/sdk/vended-memory-stores/local'
+ * import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/local'
  *
  * // Persists to ~/.strands/memory/notes.json by default.
- * const store = new JsonMemoryStore({ name: 'notes' })
+ * const store = new TestMemoryStore({ name: 'notes' })
  *
  * const { id } = await store.add('User prefers dark mode')
  * const results = await store.search('what theme does the user like?')
  * ```
  */
-export class JsonMemoryStore implements MemoryStore {
+export class TestMemoryStore implements MemoryStore {
   readonly name: string
   readonly description?: string
   readonly maxSearchResults?: number
@@ -127,27 +127,27 @@ export class JsonMemoryStore implements MemoryStore {
   private readonly _explicitPath: string | undefined
   private _resolvedPath: string | undefined
   /** The loaded records once {@link _load} resolves; the working in-memory copy thereafter. */
-  private _records: JsonMemoryRecord[] | undefined
+  private _records: TestMemoryRecord[] | undefined
   /**
    * Memoizes the first (async) load so concurrent `search`/`add` callers share a single file read
    * instead of each racing their own — without it, a search interleaved with a first-use add could
    * overwrite the cache with a pre-write snapshot and drop the just-added record.
    */
-  private _loadPromise: Promise<JsonMemoryRecord[]> | undefined
+  private _loadPromise: Promise<TestMemoryRecord[]> | undefined
   /** Serializes writes so concurrent `add`s never interleave the load-modify-flush cycle. */
   private _writeChain: Promise<unknown> = Promise.resolve()
 
-  constructor(options: JsonMemoryStoreConfig) {
+  constructor(options: TestMemoryStoreConfig) {
     const { name, description, maxSearchResults, writable, extraction, persist, path } = options
 
     if (!name.trim()) {
-      throw new Error('JsonMemoryStore: name must not be empty.')
+      throw new Error('TestMemoryStore: name must not be empty.')
     }
     this.name = name
     if (description !== undefined) this.description = description
     if (maxSearchResults !== undefined) {
       if (maxSearchResults < 1) {
-        throw new Error('JsonMemoryStore: maxSearchResults must be at least 1.')
+        throw new Error('TestMemoryStore: maxSearchResults must be at least 1.')
       }
       this.maxSearchResults = maxSearchResults
     }
@@ -156,7 +156,7 @@ export class JsonMemoryStore implements MemoryStore {
     if (extraction !== undefined) this.extraction = extraction
 
     if (path !== undefined && !path.trim()) {
-      throw new Error('JsonMemoryStore: path must not be empty.')
+      throw new Error('TestMemoryStore: path must not be empty.')
     }
     this._persist = persist ?? true
     this._explicitPath = path
@@ -174,7 +174,7 @@ export class JsonMemoryStore implements MemoryStore {
    */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
     if (options?.maxSearchResults !== undefined && options.maxSearchResults < 1) {
-      throw new Error('JsonMemoryStore: maxSearchResults must be at least 1.')
+      throw new Error('TestMemoryStore: maxSearchResults must be at least 1.')
     }
     const limit = options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS
 
@@ -183,7 +183,7 @@ export class JsonMemoryStore implements MemoryStore {
 
     const records = await this._load()
 
-    const scored: Array<{ record: JsonMemoryRecord; score: number }> = []
+    const scored: Array<{ record: TestMemoryRecord; score: number }> = []
     for (const record of records) {
       const score = tokenOverlapScore(queryTokens, record.content)
       if (score > 0) scored.push({ record, score })
@@ -210,12 +210,12 @@ export class JsonMemoryStore implements MemoryStore {
    *   overwritten in search output.
    * @returns The id of the stored (or already-present) record
    */
-  async add(content: string, metadata?: Record<string, JSONValue>): Promise<JsonMemoryAddResult> {
+  async add(content: string, metadata?: Record<string, JSONValue>): Promise<TestMemoryAddResult> {
     if (!this.writable) {
-      throw new Error('JsonMemoryStore: store is not writable. Set writable: true in config to enable add().')
+      throw new Error('TestMemoryStore: store is not writable. Set writable: true in config to enable add().')
     }
     if (!content.trim()) {
-      throw new Error('JsonMemoryStore: content must not be empty.')
+      throw new Error('TestMemoryStore: content must not be empty.')
     }
 
     // Serialize the whole load-modify-flush cycle behind any in-flight write so concurrent `add`s
@@ -227,7 +227,7 @@ export class JsonMemoryStore implements MemoryStore {
       const existing = records.find((record) => record.content.trim() === normalizedContent)
       if (existing) return { id: existing.id }
 
-      const record: JsonMemoryRecord = { id: uuidv7(), content, createdAt: new Date().toISOString() }
+      const record: TestMemoryRecord = { id: uuidv7(), content, createdAt: new Date().toISOString() }
       if (metadata !== undefined) record.metadata = metadata
 
       // Flush the candidate list first and only commit it to the in-memory cache once the write
@@ -268,7 +268,7 @@ export class JsonMemoryStore implements MemoryStore {
    * first call's promise is memoized in {@link _loadPromise} so concurrent callers await one shared
    * read rather than each loading independently and racing to assign the cache.
    */
-  private async _load(): Promise<JsonMemoryRecord[]> {
+  private async _load(): Promise<TestMemoryRecord[]> {
     if (this._records !== undefined) return this._records
     if (this._loadPromise !== undefined) return this._loadPromise
 
@@ -282,7 +282,7 @@ export class JsonMemoryStore implements MemoryStore {
   }
 
   /** Reads and parses the backing file (or returns an empty list when ephemeral / missing). */
-  private async _readFromDisk(): Promise<JsonMemoryRecord[]> {
+  private async _readFromDisk(): Promise<TestMemoryRecord[]> {
     const filePath = await this._getPath()
     if (filePath === undefined) return []
 
@@ -292,17 +292,17 @@ export class JsonMemoryStore implements MemoryStore {
       rawContent = await readFile(filePath, 'utf8')
     } catch (error: unknown) {
       if ((error as { code?: string }).code === 'ENOENT') return []
-      throw new Error(`JsonMemoryStore: failed to read ${filePath}`, { cause: error })
+      throw new Error(`TestMemoryStore: failed to read ${filePath}`, { cause: error })
     }
 
     let parsedFile: unknown
     try {
       parsedFile = JSON.parse(rawContent)
     } catch (error: unknown) {
-      throw new Error(`JsonMemoryStore: invalid JSON in ${filePath}`, { cause: error })
+      throw new Error(`TestMemoryStore: invalid JSON in ${filePath}`, { cause: error })
     }
     if (!Array.isArray(parsedFile)) {
-      throw new Error(`JsonMemoryStore: invalid backing file ${filePath}: expected a JSON array of records`)
+      throw new Error(`TestMemoryStore: invalid backing file ${filePath}: expected a JSON array of records`)
     }
     for (const record of parsedFile) {
       if (
@@ -313,12 +313,12 @@ export class JsonMemoryStore implements MemoryStore {
         typeof record.createdAt !== 'string'
       ) {
         throw new Error(
-          `JsonMemoryStore: invalid backing file ${filePath}: ` +
+          `TestMemoryStore: invalid backing file ${filePath}: ` +
             "each record must have string 'id', 'content', and 'createdAt' fields"
         )
       }
     }
-    return parsedFile as JsonMemoryRecord[]
+    return parsedFile as TestMemoryRecord[]
   }
 
   /**
@@ -327,7 +327,7 @@ export class JsonMemoryStore implements MemoryStore {
    * serialize invocations via {@link _writeChain}. Throws with the target path (and the OS error as
    * `cause`) when the path is unreachable or not writable.
    */
-  private async _flush(records: JsonMemoryRecord[]): Promise<void> {
+  private async _flush(records: TestMemoryRecord[]): Promise<void> {
     const filePath = await this._getPath()
     if (filePath === undefined) return
 
@@ -339,7 +339,7 @@ export class JsonMemoryStore implements MemoryStore {
       await writeFile(tmpPath, JSON.stringify(records, null, 2), 'utf8')
       await rename(tmpPath, filePath)
     } catch (error: unknown) {
-      throw new Error(`JsonMemoryStore: failed to write ${filePath}`, { cause: error })
+      throw new Error(`TestMemoryStore: failed to write ${filePath}`, { cause: error })
     }
   }
 }
@@ -347,26 +347,26 @@ export class JsonMemoryStore implements MemoryStore {
 /**
  * Configuration for {@link LocalMemoryStore}.
  *
- * @deprecated Renamed to {@link JsonMemoryStoreConfig}.
+ * @deprecated Renamed to {@link TestMemoryStoreConfig}.
  */
-export type LocalMemoryStoreConfig = JsonMemoryStoreConfig
+export type LocalMemoryStoreConfig = TestMemoryStoreConfig
 
 /**
  * Result returned by {@link LocalMemoryStore.add}.
  *
- * @deprecated Renamed to {@link JsonMemoryAddResult}.
+ * @deprecated Renamed to {@link TestMemoryAddResult}.
  */
-export type LocalMemoryAddResult = JsonMemoryAddResult
+export type LocalMemoryAddResult = TestMemoryAddResult
 
 /**
  * A JSON-file-backed {@link MemoryStore}.
  *
- * @deprecated Renamed to {@link JsonMemoryStore}. This subclass keeps the old name working (it is a {@link JsonMemoryStore})
+ * @deprecated Renamed to {@link TestMemoryStore}. This subclass keeps the old name working (it is a {@link TestMemoryStore})
  *  and warns once per instance.
  */
-export class LocalMemoryStore extends JsonMemoryStore {
-  constructor(options: JsonMemoryStoreConfig) {
+export class LocalMemoryStore extends TestMemoryStore {
+  constructor(options: TestMemoryStoreConfig) {
     super(options)
-    logger.warn('LocalMemoryStore is deprecated and has been renamed to JsonMemoryStore. Use JsonMemoryStore instead.')
+    logger.warn('LocalMemoryStore is deprecated and has been renamed to TestMemoryStore. Use TestMemoryStore instead.')
   }
 }
