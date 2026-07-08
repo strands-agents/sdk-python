@@ -430,7 +430,7 @@ export class SlidingWindowConversationManager extends ConversationManager {
       role: message.role,
       content: newContent,
       // Preserve the durable tracking id: this message stays in history, only its content is truncated.
-      ...(message.trackingId !== undefined && { trackingId: message.trackingId }),
+      trackingId: message.trackingId,
     })
 
     return true

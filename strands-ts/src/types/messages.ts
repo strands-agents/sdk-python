@@ -44,10 +44,8 @@ export interface MessageData {
   content: ContentBlockData[]
 
   /**
-   * Durable, stable UUID for the message, assigned when the message is added to the conversation.
-   * Survives session save/restore, and is stripped before model calls. Preserved when a message is
-   * copied or restored, so ids are unique within a conversation, but the same message carries the
-   * same id across sessions (copying another agent's messages does not re-key them).
+   * Durable, stable UUID for the message. Optional here because serialized/legacy data may omit it;
+   * the Message constructor backfills a fresh UUID when absent, so a live Message always has one.
    */
   trackingId?: string
 
@@ -63,23 +61,6 @@ export interface MessageData {
  */
 export function generateTrackingId(): string {
   return globalThis.crypto.randomUUID()
-}
-
-/**
- * Assign a durable tracking id to the message in place if it does not already have a usable one,
- * and return it.
- *
- * A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
- * by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
- * missing or empty-string tracking id is treated as absent and replaced.
- * @returns The message's tracking id (existing or newly assigned).
- * @internal
- */
-export function ensureTrackingId(message: Message): string {
-  if (!message.trackingId) {
-    message.trackingId = generateTrackingId()
-  }
-  return message.trackingId
 }
 
 /**
@@ -103,12 +84,13 @@ export class Message implements JSONSerializable<MessageData> {
   readonly content: ContentBlock[]
 
   /**
-   * Durable, stable UUID for the message, assigned when the message is added to the conversation.
-   * Survives session save/restore, and is stripped before model calls. Preserved when a message is
-   * copied or restored, so ids are unique within a conversation, but the same message carries the
-   * same id across sessions (copying another agent's messages does not re-key them).
+   * Durable, stable UUID for the message, assigned at construction. Every Message has one — a
+   * caller-supplied id is preserved, otherwise a fresh UUID is minted. Survives session
+   * save/restore, and is stripped before model calls. Preserved when a message is copied or
+   * restored, so ids are unique within a conversation, but the same message carries the same id
+   * across sessions (copying another agent's messages does not re-key them).
    */
-  trackingId?: string
+  readonly trackingId: string
 
   /**
    * Optional metadata, not sent to model providers.
@@ -118,9 +100,9 @@ export class Message implements JSONSerializable<MessageData> {
   constructor(data: { role: Role; content: ContentBlock[]; trackingId?: string; metadata?: MessageMetadata }) {
     this.role = data.role
     this.content = data.content
-    if (data.trackingId !== undefined) {
-      this.trackingId = data.trackingId
-    }
+    // Mint a durable id when the caller did not supply a usable one, so every Message has one from
+    // the moment it exists — including messages added ad-hoc to agent.messages.
+    this.trackingId = data.trackingId || generateTrackingId()
     if (data.metadata !== undefined) {
       this.metadata = data.metadata
     }
@@ -135,6 +117,7 @@ export class Message implements JSONSerializable<MessageData> {
     return new Message({
       role: data.role,
       content: contentBlocks,
+      // A missing trackingId (e.g. legacy serialized data) is backfilled by the constructor.
       ...(data.trackingId !== undefined && { trackingId: data.trackingId }),
       ...(data.metadata !== undefined && { metadata: data.metadata }),
     })

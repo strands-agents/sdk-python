@@ -25,6 +25,7 @@ import { Message, TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Plugin } from '../../plugins/plugin.js'
 import type { LocalAgent } from '../../types/agent.js'
 import type { Tool } from '../../tools/tool.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 describe('Agent Hooks Integration', () => {
   let mockPlugin: MockPlugin
@@ -51,7 +52,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'user',
             content: [new TextBlock('Hi')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           }),
           invocationState: {},
         })
@@ -75,7 +76,7 @@ describe('Agent Hooks Integration', () => {
             message: new Message({
               role: 'assistant',
               content: [new TextBlock('Hello')],
-              trackingId: expect.any(String) as unknown as string,
+              trackingId: anyTrackingId,
             }),
           },
         })
@@ -86,7 +87,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'assistant',
             content: [new TextBlock('Hello')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           }),
           invocationState: {},
         })
@@ -111,7 +112,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'user',
             content: [new TextBlock('Hi')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           }),
           invocationState: {},
         })
@@ -135,7 +136,7 @@ describe('Agent Hooks Integration', () => {
             message: new Message({
               role: 'assistant',
               content: [new TextBlock('Hello')],
-              trackingId: expect.any(String) as unknown as string,
+              trackingId: anyTrackingId,
             }),
           },
         })
@@ -146,7 +147,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'assistant',
             content: [new TextBlock('Hello')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           }),
           invocationState: {},
         })
@@ -357,7 +358,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'user',
             content: [new TextBlock('New message')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           }),
           invocationState: {},
         })
@@ -368,7 +369,7 @@ describe('Agent Hooks Integration', () => {
           message: new Message({
             role: 'assistant',
             content: [new TextBlock('Response')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           }),
           invocationState: {},
         })

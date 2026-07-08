@@ -8,7 +8,7 @@ import {
 } from '../hooks/events.js'
 import type { HookRegistry } from '../hooks/registry.js'
 import { HookOrder } from '../hooks/types.js'
-import { Message, TextBlock, generateTrackingId } from '../types/messages.js'
+import { Message, TextBlock } from '../types/messages.js'
 import type { Guide, InterventionAction } from './actions.js'
 import { defaultEvaluate } from './actions.js'
 import { InterventionHandler } from './handler.js'
@@ -161,9 +161,7 @@ export class InterventionRegistry {
         case 'guide':
           // Direct push bypasses MessageAddedEvent and conversation manager.
           // This matches what plugins can do today via event.agent.messages.
-          event.agent.messages.push(
-            new Message({ role: 'user', content: [new TextBlock(action.feedback)], trackingId: generateTrackingId() })
-          )
+          event.agent.messages.push(new Message({ role: 'user', content: [new TextBlock(action.feedback)] }))
           return false
         case 'transform':
           action.apply(event)
@@ -186,9 +184,7 @@ export class InterventionRegistry {
           // message won't trigger context management and could push the context over
           // the limit. LocalAgent doesn't expose a message-append method that goes
           // through the hook pipeline. This matches what plugins can do today.
-          event.agent.messages.push(
-            new Message({ role: 'user', content: [new TextBlock(action.feedback)], trackingId: generateTrackingId() })
-          )
+          event.agent.messages.push(new Message({ role: 'user', content: [new TextBlock(action.feedback)] }))
           return false
         case 'transform':
           action.apply(event)

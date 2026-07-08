@@ -152,6 +152,21 @@ async def test_no_idless_messages_after_agentic_summarize_context(alist):
 
 
 @pytest.mark.asyncio
+async def test_ad_hoc_appended_message_is_backfilled_on_next_turn():
+    # A caller mutating agent.messages directly bypasses the append chokepoint, so the message has
+    # no tracking id when added. The per-turn backfill assigns one before the next model call.
+    model = _ReusableReplyModel()
+    agent = Agent(model=model)
+
+    agent.messages.append({"role": "user", "content": [{"text": "ad-hoc, added directly"}]})
+    assert "tracking_id" not in agent.messages[-1]  # no id yet — bypassed the chokepoint
+
+    await agent.invoke_async("Next turn")
+
+    _assert_all_have_tracking_id(agent.messages, "after ad-hoc append + turn")
+
+
+@pytest.mark.asyncio
 async def test_no_idless_messages_after_sliding_window_truncation():
     model = _ReusableReplyModel()
     agent = Agent(model=model, conversation_manager=SlidingWindowConversationManager(window_size=6))

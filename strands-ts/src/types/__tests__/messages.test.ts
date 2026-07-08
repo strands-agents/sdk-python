@@ -8,7 +8,6 @@ import {
   CachePointBlock,
   GuardContentBlock,
   JsonBlock,
-  ensureTrackingId,
   generateTrackingId,
   type MessageData,
   type SystemPromptData,
@@ -17,6 +16,7 @@ import {
 } from '../messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock, encodeBase64 } from '../media.js'
 import { CitationsBlock } from '../citations.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 describe('Message', () => {
   test('creates message with role and content', () => {
@@ -27,6 +27,7 @@ describe('Message', () => {
       type: 'message',
       role: 'user',
       content,
+      trackingId: anyTrackingId,
     })
   })
 })
@@ -115,14 +116,26 @@ describe('Message metadata', () => {
 })
 
 describe('Message id', () => {
-  test('constructor does not assign an id by default', () => {
+  test('constructor mints a UUID tracking id by default', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    expect(message.trackingId).toBeUndefined()
+    expect(message.trackingId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   })
 
-  test('constructor accepts an explicit id', () => {
+  test('two messages get distinct tracking ids', () => {
+    const a = new Message({ role: 'user', content: [new TextBlock('test')] })
+    const b = new Message({ role: 'user', content: [new TextBlock('test')] })
+    expect(a.trackingId).not.toBe(b.trackingId)
+  })
+
+  test('constructor preserves an explicit id', () => {
     const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: 'abc123' })
     expect(message.trackingId).toBe('abc123')
+  })
+
+  test('constructor mints when given an empty-string id', () => {
+    // An empty id cannot serve as a durable key, so it is treated as absent and replaced.
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: '' })
+    expect(message.trackingId).toBeTruthy()
   })
 
   test('generateTrackingId produces unique strings', () => {
@@ -130,40 +143,19 @@ describe('Message id', () => {
     expect(ids.size).toBe(1000)
   })
 
-  test('ensureTrackingId assigns an id when absent and returns it', () => {
-    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    const returned = ensureTrackingId(message)
-    expect(typeof message.trackingId).toBe('string')
-    expect(returned).toBe(message.trackingId)
-  })
-
-  test('ensureTrackingId preserves an existing id and returns it', () => {
-    const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: 'caller-supplied' })
-    const returned = ensureTrackingId(message)
-    expect(message.trackingId).toBe('caller-supplied')
-    expect(returned).toBe('caller-supplied')
-  })
-
-  test('ensureTrackingId replaces an empty-string id', () => {
-    // An empty id cannot serve as a durable key, so it is treated as absent and replaced.
-    const message = new Message({ role: 'user', content: [new TextBlock('test')], trackingId: '' })
-    ensureTrackingId(message)
-    expect(message.trackingId).toBeTruthy()
-  })
-
-  test('toJSON includes id when present', () => {
+  test('toJSON includes the tracking id', () => {
     const message = new Message({ role: 'assistant', content: [new TextBlock('test')], trackingId: 'abc123' })
     expect(message.toJSON().trackingId).toBe('abc123')
-  })
-
-  test('toJSON omits id when not present', () => {
-    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
-    expect('trackingId' in message.toJSON()).toBe(false)
   })
 
   test('fromMessageData preserves id', () => {
     const data: MessageData = { role: 'assistant', content: [{ text: 'hello' }], trackingId: 'abc123' }
     expect(Message.fromMessageData(data).trackingId).toBe('abc123')
+  })
+
+  test('fromMessageData backfills a tracking id when serialized data omits it', () => {
+    const data: MessageData = { role: 'assistant', content: [{ text: 'hello' }] }
+    expect(Message.fromMessageData(data).trackingId).toBeTruthy()
   })
 
   test('round-trips id through toJSON/fromJSON', () => {

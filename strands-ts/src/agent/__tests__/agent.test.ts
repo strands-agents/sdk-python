@@ -33,6 +33,7 @@ import { BedrockModel } from '../../models/bedrock.js'
 import { StructuredOutputError } from '../../errors.js'
 import { expectLoopMetrics } from '../../__fixtures__/metrics-helpers.js'
 import { expectAgentResult } from '../../__fixtures__/agent-helpers.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 describe('Agent', () => {
   describe('stream', () => {
@@ -147,7 +148,7 @@ describe('Agent', () => {
             message: new Message({
               role: 'assistant',
               content: [new ToolUseBlock({ name: 'testTool', toolUseId: 'tool-1', input: {} })],
-              trackingId: expect.any(String) as unknown as string,
+              trackingId: anyTrackingId,
             }),
             invocationState: {},
           })
@@ -158,7 +159,7 @@ describe('Agent', () => {
         expect(afterTools?.message).toEqual({
           type: 'message',
           role: 'user',
-          trackingId: expect.any(String) as unknown as string,
+          trackingId: anyTrackingId,
           content: [
             {
               type: 'toolResultBlock',
@@ -1046,7 +1047,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('Hello')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           })
         )
       })
@@ -1064,7 +1065,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('Hello')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           })
         )
       })
@@ -1082,7 +1083,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: contentBlocks,
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           })
         )
       })
@@ -1124,7 +1125,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: contentBlocks,
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           })
         )
       })
@@ -1267,14 +1268,14 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('First message')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           })
         )
         expect(agent.messages[1]).toEqual(
           new Message({
             role: 'assistant',
             content: [new TextBlock('Second message')],
-            trackingId: expect.any(String) as unknown as string,
+            trackingId: anyTrackingId,
           })
         )
       })

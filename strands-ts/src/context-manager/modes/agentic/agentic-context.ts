@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Message, TextBlock, ensureTrackingId } from '../../../types/messages.js'
+import { Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
 import { pinMessage, unpinMessage, isPinned } from '../../../conversation-manager/compression/pin-message.js'
 import {
@@ -119,8 +119,6 @@ export const summarizeContextTool = tool({
       return `Summarization failed: ${err instanceof Error ? err.message : 'unknown error'}`
     }
 
-    // Assign tracking id to the summary message since it bypasses the append method.
-    ensureTrackingId(summaryMessage)
     messages.splice(0, splitPoint, ...preserved, summaryMessage)
 
     const removed = originalMessageCount - messages.length

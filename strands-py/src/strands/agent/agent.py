@@ -1275,6 +1275,12 @@ class Agent(AgentBase):
             try:
                 yield InitEventLoopEvent()
 
+                # Backfill ids for any messages that entered history outside the append chokepoint
+                # (e.g. a caller doing agent.messages.append(...) directly, or a legacy session
+                # restored without ids), so every message carries one before the model is called.
+                for message in self.messages:
+                    _ensure_tracking_id(message)
+
                 await self._append_messages(*current_messages)
 
                 structured_output_context = StructuredOutputContext(
