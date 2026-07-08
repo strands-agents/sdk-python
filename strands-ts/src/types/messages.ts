@@ -44,8 +44,10 @@ export interface MessageData {
   content: ContentBlockData[]
 
   /**
-   * Durable, stable tracking identifier for the message, assigned when the message is added to the
-   * conversation. Survives session save/restore, and is stripped before model calls.
+   * Durable, stable UUID for the message, assigned when the message is added to the conversation.
+   * Survives session save/restore, and is stripped before model calls. Preserved when a message is
+   * copied or restored, so ids are unique within a conversation, but the same message carries the
+   * same id across sessions (copying another agent's messages does not re-key them).
    */
   trackingId?: string
 
@@ -101,8 +103,10 @@ export class Message implements JSONSerializable<MessageData> {
   readonly content: ContentBlock[]
 
   /**
-   * Durable, stable tracking identifier for the message, assigned when the message is added to the
-   * conversation. Survives session save/restore, and is stripped before model calls.
+   * Durable, stable UUID for the message, assigned when the message is added to the conversation.
+   * Survives session save/restore, and is stripped before model calls. Preserved when a message is
+   * copied or restored, so ids are unique within a conversation, but the same message carries the
+   * same id across sessions (copying another agent's messages does not re-key them).
    */
   trackingId?: string
 
