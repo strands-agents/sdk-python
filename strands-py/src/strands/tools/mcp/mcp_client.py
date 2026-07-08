@@ -981,23 +981,18 @@ class MCPClient(ToolProvider):
         """
         if isinstance(content, MCPTextContent):
             self._log_debug_with_thread("mapping MCP text content")
-            text_block: ToolResultContent = {"text": content.text}
-            annotations = self._map_mcp_annotations(content)
-            if annotations is not None:
-                text_block["annotations"] = annotations
-            return text_block
+            return self._with_annotations({"text": content.text}, content)
         elif isinstance(content, MCPImageContent):
             self._log_debug_with_thread("mapping MCP image content with mime type: %s", content.mimeType)
-            image_block: ToolResultContent = {
-                "image": {
-                    "format": MIME_TO_FORMAT[content.mimeType],
-                    "source": {"bytes": base64.b64decode(content.data)},
-                }
-            }
-            annotations = self._map_mcp_annotations(content)
-            if annotations is not None:
-                image_block["annotations"] = annotations
-            return image_block
+            return self._with_annotations(
+                {
+                    "image": {
+                        "format": MIME_TO_FORMAT[content.mimeType],
+                        "source": {"bytes": base64.b64decode(content.data)},
+                    }
+                },
+                content,
+            )
         elif isinstance(content, MCPEmbeddedResource):
             """
             TODO: Include URI information in results.
@@ -1013,11 +1008,7 @@ class MCPClient(ToolProvider):
 
             resource = content.resource
             if isinstance(resource, TextResourceContents):
-                text_resource_block: ToolResultContent = {"text": resource.text}
-                annotations = self._map_mcp_annotations(content)
-                if annotations is not None:
-                    text_resource_block["annotations"] = annotations
-                return text_resource_block
+                return self._with_annotations({"text": resource.text}, content)
             elif isinstance(resource, BlobResourceContents):
                 try:
                     raw_bytes = base64.b64decode(resource.blob)
@@ -1038,25 +1029,20 @@ class MCPClient(ToolProvider):
                     or resource.mimeType.endswith(("+json", "+xml"))
                 ):
                     try:
-                        blob_text_block: ToolResultContent = {"text": raw_bytes.decode("utf-8", errors="replace")}
-                        annotations = self._map_mcp_annotations(content)
-                        if annotations is not None:
-                            blob_text_block["annotations"] = annotations
-                        return blob_text_block
+                        return self._with_annotations({"text": raw_bytes.decode("utf-8", errors="replace")}, content)
                     except Exception:
                         pass
 
                 if resource.mimeType in MIME_TO_FORMAT:
-                    blob_image_block: ToolResultContent = {
-                        "image": {
-                            "format": MIME_TO_FORMAT[resource.mimeType],
-                            "source": {"bytes": raw_bytes},
-                        }
-                    }
-                    annotations = self._map_mcp_annotations(content)
-                    if annotations is not None:
-                        blob_image_block["annotations"] = annotations
-                    return blob_image_block
+                    return self._with_annotations(
+                        {
+                            "image": {
+                                "format": MIME_TO_FORMAT[resource.mimeType],
+                                "source": {"bytes": raw_bytes},
+                            }
+                        },
+                        content,
+                    )
 
                 self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
                 return None
@@ -1066,7 +1052,26 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
 
-    def _map_mcp_annotations(self, content: Any) -> ContentAnnotations | None:
+    def _with_annotations(
+        self, block: ToolResultContent, content: MCPTextContent | MCPImageContent | MCPEmbeddedResource
+    ) -> ToolResultContent:
+        """Attach mapped MCP annotations to a ToolResultContent block, if any are present.
+
+        Args:
+            block: The already-mapped content block (e.g. ``{"text": ...}`` or ``{"image": ...}``).
+            content: The MCP content block whose ``annotations`` (if any) should be attached.
+
+        Returns:
+            ToolResultContent: The same block, with an ``annotations`` key added when present.
+        """
+        annotations = self._map_mcp_annotations(content)
+        if annotations is not None:
+            block["annotations"] = annotations
+        return block
+
+    def _map_mcp_annotations(
+        self, content: MCPTextContent | MCPImageContent | MCPEmbeddedResource
+    ) -> ContentAnnotations | None:
         """Convert MCP content annotations to ContentAnnotations, or None if absent.
 
         Only keys that are actually present on the MCP annotations object are
@@ -1079,7 +1084,7 @@ class MCPClient(ToolProvider):
             ContentAnnotations or None: The mapped annotations, or None when the content
             carries no annotations or none of the known fields are set.
         """
-        annotations = getattr(content, "annotations", None)
+        annotations = content.annotations
         if annotations is None:
             return None
 

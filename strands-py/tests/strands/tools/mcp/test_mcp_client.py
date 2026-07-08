@@ -1284,9 +1284,10 @@ def test_map_image_content_preserves_annotations(mcp_client):
 
     result = mcp_client.map_mcp_content_to_tool_result_content(content)
 
-    assert result["image"]["format"] == "png"
-    assert result["image"]["source"]["bytes"] == b"fake-image-bytes"
-    assert result["annotations"] == {"audience": ["user", "assistant"], "priority": 0.5}
+    assert result == {
+        "image": {"format": "png", "source": {"bytes": b"fake-image-bytes"}},
+        "annotations": {"audience": ["user", "assistant"], "priority": 0.5},
+    }
 
 
 def test_map_image_content_without_annotations_unchanged(mcp_client):
@@ -1334,6 +1335,48 @@ def test_map_embedded_text_resource_preserves_annotations(mcp_client):
 
     assert result["text"] == "inner text"
     assert result["annotations"] == {"audience": ["assistant"], "priority": 0.9}
+
+
+def test_map_embedded_blob_text_preserves_annotations(mcp_client):
+    """Embedded blob content decoded as text (e.g. application/json) should preserve annotations."""
+    payload = base64.b64encode(b'{"k":"v"}').decode()
+    content = MCPEmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="mcp://resource/embedded-blob-json",
+            blob=payload,
+            mimeType="application/json",
+        ),
+        annotations=Annotations(audience=["assistant"], priority=0.4),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result == {
+        "text": '{"k":"v"}',
+        "annotations": {"audience": ["assistant"], "priority": 0.4},
+    }
+
+
+def test_map_embedded_blob_image_preserves_annotations(mcp_client):
+    """Embedded blob content decoded as an image should preserve annotations."""
+    image_bytes = b"fake-image-bytes"
+    content = MCPEmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri="mcp://resource/embedded-blob-image",
+            blob=base64.b64encode(image_bytes).decode(),
+            mimeType="image/png",
+        ),
+        annotations=Annotations(audience=["user"], priority=0.6),
+    )
+
+    result = mcp_client.map_mcp_content_to_tool_result_content(content)
+
+    assert result == {
+        "image": {"format": "png", "source": {"bytes": image_bytes}},
+        "annotations": {"audience": ["user"], "priority": 0.6},
+    }
 
 
 def test_map_embedded_dropped_resource_returns_none_with_annotations(mcp_client):
