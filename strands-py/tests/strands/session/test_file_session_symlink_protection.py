@@ -47,12 +47,40 @@ class TestDefaultStorageDir:
                 f"Default dir {default_dir} should be under {home}"
             )
 
+    def test_default_nests_under_strands_namespace(self):
+        """Default dir should nest under a 'strands' namespace on every platform."""
+        with patch.dict(os.environ, {}, clear=True):
+            os.environ.pop("XDG_DATA_HOME", None)
+            default_dir = FileSessionManager._default_storage_dir()
+        # Sessions live under a strands-named parent (avoids dumping a bare
+        # 'sessions/' into a shared root such as %LOCALAPPDATA%).
+        parent = os.path.basename(os.path.dirname(default_dir))
+        assert "strands" in parent.lower(), f"expected a strands namespace, got {default_dir}"
+
     @pytest.mark.skipif(platform.system() == "Windows", reason="XDG_DATA_HOME is a Unix convention; ignored on Windows")
     def test_xdg_data_home_respected(self):
-        """XDG_DATA_HOME should be respected when set."""
+        """XDG_DATA_HOME should be respected when set to an absolute path."""
         with patch.dict(os.environ, {"XDG_DATA_HOME": "/custom/data"}):
             default_dir = FileSessionManager._default_storage_dir()
             assert default_dir.startswith(os.path.join("/custom/data", "strands"))
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="XDG_DATA_HOME is a Unix convention; ignored on Windows")
+    def test_non_absolute_xdg_data_home_ignored(self):
+        """A non-absolute (or empty) XDG_DATA_HOME must be ignored per the XDG spec.
+
+        Otherwise sessions land under a relative path in the (possibly shared)
+        process CWD, reopening the symlink/tampering class this fix closes.
+        """
+        home = os.path.expanduser("~")
+        for bad_value in ("", "relative/data", "./data"):
+            with patch.dict(os.environ, {"XDG_DATA_HOME": bad_value}):
+                default_dir = FileSessionManager._default_storage_dir()
+                assert os.path.isabs(default_dir), (
+                    f"XDG_DATA_HOME={bad_value!r} produced non-absolute dir {default_dir}"
+                )
+                assert default_dir.startswith(home), (
+                    f"XDG_DATA_HOME={bad_value!r} should fall back under home, got {default_dir}"
+                )
 
     @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-only test")
     def test_storage_dir_permissions(self, temp_dir):
@@ -101,14 +129,36 @@ class TestSymlinkProtection:
 
     @pytest.mark.skipif(platform.system() == "Windows", reason="Symlinks need Unix")
     def test_write_uses_unpredictable_temp(self, file_manager, temp_dir):
-        """_write_file should NOT use predictable .tmp suffix."""
+        """_write_file should NOT use a predictable temp name derivable from the target path."""
         target = os.path.join(temp_dir, "session.json")
-        file_manager._write_file(target, {"key": "value"})
+
+        captured_tmp_names = []
+        real_mkstemp = tempfile.mkstemp
+
+        def spy_mkstemp(*args, **kwargs):
+            fd, tmp_path = real_mkstemp(*args, **kwargs)
+            captured_tmp_names.append(tmp_path)
+            return fd, tmp_path
+
+        with patch(
+            "strands.session.file_session_manager.tempfile.mkstemp",
+            side_effect=spy_mkstemp,
+        ):
+            file_manager._write_file(target, {"key": "value"})
 
         # Verify the file was written correctly
         with open(target) as f:
             data = json.load(f)
         assert data == {"key": "value"}
+
+        # The atomic write must go through mkstemp (not a hand-rolled name).
+        assert captured_tmp_names, "expected _write_file to allocate a temp file via mkstemp"
+        tmp_path = captured_tmp_names[0]
+        # Pin unpredictability: the temp name must NOT be the predictable
+        # "<target>.tmp" pattern (the exact symlink target this fix removed).
+        # Reverting mkstemp back to f"{path}.tmp" must fail here.
+        assert tmp_path != target + ".tmp"
+        assert os.path.basename(target) not in os.path.basename(tmp_path)
 
         # Verify no leftover .tmp file (mkstemp files are cleaned up)
         leftover_tmps = [f for f in os.listdir(temp_dir) if f.endswith(".tmp")]

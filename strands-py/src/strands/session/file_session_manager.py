@@ -75,12 +75,17 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         symlink attacks and session tampering by other local users.
         """
         if platform.system() == "Windows":
-            base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+            base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "strands")
         else:
             base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".strands"))
             # If XDG_DATA_HOME is set, nest under strands/
             if "XDG_DATA_HOME" in os.environ:
                 base = os.path.join(base, "strands")
+            # Per the XDG spec, ignore an empty or non-absolute XDG_DATA_HOME:
+            # a relative value would place sessions under the (possibly shared)
+            # process CWD, reopening the symlink/tampering class this fix closes.
+            if not os.path.isabs(base):
+                base = os.path.join(os.path.expanduser("~"), ".strands")
         return os.path.join(base, "sessions")
 
     def _get_session_path(self, session_id: str) -> str:
