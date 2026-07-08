@@ -134,7 +134,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npm run test:browser:install
 
       - name: Build the package
