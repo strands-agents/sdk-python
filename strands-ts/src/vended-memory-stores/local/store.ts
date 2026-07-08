@@ -347,14 +347,14 @@ export class JsonMemoryStore implements MemoryStore {
 /**
  * Configuration for {@link LocalMemoryStore}.
  *
- * @deprecated Renamed to {@link JsonMemoryStoreConfig}; will be removed in the next major version.
+ * @deprecated Renamed to {@link JsonMemoryStoreConfig}.
  */
 export type LocalMemoryStoreConfig = JsonMemoryStoreConfig
 
 /**
  * Result returned by {@link LocalMemoryStore.add}.
  *
- * @deprecated Renamed to {@link JsonMemoryAddResult}; will be removed in the next major version.
+ * @deprecated Renamed to {@link JsonMemoryAddResult}.
  */
 export type LocalMemoryAddResult = JsonMemoryAddResult
 
@@ -367,8 +367,6 @@ export type LocalMemoryAddResult = JsonMemoryAddResult
 export class LocalMemoryStore extends JsonMemoryStore {
   constructor(options: JsonMemoryStoreConfig) {
     super(options)
-    logger.warn(
-      'LocalMemoryStore is deprecated and has been renamed to JsonMemoryStore. ' + 'Use JsonMemoryStore instead.'
-    )
+    logger.warn('LocalMemoryStore is deprecated and has been renamed to JsonMemoryStore. Use JsonMemoryStore instead.')
   }
 }
