@@ -1380,6 +1380,39 @@ def test_cleanup_runs_when_event_loop_close_raises():
     mock_close.assert_called_once_with(7)
 
 
+def test_record_owned_ptmx_fds_is_noop_without_pre_start_snapshot():
+    """Recording ownership without a pre-start snapshot leaves the owned set unset."""
+    client = MCPClient(MagicMock())
+    assert client._pre_start_ptmx_fds is None
+
+    client._record_owned_ptmx_fds()
+
+    assert client._owned_ptmx_fds is None
+
+
+def test_snapshot_returns_empty_when_fd_listing_fails():
+    """An OSError listing /proc/self/fd yields an empty snapshot, not a crash."""
+    client = MCPClient(MagicMock())
+
+    with patch("strands.tools.mcp.mcp_client.os.path.isdir", return_value=True):
+        with patch("strands.tools.mcp.mcp_client.os.listdir", side_effect=OSError("denied")):
+            assert client._snapshot_ptmx_fds() == {}
+
+
+def test_cleanup_skips_descriptor_already_closed_before_readlink():
+    """An owned descriptor already closed elsewhere is skipped during stop()."""
+    client = MCPClient(MagicMock())
+    client._background_thread = MagicMock()
+    client._background_thread_event_loop = MagicMock()
+    client._owned_ptmx_fds = {7: "/dev/pts/7"}
+
+    with patch("strands.tools.mcp.mcp_client.os.readlink", side_effect=OSError("bad file descriptor")):
+        with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
+            client.stop(None, None, None)
+
+    mock_close.assert_not_called()
+
+
 def test_snapshot_skips_descriptors_that_disappear():
     """A descriptor removed between listing and readlink is skipped, not fatal."""
     client = MCPClient(MagicMock())
