@@ -1,4 +1,4 @@
-"""Configuration and result types for the local memory store."""
+"""Configuration and result types for the JSON-file memory store."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from ...memory.types import MemoryStoreConfig
 
 
-class LocalMemoryStoreConfig(MemoryStoreConfig, total=False):
-    """Full configuration for a :class:`LocalMemoryStore`, passed as its constructor kwargs.
+class JsonMemoryStoreConfig(MemoryStoreConfig, total=False):
+    """Full configuration for a :class:`JsonMemoryStore`, passed as its constructor kwargs.
 
     The store persists to disk by default so memories persist across sessions.
     Set ``persist`` to ``False`` for an ephemeral, single-session store.
@@ -26,8 +26,8 @@ class LocalMemoryStoreConfig(MemoryStoreConfig, total=False):
 
 
 @dataclass
-class LocalMemoryAddResult:
-    """Result returned by :meth:`LocalMemoryStore.add`.
+class JsonMemoryAddResult:
+    """Result returned by :meth:`JsonMemoryStore.add`.
 
     Attributes:
         id: The generated id of the stored (or already-present, on dedup) record.

@@ -1,4 +1,4 @@
-"""Tests for ``LocalMemoryStore``.
+"""Tests for ``JsonMemoryStore``.
 
 Test scaffolding:
 - ``tmp_path`` backs every persistent store, so tests never touch the real ``~/.strands/memory``.
@@ -24,7 +24,7 @@ from strands.hooks.registry import HookOrder
 from strands.memory.extraction.triggers import InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig, ExtractionResult
 from strands.memory.memory_manager import MemoryManager
-from strands.vended_memory_stores.local import LocalMemoryStore
+from strands.vended_memory_stores.local import JsonMemoryStore
 
 
 @pytest.fixture
@@ -37,10 +37,10 @@ def store_path(tmp_path: Path) -> str:
 def make_store(store_path: str):
     """Factory building a persistent store at ``store_path`` with overridable config."""
 
-    def _make(**overrides: Any) -> LocalMemoryStore:
+    def _make(**overrides: Any) -> JsonMemoryStore:
         config: dict[str, Any] = {"name": "notes", "path": store_path}
         config.update(overrides)
-        return LocalMemoryStore(**config)
+        return JsonMemoryStore(**config)
 
     return _make
 
@@ -50,7 +50,7 @@ class TestPackageExport:
         # The store is documented as importable from the parent package via its lazy __getattr__.
         from strands.vended_memory_stores import __getattr__
 
-        assert __getattr__("LocalMemoryStore") is LocalMemoryStore
+        assert __getattr__("JsonMemoryStore") is JsonMemoryStore
 
     def test_unknown_attribute_raises(self):
         from strands.vended_memory_stores import __getattr__
@@ -82,7 +82,7 @@ class TestConstructor:
 
     def test_raises_when_explicit_path_is_empty(self):
         with pytest.raises(ValueError, match="path must not be empty"):
-            LocalMemoryStore(name="notes", path="   ")
+            JsonMemoryStore(name="notes", path="   ")
 
     def test_does_no_filesystem_io_on_construction(self, make_store, store_path):
         make_store()
@@ -94,7 +94,7 @@ class TestConstructor:
         # redirected to tmp_path so the test never touches the real home dir, and the unsafe name
         # exercises sanitization.
         monkeypatch.setattr(store_module.Path, "home", classmethod(lambda cls: tmp_path))
-        store = LocalMemoryStore(name="../weird/name")
+        store = JsonMemoryStore(name="../weird/name")
         await store.add("a fact worth keeping")
         expected = tmp_path / ".strands" / "memory" / "__weird_name.json"
         assert expected.is_file()
@@ -274,7 +274,7 @@ class TestPersistence:
         # wrapped "failed to read/write" error naming the path rather than a bare OSError.
         blocker = tmp_path / "blocker"
         blocker.write_text("not a directory", encoding="utf-8")
-        store = LocalMemoryStore(name="notes", path=str(blocker / "notes.json"))
+        store = JsonMemoryStore(name="notes", path=str(blocker / "notes.json"))
         with pytest.raises(OSError, match="failed to"):
             await store.add("user prefers dark mode")
 
@@ -313,7 +313,7 @@ class TestPackageExports:
     def test_lazily_exported_from_vended_memory_stores(self):
         import strands.vended_memory_stores as vended_memory_stores
 
-        assert vended_memory_stores.LocalMemoryStore is LocalMemoryStore
+        assert vended_memory_stores.JsonMemoryStore is JsonMemoryStore
 
     def test_unknown_attribute_raises_attribute_error(self):
         import strands.vended_memory_stores as vended_memory_stores
