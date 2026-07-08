@@ -1764,6 +1764,32 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model, alist,
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
+async def test_add_note_on_validation_exception_identifier(bedrock_client, model, alist, messages):
+    """Test that add_note adds documentation link for ValidationException about invalid model identifier."""
+    # Mock the client error response for invalid model identifier
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "The provided model identifier is invalid.",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+    # Call the stream method which should catch and add notes to the exception
+    with pytest.raises(ClientError) as err:
+        await alist(model.stream(messages))
+
+    assert err.value.__notes__ == [
+        "└ Bedrock region: us-west-2",
+        "└ Model id: m1",
+        "└ For more information see "
+        "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
+    ]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+@pytest.mark.asyncio
 async def test_add_note_on_validation_exception_throughput(bedrock_client, model, alist, messages):
     """Test that add_note adds documentation link for ValidationException about on-demand throughput."""
     # Mock the client error response for validation exception
@@ -1952,6 +1978,30 @@ def test_format_request_message_content_preserves_nonempty_tool_result_content(m
 
     tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
     assert tool_result["content"] == [{"text": "some result"}]
+
+
+def test_format_request_message_content_guard_content_without_qualifiers(model, model_id):
+    """Test that _format_request_message_content accepts guardContent text blocks without qualifiers.
+
+    The Bedrock GuardrailConverseTextBlock treats qualifiers as optional, so omitting it
+    should not raise a KeyError.
+
+    See: https://github.com/strands-agents/harness-sdk/issues/959
+    """
+    content = {"guardContent": {"text": {"text": "evaluate me"}}}
+
+    formatted = model._format_request_message_content(content)
+
+    assert formatted == {"guardContent": {"text": {"text": "evaluate me"}}}
+
+
+def test_format_request_message_content_guard_content_with_qualifiers(model, model_id):
+    """Test that _format_request_message_content forwards qualifiers when supplied."""
+    content = {"guardContent": {"text": {"text": "evaluate me", "qualifiers": ["guard_content"]}}}
+
+    formatted = model._format_request_message_content(content)
+
+    assert formatted == {"guardContent": {"text": {"text": "evaluate me", "qualifiers": ["guard_content"]}}}
 
 
 def test_format_request_removes_status_field_when_configured(model, model_id):

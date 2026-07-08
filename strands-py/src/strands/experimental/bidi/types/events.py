@@ -21,13 +21,16 @@ Audio format normalization:
 - Audio data stored as base64-encoded strings for JSON compatibility
 """
 
-from typing import TYPE_CHECKING, Any, Literal, cast
+import logging
+from typing import TYPE_CHECKING, Any, Literal, cast, get_args
 
 from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
 
 if TYPE_CHECKING:
     from ..models.model import BidiModelTimeoutError
+
+logger = logging.getLogger(__name__)
 
 AudioChannel = Literal[1, 2]
 """Number of audio channels.
@@ -46,6 +49,36 @@ Role = Literal["user", "assistant"]
 - "user": Messages from the user to the assistant.
 - "assistant": Messages from the assistant to the user.
 """
+
+_VALID_ROLES: tuple[str, ...] = get_args(Role)
+
+
+def _normalize_role(role: Any, default: Role = "user") -> Role:
+    """Normalize a role value to a supported `Role`.
+
+    Provider outputs and transcript events may carry role values in arbitrary
+    casing or outside the supported set. This trims surrounding whitespace,
+    coerces the value to lowercase, and falls back to `default` when it is not
+    one of the supported roles, so that messages persisted to the conversation
+    always carry a valid role.
+
+    The default is the lowest-trust role (`"user"`): unknown or spoofed role
+    values are never attributed to the assistant. Legitimate assistant output
+    passes an explicit `role="assistant"`, which the allowlist accepts verbatim.
+
+    Args:
+        role: The incoming role value (any type).
+        default: Role to use when the value is missing or unsupported.
+
+    Returns:
+        A role guaranteed to be one of the supported `Role` values.
+    """
+    normalized = role.strip().lower() if isinstance(role, str) else None
+    if normalized not in _VALID_ROLES:
+        logger.debug("role=<%s>, default=<%s> | coercing unsupported transcript role", role, default)
+        return default
+    return cast(Role, normalized)
+
 
 StopReason = Literal["complete", "error", "interrupted", "tool_use"]
 """Reason for the model ending its response generation.
@@ -328,7 +361,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
                 "type": "bidi_transcript_stream",
                 "delta": delta,
                 "text": text,
-                "role": role,
+                "role": _normalize_role(role, default="user"),
                 "is_final": is_final,
                 "current_transcript": current_transcript,
             }

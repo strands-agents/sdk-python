@@ -161,6 +161,23 @@ class TestSearchContentTruncation:
         result = _search_content(text, line_range=(1, 2), context_lines=5, max_chars=10_000)
         assert "truncated" not in result
 
+    def test_single_long_line_pattern_result_keeps_body(self):
+        # A body with no internal newlines must still appear when truncated —
+        # the truncator can't mistake the header separator for a body line break.
+        long_json = '{"key":"' + "x" * 5_000 + '"}'
+        result = _search_content(long_json, pattern="key", context_lines=0, max_chars=500)
+        assert "[1 match for /key/]" in result
+        assert '> 1| {"key":"xxxx' in result
+        assert "output truncated, narrow your search" in result
+
+    def test_single_long_line_range_result_keeps_body(self):
+        # Same guarantee on the line-range path: a single long line survives truncation.
+        long_json = '{"key":"' + "x" * 5_000 + '"}'
+        result = _search_content(long_json, line_range=(1, 1), context_lines=0, max_chars=500)
+        assert "[Lines 1-1 of 1]" in result
+        assert '  1| {"key":"xxxx' in result
+        assert "output truncated, narrow your range" in result
+
 
 class TestSearchContentEdgeCases:
     def test_negative_context_lines_clamps_to_zero(self):

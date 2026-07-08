@@ -633,6 +633,42 @@ describe('Model', () => {
       })
     })
 
+    describe('when a content block emits no text deltas alongside reasoning and tool use', () => {
+      it('drops the resulting empty TextBlock from the aggregated message but still yields it', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield { type: 'modelContentBlockStartEvent' }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'reasoningContentDelta', text: 'Thinking', signature: 'sig1' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelContentBlockStartEvent' }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: 'tool1', name: 'get_weather' },
+          }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'toolUseInputDelta', input: '{"city": "Paris"}' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'toolUse' }
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        const { items, result } = await collectGenerator(provider.streamAggregated(messages))
+
+        expect(items).toContainEqual({ type: 'textBlock', text: '' })
+        expect(result.message.content).toEqual([
+          { type: 'reasoningBlock', text: 'Thinking', signature: 'sig1' },
+          { type: 'toolUseBlock', toolUseId: 'tool1', name: 'get_weather', input: { city: 'Paris' } },
+        ])
+      })
+    })
+
     describe('when multiple metadata events are emitted', () => {
       it('yields all metadata events but keeps only the last one in return value', async () => {
         const provider = new TestModelProvider(async function* () {

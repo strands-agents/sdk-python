@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { Agent, type ToolList } from '../agent.js'
-import { McpClient } from '../../mcp.js'
+import { McpClient } from '../../mcp/index.js'
 import { McpTool } from '../../tools/mcp-tool.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
@@ -400,6 +400,19 @@ describe('Agent', () => {
         const agent = new Agent({ model })
 
         await expect(agent.invoke('Test')).rejects.toThrow(MaxTokensError)
+      })
+    })
+
+    describe('metrics getter', () => {
+      it('exposes accumulated metrics on the agent instance', async () => {
+        const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hello' })
+        const agent = new Agent({ model })
+
+        expect(agent.metrics.cycleCount).toBe(0)
+
+        await agent.invoke('Test')
+
+        expect(agent.metrics.cycleCount).toBe(1)
       })
     })
 

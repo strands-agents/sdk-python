@@ -136,6 +136,8 @@ export class Graph implements MultiAgent {
   private readonly _pluginRegistry: MultiAgentPluginRegistry
   private readonly _hookRegistry: HookRegistryImplementation
   private readonly _sources: Node[]
+  /** Whether the topology can ever run two nodes in parallel. Gates per-node printer buffering. */
+  private readonly _canRunConcurrently: boolean
   private readonly _tracer: Tracer
   readonly sessionManager?: SessionManager | undefined
   private _initialized: boolean
@@ -168,6 +170,7 @@ export class Graph implements MultiAgent {
     this.edges = this._resolveEdges(edges)
     this._sources = this._resolveSources(sources)
     this._validateSources()
+    this._canRunConcurrently = this._computeCanRunConcurrently()
 
     this.sessionManager = sessionManager
 
@@ -525,7 +528,11 @@ export class Graph implements MultiAgent {
 
     try {
       const gen = this._tracer.withSpanContext(nodeSpan, () =>
-        node.stream(input, state, { invocationState, ...(cancelSignal && { cancelSignal }) })
+        node.stream(input, state, {
+          invocationState,
+          ...(cancelSignal && { cancelSignal }),
+          ...(this._canRunConcurrently && { bufferOutput: true }),
+        })
       )
       let next = await this._tracer.withSpanContext(nodeSpan, () => gen.next())
       while (!next.done) {
@@ -680,6 +687,18 @@ export class Graph implements MultiAgent {
 
     const targetIds = new Set(this.edges.map((e) => e.target.id))
     return [...this.nodes.values()].filter((node) => !targetIds.has(node.id))
+  }
+
+  /**
+   * Static check: can two nodes ever run in parallel? False when `maxConcurrency` is 1,
+   * there's a single source, and no node has more than one outgoing edge.
+   */
+  private _computeCanRunConcurrently(): boolean {
+    if (this.config.maxConcurrency < 2) return false
+    if (this._sources.length > 1) return true
+    const fanOut = new Map<string, number>()
+    for (const e of this.edges) fanOut.set(e.source.id, (fanOut.get(e.source.id) ?? 0) + 1)
+    return [...fanOut.values()].some((count) => count > 1)
   }
 
   /**

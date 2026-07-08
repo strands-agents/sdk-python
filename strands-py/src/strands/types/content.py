@@ -24,7 +24,7 @@ class GuardContentText(TypedDict):
         text: The input text details to be evaluated by the guardrail.
     """
 
-    qualifiers: list[Literal["grounding_source", "query", "guard_content"]]
+    qualifiers: NotRequired[list[Literal["grounding_source", "query", "guard_content"]]]
     text: str
 
 

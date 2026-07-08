@@ -526,6 +526,91 @@ async def test_cycle_exception(
     assert tru_stop_event == exp_stop_event
 
 
+@pytest.mark.asyncio
+async def test_cycle_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    caplog,
+):
+    """A failed cycle logs the exception type at ERROR without attaching a full traceback.
+
+    The ERROR-level cycle-failure record names the exception type and carries no exc_info, so the
+    handler's exception arguments and stack frames are not emitted into application logs.
+    """
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        ValueError("Invalid error presented"),
+    ]
+
+    with caplog.at_level("DEBUG", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            async for _event in stream:
+                pass
+
+    cycle_records = [r for r in caplog.records if "event loop cycle failed" in r.getMessage()]
+
+    # The ERROR record names the exception type but carries no traceback (payload-free by default).
+    error_records = [record for record in cycle_records if record.levelname == "ERROR"]
+    assert error_records
+    cycle_record = error_records[0]
+    assert "ValueError" in cycle_record.getMessage()
+    assert cycle_record.exc_info is None
+
+    # The full traceback remains available opt-in at DEBUG.
+    debug_records = [record for record in cycle_records if record.levelname == "DEBUG"]
+    assert debug_records
+    assert debug_records[0].exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_post_stream_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    agenerator,
+    alist,
+    caplog,
+):
+    """A failure while finalizing a completed stream logs the type at ERROR and the traceback at DEBUG.
+
+    This exercises the post-stream handler (the metrics/message-append block) rather than the
+    model-invocation handler, so both cycle-failure log sites share the same payload-free behavior.
+    """
+    model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+    agent.event_loop_metrics.update_metrics = MagicMock(side_effect=ValueError("Invalid error presented"))
+
+    with caplog.at_level("DEBUG", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            await alist(stream)
+
+    cycle_records = [r for r in caplog.records if "event loop cycle failed" in r.getMessage()]
+
+    error_records = [record for record in cycle_records if record.levelname == "ERROR"]
+    assert error_records
+    assert "ValueError" in error_records[0].getMessage()
+    assert error_records[0].exc_info is None
+
+    debug_records = [record for record in cycle_records if record.levelname == "DEBUG"]
+    assert debug_records
+    assert debug_records[0].exc_info is not None
+
+
 @patch("strands.event_loop.event_loop.get_tracer")
 @pytest.mark.asyncio
 async def test_event_loop_cycle_creates_spans(

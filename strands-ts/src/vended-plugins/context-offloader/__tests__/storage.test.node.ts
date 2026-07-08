@@ -75,6 +75,24 @@ describe('FileStorage', () => {
     await expect(storage.retrieve('../../etc/passwd')).rejects.toThrow('Reference not found')
   })
 
+  it('confines retrieval to the artifact directory and rejects sibling prefixes', async () => {
+    const storage = new FileStorage(tmpDir)
+
+    // A sibling whose path shares the artifact directory prefix must not be retrievable.
+    const sibling = `${tmpDir}_secret.txt`
+    await fs.writeFile(sibling, 'top secret')
+    try {
+      await expect(storage.retrieve(sibling)).rejects.toThrow('Reference not found')
+    } finally {
+      await fs.rm(sibling, { force: true })
+    }
+
+    // A genuine file stored inside the artifact directory is still retrievable.
+    const ref = await storage.store('inside', new TextEncoder().encode('ok'), 'text/plain')
+    const result = await storage.retrieve(ref)
+    expect(new TextDecoder().decode(result.content)).toBe('ok')
+  })
+
   it('creates artifact directory if it does not exist', async () => {
     const nestedDir = path.join(tmpDir, 'nested', 'dir')
     const storage = new FileStorage(nestedDir)
