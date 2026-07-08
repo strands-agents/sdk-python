@@ -187,9 +187,9 @@ export interface ContextOffloaderConfig {
  *
  * How offloaded entries are evicted depends on the storage backend:
  *
- * - **Unified `Storage`** (from `@strands-agents/sdk/storage`): the plugin tracks each
- *   stored key's last-access cycle (from `agent.metrics.cycleCount`). Entries not accessed
- *   within `evictAfterCycles` agent loop cycles are deleted. Defaults to 20 cycles.
+ * - **Unified `Storage`** (from `@strands-agents/sdk/storage`): the plugin records the
+ *   cycle count (from `agent.metrics.cycleCount`) when each key is stored. Entries stored
+ *   more than `evictAfterCycles` cycles ago are deleted. Defaults to 20 cycles.
  *
  * - **Legacy offloader storage** (deprecated `InMemoryStorage` from this module): the storage
  *   manages its own turn-based eviction internally. Entries not accessed within
@@ -220,7 +220,6 @@ export class ContextOffloader implements Plugin {
   private readonly _evictAfterCycles: number | null
   private readonly _storageByAgent = new WeakMap<LocalAgent, Storage | OffloaderStorage>()
   private readonly _keyStoredAt = new Map<string, number>()
-  private _agent: LocalAgent | undefined
   private _retrievalTool: Tool | undefined
 
   constructor(config: ContextOffloaderConfig = {}) {
@@ -234,7 +233,7 @@ export class ContextOffloader implements Plugin {
     const evictAfterCycles = config.evictAfterCycles === undefined
       ? ContextOffloader._DEFAULT_EVICT_AFTER_CYCLES
       : config.evictAfterCycles
-    if (evictAfterCycles !== null && evictAfterCycles < 1) {
+    if (evictAfterCycles !== null && (!Number.isInteger(evictAfterCycles) || evictAfterCycles < 1)) {
       throw new Error('evictAfterCycles must be a positive integer')
     }
 
@@ -252,7 +251,6 @@ export class ContextOffloader implements Plugin {
     if (this._storage instanceof LegacyInMemoryStorage) {
       this._storage._bind(agent)
     }
-    this._agent = agent
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
 
@@ -453,7 +451,7 @@ export class ContextOffloader implements Plugin {
       const storage = this._storageForAgent(event.agent)
       references = await Promise.all(content.map((block, i) => this._storeBlock(storage, block, `${toolUseId}_${i}`)))
       if (!isOffloaderStorage(storage)) {
-        const storedAt = this._agent!.metrics.cycleCount
+        const storedAt = event.agent.metrics.cycleCount
         for (const entry of references) {
           if (entry.ref) this._keyStoredAt.set(entry.ref, storedAt)
         }
