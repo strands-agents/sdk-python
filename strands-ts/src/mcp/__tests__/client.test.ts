@@ -273,8 +273,13 @@ describe('MCP Integration', () => {
     })
 
     it('converts SDK tool specs to McpTool instances', async () => {
+      const outputSchema = {
+        type: 'object' as const,
+        properties: { forecast: { type: 'string' as const } },
+        required: ['forecast'],
+      }
       sdkClientMock.listTools.mockResolvedValue({
-        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {} }],
+        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {}, outputSchema }],
       })
 
       const tools = await client.listTools()
@@ -282,7 +287,12 @@ describe('MCP Integration', () => {
       expect(sdkClientMock.connect).toHaveBeenCalled()
       expect(tools).toHaveLength(1)
       expect(tools[0]).toBeInstanceOf(McpTool)
-      expect(tools[0]!.name).toBe('weather')
+      expect(tools[0]!.toolSpec).toEqual({
+        name: 'weather',
+        description: 'Get weather',
+        inputSchema: {},
+        outputSchema,
+      })
     })
 
     it('paginates through all pages of tools', async () => {

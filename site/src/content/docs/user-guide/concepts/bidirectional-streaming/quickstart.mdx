@@ -537,6 +537,8 @@ from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
 model = BidiOpenAIRealtimeModel()
 
 # Or handle restarts gracefully
+from strands.experimental.bidi import BidiConnectionRestartEvent
+
 async for event in agent.receive():
     if isinstance(event, BidiConnectionRestartEvent):
         print("Reconnecting...")

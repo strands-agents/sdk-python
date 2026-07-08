@@ -85,8 +85,9 @@ export class Message implements JSONSerializable<MessageData> {
 
   /**
    * Durable, stable UUID for the message, assigned at construction. Every Message has one — a
-   * caller-supplied id is preserved, otherwise a fresh UUID is minted. Survives session
-   * save/restore, and is stripped before model calls. Preserved when a message is copied or
+   * caller-supplied id is preserved, otherwise a fresh UUID is minted (so callers do not normally
+   * set it; a caller supplying its own should use a UUID v4, e.g. `crypto.randomUUID()`). Survives
+   * session save/restore, and is stripped before model calls. Preserved when a message is copied or
    * restored, so ids are unique within a conversation, but the same message carries the same id
    * across sessions (copying another agent's messages does not re-key them).
    */

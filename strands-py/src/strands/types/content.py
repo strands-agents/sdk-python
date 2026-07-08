@@ -233,11 +233,12 @@ class Message(TypedDict):
     Attributes:
         content: The message content.
         role: The role of the message sender.
-        tracking_id: Durable, stable UUID for the message, assigned when the message is added to the
-            conversation. Survives session save/restore and snapshots, and is stripped before model
-            calls. Preserved when a message is copied or restored, so ids are unique within a
-            conversation, but the same message carries the same id across sessions (copying another
-            agent's messages does not re-key them).
+        tracking_id: Durable, stable UUID for the message. The agent assigns one automatically, so
+            callers do not normally set it; a caller supplying its own should use a UUID v4
+            (``str(uuid.uuid4())``). Survives session save/restore and snapshots, and is stripped
+            before model calls. Preserved when a message is copied or restored, so ids are unique
+            within a conversation, but the same message carries the same id across sessions (copying
+            another agent's messages does not re-key them).
         metadata: Optional metadata, stripped before model calls.
     """
 
