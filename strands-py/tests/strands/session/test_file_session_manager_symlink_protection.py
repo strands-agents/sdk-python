@@ -5,6 +5,7 @@ import os
 import platform
 import stat
 import tempfile
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -37,50 +38,15 @@ class TestDefaultStorageDir:
         )
 
     def test_default_under_home(self):
-        """Default storage dir should be under user home."""
-        with patch.dict(os.environ, {}, clear=True):
-            # Remove XDG_DATA_HOME to test fallback
-            os.environ.pop("XDG_DATA_HOME", None)
-            default_dir = FileSessionManager._default_storage_dir()
-            home = os.path.expanduser("~")
-            assert default_dir.startswith(home), (
-                f"Default dir {default_dir} should be under {home}"
-            )
+        """Default storage dir should be under the user's home directory."""
+        default_dir = FileSessionManager._default_storage_dir()
+        home = str(Path.home())
+        assert default_dir.startswith(home), f"Default dir {default_dir} should be under {home}"
 
-    def test_default_nests_under_strands_namespace(self):
-        """Default dir should nest under a 'strands' namespace on every platform."""
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("XDG_DATA_HOME", None)
-            default_dir = FileSessionManager._default_storage_dir()
-        # Sessions live under a strands-named parent (avoids dumping a bare
-        # 'sessions/' into a shared root such as %LOCALAPPDATA%).
-        parent = os.path.basename(os.path.dirname(default_dir))
-        assert "strands" in parent.lower(), f"expected a strands namespace, got {default_dir}"
-
-    @pytest.mark.skipif(platform.system() == "Windows", reason="XDG_DATA_HOME is a Unix convention; ignored on Windows")
-    def test_xdg_data_home_respected(self):
-        """XDG_DATA_HOME should be respected when set to an absolute path."""
-        with patch.dict(os.environ, {"XDG_DATA_HOME": "/custom/data"}):
-            default_dir = FileSessionManager._default_storage_dir()
-            assert default_dir.startswith(os.path.join("/custom/data", "strands"))
-
-    @pytest.mark.skipif(platform.system() == "Windows", reason="XDG_DATA_HOME is a Unix convention; ignored on Windows")
-    def test_non_absolute_xdg_data_home_ignored(self):
-        """A non-absolute (or empty) XDG_DATA_HOME must be ignored per the XDG spec.
-
-        Otherwise sessions land under a relative path in the (possibly shared)
-        process CWD, reopening the symlink/tampering class this fix closes.
-        """
-        home = os.path.expanduser("~")
-        for bad_value in ("", "relative/data", "./data"):
-            with patch.dict(os.environ, {"XDG_DATA_HOME": bad_value}):
-                default_dir = FileSessionManager._default_storage_dir()
-                assert os.path.isabs(default_dir), (
-                    f"XDG_DATA_HOME={bad_value!r} produced non-absolute dir {default_dir}"
-                )
-                assert default_dir.startswith(home), (
-                    f"XDG_DATA_HOME={bad_value!r} should fall back under home, got {default_dir}"
-                )
+    def test_default_is_strands_sessions(self):
+        """Default dir should be ~/.strands/sessions on every platform."""
+        default_dir = FileSessionManager._default_storage_dir()
+        assert default_dir == str(Path.home() / ".strands" / "sessions")
 
     @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-only test")
     def test_storage_dir_permissions(self, temp_dir):

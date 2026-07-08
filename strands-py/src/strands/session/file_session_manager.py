@@ -3,8 +3,9 @@
 import json
 import logging
 import os
-import platform
 import shutil
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from .. import _identifier
@@ -53,8 +54,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             session_id: ID for the session.
                 ID is not allowed to contain path separators (e.g., a/b).
             storage_dir: Directory for local filesystem storage.
-                Defaults to ~/.strands/sessions/ (user-private) instead of /tmp/
-                to prevent symlink attacks and session tampering by other local users.
+                Defaults to a user-private ``~/.strands/sessions/`` directory.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.storage_dir = storage_dir or self._default_storage_dir()
@@ -66,29 +66,10 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     def _default_storage_dir() -> str:
         """Return a user-private default storage directory.
 
-        Uses platform-appropriate conventions:
-        - Linux/macOS: ~/.strands/sessions/ (or $XDG_DATA_HOME/strands/sessions/)
-        - Windows: %LOCALAPPDATA%/strands/sessions/
-
-        This avoids the world-writable /tmp directory which is vulnerable to
-        symlink attacks and session tampering by other local users.
+        Sessions are stored under ``~/.strands/sessions/``, which is private to
+        the current user and avoids the world-writable ``/tmp`` directory.
         """
-        if platform.system() == "Windows":
-            base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "strands")
-            base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "strands")
-            base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".strands"))
-            # If XDG_DATA_HOME is set, nest under strands/
-            if "XDG_DATA_HOME" in os.environ:
-                base = os.path.join(base, "strands")
-            # Per the XDG spec, ignore an empty or non-absolute XDG_DATA_HOME:
-            # a relative value would place sessions under the (possibly shared)
-            base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".strands"))
-            # If XDG_DATA_HOME is set, nest under strands/
-            if "XDG_DATA_HOME" in os.environ:
-                base = os.path.join(base, "strands")
-            # Per the XDG spec, ignore a non-absolute (or empty) XDG_DATA_HOME.
-            if not os.path.isabs(base):
-                base = os.path.join(os.path.expanduser("~"), ".strands")
+        return str(Path.home() / ".strands" / "sessions")
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path.
