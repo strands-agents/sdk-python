@@ -61,6 +61,9 @@ def agent(model, messages, tool_registry, hook_registry):
     mock._middleware_registry = strands._middleware.MiddlewareRegistry()
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    # Bind the real _append_messages chokepoint so appends assign tracking ids
+    # and fire MessageAddedEvent exactly as production does.
+    mock._append_messages = Agent._append_messages.__get__(mock, Agent)
     return mock
 
 
