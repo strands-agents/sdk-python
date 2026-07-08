@@ -101,7 +101,7 @@ class SessionMessage:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the SessionMessage to a dictionary representation."""
-        return encode_bytes_values(asdict(self))  # type: ignore
+        return encode_bytes_values(asdict(self))  # type: ignore[no-any-return]
 
 
 @dataclass

@@ -151,7 +151,7 @@ def test_session_agent_with_bytes():
         state={"document": {"format": "pdf", "source": {"bytes": b"This is binary data"}}},
     )
 
-    # json dumps will fail if its not json serializable
+    # json dumps will fail if it's not json serializable
     agent_json_string = json.dumps(session_agent.to_dict())
 
     # Load it back and verify the full state round-trips, bytes included
