@@ -11,15 +11,8 @@ export const SDK_META: Record<Sdk, { label: string; languages: Language[] }> = {
   evals: { label: 'Evals', languages: ['python'] },
 }
 
-/**
- * Site-wide language preference, shared via localStorage with Starlight's synced
- * code tabs. The key is the one Starlight derives by djb2-hashing the tab labels
- * "Python|TypeScript" (→ "jarkqt"); the default mirrors LanguageToggle's. Single
- * source so LanguageToggle.astro and the changelog page can't drift — if
- * Starlight's key format or the tab labels change, update only here.
- */
-export const LANG_STORAGE_KEY = 'starlight-synced-tabs__jarkqt'
-export const DEFAULT_LANG_LABEL = 'TypeScript'
+// The site-wide language preference key + default live in
+// util/language-preference.ts (shared with LanguageToggle and the landing page).
 
 /**
  * Canonical human label for a release stream, e.g. "Harness Python", "Evals".

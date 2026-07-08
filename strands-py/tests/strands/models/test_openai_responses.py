@@ -1618,6 +1618,14 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
         mock_provide_token.assert_called_once_with(region="us-east-1")
 
+    def test_bedrock_mantle_config_uses_openai_path_for_gpt5(self, openai_client, mock_provide_token):
+        """gpt-5.* models are routed through the /openai/v1 Mantle path."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id="openai.gpt-5.4", bedrock_mantle_config={"region": "us-east-1"})
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
+
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         _ = openai_client
         from datetime import timedelta

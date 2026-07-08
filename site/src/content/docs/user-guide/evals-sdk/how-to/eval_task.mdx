@@ -20,7 +20,7 @@ from strands_evals.evaluators import OutputEvaluator
 
 @eval_task()
 def my_task():
-    return Agent(model="us.anthropic.claude-sonnet-4-20250514-v1:0", callback_handler=None)
+    return Agent(model="global.anthropic.claude-sonnet-4-6", callback_handler=None)
 
 cases = [Case(name="greeting", input="Hello!")]
 evaluator = OutputEvaluator(rubric="Score 1.0 if friendly. Score 0.0 otherwise.")

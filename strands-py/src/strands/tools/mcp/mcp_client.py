@@ -12,6 +12,8 @@ import base64
 import contextvars
 import json
 import logging
+import os
+import re
 import sys
 import threading
 import uuid
@@ -19,13 +21,16 @@ from asyncio import AbstractEventLoop
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent import futures
 from datetime import timedelta
+from pathlib import Path
 from re import Pattern
 from types import TracebackType
 from typing import Any, TypeVar, cast
 
 import anyio
-from mcp import ClientSession, ListToolsResult
+from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
 from mcp.client.session import ElicitationFnT
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
@@ -79,6 +84,27 @@ class ToolFilters(TypedDict, total=False):
     rejected: list[_ToolMatcher]
 
 
+class MCPServerConfig(TypedDict, total=False):
+    """Schema for a single MCP server entry in a load_servers config.
+
+    Provide either 'command' (stdio) or 'url' (streamable-http/sse), not both. When 'transport' is
+    omitted it is auto-detected from the fields present. String values support '${VAR}' /
+    '${env:VAR}' interpolation, and '~' in 'command' and 'cwd' is expanded to the home directory.
+    """
+
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    cwd: str
+    url: str
+    headers: dict[str, str]
+    transport: str
+    disabled: bool
+    prefix: str
+    tool_filters: ToolFilters
+    startup_timeout: int
+
+
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
@@ -113,6 +139,53 @@ class MCPClient(ToolProvider):
     while maintaining communication with the MCP service. When structured content is available
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
     """
+
+    @classmethod
+    def load_servers(cls, config: "str | dict[str, Any]") -> "list[MCPClient]":
+        """Create MCPClient instances from an ``mcpServers`` JSON config (file path or mapping).
+
+        Returns one client per enabled server. Accepts either a flat mapping of server name to
+        config, or that mapping nested under an ``mcpServers`` key. Servers marked
+        ``"disabled": true`` are skipped.
+
+        Transport is auto-detected from the fields present: ``command`` selects stdio and ``url``
+        selects streamable-http. Set ``transport`` explicitly (``"stdio"``, ``"sse"``, or
+        ``"streamable-http"``) to override. String values support ``${VAR}`` / ``${env:VAR}``
+        interpolation against the process environment, and ``~`` in ``command`` and ``cwd`` is
+        expanded to the user's home directory.
+
+        Args:
+            config: A file path (with optional ``file://`` prefix) to a JSON config, or a
+                dictionary mapping server names to configs (optionally under an ``mcpServers`` key).
+
+        Returns:
+            One MCPClient per enabled server, ready to pass to ``Agent(tools=...)``.
+
+        Raises:
+            FileNotFoundError: If the config file does not exist.
+            json.JSONDecodeError: If the config file contains invalid JSON.
+            ValueError: If the config shape is invalid, a server entry is not a mapping, a server
+                config is invalid, or a referenced environment variable is not set.
+        """
+        servers = _load_servers_mapping(config)
+
+        clients: list[MCPClient] = []
+        for name, server in servers.items():
+            # A non-dict entry is a malformed-config error and always raises, unlike per-server failures.
+            if not isinstance(server, dict):
+                raise ValueError(f"server '{name}' configuration must be a dictionary, got {type(server).__name__}")
+            unknown_keys = sorted(server.keys() - MCPServerConfig.__annotations__.keys())
+            if unknown_keys:
+                logger.warning(
+                    "server_name=<%s>, unknown_keys=<%s> | ignoring unrecognized MCP config keys", name, unknown_keys
+                )
+            if server.get("disabled", False):
+                logger.debug("server_name=<%s> | skipping disabled MCP server", name)
+                continue
+            clients.append(_build_client_from_config(name, server))
+
+        logger.debug("loaded_servers=<%d> | created MCP clients from config", len(clients))
+        return clients
 
     def __init__(
         self,
@@ -1259,3 +1332,145 @@ class MCPClient(ToolProvider):
             final_status.status,
         )
         return self._create_task_error_result(f"Unexpected task status: {final_status.status}")
+
+
+# Matches ${VAR} and ${env:VAR} where VAR is a valid environment variable identifier.
+_ENV_VAR_PATTERN = re.compile(r"\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _load_servers_mapping(config: str | dict[str, Any]) -> dict[str, Any]:
+    """Resolve the load_servers input into a mapping of server name to server config.
+
+    Reads and parses the file when config is a path, then unwraps the optional ``mcpServers`` key
+    so both wrapped and flat shapes are accepted.
+    """
+    if isinstance(config, str):
+        file_path = config[len("file://") :] if config.startswith("file://") else config
+        path = Path(file_path).expanduser()
+        if not path.exists():
+            raise FileNotFoundError(f"MCP configuration file not found: {file_path}")
+        config_dict = json.loads(path.read_text())
+    elif isinstance(config, dict):
+        config_dict = config
+    else:
+        raise ValueError("config must be a file path string or a dictionary")
+
+    servers = config_dict.get("mcpServers", config_dict) if isinstance(config_dict, dict) else None
+    if not isinstance(servers, dict):
+        raise ValueError(
+            'MCP config must be a JSON object mapping server names to configs, e.g. {"my-server": {"command": "node"}}'
+        )
+    return servers
+
+
+def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
+    """Build a single MCPClient from one server entry.
+
+    Interpolates ``${VAR}`` references first so secrets can live in the environment, then detects
+    the transport and constructs the matching transport callable.
+    """
+    server = cast(dict[str, Any], _interpolate_env_vars(server))
+
+    if server.get("command") and server.get("url") and not server.get("transport"):
+        raise ValueError(f"server '{name}' has both 'command' and 'url' — set 'transport' explicitly or remove one")
+
+    transport = server.get("transport")
+    if transport is None:
+        transport = "stdio" if server.get("command") else "streamable-http" if server.get("url") else None
+    if transport is None:
+        raise ValueError(f"server '{name}' must include either 'command' (stdio) or 'url' (http)")
+
+    transport_callable = _config_transport_callable(name, transport, server)
+
+    logger.debug("server_name=<%s>, transport=<%s> | creating MCP client from config", name, transport)
+    return MCPClient(
+        transport_callable,
+        startup_timeout=server.get("startup_timeout", 30),
+        tool_filters=_parse_config_tool_filters(name, server.get("tool_filters")),
+        prefix=server.get("prefix"),
+    )
+
+
+def _config_transport_callable(name: str, transport: str, server: dict[str, Any]) -> Callable[[], MCPTransport]:
+    """Return a zero-arg callable that opens the transport for the given server entry."""
+    match transport:
+        case "stdio":
+            command = server.get("command")
+            if not command:
+                raise ValueError(f"server '{name}': stdio transport requires 'command'")
+            params = StdioServerParameters(
+                command=os.path.expanduser(command),
+                args=server.get("args", []),
+                env=server.get("env"),
+                cwd=os.path.expanduser(server["cwd"]) if server.get("cwd") else None,
+            )
+            return lambda: stdio_client(params)
+
+        case "streamable-http":
+            url = server.get("url")
+            if not url:
+                raise ValueError(f"server '{name}': streamable-http transport requires 'url'")
+            headers = server.get("headers")
+            return lambda: streamablehttp_client(url=cast(str, url), headers=headers)
+
+        case "sse":
+            url = server.get("url")
+            if not url:
+                raise ValueError(f"server '{name}': sse transport requires 'url'")
+            headers = server.get("headers")
+            return lambda: sse_client(url=cast(str, url), headers=headers)
+
+        case _:
+            raise ValueError(f"server '{name}': unsupported transport type '{transport}'")
+
+
+def _parse_config_tool_filters(name: str, config: dict[str, Any] | None) -> ToolFilters | None:
+    """Compile a tool-filter config into a ToolFilters mapping of regex patterns.
+
+    Patterns match the server-side (unprefixed) tool name; any ``prefix`` is applied afterwards.
+    """
+    if not config:
+        return None
+
+    result: ToolFilters = {}
+    if config.get("allowed") is not None:
+        result["allowed"] = _compile_filter_patterns(name, "allowed", config["allowed"])
+    if config.get("rejected") is not None:
+        result["rejected"] = _compile_filter_patterns(name, "rejected", config["rejected"])
+
+    return result or None
+
+
+def _compile_filter_patterns(name: str, key: str, patterns: list[str]) -> list[_ToolMatcher]:
+    """Compile a list of regex strings into patterns, raising a clear error on an invalid one."""
+    compiled: list[_ToolMatcher] = []
+    for pattern in patterns:
+        try:
+            compiled.append(re.compile(pattern))
+        except re.error as e:
+            raise ValueError(f"server '{name}': invalid regex in tool_filters.{key}: '{pattern}': {e}") from e
+    return compiled
+
+
+def _interpolate_env_vars(value: Any) -> Any:
+    """Recursively replace ``${VAR}`` / ``${env:VAR}`` references in strings with env values.
+
+    Strings nested inside lists and dicts are interpolated; other types pass through unchanged.
+
+    Raises:
+        ValueError: If a referenced environment variable is not set.
+    """
+    if isinstance(value, str):
+
+        def _replace(match: re.Match[str]) -> str:
+            var = match.group(1)
+            if var not in os.environ:
+                raise ValueError(f"environment variable '{var}' is not set")
+            return os.environ[var]
+
+        return _ENV_VAR_PATTERN.sub(_replace, value)
+    if isinstance(value, list):
+        return [_interpolate_env_vars(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _interpolate_env_vars(item) for key, item in value.items()}
+    return value

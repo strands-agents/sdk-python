@@ -774,9 +774,7 @@ export function cloneSystemPrompt(prompt: SystemPrompt): SystemPrompt {
  * This is a discriminated union where the object key determines the block format.
  */
 export type SystemContentBlockData =
-  | TextBlockData
-  | { cachePoint: CachePointBlockData }
-  | { guardContent: GuardContentBlockData }
+  TextBlockData | { cachePoint: CachePointBlockData } | { guardContent: GuardContentBlockData }
 
 export type SystemContentBlock = TextBlock | CachePointBlock | GuardContentBlock
 

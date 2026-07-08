@@ -623,8 +623,10 @@ class BedrockModel(Model):
         if "guardContent" in content:
             guard = content["guardContent"]
             guard_text = guard["text"]
-            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
-            return {"guardContent": result}
+            text_block: dict[str, Any] = {"text": guard_text["text"]}
+            if "qualifiers" in guard_text:
+                text_block["qualifiers"] = guard_text["qualifiers"]
+            return {"guardContent": {"text": text_block}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
         if "image" in content:
@@ -1041,6 +1043,16 @@ class BedrockModel(Model):
                     e,
                     "└ For more information see "
                     "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#required-iam-permissions",
+                )
+
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "The provided model identifier is invalid" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
                 )
 
             if (

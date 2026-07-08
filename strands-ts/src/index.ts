@@ -282,8 +282,9 @@ export {
   type McpCallToolOptions,
   type TasksConfig,
   type McpConnectionState,
+  type McpServerConfig,
   McpClient,
-} from './mcp.js'
+} from './mcp/index.js'
 export type { ElicitationCallback, ElicitationContext } from './types/elicitation.js'
 
 // Session management

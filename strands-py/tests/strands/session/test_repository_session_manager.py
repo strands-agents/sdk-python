@@ -1,5 +1,6 @@
 """Tests for AgentSessionManager."""
 
+import copy
 from unittest.mock import Mock
 
 import pytest
@@ -427,11 +428,83 @@ def test_fix_broken_tool_use_ignores_last_message(session_manager):
             ],
         },
     ]
+    original = copy.deepcopy(messages)
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
     # Should remain unchanged since toolUse is in last message
-    assert fixed_messages == messages
+    assert fixed_messages == original
+
+
+def test_fix_broken_tool_use_ignores_single_orphaned_tool_use(session_manager):
+    """Test that a conversation with only a single orphaned toolUse is left untouched."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "only-message-123", "name": "test_tool", "input": {"input": "test"}}}
+            ],
+        },
+    ]
+    original = copy.deepcopy(messages)
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    assert fixed_messages == original
+
+
+def test_fix_broken_tool_use_consecutive_orphaned_tool_uses(session_manager):
+    """Consecutive non-trailing orphaned toolUse messages each receive a toolResult (issue #2028).
+
+    The trailing message is intentionally left for the agent class to handle at prompt-arrival
+    time, so this covers the mid-iteration skip caused by enumerate+insert against a live
+    ``len(messages)`` guard: with two orphans followed by a text message, the second orphan
+    used to end up as the new "last" index mid-loop and get skipped.
+    """
+    tru_messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "first-123", "name": "test_tool", "input": {"input": "test1"}}}],
+        },
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "second-456", "name": "test_tool", "input": {"input": "test2"}}}],
+        },
+        {"role": "user", "content": [{"text": "Next message"}]},
+    ]
+    exp_messages = [
+        tru_messages[0],
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "first-123",
+                        "status": "error",
+                        "content": [{"text": "Tool was interrupted."}],
+                    }
+                }
+            ],
+        },
+        tru_messages[1],
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "second-456",
+                        "status": "error",
+                        "content": [{"text": "Tool was interrupted."}],
+                    }
+                }
+            ],
+        },
+        tru_messages[2],
+    ]
+
+    tru_fixed = session_manager._fix_broken_tool_use(tru_messages)
+
+    assert tru_fixed == exp_messages
 
 
 def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):

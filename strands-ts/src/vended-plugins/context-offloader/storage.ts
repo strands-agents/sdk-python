@@ -324,7 +324,7 @@ export class FileStorage implements Storage {
 
     const filePath = path.resolve(this._artifactDir, reference)
     const resolvedDir = path.resolve(this._artifactDir)
-    if (!filePath.startsWith(resolvedDir)) {
+    if (filePath !== resolvedDir && !filePath.startsWith(resolvedDir + path.sep)) {
       throw new Error(`Reference not found: ${reference}`)
     }
 

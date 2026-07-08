@@ -43,10 +43,7 @@ export type Status = (typeof Status)[keyof typeof Status]
  * Subset of {@link Status} valid for a {@link NodeResult}.
  */
 export type ResultStatus =
-  | typeof Status.COMPLETED
-  | typeof Status.FAILED
-  | typeof Status.CANCELLED
-  | typeof Status.INTERRUPTED
+  typeof Status.COMPLETED | typeof Status.FAILED | typeof Status.CANCELLED | typeof Status.INTERRUPTED
 
 /**
  * Result of executing a single node.
