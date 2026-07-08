@@ -205,7 +205,6 @@ async def test_model_stop_alone(nova_model):
 @pytest.mark.asyncio
 async def test_connection_with_message_history(nova_model, mock_client, mock_stream):
     """Test connection initialization with conversation history."""
-    nova_model.client = mock_client
 
     # Create message history
     messages = [
