@@ -18,13 +18,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import strands.vended_memory_stores.local.store as store_module
+import strands.vended_memory_stores.test_memory_store.store as store_module
 from strands.hooks.events import AfterInvocationEvent, MessageAddedEvent
 from strands.hooks.registry import HookOrder
 from strands.memory.extraction.triggers import InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig, ExtractionResult
 from strands.memory.memory_manager import MemoryManager
-from strands.vended_memory_stores.local import TestMemoryStore
+from strands.vended_memory_stores.test_memory_store import (
+    TestMemoryAddResult,
+    TestMemoryStore,
+    TestMemoryStoreConfig,
+)
 
 
 @pytest.fixture
@@ -57,6 +61,14 @@ class TestPackageExport:
 
         with pytest.raises(AttributeError):
             __getattr__("NoSuchStore")
+
+    def test_test_prefixed_classes_are_not_collected_by_pytest(self):
+        # The ``Test`` prefix would otherwise make pytest try to collect these classes as test suites
+        # (emitting a PytestCollectionWarning). ``__test__ = False`` opts them out; assert it stays set
+        # so a future edit that drops a guard fails here instead of silently re-enabling collection.
+        assert TestMemoryStore.__test__ is False
+        assert TestMemoryStoreConfig.__test__ is False
+        assert TestMemoryAddResult.__test__ is False
 
 
 class TestConstructor:

@@ -1,6 +1,5 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { logger } from '../../logging/logger.js'
 import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
@@ -106,7 +105,7 @@ function tokenOverlapScore(queryTokens: Set<string>, content: string): number {
  *
  * @example
  * ```typescript
- * import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/local'
+ * import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/test-memory-store'
  *
  * // Persists to ~/.strands/memory/notes.json by default.
  * const store = new TestMemoryStore({ name: 'notes' })
@@ -341,32 +340,5 @@ export class TestMemoryStore implements MemoryStore {
     } catch (error: unknown) {
       throw new Error(`TestMemoryStore: failed to write ${filePath}`, { cause: error })
     }
-  }
-}
-
-/**
- * Configuration for {@link LocalMemoryStore}.
- *
- * @deprecated Renamed to {@link TestMemoryStoreConfig}.
- */
-export type LocalMemoryStoreConfig = TestMemoryStoreConfig
-
-/**
- * Result returned by {@link LocalMemoryStore.add}.
- *
- * @deprecated Renamed to {@link TestMemoryAddResult}.
- */
-export type LocalMemoryAddResult = TestMemoryAddResult
-
-/**
- * A JSON-file-backed {@link MemoryStore}.
- *
- * @deprecated Renamed to {@link TestMemoryStore}. This subclass keeps the old name working (it is a {@link TestMemoryStore})
- *  and warns once per instance.
- */
-export class LocalMemoryStore extends TestMemoryStore {
-  constructor(options: TestMemoryStoreConfig) {
-    super(options)
-    logger.warn('LocalMemoryStore is deprecated and has been renamed to TestMemoryStore. Use TestMemoryStore instead.')
   }
 }

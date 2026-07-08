@@ -89,7 +89,7 @@ class TestMemoryStore(MemoryStore):
 
     Example:
         ```python
-        from strands.vended_memory_stores.local import TestMemoryStore
+        from strands.vended_memory_stores.test_memory_store import TestMemoryStore
 
         # Persists to ~/.strands/memory/notes.json by default.
         store = TestMemoryStore(name="notes")

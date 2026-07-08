@@ -3,8 +3,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { TestMemoryStore, LocalMemoryStore } from '../store.js'
-import { logger } from '../../../logging/logger.js'
+import { TestMemoryStore } from '../store.js'
 import { MemoryManager } from '../../../memory/index.js'
 import { InvocationTrigger } from '../../../memory/extraction/triggers.js'
 import type { Extractor } from '../../../memory/extraction/types.js'
@@ -337,44 +336,6 @@ describe('TestMemoryStore', () => {
       const parsed = JSON.parse(await fs.readFile(filePath(), 'utf8'))
       expect(parsed).toHaveLength(1)
       expect(parsed[0].content).toBe('user prefers dark mode')
-    })
-  })
-
-  describe('deprecated LocalMemoryStore alias', () => {
-    it('constructs a TestMemoryStore instance and warns once', () => {
-      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-      try {
-        const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
-        expect(store).toBeInstanceOf(TestMemoryStore)
-        expect(warnSpy).toHaveBeenCalledTimes(1)
-        expect(warnSpy.mock.calls[0]?.[0]).toContain('LocalMemoryStore')
-        expect(warnSpy.mock.calls[0]?.[0]).toContain('TestMemoryStore')
-      } finally {
-        warnSpy.mockRestore()
-      }
-    })
-
-    it('does not warn when constructing the new-name TestMemoryStore', () => {
-      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-      try {
-        new TestMemoryStore({ name: 'notes', path: filePath() })
-        expect(warnSpy).not.toHaveBeenCalled()
-      } finally {
-        warnSpy.mockRestore()
-      }
-    })
-
-    it('behaves identically to TestMemoryStore (add then search round-trips)', async () => {
-      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-      try {
-        const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
-        await store.add('user prefers dark mode')
-        const results = await store.search('what theme does the user like?')
-        expect(results).toHaveLength(1)
-        expect(results[0]?.content).toBe('user prefers dark mode')
-      } finally {
-        warnSpy.mockRestore()
-      }
     })
   })
 })
