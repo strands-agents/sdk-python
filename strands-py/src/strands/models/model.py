@@ -59,9 +59,12 @@ def _count_content_block_tokens(
 
     if "toolResult" in block:
         tool_result = block["toolResult"]
+        # image/document items are binary and intentionally not counted by the heuristic
         for item in tool_result.get("content", []):
             if "text" in item:
                 total += count_text(item["text"])
+            if "json" in item:
+                total += count_json(item["json"])
 
     if "reasoningContent" in block:
         reasoning = block["reasoningContent"]

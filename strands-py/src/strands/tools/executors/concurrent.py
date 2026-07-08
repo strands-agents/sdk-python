@@ -46,6 +46,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         """
         task_queue: asyncio.Queue[tuple[int, Any]] = asyncio.Queue()
         task_events = [asyncio.Event() for _ in tool_uses]
+        task_results: list[list[ToolResult]] = [[] for _ in tool_uses]
         stop_event = object()
 
         tasks = []
@@ -56,7 +57,7 @@ class ConcurrentToolExecutor(ToolExecutor):
                         self._task(
                             agent,
                             tool_use,
-                            tool_results,
+                            task_results[task_id],
                             cycle_trace,
                             cycle_span,
                             invocation_state,
@@ -81,6 +82,8 @@ class ConcurrentToolExecutor(ToolExecutor):
 
                 yield event
                 task_events[task_id].set()
+            for results in task_results:
+                tool_results.extend(results)
         finally:
             for task in tasks:
                 task.cancel()

@@ -5,7 +5,7 @@ This module tests that the @tool decorator works correctly when modules use
 to be stored as string literals rather than evaluated types.
 
 This is a regression test for issue #1208:
-https://github.com/strands-agents/sdk-python/issues/1208
+https://github.com/strands-agents/harness-sdk/issues/1208
 """
 
 from __future__ import annotations

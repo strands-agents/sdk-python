@@ -21,9 +21,9 @@ from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._strict_schema import ensure_strict_json_schema
 from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
+from ._strict_schema import ensure_strict_json_schema
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -65,10 +65,12 @@ class OpenAIModel(Model):
             params: Model parameters (e.g., max_tokens).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/chat/create.
+            stream: Whether to use OpenAI chat completion streaming. Defaults to True.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        stream: bool
 
     def __init__(
         self,
@@ -132,7 +134,9 @@ class OpenAIModel(Model):
         Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
         """
         if self._bedrock_mantle_config is not None:
-            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
+            return resolve_bedrock_client_args(
+                self._bedrock_mantle_config, self.client_args, model_id=str(self.config.get("model_id", ""))
+            )
         return self.client_args
 
     @override
@@ -212,7 +216,7 @@ class OpenAIModel(Model):
         """
         return {
             "function": {
-                "arguments": json.dumps(tool_use["input"]),
+                "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
                 "name": tool_use["name"],
             },
             "id": tool_use["toolUseId"],
@@ -233,7 +237,7 @@ class OpenAIModel(Model):
         contents = cast(
             list[ContentBlock],
             [
-                {"text": json.dumps(content["json"])} if "json" in content else content
+                {"text": json.dumps(content["json"], ensure_ascii=False)} if "json" in content else content
                 for content in tool_result["content"]
             ],
         )
@@ -242,7 +246,7 @@ class OpenAIModel(Model):
         # (image/document) content.  When all content is text, join into a
         # single string for broad compatibility with OpenAI-compatible
         # endpoints (e.g., Kimi K2.5, vLLM, Ollama).
-        # See https://github.com/strands-agents/sdk-python/issues/1696
+        # See https://github.com/strands-agents/harness-sdk/issues/1696
         merged: list[dict[str, Any]] = []
         has_non_text = False
         for content_block in contents:
@@ -380,7 +384,7 @@ class OpenAIModel(Model):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        # TODO: Handle caching blocks https://github.com/strands-agents/sdk-python/issues/1140
+        # TODO: Handle caching blocks https://github.com/strands-agents/harness-sdk/issues/1140
         return [
             {"role": "system", "content": content["text"]}
             for content in system_prompt_content or []
@@ -501,13 +505,16 @@ class OpenAIModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
                 format.
         """
-        return {
+        params = dict(cast(dict[str, Any], self.config.get("params") or {}))
+        stream = bool(self.config.get("stream", params.pop("stream", True)))
+        stream_options = params.pop("stream_options", {"include_usage": True})
+
+        request = {
             "messages": self.format_request_messages(
                 messages, system_prompt, system_prompt_content=system_prompt_content
             ),
             "model": self.config["model_id"],
-            "stream": True,
-            "stream_options": {"include_usage": True},
+            "stream": stream,
             "tools": [
                 {
                     "type": "function",
@@ -525,8 +532,13 @@ class OpenAIModel(Model):
                 for tool_spec in tool_specs or []
             ],
             **(self._format_request_tool_choice(tool_choice)),
-            **cast(dict[str, Any], self.config.get("params", {})),
+            **params,
         }
+
+        if stream:
+            request["stream_options"] = stream_options
+
+        return request
 
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
@@ -606,6 +618,44 @@ class OpenAIModel(Model):
 
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+
+    def _format_non_streaming_response(self, response: Any) -> list[StreamEvent]:
+        """Convert a non-streaming OpenAI chat completion into Strands stream events."""
+        chunks = [self.format_chunk({"chunk_type": "message_start"})]
+        choices = getattr(response, "choices", None) or []
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None)
+
+        reasoning_content = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
+        if reasoning_content:
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"}))
+            chunks.append(
+                self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": reasoning_content}
+                )
+            )
+            chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": "reasoning_content"}))
+
+        if content := getattr(message, "content", None):
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": "text"}))
+            chunks.append(self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": content}))
+            chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": "text"}))
+
+        for tool_call in getattr(message, "tool_calls", None) or []:
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_call}))
+            chunks.append(self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call}))
+            chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"}))
+
+        chunks.append(
+            self.format_chunk(
+                {"chunk_type": "message_stop", "data": getattr(choice, "finish_reason", None) or "end_turn"}
+            )
+        )
+
+        if usage := getattr(response, "usage", None):
+            chunks.append(self.format_chunk({"chunk_type": "metadata", "data": usage}))
+
+        return chunks
 
     @asynccontextmanager
     async def _get_client(self) -> AsyncIterator[Any]:
@@ -693,6 +743,11 @@ class OpenAIModel(Model):
                 # Re-raise other APIError exceptions
                 raise
 
+            if not request["stream"]:
+                for chunk in self._format_non_streaming_response(response):
+                    yield chunk
+                return
+
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
             tool_calls: dict[int, list[Any]] = {}
@@ -706,7 +761,11 @@ class OpenAIModel(Model):
                     continue
                 choice = event.choices[0]
 
-                if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                reasoning_content = getattr(choice.delta, "reasoning_content", None)
+                if not isinstance(reasoning_content, str) or not reasoning_content:
+                    reasoning_content = getattr(choice.delta, "reasoning", None)
+
+                if isinstance(reasoning_content, str) and reasoning_content:
                     chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                     for chunk in chunks:
                         yield chunk
@@ -714,7 +773,7 @@ class OpenAIModel(Model):
                         {
                             "chunk_type": "content_delta",
                             "data_type": data_type,
-                            "data": choice.delta.reasoning_content,
+                            "data": reasoning_content,
                         }
                     )
 
@@ -798,10 +857,12 @@ class OpenAIModel(Model):
         # https://github.com/encode/httpx/discussions/2959.
         async with self._get_client() as client:
             try:
+                request = self.format_request(prompt, system_prompt=system_prompt)
+                # parse() is non-streaming; stream=True would raise, so drop the streaming-only fields.
+                request.pop("stream", None)
+                request.pop("stream_options", None)
                 response: ParsedChatCompletion = await client.beta.chat.completions.parse(
-                    model=self.get_config()["model_id"],
-                    messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
-                    response_format=output_model,
+                    **request, response_format=output_model
                 )
             except openai.BadRequestError as e:
                 # Check if this is a context length exceeded error

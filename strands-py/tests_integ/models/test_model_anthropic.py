@@ -158,7 +158,7 @@ def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
 
 
 @pytest.mark.asyncio
-def test_input_and_max_tokens_exceed_context_limit():
+def test_input_and_max_tokens_exceed_context_limit(quiet_strands_logging):
     """Test that triggers 'input length and max_tokens exceed context limit' error."""
 
     # Note that this test is written specifically in a style that allows us to swap out conversation_manager and

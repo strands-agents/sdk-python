@@ -24,7 +24,7 @@ class GuardContentText(TypedDict):
         text: The input text details to be evaluated by the guardrail.
     """
 
-    qualifiers: list[Literal["grounding_source", "query", "guard_content"]]
+    qualifiers: NotRequired[list[Literal["grounding_source", "query", "guard_content"]]]
     text: str
 
 
@@ -113,6 +113,34 @@ class SystemContentBlock(TypedDict, total=False):
 
     cachePoint: CachePoint
     text: str
+
+
+SystemPrompt = str | list[SystemContentBlock] | None
+"""System prompt as either a plain string or structured content blocks (e.g., with cache points)."""
+
+
+def split_system_prompt(system_prompt: SystemPrompt) -> tuple[str | None, list[SystemContentBlock] | None]:
+    """Split a unified system prompt into the two-field form needed by Model.stream().
+
+    The string representation is maintained for backwards compatibility with model providers
+    that expect `system_prompt: str`. The content block representation supports advanced
+    features like cache points.
+
+    Returns:
+        (system_prompt_str, system_prompt_content) where:
+        - If string input: (string, [{text: string}])
+        - If list with text elements: (concatenated_text, list)
+        - If list without text elements: (None, list)
+        - If None: (None, None)
+    """
+    if isinstance(system_prompt, str):
+        return system_prompt, [{"text": system_prompt}]
+    elif isinstance(system_prompt, list):
+        text_parts = [block["text"] for block in system_prompt if "text" in block]
+        system_prompt_str = "\n".join(text_parts) if text_parts else None
+        return system_prompt_str, system_prompt
+    else:
+        return None, None
 
 
 class DeltaContent(TypedDict, total=False):

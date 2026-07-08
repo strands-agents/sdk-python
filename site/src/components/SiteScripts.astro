@@ -1,0 +1,84 @@
+---
+/**
+ * AWS Shortbread cookie consent and Analytics WebSDK initialization.
+ * Included in both Head.astro (docs pages) and LandingLayout.astro (index page).
+ */
+---
+
+<link rel="stylesheet" href="https://prod.assets.shortbread.aws.dev/shortbread.css" />
+<script is:inline src="https://prod.assets.shortbread.aws.dev/shortbread.js"></script>
+<script is:inline>
+  /**
+   * Shortbread Cookie Consent and AWS Analytics WebSDK Initialization
+   * CRITICAL: Site must operate even if Shortbread is unavailable.
+   */
+  ;(function () {
+    'use strict'
+
+    const hostname = window.location.hostname
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1'
+    const isCloudFrontPreview = hostname === 'd3ehv1nix5p99z.cloudfront.net'
+    const isProduction = hostname.endsWith('.strandsagents.com') || hostname === 'strandsagents.com'
+
+    const domain = isLocal || isCloudFrontPreview ? hostname : '.strandsagents.com'
+
+    let webSdkStage, webSdkDomain
+    if (isProduction) {
+      webSdkStage = 'prod'
+      webSdkDomain = 'https://d0.m.awsstatic.com'
+    } else if (isLocal) {
+      webSdkStage = 'alpha'
+      webSdkDomain = 'https://da0.m.awsstatic.com'
+    } else {
+      webSdkStage = 'gamma'
+      webSdkDomain = 'https://dg0.m.awsstatic.com'
+    }
+
+    if (typeof AWSCShortbread === 'undefined') {
+      console.warn('Shortbread unavailable. Using essential cookies only.')
+      return
+    }
+
+    try {
+      const existingShortbreadEl = document.getElementById('awsccc-sb-ux-c')
+      if (existingShortbreadEl) existingShortbreadEl.remove()
+
+      const shortbread = AWSCShortbread({
+        domain,
+        registry: {
+          GitHubRepoCache: { category: 'essential' },
+        },
+        language: AWSCShortbread.Locale?.getLocaleIdShortbread(
+          AWSCShortbread.Locale.getCurrentLocale()
+        ),
+      })
+
+      shortbread.checkForCookieConsent()
+      window.strandsShortbread = shortbread
+
+      document.addEventListener('click', function (e) {
+        if (e.target.id === 'cookie-preferences') {
+          e.preventDefault()
+          shortbread.customizeCookies()
+        }
+      })
+
+      loadWebSDK(webSdkStage, webSdkDomain)
+    } catch (error) {
+      console.error('Shortbread error:', error)
+    }
+
+    function loadWebSDK(stage, sdkDomain) {
+      try {
+        const script = document.createElement('script')
+        script.type = 'module'
+        script.id = 'awsm-csa'
+        script.src = sdkDomain + '/awsm-acslibs/1.0.0/bundle/slim/wsdk.js'
+        script.setAttribute('data-awsm-csa-meta', JSON.stringify({ env: { stage } }))
+        document.head.appendChild(script)
+      } catch (error) {
+        console.error('WebSDK loading error:', error)
+      }
+    }
+  })()
+</script>

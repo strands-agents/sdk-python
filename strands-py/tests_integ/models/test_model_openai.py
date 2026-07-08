@@ -1,6 +1,7 @@
 import os
 import tempfile
 import time
+from urllib.parse import urlparse
 
 import openai as openai_sdk
 import pydantic
@@ -128,6 +129,25 @@ async def test_agent_invoke_async(agent, model):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+def test_agent_invoke_non_streaming_with_tools(tools):
+    """Integration test for non-streaming (stream=False) chat completions that invoke tools.
+
+    Verifies that when streaming is disabled, the OpenAI provider converts the completion
+    into Strands stream events and that tool calls still execute end-to-end.
+    """
+    model = OpenAIModel(
+        model_id="gpt-4o",
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+        stream=False,
+    )
+    agent = Agent(model=model, tools=tools)
+
+    result = agent("What is the time and weather in New York?")
+    text = result.message["content"][0]["text"].lower()
+
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent, model):
     stream = agent.stream_async("What is the time and weather in New York?")
@@ -206,7 +226,7 @@ def test_tool_returning_images(model, yellow_img):
     agent = Agent(model, tools=[tool_with_image_return])
     # NOTE - this currently fails with: "Invalid 'messages[3]'. Image URLs are only allowed for messages with role
     # 'user', but this message with role 'tool' contains an image URL."
-    # See https://github.com/strands-agents/sdk-python/issues/320 for additional details
+    # See https://github.com/strands-agents/harness-sdk/issues/320 for additional details
     agent("Run the the tool and analyze the image")
 
 
@@ -218,7 +238,7 @@ def _mini_model_params():
 
 
 @pytest.mark.parametrize("model_class,model_id", _mini_model_params())
-def test_context_window_overflow_integration(model_class, model_id):
+def test_context_window_overflow_integration(model_class, model_id, quiet_strands_logging):
     """Integration test for context window overflow with OpenAI.
 
     This test verifies that when a request exceeds the model's context window,
@@ -253,7 +273,7 @@ def _rate_limit_params():
     return params
 
 
-def test_rate_limit_throttling_integration_no_retries():
+def test_rate_limit_throttling_integration_no_retries(quiet_strands_logging):
     """Integration test for rate limit handling with retries disabled.
 
     This test verifies that when a request exceeds OpenAI's rate limits,
@@ -353,7 +373,12 @@ def test_responses_builtin_tool_web_search():
 
     assert "citationsContent" in content
     citations = content["citationsContent"]["citations"]
-    assert any("strandsagents.com" in c["location"]["web"]["url"] for c in citations)
+
+    def _is_strands_host(url: str) -> bool:
+        host = urlparse(url).hostname or ""
+        return host == "strandsagents.com" or host.endswith(".strandsagents.com")
+
+    assert any(_is_strands_host(c["location"]["web"]["url"]) for c in citations)
 
 
 @pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")

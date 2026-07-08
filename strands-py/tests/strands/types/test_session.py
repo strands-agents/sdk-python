@@ -140,3 +140,20 @@ def test_session_agent_initialize_internal_state():
     tru_model_state = agent._model_state
     exp_model_state = {"response_id": "resp_abc"}
     assert tru_model_state == exp_model_state
+
+
+def test_session_agent_with_bytes():
+    # Agent state can hold binary content (e.g. inline PDF bytes from a multimodal prompt), which
+    # crashes json.dumps() unless to_dict() encodes it. Regression test for #1864.
+    session_agent = SessionAgent(
+        agent_id="a1",
+        conversation_manager_state={},
+        state={"document": {"format": "pdf", "source": {"bytes": b"This is binary data"}}},
+    )
+
+    # json dumps will fail if it's not json serializable
+    agent_json_string = json.dumps(session_agent.to_dict())
+
+    # Load it back and verify the full state round-trips, bytes included
+    loaded_agent = SessionAgent.from_dict(json.loads(agent_json_string))
+    assert loaded_agent.state == session_agent.state

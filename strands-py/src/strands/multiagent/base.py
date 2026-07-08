@@ -13,7 +13,7 @@ from typing import Any, Union
 
 from .._async import run_async
 from ..agent import AgentResult
-from ..hooks.registry import HookCallback
+from ..hooks.registry import HookCallback, HookOrder
 from ..interrupt import Interrupt
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
@@ -255,7 +255,9 @@ class MultiAgentBase(ABC):
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
 
-    def add_hook(self, callback: HookCallback, event_type: type | list[type] | None = None) -> None:
+    def add_hook(
+        self, callback: HookCallback, event_type: type | list[type] | None = None, *, order: float = HookOrder.DEFAULT
+    ) -> None:
         """Register a hook callback with the orchestrator.
 
         Subclasses that support hooks should override this method to register
@@ -266,6 +268,7 @@ class MultiAgentBase(ABC):
             event_type: The class type(s) of events this callback should handle.
                 Can be a single type, a list of types, or None to infer from
                 the callback's first parameter type hint.
+            order: Execution priority. Lower values execute first.
         """
         raise NotImplementedError(f"{type(self).__name__} must implement add_hook() to support plugins")
 

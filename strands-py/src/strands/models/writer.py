@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -28,6 +28,15 @@ T = TypeVar("T", bound=BaseModel)
 
 class WriterModel(Model):
     """Writer API model provider implementation."""
+
+    OVERFLOW_MESSAGES = {
+        "this model's maximum context length is",
+        "exceed context limit",
+        "model's maximum context limit",
+        "is longer than the model's context length",
+        "prompt is too long",
+        "too many tokens",
+    }
 
     class WriterConfig(BaseModelConfig, total=False):
         """Configuration options for Writer API.
@@ -167,7 +176,7 @@ class WriterModel(Model):
         """
         return {
             "function": {
-                "arguments": json.dumps(tool_use["input"]),
+                "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
                 "name": tool_use["name"],
             },
             "id": tool_use["toolUseId"],
@@ -186,7 +195,7 @@ class WriterModel(Model):
         contents = cast(
             list[ContentBlock],
             [
-                {"text": json.dumps(content["json"])} if "json" in content else content
+                {"text": json.dumps(content["json"], ensure_ascii=False)} if "json" in content else content
                 for content in tool_result["content"]
             ],
         )
@@ -384,6 +393,7 @@ class WriterModel(Model):
             Formatted message chunks from the model.
 
         Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: When the model service is throttling requests from the client.
         """
         warn_on_tool_choice_not_supported(tool_choice)
@@ -397,6 +407,10 @@ class WriterModel(Model):
             response = await self.client.chat.chat(**request)
         except writerai.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
+        except writerai.BadRequestError as e:
+            if any(message in str(e).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(e)) from e
+            raise
 
         yield self.format_chunk({"chunk_type": "message_start"})
         yield self.format_chunk({"chunk_type": "content_block_start", "data_type": "text"})
@@ -451,6 +465,9 @@ class WriterModel(Model):
             prompt: The prompt messages to use for the agent.
             system_prompt: System prompt to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
         """
         formatted_request = self.format_request(messages=prompt, tool_specs=None, system_prompt=system_prompt)
         formatted_request["response_format"] = {
@@ -460,7 +477,12 @@ class WriterModel(Model):
         formatted_request["stream"] = False
         formatted_request.pop("stream_options", None)
 
-        response = await self.client.chat.chat(**formatted_request)
+        try:
+            response = await self.client.chat.chat(**formatted_request)
+        except writerai.BadRequestError as e:
+            if any(message in str(e).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(e)) from e
+            raise
 
         try:
             content = response.choices[0].message.content.strip()

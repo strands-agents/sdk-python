@@ -3,7 +3,7 @@ from strands.models import BedrockModel
 from strands.types.content import Messages
 
 
-def test_bedrock_cache_point():
+def test_bedrock_cache_point(quiet_strands_logging):
     messages: Messages = [
         {
             "role": "user",
@@ -32,7 +32,7 @@ def test_bedrock_cache_point():
     assert cache_point_usage > 0
 
 
-def test_bedrock_multi_prompt_and_duplicate_cache_point():
+def test_bedrock_multi_prompt_and_duplicate_cache_point(quiet_strands_logging):
     """Test multi-prompt system with cache point."""
     system_prompt_content = [
         {"text": "You are a helpful assistant." * 500},  # Long text for cache

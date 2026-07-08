@@ -259,7 +259,7 @@ class GeminiModel(Model):
 
         return contents
 
-    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[genai.types.Tool | Any]:
+    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[genai.types.Tool | Any] | None:
         """Format tool specs into Gemini tools.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
@@ -268,8 +268,10 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
 
         Return:
-            Gemini tool list.
+            Gemini tool list, or None when no tools are configured (Vertex AI rejects empty arrays).
         """
+        if not tool_specs and not self.config.get("gemini_tools"):
+            return None
         tools = [
             genai.types.Tool(
                 function_declarations=[
@@ -420,14 +422,18 @@ class GeminiModel(Model):
                         return {"messageStop": {"stopReason": "tool_use"}}
                     case "MAX_TOKENS":
                         return {"messageStop": {"stopReason": "max_tokens"}}
+                    case "SAFETY":
+                        return {"messageStop": {"stopReason": "guardrail_intervened"}}
                     case _:
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                input_tokens = event["data"].prompt_token_count or 0
+                total_tokens = event["data"].total_token_count or 0
                 usage_data: Usage = {
-                    "inputTokens": event["data"].prompt_token_count,
-                    "outputTokens": event["data"].total_token_count - event["data"].prompt_token_count,
-                    "totalTokens": event["data"].total_token_count,
+                    "inputTokens": input_tokens,
+                    "outputTokens": max(0, total_tokens - input_tokens),
+                    "totalTokens": total_tokens,
                 }
 
                 if cached := event["data"].cached_content_token_count:

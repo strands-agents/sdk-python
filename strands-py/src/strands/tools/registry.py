@@ -214,7 +214,7 @@ class ToolRegistry:
                 self.validate_tool_spec(spec)
                 tool_config[tool_name] = spec
                 logger.debug("tool_name=<%s> | loaded tool config", tool_name)
-            except ValueError as e:
+            except (ValueError, RecursionError) as e:
                 logger.warning("tool_name=<%s> | spec validation failed | %s", tool_name, e)
 
         # Add any dynamic tools
@@ -228,7 +228,7 @@ class ToolRegistry:
                     self.validate_tool_spec(spec)
                     tool_config[tool_name] = spec
                     logger.debug("tool_name=<%s> | loaded dynamic tool config", tool_name)
-                except ValueError as e:
+                except (ValueError, RecursionError) as e:
                     logger.warning("tool_name=<%s> | dynamic tool spec validation failed | %s", tool_name, e)
 
         logger.debug("tool_count=<%s> | tools configured", len(tool_config))

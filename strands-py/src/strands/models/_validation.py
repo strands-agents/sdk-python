@@ -26,7 +26,7 @@ def validate_config_keys(config_dict: Mapping[str, Any], config_class: type) -> 
             f"Invalid configuration parameters: {sorted(invalid_keys)}."
             f"\nValid parameters are: {sorted(valid_keys)}."
             f"\n"
-            f"\nSee https://github.com/strands-agents/sdk-python/issues/815",
+            f"\nSee https://github.com/strands-agents/harness-sdk/issues/815",
             stacklevel=4,
         )
 

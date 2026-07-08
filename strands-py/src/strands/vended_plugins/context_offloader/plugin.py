@@ -34,19 +34,31 @@ from __future__ import annotations
 
 import json
 import logging
+import weakref
 from typing import TYPE_CHECKING
 
-from ...hooks.events import AfterToolCallEvent
+from typing_extensions import TypedDict
+
+from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
-from .storage import Storage
+from .search import _is_searchable_content, _search_content
+from .storage import FileStorage, InMemoryStorage, Storage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+
+class LineRange(TypedDict):
+    """A span of lines to retrieve (1-indexed, inclusive)."""
+
+    start: int
+    end: int
+
 
 _DEFAULT_MAX_RESULT_TOKENS = 2_500
 """Default token threshold above which tool results are offloaded."""
@@ -134,38 +146,119 @@ class ContextOffloader(Plugin):
             raise ValueError("preview_tokens must be less than max_result_tokens")
 
         self._storage = storage
+        # Per-agent FileStorage bound to that agent's sandbox; other backends are shared as-is.
+        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage] = weakref.WeakKeyDictionary()
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
         super().__init__()
 
+    def _storage_for_agent(self, agent: Agent) -> Storage:
+        """Return the storage for an agent, binding FileStorage to its sandbox.
+
+        Non-FileStorage backends are shared across agents unchanged. A FileStorage
+        is bound once per agent to that agent's sandbox via
+        :meth:`FileStorage.for_sandbox`, so a shared plugin isolates artifacts per
+        agent sandbox.
+
+        Args:
+            agent: The agent whose storage to resolve.
+
+        Returns:
+            The storage instance for this agent.
+        """
+        if not isinstance(self._storage, FileStorage):
+            return self._storage
+        storage = self._storage_by_agent.get(agent)
+        if storage is None:
+            storage = self._storage.for_sandbox(agent.sandbox)
+            self._storage_by_agent[agent] = storage
+        return storage
+
     def init_agent(self, agent: Agent) -> None:
-        """Conditionally register the retrieval tool."""
+        """Conditionally register the retrieval tool and bind storage."""
+        if isinstance(self._storage, InMemoryStorage):
+            self._storage._bind(id(agent))
+        # Bind FileStorage to this agent's sandbox up front (no-op for other backends).
+        self._storage_for_agent(agent)
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool
             self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
 
+    @hook
+    def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
+        """Trigger eviction of stale entries based on the agent's cycle count."""
+        if isinstance(self._storage, InMemoryStorage):
+            self._storage._evict(event.agent.event_loop_metrics.cycle_count)
+
     @tool(context=True)
-    def retrieve_offloaded_content(
+    async def retrieve_offloaded_content(
         self,
         reference: str,
         tool_context: ToolContext,
+        pattern: str | None = None,
+        line_range: LineRange | None = None,
+        context_lines: int | None = None,
     ) -> dict | str:
         """Retrieve offloaded content by reference.
 
-        Use this tool when you see a placeholder with a reference (ref: ...)
-        and need the full content. Only use this as a fallback if the data
-        cannot be accessed using your existing tools.
+        When a tool result was too large to keep in context, it was stored externally and replaced with a preview
+        and a reference. Use this tool with that reference to access the stored content.
+
+        Returns:
+          - With pattern: matching lines with line numbers and surrounding context
+          - With line_range: the specified span of lines with line numbers
+          - Without pattern/line_range: the full original content (use sparingly — re-injects all tokens)
+
+        Constraints:
+          - pattern/line_range/context_lines only work on text content. For binary content, omit them.
+          - Line numbers in results are 1-indexed and can be used in follow-up line_range calls.
+
+        Examples:
+          {"reference": "ref_1", "pattern": "error"} -> lines containing "error" with 5 lines context
+          {"reference": "ref_1", "pattern": "error|warning", "context_lines": 3} -> regex, 3 lines context
+          {"reference": "ref_1", "line_range": {"start": 10, "end": 25}} -> lines 10-25
+          {"reference": "ref_1", "pattern": "TODO", "line_range": {"start": 1, "end": 50}} -> search within range
 
         Args:
-            reference: The reference string from the offload placeholder.
+            reference: The reference string from the offload placeholder (e.g. "mem_1_tool-123_0").
+            pattern: Regex or keyword to grep for. Returns only matching lines with context — not the full content.
+            line_range: Return only this span of lines. A dict with 'start' and 'end' keys (1-indexed).
+                Combine with pattern to search within the range.
+            context_lines: Lines before AND after each match (like grep -C). Default: 5.
+                Without pattern/line_range, returns first N lines.
             tool_context: Injected by the framework. Not user-facing.
         """
+        storage = self._storage_for_agent(tool_context.agent)
         try:
-            content_bytes, content_type = self._storage.retrieve(reference)
+            content_bytes, content_type = await storage.retrieve(reference)
         except KeyError:
             return f"Error: reference not found: {reference}"
 
+        if pattern is None and line_range is None and context_lines is None:
+            return self._decode_full_content(content_bytes, content_type, reference)
+
+        if not _is_searchable_content(content_type):
+            return (
+                f"Error: cannot search binary content ({content_type}). "
+                "Omit pattern/line_range/context_lines to retrieve the full content."
+            )
+
+        text = content_bytes.decode("utf-8")
+        ctx_lines = context_lines if context_lines is not None else 5
+        max_chars = self._max_result_tokens * _CHARS_PER_TOKEN
+
+        lr: tuple[int, int] | None = None
+        if line_range is not None:
+            lr = (int(line_range["start"]), int(line_range["end"]))
+        elif pattern is None:
+            lr = (1, max(1, ctx_lines))
+
+        return _search_content(text, pattern=pattern, line_range=lr, context_lines=ctx_lines, max_chars=max_chars)
+
+    @staticmethod
+    def _decode_full_content(content_bytes: bytes, content_type: str, reference: str) -> dict | str:
+        """Decode stored content into its native format for full retrieval."""
         if content_type.startswith("text/"):
             return content_bytes.decode("utf-8")
 
@@ -218,23 +311,24 @@ class ContextOffloader(Plugin):
         full_text = "\n".join(text_preview_parts) if text_preview_parts else ""
 
         # Store each content block individually
+        storage = self._storage_for_agent(event.agent)
         references: list[tuple[str, str, str]] = []  # (ref, content_type, description)
         try:
             for i, block in enumerate(content):
                 key = f"{tool_use_id}_{i}"
                 if block.get("text"):
-                    ref = self._storage.store(key, block["text"].encode("utf-8"), "text/plain")
+                    ref = await storage.store(key, block["text"].encode("utf-8"), "text/plain")
                     references.append((ref, "text/plain", f"text, {len(block['text']):,} chars"))
                 elif "json" in block:
                     json_bytes = json.dumps(block["json"], indent=2).encode("utf-8")
-                    ref = self._storage.store(key, json_bytes, "application/json")
+                    ref = await storage.store(key, json_bytes, "application/json")
                     references.append((ref, "application/json", f"json, {len(json_bytes):,} bytes"))
                 elif "image" in block:
                     image = block["image"]
                     img_format = image.get("format", "unknown")
                     img_bytes = image.get("source", {}).get("bytes", b"")
                     if img_bytes:
-                        ref = self._storage.store(key, img_bytes, f"image/{img_format}")
+                        ref = await storage.store(key, img_bytes, f"image/{img_format}")
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
                     else:
                         references.append(("", f"image/{img_format}", f"image/{img_format}, 0 bytes"))
@@ -244,7 +338,7 @@ class ContextOffloader(Plugin):
                     doc_name = doc.get("name", "unknown")
                     doc_bytes = doc.get("source", {}).get("bytes", b"")
                     if doc_bytes:
-                        ref = self._storage.store(key, doc_bytes, f"application/{doc_format}")
+                        ref = await storage.store(key, doc_bytes, f"application/{doc_format}")
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
                     else:
                         references.append(("", f"application/{doc_format}", f"{doc_name}, 0 bytes"))
@@ -269,11 +363,17 @@ class ContextOffloader(Plugin):
 
         guidance = (
             "Tool result was offloaded to external storage due to size.\n"
-            "Use the preview below to answer if possible.\n"
-            "Use your available tools to selectively access the data you need."
+            "Use the preview below if it answers your question.\n"
         )
         if self._include_retrieval_tool:
-            guidance += "\nYou can also use retrieve_offloaded_content with a reference to get the full content."
+            guidance += (
+                "If you need more detail, use retrieve_offloaded_content with a reference and:\n"
+                "  - pattern: regex or keyword to find matching lines with context\n"
+                "  - line_range: { start, end } to read a specific span of lines\n"
+                "Retrieve full content (omit pattern/line_range) as a last resort."
+            )
+        else:
+            guidance += "If you need more detail, use your available tools to access specific data."
 
         preview_text = (
             f"[Offloaded: {len(content)} blocks, ~{token_count:,} tokens]\n"

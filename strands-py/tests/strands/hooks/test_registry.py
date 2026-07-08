@@ -9,9 +9,15 @@ from strands.hooks import (
     BeforeInvocationEvent,
     BeforeModelCallEvent,
     BeforeToolCallEvent,
+    HookOrder,
     HookRegistry,
 )
 from strands.interrupt import Interrupt, _InterruptState
+
+
+def _has_callback(registry, event_type, callback):
+    """Check if a callback is registered for an event type."""
+    return any(entry.callback is callback for entry in registry._registered_callbacks.get(event_type, []))
 
 
 @pytest.fixture
@@ -108,7 +114,7 @@ def test_hook_registry_add_callback_infers_event_type(registry):
 
     # Verify callback was registered
     assert BeforeInvocationEvent in registry._registered_callbacks
-    assert typed_callback in registry._registered_callbacks[BeforeInvocationEvent]
+    assert _has_callback(registry, BeforeInvocationEvent, typed_callback)
 
 
 def test_hook_registry_add_callback_raises_error_no_type_hint(registry):
@@ -150,7 +156,7 @@ def test_hook_registry_add_callback_infers_event_type_when_callback_provided_wit
     registry.add_callback(None, typed_callback)
 
     assert BeforeInvocationEvent in registry._registered_callbacks
-    assert typed_callback in registry._registered_callbacks[BeforeInvocationEvent]
+    assert _has_callback(registry, BeforeInvocationEvent, typed_callback)
 
 
 def test_hook_registry_add_callback_with_explicit_event_type_and_callback(registry):
@@ -162,7 +168,7 @@ def test_hook_registry_add_callback_with_explicit_event_type_and_callback(regist
     registry.add_callback(BeforeInvocationEvent, callback)
 
     assert BeforeInvocationEvent in registry._registered_callbacks
-    assert callback in registry._registered_callbacks[BeforeInvocationEvent]
+    assert _has_callback(registry, BeforeInvocationEvent, callback)
 
 
 # ========== Tests for union type support ==========
@@ -179,8 +185,8 @@ def test_hook_registry_add_callback_infers_union_types_pipe_syntax(registry):
     # Callback should be registered for both event types
     assert BeforeModelCallEvent in registry._registered_callbacks
     assert AfterModelCallEvent in registry._registered_callbacks
-    assert union_callback in registry._registered_callbacks[BeforeModelCallEvent]
-    assert union_callback in registry._registered_callbacks[AfterModelCallEvent]
+    assert _has_callback(registry, BeforeModelCallEvent, union_callback)
+    assert _has_callback(registry, AfterModelCallEvent, union_callback)
 
 
 def test_hook_registry_add_callback_infers_union_types_union_syntax(registry):
@@ -194,8 +200,8 @@ def test_hook_registry_add_callback_infers_union_types_union_syntax(registry):
     # Callback should be registered for both event types
     assert BeforeModelCallEvent in registry._registered_callbacks
     assert AfterModelCallEvent in registry._registered_callbacks
-    assert union_callback in registry._registered_callbacks[BeforeModelCallEvent]
-    assert union_callback in registry._registered_callbacks[AfterModelCallEvent]
+    assert _has_callback(registry, BeforeModelCallEvent, union_callback)
+    assert _has_callback(registry, AfterModelCallEvent, union_callback)
 
 
 def test_hook_registry_add_callback_union_with_none_raises_error(registry):
@@ -230,9 +236,9 @@ def test_hook_registry_add_callback_union_multiple_types(registry):
     assert BeforeModelCallEvent in registry._registered_callbacks
     assert AfterModelCallEvent in registry._registered_callbacks
     assert BeforeInvocationEvent in registry._registered_callbacks
-    assert multi_union_callback in registry._registered_callbacks[BeforeModelCallEvent]
-    assert multi_union_callback in registry._registered_callbacks[AfterModelCallEvent]
-    assert multi_union_callback in registry._registered_callbacks[BeforeInvocationEvent]
+    assert _has_callback(registry, BeforeModelCallEvent, multi_union_callback)
+    assert _has_callback(registry, AfterModelCallEvent, multi_union_callback)
+    assert _has_callback(registry, BeforeInvocationEvent, multi_union_callback)
 
 
 # ========== Tests for list of types support ==========
@@ -249,8 +255,8 @@ def test_hook_registry_add_callback_with_list_of_types(registry):
     # Callback should be registered for both event types
     assert BeforeModelCallEvent in registry._registered_callbacks
     assert AfterModelCallEvent in registry._registered_callbacks
-    assert my_callback in registry._registered_callbacks[BeforeModelCallEvent]
-    assert my_callback in registry._registered_callbacks[AfterModelCallEvent]
+    assert _has_callback(registry, BeforeModelCallEvent, my_callback)
+    assert _has_callback(registry, AfterModelCallEvent, my_callback)
 
 
 def test_hook_registry_add_callback_with_list_deduplicates(registry):
@@ -309,3 +315,55 @@ async def test_hook_registry_union_callback_invoked_for_each_type(registry, agen
     after_event = AfterModelCallEvent(agent=agent)
     await registry.invoke_callbacks_async(after_event)
     assert call_count["after"] == 1
+
+
+# ========== Tests for hook ordering ==========
+
+
+def test_lower_order_runs_first(registry, agent):
+    """Test that lower order values execute first."""
+    order = []
+
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("default"), order=HookOrder.DEFAULT)
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("first"), order=HookOrder.SDK_FIRST)
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("last"), order=HookOrder.SDK_LAST)
+
+    registry.invoke_callbacks(BeforeModelCallEvent(agent=agent))
+    assert order == ["first", "default", "last"]
+
+
+def test_same_order_preserves_registration_order(registry, agent):
+    """Test that callbacks with the same order preserve registration order."""
+    order = []
+
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("a"))
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("b"))
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("c"))
+
+    registry.invoke_callbacks(BeforeModelCallEvent(agent=agent))
+    assert order == ["a", "b", "c"]
+
+
+def test_negative_order_runs_before_default(registry, agent):
+    """Test that negative order runs before default."""
+    order = []
+
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("default"))
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("early"), order=-50)
+
+    registry.invoke_callbacks(BeforeModelCallEvent(agent=agent))
+    assert order == ["early", "default"]
+
+
+def test_after_events_lower_order_still_runs_first(registry, agent):
+    """Test that for After events, lower order still runs first across groups."""
+    order = []
+
+    registry.add_callback(AfterModelCallEvent, lambda e: order.append("default_a"))
+    registry.add_callback(AfterModelCallEvent, lambda e: order.append("default_b"))
+    registry.add_callback(AfterModelCallEvent, lambda e: order.append("first"), order=HookOrder.SDK_FIRST)
+    registry.add_callback(AfterModelCallEvent, lambda e: order.append("last"), order=HookOrder.SDK_LAST)
+
+    registry.invoke_callbacks(AfterModelCallEvent(agent=agent))
+    # Lower order first, but within same group registration order is reversed
+    assert order == ["first", "default_b", "default_a", "last"]

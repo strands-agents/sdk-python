@@ -8,13 +8,16 @@ The event loop allows agents to:
 4. Manage recursive execution cycles
 """
 
+import copy
 import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
+from .._middleware.stages import InvokeModelContext, InvokeModelStage
+from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
@@ -32,7 +35,9 @@ from ..types._events import (
     ToolResultMessageEvent,
     TypedEvent,
 )
-from ..types.content import Message, Messages
+from ..types.agent import Limits
+from ..types.content import Message, Messages, split_system_prompt
+from ..types.event_loop import Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -53,6 +58,42 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
+
+
+def _check_limits(agent: "Agent", limits: Limits | None) -> StopReason | None:
+    """Evaluate per-invocation budget caps against the current invocation's metrics.
+
+    Reads from ``EventLoopMetrics.latest_agent_invocation`` (scoped to the current
+    invocation) so caps don't fire prematurely on the second invoke against a reused
+    agent. Priority on simultaneous trip: turns -> total_tokens -> output_tokens.
+
+    Args:
+        agent: The agent whose metrics to read.
+        limits: The configured caps, or ``None`` for no caps.
+
+    Returns:
+        The matching ``StopReason`` if a cap has been reached, otherwise ``None``.
+    """
+    if not limits:
+        return None
+    invocation = agent.event_loop_metrics.latest_agent_invocation
+    if invocation is None:
+        return None
+
+    cycle_count = len(invocation.cycles)
+    output_tokens = invocation.usage.get("outputTokens", 0)
+    total_tokens = invocation.usage.get("totalTokens", 0)
+
+    turns_cap = limits.get("turns")
+    if turns_cap is not None and cycle_count >= turns_cap:
+        return "limit_turns"
+    total_cap = limits.get("total_tokens")
+    if total_cap is not None and total_tokens >= total_cap:
+        return "limit_total_tokens"
+    output_cap = limits.get("output_tokens")
+    if output_cap is not None and output_tokens >= output_cap:
+        return "limit_output_tokens"
+    return None
 
 
 def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
@@ -117,10 +158,32 @@ async def _estimate_input_tokens(agent: "Agent") -> int:
     )
 
 
+def _build_checkpoint_stop_event(
+    agent: "Agent",
+    position: CheckpointPosition,
+    cycle_index: int,
+    message: Message,
+    request_state: Any,
+) -> EventLoopStopEvent:
+    """Build a checkpoint stop event. Used at ``after_model`` and ``after_tools``."""
+    checkpoint = Checkpoint(
+        position=position,
+        cycle_index=cycle_index,
+    )
+    return EventLoopStopEvent(
+        "checkpoint",
+        message,
+        agent.event_loop_metrics,
+        request_state,
+        checkpoint=checkpoint,
+    )
+
+
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
     structured_output_context: StructuredOutputContext | None = None,
+    limits: Limits | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
@@ -143,14 +206,21 @@ async def event_loop_cycle(
             - event_loop_cycle_id: Unique ID for this cycle
             - event_loop_cycle_span: Current tracing Span for this cycle
         structured_output_context: Optional context for structured output management.
+        limits: Optional per-invocation budget caps. Checked at the top of this cycle
+            (after tools from the previous cycle have run to completion). See
+            :class:`~strands.types.agent.Limits`.
 
     Yields:
-        Model and tool stream events. The last event is a tuple containing:
+        Model and tool stream events. The final ``EventLoopStopEvent`` payload
+        (``event["stop"]``) is a 7-tuple:
 
-            - StopReason: Reason the model stopped generating (e.g., "tool_use")
+            - StopReason: Reason the model stopped generating (e.g., "tool_use", "checkpoint")
             - Message: The generated message from the model
             - EventLoopMetrics: Updated metrics for the event loop
             - Any: Updated request state
+            - Sequence[Interrupt] | None: Interrupts raised during the cycle, if any
+            - BaseModel | None: Structured output result, if any
+            - Checkpoint | None: Checkpoint captured when stop_reason == "checkpoint"
 
     Raises:
         EventLoopException: If an error occurs during execution
@@ -158,12 +228,38 @@ async def event_loop_cycle(
     """
     structured_output_context = structured_output_context or StructuredOutputContext()
 
+    # Caps are positive and use >= semantics, so a trip implies at least one prior cycle
+    # ran — meaning agent.messages[-1] exists.
+    limit_stop_reason = _check_limits(agent, limits)
+    if limit_stop_reason is not None:
+        if "request_state" not in invocation_state:
+            invocation_state["request_state"] = {}
+        yield EventLoopStopEvent(
+            limit_stop_reason,
+            agent.messages[-1],
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        return
+
     # Initialize cycle state
     invocation_state["event_loop_cycle_id"] = uuid.uuid4()
 
     # Initialize state and get cycle trace
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
+
+    # Consume the resume marker (one-shot).
+    resume_context = agent._checkpoint
+    if resume_context is not None:
+        agent._checkpoint = None
+        # after_tools means that cycle finished; resume increments cycle_index.
+        next_cycle = (
+            resume_context.cycle_index + 1 if resume_context.position == "after_tools" else resume_context.cycle_index
+        )
+        agent._checkpoint_cycle_index = next_cycle
+        agent._checkpoint_resume_position = resume_context.position
+
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
     invocation_state["event_loop_cycle_trace"] = cycle_trace
@@ -207,22 +303,35 @@ async def event_loop_cycle(
 
         try:
             if stop_reason == "max_tokens":
-                """
-                Handle max_tokens limit reached by the model.
-
-                When the model reaches its maximum token limit, this represents a potentially unrecoverable
-                state where the model's response was truncated. By default, Strands fails hard with an
-                MaxTokensReachedException to maintain consistency with other failure types.
-                """
                 raise MaxTokensReachedException(
                     message=(
-                        "Agent has reached an unrecoverable state due to max_tokens limit. "
+                        "Model stopped generating due to maximum token limit. "
+                        "The partial message has been added to the conversation history. "
+                        "You can continue by calling the agent again. "
                         "For more information see: "
-                        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                        "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
                     )
                 )
 
             if stop_reason == "tool_use":
+                # Emit after_model checkpoint, unless we just resumed from one.
+                if agent._checkpointing and not agent._cancel_signal.is_set():
+                    resume_position = agent._checkpoint_resume_position
+                    agent._checkpoint_resume_position = None
+                    if resume_position != "after_model":
+                        cycle_index = agent._checkpoint_cycle_index
+                        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+                        if cycle_span:
+                            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+                        yield _build_checkpoint_stop_event(
+                            agent=agent,
+                            position="after_model",
+                            cycle_index=cycle_index,
+                            message=message,
+                            request_state=invocation_state["request_state"],
+                        )
+                        return
+
                 # Handle tool execution
                 tool_events = _handle_tool_execution(
                     stop_reason,
@@ -234,6 +343,7 @@ async def event_loop_cycle(
                     invocation_state=invocation_state,
                     tracer=tracer,
                     structured_output_context=structured_output_context,
+                    limits=limits,
                 )
                 async for tool_event in tool_events:
                     yield tool_event
@@ -257,7 +367,10 @@ async def event_loop_cycle(
 
                 tracer.end_event_loop_cycle_span(cycle_span, message)
                 events = recurse_event_loop(
-                    agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+                    agent=agent,
+                    invocation_state=invocation_state,
+                    structured_output_context=structured_output_context,
+                    limits=limits,
                 )
                 async for typed_event in events:
                     yield typed_event
@@ -278,7 +391,8 @@ async def event_loop_cycle(
             tracer.end_span_with_error(cycle_span, str(e), e)
             # Handle any other exceptions
             yield ForceStopEvent(reason=e)
-            logger.exception("cycle failed")
+            logger.error("exception=<%s> | event loop cycle failed", type(e).__name__)
+            logger.debug("event loop cycle failed", exc_info=True)
             raise EventLoopException(e, invocation_state["request_state"]) from e
 
 
@@ -286,6 +400,7 @@ async def recurse_event_loop(
     agent: "Agent",
     invocation_state: dict[str, Any],
     structured_output_context: StructuredOutputContext | None = None,
+    limits: Limits | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
@@ -295,6 +410,7 @@ async def recurse_event_loop(
         agent: Agent for which the recursive call is being made.
         invocation_state: Arguments to pass through event_loop_cycle
         structured_output_context: Optional context for structured output management.
+        limits: Optional per-invocation budget caps. See :class:`~strands.types.agent.Limits`.
 
     Yields:
         Results from event_loop_cycle where the last result contains:
@@ -313,7 +429,10 @@ async def recurse_event_loop(
     yield StartEvent()
 
     events = event_loop_cycle(
-        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+        agent=agent,
+        invocation_state=invocation_state,
+        structured_output_context=structured_output_context,
+        limits=limits,
     )
     async for event in events:
         yield event
@@ -356,60 +475,31 @@ async def _handle_model_execution(
     # Retry loop - actual retry logic is handled by retry_strategy hook
     # Hooks control when to stop retrying via the event.retry flag
     while True:
-        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
-        model_invoke_span = tracer.start_model_invoke_span(
-            messages=agent.messages,
-            parent_span=cycle_span,
-            model_id=model_id,
-            custom_trace_attributes=agent.trace_attributes,
-            system_prompt=agent.system_prompt,
-            system_prompt_content=agent._system_prompt_content,
-        )
-        with trace_api.use_span(model_invoke_span, end_on_exit=False):
+        try:
+            # Estimate input tokens for the upcoming model call (non-fatal)
+            projected_input_tokens: int | None = None
             try:
-                # Estimate input tokens for the upcoming model call (non-fatal)
-                projected_input_tokens: int | None = None
-                try:
-                    projected_input_tokens = await _estimate_input_tokens(agent)
-                except Exception as e:
-                    logger.debug("error=<%s> | token estimation failed, proceeding without estimate", e)
+                projected_input_tokens = await _estimate_input_tokens(agent)
+            except Exception as e:
+                logger.debug("error=<%s> | token estimation failed, proceeding without estimate", e)
 
-                await agent.hooks.invoke_callbacks_async(
-                    BeforeModelCallEvent(
-                        agent=agent,
-                        invocation_state=invocation_state,
-                        projected_input_tokens=projected_input_tokens,
-                    )
+            before_model_call_event = BeforeModelCallEvent(
+                agent=agent,
+                invocation_state=invocation_state,
+                projected_input_tokens=projected_input_tokens,
+            )
+            await agent.hooks.invoke_callbacks_async(before_model_call_event)
+
+            if before_model_call_event.cancel:
+                cancel_text = (
+                    before_model_call_event.cancel
+                    if isinstance(before_model_call_event.cancel, str)
+                    else "model call denied by hook"
                 )
-
-                if structured_output_context.forced_mode:
-                    tool_spec = structured_output_context.get_tool_spec()
-                    tool_specs = [tool_spec] if tool_spec else []
-                else:
-                    tool_specs = agent.tool_registry.get_all_tool_specs()
-
-                async for event in stream_messages(
-                    agent.model,
-                    agent.system_prompt,
-                    agent.messages,
-                    tool_specs,
-                    system_prompt_content=agent._system_prompt_content,
-                    tool_choice=structured_output_context.tool_choice,
-                    invocation_state=invocation_state,
-                    model_state=agent._model_state,
-                    cancel_signal=agent._cancel_signal,
-                ):
-                    yield event
-
-                stop_reason, message, usage, metrics = event["stop"]
-                invocation_state.setdefault("request_state", {})
-
-                # Attach metadata to the assistant message immediately so it's
-                # available to all downstream consumers (hooks, events, state).
-                message["metadata"] = {
-                    "usage": usage,
-                    "metrics": metrics,
-                }
+                message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
+                stop_reason: StopReason = "end_turn"
+                usage: Usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+                metrics: Metrics = {"latencyMs": 0}
 
                 after_model_call_event = AfterModelCallEvent(
                     agent=agent,
@@ -419,54 +509,127 @@ async def _handle_model_execution(
                         message=message,
                     ),
                 )
-
                 await agent.hooks.invoke_callbacks_async(after_model_call_event)
 
-                # Check if hooks want to retry the model call
                 if after_model_call_event.retry:
-                    logger.debug(
-                        "stop_reason=<%s>, retry_requested=<True> | hook requested model retry",
-                        stop_reason,
-                    )
-                    tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
-                    continue  # Retry the model call
+                    continue
+                yield ModelStopReason(stop_reason=stop_reason, message=message, usage=usage, metrics=metrics)
+                break
 
-                if stop_reason == "max_tokens":
-                    message = recover_message_on_max_tokens_reached(message)
+            if structured_output_context.forced_mode:
+                tool_spec = structured_output_context.get_tool_spec()
+                tool_specs = [tool_spec] if tool_spec else []
+            else:
+                tool_specs = agent.tool_registry.get_all_tool_specs()
 
-                tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
-                break  # Success! Break out of retry loop
+            # Build middleware context with defensive copies to prevent accidental mutation.
+            # invocation_state is intentionally shared by reference (hooks/tools write to it).
+            # Prefer the content-block form when present: it is the authoritative superset
+            # (it carries the text AND structural blocks like cachePoints). Falling back to the
+            # plain string would silently drop cachePoints.
+            system_prompt_value = (
+                agent._system_prompt_content if agent._system_prompt_content is not None else agent.system_prompt
+            )
+            middleware_context = InvokeModelContext(
+                agent=agent,
+                messages=copy.deepcopy(agent.messages),
+                system_prompt=copy.deepcopy(system_prompt_value),
+                tool_specs=copy.deepcopy(tool_specs),
+                tool_choice=copy.deepcopy(structured_output_context.tool_choice),
+                invocation_state=invocation_state,
+                projected_input_tokens=projected_input_tokens,
+            )
 
-            except Exception as e:
-                tracer.end_span_with_error(model_invoke_span, str(e), e)
-                after_model_call_event = AfterModelCallEvent(
-                    agent=agent,
-                    invocation_state=invocation_state,
-                    exception=e,
+            # Snapshot model state before the chain so middleware mutations to
+            # agent._model_state (before or after next()) cannot leak into the model call.
+            # The terminal streams against this snapshot; we write it back after the entire
+            # chain completes (success only). model_state is intentionally NOT on the context.
+            model_state_snapshot = copy.deepcopy(agent._model_state)
+
+            # Run through middleware chain. The last yielded event is ModelStopReason
+            # which serves as both the streaming result event and the middleware result.
+            last_event = None
+            async for event in agent._middleware_registry.invoke(
+                InvokeModelStage,
+                middleware_context,
+                _make_invoke_model_terminal(agent, cycle_span, tracer, model_state_snapshot),
+            ):
+                last_event = event
+                yield event
+
+            if last_event is None:
+                raise RuntimeError(
+                    "Middleware chain did not yield a result event. "
+                    "Ensure middleware forwards events from next()."
                 )
-                await agent.hooks.invoke_callbacks_async(after_model_call_event)
 
-                # Emit backwards-compatible events if retry strategy supports it
-                # (prior to making the retry strategy configurable, this is what we emitted)
+            # Write the post-stream model state back to the agent. Skipped on error
+            # (exception propagates and we never reach here), matching TS semantics.
+            agent._model_state = model_state_snapshot
 
-                if (
-                    isinstance(agent._retry_strategy, ModelRetryStrategy)
-                    and agent._retry_strategy._backwards_compatible_event_to_yield
-                ):
-                    yield agent._retry_strategy._backwards_compatible_event_to_yield
+            # The last event from the chain is ModelStopReason (the authoritative result)
+            stop_reason, message, usage, metrics = last_event["stop"]
 
-                # Check if hooks want to retry the model call
-                if after_model_call_event.retry:
-                    logger.debug(
-                        "exception=<%s>, retry_requested=<True> | hook requested model retry",
-                        type(e).__name__,
-                    )
+            invocation_state.setdefault("request_state", {})
 
-                    continue  # Retry the model call
+            # Attach metadata to the assistant message immediately so it's
+            # available to all downstream consumers (hooks, events, state).
+            message["metadata"] = {
+                "usage": usage,
+                "metrics": metrics,
+            }
 
-                # No retry requested, raise the exception
-                yield ForceStopEvent(reason=e)
-                raise e
+            after_model_call_event = AfterModelCallEvent(
+                agent=agent,
+                invocation_state=invocation_state,
+                stop_response=AfterModelCallEvent.ModelStopResponse(
+                    stop_reason=stop_reason,
+                    message=message,
+                ),
+            )
+
+            await agent.hooks.invoke_callbacks_async(after_model_call_event)
+
+            # Check if hooks want to retry the model call
+            if after_model_call_event.retry:
+                logger.debug(
+                    "stop_reason=<%s>, retry_requested=<True> | hook requested model retry",
+                    stop_reason,
+                )
+                continue  # Retry the model call
+
+            if stop_reason == "max_tokens":
+                message = recover_message_on_max_tokens_reached(message)
+
+            break  # Success! Break out of retry loop
+
+        except Exception as e:
+            after_model_call_event = AfterModelCallEvent(
+                agent=agent,
+                invocation_state=invocation_state,
+                exception=e,
+            )
+            await agent.hooks.invoke_callbacks_async(after_model_call_event)
+
+            # Emit backwards-compatible events if retry strategy supports it
+            if (
+                isinstance(agent._retry_strategy, ModelRetryStrategy)
+                and agent._retry_strategy._backwards_compatible_event_to_yield
+            ):
+                yield agent._retry_strategy._backwards_compatible_event_to_yield
+
+            # Check if hooks want to retry the model call
+            if after_model_call_event.retry:
+                logger.debug(
+                    "exception=<%s>, retry_requested=<True> | hook requested model retry",
+                    type(e).__name__,
+                )
+
+                continue  # Retry the model call
+
+            # No retry requested, raise the exception
+            yield ForceStopEvent(reason=e)
+            raise e
 
     try:
         # Add message in trace and mark the end of the stream messages trace
@@ -483,8 +646,55 @@ async def _handle_model_execution(
 
     except Exception as e:
         yield ForceStopEvent(reason=e)
-        logger.exception("cycle failed")
+        logger.error("exception=<%s> | event loop cycle failed", type(e).__name__)
+        logger.debug("event loop cycle failed", exc_info=True)
         raise EventLoopException(e, invocation_state["request_state"]) from e
+
+
+def _make_invoke_model_terminal(
+    agent: "Agent", cycle_span: Any, tracer: Tracer, model_state: dict[str, Any]
+) -> "Callable[[InvokeModelContext], AsyncGenerator[Any, None]]":
+    """Create the terminal function for InvokeModelStage middleware.
+
+    Streams against ``model_state`` (a snapshot owned by the caller) rather than
+    ``agent._model_state`` directly, so middleware cannot influence model state. The
+    caller writes this dict back to the agent after the chain completes successfully.
+    """
+
+    async def terminal(ctx: InvokeModelContext) -> AsyncGenerator[Any, None]:
+        system_prompt_str, system_prompt_content = split_system_prompt(ctx.system_prompt)
+
+        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
+        model_invoke_span = tracer.start_model_invoke_span(
+            messages=ctx.messages,
+            parent_span=cycle_span,
+            model_id=model_id,
+            custom_trace_attributes=agent.trace_attributes,
+            system_prompt=system_prompt_str,
+            system_prompt_content=system_prompt_content,
+        )
+        with trace_api.use_span(model_invoke_span, end_on_exit=False):
+            try:
+                async for event in stream_messages(
+                    agent.model,
+                    system_prompt_str,
+                    ctx.messages,
+                    ctx.tool_specs,
+                    system_prompt_content=system_prompt_content,
+                    tool_choice=ctx.tool_choice,
+                    invocation_state=ctx.invocation_state,
+                    model_state=model_state,
+                    cancel_signal=agent._cancel_signal,
+                ):
+                    yield event
+
+                stop_reason, message, usage, metrics = event["stop"]
+                tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
+            except Exception as e:
+                tracer.end_span_with_error(model_invoke_span, str(e), e)
+                raise
+
+    return terminal
 
 
 async def _handle_tool_execution(
@@ -497,6 +707,7 @@ async def _handle_tool_execution(
     invocation_state: dict[str, Any],
     tracer: Tracer,
     structured_output_context: StructuredOutputContext,
+    limits: Limits | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
 
@@ -510,6 +721,7 @@ async def _handle_tool_execution(
         invocation_state: Additional keyword arguments, including request state.
         tracer: Tracer instance for span management.
         structured_output_context: Optional context for structured output management.
+        limits: Optional per-invocation budget caps. See :class:`~strands.types.agent.Limits`.
 
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
@@ -640,8 +852,36 @@ async def _handle_tool_execution(
         )
         return
 
+    # Emit after_tools checkpoint. Only fires on tool_use cycles: a model that
+    # returns end_turn first never reaches this branch.
+    if agent._checkpointing and not agent._cancel_signal.is_set():
+        cycle_index = agent._checkpoint_cycle_index
+        agent._checkpoint_cycle_index = cycle_index + 1
+        yield _build_checkpoint_stop_event(
+            agent=agent,
+            position="after_tools",
+            cycle_index=cycle_index,
+            message=message,
+            request_state=invocation_state["request_state"],
+        )
+        return
+
+    # If checkpointing is on and cancel suppressed the checkpoint above, emit
+    # "cancelled" now to avoid an extra model call.
+    if agent._checkpointing and agent._cancel_signal.is_set():
+        yield EventLoopStopEvent(
+            "cancelled",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        return
+
     events = recurse_event_loop(
-        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+        agent=agent,
+        invocation_state=invocation_state,
+        structured_output_context=structured_output_context,
+        limits=limits,
     )
     async for event in events:
         yield event

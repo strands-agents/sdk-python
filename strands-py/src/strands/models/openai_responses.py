@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 # Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
-# A major version bump is proposed in https://github.com/strands-agents/sdk-python/pull/1370
+# A major version bump is proposed in https://github.com/strands-agents/harness-sdk/pull/1370
 _MIN_OPENAI_VERSION = Version("2.0.0")
 
 try:
@@ -55,12 +55,13 @@ import openai  # noqa: E402 - must import after version check
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
+from ..types.event_loop import Usage  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
-from ._strict_schema import ensure_strict_json_schema  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
+from ._strict_schema import ensure_strict_json_schema  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
 
@@ -187,7 +188,9 @@ class OpenAIResponsesModel(Model):
         Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
         """
         if self._bedrock_mantle_config is not None:
-            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
+            return resolve_bedrock_client_args(
+                self._bedrock_mantle_config, self.client_args, model_id=str(self.config.get("model_id", ""))
+            )
         return self.client_args
 
     @property
@@ -489,11 +492,9 @@ class OpenAIResponsesModel(Model):
         """
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
-                response = await client.responses.parse(
-                    model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
-                    text_format=output_model,
-                )
+                request = self._format_request(prompt, system_prompt=system_prompt)
+                request.pop("stream", None)
+                response = await client.responses.parse(**request, text_format=output_model)
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
@@ -550,21 +551,27 @@ class OpenAIResponsesModel(Model):
 
         # Add tools if provided
         if tool_specs:
-            # Merge with any built-in tools (e.g. web_search) already in the request from params
-            request.setdefault("tools", []).extend(
-                {
-                    "type": "function",
-                    "name": tool_spec["name"],
-                    "description": tool_spec.get("description", ""),
-                    "parameters": (
-                        ensure_strict_json_schema(tool_spec["inputSchema"]["json"], require_all_properties=True)
-                        if tool_spec.get("strict")
-                        else tool_spec["inputSchema"]["json"]
-                    ),
-                    **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
-                }
-                for tool_spec in tool_specs
-            )
+            # Merge function tools with any built-in tools (e.g. web_search) carried in from params.
+            # Build a new list rather than extending in place: ** unpacking above aliases
+            # self.config["params"]["tools"] by reference, so mutating it would duplicate every tool
+            # spec into the stored config on each call.
+            request["tools"] = [
+                *request.get("tools", []),
+                *(
+                    {
+                        "type": "function",
+                        "name": tool_spec["name"],
+                        "description": tool_spec.get("description", ""),
+                        "parameters": (
+                            ensure_strict_json_schema(tool_spec["inputSchema"]["json"], require_all_properties=True)
+                            if tool_spec.get("strict")
+                            else tool_spec["inputSchema"]["json"]
+                        ),
+                        **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
+                    }
+                    for tool_spec in tool_specs
+                ),
+            ]
             request.update(self._format_request_tool_choice(tool_choice))
 
         return request
@@ -700,7 +707,7 @@ class OpenAIResponsesModel(Model):
             "type": "function_call",
             "call_id": tool_use["toolUseId"],
             "name": tool_use["name"],
-            "arguments": json.dumps(tool_use["input"]),
+            "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
         }
 
     @classmethod
@@ -726,7 +733,7 @@ class OpenAIResponsesModel(Model):
 
         for content in tool_result["content"]:
             if "json" in content:
-                output_parts.append({"type": "input_text", "text": json.dumps(content["json"])})
+                output_parts.append({"type": "input_text", "text": json.dumps(content["json"], ensure_ascii=False)})
             elif "text" in content:
                 output_parts.append({"type": "input_text", "text": content["text"]})
             elif "image" in content:
@@ -843,13 +850,20 @@ class OpenAIResponsesModel(Model):
 
             case "metadata":
                 # Responses API uses input_tokens/output_tokens naming convention
+                usage_data: Usage = {
+                    "inputTokens": getattr(event["data"], "input_tokens", 0),
+                    "outputTokens": getattr(event["data"], "output_tokens", 0),
+                    "totalTokens": getattr(event["data"], "total_tokens", 0),
+                }
+
+                if tokens_details := getattr(event["data"], "input_tokens_details", None):
+                    cached = getattr(tokens_details, "cached_tokens", None)
+                    if isinstance(cached, int) and cached:
+                        usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": getattr(event["data"], "input_tokens", 0),
-                            "outputTokens": getattr(event["data"], "output_tokens", 0),
-                            "totalTokens": getattr(event["data"], "total_tokens", 0),
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

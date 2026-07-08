@@ -9,11 +9,15 @@ from a2a.types import DataPart, FilePart, InternalError, TextPart, UnsupportedOp
 from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
-from strands.multiagent.a2a.executor import StrandsA2AExecutor
+from strands.multiagent.a2a.executor import StrandsA2AExecutor, _StreamState
 from strands.types.content import ContentBlock
 
-# Suppress A2A compliance warnings for legacy streaming mode tests
-pytestmark = pytest.mark.filterwarnings("ignore:The default A2A response stream.*:UserWarning")
+# Suppress A2A compliance warnings for legacy streaming mode tests, and the single-agent
+# deprecation warning for tests that intentionally exercise the deprecated template path.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:The default A2A response stream.*:UserWarning"),
+    pytest.mark.filterwarnings("ignore:Passing a single 'agent'.*:DeprecationWarning"),
+]
 
 # Test data constants
 VALID_PNG_BYTES = b"fake_png_data"
@@ -651,7 +655,7 @@ async def test_handle_agent_result_with_none_result(mock_strands_agent, mock_req
     mock_updater.add_artifact = AsyncMock()
 
     # Call _handle_agent_result with None
-    await executor._handle_agent_result(None, mock_updater)
+    await executor._handle_agent_result(None, mock_updater, None)
 
     # Verify completion was called
     mock_updater.complete.assert_called_once()
@@ -680,7 +684,7 @@ async def test_handle_agent_result_with_result_but_no_message(
     mock_result.message = None
 
     # Call _handle_agent_result
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, None)
 
     # Verify completion was called
     mock_updater.complete.assert_called_once()
@@ -701,7 +705,7 @@ async def test_handle_agent_result_with_content(mock_strands_agent):
     mock_result.__str__ = MagicMock(return_value="Test response content")
 
     # Call _handle_agent_result
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, None)
 
     # Verify artifact was added and task completed
     mock_updater.add_artifact.assert_called_once()
@@ -1110,15 +1114,14 @@ async def test_a2a_compliant_mode_no_warning(mock_strands_agent, mock_request_co
 async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
     """Test that A2A-compliant mode uses add_artifact with artifact_id."""
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-123"
-    executor._is_first_chunk = True
+    stream_state = _StreamState(artifact_id="artifact-123", is_first_chunk=True)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
     mock_updater.update_status = AsyncMock()
 
     event = {"data": "content"}
-    await executor._handle_streaming_event(event, mock_updater)
+    await executor._handle_streaming_event(event, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-123"
@@ -1130,8 +1133,7 @@ async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
 async def test_a2a_compliant_handle_result_first_chunk_with_content(mock_strands_agent):
     """Test that A2A-compliant mode sends a TextPart with content when first chunk and result has content."""
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-456"
-    executor._is_first_chunk = True
+    stream_state = _StreamState(artifact_id="artifact-456", is_first_chunk=True)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
@@ -1140,7 +1142,7 @@ async def test_a2a_compliant_handle_result_first_chunk_with_content(mock_strands
     mock_result = MagicMock(spec=SAAgentResult)
     mock_result.__str__ = MagicMock(return_value="Final response")
 
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     parts = mock_updater.add_artifact.call_args[0][0]
@@ -1159,14 +1161,13 @@ async def test_a2a_compliant_handle_result_first_chunk_with_none_result(mock_str
     we should send a TextPart with an empty string rather than an empty list.
     """
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-789"
-    executor._is_first_chunk = True
+    stream_state = _StreamState(artifact_id="artifact-789", is_first_chunk=True)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
     mock_updater.complete = AsyncMock()
 
-    await executor._handle_agent_result(None, mock_updater)
+    await executor._handle_agent_result(None, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     parts = mock_updater.add_artifact.call_args[0][0]
@@ -1185,8 +1186,7 @@ async def test_a2a_compliant_handle_result_not_first_chunk(mock_strands_agent):
     chunk should include a TextPart with an empty string rather than an empty list.
     """
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-abc"
-    executor._is_first_chunk = False
+    stream_state = _StreamState(artifact_id="artifact-abc", is_first_chunk=False)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
@@ -1195,7 +1195,7 @@ async def test_a2a_compliant_handle_result_not_first_chunk(mock_strands_agent):
     mock_result = MagicMock(spec=SAAgentResult)
     mock_result.__str__ = MagicMock(return_value="Some content")
 
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     parts = mock_updater.add_artifact.call_args[0][0]
@@ -1941,3 +1941,330 @@ async def test_cancel_without_hasattr_cancel(mock_strands_agent, mock_request_co
         e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
     ]
     assert len(canceled_events) == 1
+
+
+# =========================================================================
+# NEW TESTS: Per-context conversation isolation
+#
+# These tests drive a REAL Agent (with a deterministic stub model) through a
+# single executor across two distinct A2A context_ids, asserting that no
+# conversation state (messages OR agent state) leaks between contexts, while
+# a single context still accumulates its own history across turns.
+# =========================================================================
+
+
+def _make_stub_agent(stream_fn=None, *, messages=None):
+    """Build a real Agent backed by a deterministic, network-free stub model.
+
+    Args:
+        stream_fn: Callable ``(messages) -> str`` producing the assistant reply text. Defaults
+            to an echo of the latest user text prefixed with ``ECHO[<history-length>]``.
+        messages: Optional seeded conversation history for the template agent.
+    """
+    from collections.abc import AsyncGenerator
+
+    from strands.agent.agent import Agent
+    from strands.models import Model
+
+    def _default_reply(msgs):
+        last_user_text = ""
+        for message in reversed(msgs):
+            if message.get("role") == "user":
+                last_user_text = next((b["text"] for b in message.get("content", []) if "text" in b), "")
+                break
+        return f"ECHO[{len(msgs)}]: {last_user_text}"
+
+    reply_fn = stream_fn or _default_reply
+
+    class _StubModel(Model):
+        def get_config(self):
+            return {}
+
+        def update_config(self, **model_config):
+            pass
+
+        def format_request(self, messages, tool_specs=None, system_prompt=None):
+            return None
+
+        def format_chunk(self, event):
+            return event
+
+        async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
+            yield {}
+
+        async def stream(
+            self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **kwargs
+        ) -> "AsyncGenerator":
+            yield {"messageStart": {"role": "assistant"}}
+            yield {"contentBlockStart": {"start": {}}}
+            yield {"contentBlockDelta": {"delta": {"text": reply_fn(messages)}}}
+            yield {"contentBlockStop": {}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+
+    return Agent(model=_StubModel(), name="Stub", description="Stub agent", messages=messages)
+
+
+def _make_request_context(context_id: str, message_id: str, text: str):
+    """Build a RequestContext-like object the executor can consume."""
+    from a2a.types import TextPart
+
+    text_part = MagicMock(spec=TextPart)
+    text_part.text = text
+    part = MagicMock()
+    part.root = text_part
+
+    message = MagicMock()
+    message.parts = [part]
+
+    task = MagicMock()
+    task.id = f"task-{message_id}"
+    task.context_id = context_id
+
+    context = MagicMock()
+    context.context_id = context_id
+    context.current_task = task
+    context.message = message
+    context.metadata = {}
+    return context
+
+
+def _artifact_texts(mock_event_queue):
+    """Extract artifact text strings enqueued during an execution."""
+    from a2a.types import TaskArtifactUpdateEvent
+
+    texts = []
+    for call in mock_event_queue.enqueue_event.call_args_list:
+        event = call[0][0]
+        if isinstance(event, TaskArtifactUpdateEvent):
+            for part in event.artifact.parts:
+                if hasattr(part.root, "text"):
+                    texts.append(part.root.text)
+    return texts
+
+
+@pytest.mark.asyncio
+async def test_single_agent_isolates_and_continues_per_context(mock_event_queue):
+    """Single-agent (snapshot) mode isolates history across contexts and continues within one."""
+    agent = _make_stub_agent()
+    executor = StrandsA2AExecutor(agent)
+
+    # ctx-A turn 1: empty history -> ECHO[1], carrying a secret marker.
+    await executor.execute(_make_request_context("ctx-A", "a-1", "SECRET-AAAA"), mock_event_queue)
+    assert any("ECHO[1]:" in t and "SECRET-AAAA" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-A turn 2: sees its own prior turns -> ECHO[3] (continuity).
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)
+    assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-B: a different context starts fresh -> ECHO[1], never sees ctx-A's secret.
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-B", "b-1", "what did prev say"), mock_event_queue)
+    texts_b = _artifact_texts(mock_event_queue)
+    assert any("ECHO[1]:" in t for t in texts_b)
+    assert not any("SECRET-AAAA" in t for t in texts_b)
+
+    # The shared agent is reset to the clean template between requests.
+    assert agent.messages == []
+
+
+@pytest.mark.asyncio
+async def test_single_agent_evicts_least_recently_used_context(mock_event_queue):
+    """Single-agent mode evicts the LRU context's snapshot beyond max_contexts."""
+    agent = _make_stub_agent()
+    executor = StrandsA2AExecutor(agent, max_contexts=2)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)  # touch A
+    await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)  # evicts B
+
+    assert set(executor._snapshots.keys()) == {"ctx-A", "ctx-C"}
+
+
+def test_max_contexts_must_be_positive(mock_strands_agent):
+    """max_contexts below 1 is rejected to keep the eviction bound meaningful."""
+    with pytest.raises(ValueError, match="max_contexts must be >= 1"):
+        StrandsA2AExecutor(mock_strands_agent, max_contexts=0)
+
+
+@pytest.mark.asyncio
+async def test_execute_raises_when_context_id_missing(mock_strands_agent, mock_event_queue):
+    """A request with no context_id is rejected (the framework always populates one)."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    context = _make_request_context("ignored", "m-1", "hello")
+    context.context_id = None  # simulate the should-never-happen absent id
+
+    with pytest.raises(ServerError) as excinfo:
+        await executor.execute(context, mock_event_queue)
+    assert isinstance(excinfo.value.error, InternalError)
+
+
+@pytest.mark.asyncio
+async def test_single_agent_preserves_seeded_history(mock_event_queue):
+    """Seeded history (Agent(messages=[...])) is present when the single agent is invoked."""
+    seeded = [{"role": "user", "content": [{"text": "SEED"}]}]
+    agent = _make_stub_agent(stream_fn=lambda msgs: f"LEN[{len(msgs)}]", messages=seeded)
+    executor = StrandsA2AExecutor(agent)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hello"), mock_event_queue)
+    texts = _artifact_texts(mock_event_queue)
+    # Seed (1) + new user message (1) = 2 messages present when the model is first called.
+    assert any("LEN[2]" in t for t in texts)
+
+
+# =========================================================================
+# NEW TESTS: Agent-factory mode (recommended) and constructor validation
+# =========================================================================
+
+
+def test_requires_exactly_one_of_agent_or_factory(mock_strands_agent):
+    """Neither or both of agent/agent_factory is a configuration error."""
+    with pytest.raises(ValueError, match="exactly one of 'agent' or 'agent_factory'"):
+        StrandsA2AExecutor()
+    with pytest.raises(ValueError, match="exactly one of 'agent' or 'agent_factory'"):
+        StrandsA2AExecutor(mock_strands_agent, agent_factory=lambda cid: mock_strands_agent)
+
+
+def test_single_agent_with_session_manager_rejected():
+    """A single agent with a session_manager would interleave sessions, so it is rejected."""
+    from strands.session.session_manager import SessionManager
+
+    agent = _make_stub_agent()
+    agent._session_manager = MagicMock(spec=SessionManager)
+    with pytest.raises(ValueError, match="session_manager is not supported"):
+        StrandsA2AExecutor(agent)
+
+
+@pytest.mark.asyncio
+async def test_factory_builds_one_agent_per_context(mock_event_queue):
+    """Factory mode builds a dedicated agent per context_id and reuses it within a context."""
+    built: list[str] = []
+
+    def factory(context_id: str):
+        built.append(context_id)
+        return _make_stub_agent()
+
+    executor = StrandsA2AExecutor(agent_factory=factory)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "first"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "second"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "first"), mock_event_queue)
+
+    # Factory invoked once per distinct context, not per request.
+    assert built == ["ctx-A", "ctx-B"]
+    # Distinct Agent instances per context.
+    assert executor._contexts["ctx-A"].agent is not executor._contexts["ctx-B"].agent
+
+
+@pytest.mark.asyncio
+async def test_factory_isolates_and_continues_per_context(mock_event_queue):
+    """Factory mode isolates history across contexts and continues it within one."""
+    executor = StrandsA2AExecutor(agent_factory=lambda cid: _make_stub_agent())
+
+    # ctx-A two turns -> its own history continues (ECHO[1] then ECHO[3]).
+    await executor.execute(_make_request_context("ctx-A", "a-1", "SECRET-AAAA"), mock_event_queue)
+    assert any("ECHO[1]:" in t and "SECRET-AAAA" in t for t in _artifact_texts(mock_event_queue))
+
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)
+    assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-B is independent -> starts fresh, never sees ctx-A's secret.
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hello"), mock_event_queue)
+    texts_b = _artifact_texts(mock_event_queue)
+    assert any("ECHO[1]:" in t for t in texts_b)
+    assert not any("SECRET-AAAA" in t for t in texts_b)
+
+
+@pytest.mark.asyncio
+async def test_factory_mode_evicts_least_recently_used_context(mock_event_queue):
+    """Factory mode evicts the LRU context's agent and lock beyond max_contexts."""
+    executor = StrandsA2AExecutor(agent_factory=lambda cid: _make_stub_agent(), max_contexts=2)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)  # touch A
+    await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)  # evicts B
+
+    assert set(executor._contexts.keys()) == {"ctx-A", "ctx-C"}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_compliant_streaming_uses_distinct_artifact_ids():
+    """Concurrent A2A-compliant streams in different contexts must not share artifact state.
+
+    Streaming state is per-invocation, so two requests running concurrently each emit their own
+    artifact_id. Were it stored on the executor, the streams would corrupt each other.
+    """
+    import asyncio
+
+    from a2a.types import TaskArtifactUpdateEvent
+
+    # Stub model that yields a data chunk then a result, with an await between requests' steps
+    # so the two invocations genuinely interleave.
+    def slow_factory(context_id):
+        from collections.abc import AsyncGenerator
+
+        from strands.agent.agent import Agent
+        from strands.models import Model
+
+        class _SlowModel(Model):
+            def get_config(self):
+                return {}
+
+            def update_config(self, **k):
+                pass
+
+            def format_request(self, m, tool_specs=None, system_prompt=None):
+                return None
+
+            def format_chunk(self, e):
+                return e
+
+            async def structured_output(self, om, p, system_prompt=None, **k):
+                yield {}
+
+            async def stream(
+                self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **k
+            ) -> "AsyncGenerator":
+                yield {"messageStart": {"role": "assistant"}}
+                yield {"contentBlockStart": {"start": {}}}
+                await asyncio.sleep(0.01)  # force interleaving with the other request
+                yield {"contentBlockDelta": {"delta": {"text": f"chunk-{context_id}"}}}
+                yield {"contentBlockStop": {}}
+                yield {"messageStop": {"stopReason": "end_turn"}}
+
+        return Agent(model=_SlowModel(), name="s", description="d")
+
+    executor = StrandsA2AExecutor(agent_factory=slow_factory, enable_a2a_compliant_streaming=True)
+
+    def make_queue():
+        events: list = []
+
+        async def enqueue(e):
+            events.append(e)
+
+        q = MagicMock()
+        q.enqueue_event = enqueue
+        return q, events
+
+    qa, events_a = make_queue()
+    qb, events_b = make_queue()
+
+    # Run both contexts concurrently.
+    await asyncio.gather(
+        executor.execute(_make_request_context("ctx-A", "a-1", "hi"), qa),
+        executor.execute(_make_request_context("ctx-B", "b-1", "hi"), qb),
+    )
+
+    def artifact_ids(events):
+        return {e.artifact.artifact_id for e in events if isinstance(e, TaskArtifactUpdateEvent)}
+
+    ids_a = artifact_ids(events_a)
+    ids_b = artifact_ids(events_b)
+
+    # Each request used exactly one artifact id, and the two requests' ids are disjoint.
+    assert len(ids_a) == 1 and len(ids_b) == 1
+    assert ids_a.isdisjoint(ids_b)

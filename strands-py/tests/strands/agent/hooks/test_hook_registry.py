@@ -58,7 +58,7 @@ def test_add_callback(hook_registry, normal_event):
     hook_registry.add_callback(NormalTestEvent, callback)
 
     assert NormalTestEvent in hook_registry._registered_callbacks
-    assert callback in hook_registry._registered_callbacks[NormalTestEvent]
+    assert any(e.callback is callback for e in hook_registry._registered_callbacks[NormalTestEvent])
 
 
 def test_add_multiple_callbacks_same_event(hook_registry, normal_event):
@@ -70,8 +70,8 @@ def test_add_multiple_callbacks_same_event(hook_registry, normal_event):
     hook_registry.add_callback(NormalTestEvent, callback2)
 
     assert len(hook_registry._registered_callbacks[NormalTestEvent]) == 2
-    assert callback1 in hook_registry._registered_callbacks[NormalTestEvent]
-    assert callback2 in hook_registry._registered_callbacks[NormalTestEvent]
+    assert any(e.callback is callback1 for e in hook_registry._registered_callbacks[NormalTestEvent])
+    assert any(e.callback is callback2 for e in hook_registry._registered_callbacks[NormalTestEvent])
 
 
 def test_add_hook(hook_registry):

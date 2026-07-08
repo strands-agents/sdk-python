@@ -10,9 +10,11 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import strands
+import strands._middleware
 import strands.telemetry
 from strands import Agent
 from strands.event_loop._retry import ModelRetryStrategy
+from strands.experimental.checkpoint import Checkpoint
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -157,6 +159,12 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
     mock._model_state = {}
+    mock._system_prompt_content = None
+    mock._middleware_registry = strands._middleware.MiddlewareRegistry()
+    mock._checkpointing = False
+    mock._checkpoint = None
+    mock._checkpoint_cycle_index = 0
+    mock._checkpoint_resume_position = None
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
@@ -190,7 +198,7 @@ async def test_event_loop_cycle_text_response(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
@@ -222,7 +230,7 @@ async def test_event_loop_cycle_text_response_throttling(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
@@ -260,7 +268,7 @@ async def test_event_loop_cycle_exponential_backoff(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
@@ -351,7 +359,7 @@ async def test_event_loop_cycle_tool_result(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
@@ -469,7 +477,7 @@ async def test_event_loop_cycle_stop(
         invocation_state={"request_state": {"stop_event_loop": True}},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "tool_use"
     exp_message = {
@@ -518,6 +526,91 @@ async def test_cycle_exception(
     assert tru_stop_event == exp_stop_event
 
 
+@pytest.mark.asyncio
+async def test_cycle_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    caplog,
+):
+    """A failed cycle logs the exception type at ERROR without attaching a full traceback.
+
+    The ERROR-level cycle-failure record names the exception type and carries no exc_info, so the
+    handler's exception arguments and stack frames are not emitted into application logs.
+    """
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        ValueError("Invalid error presented"),
+    ]
+
+    with caplog.at_level("DEBUG", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            async for _event in stream:
+                pass
+
+    cycle_records = [r for r in caplog.records if "event loop cycle failed" in r.getMessage()]
+
+    # The ERROR record names the exception type but carries no traceback (payload-free by default).
+    error_records = [record for record in cycle_records if record.levelname == "ERROR"]
+    assert error_records
+    cycle_record = error_records[0]
+    assert "ValueError" in cycle_record.getMessage()
+    assert cycle_record.exc_info is None
+
+    # The full traceback remains available opt-in at DEBUG.
+    debug_records = [record for record in cycle_records if record.levelname == "DEBUG"]
+    assert debug_records
+    assert debug_records[0].exc_info is not None
+
+
+@pytest.mark.asyncio
+async def test_post_stream_exception_logs_exception_type_without_traceback(
+    agent,
+    model,
+    agenerator,
+    alist,
+    caplog,
+):
+    """A failure while finalizing a completed stream logs the type at ERROR and the traceback at DEBUG.
+
+    This exercises the post-stream handler (the metrics/message-append block) rather than the
+    model-invocation handler, so both cycle-failure log sites share the same payload-free behavior.
+    """
+    model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+    agent.event_loop_metrics.update_metrics = MagicMock(side_effect=ValueError("Invalid error presented"))
+
+    with caplog.at_level("DEBUG", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state={},
+            )
+            await alist(stream)
+
+    cycle_records = [r for r in caplog.records if "event loop cycle failed" in r.getMessage()]
+
+    error_records = [record for record in cycle_records if record.levelname == "ERROR"]
+    assert error_records
+    assert "ValueError" in error_records[0].getMessage()
+    assert error_records[0].exc_info is None
+
+    debug_records = [record for record in cycle_records if record.levelname == "DEBUG"]
+    assert debug_records
+    assert debug_records[0].exc_info is not None
+
+
 @patch("strands.event_loop.event_loop.get_tracer")
 @pytest.mark.asyncio
 async def test_event_loop_cycle_creates_spans(
@@ -555,7 +648,7 @@ async def test_event_loop_cycle_creates_spans(
     mock_tracer.start_model_invoke_span.assert_called_once()
     call_kwargs = mock_tracer.start_model_invoke_span.call_args[1]
     assert call_kwargs["system_prompt"] == agent.system_prompt
-    assert call_kwargs["system_prompt_content"] == agent._system_prompt_content
+    assert call_kwargs["system_prompt_content"] == [{"text": agent.system_prompt}]
     mock_tracer.end_model_invoke_span.assert_called_once()
     mock_tracer.end_event_loop_cycle_span.assert_called_once()
 
@@ -627,9 +720,11 @@ async def test_event_loop_cycle_max_tokens_exception(
 
     # Call event_loop_cycle, expecting it to raise MaxTokensReachedException
     expected_message = (
-        "Agent has reached an unrecoverable state due to max_tokens limit. "
+        "Model stopped generating due to maximum token limit. "
+        "The partial message has been added to the conversation history. "
+        "You can continue by calling the agent again. "
         "For more information see: "
-        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+        "https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
     )
     with pytest.raises(MaxTokensReachedException, match=expected_message):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -824,6 +919,12 @@ async def test_request_state_initialization(alist):
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
     mock_agent._cancel_signal = threading.Event()
+    mock_agent._system_prompt_content = None
+    mock_agent.system_prompt = None
+    mock_agent._model_state = {}
+    mock_agent._middleware_registry = strands._middleware.MiddlewareRegistry()
+    mock_agent.messages = []
+    mock_agent.tool_registry.get_all_tool_specs.return_value = []
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
     mock_agent.hooks.invoke_callbacks_async = AsyncMock()
 
@@ -833,7 +934,7 @@ async def test_request_state_initialization(alist):
         invocation_state={},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     # Verify request_state was initialized to empty dict
     assert tru_request_state == {}
@@ -845,7 +946,7 @@ async def test_request_state_initialization(alist):
         invocation_state={"request_state": initial_request_state},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
@@ -969,7 +1070,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
     stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
     events = await alist(stream)
 
-    tru_stop_reason, _, _, _, tru_interrupts, _ = events[-1]["stop"]
+    tru_stop_reason, _, _, _, tru_interrupts, _, _ = events[-1]["stop"]
     exp_stop_reason = "interrupt"
     exp_interrupts = [
         Interrupt(
@@ -1064,7 +1165,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
     stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
     events = await alist(stream)
 
-    tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+    tru_stop_reason, _, _, _, _, _, _ = events[-1]["stop"]
     exp_stop_reason = "end_turn"
     assert tru_stop_reason == exp_stop_reason
 
@@ -1196,7 +1297,7 @@ async def test_event_loop_metrics_recorded_before_recursion(
         assert mock_end_cycle.call_count == 2
 
         # Verify the event loop completed successfully
-        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        tru_stop_reason, _, _, _, _, _, _ = events[-1]["stop"]
         assert tru_stop_reason == "end_turn"
 
 
@@ -1279,3 +1380,197 @@ class TestEstimateInputTokens:
 
         with pytest.raises(Exception, match="API unavailable"):
             await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+
+# --- Checkpoint event loop integration (Tasks 9-10) ---
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_checkpoint_after_model(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """With checkpointing=True, tool_use stop_reason yields after_model checkpoint instead of running tools."""
+    agent._checkpointing = True
+    agent._checkpoint = None
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    stop = events[-1]["stop"]
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = stop
+
+    assert tru_stop_reason == "checkpoint"
+    assert tru_checkpoint is not None
+    assert tru_checkpoint.position == "after_model"
+    assert tru_checkpoint.cycle_index == 0
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_checkpoint_after_tools(
+    agent,
+    model,
+    tool,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """With checkpointing=True and resume from after_model, tools execute then yield after_tools checkpoint."""
+    agent._checkpointing = True
+    agent._checkpoint = Checkpoint(position="after_model", cycle_index=0)
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "checkpoint"
+    assert tru_checkpoint is not None
+    assert tru_checkpoint.position == "after_tools"
+    assert tru_checkpoint.cycle_index == 0
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_checkpoint_resume_after_tools_increments_cycle(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """Resuming from after_tools sets cycle_index to previous + 1 for the next after_model checkpoint."""
+    agent._checkpointing = True
+    agent._checkpoint = Checkpoint(position="after_tools", cycle_index=2)
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "checkpoint"
+    assert tru_checkpoint.position == "after_model"
+    assert tru_checkpoint.cycle_index == 3
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_cancel_beats_after_model_checkpoint(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """When a cancel signal is set after model call, cancel wins over after_model checkpoint.
+
+    A user who calls agent.cancel() expects stop_reason="cancelled", not a stray
+    "checkpoint" with a snapshot they never asked for. Documented in Agent.cancel().
+    """
+    agent._checkpointing = True
+    agent._checkpoint = None
+
+    # Cancel the agent before invoking. Model streams tool_use — the emission site
+    # that would normally fire an after_model checkpoint must yield "cancelled" instead.
+    agent._cancel_signal.set()
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "cancelled"
+    assert tru_checkpoint is None
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_cancel_mid_cycle_beats_after_model_checkpoint(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """Cancel signal set between model completion and after_model emission yields 'cancelled', not 'checkpoint'."""
+    agent._checkpointing = True
+    agent._checkpoint = None
+
+    # Stub the model stream so that after it yields its stop event, we simulate
+    # a cancel signal arriving between model completion and the after_model check.
+    original_stream = agenerator(tool_stream)
+
+    async def stream_with_mid_cycle_cancel():
+        async for item in original_stream:
+            yield item
+        agent._cancel_signal.set()
+
+    model.stream.return_value = stream_with_mid_cycle_cancel()
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "cancelled"
+    assert tru_checkpoint is None
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_cancel_mid_cycle_beats_after_tools_checkpoint(
+    agent,
+    model,
+    tool,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """Cancel set after tools complete but before after_tools emission yields 'cancelled'."""
+    from strands.experimental.checkpoint import Checkpoint
+
+    agent._checkpointing = True
+    agent._checkpoint = Checkpoint(position="after_model", cycle_index=0)
+
+    # Wrap the tool executor so that after tools complete, cancel is signaled.
+    # The real gap: cancel arriving between tool completion and checkpoint emission.
+    original_execute = agent.tool_executor._execute
+
+    def execute_then_cancel(*args, **kwargs):
+        stream = original_execute(*args, **kwargs)
+
+        async def wrapped():
+            async for event in stream:
+                yield event
+            agent._cancel_signal.set()
+
+        return wrapped()
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    with unittest.mock.patch.object(agent.tool_executor, "_execute", side_effect=execute_then_cancel):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "cancelled"
+    assert tru_checkpoint is None

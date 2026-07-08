@@ -15,6 +15,9 @@ import logging
 import mimetypes
 import uuid
 import warnings
+from collections import OrderedDict
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -26,6 +29,8 @@ from a2a.utils.errors import ServerError
 
 from ...agent.agent import Agent as SAAgent
 from ...agent.agent import AgentResult as SAAgentResult
+from ...session.session_manager import SessionManager
+from ...types._snapshot import Snapshot
 from ...types.content import ContentBlock
 from ...types.media import (
     DocumentContent,
@@ -38,14 +43,36 @@ from ...types.media import (
 
 logger = logging.getLogger(__name__)
 
+# A factory that builds a fresh Agent for a given A2A context_id.
+AgentFactory = Callable[[str], SAAgent]
+
+
+@dataclass
+class _StreamState:
+    """Per-invocation A2A-compliant streaming state."""
+
+    artifact_id: str
+    is_first_chunk: bool = True
+
+
+@dataclass
+class _ContextEntry:
+    """Per-context bookkeeping for factory mode: a dedicated agent and its serializing lock."""
+
+    agent: SAAgent
+    lock: asyncio.Lock
+
 
 class StrandsA2AExecutor(AgentExecutor):
     """Executor that adapts a Strands Agent to the A2A protocol.
 
-    This executor uses streaming mode to handle the execution of agent requests
-    and converts Strands Agent responses to A2A protocol events. It supports the
-    full A2A task lifecycle including error handling (failed state), cancellation,
-    and interrupt-based input_required flows.
+    Handles agent execution in streaming mode and converts Strands Agent responses to A2A
+    protocol events, supporting the full task lifecycle (failed state, cancellation, and
+    interrupt-based input_required flows).
+
+    Conversation state is isolated per A2A ``context_id`` so callers in different contexts cannot
+    read or influence each other's history. See ``__init__`` for the two isolation modes
+    (``agent_factory`` and the deprecated single ``agent``).
     """
 
     # Default formats for each file type when MIME type is unavailable or unrecognized
@@ -54,21 +81,176 @@ class StrandsA2AExecutor(AgentExecutor):
     # Handle special cases where format differs from extension
     FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
 
-    # A2A-compliant streaming mode
-    _current_artifact_id: str | None
-    _is_first_chunk: bool
+    # Cap on concurrently tracked A2A contexts. Beyond this, the least-recently-used context is
+    # evicted to bound memory in long-running servers.
+    DEFAULT_MAX_CONTEXTS = 1000
 
-    def __init__(self, agent: SAAgent, *, enable_a2a_compliant_streaming: bool = False):
+    def __init__(
+        self,
+        agent: SAAgent | None = None,
+        *,
+        agent_factory: AgentFactory | None = None,
+        enable_a2a_compliant_streaming: bool = False,
+        max_contexts: int = DEFAULT_MAX_CONTEXTS,
+    ):
         """Initialize a StrandsA2AExecutor.
 
+        Provide exactly one of ``agent`` or ``agent_factory``:
+
+        - ``agent_factory`` (recommended): a callable ``(context_id) -> Agent`` invoked once per
+          context to build a dedicated ``Agent``. Each context owns an independent agent and runs
+          under its own lock, so different contexts execute concurrently and never share state.
+          The factory is also where per-context concerns such as a ``session_manager`` are wired.
+        - ``agent`` (deprecated): a single ``Agent`` reused across contexts. Each context's
+          conversation state is swapped on/off this instance under a lock, so requests are
+          serialized. A ``session_manager`` is not supported here, since every context would
+          persist into one interleaved session — use ``agent_factory`` instead.
+
+        Note:
+            Contexts are keyed on the client-supplied ``context_id``, which is not an
+            authentication boundary. A caller that knows another caller's ``context_id`` can
+            attach to that conversation. Multi-tenant deployments must enforce authenticated
+            identity at the transport/gateway layer.
+
+            At most ``max_contexts`` contexts are retained; beyond that the least-recently-used is
+            evicted (A2A spec §3.4.1 context cleanup policy) and a later request reusing that
+            ``context_id`` starts fresh.
+
         Args:
-            agent: The Strands Agent instance to adapt to the A2A protocol.
-            enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
-                artifact updates. If False, uses legacy status updates streaming behavior
-                for backwards compatibility. Defaults to False.
+            agent: A single Strands Agent. Deprecated; prefer ``agent_factory``.
+            agent_factory: Callable ``(context_id) -> Agent`` building a fresh agent per context.
+            enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with artifact
+                updates. If False, uses legacy status updates streaming behavior for backwards
+                compatibility. Defaults to False.
+            max_contexts: Maximum number of contexts to retain concurrently; the least-recently-
+                used is evicted beyond this. Must be >= 1. Defaults to ``DEFAULT_MAX_CONTEXTS``.
+
+        Raises:
+            ValueError: If neither or both of ``agent``/``agent_factory`` are provided, if
+                ``max_contexts`` is less than 1, or if a single ``agent`` has a ``session_manager``.
         """
-        self.agent = agent
+        if max_contexts < 1:
+            raise ValueError(f"max_contexts must be >= 1, got {max_contexts}")
+        if (agent is None) == (agent_factory is None):
+            raise ValueError("Provide exactly one of 'agent' or 'agent_factory'.")
+
         self.enable_a2a_compliant_streaming = enable_a2a_compliant_streaming
+        self._max_contexts = max_contexts
+        self._agent_factory = agent_factory
+
+        # Guards the per-context bookkeeping maps below.
+        self._contexts_lock = asyncio.Lock()
+
+        if agent_factory is not None:
+            # Factory mode: a dedicated agent and lock per context.
+            self.agent: SAAgent | None = None
+            self._contexts: OrderedDict[str, _ContextEntry] = OrderedDict()
+        else:
+            # Single-agent mode: reuse one agent, swapping each context's snapshot on/off it.
+            if isinstance(getattr(agent, "_session_manager", None), SessionManager):
+                raise ValueError(
+                    "A single 'agent' with a session_manager is not supported: the session manager "
+                    "persists every context's messages into one interleaved session. Use "
+                    "'agent_factory' to build a per-context agent with its own session_manager."
+                )
+            warnings.warn(
+                "Passing a single 'agent' to StrandsA2AExecutor is deprecated and will be removed "
+                "in a future version. A single agent serializes all requests; pass 'agent_factory' "
+                "(a callable taking the context_id) instead to isolate conversations per context.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.agent = agent
+            self._template_snapshot = self._capture_state(agent)  # type: ignore[arg-type]
+            self._snapshots: OrderedDict[str, Snapshot] = OrderedDict()
+
+    def _capture_state(self, agent: SAAgent) -> Snapshot:
+        """Snapshot an agent's session state."""
+        return agent.take_snapshot(preset="session")
+
+    def _restore_state(self, agent: SAAgent, snapshot: Snapshot) -> None:
+        """Load a snapshot into an agent, restoring its session state."""
+        agent.load_snapshot(snapshot)
+
+    def _evict_excess_contexts(self) -> None:
+        """Evict least-recently-used contexts beyond ``max_contexts``. Caller holds the lock."""
+        contexts = self._contexts if self._agent_factory is not None else self._snapshots
+        while len(contexts) > self._max_contexts:
+            evicted_id, _ = contexts.popitem(last=False)
+            logger.debug("context_id=<%s> | evicted least-recently-used A2A context", evicted_id)
+
+    async def _acquire_context_agent(self, context_id: str) -> tuple[SAAgent, asyncio.Lock]:
+        """Return the dedicated agent and lock for a context, building it on first use (factory mode)."""
+        async with self._contexts_lock:
+            entry = self._contexts.get(context_id)
+            if entry is None:
+                entry = _ContextEntry(agent=self._agent_factory(context_id), lock=asyncio.Lock())  # type: ignore[misc]
+                self._contexts[context_id] = entry
+                self._evict_excess_contexts()
+            else:
+                self._contexts.move_to_end(context_id)
+            return entry.agent, entry.lock
+
+    async def _run_with_context_agent(
+        self,
+        context_id: str,
+        content_blocks: list[ContentBlock],
+        invocation_state: dict[str, Any],
+        updater: TaskUpdater,
+        stream_state: _StreamState | None,
+    ) -> None:
+        """Factory mode: run against this context's dedicated agent, serialized only per context."""
+        agent, lock = await self._acquire_context_agent(context_id)
+        async with lock:
+            await self._stream_agent(agent, content_blocks, invocation_state, updater, stream_state)
+
+    async def _run_with_shared_agent(
+        self,
+        context_id: str,
+        content_blocks: list[ContentBlock],
+        invocation_state: dict[str, Any],
+        updater: TaskUpdater,
+        stream_state: _StreamState | None,
+    ) -> None:
+        """Single-agent mode: swap this context's snapshot on/off the shared agent under a lock."""
+        async with self._contexts_lock:
+            self._restore_state(self.agent, self._snapshots.get(context_id, self._template_snapshot))  # type: ignore[arg-type]
+            try:
+                await self._stream_agent(self.agent, content_blocks, invocation_state, updater, stream_state)  # type: ignore[arg-type]
+            finally:
+                # Persist updated history (even on error), evict, then reset the agent for the next caller.
+                self._snapshots[context_id] = self._capture_state(self.agent)  # type: ignore[arg-type]
+                self._snapshots.move_to_end(context_id)
+                self._evict_excess_contexts()
+                self._restore_state(self.agent, self._template_snapshot)  # type: ignore[arg-type]
+
+    async def _stream_agent(
+        self,
+        agent: SAAgent,
+        content_blocks: list[ContentBlock],
+        invocation_state: dict[str, Any],
+        updater: TaskUpdater,
+        stream_state: _StreamState | None,
+    ) -> None:
+        """Stream one agent invocation and translate its events to A2A updates."""
+        try:
+            result: SAAgentResult | None = None
+            async for event in agent.stream_async(content_blocks, invocation_state=invocation_state):
+                if "result" in event:
+                    result = event["result"]
+                else:
+                    await self._handle_streaming_event(event, updater, stream_state)
+
+            # Check if agent returned with interrupts (input_required)
+            # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
+            # list is empty (edge case), the agent still indicated it needs input.
+            if result is not None and result.stop_reason == "interrupt":
+                await self._handle_interrupt_result(result, updater)
+            else:
+                await self._handle_agent_result(result, updater, stream_state)
+        except Exception:
+            logger.exception("Error in streaming execution")
+            raise
 
     async def execute(
         self,
@@ -162,36 +344,21 @@ class StrandsA2AExecutor(AgentExecutor):
                 stacklevel=3,
             )
 
-        if self.enable_a2a_compliant_streaming:
-            self._current_artifact_id = str(uuid.uuid4())
-            self._is_first_chunk = True
+        # Per-invocation streaming state (None in legacy mode).
+        stream_state = _StreamState(artifact_id=str(uuid.uuid4())) if self.enable_a2a_compliant_streaming else None
 
-        # Pass the A2A RequestContext through invocation state so downstream
-        # tools and hooks can access request metadata, task info, configuration, etc.
+        # Forward the A2A RequestContext so downstream tools and hooks can read request metadata.
         invocation_state: dict[str, Any] = {"a2a_request_context": context}
 
-        try:
-            result: SAAgentResult | None = None
-            async for event in self.agent.stream_async(content_blocks, invocation_state=invocation_state):
-                if "result" in event:
-                    result = event["result"]
-                else:
-                    await self._handle_streaming_event(event, updater)
+        # The framework always populates context_id before execute() runs; isolation is keyed on it.
+        context_id = context.context_id
+        if not context_id:
+            raise ServerError(error=InternalError(message="Request is missing a context_id")) from None
 
-            # Check if agent returned with interrupts (input_required)
-            # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
-            # list is empty (edge case), the agent still indicated it needs input.
-            if result is not None and result.stop_reason == "interrupt":
-                await self._handle_interrupt_result(result, updater)
-            else:
-                await self._handle_agent_result(result, updater)
-        except Exception:
-            logger.exception("Error in streaming execution")
-            raise
-        finally:
-            if self.enable_a2a_compliant_streaming:
-                self._current_artifact_id = None
-                self._is_first_chunk = True
+        if self._agent_factory is not None:
+            await self._run_with_context_agent(context_id, content_blocks, invocation_state, updater, stream_state)
+        else:
+            await self._run_with_shared_agent(context_id, content_blocks, invocation_state, updater, stream_state)
 
     async def _handle_interrupt_result(self, result: SAAgentResult, updater: TaskUpdater) -> None:
         """Handle an agent result that contains interrupts.
@@ -221,7 +388,9 @@ class StrandsA2AExecutor(AgentExecutor):
 
         await updater.requires_input(message=updater.new_agent_message(parts=[Part(root=TextPart(text=input_message))]))
 
-    async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
+    async def _handle_streaming_event(
+        self, event: dict[str, Any], updater: TaskUpdater, stream_state: _StreamState | None
+    ) -> None:
         """Handle a single streaming event from the Strands Agent.
 
         Processes streaming events from the agent, converting data chunks to A2A
@@ -231,18 +400,20 @@ class StrandsA2AExecutor(AgentExecutor):
             event: The streaming event from the agent, containing either 'data' for
                 incremental content or 'result' for the final response.
             updater: The task updater for managing task state and sending updates.
+            stream_state: Per-invocation streaming state when A2A-compliant streaming is enabled,
+                else None.
         """
         logger.debug("Streaming event: %s", event)
         if "data" in event:
             if text_content := event["data"]:
-                if self.enable_a2a_compliant_streaming:
+                if stream_state is not None:
                     await updater.add_artifact(
                         [Part(root=TextPart(text=text_content))],
-                        artifact_id=self._current_artifact_id,
+                        artifact_id=stream_state.artifact_id,
                         name="agent_response",
-                        append=not self._is_first_chunk,
+                        append=not stream_state.is_first_chunk,
                     )
-                    self._is_first_chunk = False
+                    stream_state.is_first_chunk = False
                 else:
                     # Legacy use update_status with agent message
                     await updater.update_status(
@@ -254,7 +425,9 @@ class StrandsA2AExecutor(AgentExecutor):
                         ),
                     )
 
-    async def _handle_agent_result(self, result: SAAgentResult | None, updater: TaskUpdater) -> None:
+    async def _handle_agent_result(
+        self, result: SAAgentResult | None, updater: TaskUpdater, stream_state: _StreamState | None
+    ) -> None:
         """Handle the final result from the Strands Agent.
 
         For A2A-compliant streaming: sends the final artifact chunk marker and marks
@@ -267,20 +440,22 @@ class StrandsA2AExecutor(AgentExecutor):
         Args:
             result: The agent result object containing the final response, or None if no result.
             updater: The task updater for managing task state and adding the final artifact.
+            stream_state: Per-invocation streaming state when A2A-compliant streaming is enabled,
+                else None.
         """
-        if self.enable_a2a_compliant_streaming:
-            if self._is_first_chunk:
+        if stream_state is not None:
+            if stream_state.is_first_chunk:
                 final_content = str(result) if result else ""
                 await updater.add_artifact(
                     [Part(root=TextPart(text=final_content))],
-                    artifact_id=self._current_artifact_id,
+                    artifact_id=stream_state.artifact_id,
                     name="agent_response",
                     last_chunk=True,
                 )
             else:
                 await updater.add_artifact(
                     [Part(root=TextPart(text=""))],
-                    artifact_id=self._current_artifact_id,
+                    artifact_id=stream_state.artifact_id,
                     name="agent_response",
                     append=True,
                     last_chunk=True,
@@ -314,12 +489,17 @@ class StrandsA2AExecutor(AgentExecutor):
             logger.warning("context_id=<%s> | cancel requested but no current task found", context.context_id)
             raise ServerError(error=UnsupportedOperationError()) from None
 
-        # Cooperatively cancel the agent's execution (best-effort).
-        # Agent.cancel() is always available since self.agent is typed as Agent.
-        try:
-            self.agent.cancel()
-        except Exception:
-            logger.debug("task_id=<%s> | agent cancel signal failed (non-critical)", task.id)
+        # Cooperatively cancel the agent's execution (best-effort). In factory mode, resolve the
+        # agent for this context; in single-agent mode, the shared agent.
+        target_agent = self.agent
+        if self._agent_factory is not None:
+            entry = self._contexts.get(context.context_id) if context.context_id else None
+            target_agent = entry.agent if entry is not None else None
+        if target_agent is not None:
+            try:
+                target_agent.cancel()
+            except Exception:
+                logger.debug("task_id=<%s> | agent cancel signal failed (non-critical)", task.id)
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 

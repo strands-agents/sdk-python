@@ -117,7 +117,7 @@ async def test_stream_request_default(gemini_client, model, messages, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {"tools": [{"function_declarations": []}]},
+        "config": {},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -131,10 +131,7 @@ async def test_stream_request_with_params(gemini_client, model, messages, model_
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-            "temperature": 1,
-        },
+        "config": {"temperature": 1},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -146,7 +143,7 @@ async def test_stream_request_with_system_prompt(gemini_client, model, messages,
     await anext(model.stream(messages, system_prompt=system_prompt))
 
     exp_request = {
-        "config": {"system_instruction": system_prompt, "tools": [{"function_declarations": []}]},
+        "config": {"system_instruction": system_prompt},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -179,9 +176,7 @@ async def test_stream_request_with_document(content, formatted_part, gemini_clie
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [{"parts": [formatted_part], "role": "user"}],
         "model": model_id,
     }
@@ -206,9 +201,7 @@ async def test_stream_request_with_image(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -247,9 +240,7 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -312,9 +303,7 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -355,9 +344,7 @@ async def test_stream_request_with_tool_use_no_reasoning_signature(gemini_client
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -405,9 +392,7 @@ async def test_stream_request_with_tool_results(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -469,9 +454,7 @@ async def test_stream_request_with_tool_results_preserving_name(gemini_client, m
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -514,9 +497,7 @@ async def test_stream_request_with_empty_content(gemini_client, model, model_id)
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [{"parts": [], "role": "user"}],
         "model": model_id,
     }
@@ -614,6 +595,29 @@ def test_format_chunk_metadata_with_zero_cached_tokens(model):
                 "inputTokens": 100,
                 "outputTokens": 50,
                 "totalTokens": 150,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
+def test_format_chunk_metadata_with_missing_token_counts(model):
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=None,
+            total_token_count=None,
+        ),
+    }
+
+    result = model._format_chunk(event)
+
+    assert result == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
             },
             "metrics": {"latencyMs": 0},
         },
@@ -849,6 +853,33 @@ async def test_stream_response_max_tokens(gemini_client, model, messages, agener
 
 
 @pytest.mark.asyncio
+async def test_stream_response_safety_block_with_missing_counts(gemini_client, model, messages, agenerator, alist):
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        finish_reason="SAFETY",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=None,
+                    total_token_count=None,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"messageStop": {"stopReason": "guardrail_intervened"}},
+        {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
 async def test_stream_response_none_candidates(gemini_client, model, messages, agenerator, alist):
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
         [
@@ -936,7 +967,6 @@ async def test_structured_output(gemini_client, model, messages, model_id, weath
 
     exp_request = {
         "config": {
-            "tools": [{"function_declarations": []}],
             "response_mime_type": "application/json",
             "response_schema": weather_output.model_json_schema(),
         },

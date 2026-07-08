@@ -11,6 +11,16 @@ from tenacity import RetryCallState, RetryError, Retrying, stop_after_attempt, w
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture
+def quiet_strands_logging():
+    """Suppress strands DEBUG/INFO logging for tests that produce very long output."""
+    strands_logger = logging.getLogger("strands")
+    original_level = strands_logger.level
+    strands_logger.setLevel(logging.WARNING)
+    yield
+    strands_logger.setLevel(original_level)
+
+
 # Type alias for retry conditions
 RetryCondition = type[BaseException] | Callable[[BaseException], bool] | str
 
@@ -125,6 +135,8 @@ def retry_on_flaky(
 
 
 def pytest_sessionstart(session):
+    os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+    os.environ.setdefault("AWS_REGION", "us-east-1")
     _load_api_keys_from_secrets_manager()
 
 
