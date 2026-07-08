@@ -82,7 +82,12 @@ jobs:
           # Skip on merge_group (gated by branch protection) and on
           # workflow_call (the caller — release.yml — is workflow_dispatch
           # gated, see the trigger comment above).
-          skip-check: ${{ github.event_name == 'merge_group' || github.event_name == 'workflow_call' }}
+          # `github.event_name` can't identify the release here — inside a
+          # reusable workflow it reports the caller's event, never
+          # 'workflow_call' — so key off `inputs.ref`, which only a
+          # workflow_call caller supplies (empty on pull_request_target /
+          # merge_group). Matches the validate-call-ref guard above.
+          skip-check: ${{ github.event_name == 'merge_group' || inputs.ref != '' }}
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
           allowed-roles: 'maintain,triage,write,admin'
 
