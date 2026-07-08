@@ -5,7 +5,6 @@ import logging
 import os
 import platform
 import shutil
-import tempfile
 from typing import TYPE_CHECKING, Any, cast
 
 from .. import _identifier
@@ -76,17 +75,20 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         """
         if platform.system() == "Windows":
             base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "strands")
-        else:
+            base = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "strands")
             base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".strands"))
             # If XDG_DATA_HOME is set, nest under strands/
             if "XDG_DATA_HOME" in os.environ:
                 base = os.path.join(base, "strands")
             # Per the XDG spec, ignore an empty or non-absolute XDG_DATA_HOME:
             # a relative value would place sessions under the (possibly shared)
-            # process CWD, reopening the symlink/tampering class this fix closes.
+            base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".strands"))
+            # If XDG_DATA_HOME is set, nest under strands/
+            if "XDG_DATA_HOME" in os.environ:
+                base = os.path.join(base, "strands")
+            # Per the XDG spec, ignore a non-absolute (or empty) XDG_DATA_HOME.
             if not os.path.isabs(base):
                 base = os.path.join(os.path.expanduser("~"), ".strands")
-        return os.path.join(base, "sessions")
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path.
