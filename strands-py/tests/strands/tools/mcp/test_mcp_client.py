@@ -1281,6 +1281,25 @@ def test_stop_releases_pseudo_terminal_fds_this_client_owns():
     mock_close.assert_called_once_with(7)
 
 
+def test_stop_closes_slave_fd_after_master_close_unlinks_pts_node():
+    """A slave descriptor whose pts node was unlinked is still recognized and closed.
+
+    Closing the pty master unlinks /dev/pts/N, so the still-open slave descriptor's
+    readlink target gains a " (deleted)" suffix. The descriptor is unchanged, so stop()
+    must still treat it as the pty this client opened and release it.
+    """
+    client = MCPClient(MagicMock())
+    client._background_thread = MagicMock()
+    client._background_thread_event_loop = MagicMock()
+    client._owned_ptmx_fds = {7: "/dev/pts/7"}
+
+    with patch("strands.tools.mcp.mcp_client.os.readlink", return_value="/dev/pts/7 (deleted)"):
+        with patch("strands.tools.mcp.mcp_client.os.close") as mock_close:
+            client.stop(None, None, None)
+
+    mock_close.assert_called_once_with(7)
+
+
 def test_stop_does_not_close_fd_reused_by_another_client():
     """Concurrency guard: A's stop() must not close a descriptor number another client reused.
 

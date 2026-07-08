@@ -535,7 +535,11 @@ class MCPClient(ToolProvider):
                 except OSError:
                     # Already closed elsewhere; nothing to do.
                     continue
-                if current_target != expected_target:
+                # Closing the pty master unlinks its /dev/pts/N node, after which the
+                # still-open slave descriptor's link target gains a " (deleted)" suffix.
+                # The descriptor itself is unchanged (an open fd's number cannot be
+                # reallocated), so treat that as the same pty.
+                if current_target not in (expected_target, f"{expected_target} (deleted)"):
                     self._log_debug_with_thread(
                         "pseudo-terminal descriptor %d now points at %s, not %s; leaving it open",
                         fd,
