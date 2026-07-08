@@ -25,11 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _make_error_result(tool_use_id: str) -> ContentBlock:
-    """Create a single error toolResult content block for an interrupted tool."""
-    return generate_missing_tool_result_content([tool_use_id])[0]
-
-
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
@@ -303,8 +298,10 @@ class RepositorySessionManager(SessionManager):
                 continue
 
             logger.warning(
-                "Session message history has an orphaned toolUse with no toolResult. "
-                "Adding toolResult content blocks to create valid conversation."
+                "tool_use_ids=<%s>, result_ids=<%s> | session history has mismatched toolUse/toolResult pairing,"
+                " rebuilding",
+                tool_use_ids,
+                list(existing_results.keys()),
             )
 
             # Ensure a toolResult slot exists after this assistant message
@@ -314,7 +311,7 @@ class RepositorySessionManager(SessionManager):
                 non_tool_result_content = []
 
             next_message["content"] = [
-                existing_results.get(tid, _make_error_result(tid)) for tid in tool_use_ids
+                existing_results.get(tid, generate_missing_tool_result_content([tid])[0]) for tid in tool_use_ids
             ] + non_tool_result_content
 
         return messages
