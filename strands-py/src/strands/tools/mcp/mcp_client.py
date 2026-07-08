@@ -171,8 +171,11 @@ class MCPClient(ToolProvider):
         Raises:
             FileNotFoundError: If the config file does not exist.
             json.JSONDecodeError: If the config file contains invalid JSON.
-            ValueError: If the config shape is invalid, a server entry is not a mapping, or a server
-                config is invalid (and that server did not opt into ``continue_on_error``).
+            ValueError: If the overall config shape is invalid or a server entry is not a mapping.
+                These are malformed-config errors and always raise, regardless of
+                ``continue_on_error``. A failure building an individual server (e.g. a missing env
+                var) also raises unless that server set ``continue_on_error``, in which case it is
+                skipped.
         """
         servers = _load_servers_mapping(config)
 
@@ -221,7 +224,8 @@ class MCPClient(ToolProvider):
             prefix: Optional prefix for tool names.
             continue_on_error: When True, a connection failure during ``load_tools`` is logged and
                 yields no tools instead of raising, so one unavailable server does not prevent an
-                agent from using the others. Defaults to False.
+                agent from using the others. Only the connection (``start()``) is swallowed; an error
+                while listing tools after a successful connect still propagates. Defaults to False.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
             progress_callback: Optional callback to receive progress notifications during tool execution.
                 Called with ``(progress, total, message)`` as the server reports progress. The ``total``
@@ -326,6 +330,21 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(f"the client initialization failed: {e}") from e
         return self
 
+    @property
+    def continue_on_error(self) -> bool:
+        """Whether a connection failure is swallowed instead of raised (see ``__init__``)."""
+        return self._continue_on_error
+
+    @property
+    def connection_failed(self) -> bool:
+        """Whether a ``continue_on_error`` connection attempt has failed and not yet been reset.
+
+        Sticky within a connection lifecycle: stays True until teardown (removing the last consumer,
+        or ``stop()``) resets the client. Always False when ``continue_on_error`` is not set, since a
+        failure raises instead.
+        """
+        return self._connection_failed
+
     # ToolProvider interface methods
     async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
         """Load and return tools from the MCP server.
@@ -338,7 +357,9 @@ class MCPClient(ToolProvider):
 
         Returns:
             List of AgentTool instances from the MCP server. Empty when the connection fails and
-            ``continue_on_error`` is set; the failure is not retried on subsequent calls.
+            ``continue_on_error`` is set; the failure is sticky within a connection lifecycle and is
+            not retried on subsequent calls. Teardown (removing the last consumer, or ``stop()``)
+            resets the client so a later consumer reconnects.
         """
         logger.debug(
             "started=<%s>, cached_tools=<%s> | loading tools",
@@ -418,7 +439,10 @@ class MCPClient(ToolProvider):
         self._consumers.discard(consumer_id)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))
 
-        if not self._consumers and self._tool_provider_started:
+        # A swallowed continue_on_error failure leaves _tool_provider_started False but still needs
+        # teardown so the sticky _connection_failed flag resets and the client can reconnect for a
+        # later consumer, matching the reset-on-zero-consumers behavior of a successful client.
+        if not self._consumers and (self._tool_provider_started or self._connection_failed):
             logger.debug("no consumers remaining, cleaning up")
             try:
                 self.stop(None, None, None)  # Existing sync method - safe for finalizers

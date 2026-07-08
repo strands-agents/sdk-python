@@ -301,3 +301,17 @@ def test_continue_on_error_passed_to_client(mock_client, transports):
     """The config flag is threaded through to the constructed client so its runtime honors it."""
     MCPClient.load_servers({"srv": {"command": "node", "continue_on_error": True}})
     assert mock_client[0][1]["continue_on_error"] is True
+
+
+def test_mixed_config_non_opted_in_failure_aborts_whole_load(mock_client, transports):
+    """continue_on_error is per-server, not global: a failing server that did not opt in aborts the load.
+
+    A sibling opting in does not extend its tolerance to others.
+    """
+    with pytest.raises(ValueError):
+        MCPClient.load_servers(
+            {
+                "lenient": {"command": "node", "continue_on_error": True},
+                "strict": {"command": "node", "env": {"V": "${NONEXISTENT_VAR}"}},
+            }
+        )
