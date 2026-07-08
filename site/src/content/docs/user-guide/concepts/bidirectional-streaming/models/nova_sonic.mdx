@@ -121,8 +121,12 @@ For more details on this approach, please refer to the [boto3 session docs](http
 
 | Parameter | Description | Example | Options |
 | --------- | ----------- | ------- | ------- |
-| `audio` | `AudioConfig` instance. | `{"voice": "tiffany"}` | [reference](@api/python/strands.experimental.bidi.types.model#AudioConfig) |
+| `audio` | `AudioConfig` instance. | `{"voice": "tiffany", "output_rate": 24000}` | [reference](@api/python/strands.experimental.bidi.types.model#AudioConfig) |
 | `inference` | Session start `inferenceConfiguration`'s (as snake_case). | `{"top_p": 0.9}` | [reference](https://docs.aws.amazon.com/nova/latest/userguide/input-events.html)
+
+:::note
+The `audio` config accepts any sample rate supported by the underlying model API. Refer to the [Nova Sonic documentation](https://docs.aws.amazon.com/nova/latest/userguide/speech.html) for the full list of supported rates.
+:::
 
 ## Troubleshooting
 
