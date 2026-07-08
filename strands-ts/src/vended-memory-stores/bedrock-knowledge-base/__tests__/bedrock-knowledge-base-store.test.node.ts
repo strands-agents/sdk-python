@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, type MockedFunction } from 'vites
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
 import { BedrockKnowledgeBaseStore } from '../store.js'
+import type { Tool } from '../../../tools/tool.js'
 import { MemoryManager } from '../../../memory/index.js'
 import { InvocationTrigger } from '../../../memory/extraction/triggers.js'
 import type { Extractor } from '../../../memory/extraction/types.js'
@@ -875,6 +876,171 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('key=<bad>'))
       expect(debugSpy).not.toHaveBeenCalledWith(expect.stringContaining('key=<good>'))
       debugSpy.mockRestore()
+    })
+  })
+
+  const invokeTool = async (tool: Tool, input: unknown) => {
+    const gen = tool.stream({
+      toolUse: { name: tool.name, toolUseId: 'tu-1', input },
+      invocationState: {},
+    } as any)
+    let step = await gen.next()
+    while (!step.done) step = await gen.next()
+    return step.value
+  }
+
+  describe('getTools', () => {
+    it('returns an empty array when citationDocumentBlocks is not set', () => {
+      const { store } = makeStore()
+      expect(store.getTools()).toEqual([])
+    })
+
+    it('returns an empty array when citationDocumentBlocks is false', () => {
+      const { store } = makeStore({ citationDocumentBlocks: false })
+      expect(store.getTools()).toEqual([])
+    })
+
+    it('returns one tool when citationDocumentBlocks is true', () => {
+      const { store } = makeStore({ citationDocumentBlocks: true })
+      const tools = store.getTools()
+      expect(tools).toHaveLength(1)
+      expect(tools[0]!.name).toBe('retrieve_knowledge_base')
+    })
+
+    it('uses a custom tool name from retrieveToolConfig', () => {
+      const { store } = makeStore({
+        citationDocumentBlocks: true,
+        retrieveToolConfig: { name: 'fetch_docs' },
+      })
+      expect(store.getTools()[0]!.name).toBe('fetch_docs')
+    })
+
+    it('includes the store description in the default tool description', () => {
+      const { store } = makeStore({ citationDocumentBlocks: true, description: 'Product FAQ' })
+      const tool = store.getTools()[0]!
+      expect(tool.description).toContain('Product FAQ')
+    })
+
+    it('uses a custom description from retrieveToolConfig', () => {
+      const { store } = makeStore({
+        citationDocumentBlocks: true,
+        retrieveToolConfig: { description: 'My custom description' },
+      })
+      expect(store.getTools()[0]!.description).toBe('My custom description')
+    })
+
+    it('returns DocumentBlock[] with citations enabled for each retrieved passage', async () => {
+      const { store, runtime } = makeStore({ citationDocumentBlocks: true })
+      runtime.send.mockResolvedValue({
+        retrievalResults: [
+          {
+            content: { text: 'Strands is an agent framework' },
+            metadata: {},
+            location: {},
+            score: 0.9,
+          },
+          {
+            content: { text: 'It supports multiple model providers' },
+            metadata: {},
+            location: {},
+            score: 0.8,
+          },
+        ],
+      })
+
+      const tool = store.getTools()[0]!
+      const result = await invokeTool(tool, { query: 'what is strands' })
+
+      // ToolResultBlock with two DocumentBlock content items
+      expect(result.status).toBe('success')
+      expect(result.content).toHaveLength(2)
+      expect(result.content[0]).toEqual(
+        expect.objectContaining({
+          type: 'documentBlock',
+          format: 'txt',
+          source: expect.objectContaining({ type: 'documentSourceText', text: 'Strands is an agent framework' }),
+          citations: { enabled: true },
+        })
+      )
+      expect(result.content[1]).toEqual(
+        expect.objectContaining({
+          type: 'documentBlock',
+          format: 'txt',
+          source: expect.objectContaining({ type: 'documentSourceText', text: 'It supports multiple model providers' }),
+          citations: { enabled: true },
+        })
+      )
+    })
+
+    it('derives the document name from the S3 URI in _sourceLocation metadata', async () => {
+      const { store, runtime } = makeStore({ citationDocumentBlocks: true })
+      runtime.send.mockResolvedValue({
+        retrievalResults: [
+          {
+            content: { text: 'passage' },
+            metadata: { _sourceLocation: { type: 'S3', s3Location: { uri: 's3://bucket/key.txt' } } },
+            score: 0.7,
+          },
+        ],
+      })
+
+      const tool = store.getTools()[0]!
+      const result = await invokeTool(tool, { query: 'q' })
+
+      expect(result.content[0]).toEqual(expect.objectContaining({ name: 's3://bucket/key.txt' }))
+    })
+
+    it('falls back to passage-N name when _sourceLocation carries no s3Location URI', async () => {
+      const { store, runtime } = makeStore({ citationDocumentBlocks: true })
+      runtime.send.mockResolvedValue({
+        retrievalResults: [
+          { content: { text: 'first' }, metadata: {}, score: 0.5 },
+          { content: { text: 'second' }, metadata: {}, score: 0.4 },
+        ],
+      })
+
+      const tool = store.getTools()[0]!
+      const result = await invokeTool(tool, { query: 'q' })
+
+      expect(result.content[0]).toEqual(expect.objectContaining({ name: 'passage-1' }))
+      expect(result.content[1]).toEqual(expect.objectContaining({ name: 'passage-2' }))
+    })
+
+    it('returns a text result when the knowledge base yields no passages', async () => {
+      const { store } = makeStore({ citationDocumentBlocks: true })
+      // runtime.send already resolves to { retrievalResults: [] } from makeStore
+
+      const tool = store.getTools()[0]!
+      const result = await invokeTool(tool, { query: 'unknown topic' })
+
+      expect(result.status).toBe('success')
+      expect(result.content[0]).toEqual(expect.objectContaining({ type: 'textBlock' }))
+    })
+
+    it('forwards maxResults from tool input to search', async () => {
+      const { store, runtime } = makeStore({ citationDocumentBlocks: true })
+
+      const tool = store.getTools()[0]!
+      await invokeTool(tool, { query: 'q', maxResults: 3 })
+
+      expect(runtime.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            retrievalConfiguration: {
+              vectorSearchConfiguration: { numberOfResults: 3 },
+            },
+          }),
+        })
+      )
+    })
+
+    it('applies scope filter when the store has a scope', async () => {
+      const { store, runtime } = makeStore({ citationDocumentBlocks: true, scope: 'tenant-x' })
+
+      const tool = store.getTools()[0]!
+      await invokeTool(tool, { query: 'q' })
+
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'tenant-x' } })
     })
   })
 
