@@ -5,7 +5,6 @@ import logging
 import os
 import platform
 import shutil
-import stat
 import tempfile
 from typing import TYPE_CHECKING, Any, cast
 

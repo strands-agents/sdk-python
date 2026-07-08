@@ -47,11 +47,12 @@ class TestDefaultStorageDir:
                 f"Default dir {default_dir} should be under {home}"
             )
 
+    @pytest.mark.skipif(platform.system() == "Windows", reason="XDG_DATA_HOME is a Unix convention; ignored on Windows")
     def test_xdg_data_home_respected(self):
         """XDG_DATA_HOME should be respected when set."""
         with patch.dict(os.environ, {"XDG_DATA_HOME": "/custom/data"}):
             default_dir = FileSessionManager._default_storage_dir()
-            assert default_dir.startswith("/custom/data/strands")
+            assert default_dir.startswith(os.path.join("/custom/data", "strands"))
 
     @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-only test")
     def test_storage_dir_permissions(self, temp_dir):
