@@ -166,6 +166,7 @@ jobs:
     secrets: inherit
     with:
       ref: ${{ needs.scan-commits.outputs.release_sha }}
+      full_suite: true
 
   # ── Security audit (informational) ─────────────────────────────────────
   security-audit:
