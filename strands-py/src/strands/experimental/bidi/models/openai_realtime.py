@@ -419,7 +419,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before sending/receiving")
+            raise RuntimeError("model not started | call start before receiving")
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
