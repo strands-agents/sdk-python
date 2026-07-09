@@ -48,6 +48,11 @@ export const DEFAULT_MAX_SEARCH_RESULTS = 3
  */
 const DEFAULT_MAX_ENTRIES = 5
 
+type InternalMemorySearchOptions = MemorySearchOptions & {
+  /** Internal-only: injection treats store-level maxSearchResults as the per-store retrieval cap. */
+  maxSearchResultsPrecedence?: 'caller' | 'store'
+}
+
 /** Flattens nested AggregateErrors so the leaves are concrete reasons, not errors-of-errors. */
 function _flattenReasons(reasons: unknown[]): unknown[] {
   return reasons.flatMap((reason) => (reason instanceof AggregateError ? _flattenReasons(reason.errors) : [reason]))
@@ -305,7 +310,12 @@ export class MemoryManager implements Plugin {
         return undefined
       }
 
-      const entries = (await this._search(query, { maxSearchResults: maxResults }, true)).slice(0, maxResults)
+      const entries = (
+        await this.search(query, {
+          maxSearchResults: maxResults,
+          maxSearchResultsPrecedence: 'store',
+        } as InternalMemorySearchOptions)
+      ).slice(0, maxResults)
       if (entries.length === 0) {
         end(false)
         return undefined
@@ -449,21 +459,8 @@ export class MemoryManager implements Plugin {
    * @returns Array of memory entries from matching stores
    */
   async search(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
-    return this._search(query, options)
-  }
-
-  /**
-   * Internal search implementation.
-   *
-   * Public/tool searches treat `options.maxSearchResults` as an explicit caller override. Injection uses
-   * `maxEntries` as a fallback fetch size only: a store-level `maxSearchResults` remains the tighter
-   * per-store retrieval policy, then injection slices the combined results to `maxEntries` before rendering.
-   */
-  private async _search(
-    query: string,
-    options?: MemorySearchOptions,
-    preferStoreMaxSearchResults = false
-  ): Promise<MemoryEntry[]> {
+    const internalOptions = options as InternalMemorySearchOptions | undefined
+    const storeMaxSearchResultsPrecedence = internalOptions?.maxSearchResultsPrecedence === 'store'
     logger.debug(
       `query=<${query}>, max_search_results=<${options?.maxSearchResults}>, stores=<${options?.stores}> | searching stores`
     )
@@ -472,7 +469,8 @@ export class MemoryManager implements Plugin {
     const span = this._tracer.startMemorySearchSpan({
       query,
       storeNames: spanStoreNames,
-      ...(options?.maxSearchResults !== undefined && { maxSearchResults: options.maxSearchResults }),
+      ...(options?.maxSearchResults !== undefined &&
+        !storeMaxSearchResultsPrecedence && { maxSearchResults: options.maxSearchResults }),
     })
 
     let targetStores: MemoryStore[]
@@ -492,7 +490,7 @@ export class MemoryManager implements Plugin {
       settled = await Promise.allSettled(
         targetStores.map((store) =>
           store.search(query, {
-            maxSearchResults: preferStoreMaxSearchResults
+            maxSearchResults: storeMaxSearchResultsPrecedence
               ? (store.maxSearchResults ?? options?.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS)
               : (options?.maxSearchResults ?? store.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS),
           })
