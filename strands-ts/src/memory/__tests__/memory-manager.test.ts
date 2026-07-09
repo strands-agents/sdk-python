@@ -795,10 +795,7 @@ describe('MemoryManager', () => {
       })
 
       it('uses store maxSearchResults before injection maxEntries when fetching injected memory', async () => {
-        const store = createMockStore('s', {
-          maxSearchResults: 1,
-          entries: [{ content: 'A' }, { content: 'B' }, { content: 'C' }],
-        })
+        const store = createMockStore('s', { maxSearchResults: 1 })
         vi.mocked(store.search).mockImplementation(async (_query, options) =>
           [{ content: 'A' }, { content: 'B' }, { content: 'C' }].slice(0, options?.maxSearchResults)
         )
