@@ -128,7 +128,7 @@ def publish_metrics(metric_data: list[dict[str, Any]], region: str):
 def main():
     if len(sys.argv) not in (3, 4):
         print("Usage: python upload-integ-test-metrics.py <xml_file> <repository_name> [sdk]")
-        sys.exit(0)
+        sys.exit(1)
 
     xml_file = sys.argv[1]
     repository = sys.argv[2]
