@@ -132,7 +132,7 @@ describe.skipIf(bedrock.skip)('Agent checkpointing (integration)', () => {
     )
 
     expect(checkpoints.length).toBeGreaterThanOrEqual(1)
-    expect(checkpoints.every((cp) => cp.position === 'after_model' || cp.position === 'after_tools')).toBe(true)
+    expect(checkpoints.every((cp) => cp.position === 'afterModel' || cp.position === 'afterTools')).toBe(true)
 
     // Cycle indices are non-decreasing.
     const cycleIndices = checkpoints.map((cp) => cp.cycleIndex)
@@ -182,7 +182,7 @@ describe.skipIf(bedrock.skip)('Agent checkpointing (integration)', () => {
 
     // The core durable guarantee: completed tool calls are not re-invoked on resume.
     expect(callCounts).toEqual({ time: 1, day: 1, weather: 1 })
-    expect(checkpoints.some((cp) => cp.position === 'after_tools')).toBe(true)
+    expect(checkpoints.some((cp) => cp.position === 'afterTools')).toBe(true)
 
     const text = conversationText(agent)
     expect(text).toContain('12:01')

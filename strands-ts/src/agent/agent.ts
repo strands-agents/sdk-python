@@ -297,8 +297,8 @@ export type AgentConfig = {
    */
   toolExecutor?: ToolExecutorStrategy
   /**
-   * When `true`, the agent loop pauses at cycle boundaries (`after_model`,
-   * `after_tools`) and returns `stopReason: 'checkpoint'` with a populated
+   * When `true`, the agent loop pauses at cycle boundaries (`afterModel`,
+   * `afterTools`) and returns `stopReason: 'checkpoint'` with a populated
    * `checkpoint` field. Resume by passing the checkpoint back as
    * `{ checkpointResume: { checkpoint: ... } }`.
    *
@@ -1393,10 +1393,10 @@ export class Agent implements LocalAgent, InvokableAgent {
     let cycleIndex = 0
     let resumePosition: CheckpointPosition | undefined
     if (resumeCheckpoint) {
-      // after_tools means the cycle finished; the next after_model checkpoint
+      // afterTools means the cycle finished; the next afterModel checkpoint
       // belongs to the following cycle.
       cycleIndex =
-        resumeCheckpoint.position === 'after_tools' ? resumeCheckpoint.cycleIndex + 1 : resumeCheckpoint.cycleIndex
+        resumeCheckpoint.position === 'afterTools' ? resumeCheckpoint.cycleIndex + 1 : resumeCheckpoint.cycleIndex
       resumePosition = resumeCheckpoint.position
       currentArgs = undefined
     }
@@ -1559,8 +1559,8 @@ export class Agent implements LocalAgent, InvokableAgent {
               return result
             }
 
-            // after_model checkpoint: model returned tool use, tools have not run
-            // yet. Skipped when resuming from an after_model checkpoint: the
+            // afterModel checkpoint: model returned tool use, tools have not run
+            // yet. Skipped when resuming from an afterModel checkpoint: the
             // assistant tool-use message was not persisted (deferred append), so
             // this cycle re-invoked the model to regenerate it — now fall through
             // to run the tools. Cancel wins — the isCancelled branch above returns
@@ -1568,7 +1568,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             if (this._checkpointing) {
               const priorResumePosition = resumePosition
               resumePosition = undefined
-              if (priorResumePosition !== 'after_model') {
+              if (priorResumePosition !== 'afterModel') {
                 this._meter.endCycle(cycleStartTime)
                 this._tracer.endAgentLoopSpan(cycleSpan)
                 result = new AgentResult({
@@ -1577,7 +1577,7 @@ export class Agent implements LocalAgent, InvokableAgent {
                   traces: this._tracer.localTraces,
                   metrics: this._meter.metrics,
                   invocationState,
-                  checkpoint: new Checkpoint({ position: 'after_model', cycleIndex }),
+                  checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex }),
                 })
                 return result
               }
@@ -1657,7 +1657,7 @@ export class Agent implements LocalAgent, InvokableAgent {
             return result
           }
 
-          // after_tools checkpoint: tools finished, next model call pending. Placed
+          // afterTools checkpoint: tools finished, next model call pending. Placed
           // after the endTurn / structured-output returns so it only fires when the
           // loop would continue. Cancel wins: skip when cancelled and let the next
           // iteration's cancellation check return `cancelled`.
@@ -1668,7 +1668,7 @@ export class Agent implements LocalAgent, InvokableAgent {
               traces: this._tracer.localTraces,
               metrics: this._meter.metrics,
               invocationState,
-              checkpoint: new Checkpoint({ position: 'after_tools', cycleIndex }),
+              checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex }),
             })
             return result
           }

@@ -56,14 +56,14 @@ describe('Agent checkpointing', () => {
 
     it('throws CheckpointError when the checkpoint schema version is incompatible', async () => {
       const agent = new Agent({ model: toolUseModel(), checkpointing: true, printer: false })
-      const args = { checkpointResume: { checkpoint: { position: 'after_model', schemaVersion: '0.1' } } } as InvokeArgs
+      const args = { checkpointResume: { checkpoint: { position: 'afterModel', schemaVersion: '0.1' } } } as InvokeArgs
 
       await expect(agent.invoke(args)).rejects.toThrow(CheckpointError)
     })
   })
 
   describe('cycle boundaries', () => {
-    it('emits an after_model checkpoint (cycle 0) before running tools', async () => {
+    it('emits an afterModel checkpoint (cycle 0) before running tools', async () => {
       let toolRan = false
       const agent = new Agent({
         model: toolUseModel(),
@@ -75,16 +75,16 @@ describe('Agent checkpointing', () => {
       const result = await agent.invoke('hi')
 
       expect(result.stopReason).toBe('checkpoint')
-      expect(result.checkpoint?.position).toBe('after_model')
+      expect(result.checkpoint?.position).toBe('afterModel')
       expect(result.checkpoint?.cycleIndex).toBe(0)
       expect(toolRan).toBe(false)
       // Deferred-append invariant: the assistant tool_use message is NOT appended
-      // at after_model, so the conversation stays reinvokable (no dangling tool_use).
+      // at afterModel, so the conversation stays reinvokable (no dangling tool_use).
       const dangling = agent.messages.filter((m) => m.content.some((b) => b.type === 'toolUseBlock'))
       expect(dangling).toHaveLength(0)
     })
 
-    it('resuming from after_model runs tools then emits an after_tools checkpoint (cycle 0)', async () => {
+    it('resuming from afterModel runs tools then emits an afterTools checkpoint (cycle 0)', async () => {
       let toolRan = false
       const agent = new Agent({
         model: toolUseModel(),
@@ -94,17 +94,17 @@ describe('Agent checkpointing', () => {
       })
 
       const resume = {
-        checkpointResume: { checkpoint: new Checkpoint({ position: 'after_model', cycleIndex: 0 }).toJSON() },
+        checkpointResume: { checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex: 0 }).toJSON() },
       }
       const result = await agent.invoke(resume)
 
       expect(result.stopReason).toBe('checkpoint')
-      expect(result.checkpoint?.position).toBe('after_tools')
+      expect(result.checkpoint?.position).toBe('afterTools')
       expect(result.checkpoint?.cycleIndex).toBe(0)
       expect(toolRan).toBe(true)
     })
 
-    it('resuming from after_tools increments the cycle index for the next after_model checkpoint', async () => {
+    it('resuming from afterTools increments the cycle index for the next afterModel checkpoint', async () => {
       const agent = new Agent({
         model: toolUseModel(),
         tools: [createMockTool('noop', () => 'ok')],
@@ -113,12 +113,12 @@ describe('Agent checkpointing', () => {
       })
 
       const resume = {
-        checkpointResume: { checkpoint: new Checkpoint({ position: 'after_tools', cycleIndex: 2 }).toJSON() },
+        checkpointResume: { checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex: 2 }).toJSON() },
       }
       const result = await agent.invoke(resume)
 
       expect(result.stopReason).toBe('checkpoint')
-      expect(result.checkpoint?.position).toBe('after_model')
+      expect(result.checkpoint?.position).toBe('afterModel')
       expect(result.checkpoint?.cycleIndex).toBe(3)
     })
 
@@ -142,21 +142,21 @@ describe('Agent checkpointing', () => {
 
       // Prior invocation advances an internal position via resume.
       await agent.invoke({
-        checkpointResume: { checkpoint: new Checkpoint({ position: 'after_tools', cycleIndex: 5 }).toJSON() },
+        checkpointResume: { checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex: 5 }).toJSON() },
       })
 
       // A fresh, non-resume invocation must start over at cycle 0.
       const fresh = await agent.invoke('hi')
-      expect(fresh.checkpoint?.position).toBe('after_model')
+      expect(fresh.checkpoint?.position).toBe('afterModel')
       expect(fresh.checkpoint?.cycleIndex).toBe(0)
     })
   })
 
   describe('cancel precedence', () => {
-    it('cancel beats the after_model checkpoint', async () => {
+    it('cancel beats the afterModel checkpoint', async () => {
       // Cancel arrives *during* the model call (via an AfterModelCallEvent hook),
       // after the top-of-loop cancellation check has already passed. This forces
-      // control through the after_model boundary, where the cancel path must win
+      // control through the afterModel boundary, where the cancel path must win
       // over the checkpoint emission. (A pre-aborted signal would instead throw at
       // the top of the loop and never reach the boundary.)
       const controller = new AbortController()
@@ -174,19 +174,19 @@ describe('Agent checkpointing', () => {
       expect(result.checkpoint).toBeUndefined()
     })
 
-    it('cancel beats the after_tools checkpoint', async () => {
+    it('cancel beats the afterTools checkpoint', async () => {
       const controller = new AbortController()
       const agent = new Agent({
         model: toolUseModel(),
-        // Tool aborts mid-execution; the after_tools checkpoint must yield to cancel.
+        // Tool aborts mid-execution; the afterTools checkpoint must yield to cancel.
         tools: [createMockTool('noop', () => (controller.abort(), 'ok'))],
         checkpointing: true,
         printer: false,
       })
 
-      // Resume from after_model so tools execute this invocation.
+      // Resume from afterModel so tools execute this invocation.
       const resume = {
-        checkpointResume: { checkpoint: new Checkpoint({ position: 'after_model', cycleIndex: 0 }).toJSON() },
+        checkpointResume: { checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex: 0 }).toJSON() },
       }
       const result = await agent.invoke(resume, { cancelSignal: controller.signal })
 
@@ -196,22 +196,22 @@ describe('Agent checkpointing', () => {
   })
 
   describe('interrupt precedence', () => {
-    it('interrupt beats the after_tools checkpoint', async () => {
+    it('interrupt beats the afterTools checkpoint', async () => {
       const agent = new Agent({
         model: toolUseModel(),
         tools: [createMockTool('noop', () => 'ok')],
         checkpointing: true,
         printer: false,
       })
-      // A hook interrupts before the tool runs. Resume from after_model so the
-      // cycle reaches tool execution; the interrupt must win over the after_tools
+      // A hook interrupts before the tool runs. Resume from afterModel so the
+      // cycle reaches tool execution; the interrupt must win over the afterTools
       // checkpoint that would otherwise fire.
       agent.addHook(BeforeToolCallEvent, (event) => {
         event.interrupt({ name: 'confirm', reason: 'ok?' })
       })
 
       const resume = {
-        checkpointResume: { checkpoint: new Checkpoint({ position: 'after_model', cycleIndex: 0 }).toJSON() },
+        checkpointResume: { checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex: 0 }).toJSON() },
       }
       const result = await agent.invoke(resume)
 
@@ -220,8 +220,8 @@ describe('Agent checkpointing', () => {
     })
   })
 
-  describe('after_tools suppression', () => {
-    it('a hook-requested endTurn wins over the after_tools checkpoint', async () => {
+  describe('afterTools suppression', () => {
+    it('a hook-requested endTurn wins over the afterTools checkpoint', async () => {
       const agent = new Agent({
         model: toolUseModel(),
         tools: [createMockTool('noop', () => 'ok')],
@@ -232,9 +232,9 @@ describe('Agent checkpointing', () => {
         event.endTurn = true
       })
 
-      // Resume from after_model so tools run and the after_tools boundary is reached.
+      // Resume from afterModel so tools run and the afterTools boundary is reached.
       const resume = {
-        checkpointResume: { checkpoint: new Checkpoint({ position: 'after_model', cycleIndex: 0 }).toJSON() },
+        checkpointResume: { checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex: 0 }).toJSON() },
       }
       const result = await agent.invoke(resume)
 

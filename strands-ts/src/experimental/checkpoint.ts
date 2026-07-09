@@ -10,8 +10,8 @@
  * cross-process state continuity.
  *
  * Positions per ReAct cycle:
- * - `after_model`: model returned tool use; tools have not run yet.
- * - `after_tools`: tools finished; the next model call has not happened yet.
+ * - `afterModel`: model returned tool use; tools have not run yet.
+ * - `afterTools`: tools finished; the next model call has not happened yet.
  *
  * Per-tool granularity within a cycle is the tool executor's responsibility.
  *
@@ -21,7 +21,7 @@
  *
  * Precedence:
  * - Interrupt takes precedence over checkpoint: an interrupt during a
- *   checkpointing cycle returns `stopReason === 'interrupt'` and skips `after_tools`.
+ *   checkpointing cycle returns `stopReason === 'interrupt'` and skips `afterTools`.
  * - Cancel takes precedence over checkpoint: a cancel signal at either boundary
  *   returns `stopReason === 'cancelled'`.
  *
@@ -31,13 +31,13 @@
  * - Metrics reset per invocation; aggregate yourself if needed.
  * - `BeforeInvocationEvent` / `AfterInvocationEvent` fire on every resume,
  *   same as interrupts.
- * - Resuming from `after_model` re-invokes the model. The agent loop defers
+ * - Resuming from `afterModel` re-invokes the model. The agent loop defers
  *   appending the assistant tool-use message until after tools run (so history
  *   never holds a dangling tool-use), which means the tool-use message is not
- *   persisted at `after_model`; on resume the model runs again to regenerate it.
+ *   persisted at `afterModel`; on resume the model runs again to regenerate it.
  *   Completed tools are still never re-run — they execute once and their results
- *   persist at `after_tools`, which is the deterministic boundary. (In the Python
- *   SDK the assistant message is appended eagerly, so its `after_model` resume
+ *   persist at `afterTools`, which is the deterministic boundary. (In the Python
+ *   SDK the assistant message is appended eagerly, so its `afterModel` resume
  *   reuses the persisted message instead of re-invoking the model.)
  */
 
@@ -55,12 +55,12 @@ export const CHECKPOINT_SCHEMA_VERSION = '1.0'
 
 /**
  * Which cycle boundary a checkpoint was emitted at.
- * - `after_model`: model returned tool use; tools have not run yet.
- * - `after_tools`: tools finished; the next model call has not happened yet.
+ * - `afterModel`: model returned tool use; tools have not run yet.
+ * - `afterTools`: tools finished; the next model call has not happened yet.
  *
  * @experimental
  */
-export type CheckpointPosition = 'after_model' | 'after_tools'
+export type CheckpointPosition = 'afterModel' | 'afterTools'
 
 /**
  * Serialized form of a {@link Checkpoint}, as produced by {@link Checkpoint.toJSON}
@@ -93,7 +93,7 @@ export interface CheckpointResumeContent {
  * @experimental
  */
 export class Checkpoint {
-  /** Which boundary fired (`after_model` or `after_tools`). */
+  /** Which boundary fired (`afterModel` or `afterTools`). */
   readonly position: CheckpointPosition
 
   /** ReAct loop cycle (0-based). */

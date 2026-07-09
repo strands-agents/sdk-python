@@ -587,7 +587,7 @@ describe('AgentResult', () => {
     })
 
     it('accepts a checkpoint', () => {
-      const checkpoint = new Checkpoint({ position: 'after_model', cycleIndex: 0 })
+      const checkpoint = new Checkpoint({ position: 'afterModel', cycleIndex: 0 })
       const result = new AgentResult({
         stopReason: 'checkpoint',
         lastMessage: toolUseMessage,
@@ -596,7 +596,7 @@ describe('AgentResult', () => {
         checkpoint,
       })
       expect(result.checkpoint).toBe(checkpoint)
-      expect(result.checkpoint?.position).toBe('after_model')
+      expect(result.checkpoint?.position).toBe('afterModel')
     })
 
     it('includes the serialized checkpoint in toJSON when present', () => {
@@ -605,11 +605,11 @@ describe('AgentResult', () => {
         lastMessage: toolUseMessage,
         metrics: new AgentMetrics(),
         invocationState: {},
-        checkpoint: new Checkpoint({ position: 'after_tools', cycleIndex: 3 }),
+        checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex: 3 }),
       })
       const json = result.toJSON() as { checkpoint?: unknown }
       expect(json.checkpoint).toEqual({
-        position: 'after_tools',
+        position: 'afterTools',
         cycleIndex: 3,
         schemaVersion: CHECKPOINT_SCHEMA_VERSION,
       })
