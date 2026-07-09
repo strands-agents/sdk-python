@@ -57,6 +57,23 @@ const CONTEXT_WINDOW_OVERFLOW_PATTERNS = [
 ]
 
 /**
+ * Error message fragments that indicate a transient network failure where the request
+ * never reached (or never got a response from) the server. These are safe to retry.
+ *
+ * Browsers reject `fetch` with `TypeError: Failed to fetch` (Chromium/Firefox) or
+ * `TypeError: Load failed` (Safari); Node's undici uses `TypeError: fetch failed`.
+ * `@ai-sdk/provider-utils` only wraps these into a retryable `APICallError` when the
+ * error carries a `cause` (the Node case), so in browsers the raw `TypeError` passes
+ * through and must be detected here.
+ */
+const TRANSIENT_NETWORK_ERROR_MESSAGES = ['failed to fetch', 'fetch failed', 'load failed']
+
+/**
+ * Node/undici system error codes for transient connection failures that are safe to retry.
+ */
+const TRANSIENT_NETWORK_ERROR_CODES = ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'ENOTFOUND', 'EAI_AGAIN']
+
+/**
  * Call option fields from LanguageModelV3CallOptions that can be configured.
  * Excludes prompt, tools, and toolChoice which are managed by the agent loop.
  */
@@ -195,8 +212,11 @@ function classifyError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error)
 
   if (APICallError.isInstance(error)) {
-    if (error.statusCode === 429) {
-      logger.debug(`throttled | error_message=<${message}>`)
+    // Throttling (429) and anything the provider already flagged retryable — transient
+    // 5xx responses and connection failures wrapped by @ai-sdk/provider-utils — route
+    // through ModelThrottledError so the model retry strategy can recover.
+    if (error.statusCode === 429 || error.isRetryable) {
+      logger.debug(`retryable model error | status=<${error.statusCode}> error_message=<${message}>`)
       return new ModelThrottledError(message, { cause: error })
     }
 
@@ -210,7 +230,31 @@ function classifyError(error: unknown): Error {
     return new ContextWindowOverflowError(message)
   }
 
+  // Transient network failures that never reached the server (notably browser
+  // `TypeError: Failed to fetch`, which the AI SDK leaves unwrapped). Treat as
+  // retryable so a single network blip doesn't fail the whole invocation.
+  if (isTransientNetworkError(error)) {
+    logger.debug(`transient network error, treating as retryable | error_message=<${message}>`)
+    return new ModelThrottledError(`Language model transient network error: ${message}`, { cause: error })
+  }
+
   return new ModelError(`Language model stream error: ${message}`, { cause: error })
+}
+
+/**
+ * Detects transient network failures that are safe to retry, matching on undici system
+ * error codes and the browser/runtime fetch-failure message fragments.
+ */
+function isTransientNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false
+  }
+  const code = (error as { code?: unknown }).code
+  if (typeof code === 'string' && TRANSIENT_NETWORK_ERROR_CODES.includes(code)) {
+    return true
+  }
+  const message = error.message.toLowerCase()
+  return TRANSIENT_NETWORK_ERROR_MESSAGES.some((fragment) => message.includes(fragment))
 }
 
 /**

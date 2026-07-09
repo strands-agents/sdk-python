@@ -402,6 +402,37 @@ describe('VercelModel', () => {
         await expect(collectIterator(model.stream([]))).rejects.toThrow(ContextWindowOverflowError)
       })
 
+      it('throws ModelThrottledError for APICallError flagged isRetryable', async () => {
+        const { mock, model } = setupCaptureTest()
+        ;(mock.doStream as ReturnType<typeof vi.fn>).mockRejectedValue(
+          new APICallError({
+            message: 'Service unavailable',
+            url: 'https://api.example.com',
+            requestBodyValues: {},
+            statusCode: 503,
+            isRetryable: true,
+          })
+        )
+
+        await expect(collectIterator(model.stream([]))).rejects.toThrow(ModelThrottledError)
+      })
+
+      it('throws ModelThrottledError for browser fetch failures (TypeError: Failed to fetch)', async () => {
+        const { mock, model } = setupCaptureTest()
+        ;(mock.doStream as ReturnType<typeof vi.fn>).mockRejectedValue(new TypeError('Failed to fetch'))
+
+        await expect(collectIterator(model.stream([]))).rejects.toThrow(ModelThrottledError)
+      })
+
+      it('throws ModelThrottledError for transient connection errors by code', async () => {
+        const { mock, model } = setupCaptureTest()
+        ;(mock.doStream as ReturnType<typeof vi.fn>).mockRejectedValue(
+          Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
+        )
+
+        await expect(collectIterator(model.stream([]))).rejects.toThrow(ModelThrottledError)
+      })
+
       it('classifies errors thrown during reader.read()', async () => {
         const mock = createMockModel([])
         ;(mock.doStream as ReturnType<typeof vi.fn>).mockResolvedValue({
