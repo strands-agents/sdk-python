@@ -296,7 +296,8 @@ These override default Starlight components:
 - **`Head.astro`**: Adds Mermaid diagram support and loads `SiteScripts` (Shortbread + WebSDK).
 - **`Header.astro`**: Custom header with navigation tabs and theme-aware logos (see [Header Navigation](#header-navigation) below).
 - **`Hero.astro`**: Suppresses the Starlight hero on `/blog/` paths. Blog pages pass a dummy `hero: { actions: [] }` to collapse Starlight's two-panel layout, and this override ensures that dummy hero has no visual output.
-- **`MarkdownContent.astro`**: Injects the custom frontmatter banners (experimental, community, languages) at the top of page content.
+- **`MarkdownContent.astro`**: Injects the custom frontmatter banners (experimental, community, languages) at the top of page content, and emits the Pagefind `Type` filter tag on the content wrapper (see [Search (Pagefind)](#search-pagefind)).
+- **`Search.astro`**: Replaces Starlight's default search with Pagefind's Component UI, adding a doc-type (`Type`) filter with OR support and context-aware/persisted defaults (see [Search (Pagefind)](#search-pagefind)).
 - **`PageFrame.astro`**: Extends Starlight's default `PageFrame` to add a full-width site footer containing the `Copyright` component. The footer spans the content area (respecting sidebar offset) with `--sl-color-bg-nav` background to match the header.
 - **`Sidebar.astro`** and **`SidebarSublist.astro`**: Custom sidebar navigation that mimics MkDocs Material theme's `navigation.sections` behavior.
 
@@ -800,6 +801,52 @@ SITE_DOMAIN=https://strandsagents.com npm run build
 
 Without `SITE_DOMAIN`, links remain relative (e.g. `/user-guide/quickstart/`). With it set, they become absolute (e.g. `https://strandsagents.com/user-guide/quickstart/`).
 
+## Search (Pagefind)
+
+Site search is powered by [Pagefind](https://pagefind.app/), which Starlight bundles and wires up automatically. Pagefind is a **post-build indexer**: after `astro build` emits the static HTML, Pagefind crawls `dist/**/*.html` and builds a search index from the rendered markup. It has no concept of Astro frontmatter or components — it only reads `data-pagefind-*` attributes on the page. So the indexing customization comes down to emitting the right attributes at build time, while the search *UI* is a custom component (see below).
+
+The shared classification logic lives in **`src/util/search.ts`**, which maps a page's content id to its doc-type facet value.
+
+### Doc-type facet (`Type`)
+
+Every indexed page is tagged with a Pagefind filter via `data-pagefind-filter="Type:<value>"`, where the value is one of:
+
+| Facet value | Pages | Detected by |
+|-------------|-------|-------------|
+| `User Docs` | Hand-written guides, examples, contribute, community, labs | default (anything not API/Blog) |
+| `Python API` | Auto-generated Python API reference | id starts with `docs/api/python` |
+| `TypeScript API` | Auto-generated TypeScript API reference | id starts with `docs/api/typescript` |
+| `Blog`      | Blog posts (not listing pages) | id starts with `blog/` |
+
+The tag is emitted on the `MarkdownContent.astro` wrapper (which sits inside Starlight's `<main data-pagefind-body>`), guarded so pages that opt out of indexing (`pagefind: false`) get no tag. This facet powers the `Type` filter control in the search UI below.
+
+### Search UI: Pagefind Component UI (`Search.astro`)
+
+`src/components/overrides/Search.astro` replaces Starlight's default search (which uses Pagefind's older `@pagefind/default-ui`) with Pagefind's newer **Component UI** (v1.5.x web components: `pagefind-modal`, `pagefind-input`, `pagefind-results`, `pagefind-summary`, `pagefind-modal-trigger`, etc.). The Component UI assets (`/pagefind/pagefind-component-ui.{js,css}`) are emitted into `dist/pagefind/` at build time.
+
+**Why not the default UI:** the default UI translates a multi-value selection within one filter group into a plain array `{Type: [a, b]}`, which Pagefind treats as **AND** → 0 results (a page can't be two types at once). It exposes no option or hook to make that an OR. The Component UI, by contrast, gives us a public instance API we can drive ourselves.
+
+**Custom `Type` control with OR support.** Rather than Pagefind's `<pagefind-filter-pane>`, we render our **own** checkbox control (`fieldset.sl-search-types`) and drive filtering through the instance's public `triggerFilters(filtersObj)`:
+
+- One selected value → `{ Type: 'User Docs' }`.
+- Multiple → Pagefind's OR form `{ Type: { any: ['User Docs', 'API Docs'] } }`.
+
+`triggerFilters` passes the object straight through to `pagefind.search(term, { filters })`, and typing re-reads the instance's public `searchFilters`, so selection stays in sync — with **no access to private (`__`-prefixed) internals**.
+
+> **Class naming:** our own elements deliberately use an `sl-search-*` prefix, **not** `pf-*`. The Component UI ships a global reset `:is(*,#\#):is(*,#\#) :is([class^="pf-"],[class*=" pf-"]):not(svg,svg *) { all: revert }` (specificity 0,3,0) that would strip color/layout off any `pf-*` element. Staying off that prefix lets ordinary CSS apply without `!important`. Where we *do* restyle Pagefind's own `pf-*` elements (trigger button, summary, scrollbar), `!important` is used to beat that reset.
+
+**Selection — user-driven, persisted, no page default.** All three `Type` boxes are checked by default, so search spans everything until the user narrows it. There is **no page-specific default** — the Type filter is entirely user-driven (persistence + the always-visible control make context defaults unnecessary, and they avoided a confusing edge case where a blog reader's persisted "User Docs only" would hollow out search on a blog page). When the user changes the selection it is **saved to `localStorage`** (key `sl-search-types`) and restored on later visits — so unchecking "API Docs" keeps it off. An intentional empty selection ("search all") is stored and honored distinctly from "no preference yet" (`null`).
+
+**Per-result badges:** each result is tagged with its doc type (`User Docs` / `Python API` / `TypeScript API` / `Blog`) so the reader knows where a hit will land. The Component UI has no per-result render hook, so a `MutationObserver` on the results list derives the type from each result's link URL (`getDocTypeFromUrl`) and injects a badge. The badge label is the doc-type value verbatim — the **same vocabulary as the filter toggle**, so the two can't drift.
+
+**Other touches:** the modal is widened (`--pf-modal-max-width: 52rem`) to fit the Type sidebar; the sidebar is `position: sticky` so it stays visible while results scroll; the summary italicizes the search term and, when the true total exceeds the render cap, appends a "(showing top 20)" note; results are capped (`max-results="20"`, kept in sync with `MAX_RESULTS` in the script) so a broad query doesn't inject thousands of DOM rows; and the modal is themed to match Starlight in both light and dark (mirroring `data-theme` to Pagefind's `data-pf-theme`, plus `color-scheme: dark` on the scroll container so the scrollbar matches).
+
+> **Behavior note:** `<pagefind-config>` sets `faceted`, so the modal runs a search and shows results (and filter counts) **the instant it opens** — an empty query returns the full corpus rather than waiting for a keystroke.
+
+### What is *not* indexed
+
+Blog listing pages, the landing page, and the changelog opt out via `pagefind: false` in their layouts (`BlogLayout.astro` defaults to `false`; `LandingLayout.astro`, `ChangelogLayout.astro`). Blog **posts** opt back in — see [Blog › Layouts](#layouts).
+
 ## Blog
 
 The blog is a standalone section at `/blog/` with its own content collection, layouts, components, and routes — outside of Starlight's docs collection. It follows the same pattern as the custom landing page: reuses the Starlight header via `BlogLayout.astro` while opting out of the docs chrome (sidebar, table of contents, etc.).
@@ -855,9 +902,9 @@ Helper functions used across all blog pages:
 
 ### Layouts
 
-**`BlogLayout.astro`** — Base layout for all blog pages. Uses Starlight's `<StarlightPage>` component to get the full page shell (head, styles, theme, header) for free. Passes `hasSidebar={false}` and `template: 'splash'` to suppress sidebar and doc-page chrome. Passes `hero: { actions: [] }` to collapse Starlight's two-panel layout into a single content panel (suppressing the auto-generated `PageTitle`). Extra head tags (canonical URL, OG/Twitter meta, RSS autodiscovery) are injected via the `frontmatter.head` array. A named `<slot name="head" />` is forwarded for page-specific head content (e.g. JSON-LD). The `Hero` component override (`src/components/overrides/Hero.astro`) suppresses the hero on `/blog/` paths so the dummy hero value has no visual effect.
+**`BlogLayout.astro`** — Base layout for all blog pages. Uses Starlight's `<StarlightPage>` component to get the full page shell (head, styles, theme, header) for free. Passes `hasSidebar={false}` and `template: 'splash'` to suppress sidebar and doc-page chrome. Passes `hero: { actions: [] }` to collapse Starlight's two-panel layout into a single content panel (suppressing the auto-generated `PageTitle`). Extra head tags (canonical URL, OG/Twitter meta, RSS autodiscovery) are injected via the `frontmatter.head` array. A named `<slot name="head" />` is forwarded for page-specific head content (e.g. JSON-LD). The `Hero` component override (`src/components/overrides/Hero.astro`) suppresses the hero on `/blog/` paths so the dummy hero value has no visual effect. Accepts a `pagefind` prop (default `false`) that controls whether the page is included in the search index; listing pages (index, tags, authors) leave it at the default so they stay out of search.
 
-**`BlogPostLayout.astro`** — Wraps `BlogLayout` with article-specific chrome: title, date, reading time, description, author byline, tags, cover image. Injects JSON-LD Article schema via the head slot. OG image URL: `/blog/og/{slug}.png`.
+**`BlogPostLayout.astro`** — Wraps `BlogLayout` with article-specific chrome: title, date, reading time, description, author byline, tags, cover image. Injects JSON-LD Article schema via the head slot. OG image URL: `/blog/og/{slug}.png`. Passes `pagefind={true}` so blog posts are indexed and surface under the `Blog` search facet (see [Search (Pagefind)](#search-pagefind)).
 
 ### Components (`src/components/blog/`)
 
