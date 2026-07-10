@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { LocalMemoryStore } from '../store.js'
+import { TestMemoryStore } from '../store.js'
 import { MemoryManager } from '../../../memory/index.js'
 import { InvocationTrigger } from '../../../memory/extraction/triggers.js'
 import type { Extractor } from '../../../memory/extraction/types.js'
@@ -17,7 +17,7 @@ let dir: string
 let counter = 0
 
 beforeEach(async () => {
-  dir = join(tmpdir(), `strands-local-memory-${process.pid}-${counter++}`)
+  dir = join(tmpdir(), `strands-test-memory-${process.pid}-${counter++}`)
   await fs.mkdir(dir, { recursive: true })
 })
 
@@ -29,62 +29,62 @@ function filePath(name = 'notes'): string {
   return join(dir, `${name}.json`)
 }
 
-describe('LocalMemoryStore', () => {
+describe('TestMemoryStore', () => {
   describe('constructor', () => {
     it('is writable by default', () => {
-      expect(new LocalMemoryStore({ name: 'notes' }).writable).toBe(true)
+      expect(new TestMemoryStore({ name: 'notes' }).writable).toBe(true)
     })
 
     it('honors an explicit writable: false', () => {
-      expect(new LocalMemoryStore({ name: 'notes', writable: false }).writable).toBe(false)
+      expect(new TestMemoryStore({ name: 'notes', writable: false }).writable).toBe(false)
     })
 
     it('exposes name, description, and maxSearchResults', () => {
-      const store = new LocalMemoryStore({ name: 'notes', description: 'my notes', maxSearchResults: 7 })
+      const store = new TestMemoryStore({ name: 'notes', description: 'my notes', maxSearchResults: 7 })
       expect(store.name).toBe('notes')
       expect(store.description).toBe('my notes')
       expect(store.maxSearchResults).toBe(7)
     })
 
     it('throws when maxSearchResults is less than 1', () => {
-      expect(() => new LocalMemoryStore({ name: 'notes', maxSearchResults: 0 })).toThrow(
+      expect(() => new TestMemoryStore({ name: 'notes', maxSearchResults: 0 })).toThrow(
         'maxSearchResults must be at least 1'
       )
     })
 
     it('throws when name is empty', () => {
-      expect(() => new LocalMemoryStore({ name: '   ' })).toThrow('name must not be empty')
+      expect(() => new TestMemoryStore({ name: '   ' })).toThrow('name must not be empty')
     })
 
     it('throws when an explicit path is empty', () => {
-      expect(() => new LocalMemoryStore({ name: 'notes', path: '   ' })).toThrow('path must not be empty')
+      expect(() => new TestMemoryStore({ name: 'notes', path: '   ' })).toThrow('path must not be empty')
     })
 
     it('does no filesystem I/O on construction', async () => {
-      new LocalMemoryStore({ name: 'notes', path: filePath() })
+      new TestMemoryStore({ name: 'notes', path: filePath() })
       await expect(fs.access(filePath())).rejects.toThrow()
     })
   })
 
   describe('add', () => {
     it('throws when the store is not writable', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', writable: false, path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', writable: false, path: filePath() })
       await expect(store.add('fact')).rejects.toThrow('store is not writable')
     })
 
     it('throws on empty or whitespace content', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await expect(store.add('   ')).rejects.toThrow('content must not be empty')
     })
 
     it('returns an id for stored content', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       const { id } = await store.add('user prefers dark mode')
       expect(id).toBeTruthy()
     })
 
     it('deduplicates identical content, returning the existing id', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       const first = await store.add('user prefers dark mode')
       const second = await store.add('user prefers dark mode')
       expect(second.id).toBe(first.id)
@@ -93,7 +93,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('persists a human-readable JSON array to disk', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('user prefers dark mode', { source: 'user' })
       const raw = await fs.readFile(filePath(), 'utf8')
       expect(raw).toContain('\n  ') // pretty-printed
@@ -107,19 +107,19 @@ describe('LocalMemoryStore', () => {
 
   describe('search', () => {
     it('throws when maxSearchResults is less than 1', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await expect(store.search('q', { maxSearchResults: 0 })).rejects.toThrow('maxSearchResults must be at least 1')
     })
 
     it('returns no results for an empty or token-less query', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('user prefers dark mode')
       expect(await store.search('')).toEqual([])
       expect(await store.search('   ...  ')).toEqual([])
     })
 
     it('ranks higher token overlap first and exposes _relevanceScore', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('the cat sat on the mat')
       await store.add('the cat chased the dog in the park')
 
@@ -131,7 +131,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('excludes records with no token overlap', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('the cat sat on the mat')
       await store.add('a completely unrelated note')
 
@@ -141,7 +141,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('breaks ties by recency (most recent first)', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       // Stamp deterministic, increasing timestamps so the tie-break is testable.
       const isoSpy = vi
         .spyOn(Date.prototype, 'toISOString')
@@ -157,7 +157,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('caps results to maxSearchResults', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('alpha match')
       await store.add('beta match')
       await store.add('gamma match')
@@ -166,7 +166,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('tokenizes non-ASCII content as whole words (Unicode-aware, matching Python)', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('the café in 日本 is naïve')
       expect(await store.search('café')).toHaveLength(1)
       expect(await store.search('日本')).toHaveLength(1)
@@ -175,26 +175,26 @@ describe('LocalMemoryStore', () => {
 
   describe('persistence', () => {
     it('recalls entries from a fresh instance pointed at the same file (survives restart)', async () => {
-      const first = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const first = new TestMemoryStore({ name: 'notes', path: filePath() })
       await first.add('user lives in Berlin')
 
-      const second = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const second = new TestMemoryStore({ name: 'notes', path: filePath() })
       const results = await second.search('where does the user live')
       expect(results).toHaveLength(1)
       expect(results[0]?.content).toBe('user lives in Berlin')
     })
 
     it('is ephemeral when persist is false: no file, a fresh instance forgets', async () => {
-      const first = new LocalMemoryStore({ name: 'notes', persist: false, path: filePath() })
+      const first = new TestMemoryStore({ name: 'notes', persist: false, path: filePath() })
       await first.add('ephemeral fact')
       await expect(fs.access(filePath())).rejects.toThrow()
 
-      const second = new LocalMemoryStore({ name: 'notes', persist: false, path: filePath() })
+      const second = new TestMemoryStore({ name: 'notes', persist: false, path: filePath() })
       expect(await second.search('ephemeral fact')).toEqual([])
     })
 
     it('starts empty when the backing file is missing', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       expect(await store.search('anything')).toEqual([])
     })
 
@@ -206,7 +206,7 @@ describe('LocalMemoryStore', () => {
       process.env.HOME = dir
       process.env.USERPROFILE = dir
       try {
-        const store = new LocalMemoryStore({ name: '../weird/name' })
+        const store = new TestMemoryStore({ name: '../weird/name' })
         await store.add('a fact worth keeping')
         const expected = join(os.homedir(), '.strands', 'memory', '__weird_name.json')
         await expect(fs.access(expected)).resolves.toBeUndefined()
@@ -218,19 +218,19 @@ describe('LocalMemoryStore', () => {
 
     it('throws a clear error on a corrupt backing file', async () => {
       await fs.writeFile(filePath(), 'not json{', 'utf8')
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await expect(store.search('anything')).rejects.toThrow('invalid JSON')
     })
 
     it('throws a clear error on a valid-but-wrong-shape backing file', async () => {
       await fs.writeFile(filePath(), '{}', 'utf8')
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await expect(store.search('anything')).rejects.toThrow('expected a JSON array')
     })
 
     it('throws a clear error on a malformed record', async () => {
       await fs.writeFile(filePath(), JSON.stringify([{ foo: 'bar' }]), 'utf8')
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await expect(store.search('anything')).rejects.toThrow('each record must have string')
     })
 
@@ -239,12 +239,12 @@ describe('LocalMemoryStore', () => {
       // wrapped "failed to read/write" error naming the path rather than a bare OS error.
       const blocker = join(dir, 'blocker')
       await fs.writeFile(blocker, 'not a directory', 'utf8')
-      const store = new LocalMemoryStore({ name: 'notes', path: join(blocker, 'notes.json') })
+      const store = new TestMemoryStore({ name: 'notes', path: join(blocker, 'notes.json') })
       await expect(store.add('user prefers dark mode')).rejects.toThrow('failed to')
     })
 
     it('keeps all entries when many writes happen concurrently', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await Promise.all(Array.from({ length: 10 }, (_, index) => store.add(`fact number ${index}`)))
       const raw = await fs.readFile(filePath(), 'utf8')
       expect(JSON.parse(raw)).toHaveLength(10)
@@ -254,7 +254,7 @@ describe('LocalMemoryStore', () => {
       // On a cold store, search() and add() both trigger the lazy load; the memoized load must keep
       // the added record visible to subsequent searches rather than overwriting it with a pre-write
       // snapshot.
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await Promise.all([store.add('zebra giraffe'), store.search('apple')])
       const results = await store.search('zebra')
       expect(results).toHaveLength(1)
@@ -276,7 +276,7 @@ describe('LocalMemoryStore', () => {
       ]
       await fs.writeFile(filePath(), JSON.stringify(pyWritten), 'utf8')
 
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       const results = await store.search('dark mode preference')
       expect(results).toHaveLength(1)
       expect(results[0]?.content).toBe('the user prefers dark mode')
@@ -285,7 +285,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('writes the shared camelCase format with a Z-suffixed millisecond timestamp', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('hello world')
       const record = JSON.parse(await fs.readFile(filePath(), 'utf8'))[0]
       expect(Object.keys(record).sort()).toEqual(['content', 'createdAt', 'id'])
@@ -295,7 +295,7 @@ describe('LocalMemoryStore', () => {
 
   describe('MemoryManager integration', () => {
     it('stamps storeName on results returned through the manager', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       await store.add('user prefers dark mode')
 
       const mm = new MemoryManager({ stores: [store] })
@@ -305,7 +305,7 @@ describe('LocalMemoryStore', () => {
     })
 
     it('writes through the manager add API', async () => {
-      const store = new LocalMemoryStore({ name: 'notes', path: filePath() })
+      const store = new TestMemoryStore({ name: 'notes', path: filePath() })
       const mm = new MemoryManager({ stores: [store], addToolConfig: true })
       await mm.add('user likes coffee')
       expect(JSON.parse(await fs.readFile(filePath(), 'utf8'))).toHaveLength(1)
@@ -315,7 +315,7 @@ describe('LocalMemoryStore', () => {
       const extractor: Extractor = {
         extract: vi.fn().mockResolvedValue([{ content: 'user prefers dark mode' }]),
       }
-      const store = new LocalMemoryStore({
+      const store = new TestMemoryStore({
         name: 'notes',
         path: filePath(),
         extraction: { trigger: new InvocationTrigger(), extractor },

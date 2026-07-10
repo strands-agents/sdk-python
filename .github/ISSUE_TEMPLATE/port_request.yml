@@ -22,6 +22,7 @@ body:
       default: 0
       options:
         - strands-ts
+        - strands-py
     validations:
       required: true
 
@@ -33,6 +34,7 @@ body:
       default: 0
       options:
         - strands-py
+        - strands-ts
     validations:
       required: true
 

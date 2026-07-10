@@ -18,7 +18,7 @@ from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -36,7 +36,7 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.agent import Limits
-from ..types.content import Message, Messages, _ensure_tracking_id, split_system_prompt
+from ..types.content import Message, Messages, split_system_prompt
 from ..types.event_loop import Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
@@ -637,9 +637,7 @@ async def _handle_model_execution(
         stream_trace.end()
 
         # Add the response message to the conversation
-        _ensure_tracking_id(message)
-        agent.messages.append(message)
-        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
+        await agent._append_messages(message)
 
         # Update metrics
         agent.event_loop_metrics.update_usage(usage)
@@ -771,9 +769,7 @@ async def _handle_tool_execution(
                 "content": [{"toolResult": result} for result in tool_results],
             }
             cancelled_tool_result_message = _cancelled_msg
-            _ensure_tracking_id(_cancelled_msg)
-            agent.messages.append(_cancelled_msg)
-            await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=_cancelled_msg))
+            await agent._append_messages(_cancelled_msg)
             yield ToolResultMessageEvent(message=_cancelled_msg)
 
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
@@ -833,9 +829,7 @@ async def _handle_tool_execution(
         "content": [{"toolResult": result} for result in tool_results],
     }
 
-    _ensure_tracking_id(tool_result_message)
-    agent.messages.append(tool_result_message)
-    await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=tool_result_message))
+    await agent._append_messages(tool_result_message)
 
     yield ToolResultMessageEvent(message=tool_result_message)
 

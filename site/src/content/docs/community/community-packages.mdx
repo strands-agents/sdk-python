@@ -14,6 +14,7 @@ export const communityIntegrations = getIntegrationEntries(allDocs, 'integration
 export const communityPlugins = getIntegrationEntries(allDocs, 'plugin', true)
 export const communityModelProviders = getIntegrationEntries(allDocs, 'model-provider', true)
 export const communitySessionManagers = getIntegrationEntries(allDocs, 'session-manager', true)
+export const communityMemoryStores = getIntegrationEntries(allDocs, 'memory-store', true)
 export const communityTools = getIntegrationEntries(allDocs, 'tool', true)
 export const communityAgentExtensions = getIntegrationEntries(allDocs, 'agent-extension', true)
 
@@ -68,6 +69,14 @@ Model providers add support for additional LLM services beyond the built-in prov
 Session managers provide alternative storage backends for conversation history. Use these when you need persistent, scalable, or distributed session storage.
 
 <SimpleTable data={communitySessionManagers} columns={packageColumns}>
+  {renderCell}
+</SimpleTable>
+
+## Memory stores
+
+Memory stores are backends that give agents long-term memory across sessions. Each implements the `MemoryStore` interface and plugs into an agent through a `MemoryManager`. See the [Memory Stores overview](./memory-stores/overview.md) for how they fit together.
+
+<SimpleTable data={communityMemoryStores} columns={packageColumns}>
   {renderCell}
 </SimpleTable>
 
