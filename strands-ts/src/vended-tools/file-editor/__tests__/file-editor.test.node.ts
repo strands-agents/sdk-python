@@ -361,6 +361,102 @@ describe('fileEditor tool', () => {
     })
   })
 
+  describe('str_replace reliability fixes', () => {
+    // Defect B: a successful edit must not rewrite untouched bytes (tabs, CRLF).
+    it('preserves tabs and CRLF outside the edited region', async () => {
+      const content = 'func a() {\n\treturn 1\n}\r\n\r\nfunc b() {\n\treturn 2\n}\n'
+      const filePath = await createTestFile('preserve.go', content)
+      await fileEditor.invoke(
+        { command: 'str_replace', path: filePath, old_str: '\treturn 1', new_str: '\treturn 10' },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      // Only the matched region changed; func b's tab and the CRLF between blocks are byte-identical.
+      expect(updated).toBe('func a() {\n\treturn 10\n}\r\n\r\nfunc b() {\n\treturn 2\n}\n')
+      expect(updated).toContain('\treturn 2')
+      expect(updated).toContain('}\r\n\r\nfunc b')
+    })
+
+    // Defect C: a repeated MULTI-LINE old_str must report the real line numbers, not `[]`.
+    it('reports real line numbers for a repeated multi-line old_str', async () => {
+      const content = 'if (x) {\n  do()\n}\nspacer\nif (x) {\n  do()\n}\n'
+      const filePath = await createTestFile('multi.txt', content)
+      const err = await fileEditor
+        .invoke({ command: 'str_replace', path: filePath, old_str: 'if (x) {\n  do()\n}', new_str: 'z' }, context)
+        .then(
+          () => null,
+          (e: unknown) => e as Error
+        )
+      expect(err).toBeInstanceOf(Error)
+      expect(err?.message).toContain('Multiple occurrences')
+      expect(err?.message).toContain('lines [1,5]')
+      expect(err?.message).not.toContain('[]')
+    })
+
+    // Defect A: exact match fails on CRLF-vs-LF, but the tolerant fallback resolves a single match.
+    it('falls back to a tolerant match for a CRLF-vs-LF near-miss', async () => {
+      const content = 'function foo() {\r\n  return 1\r\n}\r\n'
+      const filePath = await createTestFile('crlf.ts', content)
+      await fileEditor.invoke(
+        {
+          command: 'str_replace',
+          path: filePath,
+          old_str: 'function foo() {\n  return 1\n}',
+          new_str: 'function foo() {\n  return 2\n}',
+        },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      // Matched region replaced; the trailing CRLF after the block is preserved.
+      expect(updated).toBe('function foo() {\n  return 2\n}\r\n')
+    })
+
+    // Defect A: tolerant fallback also tolerates trailing whitespace differences.
+    it('falls back to a tolerant match ignoring trailing whitespace', async () => {
+      const content = 'const a = 1   \nconst b = 2\n'
+      const filePath = await createTestFile('trailing.ts', content)
+      await fileEditor.invoke(
+        {
+          command: 'str_replace',
+          path: filePath,
+          old_str: 'const a = 1\nconst b = 2',
+          new_str: 'const a = 1\nconst b = 20',
+        },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      expect(updated).toBe('const a = 1\nconst b = 20\n')
+    })
+
+    // Defect A: an ambiguous tolerant match must NOT guess — it must error.
+    it('errors (does not guess) when a tolerant match is ambiguous', async () => {
+      const content = 'x = 1\r\ny = 2\r\nx = 1\r\ny = 2\r\n'
+      const filePath = await createTestFile('ambig.txt', content)
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: 'x = 1\ny = 2', new_str: 'z' }, context)
+      ).rejects.toThrow('multiple candidates')
+    })
+
+    // Defect A: a genuine zero-match returns an actionable near-miss hint.
+    it('gives an actionable near-miss hint on zero match', async () => {
+      const content = 'function foo() {\n    return 1\n}\n'
+      const filePath = await createTestFile('near.ts', content)
+      // 8-space indent matches neither exactly nor tolerantly (indentation differs).
+      const err = await fileEditor
+        .invoke(
+          { command: 'str_replace', path: filePath, old_str: '        return 1', new_str: '        return 2' },
+          context
+        )
+        .then(
+          () => null,
+          (e: unknown) => e as Error
+        )
+      expect(err).toBeInstanceOf(Error)
+      expect(err?.message).toContain('did not appear')
+      expect(err?.message).toMatch(/similar line was found at line 2/)
+    })
+  })
+
   describe('insert command', () => {
     it('inserts at beginning (line 0)', async () => {
       const filePath = await createTestFile('test.txt', 'Line 1\nLine 2\nLine 3')

@@ -56,12 +56,18 @@ Create a new file with content. Creates parent directories if needed.
 
 ### `str_replace`
 
-Replace an exact string match in a file. The string must appear exactly once.
+Replace a string match in a file. The match must resolve to exactly one
+location. Matching is **exact first**: `old_str` is matched byte-for-byte. Only
+when the exact match finds nothing does it fall back to a **whitespace-tolerant**
+match (line endings, trailing whitespace, and tab-vs-spaces), and only when that
+resolves to a single location — an ambiguous tolerant match is reported rather
+than guessed. The replacement is always applied to the original bytes, so tabs
+and line endings elsewhere in the file are left untouched.
 
 **Parameters:**
 
 - `path` (string, required): Absolute path to file
-- `old_str` (string, required): Exact string to find
+- `old_str` (string, required): String to find, copied verbatim (including indentation) from a `view`
 - `new_str` (string, optional): Replacement string
 
 ### `insert`
@@ -102,5 +108,5 @@ await agent.invoke('View lines 1-20 of /tmp/config.json')
 
 - Node.js only (uses filesystem APIs)
 - Text files only (UTF-8 encoded)
-- Exact string matching (no regex)
+- `str_replace` matches exactly first, with a line-oriented whitespace-tolerant fallback (no regex)
 - History is session-scoped

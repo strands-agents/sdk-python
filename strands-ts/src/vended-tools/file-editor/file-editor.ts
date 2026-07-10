@@ -22,7 +22,12 @@ const fileEditorInputSchema = z.object({
     .tuple([z.number(), z.number()])
     .optional()
     .describe('Line range to view [start, end]. 1-indexed. End can be -1 for end of file.'),
-  old_str: z.string().optional().describe('Exact string to find and replace (required for str_replace command).'),
+  old_str: z
+    .string()
+    .optional()
+    .describe(
+      'String to find and replace (required for str_replace). Must resolve to exactly one location. Copy it verbatim from a `view` of the file, including indentation. Matching is exact first; if that finds nothing it falls back to a whitespace-tolerant match (line endings, trailing whitespace, tabs) and only proceeds when a single location matches.'
+    ),
   new_str: z.string().optional().describe('Replacement string (for str_replace and insert commands).'),
   insert_line: z
     .number()
@@ -158,10 +163,113 @@ function applyViewRange(
   return { content, initLine: start }
 }
 
+// View-style tab expansion: `view` renders each tab as 8 spaces, so the model
+// reconstructs indentation as spaces. The tolerant fallback expands tabs the
+// same way when comparing, but replacements are always applied to original bytes.
+const TAB_AS_SPACES = '        '
+
 /**
- * Performs a unique str_replace transformation on file content. Validates that
- * `oldStr` appears exactly once. Returns the new content plus a snippet around
- * the change site (with 0-indexed `startLine`).
+ * Returns the start indices of every non-overlapping exact occurrence of
+ * `needle` in `haystack`.
+ */
+function exactMatchIndices(haystack: string, needle: string): number[] {
+  const indices: number[] = []
+  if (needle === '') return indices
+  let from = 0
+  for (let i = haystack.indexOf(needle, from); i !== -1; i = haystack.indexOf(needle, from)) {
+    indices.push(i)
+    from = i + needle.length
+  }
+  return indices
+}
+
+/** 1-based line number of a character offset within `content`. */
+function lineNumberAt(content: string, index: number): number {
+  return content.slice(0, index).split('\n').length
+}
+
+interface LineRecord {
+  /** Line content excluding the trailing `\n`, but including a `\r` for CRLF files. */
+  raw: string
+  /** Offset in the original content where this line begins. */
+  start: number
+  /** Offset where the line's text ends (before its `\r`/`\n` terminator). */
+  contentEnd: number
+}
+
+/** Splits content into line records with original byte offsets, so a tolerant
+ * (normalized) match can be mapped back to an exact slice of the original. */
+function splitLineRecords(content: string): LineRecord[] {
+  const parts = content.split('\n')
+  const records: LineRecord[] = []
+  let offset = 0
+  parts.forEach((raw, i) => {
+    const hasCR = raw.endsWith('\r')
+    records.push({ raw, start: offset, contentEnd: offset + raw.length - (hasCR ? 1 : 0) })
+    offset += raw.length
+    if (i < parts.length - 1) offset += 1 // the '\n' delimiter
+  })
+  return records
+}
+
+/** Normalizes a single line for tolerant matching: drops a trailing CR (CRLF),
+ * expands tabs the way `view` does, and strips trailing whitespace. */
+function normalizeLine(line: string): string {
+  return line
+    .replace(/\r$/, '')
+    .replace(/\t/g, TAB_AS_SPACES)
+    .replace(/[ \t]+$/, '')
+}
+
+type TolerantResult =
+  { kind: 'unique'; start: number; end: number } | { kind: 'ambiguous'; lines: number[] } | { kind: 'none' }
+
+/** Line-oriented whitespace-tolerant search used only when the exact match
+ * finds nothing. Tolerates CRLF/LF, trailing whitespace, and tab-vs-8-spaces.
+ * Returns original-byte offsets for a UNIQUE match; never guesses when ambiguous. */
+function tolerantMatch(content: string, oldStr: string): TolerantResult {
+  const records = splitLineRecords(content)
+  const normOrig = records.map((r) => normalizeLine(r.raw))
+  const normOld = oldStr.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').map(normalizeLine)
+  const k = normOld.length
+  if (k === 0 || k > normOrig.length) return { kind: 'none' }
+
+  const starts: number[] = []
+  const lastStart = normOrig.length - k
+  for (let i = 0; i <= lastStart; i++) {
+    if (normOrig.slice(i, i + k).every((line, j) => line === normOld[j])) starts.push(i)
+  }
+
+  if (starts.length === 0) return { kind: 'none' }
+  if (starts.length > 1) return { kind: 'ambiguous', lines: starts.map((i) => i + 1) }
+  const matchStart = starts[0]
+  const first = matchStart === undefined ? undefined : records[matchStart]
+  const last = matchStart === undefined ? undefined : records[matchStart + k - 1]
+  if (!first || !last) return { kind: 'none' }
+  return { kind: 'unique', start: first.start, end: last.contentEnd }
+}
+
+/** Builds an actionable hint pointing at lines that match the first line of
+ * `oldStr` ignoring leading indentation — the usual culprit behind a near-miss. */
+function nearMissHint(content: string, oldStr: string): string {
+  const firstOld = oldStr.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')[0] ?? ''
+  const target = normalizeLine(firstOld).trim()
+  if (target === '') return ''
+  const lines = splitLineRecords(content)
+    .map((r, i) => (normalizeLine(r.raw).trim() === target ? i + 1 : -1))
+    .filter((n) => n !== -1)
+  if (lines.length === 0) return ''
+  const where = lines.length === 1 ? `line ${lines[0]}` : `lines ${lines.slice(0, 5).join(', ')}`
+  return ` A similar line was found at ${where}, differing only in leading indentation, trailing whitespace, or line endings — re-copy the exact text (including indentation) using the \`view\` command.`
+}
+
+/**
+ * Computes a str_replace transformation. Tries an exact byte match first
+ * (backward-compatible); only if that finds nothing does it fall back to a
+ * conservative whitespace-tolerant search, and only when that resolves to a
+ * single location. The replacement is always applied to the ORIGINAL bytes, so
+ * tabs and line endings elsewhere in the file are left untouched. Returns the
+ * new content plus a snippet around the change site (with 0-indexed `startLine`).
  */
 function buildStrReplaceResult(
   originalContent: string,
@@ -169,29 +277,46 @@ function buildStrReplaceResult(
   newStr: string | undefined,
   filePath: string
 ): { newContent: string; snippet: string; startLine: number } {
-  const fileContent = originalContent.replace(/\t/g, '        ')
-  const expandedOldStr = oldStr.replace(/\t/g, '        ')
-  const expandedNewStr = newStr ? newStr.replace(/\t/g, '        ') : ''
+  const replacement = newStr ?? ''
 
-  const occurrences = (fileContent.match(new RegExp(escapeRegExp(expandedOldStr), 'g')) || []).length
-  if (occurrences === 0) {
-    throw new Error(`No replacement was performed, old_str \`${oldStr}\` did not appear verbatim in ${filePath}.`)
-  }
-  if (occurrences > 1) {
-    const lines = fileContent.split('\n')
-    const lineNumbers = lines
-      .map((line, index) => (line.includes(expandedOldStr) ? index + 1 : -1))
-      .filter((num) => num !== -1)
+  let start: number
+  let end: number
+
+  const exact = exactMatchIndices(originalContent, oldStr)
+  if (exact.length > 1) {
+    const lineNumbers = exact.map((idx) => lineNumberAt(originalContent, idx))
+    const firstLine = (originalContent.split('\n')[(lineNumbers[0] ?? 1) - 1] ?? '').trim()
     throw new Error(
-      `No replacement was performed. Multiple occurrences of old_str \`${oldStr}\` in lines ${JSON.stringify(lineNumbers)}. Please ensure it is unique`
+      `No replacement was performed. Multiple occurrences of old_str \`${oldStr}\` — it appears ${exact.length} times, starting at lines ${JSON.stringify(lineNumbers)} (first at: \`${firstLine}\`). Include more surrounding context so exactly one location matches.`
     )
   }
 
-  const newContent = fileContent.replace(expandedOldStr, () => expandedNewStr)
-  const replacementLine = fileContent.substring(0, fileContent.indexOf(expandedOldStr)).split('\n').length - 1
-  const insertedLines = expandedNewStr.split('\n').length
-  const originalLines = expandedOldStr.split('\n').length
-  const lineDifference = insertedLines - originalLines
+  const [firstExact] = exact
+  if (firstExact !== undefined) {
+    start = firstExact
+    end = firstExact + oldStr.length
+  } else {
+    const tolerant = tolerantMatch(originalContent, oldStr)
+    if (tolerant.kind === 'ambiguous') {
+      throw new Error(
+        `No replacement was performed. old_str \`${oldStr}\` did not match exactly, and a whitespace-insensitive search found multiple candidates at lines ${JSON.stringify(tolerant.lines)}. Re-copy the exact text with more surrounding context so exactly one location matches.`
+      )
+    }
+    if (tolerant.kind === 'none') {
+      throw new Error(
+        `No replacement was performed, old_str \`${oldStr}\` did not appear in ${filePath} (exact or whitespace-insensitive).${nearMissHint(originalContent, oldStr)}`
+      )
+    }
+    start = tolerant.start
+    end = tolerant.end
+  }
+
+  const newContent = originalContent.slice(0, start) + replacement + originalContent.slice(end)
+
+  const replacementLine = originalContent.slice(0, start).split('\n').length - 1
+  const insertedLines = replacement.split('\n').length
+  const matchedLines = originalContent.slice(start, end).split('\n').length
+  const lineDifference = insertedLines - matchedLines
 
   const newLines = newContent.split('\n')
   const startLine = Math.max(0, replacementLine - SNIPPET_LINES)
@@ -211,10 +336,7 @@ function buildInsertResult(
   insertLine: number,
   newStr: string
 ): { newContent: string; snippet: string; startLine: number } {
-  const fileText = originalContent.replace(/\t/g, '        ')
-  const expandedNewStr = newStr.replace(/\t/g, '        ')
-
-  const fileTextLines = fileText.split('\n')
+  const fileTextLines = originalContent.split('\n')
   const nLines = fileTextLines.length
 
   if (insertLine < 0 || insertLine > nLines) {
@@ -223,9 +345,9 @@ function buildInsertResult(
     )
   }
 
-  const newStrLines = expandedNewStr.split('\n')
+  const newStrLines = newStr.split('\n')
   const newFileTextLines =
-    fileText === ''
+    originalContent === ''
       ? newStrLines
       : [...fileTextLines.slice(0, insertLine), ...newStrLines, ...fileTextLines.slice(insertLine)]
 
@@ -251,13 +373,6 @@ function makeOutput(fileContent: string, fileDescriptor: string, initLine: numbe
   })
 
   return `Here's the result of running \`cat -n\` on ${fileDescriptor}:\n${numberedLines.join('\n')}\n`
-}
-
-/**
- * Escapes special regex characters in a string.
- */
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // ---- Sandbox-routed I/O helpers ----
