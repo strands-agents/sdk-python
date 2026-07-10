@@ -45,9 +45,7 @@ export type { Interrupt, InterruptSource } from './interrupt.js'
 export type { InterruptParams, InterruptResponse, InterruptResponseContentData } from './types/interrupt.js'
 export { InterruptResponseContent } from './types/interrupt.js'
 
-// Note: Checkpoint APIs (Checkpoint, CHECKPOINT_SCHEMA_VERSION, CheckpointError,
-// and related types) are experimental and exported from
-// '@strands-agents/sdk/experimental', not from this top-level entry point.
+// Checkpoint APIs are experimental; see '@strands-agents/sdk/experimental'.
 
 // JSON types
 export type { JSONSchema, JSONValue } from './types/json.js'
