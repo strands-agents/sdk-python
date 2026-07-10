@@ -611,6 +611,127 @@ describe('ContextOffloader', () => {
     })
   })
 
+  describe('document format round-trip (#3019)', () => {
+    function getRetrievalTool(plugin: ContextOffloader) {
+      const tools = plugin.getTools()
+      return tools[0]! as unknown as { invoke(input: unknown): Promise<unknown> }
+    }
+
+    // The offloader counts only text/JSON tool-result blocks toward the token
+    // threshold, so a large text block is paired with the document to trigger
+    // offloading; the document is stored at content index 0 (ref `..._0`).
+    async function offloadDocument(
+      plugin: ContextOffloader,
+      block: InstanceType<typeof DocumentBlock>
+    ): Promise<string> {
+      const agent = createMockAgent()
+      plugin.initAgent(agent)
+      const event = makeEvent([block, new TextBlock('x'.repeat(2000))])
+      await invokeTrackedHook(agent, event)
+      const preview = (event.result.content[0] as TextBlock).text
+      const refMatch = preview.match(/mem_\d+_tool-123_0/)
+      expect(refMatch).not.toBeNull()
+      return refMatch![0]
+    }
+
+    it('degrades an octet-stream artifact to text instead of an invalid document block', async () => {
+      // A storage backend that lost content-type metadata falls back to
+      // application/octet-stream. Reconstructing that as document.format=
+      // "octet-stream" makes the next model call fail with a ValidationException.
+      const storage = new InMemoryStorage()
+      const ref = await storage.store('k1', new TextEncoder().encode('col1,col2\n1,2'), 'application/octet-stream')
+      const plugin = new ContextOffloader({ storage, includeRetrievalTool: true })
+      const result = await getRetrievalTool(plugin).invoke({ reference: ref })
+      expect(result).not.toBeInstanceOf(DocumentBlock)
+      expect(result).toBe('col1,col2\n1,2')
+    })
+
+    it('stores a csv document under its canonical text/csv type and round-trips the block', async () => {
+      const storage = new InMemoryStorage()
+      const plugin = new ContextOffloader({
+        storage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+        includeRetrievalTool: true,
+      })
+      const csvBytes = new TextEncoder().encode('name,value\n' + 'row,1\n'.repeat(500))
+      const ref = await offloadDocument(
+        plugin,
+        new DocumentBlock({ format: 'csv', name: 'data.csv', source: { bytes: csvBytes } })
+      )
+
+      const stored = await storage.retrieve(ref)
+      expect(stored.contentType).toBe('text/csv')
+
+      const result = await getRetrievalTool(plugin).invoke({ reference: ref })
+      expect(result).toBeInstanceOf(DocumentBlock)
+      expect((result as DocumentBlock).format).toBe('csv')
+      expect((result as DocumentBlock).source).toEqual({ type: 'documentSourceBytes', bytes: csvBytes })
+    })
+
+    it('makes an offloaded csv document searchable instead of rejecting it as binary', async () => {
+      const storage = new InMemoryStorage()
+      const plugin = new ContextOffloader({
+        storage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+        includeRetrievalTool: true,
+      })
+      const csvBytes = new TextEncoder().encode('name,value\nalpha,1\nbeta,2\n' + 'pad,0\n'.repeat(500))
+      const ref = await offloadDocument(
+        plugin,
+        new DocumentBlock({ format: 'csv', name: 'data.csv', source: { bytes: csvBytes } })
+      )
+
+      const result = (await getRetrievalTool(plugin).invoke({ reference: ref, pattern: 'beta' })) as string
+      expect(result).not.toContain('cannot search binary content')
+      expect(result).toContain('beta,2')
+    })
+
+    it('retrieves a txt document as plain text', async () => {
+      const storage = new InMemoryStorage()
+      const plugin = new ContextOffloader({
+        storage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+        includeRetrievalTool: true,
+      })
+      const text = 'plain text document\n'.repeat(200)
+      const ref = await offloadDocument(
+        plugin,
+        new DocumentBlock({ format: 'txt', name: 'notes.txt', source: { bytes: new TextEncoder().encode(text) } })
+      )
+
+      const stored = await storage.retrieve(ref)
+      expect(stored.contentType).toBe('text/plain')
+      const result = await getRetrievalTool(plugin).invoke({ reference: ref })
+      expect(result).toBe(text)
+    })
+
+    it('reconstructs and searches legacy application/{format} artifacts', async () => {
+      const storage = new InMemoryStorage()
+      const docxBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04])
+      const csvRef = await storage.store('k1', new TextEncoder().encode('a,b\n1,2'), 'application/csv')
+      const docxRef = await storage.store('k2', docxBytes, 'application/docx')
+      const plugin = new ContextOffloader({ storage, includeRetrievalTool: true })
+
+      const csvFull = await getRetrievalTool(plugin).invoke({ reference: csvRef })
+      expect(csvFull).toBeInstanceOf(DocumentBlock)
+      expect((csvFull as DocumentBlock).format).toBe('csv')
+
+      const csvSearch = (await getRetrievalTool(plugin).invoke({ reference: csvRef, pattern: '1,2' })) as string
+      expect(csvSearch).not.toContain('cannot search binary content')
+      expect(csvSearch).toContain('1,2')
+
+      // Binary legacy artifacts reconstruct as a document block with bytes intact,
+      // not decoded to garbage text.
+      const docxFull = await getRetrievalTool(plugin).invoke({ reference: docxRef })
+      expect(docxFull).toBeInstanceOf(DocumentBlock)
+      expect((docxFull as DocumentBlock).format).toBe('docx')
+      expect((docxFull as DocumentBlock).source).toEqual({ type: 'documentSourceBytes', bytes: docxBytes })
+    })
+  })
+
   describe('eviction via BeforeModelCallEvent', () => {
     it('calls _evict on storage with incrementing cycle count', () => {
       const storage = new InMemoryStorage(5)

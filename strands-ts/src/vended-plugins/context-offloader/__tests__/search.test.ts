@@ -16,6 +16,15 @@ describe('isSearchableContent', () => {
     expect(isSearchableContent('video/mp4')).toBe(false)
     expect(isSearchableContent('application/pdf')).toBe(false)
   })
+
+  it('returns true for legacy application/{format} text-document aliases', () => {
+    // Artifacts written by earlier releases used a fabricated application/{format}
+    // type; the text-based ones stay searchable.
+    expect(isSearchableContent('application/csv')).toBe(true)
+    expect(isSearchableContent('application/txt')).toBe(true)
+    expect(isSearchableContent('application/md')).toBe(true)
+    expect(isSearchableContent('application/html')).toBe(true)
+  })
 })
 
 describe('searchContent', () => {
