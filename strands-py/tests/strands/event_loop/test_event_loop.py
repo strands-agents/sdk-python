@@ -167,6 +167,9 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._checkpoint_resume_position = None
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    # Bind the real _append_messages chokepoint so appends assign tracking ids
+    # and fire MessageAddedEvent exactly as production does.
+    mock._append_messages = Agent._append_messages.__get__(mock, Agent)
 
     return mock
 
@@ -928,6 +931,7 @@ async def test_request_state_initialization(alist):
     mock_agent.tool_registry.get_all_tool_specs.return_value = []
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
     mock_agent.hooks.invoke_callbacks_async = AsyncMock()
+    mock_agent._append_messages = Agent._append_messages.__get__(mock_agent, Agent)
 
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(

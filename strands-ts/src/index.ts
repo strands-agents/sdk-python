@@ -38,12 +38,17 @@ export {
   StructuredOutputError,
   ToolNotFoundError,
   DefaultNotConfiguredError,
+  CheckpointError,
 } from './errors.js'
 
 // Interrupt system
 export type { Interrupt, InterruptSource } from './interrupt.js'
 export type { InterruptParams, InterruptResponse, InterruptResponseContentData } from './types/interrupt.js'
 export { InterruptResponseContent } from './types/interrupt.js'
+
+// Experimental: durable-execution checkpoints
+export { Checkpoint, CHECKPOINT_SCHEMA_VERSION } from './experimental/index.js'
+export type { CheckpointPosition, CheckpointData, CheckpointResumeContent } from './experimental/index.js'
 
 // JSON types
 export type { JSONSchema, JSONValue } from './types/json.js'

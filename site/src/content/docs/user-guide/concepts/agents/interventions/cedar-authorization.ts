@@ -159,6 +159,39 @@ async function schemaValidationExample() {
   // --8<-- [end:schema_validation]
 }
 
+async function namespaceExample() {
+  // --8<-- [start:namespace]
+  const searchTool = tool({
+    name: 'search',
+    description: 'Search for information',
+    inputSchema: z.object({ query: z.string() }),
+    callback: (input) => `Results for: ${input.query}`,
+  })
+
+  const cedar = new CedarAuthorization({
+    namespace: 'Agent',
+    policies: `
+      permit(principal, action == Agent::Action::"search", resource);
+    `,
+    tools: [searchTool],
+    entities: [{ uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] }],
+    principalResolver: (state) => {
+      if (!state.user_id) return undefined
+      return { type: 'Agent::User', id: String(state.user_id) }
+    },
+  })
+
+  const agent = new Agent({
+    tools: [searchTool],
+    interventions: [cedar],
+  })
+
+  await agent.invoke('Search for reports', {
+    invocationState: { user_id: 'alice' },
+  })
+  // --8<-- [end:namespace]
+}
+
 async function envGatingExample() {
   // --8<-- [start:env_gating]
   const deployTool = tool({
@@ -234,6 +267,7 @@ void basicExample
 void roleBasedExample
 void rateLimitExample
 void schemaValidationExample
+void namespaceExample
 void envGatingExample
 void filePoliciesExample
 void hotReloadExample

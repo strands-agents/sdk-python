@@ -90,6 +90,11 @@ class MCPServerConfig(TypedDict, total=False):
     Provide either 'command' (stdio) or 'url' (streamable-http/sse), not both. When 'transport' is
     omitted it is auto-detected from the fields present. String values support '${VAR}' /
     '${env:VAR}' interpolation, and '~' in 'command' and 'cwd' is expanded to the home directory.
+
+    'disabled' skips the server entirely. 'continue_on_error' keeps the rest of the servers usable
+    when this one fails: a config-resolution failure (e.g. a missing env var) skips it during
+    load_servers instead of raising, and a connection failure yields no tools instead of raising
+    when the agent loads them.
     """
 
     command: str
@@ -100,6 +105,7 @@ class MCPServerConfig(TypedDict, total=False):
     headers: dict[str, str]
     transport: str
     disabled: bool
+    continue_on_error: bool
     prefix: str
     tool_filters: ToolFilters
     startup_timeout: int
@@ -146,7 +152,8 @@ class MCPClient(ToolProvider):
 
         Returns one client per enabled server. Accepts either a flat mapping of server name to
         config, or that mapping nested under an ``mcpServers`` key. Servers marked
-        ``"disabled": true`` are skipped.
+        ``"disabled": true`` are skipped. When a server sets ``"continue_on_error": true``, a
+        failure resolving its config (e.g. a missing env var) skips that server instead of raising.
 
         Transport is auto-detected from the fields present: ``command`` selects stdio and ``url``
         selects streamable-http. Set ``transport`` explicitly (``"stdio"``, ``"sse"``, or
@@ -164,8 +171,11 @@ class MCPClient(ToolProvider):
         Raises:
             FileNotFoundError: If the config file does not exist.
             json.JSONDecodeError: If the config file contains invalid JSON.
-            ValueError: If the config shape is invalid, a server entry is not a mapping, a server
-                config is invalid, or a referenced environment variable is not set.
+            ValueError: If the overall config shape is invalid or a server entry is not a mapping.
+                These are malformed-config errors and always raise, regardless of
+                ``continue_on_error``. A failure building an individual server (e.g. a missing env
+                var) also raises unless that server set ``continue_on_error``, in which case it is
+                skipped.
         """
         servers = _load_servers_mapping(config)
 
@@ -182,7 +192,12 @@ class MCPClient(ToolProvider):
             if server.get("disabled", False):
                 logger.debug("server_name=<%s> | skipping disabled MCP server", name)
                 continue
-            clients.append(_build_client_from_config(name, server))
+            try:
+                clients.append(_build_client_from_config(name, server))
+            except Exception as e:
+                if not server.get("continue_on_error", False):
+                    raise
+                logger.warning("server_name=<%s>, error=<%s> | MCP server config failed, skipping", name, e)
 
         logger.debug("loaded_servers=<%d> | created MCP clients from config", len(clients))
         return clients
@@ -194,6 +209,7 @@ class MCPClient(ToolProvider):
         startup_timeout: int = 30,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
+        continue_on_error: bool = False,
         elicitation_callback: ElicitationFnT | None = None,
         progress_callback: ProgressFnT | None = None,
         tasks_config: TasksConfig | None = None,
@@ -206,6 +222,10 @@ class MCPClient(ToolProvider):
                 Defaults to 30.
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
+            continue_on_error: When True, a connection failure during ``load_tools`` is logged and
+                yields no tools instead of raising, so one unavailable server does not prevent an
+                agent from using the others. Only the connection (``start()``) is swallowed; an error
+                while listing tools after a successful connect still propagates. Defaults to False.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
             progress_callback: Optional callback to receive progress notifications during tool execution.
                 Called with ``(progress, total, message)`` as the server reports progress. The ``total``
@@ -217,6 +237,9 @@ class MCPClient(ToolProvider):
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
+        self._continue_on_error = continue_on_error
+        # True after a swallowed init failure, so load_tools stops retrying a failed server.
+        self._connection_failed = False
         self._elicitation_callback = elicitation_callback
         self._progress_callback = progress_callback
 
@@ -307,6 +330,21 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(f"the client initialization failed: {e}") from e
         return self
 
+    @property
+    def continue_on_error(self) -> bool:
+        """Whether a connection failure is swallowed instead of raised (see ``__init__``)."""
+        return self._continue_on_error
+
+    @property
+    def connection_failed(self) -> bool:
+        """Whether a ``continue_on_error`` connection attempt has failed and not yet been reset.
+
+        Sticky within a connection lifecycle: stays True until teardown (removing the last consumer,
+        or ``stop()``) resets the client. Always False when ``continue_on_error`` is not set, since a
+        failure raises instead.
+        """
+        return self._connection_failed
+
     # ToolProvider interface methods
     async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
         """Load and return tools from the MCP server.
@@ -318,13 +356,20 @@ class MCPClient(ToolProvider):
             **kwargs: Additional arguments for future compatibility.
 
         Returns:
-            List of AgentTool instances from the MCP server.
+            List of AgentTool instances from the MCP server. Empty when the connection fails and
+            ``continue_on_error`` is set; the failure is sticky within a connection lifecycle and is
+            not retried on subsequent calls. Teardown (removing the last consumer, or ``stop()``)
+            resets the client so a later consumer reconnects.
         """
         logger.debug(
             "started=<%s>, cached_tools=<%s> | loading tools",
             self._tool_provider_started,
             self._loaded_tools is not None,
         )
+
+        # A previously swallowed init failure is not retried on subsequent calls.
+        if self._connection_failed:
+            return []
 
         if not self._tool_provider_started:
             try:
@@ -333,6 +378,10 @@ class MCPClient(ToolProvider):
                 self._tool_provider_started = True
                 logger.debug("MCP client started successfully")
             except Exception as e:
+                if self._continue_on_error:
+                    logger.warning("error=<%s> | MCP server failed to start, continuing with no tools", e)
+                    self._connection_failed = True
+                    return []
                 logger.error("error=<%s> | failed to start MCP client", e)
                 raise ToolProviderException(f"Failed to start MCP client: {e}") from e
 
@@ -390,7 +439,10 @@ class MCPClient(ToolProvider):
         self._consumers.discard(consumer_id)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))
 
-        if not self._consumers and self._tool_provider_started:
+        # A swallowed continue_on_error failure leaves _tool_provider_started False but still needs
+        # teardown so the sticky _connection_failed flag resets and the client can reconnect for a
+        # later consumer, matching the reset-on-zero-consumers behavior of a successful client.
+        if not self._consumers and (self._tool_provider_started or self._connection_failed):
             logger.debug("no consumers remaining, cleaning up")
             try:
                 self.stop(None, None, None)  # Existing sync method - safe for finalizers
@@ -471,6 +523,7 @@ class MCPClient(ToolProvider):
         self._session_id = uuid.uuid4()
         self._loaded_tools = None
         self._tool_provider_started = False
+        self._connection_failed = False
         self._consumers = set()
         self._server_task_capable = None
         self._tool_task_support_cache = {}
@@ -1388,6 +1441,7 @@ def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
         startup_timeout=server.get("startup_timeout", 30),
         tool_filters=_parse_config_tool_filters(name, server.get("tool_filters")),
         prefix=server.get("prefix"),
+        continue_on_error=server.get("continue_on_error", False),
     )
 
 

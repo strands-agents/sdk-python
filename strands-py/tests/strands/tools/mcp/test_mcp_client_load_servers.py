@@ -139,12 +139,17 @@ def test_expands_tilde_in_command_and_cwd(mock_client, transports):
 def test_prefix_and_startup_timeout_passed(mock_client, transports):
     MCPClient.load_servers({"srv": {"command": "node", "prefix": "p", "startup_timeout": 5}})
     _, kwargs = mock_client[0]
-    assert kwargs == {"startup_timeout": 5, "tool_filters": None, "prefix": "p"}
+    assert kwargs == {"startup_timeout": 5, "tool_filters": None, "prefix": "p", "continue_on_error": False}
 
 
 def test_default_startup_timeout(mock_client, transports):
     MCPClient.load_servers({"srv": {"command": "node"}})
-    assert mock_client[0][1] == {"startup_timeout": 30, "tool_filters": None, "prefix": None}
+    assert mock_client[0][1] == {
+        "startup_timeout": 30,
+        "tool_filters": None,
+        "prefix": None,
+        "continue_on_error": False,
+    }
 
 
 def test_tool_filters_compiled_to_regex(mock_client, transports):
@@ -264,3 +269,49 @@ def test_non_str_non_dict_config(mock_client, transports):
 def test_skips_disabled_servers(mock_client, transports):
     clients = MCPClient.load_servers({"active": {"command": "node"}, "inactive": {"command": "node", "disabled": True}})
     assert len(clients) == 1
+
+
+# continue_on_error Tests
+
+
+def test_continue_on_error_skips_server_with_failed_config(mock_client, transports):
+    """An early server whose config fails to resolve is skipped, leaving later servers loadable."""
+    clients = MCPClient.load_servers(
+        {
+            "broken": {"command": "node", "env": {"V": "${NONEXISTENT_VAR}"}, "continue_on_error": True},
+            "ok": {"url": "https://example.com/mcp"},
+        }
+    )
+    assert len(clients) == 1
+    # The one surviving client must be "ok" (http), not the broken stdio server that failed to build.
+    _open(mock_client[0][0])
+    transports["http"].assert_called_once_with(url="https://example.com/mcp", headers=None)
+    transports["stdio"].assert_not_called()
+
+
+def test_continue_on_error_logs_warning(mock_client, transports, caplog):
+    with caplog.at_level("WARNING", logger="strands.tools.mcp.mcp_client"):
+        MCPClient.load_servers(
+            {"broken": {"command": "node", "env": {"V": "${NONEXISTENT_VAR}"}, "continue_on_error": True}}
+        )
+    assert "MCP server config failed, skipping" in caplog.text
+
+
+def test_continue_on_error_passed_to_client(mock_client, transports):
+    """The config flag is threaded through to the constructed client so its runtime honors it."""
+    MCPClient.load_servers({"srv": {"command": "node", "continue_on_error": True}})
+    assert mock_client[0][1]["continue_on_error"] is True
+
+
+def test_mixed_config_non_opted_in_failure_aborts_whole_load(mock_client, transports):
+    """continue_on_error is per-server, not global: a failing server that did not opt in aborts the load.
+
+    A sibling opting in does not extend its tolerance to others.
+    """
+    with pytest.raises(ValueError):
+        MCPClient.load_servers(
+            {
+                "lenient": {"command": "node", "continue_on_error": True},
+                "strict": {"command": "node", "env": {"V": "${NONEXISTENT_VAR}"}},
+            }
+        )

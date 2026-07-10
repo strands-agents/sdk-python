@@ -162,6 +162,10 @@ describe('calculateTotal', () => {
 })
 ```
 
+## Comments in Tests
+
+The evergreen-comment rule applies here too. **Only a regression test for a discovered bug carries an issue/PR reference** — it links the issue it guards against and describes the behavior it now guarantees, never narrating what the code used to do. Prefer `// guards against unbounded retry on a null tool name (#642)` over `// we used to hang on null here`. A test written as part of feature development gets no issue or PR reference.
+
 ## Test Batching Strategy
 
 **Rule**: When test setup cost exceeds test logic cost, you MUST batch related assertions into a single test. Prefer extending an existing test over adding a new one. If a test already arranges the scenario your new behavior needs, add the assertion(s) there rather than duplicating the setup. Reach for a new test only for the cases listed under "You SHOULD keep separate tests for" below.

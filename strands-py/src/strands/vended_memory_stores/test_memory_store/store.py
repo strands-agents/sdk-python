@@ -17,7 +17,7 @@ from typing import Any
 from typing_extensions import Unpack
 
 from ...memory.types import MemoryEntry, MemoryStore, Metadata, SearchOptions
-from .types import LocalMemoryAddResult, LocalMemoryStoreConfig
+from .types import TestMemoryAddResult, TestMemoryStoreConfig
 
 DEFAULT_MAX_SEARCH_RESULTS = 10
 
@@ -68,11 +68,11 @@ def _token_overlap_score(query_tokens: set[str], content: str) -> int:
     return len(query_tokens & _tokenize(content))
 
 
-class LocalMemoryStore(MemoryStore):
+class TestMemoryStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by an in-memory list and a local JSON file.
 
     A zero-infrastructure store for prototyping and testing. It persists to disk by default so memories persist
-    accross sessions. Set ``persist=False`` for an ephemeral, single-session store.
+    across sessions. Set ``persist=False`` for an ephemeral, single-session store.
 
     Recall is lexical: results are ranked by how many query tokens overlap an entry's content, with
     the most recent entry winning ties. This is keyword matching, not the semantic search a managed
@@ -83,27 +83,30 @@ class LocalMemoryStore(MemoryStore):
     of entries), not production workloads — use a managed store like ``BedrockKnowledgeBaseStore`` for
     that. Writes within a process are serialized; concurrent writers across processes are not.
 
-    The on-disk format is shared with the TypeScript SDK's ``LocalMemoryStore``: records use the same
+    The on-disk format is shared with the TypeScript SDK's ``TestMemoryStore``: records use the same
     camelCase keys (``id``, ``content``, ``metadata``, ``createdAt``) and the same timestamp shape, so
     a backing file written by either SDK can be read by the other.
 
     Example:
         ```python
-        from strands.vended_memory_stores.local import LocalMemoryStore
+        from strands.vended_memory_stores.test_memory_store import TestMemoryStore
 
         # Persists to ~/.strands/memory/notes.json by default.
-        store = LocalMemoryStore(name="notes")
+        store = TestMemoryStore(name="notes")
 
         result = await store.add("User prefers dark mode")
         results = await store.search("what theme does the user like?")
         ```
     """
 
-    def __init__(self, **store_config: Unpack[LocalMemoryStoreConfig]) -> None:
+    # Tell pytest not to collect this class as a test suite despite its ``Test`` prefix.
+    __test__ = False
+
+    def __init__(self, **store_config: Unpack[TestMemoryStoreConfig]) -> None:
         """Initialize the store.
 
         Args:
-            **store_config: See :class:`LocalMemoryStoreConfig`.
+            **store_config: See :class:`TestMemoryStoreConfig`.
 
         Raises:
             ValueError: If ``name`` or ``path`` is empty/whitespace, or ``max_search_results`` is
@@ -111,11 +114,11 @@ class LocalMemoryStore(MemoryStore):
         """
         self.name = store_config["name"]
         if not self.name.strip():
-            raise ValueError("LocalMemoryStore: name must not be empty.")
+            raise ValueError("TestMemoryStore: name must not be empty.")
         self.description = store_config.get("description")
         max_search_results = store_config.get("max_search_results")
         if max_search_results is not None and max_search_results < 1:
-            raise ValueError("LocalMemoryStore: max_search_results must be at least 1.")
+            raise ValueError("TestMemoryStore: max_search_results must be at least 1.")
         self.max_search_results = max_search_results
         # A local store is writable by default: the point is a zero-setup store you can write to.
         self.writable = store_config.get("writable", True)
@@ -124,7 +127,7 @@ class LocalMemoryStore(MemoryStore):
         self._persist = store_config.get("persist", True)
         path = store_config.get("path")
         if path is not None and not path.strip():
-            raise ValueError("LocalMemoryStore: path must not be empty.")
+            raise ValueError("TestMemoryStore: path must not be empty.")
         if not self._persist:
             self._path: Path | None = None
         elif path is not None:
@@ -155,7 +158,7 @@ class LocalMemoryStore(MemoryStore):
         """
         caller_max = options.get("max_search_results") if options is not None else None
         if caller_max is not None and caller_max < 1:
-            raise ValueError("LocalMemoryStore: max_search_results must be at least 1.")
+            raise ValueError("TestMemoryStore: max_search_results must be at least 1.")
         limit = caller_max or self.max_search_results or DEFAULT_MAX_SEARCH_RESULTS
 
         query_tokens = _tokenize(query)
@@ -178,7 +181,7 @@ class LocalMemoryStore(MemoryStore):
             entries.append(MemoryEntry(content=record["content"], metadata=metadata))
         return entries
 
-    async def add(self, content: str, metadata: Metadata | None = None) -> LocalMemoryAddResult:
+    async def add(self, content: str, metadata: Metadata | None = None) -> TestMemoryAddResult:
         """Add ``content`` (with optional ``metadata``) to the store.
 
         Identical content is deduplicated: a repeat write returns the existing record's id without
@@ -200,9 +203,9 @@ class LocalMemoryStore(MemoryStore):
                 writable), with the target path in the message.
         """
         if not self.writable:
-            raise ValueError("LocalMemoryStore: store is not writable. Set writable=True in config to enable add().")
+            raise ValueError("TestMemoryStore: store is not writable. Set writable=True in config to enable add().")
         if not content.strip():
-            raise ValueError("LocalMemoryStore: content must not be empty.")
+            raise ValueError("TestMemoryStore: content must not be empty.")
 
         # The lock serializes the whole load-modify-flush cycle so concurrent adds don't each load
         # the same snapshot and clobber one another (last-write-wins). Within a single event loop the
@@ -214,7 +217,7 @@ class LocalMemoryStore(MemoryStore):
             normalized_content = content.strip()
             for record in records:
                 if record["content"].strip() == normalized_content:
-                    return LocalMemoryAddResult(id=record["id"])
+                    return TestMemoryAddResult(id=record["id"])
 
             new_record: dict[str, Any] = {"id": _new_id(), "content": content, "createdAt": _now()}
             if metadata is not None:
@@ -225,7 +228,7 @@ class LocalMemoryStore(MemoryStore):
             next_records = [*records, new_record]
             self._flush(next_records)
             self._records = next_records
-            return LocalMemoryAddResult(id=new_record["id"])
+            return TestMemoryAddResult(id=new_record["id"])
 
     def _load(self) -> list[dict[str, Any]]:
         """Load records from disk on first use; ephemeral stores (and a missing file) start empty."""
@@ -243,12 +246,12 @@ class LocalMemoryStore(MemoryStore):
             self._records = []
             return self._records
         except json.JSONDecodeError as error:
-            raise ValueError(f"LocalMemoryStore: invalid JSON in {self._path}: {error}") from error
+            raise ValueError(f"TestMemoryStore: invalid JSON in {self._path}: {error}") from error
         except OSError as error:
-            raise OSError(f"LocalMemoryStore: failed to read {self._path}: {error}") from error
+            raise OSError(f"TestMemoryStore: failed to read {self._path}: {error}") from error
 
         if not isinstance(parsed_file, list):
-            raise ValueError(f"LocalMemoryStore: invalid backing file {self._path}: expected a JSON array of records")
+            raise ValueError(f"TestMemoryStore: invalid backing file {self._path}: expected a JSON array of records")
         for record in parsed_file:
             if (
                 not isinstance(record, dict)
@@ -257,7 +260,7 @@ class LocalMemoryStore(MemoryStore):
                 or not isinstance(record.get("createdAt"), str)
             ):
                 raise ValueError(
-                    f"LocalMemoryStore: invalid backing file {self._path}: "
+                    f"TestMemoryStore: invalid backing file {self._path}: "
                     "each record must have string 'id', 'content', and 'createdAt' fields"
                 )
         self._records = parsed_file
@@ -282,4 +285,4 @@ class LocalMemoryStore(MemoryStore):
                 json.dump(records, file, indent=2, ensure_ascii=False)
             tmp_path.replace(self._path)
         except OSError as error:
-            raise OSError(f"LocalMemoryStore: failed to write {self._path}: {error}") from error
+            raise OSError(f"TestMemoryStore: failed to write {self._path}: {error}") from error
