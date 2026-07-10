@@ -65,9 +65,19 @@ SkillInjectionMode: TypeAlias = Literal["tool", "system_prompt"]
 
 _VALID_INJECTION_MODES: tuple[SkillInjectionMode, ...] = ("tool", "system_prompt")
 
-_SKILLS_BLOCK_RE = re.compile(r"\n*<available_skills>.*?</available_skills>", re.DOTALL)
-"""Matches an injected skills block. Safe to be non-greedy because instruction bodies have
-their ``</available_skills>`` closing sequence neutralized before injection."""
+_INJECTION_MARKER = 'managed-by="strands-agent-skills"'
+"""Private attribute stamped on the opening tag of blocks injected in ``system_prompt`` mode,
+so the desync sweep in :meth:`AgentSkills._inject_skills` only ever removes blocks the plugin
+itself created -- never an ``<available_skills>`` block authored by the application. ``tool``
+mode blocks carry no marker, keeping that mode's output byte-identical to previous releases."""
+
+_MARKED_SKILLS_OPENING = f"<available_skills {_INJECTION_MARKER}>"
+"""Opening tag of a plugin-injected skills block in ``system_prompt`` mode."""
+
+_CLOSING_DELIMITER_RE = re.compile(r"</\s*(instructions|available_skills)\s*>", re.IGNORECASE)
+"""Matches the closing delimiters of the elements wrapping injected instruction bodies,
+including whitespace and case variants (``</instructions >``, ``</INSTRUCTIONS>``) that a
+lenient parser would also treat as valid closers."""
 
 
 def _neutralize_delimiters(text: str) -> str:
@@ -75,8 +85,9 @@ def _neutralize_delimiters(text: str) -> str:
 
     Instruction bodies are injected verbatim -- matching ``tool`` mode, which returns them raw
     as a tool result -- so code samples containing ``<``, ``>``, or ``&`` reach the model
-    unmodified. Only the two closing sequences that could break out of the enclosing elements
-    are defanged.
+    unmodified. Only the closing sequences that could break out of the enclosing elements are
+    defanged, including whitespace/case variants that a lenient parser would also accept as
+    valid closers.
 
     Args:
         text: The raw instruction body.
@@ -84,26 +95,28 @@ def _neutralize_delimiters(text: str) -> str:
     Returns:
         The body with ``</instructions>`` and ``</available_skills>`` sequences neutralized.
     """
-    return text.replace("</instructions>", "<\\/instructions>").replace("</available_skills>", "<\\/available_skills>")
+    return _CLOSING_DELIMITER_RE.sub(lambda match: f"<\\/{match.group(1)}>", text)
 
 
 def _is_skills_block(text: str | None) -> bool:
-    """Return True if a system prompt block's text is an injected skills block.
+    """Return True if a system prompt block's text is a skills block this plugin injected.
 
     Used as a sentinel-based fallback when the exact ``last_injected_xml`` recorded in
     ``agent.state`` no longer matches the block in the system prompt (state and prompt can be
-    snapshot/restored independently).
+    snapshot/restored independently). Matches only blocks carrying the plugin's private
+    marker attribute, so an ``<available_skills>`` block authored by the application itself
+    is never swept.
 
     Args:
         text: The text of a system prompt content block.
 
     Returns:
-        Whether the text is a skills block.
+        Whether the text is a skills block injected by this plugin.
     """
     if not text:
         return False
     stripped = text.strip()
-    return stripped.startswith("<available_skills>") and stripped.endswith("</available_skills>")
+    return stripped.startswith(_MARKED_SKILLS_OPENING) and stripped.endswith("</available_skills>")
 
 
 def _normalize_sources(sources: SkillSources) -> list[SkillSource]:
@@ -389,15 +402,20 @@ class AgentSkills(Plugin):
 
         Removes the previously injected block (if any) and appends a fresh one. Removal
         first tries an exact match against the text recorded in agent state, then falls
-        back to a sentinel sweep of ``<available_skills>...</available_skills>`` blocks --
-        state and the system prompt may be snapshot/restored independently, and the
-        fallback keeps a desync from accumulating duplicate blocks. Uses agent state to
-        track the injected text per-agent, so a single plugin instance can be shared
-        across multiple agents safely.
+        back to a sentinel sweep of blocks carrying the plugin's private marker attribute
+        -- state and the system prompt may be snapshot/restored independently, and the
+        fallback keeps a desync from accumulating duplicate blocks. Only marker-tagged
+        blocks are swept, so an ``<available_skills>`` block authored by the application
+        is never removed. ``tool`` mode blocks carry no marker (keeping that mode's output
+        byte-identical to previous releases), so a desync there falls back to the
+        pre-existing warn-and-re-append behaviour. Uses agent state to track the injected
+        text per-agent, so a single plugin instance can be shared across multiple agents
+        safely.
 
         When the agent has a structured system prompt (list of SystemContentBlock),
         the injection is done at the block level so that cache points and other
-        structured blocks are preserved. Otherwise falls back to string manipulation.
+        structured blocks are preserved. When the agent has no system prompt at all,
+        the skills block becomes the entire prompt.
 
         Args:
             agent: The agent whose system prompt to update.
@@ -427,20 +445,11 @@ class AgentSkills(Plugin):
             self._set_state_field(agent, "last_injected_xml", skills_xml)
             agent.system_prompt = blocks
         else:
-            # String path: legacy behaviour for plain-string system prompts
-            current_prompt = agent.system_prompt or ""
-            original_prompt = current_prompt
-            if last_injected_xml is not None and last_injected_xml in current_prompt:
-                current_prompt = current_prompt.replace(last_injected_xml, "")
-            # Same state/prompt desync guard as the block path above.
-            current_prompt = _SKILLS_BLOCK_RE.sub("", current_prompt)
-            if last_injected_xml is not None and current_prompt == original_prompt:
-                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
-            injection = f"\n\n{skills_xml}"
-            new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
-            new_injected_xml = injection if current_prompt else skills_xml
-            self._set_state_field(agent, "last_injected_xml", new_injected_xml)
-            agent.system_prompt = new_prompt
+            # split_system_prompt() returns (None, None) only for a None system prompt, so
+            # reaching this branch means the agent has no system prompt at all: there is
+            # nothing to remove or sweep, and the skills block becomes the entire prompt.
+            self._set_state_field(agent, "last_injected_xml", skills_xml)
+            agent.system_prompt = skills_xml
 
     def get_available_skills(self, agent: Agent | None = None) -> list[Skill]:
         """Get the list of available skills.
@@ -658,13 +667,15 @@ class AgentSkills(Plugin):
         Otherwise includes a ``<location>`` element for skills loaded from the filesystem,
         following the AgentSkills.io integration spec.
 
-        In ``system_prompt`` mode, the block opens with a ``<usage>`` hint that tells the
-        model how to toggle skills with the ``skills`` tool, and skills activated by the
-        agent additionally carry an ``active="true"`` attribute and an ``<instructions>``
-        element with their full body, so the model can follow them directly from the
-        system prompt. Instruction bodies are injected verbatim (matching what ``tool``
-        mode returns) with only the closing delimiters neutralized. In ``tool`` mode the
-        output is the plain metadata listing, byte-identical to previous releases.
+        In ``system_prompt`` mode, the opening tag carries a private marker attribute
+        (scoping the desync sweep in :meth:`_inject_skills` to plugin-injected blocks),
+        the block opens with a ``<usage>`` hint that tells the model how to toggle skills
+        with the ``skills`` tool, and skills activated by the agent additionally carry an
+        ``active="true"`` attribute and an ``<instructions>`` element with their full
+        body, so the model can follow them directly from the system prompt. Instruction
+        bodies are injected verbatim (matching what ``tool`` mode returns) with only the
+        closing delimiters neutralized. In ``tool`` mode the output is the plain metadata
+        listing, byte-identical to previous releases.
 
         Args:
             agent: When provided, lists that agent's full skill set (and, in
@@ -675,13 +686,14 @@ class AgentSkills(Plugin):
             XML-formatted string with skill metadata.
         """
         skills = self._skills_for(agent)
+        opening = _MARKED_SKILLS_OPENING if self._injection_mode == "system_prompt" else "<available_skills>"
         if not skills:
-            return "<available_skills>\nNo skills are currently available.\n</available_skills>"
+            return f"{opening}\nNo skills are currently available.\n</available_skills>"
 
         embed_instructions = self._injection_mode == "system_prompt" and agent is not None
         active = set(self.get_activated_skills(agent)) if embed_instructions else set()
 
-        lines: list[str] = ["<available_skills>"]
+        lines: list[str] = [opening]
         if embed_instructions:
             lines.append(
                 '<usage>Activate a skill with the skills tool (action="activate") to load its full '
