@@ -266,6 +266,25 @@ function formatToolResultBlock(block: ToolResultBlock, toolUseIdToName: Map<stri
   const parts: Part[] = []
   const output: Array<{ text?: string; json?: unknown }> = []
 
+  // Gemini enforces unique displayNames within one function_response.parts. Disambiguate
+  // collisions (e.g. two same-format images, or two documents sharing a name) by suffixing.
+  const usedDisplayNames = new Set<string>()
+  const uniqueDisplayName = (name: string): string => {
+    if (!usedDisplayNames.has(name)) {
+      usedDisplayNames.add(name)
+      return name
+    }
+    const dot = name.lastIndexOf('.')
+    const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, '']
+    let i = 1
+    let candidate = `${base}-${i}${ext}`
+    while (usedDisplayNames.has(candidate)) {
+      candidate = `${base}-${++i}${ext}`
+    }
+    usedDisplayNames.add(candidate)
+    return candidate
+  }
+
   for (const c of block.content) {
     switch (c.type) {
       case 'textBlock':
@@ -281,7 +300,7 @@ function formatToolResultBlock(block: ToolResultBlock, toolUseIdToName: Map<stri
             inlineData: {
               data: encodeBase64(c.source.bytes),
               mimeType,
-              displayName: `image.${c.format}`,
+              displayName: uniqueDisplayName(`image.${c.format}`),
             },
           })
         } else {
@@ -296,7 +315,7 @@ function formatToolResultBlock(block: ToolResultBlock, toolUseIdToName: Map<stri
             inlineData: {
               data: encodeBase64(c.source.bytes),
               mimeType,
-              displayName: c.name,
+              displayName: uniqueDisplayName(c.name),
             },
           })
         } else if (c.source.type === 'documentSourceText') {
@@ -304,7 +323,7 @@ function formatToolResultBlock(block: ToolResultBlock, toolUseIdToName: Map<stri
             inlineData: {
               data: encodeBase64(new TextEncoder().encode(c.source.text)),
               mimeType,
-              displayName: c.name,
+              displayName: uniqueDisplayName(c.name),
             },
           })
         } else {

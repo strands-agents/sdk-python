@@ -43,6 +43,12 @@ DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
 _DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
+_BEDROCK_VIDEO_FORMAT_ALIASES = {
+    "3gp": "three_gp",
+    "3g2": "three_gp",
+    "3gpp": "three_gp",
+}
+
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
@@ -62,6 +68,12 @@ _SKIP_COUNT_TOKENS_MODELS: set[str] = set()
 def _clear_skip_count_tokens_cache() -> None:
     """Clear the cache of model IDs for which CountTokens API calls should be skipped."""
     _SKIP_COUNT_TOKENS_MODELS.clear()
+
+
+def _suppress_task_exception(task: "asyncio.Task[None]") -> None:
+    """Consume exception from orphaned stream task to silence 'never retrieved' warning."""
+    if not task.cancelled():
+        task.exception()
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -611,8 +623,10 @@ class BedrockModel(Model):
         if "guardContent" in content:
             guard = content["guardContent"]
             guard_text = guard["text"]
-            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
-            return {"guardContent": result}
+            text_block: dict[str, Any] = {"text": guard_text["text"]}
+            if "qualifiers" in guard_text:
+                text_block["qualifiers"] = guard_text["qualifiers"]
+            return {"guardContent": {"text": text_block}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
         if "image" in content:
@@ -704,7 +718,8 @@ class BedrockModel(Model):
                     return None
             elif "bytes" in source:
                 formatted_video_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_video_source}
+            video_format = _BEDROCK_VIDEO_FORMAT_ALIASES.get(video["format"], video["format"])
+            result = {"format": video_format, "source": formatted_video_source}
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
@@ -739,7 +754,8 @@ class BedrockModel(Model):
 
             return {"citationsContent": result}
 
-        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+        content_type = next(iter(content), None)
+        raise TypeError(f"content_type=<{content_type}> | unsupported type")
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
@@ -927,14 +943,17 @@ class BedrockModel(Model):
         thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
         task = asyncio.create_task(thread)
 
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
 
-            yield event
-
-        await task
+                yield event
+            await task
+        except BaseException:
+            task.add_done_callback(_suppress_task_exception)
+            raise
 
     def _stream(
         self,
@@ -1023,7 +1042,17 @@ class BedrockModel(Model):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#required-iam-permissions",
+                )
+
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "The provided model identifier is invalid" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
                 )
 
             if (
@@ -1033,7 +1062,7 @@ class BedrockModel(Model):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
                 )
 
             raise e

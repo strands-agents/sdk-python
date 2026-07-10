@@ -22,12 +22,15 @@ class MaxTokensReachedException(Exception):
     """Exception raised when the model reaches its maximum token generation limit.
 
     This exception is raised when the model stops generating tokens because it has reached the maximum number of
-    tokens allowed for output generation. This can occur when the model's max_tokens parameter is set too low for
-    the complexity of the response, or when the model naturally reaches its configured output limit during generation.
+    tokens allowed for output generation. The partial message is automatically added to agent.messages and you can
+    continue the conversation by calling the agent again.
+
+    This can occur when the model's max_tokens parameter is set too low for the complexity of the response, or when
+    the model naturally reaches its configured output limit during generation.
     """
 
     def __init__(self, message: str):
-        """Initialize the exception with an error message and the incomplete message object.
+        """Initialize the exception with an error message.
 
         Args:
             message: The error message describing the token limit issue
@@ -121,6 +124,16 @@ class ConcurrencyException(Exception):
     """
 
     pass
+
+
+class IdempotencyAbortedError(Exception):
+    """Exception raised to duplicate invocations when the primary invocation was aborted.
+
+    When a caller provides an idempotency_token and another invocation with the same token
+    is already in-flight, the duplicate waits for the primary to complete. If the primary
+    is aborted before producing a result (e.g. it lost a lock race or was cancelled),
+    this exception is raised to all waiting duplicates.
+    """
 
 
 class CheckpointException(Exception):

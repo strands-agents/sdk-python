@@ -1,4 +1,5 @@
 import logging
+import mimetypes
 import unittest.mock
 import warnings
 
@@ -254,6 +255,21 @@ def test_format_request_with_image(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_with_webp_image_does_not_depend_on_mimetypes(model, model_id, max_tokens, monkeypatch):
+    monkeypatch.delitem(mimetypes.types_map, ".webp", raising=False)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"image": {"format": "webp", "source": {"bytes": b"webpimage"}}}],
+        },
+    ]
+
+    tru_request = model.format_request(messages)
+
+    assert tru_request["messages"][0]["content"][0]["source"]["media_type"] == "image/webp"
+
+
 def test_format_request_with_reasoning(model, model_id, max_tokens):
     messages = [
         {
@@ -285,6 +301,45 @@ def test_format_request_with_reasoning(model, model_id, max_tokens):
                     },
                 ],
             },
+        ],
+        "model": model_id,
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id, max_tokens):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "content": [{"text": '{"city": "東京"}', "type": "text"}],
+                        "is_error": False,
+                        "tool_use_id": "c1",
+                        "type": "tool_result",
+                    }
+                ],
+            }
         ],
         "model": model_id,
         "tools": [],
@@ -727,6 +782,59 @@ def test_format_chunk_metadata(model):
     assert tru_chunk == exp_chunk
 
 
+def test_format_chunk_metadata_with_cache_tokens(model):
+    """When prompt caching is active, Anthropic returns cache_read_input_tokens
+    and cache_creation_input_tokens alongside input_tokens; surface them so
+    downstream cost accounting reflects what the user is billed for."""
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 50,
+        },
+    }
+
+    tru_chunk = model.format_chunk(event)
+    exp_chunk = {
+        "metadata": {
+            "usage": {
+                "inputTokens": 5,
+                "outputTokens": 7,
+                "totalTokens": 12,
+                "cacheReadInputTokens": 100,
+                "cacheWriteInputTokens": 50,
+            },
+            "metrics": {
+                "latencyMs": 0,
+            },
+        },
+    }
+
+    assert tru_chunk == exp_chunk
+
+
+def test_format_chunk_metadata_omits_zero_cache_tokens(model):
+    """When cache fields are absent or zero, keep the legacy chunk shape so
+    consumers expecting only inputTokens/outputTokens keep working."""
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        },
+    }
+
+    tru_chunk = model.format_chunk(event)
+
+    assert "cacheReadInputTokens" not in tru_chunk["metadata"]["usage"]
+    assert "cacheWriteInputTokens" not in tru_chunk["metadata"]["usage"]
+    assert tru_chunk["metadata"]["usage"]["totalTokens"] == 12
+
+
 def test_format_chunk_unknown(model):
     event = {"type": "unknown"}
 
@@ -1064,6 +1172,39 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
 
     # Verify the message_stop event was still processed correctly
     assert {"messageStop": {"stopReason": mock_message_stop.message.stop_reason}} in events
+
+
+@pytest.mark.asyncio
+async def test_stream_content_block_stop_no_pydantic_warnings(anthropic_client, model, alist):
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/1865."""
+    mock_event = unittest.mock.Mock()
+    mock_event.type = "content_block_stop"
+    mock_event.index = 0
+
+    def model_dump_with_warning():
+        warnings.warn(
+            "PydanticSerializationUnexpectedValue(Expected `ParsedTextBlock[TypeVar]`)",
+            UserWarning,
+            stacklevel=2,
+        )
+        return {"type": mock_event.type, "index": mock_event.index}
+
+    mock_event.model_dump = model_dump_with_warning
+
+    final_message = unittest.mock.Mock()
+    final_message.usage = unittest.mock.Mock(model_dump=lambda: {"input_tokens": 1, "output_tokens": 2})
+
+    mock_context = generate_mock_stream_context([mock_event], final_message=final_message)
+    anthropic_client.messages.stream.return_value = mock_context
+
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        response = model.stream([{"role": "user", "content": [{"text": "hello"}]}], None, None)
+        events = await alist(response)
+
+    pydantic_warnings = [w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)]
+    assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+    assert {"contentBlockStop": {"contentBlockIndex": 0}} in events
 
 
 class TestCountTokens:

@@ -119,6 +119,35 @@ Pass your tool definitions to catch policy typos at construction time. The handl
 
 Schema validation integrates with the [`cedar-for-agents`](https://github.com/cedar-policy/cedar-for-agents) ecosystem via `@cedar-policy/mcp-schema-generator-wasm` (TypeScript) and `cedar-policy-mcp-schema-generator` (Python).
 
+## Namespaced policies
+
+When using policy generators like [`cedar-agent-policy-builder`](https://github.com/cedar-policy/cedar-for-agents) that produce namespaced Cedar policies (e.g. `Agent::Action::"search"` instead of `Action::"search"`), set the `namespace` option to match:
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization_imports.ts:namespace_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.ts:namespace"
+```
+</Tab>
+</Tabs>
+
+When `namespace` is set:
+
+| Cedar concept | Unnamespaced (default) | Namespaced (`namespace: 'Agent'`) |
+|---|---|---|
+| **Action** | `Action::"search"` | `Agent::Action::"search"` |
+| **Resource** | `Resource::"agent"` | `Agent::Resource::"default"` |
+| **Default principal** | `User::"anonymous"` | `Agent::User::"anonymous"` |
+
+Schema generation also uses the configured namespace, so `tools` and `namespace` work together correctly.
+
+:::note
+The `namespace` option is currently available in the TypeScript SDK only. Python support is planned.
+:::
+
 ## Environment gating
 
 Block tools based on deployment context by forwarding environment metadata through <Syntax py="context_enricher" ts="contextEnricher" />:

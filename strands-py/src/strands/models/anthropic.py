@@ -17,6 +17,7 @@ from typing_extensions import Required, Unpack, override
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
@@ -27,6 +28,14 @@ from .model import BaseModelConfig, Model
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+_IMAGE_MEDIA_TYPES = {
+    "gif": "image/gif",
+    "jpeg": "image/jpeg",
+    "jpg": "image/jpeg",
+    "png": "image/png",
+    "webp": "image/webp",
+}
 
 
 class AnthropicModel(Model):
@@ -131,10 +140,14 @@ class AnthropicModel(Model):
             }
 
         if "image" in content:
+            image_format = content["image"]["format"]
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream"),
+                    "media_type": _IMAGE_MEDIA_TYPES.get(
+                        image_format,
+                        mimetypes.types_map.get(f".{image_format}", "application/octet-stream"),
+                    ),
                     "type": "base64",
                 },
                 "type": "image",
@@ -162,7 +175,7 @@ class AnthropicModel(Model):
             return {
                 "content": [
                     self._format_request_message_content(
-                        {"text": json.dumps(tool_result_content["json"])}
+                        {"text": json.dumps(tool_result_content["json"], ensure_ascii=False)}
                         if "json" in tool_result_content
                         else cast(ContentBlock, tool_result_content)
                     )
@@ -359,14 +372,23 @@ class AnthropicModel(Model):
 
             case "metadata":
                 usage = event["usage"]
+                input_tokens = usage["input_tokens"]
+                output_tokens = usage["output_tokens"]
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                cache_write = usage.get("cache_creation_input_tokens") or 0
+                usage_chunk: Usage = {
+                    "inputTokens": input_tokens,
+                    "outputTokens": output_tokens,
+                    "totalTokens": input_tokens + output_tokens,
+                }
+                if cache_read:
+                    usage_chunk["cacheReadInputTokens"] = cache_read
+                if cache_write:
+                    usage_chunk["cacheWriteInputTokens"] = cache_write
 
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": usage["input_tokens"],
-                            "outputTokens": usage["output_tokens"],
-                            "totalTokens": usage["input_tokens"] + usage["output_tokens"],
-                        },
+                        "usage": usage_chunk,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
@@ -472,6 +494,8 @@ class AnthropicModel(Model):
                                     "message": {"stop_reason": event.message.stop_reason},
                                 }
                             )
+                        elif event.type == "content_block_stop":
+                            yield self.format_chunk({"type": "content_block_stop", "index": event.index})
                         else:
                             yield self.format_chunk(event.model_dump())
 

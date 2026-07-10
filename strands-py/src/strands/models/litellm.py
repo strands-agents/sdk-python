@@ -5,6 +5,7 @@
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -45,10 +46,12 @@ class LiteLLMModel(OpenAIModel):
             params: Model parameters (e.g., max_tokens).
                 For a complete list of supported parameters, see
                 https://docs.litellm.ai/docs/completion/input#input-params-1.
+            stream: Whether to use streaming. Defaults to True.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        stream: bool
 
     def __init__(self, client_args: dict[str, Any] | None = None, **model_config: Unpack[LiteLLMConfig]) -> None:
         """Initialize provider instance.
@@ -345,14 +348,11 @@ class LiteLLMModel(OpenAIModel):
         )
         logger.debug("request=<%s>", request)
 
-        # Check if streaming is disabled in the params
-        config = self.get_config()
-        params = config.get("params") or {}
-        is_streaming = params.get("stream", True)
+        # format_request resolves streaming from the top-level `stream` config and the legacy
+        # params={"stream": ...} path, recording the effective value (and stream_options) on the request.
+        is_streaming = request["stream"]
 
         litellm_request = {**request}
-
-        litellm_request["stream"] = is_streaming
 
         logger.debug("invoking model with stream=%s", litellm_request.get("stream"))
 
@@ -520,7 +520,11 @@ class LiteLLMModel(OpenAIModel):
             Formatted tool call chunks.
         """
         for tool_deltas in tool_calls.values():
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+            first_delta = tool_deltas[0]
+            if not first_delta.id:
+                first_delta.id = f"call_{uuid.uuid4()}"
+
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": first_delta})
 
             for tool_delta in tool_deltas:
                 yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})

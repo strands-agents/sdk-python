@@ -104,6 +104,29 @@ function s3Store() {
 void s3Store
 
 // =====================
+// Access control list
+// =====================
+
+function aclStore() {
+  // --8<-- [start:acl_store]
+  const store = new BedrockKnowledgeBaseStore({
+    name: 'policies',
+    writable: true,
+    scope: 'hr',
+    accessControlList: [{ access: 'ALLOW', name: 'alice@example.com', type: 'USER' }],
+    config: {
+      knowledgeBaseId: 'KB123',
+      dataSourceType: 'CUSTOM',
+      dataSourceId: 'DS456',
+    },
+  })
+  // --8<-- [end:acl_store]
+
+  void store
+}
+void aclStore
+
+// =====================
 // Search and add
 // =====================
 

@@ -817,4 +817,99 @@ describe('CedarAuthorization', () => {
       ).toThrow('Schema generation failed')
     })
   })
+
+  describe('namespace option', () => {
+    it('uses namespaced action and resource types when namespace is set', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: { query: 'test' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('search', () => {
+        toolExecuted = true
+        return 'results'
+      })
+
+      const cedar = new CedarAuthorization({
+        namespace: 'Agent',
+        policies: 'permit(principal in Agent::Role::"admin", action == Agent::Action::"search", resource);',
+        entities: [
+          { uid: { type: 'Agent::Role', id: 'admin' }, attrs: {}, parents: [] },
+          { uid: { type: 'Agent::User', id: 'alice' }, attrs: {}, parents: [{ type: 'Agent::Role', id: 'admin' }] },
+          { uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] },
+        ],
+        principalResolver: (state) => {
+          if (!state.user_id) return undefined
+          return { type: 'Agent::User', id: String(state.user_id) }
+        },
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Search', { invocationState: { user_id: 'alice' } })
+
+      expect(toolExecuted).toBe(true)
+    })
+
+    it('denies when principal is not in the role (namespaced)', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: { query: 'test' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('search', () => {
+        toolExecuted = true
+        return 'results'
+      })
+
+      const cedar = new CedarAuthorization({
+        namespace: 'Agent',
+        policies: 'permit(principal in Agent::Role::"admin", action == Agent::Action::"search", resource);',
+        entities: [
+          { uid: { type: 'Agent::Role', id: 'admin' }, attrs: {}, parents: [] },
+          { uid: { type: 'Agent::User', id: 'bob' }, attrs: {}, parents: [] },
+          { uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] },
+        ],
+        principalResolver: (state) => {
+          if (!state.user_id) return undefined
+          return { type: 'Agent::User', id: String(state.user_id) }
+        },
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Search', { invocationState: { user_id: 'bob' } })
+
+      expect(toolExecuted).toBe(false)
+    })
+
+    it('works with namespace and tools (schema generation path)', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: { query: 'test' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('search', () => {
+        toolExecuted = true
+        return 'results'
+      })
+
+      const tools = [
+        {
+          name: 'search',
+          inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+        },
+      ]
+
+      const cedar = new CedarAuthorization({
+        namespace: 'MyApp',
+        policies: 'permit(principal, action == MyApp::Action::"search", resource);',
+        tools,
+        entities: [{ uid: { type: 'MyApp::Resource', id: 'default' }, attrs: {}, parents: [] }],
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Search', { invocationState: {} })
+
+      expect(toolExecuted).toBe(true)
+    })
+  })
 })

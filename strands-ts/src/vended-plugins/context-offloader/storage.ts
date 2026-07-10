@@ -324,7 +324,7 @@ export class FileStorage implements Storage {
 
     const filePath = path.resolve(this._artifactDir, reference)
     const resolvedDir = path.resolve(this._artifactDir)
-    if (!filePath.startsWith(resolvedDir)) {
+    if (filePath !== resolvedDir && !filePath.startsWith(resolvedDir + path.sep)) {
       throw new Error(`Reference not found: ${reference}`)
     }
 
@@ -423,7 +423,7 @@ export class S3Storage implements Storage {
       return { content: new Uint8Array(body), contentType }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'NoSuchKey') {
-        throw new Error(`Reference not found: ${reference}`)
+        throw new Error(`Reference not found: ${reference}`, { cause: error })
       }
       throw error
     }

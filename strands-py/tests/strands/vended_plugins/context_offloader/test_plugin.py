@@ -529,6 +529,221 @@ class TestRetrievalTool:
         assert result["content"][0]["document"]["source"]["bytes"] == doc_bytes
 
 
+class TestRetrievalToolSearch:
+    """Tests for the search/grep functionality of the retrieval tool."""
+
+    @pytest.fixture
+    def storage(self):
+        return InMemoryStorage()
+
+    @pytest.fixture
+    def plugin(self, storage):
+        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=True)
+
+    @pytest.fixture
+    def mock_agent(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def tool_context(self, mock_agent):
+        tool_use = ToolUse(toolUseId="retrieve_1", name="retrieve_offloaded_content", input={})
+        return ToolContext(tool_use=tool_use, agent=mock_agent, invocation_state={})
+
+    @pytest.mark.asyncio
+    async def test_finds_matching_lines_with_context(self, plugin, storage, tool_context):
+        content = "\n".join(f"line {i + 1}" for i in range(20))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="line 10", context_lines=2, tool_context=tool_context
+        )
+
+        assert "1 match for /line 10/" in result
+        assert "> 10| line 10" in result
+        assert "   8| line 8" in result
+        assert "  12| line 12" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_line_range_without_pattern(self, plugin, storage, tool_context):
+        content = "\n".join(f"line {i + 1}" for i in range(50))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, line_range={"start": 5, "end": 10}, tool_context=tool_context
+        )
+
+        assert "[Lines 5-10 of 50]" in result
+        assert "  5| line 5" in result
+        assert " 10| line 10" in result
+        assert "line 4" not in result
+        assert "line 11" not in result
+
+    @pytest.mark.asyncio
+    async def test_searches_within_line_range(self, plugin, storage, tool_context):
+        content = "\n".join(f"item {i + 1}" for i in range(30))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref,
+            pattern="item 1",
+            line_range={"start": 10, "end": 20},
+            context_lines=0,
+            tool_context=tool_context,
+        )
+
+        assert "in lines 10-20" in result
+        assert "> 10| item 10" in result
+        assert "> 11| item 11" in result
+        assert "> 1|" not in result
+
+    @pytest.mark.asyncio
+    async def test_respects_custom_context_lines(self, plugin, storage, tool_context):
+        content = "\n".join(f"line {i + 1}" for i in range(20))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="line 10", context_lines=0, tool_context=tool_context
+        )
+
+        assert "> 10| line 10" in result
+        assert "line 9" not in result
+        assert "line 11" not in result
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_binary_content(self, plugin, storage, tool_context):
+        ref = await storage.store("k1", b"\x89PNG", "image/png")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="test", tool_context=tool_context
+        )
+
+        assert "Error: cannot search binary content (image/png)" in result
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_literal_on_invalid_regex(self, plugin, storage, tool_context):
+        content = "foo (bar\nbaz\nfoo (bar again"
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="foo (bar", context_lines=0, tool_context=tool_context
+        )
+
+        assert "2 matches" in result
+        assert "> 1| foo (bar" in result
+        assert "> 3| foo (bar again" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_error_for_missing_reference(self, plugin, tool_context):
+        result = await plugin.retrieve_offloaded_content(
+            reference="nonexistent", pattern="test", tool_context=tool_context
+        )
+
+        assert "Error: reference not found" in result
+
+    @pytest.mark.asyncio
+    async def test_searches_json_content(self, plugin, storage, tool_context):
+        json_str = '{\n  "name": "test",\n  "items": [\n    1,\n    2,\n    3\n  ]\n}'
+        ref = await storage.store("k1", json_str.encode("utf-8"), "application/json")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="items", context_lines=1, tool_context=tool_context
+        )
+
+        assert "1 match for /items/" in result
+        assert "items" in result
+
+    @pytest.mark.asyncio
+    async def test_reports_no_matches(self, plugin, storage, tool_context):
+        content = "hello\nworld\n"
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="nonexistent", tool_context=tool_context
+        )
+
+        assert "No matches found for pattern 'nonexistent'" in result
+
+    @pytest.mark.asyncio
+    async def test_truncates_when_too_many_matches(self, storage, tool_context):
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=50,
+            preview_tokens=10,
+            include_retrieval_tool=True,
+        )
+        content = "\n".join(f"match line {i + 1}" for i in range(500))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="match", context_lines=0, tool_context=tool_context
+        )
+
+        assert "output truncated, narrow your search" in result
+        assert len(result) < len(content)
+
+    @pytest.mark.asyncio
+    async def test_merges_overlapping_context(self, plugin, storage, tool_context):
+        content = "\n".join(f"line {i + 1}" for i in range(10))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="line [45]", context_lines=2, tool_context=tool_context
+        )
+
+        assert "2 matches" in result
+        assert "---" not in result
+
+    @pytest.mark.asyncio
+    async def test_line_range_start_beyond_content(self, plugin, storage, tool_context):
+        content = "line 1\nline 2\nline 3"
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, line_range={"start": 100, "end": 200}, tool_context=tool_context
+        )
+
+        assert "beyond content length (3 lines)" in result
+
+    @pytest.mark.asyncio
+    async def test_clamps_line_range_end(self, plugin, storage, tool_context):
+        content = "line 1\nline 2\nline 3"
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, line_range={"start": 2, "end": 100}, tool_context=tool_context
+        )
+
+        assert "[Lines 2-3 of 3]" in result
+        assert "line 2" in result
+        assert "line 3" in result
+
+    @pytest.mark.asyncio
+    async def test_returns_first_n_lines_with_only_context_lines(self, storage, tool_context):
+        plugin = ContextOffloader(
+            storage=storage, max_result_tokens=2500, preview_tokens=10, include_retrieval_tool=True
+        )
+        content = "\n".join(f"line {i + 1}" for i in range(20))
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, context_lines=10, tool_context=tool_context
+        )
+
+        assert "[Lines 1-10 of 20]" in result
+        assert "line 1" in result
+        assert "line 10" in result
+        assert "line 11" not in result
+
+    @pytest.mark.asyncio
+    async def test_full_retrieval_without_search_params(self, plugin, storage, tool_context):
+        content = "hello world"
+        ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
+
+        result = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
+
+        assert result == "hello world"
+
+
 class TestInlineGuidance:
     @pytest.fixture
     def storage(self):
@@ -548,6 +763,8 @@ class TestInlineGuidance:
         await plugin._handle_tool_result(event)
         result_text = event.result["content"][0]["text"]
         assert "retrieve_offloaded_content" in result_text
+        assert "pattern" in result_text
+        assert "line_range" in result_text
 
     @pytest.mark.asyncio
     async def test_guidance_does_not_mention_retrieval_tool_when_disabled(self, storage, mock_agent):

@@ -37,17 +37,28 @@ import logging
 import weakref
 from typing import TYPE_CHECKING
 
+from typing_extensions import TypedDict
+
 from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
+from .search import _is_searchable_content, _search_content
 from .storage import FileStorage, InMemoryStorage, Storage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+
+class LineRange(TypedDict):
+    """A span of lines to retrieve (1-indexed, inclusive)."""
+
+    start: int
+    end: int
+
 
 _DEFAULT_MAX_RESULT_TOKENS = 2_500
 """Default token threshold above which tool results are offloaded."""
@@ -185,15 +196,37 @@ class ContextOffloader(Plugin):
         self,
         reference: str,
         tool_context: ToolContext,
+        pattern: str | None = None,
+        line_range: LineRange | None = None,
+        context_lines: int | None = None,
     ) -> dict | str:
         """Retrieve offloaded content by reference.
 
-        Use this tool when you see a placeholder with a reference (ref: ...)
-        and need the full content. Only use this as a fallback if the data
-        cannot be accessed using your existing tools.
+        When a tool result was too large to keep in context, it was stored externally and replaced with a preview
+        and a reference. Use this tool with that reference to access the stored content.
+
+        Returns:
+          - With pattern: matching lines with line numbers and surrounding context
+          - With line_range: the specified span of lines with line numbers
+          - Without pattern/line_range: the full original content (use sparingly — re-injects all tokens)
+
+        Constraints:
+          - pattern/line_range/context_lines only work on text content. For binary content, omit them.
+          - Line numbers in results are 1-indexed and can be used in follow-up line_range calls.
+
+        Examples:
+          {"reference": "ref_1", "pattern": "error"} -> lines containing "error" with 5 lines context
+          {"reference": "ref_1", "pattern": "error|warning", "context_lines": 3} -> regex, 3 lines context
+          {"reference": "ref_1", "line_range": {"start": 10, "end": 25}} -> lines 10-25
+          {"reference": "ref_1", "pattern": "TODO", "line_range": {"start": 1, "end": 50}} -> search within range
 
         Args:
-            reference: The reference string from the offload placeholder.
+            reference: The reference string from the offload placeholder (e.g. "mem_1_tool-123_0").
+            pattern: Regex or keyword to grep for. Returns only matching lines with context — not the full content.
+            line_range: Return only this span of lines. A dict with 'start' and 'end' keys (1-indexed).
+                Combine with pattern to search within the range.
+            context_lines: Lines before AND after each match (like grep -C). Default: 5.
+                Without pattern/line_range, returns first N lines.
             tool_context: Injected by the framework. Not user-facing.
         """
         storage = self._storage_for_agent(tool_context.agent)
@@ -202,6 +235,30 @@ class ContextOffloader(Plugin):
         except KeyError:
             return f"Error: reference not found: {reference}"
 
+        if pattern is None and line_range is None and context_lines is None:
+            return self._decode_full_content(content_bytes, content_type, reference)
+
+        if not _is_searchable_content(content_type):
+            return (
+                f"Error: cannot search binary content ({content_type}). "
+                "Omit pattern/line_range/context_lines to retrieve the full content."
+            )
+
+        text = content_bytes.decode("utf-8")
+        ctx_lines = context_lines if context_lines is not None else 5
+        max_chars = self._max_result_tokens * _CHARS_PER_TOKEN
+
+        lr: tuple[int, int] | None = None
+        if line_range is not None:
+            lr = (int(line_range["start"]), int(line_range["end"]))
+        elif pattern is None:
+            lr = (1, max(1, ctx_lines))
+
+        return _search_content(text, pattern=pattern, line_range=lr, context_lines=ctx_lines, max_chars=max_chars)
+
+    @staticmethod
+    def _decode_full_content(content_bytes: bytes, content_type: str, reference: str) -> dict | str:
+        """Decode stored content into its native format for full retrieval."""
         if content_type.startswith("text/"):
             return content_bytes.decode("utf-8")
 
@@ -306,11 +363,17 @@ class ContextOffloader(Plugin):
 
         guidance = (
             "Tool result was offloaded to external storage due to size.\n"
-            "Use the preview below to answer if possible.\n"
-            "Use your available tools to selectively access the data you need."
+            "Use the preview below if it answers your question.\n"
         )
         if self._include_retrieval_tool:
-            guidance += "\nYou can also use retrieve_offloaded_content with a reference to get the full content."
+            guidance += (
+                "If you need more detail, use retrieve_offloaded_content with a reference and:\n"
+                "  - pattern: regex or keyword to find matching lines with context\n"
+                "  - line_range: { start, end } to read a specific span of lines\n"
+                "Retrieve full content (omit pattern/line_range) as a last resort."
+            )
+        else:
+            guidance += "If you need more detail, use your available tools to access specific data."
 
         preview_text = (
             f"[Offloaded: {len(content)} blocks, ~{token_count:,} tokens]\n"

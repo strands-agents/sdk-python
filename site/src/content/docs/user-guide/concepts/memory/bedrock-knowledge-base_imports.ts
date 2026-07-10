@@ -20,6 +20,10 @@ import {
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
 // --8<-- [end:s3_store_imports]
 
+// --8<-- [start:acl_store_imports]
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:acl_store_imports]
+
 // --8<-- [start:search_imports]
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
 // --8<-- [end:search_imports]

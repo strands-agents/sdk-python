@@ -410,7 +410,7 @@ async def test_init_agent_extraction_true_defaults_to_interval_of_five():
     store = _store("s", writable=True, sinks={"add_messages"}, extraction=True)
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("a"))
     for _turn in range(4):
@@ -429,7 +429,7 @@ async def test_init_agent_extraction_true_on_add_only_store_uses_model_extractor
     store = _store("s", writable=True, sinks={"add"}, extraction=True)
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     binding = mm._extraction_stores[0]
     assert isinstance(binding.config.extractor, ModelExtractor)
@@ -941,17 +941,19 @@ async def test_add_tool_wait_for_writes_false_returns_accepted_even_when_a_write
 # --------------------------------------------------------------------------- #
 
 
-def test_init_agent_does_not_throw_without_extraction():
+@pytest.mark.asyncio
+async def test_init_agent_does_not_throw_without_extraction():
     mm = MemoryManager(stores=[_store("test")])
-    mm.init_agent(_FakeAgent())  # should not raise
+    await mm.init_agent(_FakeAgent())  # should not raise
 
 
-def test_init_agent_registers_no_hooks_when_no_store_has_extraction():
+@pytest.mark.asyncio
+async def test_init_agent_registers_no_hooks_when_no_store_has_extraction():
     store = _store("s", writable=True, sinks={"add"})
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
 
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     assert agent.hooks == []
 
@@ -961,7 +963,7 @@ async def test_init_agent_no_extractor_passthrough_hands_raw_batch_to_add_messag
     store = _store("s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger()))
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("I prefer dark mode"), _assistant_msg("Noted"))
     await _fire_invocation(agent, mm)
@@ -987,7 +989,7 @@ async def test_init_agent_extractor_route_writes_each_entry_via_add():
     )
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("something happened"))
     await _fire_invocation(agent, mm)
@@ -1009,7 +1011,7 @@ async def test_init_agent_passes_agent_model_as_default_model_to_extractor():
     mm = MemoryManager(stores=[store])
     fake_model = SimpleNamespace(id="model")
     agent = _FakeAgent(model=fake_model)
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("hi"))
     await _fire_invocation(agent, mm)
@@ -1027,7 +1029,7 @@ async def test_init_agent_interval_trigger_fires_every_n_invocations():
     )
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     # Fire the raw hook (not the flushing helper) so we observe interval gating.
     await _add_messages(agent, _user_msg("a"))
@@ -1045,7 +1047,7 @@ async def test_init_agent_accepts_a_single_trigger_not_wrapped_in_a_list():
     store = _store("s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger()))
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("hi"))
     await _fire_invocation(agent, mm)
@@ -1063,7 +1065,7 @@ async def test_init_agent_composes_multiple_triggers_fires_on_any():
     )
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("a"))
     await _fire_invocation(agent, mm)
@@ -1076,7 +1078,7 @@ async def test_init_agent_composes_multiple_triggers_fires_on_any():
 async def test_flush_is_a_no_op_when_extraction_is_not_configured():
     store = _store("s", writable=True, sinks={"add"})
     mm = MemoryManager(stores=[store])
-    mm.init_agent(_FakeAgent())
+    await mm.init_agent(_FakeAgent())
 
     assert await mm.flush() is None
 
@@ -1088,7 +1090,7 @@ async def test_flush_force_extracts_a_buffered_tail_whose_trigger_never_fired():
     )
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("a"))
     await _invoke_all(agent, AfterInvocationEvent(agent=agent))  # count 1, no fire
@@ -1107,7 +1109,7 @@ async def test_flush_does_not_re_extract_messages_already_processed():
     store = _store("s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger()))
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("a"))
     await _fire_invocation(agent, mm)  # already extracted + flushed
@@ -1130,7 +1132,7 @@ async def test_init_agent_background_save_does_not_block_hook_and_flush_awaits_i
     store.add_messages.side_effect = add_messages_impl
     mm = MemoryManager(stores=[store])
     agent = _FakeAgent()
-    mm.init_agent(agent)
+    await mm.init_agent(agent)
 
     await _add_messages(agent, _user_msg("hello"))
     # Fire the hook directly: it must return while the store write hangs.
@@ -1223,15 +1225,17 @@ def test_injection_config_object_passes_through_unchanged():
 # --- init_agent registration ---
 
 
-def test_init_agent_does_not_register_injection_middleware_when_disabled():
+@pytest.mark.asyncio
+async def test_init_agent_does_not_register_injection_middleware_when_disabled():
     agent = _InjectionAgent()
-    MemoryManager(stores=[_store("s")], injection=False).init_agent(agent)
+    await MemoryManager(stores=[_store("s")], injection=False).init_agent(agent)
     agent._middleware_registry.add_middleware.assert_not_called()
 
 
-def test_init_agent_registers_invoke_model_input_middleware_when_enabled():
+@pytest.mark.asyncio
+async def test_init_agent_registers_invoke_model_input_middleware_when_enabled():
     agent = _InjectionAgent()
-    MemoryManager(stores=[_store("s")], injection=True).init_agent(agent)
+    await MemoryManager(stores=[_store("s")], injection=True).init_agent(agent)
 
     agent._middleware_registry.add_middleware.assert_called_once()
     stage_or_phase, handler = agent.add_middleware_calls[0].args
@@ -1243,7 +1247,7 @@ def test_init_agent_registers_invoke_model_input_middleware_when_enabled():
 async def test_init_agent_wires_middleware_to_provide_pipeline_folds_a_search_hit():
     store = _store("s", entries=[MemoryEntry(content="dark mode preferred")])
     agent = _InjectionAgent()
-    MemoryManager(stores=[store], injection=True).init_agent(agent)
+    await MemoryManager(stores=[store], injection=True).init_agent(agent)
 
     handler = agent.add_middleware_calls[0].args[1]
     messages = [_assistant_msg("prior"), _user_msg("what is my plan")]
@@ -1269,7 +1273,7 @@ async def test_init_agent_forwards_trigger_to_registered_middleware():
     # configured trigger is forwarded into the registered middleware.
     store = _store("s", entries=[MemoryEntry(content="fact")])
     agent = _InjectionAgent()
-    MemoryManager(stores=[store], injection=MemoryInjectionConfig(trigger="everyTurn")).init_agent(agent)
+    await MemoryManager(stores=[store], injection=MemoryInjectionConfig(trigger="everyTurn")).init_agent(agent)
 
     handler = agent.add_middleware_calls[0].args[1]
     tool_result = _tool_result_msg()
@@ -1293,7 +1297,7 @@ async def test_init_agent_default_trigger_skips_tool_result_turn():
     # Default trigger is 'userTurn': a tool-result turn must be left untouched (no search, no fold).
     store = _store("s", entries=[MemoryEntry(content="fact")])
     agent = _InjectionAgent()
-    MemoryManager(stores=[store], injection=True).init_agent(agent)
+    await MemoryManager(stores=[store], injection=True).init_agent(agent)
 
     handler = agent.add_middleware_calls[0].args[1]
     messages = [_user_msg("task"), _assistant_msg("prev"), _tool_result_msg()]

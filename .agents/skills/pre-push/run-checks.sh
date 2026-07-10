@@ -205,16 +205,26 @@ fi
 
 # --- runner helpers ---------------------------------------------------------
 FAILED_AREAS=()
+FAILED_STEPS=()
+FAILED_SNIPPETS=()
+# Output is buffered through a temp file so child processes never block on pipe
+# backpressure (see commit message). This means no streaming/color in interactive
+# use — acceptable since the only consumer is agents.
 run_step() {  # run_step "label" cmd args...
   local label="$1"; shift
   echo
   echo "  > ${label}"
-  if "$@"; then
-    return 0
-  else
+  local _outfile rc=0
+  _outfile="$(mktemp "${TMPDIR:-/tmp}/run-checks.XXXXXX")" || { "$@"; return; }
+  trap 'rm -f "${_outfile:-}"' RETURN
+  "$@" > "$_outfile" 2>&1 || rc=$?
+  cat "$_outfile"
+  if [[ $rc -ne 0 ]]; then
     echo "  FAILED: ${label}" >&2
-    return 1
+    FAILED_STEPS+=("${label}")
+    FAILED_SNIPPETS+=("$(tail -20 "$_outfile")")
   fi
+  [[ $rc -eq 0 ]]
 }
 
 # A fixer that errors is reported but does not fail the area; the checks that
@@ -425,5 +435,11 @@ if [[ ${#FAILED_AREAS[@]} -eq 0 ]]; then
   exit 0
 else
   echo "Failures in: ${FAILED_AREAS[*]}"
+  echo
+  for i in "${!FAILED_STEPS[@]}"; do
+    echo "--- FAILED: ${FAILED_STEPS[$i]} ---"
+    echo "${FAILED_SNIPPETS[$i]}"
+    echo
+  done
   exit 1
 fi

@@ -2,10 +2,12 @@
 /**
  * Global Python/TypeScript language toggle for the site header.
  *
- * Reads and writes the same localStorage key used by AutoSyncTabs
- * (starlight-synced-tabs__jarkqt) so the header toggle and inline
- * code tabs stay in sync.
+ * Reads and writes the same localStorage key used by AutoSyncTabs so the
+ * header toggle and inline code tabs stay in sync. The key + default come
+ * from the shared language-preference module (single source, shared with the
+ * changelog page) and are injected into the inline script via define:vars.
  */
+import { LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE_LABEL } from '../util/language-preference'
 ---
 
 <language-toggle class="language-toggle" role="radiogroup" aria-label="Preferred language">
@@ -84,7 +86,7 @@
 
 </style>
 
-<script is:inline>
+<script is:inline define:vars={{ STORAGE_KEY: LANGUAGE_STORAGE_KEY, DEFAULT_LANG: DEFAULT_LANGUAGE_LABEL }}>
   (function () {
     // Idempotency guard: <LanguageToggle /> can render in multiple places
     // (desktop right-group + mobile dropdown menu). Astro inlines this script
@@ -92,13 +94,9 @@
     // sync logic only need to run once. Skip on subsequent invocations.
     if (window.__strandsLanguageToggleInit) return;
     window.__strandsLanguageToggleInit = true;
-    // This key must match the one Starlight generates for synced tabs.
-    // Derived from: AutoSyncTabs.astro hashes the tab labels "Python|TypeScript"
-    // using a djb2 hash, producing "jarkqt". Starlight stores the selected label
-    // at "starlight-synced-tabs__" + syncKey. If Starlight changes its key format
-    // or AutoSyncTabs changes its hash function, this will need updating.
-    var STORAGE_KEY = 'starlight-synced-tabs__jarkqt';
-    var DEFAULT_LANG = 'TypeScript';
+    // STORAGE_KEY + DEFAULT_LANG are injected via define:vars from the shared
+    // language-preference module (shared with the changelog page). The key
+    // matches the one Starlight derives by djb2-hashing the synced-tab labels.
 
     // IMPORTANT: Keep in sync with navigation.yml navbar entries.
     // When adding new language-paired pages, update both lists below.
@@ -232,14 +230,16 @@
       syncAll(current);
     }
 
-    // Handle toggle clicks
+    // Handle toggle clicks. setPreference/syncAll run via the
+    // lang-preference-changed listener below (single execution path — calling
+    // them here too would run side effects like tab clicks twice).
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.lang-option');
       if (!btn) return;
       var lang = btn.dataset.lang;
       if (!lang) return;
-      setPreference(lang);
-      syncAll(lang);
+      // Notify same-tab listeners, including our own (storage events only fire cross-tab).
+      window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: lang } }));
 
       // Navigate to paired page if one exists
       var paired = getPairedUrl(lang);
@@ -252,6 +252,17 @@
     window.addEventListener('storage', function (e) {
       if (e.key === STORAGE_KEY && e.newValue) {
         syncAll(e.newValue);
+      }
+    });
+
+    // Listen for same-tab preference changes (storage events don't fire in the
+    // tab that wrote the value). Other components dispatch this when they change
+    // the language programmatically (e.g. the changelog auto-switching to Python).
+    window.addEventListener('lang-preference-changed', function (e) {
+      var lang = e && e.detail && e.detail.lang;
+      if (lang) {
+        setPreference(lang);
+        syncAll(lang);
       }
     });
   })();

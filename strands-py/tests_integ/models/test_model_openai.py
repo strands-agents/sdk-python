@@ -129,6 +129,25 @@ async def test_agent_invoke_async(agent, model):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+def test_agent_invoke_non_streaming_with_tools(tools):
+    """Integration test for non-streaming (stream=False) chat completions that invoke tools.
+
+    Verifies that when streaming is disabled, the OpenAI provider converts the completion
+    into Strands stream events and that tool calls still execute end-to-end.
+    """
+    model = OpenAIModel(
+        model_id="gpt-4o",
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+        stream=False,
+    )
+    agent = Agent(model=model, tools=tools)
+
+    result = agent("What is the time and weather in New York?")
+    text = result.message["content"][0]["text"].lower()
+
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent, model):
     stream = agent.stream_async("What is the time and weather in New York?")

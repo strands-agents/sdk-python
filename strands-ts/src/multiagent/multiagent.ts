@@ -1,4 +1,5 @@
 import type { InvocationState, InvokeArgs } from '../types/agent.js'
+import type { CheckpointResumeContent } from '../experimental/checkpoint.js'
 import type { Message, MessageData } from '../types/messages.js'
 import type { HookableEvent } from '../hooks/events.js'
 import type { HookCallback, HookableEventConstructor, HookCleanup } from '../hooks/types.js'
@@ -18,7 +19,7 @@ import type { MultiAgentResult, MultiAgentState, NodeState } from './state.js'
  * route responses to the interrupted nodes rather than flowing through dependency
  * resolution.
  */
-export type MultiAgentInput = Exclude<InvokeArgs, Message[] | MessageData[]>
+export type MultiAgentInput = Exclude<InvokeArgs, Message[] | MessageData[] | CheckpointResumeContent>
 
 /**
  * The non-resume subset of {@link MultiAgentInput}. Internal orchestrator helpers that

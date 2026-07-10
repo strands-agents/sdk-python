@@ -1,7 +1,9 @@
 """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
 Supports semantic search via ``Retrieve`` and document ingestion via
-``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources.
+``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with both managed and
+self-managed (vector) knowledge bases; the type is detected automatically via ``GetKnowledgeBase``
+during :meth:`~BedrockKnowledgeBaseStore.initialize` and the query is shaped to match.
 """
 
 from __future__ import annotations
@@ -12,10 +14,12 @@ import uuid
 from typing import TYPE_CHECKING, Any, cast
 
 import boto3
+from botocore.exceptions import ClientError
 from typing_extensions import Unpack
 
 from ...memory.types import MemoryEntry, MemoryStore, Metadata, SearchOptions
 from .types import (
+    BedrockKnowledgeBaseAccessControlEntry,
     BedrockKnowledgeBaseAddResult,
     BedrockKnowledgeBaseS3Config,
     BedrockKnowledgeBaseStoreConfig,
@@ -25,7 +29,7 @@ if TYPE_CHECKING:
     from mypy_boto3_bedrock_agent import AgentsforBedrockClient
     from mypy_boto3_bedrock_agent.type_defs import KnowledgeBaseDocumentTypeDef
     from mypy_boto3_bedrock_agent_runtime import AgentsforBedrockRuntimeClient
-    from mypy_boto3_bedrock_agent_runtime.type_defs import KnowledgeBaseVectorSearchConfigurationTypeDef
+    from mypy_boto3_bedrock_agent_runtime.type_defs import KnowledgeBaseRetrievalConfigurationTypeDef
     from mypy_boto3_s3 import S3Client
 
 logger = logging.getLogger(__name__)
@@ -66,7 +70,12 @@ class BedrockKnowledgeBaseStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
     Supports semantic search via ``Retrieve`` and document ingestion via
-    ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources.
+    ``IngestKnowledgeBaseDocuments`` for ``CUSTOM`` and ``S3`` data sources. Works with all knowledge
+    base types (MANAGED, VECTOR, KENDRA, SQL); the type is detected via ``GetKnowledgeBase`` during
+    :meth:`initialize` and determines whether ``Retrieve`` uses ``managedSearchConfiguration`` or
+    ``vectorSearchConfiguration``. Detection requires the ``bedrock:GetKnowledgeBase`` permission; a
+    failure raises at agent construction (via ``MemoryManager``) or on first ``search()`` standalone.
+    To skip detection, provide ``knowledge_base_type`` in the config.
 
     Example:
         ```python
@@ -123,12 +132,18 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             "bedrock-agent-runtime"
         )
 
+        # The knowledge base type — either provided in config or resolved in ``initialize()``.
+        self._kb_type: str | None = kb_config.get("knowledge_base_type")
+
         if self.writable:
             self._validate_write_config()
 
         self.scope = store_config.get("scope")
         self.scope_metadata_key = kb_config.get("scope_metadata_key") or "namespace"
         self.filter = store_config.get("filter")
+        self.access_control_list: list[BedrockKnowledgeBaseAccessControlEntry] | None = store_config.get(
+            "access_control_list"
+        )
 
     def _resolve_filter(self) -> dict[str, Any] | None:
         """Resolve the effective retrieval filter for a search.
@@ -141,6 +156,29 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         if self.scope:
             return {"equals": {"key": self.scope_metadata_key, "value": self.scope}}
         return None
+
+    async def initialize(self) -> None:
+        """Resolve the knowledge base type via ``GetKnowledgeBase`` and cache the result.
+
+        Idempotent: no-op when the type is already known (either from config or a prior call).
+        When the store is registered with a ``MemoryManager``, this runs at agent construction so
+        permission or connectivity issues surface early. Standalone callers get the same check on
+        first ``search()``.
+        """
+        if self._kb_type is not None:
+            return
+
+        try:
+            response = self._get_agent_client().get_knowledge_base(knowledgeBaseId=self._knowledge_base_id)
+            self._kb_type = response["knowledgeBase"]["knowledgeBaseConfiguration"]["type"]
+        except Exception as error:
+            logger.error(
+                "store=<%s>, knowledge_base_id=<%s>, error=<%s> | knowledge base type detection failed",
+                self.name,
+                self._knowledge_base_id,
+                error,
+            )
+            raise
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search the knowledge base for entries matching the query.
@@ -163,19 +201,22 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         limit = caller_max or self.max_search_results or DEFAULT_MAX_SEARCH_RESULTS
         filter_ = self._resolve_filter()
 
-        vector_search_configuration: dict[str, Any] = {"numberOfResults": limit}
+        search_configuration: dict[str, Any] = {"numberOfResults": limit}
         if filter_:
-            vector_search_configuration["filter"] = filter_
+            search_configuration["filter"] = filter_
+
+        # A managed knowledge base takes ``managedSearchConfiguration``, a vector one
+        # ``vectorSearchConfiguration``; both accept the same fields, so only the wrapping key differs.
+        await self.initialize()
+        managed = self._kb_type == "MANAGED"
+        config_key = "managedSearchConfiguration" if managed else "vectorSearchConfiguration"
+        retrieval_configuration = {config_key: search_configuration}
 
         try:
             response = self._runtime_client.retrieve(
                 knowledgeBaseId=self._knowledge_base_id,
                 retrievalQuery={"text": query},
-                retrievalConfiguration={
-                    "vectorSearchConfiguration": cast(
-                        "KnowledgeBaseVectorSearchConfigurationTypeDef", vector_search_configuration
-                    )
-                },
+                retrievalConfiguration=cast("KnowledgeBaseRetrievalConfigurationTypeDef", retrieval_configuration),
             )
         except Exception as error:
             logger.error(
@@ -254,9 +295,29 @@ class BedrockKnowledgeBaseStore(MemoryStore):
                 data_source_type,
                 error,
             )
+            if self._is_missing_acl_error(error):
+                raise ValueError(
+                    "BedrockKnowledgeBaseStore: ingestion was rejected because the data source has ACL awareness "
+                    "enabled but this store has no access_control_list configured. Set access_control_list in the "
+                    "store config to write to an ACL-enabled data source."
+                ) from error
             raise
 
         return BedrockKnowledgeBaseAddResult(document_id=document_id)
+
+    def _is_missing_acl_error(self, error: Exception) -> bool:
+        """Return whether ``error`` is Bedrock rejecting a write for a missing access control list.
+
+        True only when this store has no :attr:`access_control_list` configured and the failure is a
+        ``ValidationException`` whose message names the access control list, so the caller can be
+        pointed at the field rather than left with the raw Bedrock error.
+        """
+        if self.access_control_list is not None or not isinstance(error, ClientError):
+            return False
+        bedrock_error = error.response.get("Error", {})
+        if bedrock_error.get("Code") != "ValidationException":
+            return False
+        return "accesscontrollist" in bedrock_error.get("Message", "").lower()
 
     def _upload_s3_objects(self, content: str, metadata: Metadata | None) -> tuple[str, str | None]:
         """Upload the objects that back one S3 ingestion and return their ``s3://`` URIs.
@@ -277,12 +338,18 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         content_uri = self._put_object(s3, key, content, "text/plain; charset=utf-8")
 
         attributes = self._build_s3_sidecar_attributes(metadata)
-        if not attributes:
+        access_control_list = self._build_s3_sidecar_acl()
+        # A sidecar is written only when there is something to put in it: scope/metadata attributes,
+        # an ACL, or both.
+        if not attributes and not access_control_list:
             return content_uri, None
 
         # The sidecar must sit beside the source object and be named ``<object-key>.metadata.json``.
         # ``separators=(",", ":")`` emits compact, no-whitespace JSON for the sidecar body.
-        sidecar = json.dumps({"metadataAttributes": attributes}, separators=(",", ":"))
+        sidecar_body: dict[str, Any] = {"metadataAttributes": attributes}
+        if access_control_list:
+            sidecar_body["accessControlList"] = access_control_list
+        sidecar = json.dumps(sidecar_body, separators=(",", ":"))
         sidecar_uri = self._put_object(s3, f"{key}.metadata.json", sidecar, "application/json")
         return content_uri, sidecar_uri
 
@@ -365,6 +432,16 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         """
         attrs = self._resolve_attributes(metadata)
 
+        # An inline ACL travels under the ``IN_LINE_ATTRIBUTE`` metadata, which Bedrock requires to
+        # carry at least one inline attribute, so an ACL with no scope or caller metadata has no valid
+        # inline representation. Point the caller at the fix rather than letting a cryptic ingest-time
+        # validation error surface. (S3 sidecars have no such requirement; this applies to CUSTOM only.)
+        if self.access_control_list and not attrs:
+            raise ValueError(
+                "BedrockKnowledgeBaseStore: an inline access_control_list requires at least one metadata "
+                "attribute, but this CUSTOM write has none. Set a scope or pass metadata to add()."
+            )
+
         document: dict[str, Any] = {
             "content": {
                 "dataSourceType": "CUSTOM",
@@ -379,11 +456,17 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             },
         }
 
+        # The metadata block uses one ``type`` for both inline attributes and the ACL. ``attrs`` is
+        # guaranteed non-empty whenever an ACL is present (the guard above), so ``inlineAttributes``
+        # is never emitted empty. ``access_control_list`` entries pass straight through to Bedrock.
         if attrs:
-            document["metadata"] = {
+            document_metadata: dict[str, Any] = {
                 "type": "IN_LINE_ATTRIBUTE",
                 "inlineAttributes": [{"key": key, "value": value} for key, value in attrs],
             }
+            if self.access_control_list:
+                document_metadata["accessControlList"] = self.access_control_list
+            document["metadata"] = document_metadata
 
         return document
 
@@ -392,14 +475,28 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
         ``includeForEmbedding`` is ``False`` so the attribute is stored for filtering only and does
         not influence the embedding (matching how inline attributes behave for ``CUSTOM`` documents).
-        Returns an empty map when there's nothing to attach; :meth:`_upload_s3_objects` treats that as
-        "no sidecar" and skips writing the second object.
+        Returns an empty map when there's nothing to attach; :meth:`_upload_s3_objects` skips writing
+        the sidecar only when there is also no ACL to record.
         """
         attrs = self._resolve_attributes(metadata)
         attributes: dict[str, dict[str, Any]] = {}
         for key, value in attrs:
             attributes[key] = {"value": value, "includeForEmbedding": False}
         return attributes
+
+    def _build_s3_sidecar_acl(self) -> list[dict[str, Any]]:
+        """Build the ``accessControlList`` array for an S3 ``.metadata.json`` sidecar.
+
+        The S3 sidecar names ACL fields ``Name``/``Type``/``Access`` (capitalized), unlike the
+        lowercase keys the ``CUSTOM`` inline document takes, so :attr:`access_control_list` entries are
+        translated here. Returns an empty list when no ACL is configured.
+        """
+        if not self.access_control_list:
+            return []
+        return [
+            {"Name": entry["name"], "Type": entry["type"], "Access": entry["access"]}
+            for entry in self.access_control_list
+        ]
 
     def _validate_write_config(self) -> tuple[str, str]:
         """Validate the write configuration and return ``(data_source_id, data_source_type)``.

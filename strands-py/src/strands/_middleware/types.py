@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
@@ -13,9 +14,27 @@ TEvent = TypeVar("TEvent")
 
 @dataclass
 class MiddlewareResult(Generic[TResult]):
-    """Sentinel yielded as the last item to communicate the result up the chain."""
+    """Wrapper passed to and returned from Output phase handlers.
+
+    Wrapping the value (rather than handing back the raw result event) gives Output
+    handlers a stable surface to evolve — e.g. we may add aggregated metadata fields here
+    later without changing the handler signature.
+
+    Attributes:
+        value: The stage's result — the last event from the chain (e.g. ``ModelStopReason``).
+    """
 
     value: TResult
+
+    def replace(self, *, value: TResult) -> MiddlewareResult[TResult]:
+        """Return a copy with ``value`` replaced.
+
+        Convenience wrapper around ``dataclasses.replace`` so Output handlers don't need
+        to import it:
+
+            return result.replace(value=transformed_event)
+        """
+        return dataclasses.replace(self, value=value)
 
 
 class MiddlewareInputPhase(Generic[TContext, TResult, TEvent]):
@@ -72,4 +91,7 @@ class MiddlewareStage(Generic[TContext, TResult, TEvent]):
 MiddlewareNext = Callable[[Any], AsyncGenerator[Any, None]]
 MiddlewareHandler = Callable[[Any, MiddlewareNext], AsyncGenerator[Any, None]]
 MiddlewareInputHandler = Callable[[Any], Any | Awaitable[Any]]
-MiddlewareOutputHandler = Callable[[Any], Any | Awaitable[Any]]
+# Output handlers take and return a MiddlewareResult wrapping the result event.
+MiddlewareOutputHandler = Callable[
+    ["MiddlewareResult[Any]"], "MiddlewareResult[Any] | Awaitable[MiddlewareResult[Any]]"
+]

@@ -87,6 +87,23 @@ def system_prompt() -> str:
     return "You are a helpful assistant."
 
 
+def test_format_request_tool_message_preserves_non_ascii():
+    """Tool-result JSON content must keep non-ASCII text (no \\uXXXX escaping)."""
+    tool_result = {
+        "toolUseId": "c1",
+        "status": "success",
+        "content": [{"json": {"city": "東京"}}],
+    }
+
+    tru_result = SageMakerAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": '{"city": "東京"}',
+    }
+    assert tru_result == exp_result
+
+
 class TestSageMakerAIModel:
     """Test suite for SageMakerAIModel."""
 

@@ -82,12 +82,33 @@ class BedrockKnowledgeBaseConfig(TypedDict, total=False):
     """
 
     knowledge_base_id: Required[str]
+    knowledge_base_type: Literal["MANAGED", "VECTOR", "KENDRA", "SQL"]
     data_source_type: Literal["CUSTOM", "S3", "OTHER"]
     data_source_id: str
     s3: BedrockKnowledgeBaseS3Config
     scope_metadata_key: str
     runtime_client: AgentsforBedrockRuntimeClient
     agent_client: AgentsforBedrockClient
+
+
+class BedrockKnowledgeBaseAccessControlEntry(TypedDict):
+    """One document-level access control entry stamped on writes for ACL-aware data sources.
+
+    The fields mirror Bedrock's ``IngestKnowledgeBaseDocuments`` access control entry. They are
+    serialized to whatever the target data source requires -- as-is for ``CUSTOM`` (inline), and to
+    the capitalized ``.metadata.json`` sidecar keys for ``S3`` -- so callers write one shape
+    regardless of data source.
+
+    Attributes:
+        access: ``'ALLOW'`` or ``'DENY'``. Deny overrides allow.
+        name: The principal identifier. Bedrock matches users by email.
+        type: The principal type. ``'USER'`` is the only value Bedrock accepts today; kept open as a
+            string so a future principal type works without a code change. Validated server-side.
+    """
+
+    access: Literal["ALLOW", "DENY"]
+    name: str
+    type: str
 
 
 class BedrockKnowledgeBaseStoreConfig(MemoryStoreConfig, total=False):
@@ -99,11 +120,17 @@ class BedrockKnowledgeBaseStoreConfig(MemoryStoreConfig, total=False):
             writes. Not a store-identity field, so it never affects ``MemoryManager`` routing.
         filter: Explicit search filter, overriding the scope-derived one. Affects ``search`` only;
             writes always scope by ``scope``.
+        access_control_list: Document-level access control entries stamped on every write, required by
+            data sources that have ACL awareness enabled (a write to such a data source fails without
+            it). The same entries apply to ``CUSTOM`` (inline) and ``S3`` (sidecar) writes. Affects
+            writes only; ACL filtering at search time is supplied separately as retrieval
+            ``userContext``.
     """
 
     config: Required[BedrockKnowledgeBaseConfig]
     scope: str
     filter: dict[str, Any]
+    access_control_list: list[BedrockKnowledgeBaseAccessControlEntry]
 
 
 @dataclass

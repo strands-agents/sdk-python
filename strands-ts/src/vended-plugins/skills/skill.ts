@@ -170,9 +170,7 @@ function buildSkillFromFrontmatter(
 ): Skill {
   // Parse allowed-tools (space-delimited string or YAML list)
   const allowedToolsRaw = (frontmatter['allowed-tools'] ?? frontmatter['allowed_tools']) as
-    | string
-    | unknown[]
-    | undefined
+    string | unknown[] | undefined
   let allowedTools: string[] | undefined
   if (typeof allowedToolsRaw === 'string' && allowedToolsRaw.trim()) {
     allowedTools = allowedToolsRaw.trim().split(/\s+/)
@@ -385,9 +383,11 @@ export class Skill {
       content = await response.text()
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('HTTP ')) {
-        throw new Error(`url=<${url}> | ${error.message}`)
+        throw new Error(`url=<${url}> | ${error.message}`, { cause: error })
       }
-      throw new Error(`url=<${url}> | failed to fetch skill: ${error instanceof Error ? error.message : error}`)
+      throw new Error(`url=<${url}> | failed to fetch skill: ${error instanceof Error ? error.message : error}`, {
+        cause: error,
+      })
     }
 
     return Skill.fromContent(content, options)

@@ -172,6 +172,41 @@ def test_format_request_with_all_new_params() -> None:
     assert extra["samplers"] == ["top_k", "tfs_z", "typical_p"]
 
 
+def test_format_tool_call_preserves_non_ascii() -> None:
+    """Tool-call arguments must keep non-ASCII text (no \\uXXXX escaping)."""
+    model = LlamaCppModel()
+    tool_use = {"toolUseId": "c1", "name": "search", "input": {"query": "東京"}}
+
+    tru_result = model._format_tool_call(tool_use)
+    exp_result = {
+        "function": {
+            "arguments": '{"query": "東京"}',
+            "name": "search",
+        },
+        "id": "c1",
+        "type": "function",
+    }
+    assert tru_result == exp_result
+
+
+def test_format_tool_message_preserves_non_ascii() -> None:
+    """Tool-result JSON content must keep non-ASCII text (no \\uXXXX escaping)."""
+    model = LlamaCppModel()
+    tool_result = {
+        "toolUseId": "c1",
+        "status": "success",
+        "content": [{"json": {"city": "東京"}}],
+    }
+
+    tru_result = model._format_tool_message(tool_result)
+    exp_result = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [{"text": '{"city": "東京"}', "type": "text"}],
+    }
+    assert tru_result == exp_result
+
+
 def test_format_request_with_tools() -> None:
     """Test request formatting with tool specifications."""
     model = LlamaCppModel()

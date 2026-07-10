@@ -19,6 +19,7 @@ Example:
 
 from .store import BedrockKnowledgeBaseStore
 from .types import (
+    BedrockKnowledgeBaseAccessControlEntry,
     BedrockKnowledgeBaseAddResult,
     BedrockKnowledgeBaseConfig,
     BedrockKnowledgeBaseS3Config,
@@ -26,6 +27,7 @@ from .types import (
 )
 
 __all__ = [
+    "BedrockKnowledgeBaseAccessControlEntry",
     "BedrockKnowledgeBaseAddResult",
     "BedrockKnowledgeBaseConfig",
     "BedrockKnowledgeBaseS3Config",

@@ -244,6 +244,8 @@ const tools = [
 </style>
 
 <script>
+  import { copyToClipboard } from '../../util/language-preference'
+
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll<HTMLElement>('.agent-setup-card').forEach((card) => {
       // Tool tab switching with the ARIA tablist keyboard pattern:
@@ -283,11 +285,7 @@ const tools = [
       const copyBtn = card.querySelector<HTMLButtonElement>('.agent-prompt-copy')
       if (prompt && copyBtn) {
         copyBtn.addEventListener('click', async () => {
-          try {
-            await navigator.clipboard.writeText(prompt.dataset.copy || '')
-          } catch {
-            return
-          }
+          if (!(await copyToClipboard(prompt.dataset.copy || ''))) return
           copyBtn.classList.add('copied')
           setTimeout(() => copyBtn.classList.remove('copied'), 2000)
         })

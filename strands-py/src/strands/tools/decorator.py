@@ -163,8 +163,13 @@ class FunctionToolMetadata:
         final_description = description
         if final_description is None:
             final_description = self.param_descriptions.get(param_name) or f"Parameter {param_name}"
-        # Create FieldInfo object from scratch
-        final_field = Field(default=param_default, description=final_description)
+        if isinstance(param_default, FieldInfo):
+            if param_default.description is None:
+                final_field = FieldInfo.merge_field_infos(param_default, FieldInfo(description=final_description))
+            else:
+                final_field = param_default
+        else:
+            final_field = Field(default=param_default, description=final_description)
 
         return actual_type, final_field
 
@@ -681,7 +686,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     text = str(result)
             else:
                 try:
-                    text = json.dumps(result)
+                    text = json.dumps(result, ensure_ascii=False)
                 except (TypeError, ValueError):
                     text = str(result)
 

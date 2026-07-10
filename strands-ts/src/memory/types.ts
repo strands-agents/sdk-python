@@ -146,6 +146,13 @@ export interface MemoryStore extends MemoryStoreConfig {
    */
   addMessages?(messages: MessageData[], context?: AddMessagesContext): Promise<unknown>
   /**
+   * Perform async setup that must succeed before the agent runs.
+   *
+   * Called by the {@link MemoryManager} during `initAgent`. Stores that require remote resources
+   * (e.g. resolving a knowledge base type) implement this; the default is a no-op.
+   */
+  initialize?(): Promise<void>
+  /**
    * Returns store-specific tools to register with the agent, through a {@link MemoryManager}. Registers
    * tools alongside `search_memory` / `add_memory` tools if enabled on the {@link MemoryManager}.
    * Implement to expose backend-specific capabilities (e.g. a store-native query tool).
