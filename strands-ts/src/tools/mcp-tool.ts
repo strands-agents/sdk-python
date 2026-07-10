@@ -13,6 +13,7 @@ export interface McpToolConfig {
   name: string
   description: string
   inputSchema: JSONSchema
+  outputSchema?: JSONSchema
   client: McpClient
 }
 
@@ -37,6 +38,7 @@ export class McpTool extends Tool {
       name: config.name,
       description: config.description,
       inputSchema: config.inputSchema,
+      ...(config.outputSchema !== undefined && { outputSchema: config.outputSchema }),
     }
     this.mcpClient = config.client
   }

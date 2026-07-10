@@ -88,6 +88,7 @@ def test_agent_tool_user_message_override(agent):
             },
         ],
         "role": "user",
+        "tracking_id": unittest.mock.ANY,
     }
 
     assert tru_message == exp_message

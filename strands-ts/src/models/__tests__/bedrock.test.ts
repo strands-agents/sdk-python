@@ -666,6 +666,37 @@ describe('BedrockModel', () => {
       expect(toolConfig.tools.length).toBe(1)
     })
 
+    it('formats tool specs without outputSchema in Bedrock requests', async () => {
+      const provider = new BedrockModel()
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = {
+        toolSpecs: [
+          {
+            name: 'calculator',
+            description: 'Calculate',
+            inputSchema: { type: 'object' },
+            outputSchema: {
+              type: 'object',
+              properties: { result: { type: 'number' } },
+            },
+          },
+        ],
+      }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.toolConfig?.tools).toStrictEqual([
+        {
+          toolSpec: {
+            name: 'calculator',
+            description: 'Calculate',
+            inputSchema: { json: { type: 'object' } },
+          },
+        },
+      ])
+    })
+
     it('formats reasoning messages properly', async () => {
       const provider = new BedrockModel()
       const messages = [

@@ -385,7 +385,7 @@ class BidiGeminiLiveModel(BidiModel):
             ValueError: If content type not supported (e.g., image content).
         """
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before sending/receiving")
+            raise RuntimeError("model not started | call start before sending")
 
         if isinstance(content, BidiTextInputEvent):
             await self._send_text_content(content.text)
