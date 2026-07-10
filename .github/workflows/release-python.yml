@@ -373,6 +373,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # actions: write lets this job dispatch the changelog-sync workflow below.
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -414,6 +416,18 @@ jobs:
               --title "$NEW_TAG" \
               --notes-file release-notes.md
           fi
+
+      # Trigger the changelog sync directly. A release created with the built-in
+      # GITHUB_TOKEN (above) does NOT emit a `release` event, by design, so the
+      # Changelog: Sync workflow's `on: release` trigger never fires from here --
+      # dispatch it explicitly instead. Non-fatal: a changelog hiccup must not
+      # fail a release that already published its tag; the daily cron backstops.
+      - name: Trigger changelog sync
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_TAG: ${{ needs.scan-commits.outputs.new_tag }}
+        run: gh workflow run changelog-sync.yml -f tag="$NEW_TAG"
 
   # ── Publish to PyPI ────────────────────────────────────────────────────
   # Last step. On a fork this fails at the OIDC step — by design.
