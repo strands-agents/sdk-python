@@ -100,6 +100,16 @@ interrupt-id scheme (`v1:tool_call:...`, `v1:before_tool_call:...`) and its conv
 hashing the name with `uuid5`. (TS uses a different, unversioned literal — id *strings* are
 opaque per-SDK handles and are not compared across SDKs, so only the within-SDK scheme matters.)
 
+### No interrupt `source`
+
+The TS spec tags middleware interrupts with `source='middleware'` (distinguishing them from
+`hook`/`tool` interrupts). Python's `Interrupt` type has no `source` field at all — not for
+hooks, tools, or middleware — so there is nothing for the middleware path to set. This is a
+pre-existing, SDK-wide gap in the Python interrupt system rather than a middleware-specific
+choice; adding it means changing the core `Interrupt` type and every hook/tool call site, which
+is out of scope here. Consumers currently disambiguate by the interrupt id prefix
+(`v1:middleware_execute_tool:...`) instead.
+
 ## No removal / cleanup
 
 Once registered, middleware cannot be removed. This matches the Python hook system which also does not support removal.

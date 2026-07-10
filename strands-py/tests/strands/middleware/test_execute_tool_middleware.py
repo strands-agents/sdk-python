@@ -622,3 +622,69 @@ def test_output_handler_not_invoked_on_tool_interrupt(calculator_tool):
     # The interrupt flowed through as a normal event, but was never treated as a result.
     assert len(seen_interrupt_events) == 1
     assert output_calls == []
+
+
+def test_invocation_state_is_shared_by_reference(calculator_tool):
+    """A middleware write to context.invocation_state is visible to the tool (shared, not copied).
+
+    Locks in the documented contract that invocation_state is passed by reference, matching hooks.
+    """
+    seen_in_tool: dict = {}
+
+    @strands.tool(name="probe_tool", context=True)
+    def probe_tool(tool_context) -> str:
+        """Records what it sees in invocation_state."""
+        seen_in_tool["marker"] = tool_context.invocation_state.get("marker")
+        return "ok"
+
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "probe_tool", "input": {}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[probe_tool], callback_handler=None)
+
+    async def setter(context, next_fn):
+        context.invocation_state["marker"] = "set_by_middleware"
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, setter)
+    agent("go")
+
+    assert seen_in_tool["marker"] == "set_by_middleware"
+
+
+def test_in_place_input_mutation_leaks_to_tool():
+    """Mutating tool_use['input'] in place DOES leak (input is shared by reference, by design).
+
+    The shallow copy guards top-level keys only; this pins the documented divergence so it is
+    regression-guarded rather than only described in the stages.py docstring.
+    """
+    received_values: list[str] = []
+
+    @strands.tool(name="echo_tool")
+    def echo_tool(value: str) -> str:
+        """Echo."""
+        received_values.append(value)
+        return value
+
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "echo_tool", "input": {"value": "original"}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[echo_tool], callback_handler=None)
+
+    async def mutate_input(context, next_fn):
+        # In-place edit of the shared input dict — not isolated by the shallow copy.
+        context.tool_use["input"]["value"] = "mutated"
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, mutate_input)
+    agent("go")
+
+    assert received_values == ["mutated"]

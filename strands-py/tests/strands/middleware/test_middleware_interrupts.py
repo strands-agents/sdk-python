@@ -7,8 +7,10 @@ import pytest
 import strands
 from strands import Agent
 from strands._middleware.stages import ExecuteToolStage, MiddlewareInterruptResult
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
+from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -287,8 +289,12 @@ def test_middleware_interrupt_approval_executes_tool(calculator_tool):
 
 
 @pytest.mark.asyncio
-async def test_middleware_interrupt_yields_interrupt_stop_on_stream(calculator_tool):
-    """Iterating the agent stream surfaces an interrupt stop event."""
+async def test_middleware_interrupt_yields_interrupt_event_on_stream(calculator_tool):
+    """The stream surfaces the interrupt as a named ToolInterruptEvent, then a terminal interrupt stop.
+
+    Mirrors the TS "yields InterruptEvent on the stream" test: the interrupt is observable
+    mid-stream by name, not only as the terminal result's stop_reason.
+    """
     model = _tool_use_model([{"role": "assistant", "content": [{"text": "4"}]}])
     agent = Agent(model=model, tools=[calculator_tool], callback_handler=None)
 
@@ -303,6 +309,13 @@ async def test_middleware_interrupt_yields_interrupt_stop_on_stream(calculator_t
     async for event in agent.stream_async("calc"):
         events.append(event)
 
+    # A ToolInterruptEvent carrying the named interrupt is surfaced mid-stream.
+    interrupt_events = [event for event in events if "tool_interrupt_event" in event]
+    assert len(interrupt_events) == 1
+    surfaced = interrupt_events[0]["tool_interrupt_event"]["interrupts"]
+    assert [interrupt.name for interrupt in surfaced] == ["gate"]
+
+    # And the invocation terminates with an interrupt stop.
     result_events = [event for event in events if "result" in event and hasattr(event.get("result"), "stop_reason")]
     assert any(event["result"].stop_reason == "interrupt" for event in result_events)
 
@@ -383,3 +396,32 @@ def test_tool_originated_multiple_interrupts_all_registered():
     assert result.stop_reason == "interrupt"
     assert {interrupt.name for interrupt in result.interrupts} == {"first", "second"}
     assert {"v1:sub:a", "v1:sub:b"} <= set(agent._interrupt_state.interrupts.keys())
+
+
+# --- hook interaction on interrupt ---
+
+
+def test_before_hook_fires_but_after_hook_skipped_on_interrupt(calculator_tool):
+    """On a middleware interrupt, BeforeToolCallEvent fires but AfterToolCallEvent does not.
+
+    An interrupted tool never produces a result, so the after-hook (which reports a result)
+    is intentionally skipped — unlike short-circuit, where a result exists and the after-hook
+    fires. This locks in that boundary so it can't regress silently.
+    """
+    hook_provider = MockHookProvider(event_types="all")
+    model = _tool_use_model([{"role": "assistant", "content": [{"text": "4"}]}])
+    agent = Agent(model=model, tools=[calculator_tool], callback_handler=None, hooks=[hook_provider])
+
+    async def gate(context, next_fn):
+        context.interrupt("gate", reason="check")
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, gate)
+    result = agent("calc")
+
+    assert result.stop_reason == "interrupt"
+    _, events = hook_provider.get_events()
+    event_types = [type(event) for event in events]
+    assert BeforeToolCallEvent in event_types
+    assert AfterToolCallEvent not in event_types
