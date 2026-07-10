@@ -25,6 +25,7 @@ import { Message, TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Plugin } from '../../plugins/plugin.js'
 import type { LocalAgent } from '../../types/agent.js'
 import type { Tool } from '../../tools/tool.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 describe('Agent Hooks Integration', () => {
   let mockPlugin: MockPlugin
@@ -48,7 +49,11 @@ describe('Agent Hooks Integration', () => {
       expect(lifecyclePlugin.invocations[2]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'user', content: [new TextBlock('Hi')] }),
+          message: new Message({
+            role: 'user',
+            content: [new TextBlock('Hi')],
+            trackingId: anyTrackingId,
+          }),
           invocationState: {},
         })
       )
@@ -68,14 +73,22 @@ describe('Agent Hooks Integration', () => {
           attemptCount: 1,
           stopData: {
             stopReason: 'endTurn',
-            message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+            message: new Message({
+              role: 'assistant',
+              content: [new TextBlock('Hello')],
+              trackingId: anyTrackingId,
+            }),
           },
         })
       )
       expect(lifecyclePlugin.invocations[5]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+          message: new Message({
+            role: 'assistant',
+            content: [new TextBlock('Hello')],
+            trackingId: anyTrackingId,
+          }),
           invocationState: {},
         })
       )
@@ -96,7 +109,11 @@ describe('Agent Hooks Integration', () => {
       expect(lifecyclePlugin.invocations[2]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'user', content: [new TextBlock('Hi')] }),
+          message: new Message({
+            role: 'user',
+            content: [new TextBlock('Hi')],
+            trackingId: anyTrackingId,
+          }),
           invocationState: {},
         })
       )
@@ -116,14 +133,22 @@ describe('Agent Hooks Integration', () => {
           attemptCount: 1,
           stopData: {
             stopReason: 'endTurn',
-            message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+            message: new Message({
+              role: 'assistant',
+              content: [new TextBlock('Hello')],
+              trackingId: anyTrackingId,
+            }),
           },
         })
       )
       expect(lifecyclePlugin.invocations[5]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+          message: new Message({
+            role: 'assistant',
+            content: [new TextBlock('Hello')],
+            trackingId: anyTrackingId,
+          }),
           invocationState: {},
         })
       )
@@ -330,14 +355,22 @@ describe('Agent Hooks Integration', () => {
       expect(messageAddedEvents[0]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'user', content: [new TextBlock('New message')] }),
+          message: new Message({
+            role: 'user',
+            content: [new TextBlock('New message')],
+            trackingId: anyTrackingId,
+          }),
           invocationState: {},
         })
       )
       expect(messageAddedEvents[1]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'assistant', content: [new TextBlock('Response')] }),
+          message: new Message({
+            role: 'assistant',
+            content: [new TextBlock('Response')],
+            trackingId: anyTrackingId,
+          }),
           invocationState: {},
         })
       )

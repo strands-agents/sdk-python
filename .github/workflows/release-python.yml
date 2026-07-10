@@ -377,24 +377,43 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ needs.scan-commits.outputs.release_sha }}
-          persist-credentials: false
+          # This job creates the tag, so keep the GITHUB_TOKEN in git config
+          # for the push below. Other jobs use persist-credentials: false.
+          persist-credentials: true
 
       - name: Download release notes artifact
         uses: actions/download-artifact@v8
         with:
           name: release-notes
 
-      - name: Create release (atomically tags the pinned SHA)
+      - name: Tag the pinned SHA and create the release
         env:
           GH_TOKEN: ${{ github.token }}
           NEW_TAG: ${{ needs.scan-commits.outputs.new_tag }}
           RELEASE_SHA: ${{ needs.scan-commits.outputs.release_sha }}
         run: |
           set -euo pipefail
-          gh release create "$NEW_TAG" \
-            --target "$RELEASE_SHA" \
-            --title "$NEW_TAG" \
-            --notes-file release-notes.md
+          # Push the tag over git rather than letting `gh release create
+          # --target <sha>` create it through the releases API. The API path
+          # returns "403 Resource not accessible by integration" for the
+          # GITHUB_TOKEN (see cli/cli#9514); a plain ref push with the same
+          # token succeeds.
+          #
+          # Both steps are guarded so re-running the job after a partial
+          # failure is safe: if a prior run pushed the tag but errored before
+          # the release was made, git push would otherwise refuse the existing
+          # tag. This keeps the "tag is source of truth, just re-run" contract.
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$NEW_TAG" >/dev/null 2>&1; then
+            git tag "$NEW_TAG" "$RELEASE_SHA"
+            git push origin "refs/tags/$NEW_TAG"
+          fi
+
+          # Tag now exists on the remote, so this only attaches notes to it.
+          if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
+            gh release create "$NEW_TAG" \
+              --title "$NEW_TAG" \
+              --notes-file release-notes.md
+          fi
 
   # ── Publish to PyPI ────────────────────────────────────────────────────
   # Last step. On a fork this fails at the OIDC step — by design.

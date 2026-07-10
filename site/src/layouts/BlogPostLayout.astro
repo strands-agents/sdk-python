@@ -41,7 +41,7 @@ const jsonLd = {
 }
 ---
 
-<BlogLayout title={title} description={description} ogImage={ogImageUrl} canonicalUrl={canonicalUrl}>
+<BlogLayout title={title} description={description} ogImage={ogImageUrl} canonicalUrl={canonicalUrl} pagefind={true}>
   <Fragment slot="head">
     <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
   </Fragment>

@@ -1,4 +1,4 @@
-"""Configuration and result types for the local memory store."""
+"""Configuration and result types for the JSON-file memory store."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from ...memory.types import MemoryStoreConfig
 
 
-class LocalMemoryStoreConfig(MemoryStoreConfig, total=False):
-    """Full configuration for a :class:`LocalMemoryStore`, passed as its constructor kwargs.
+class TestMemoryStoreConfig(MemoryStoreConfig, total=False):
+    """Full configuration for a :class:`TestMemoryStore`, passed as its constructor kwargs.
 
     The store persists to disk by default so memories persist across sessions.
     Set ``persist`` to ``False`` for an ephemeral, single-session store.
@@ -25,12 +25,20 @@ class LocalMemoryStoreConfig(MemoryStoreConfig, total=False):
     path: str
 
 
+# Tell pytest not to collect this class as a test suite despite its ``Test`` prefix. A TypedDict
+# rejects a ``__test__`` entry in its body, so it is assigned after the class instead.
+TestMemoryStoreConfig.__test__ = False  # type: ignore[attr-defined]
+
+
 @dataclass
-class LocalMemoryAddResult:
-    """Result returned by :meth:`LocalMemoryStore.add`.
+class TestMemoryAddResult:
+    """Result returned by :meth:`TestMemoryStore.add`.
 
     Attributes:
         id: The generated id of the stored (or already-present, on dedup) record.
     """
+
+    # Tell pytest not to collect this class as a test suite despite its ``Test`` prefix.
+    __test__ = False
 
     id: str

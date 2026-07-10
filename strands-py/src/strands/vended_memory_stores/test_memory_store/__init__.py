@@ -5,17 +5,17 @@ resources required. Persists to disk by default so an agent remembers across res
 
 Example:
     ```python
-    from strands.vended_memory_stores.local import LocalMemoryStore
+    from strands.vended_memory_stores.test_memory_store import TestMemoryStore
 
-    store = LocalMemoryStore(name="notes")
+    store = TestMemoryStore(name="notes")
     ```
 """
 
-from .store import LocalMemoryStore
-from .types import LocalMemoryAddResult, LocalMemoryStoreConfig
+from .store import TestMemoryStore
+from .types import TestMemoryAddResult, TestMemoryStoreConfig
 
 __all__ = [
-    "LocalMemoryAddResult",
-    "LocalMemoryStore",
-    "LocalMemoryStoreConfig",
+    "TestMemoryAddResult",
+    "TestMemoryStore",
+    "TestMemoryStoreConfig",
 ]

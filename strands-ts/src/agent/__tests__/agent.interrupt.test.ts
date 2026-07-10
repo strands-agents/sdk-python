@@ -7,6 +7,7 @@ import { AfterToolCallEvent, BeforeToolCallEvent, BeforeToolsEvent, InterruptEve
 import { FunctionTool } from '../../tools/function-tool.js'
 import { InterruptResponseContent } from '../../types/interrupt.js'
 import type { InterruptState, PendingToolExecution } from '../../interrupt.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 /** Access the agent's internal interrupt state for test assertions. */
 function getPendingToolExecution(agent: Agent): PendingToolExecution | undefined {
@@ -116,6 +117,7 @@ describe('Agent interrupt system', () => {
         assistantMessageData: {
           role: 'assistant',
           content: [{ toolUse: { name: 'deleteTool', toolUseId: 'tool-1', input: { key: 'X' } } }],
+          trackingId: anyTrackingId,
         },
         completedToolResults: {},
       })
