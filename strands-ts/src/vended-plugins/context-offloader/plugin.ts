@@ -235,13 +235,7 @@ export class ContextOffloader implements Plugin {
 
   initAgent(agent: LocalAgent): void {
     if (this._storage instanceof LegacyInMemoryStorage) {
-      this._storage._bind(agent)
-      if (
-        this._evictAfterCycles !== null &&
-        this._storage._evictAfterTurns === LegacyInMemoryStorage.DEFAULT_EVICT_AFTER_TURNS
-      ) {
-        this._storage._evictAfterTurns = this._evictAfterCycles
-      }
+      this._storage._bind(agent, this._evictAfterCycles)
     }
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))

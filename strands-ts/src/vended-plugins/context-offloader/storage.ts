@@ -85,8 +85,7 @@ export class InMemoryStorage implements Storage {
   private _store = new Map<string, { content: Uint8Array; contentType: string; lastAccessedCycle: number }>()
   private _counter = 0
   private _currentCycle = 0
-  /** @internal */
-  _evictAfterTurns: number | null
+  private _evictAfterTurns: number | null
   private _boundAgent: WeakRef<object> | null = null
 
   static readonly DEFAULT_EVICT_AFTER_TURNS = 20
@@ -117,10 +116,11 @@ export class InMemoryStorage implements Storage {
   }
 
   /**
-   * Claim this storage for a single agent. Throws if already bound to a different agent.
+   * Claim this storage for a single agent. Optionally override the eviction window
+   * when the user hasn't explicitly set one at construction time.
    * @internal
    */
-  _bind(agent: object): void {
+  _bind(agent: object, evictAfterCycles?: number | null): void {
     if (this._boundAgent === null) {
       this._boundAgent = new WeakRef(agent)
     } else if (this._boundAgent.deref() !== agent) {
@@ -128,6 +128,13 @@ export class InMemoryStorage implements Storage {
         'InMemoryStorage cannot be shared across multiple agents. ' +
           'Use a separate InMemoryStorage instance per agent.'
       )
+    }
+    if (
+      evictAfterCycles !== undefined &&
+      evictAfterCycles !== null &&
+      this._evictAfterTurns === InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS
+    ) {
+      this._evictAfterTurns = evictAfterCycles
     }
   }
 
