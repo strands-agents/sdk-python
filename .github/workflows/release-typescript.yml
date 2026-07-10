@@ -415,12 +415,12 @@ jobs:
     steps:
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - name: Update npm to latest
         # Trusted publishing needs npm >= 11.5.1.
-        run: npm install -g npm@11
+        run: npm install -g npm@latest
 
       - name: Download verified tarball
         uses: actions/download-artifact@v8
