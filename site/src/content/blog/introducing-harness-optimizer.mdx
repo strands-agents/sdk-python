@@ -1,5 +1,5 @@
 ---
-title: "Introducing Harness Optimizer: automatically optimize your agent harness"
+title: "Introducing Harness Optimizer: Automatically optimize your agent harness"
 date: 2026-07-10
 description: "Harness Optimizer is an open-source library that optimizes the context around your LLM agent (system prompt, tool docs, skills) the way you'd train a model: rollouts in, rewards out, parameters updated."
 authors:
@@ -153,7 +153,7 @@ Both optimizers improve every benchmark over baseline, and the multi-agent optim
 
 Harness Optimizer is a good fit when:
 
-- You have a reward signal to separate good from bad, whether a programmatic check or an LLM judge, e.g., [AgentCore Eval](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/evaluation.html) and [Strands Evals](https://github.com/strands-agents/evals).
+- You have a reward signal to separate good from bad, whether a programmatic check or an LLM judge, e.g., [AgentCore Evaluations](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/evaluations.html) and [Strands Evals](https://github.com/strands-agents/evals).
 - Trajectories are long and the reward is diffuse. Reading the whole trace recovers signal that the real cause can be revealed from the long trajectory.
 - A new task carries rules the base prompt never mentioned. The optimizer surfaces them from real attempts.
 
