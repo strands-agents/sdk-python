@@ -75,7 +75,7 @@ if __name__ == "__main__":
 
 ## Cross-Modal Input
 
-Nova Sonic accepts text input at any point during an active voice session, without interrupting or waiting on the audio stream. Send a [`BidiTextInputEvent`](events.md#biditextinputevent) the same way you would outside of a live conversation:
+Nova Sonic accepts text input at any point during an active voice session, without interrupting or waiting on the audio stream. Send a [`BidiTextInputEvent`](../events.md#biditextinputevent) the same way you would outside of a live conversation:
 
 ```python
 from strands.experimental.bidi.types.events import BidiTextInputEvent
@@ -134,7 +134,7 @@ For more details on this approach, please refer to the [boto3 session docs](http
 | Parameter | Description | Example | Options |
 | --------- | ----------- | ------- | ------- |
 | `audio` | `AudioConfig` instance. | `{"voice": "tiffany", "output_rate": 24000}` | [reference](@api/python/strands.experimental.bidi.types.model#AudioConfig); see [supported voices](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-language-support.html) for valid `voice` values |
-| `inference` | Session start `inferenceConfiguration`'s (as snake_case). | `{"top_p": 0.9, "max_tokens": 2048, "temperature": 0.7}` | [reference](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-input-events.html)
+| `inference` | Session start `inferenceConfiguration`'s (as snake_case). | `{"top_p": 0.9, "max_tokens": 2048, "temperature": 0.7}` | [reference](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-input-events.html) |
 | `turn_detection` | Turn detection sensitivity. Nova Sonic v2 only; raises `ValueError` on v1. | `{"endpointingSensitivity": "MEDIUM"}` | `HIGH`, `MEDIUM`, `LOW` |
 
 :::note
