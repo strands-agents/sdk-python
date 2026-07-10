@@ -173,9 +173,7 @@ const typeValues = [DOC_TYPE_USER, DOC_TYPE_API_PYTHON, DOC_TYPE_API_TYPESCRIPT,
         return null
       }
 
-      // Italicize the search term in the summary line ("N results for <em>term</em>")
-      // and, when the rendered result count is capped below the true total, append
-      // a "showing top N" note so the cap isn't silently misleading.
+      // Italicize the search term in the summary line ("N results for <em>term</em>").
       //
       // Pagefind creates an inner `<div class="pf-summary">` and rewrites ITS
       // textContent on every search. We must decorate THAT container (mutating
@@ -198,9 +196,16 @@ const typeValues = [DOC_TYPE_USER, DOC_TYPE_API_PYTHON, DOC_TYPE_API_TYPESCRIPT,
           const text = container.textContent || ''
           const match = text.match(/^(\d+ )(results? for )(.+)$/)
           if (match && !container.querySelector('em')) {
-            container.innerHTML =
-              `<span>${match[1]}${match[2]}</span>` +
-              `<em class="sl-search-summary__term">${match[3]}</em>`
+            // Build nodes and set text via textContent — never innerHTML. match[3]
+            // is the user's search term, so interpolating it into innerHTML would
+            // be a DOM-XSS sink (a query like `<img src=x onerror=...>` would
+            // execute, and becomes reflected XSS if the query is ever URL-driven).
+            const count = document.createElement('span')
+            count.textContent = match[1] + match[2]
+            const term = document.createElement('em')
+            term.className = 'sl-search-summary__term'
+            term.textContent = match[3]
+            container.replaceChildren(count, term)
           }
         })
         observer.observe(summaryEl, { childList: true, subtree: true, characterData: true })

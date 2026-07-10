@@ -11,10 +11,10 @@ const { languages, community, experimental } = starlightRoute.entry.data;
 
 // Search (Pagefind) doc-type facet. This wrapper lives inside
 // <main data-pagefind-body>, so its data-pagefind-filter attribute tags the
-// page with a "Type" facet (User Docs / API Docs / Blog) that the search UI
-// surfaces as a toggle. Pages that opt out of the search index
-// (pagefind: false — e.g. landing/changelog pages) get no tag, since they
-// aren't indexed anyway.
+// page with a "Type" facet that the search UI surfaces as a toggle (the facet
+// values are defined in src/util/search.ts — the single source of truth).
+// Pages that opt out of the search index (pagefind: false — e.g.
+// landing/changelog pages) get no tag, since they aren't indexed anyway.
 const indexed = starlightRoute.entry.data.pagefind !== false;
 const docTypeFilter = indexed ? getDocTypeFilter(starlightRoute.id) : undefined;
 ---
