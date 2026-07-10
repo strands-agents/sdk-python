@@ -21,6 +21,7 @@ from asyncio import AbstractEventLoop
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent import futures
 from datetime import timedelta
+from importlib.metadata import version as pkg_version
 from pathlib import Path
 from re import Pattern
 from types import TracebackType
@@ -37,6 +38,7 @@ from mcp.types import (
     BlobResourceContents,
     ElicitationRequiredErrorData,
     GetPromptResult,
+    Implementation,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -109,6 +111,8 @@ class MCPServerConfig(TypedDict, total=False):
     prefix: str
     tool_filters: ToolFilters
     startup_timeout: int
+    application_name: str
+    application_version: str
 
 
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
@@ -209,6 +213,8 @@ class MCPClient(ToolProvider):
         startup_timeout: int = 30,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
+        application_name: str | None = None,
+        application_version: str | None = None,
         continue_on_error: bool = False,
         elicitation_callback: ElicitationFnT | None = None,
         progress_callback: ProgressFnT | None = None,
@@ -222,6 +228,11 @@ class MCPClient(ToolProvider):
                 Defaults to 30.
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
+            application_name: Optional name to identify this agent via clientInfo.name.
+                If provided, the MCP server will see this name during the initialize handshake.
+                Defaults to None (uses the MCP SDK default "mcp").
+            application_version: Optional version string to report alongside application_name.
+                Defaults to None (uses the Strands SDK version).
             continue_on_error: When True, a connection failure during ``load_tools`` is logged and
                 yields no tools instead of raising, so one unavailable server does not prevent an
                 agent from using the others. Only the connection (``start()``) is swallowed; an error
@@ -237,6 +248,8 @@ class MCPClient(ToolProvider):
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
+        self._application_name = application_name
+        self._application_version = application_version
         self._continue_on_error = continue_on_error
         # True after a swallowed init failure, so load_tools stops retrying a failed server.
         self._connection_failed = False
@@ -939,6 +952,14 @@ class MCPClient(ToolProvider):
                     write_stream,
                     message_handler=self._handle_error_message,
                     elicitation_callback=self._elicitation_callback,
+                    client_info=(
+                        Implementation(
+                            name=self._application_name,
+                            version=self._application_version or pkg_version("strands-agents"),
+                        )
+                        if self._application_name
+                        else None
+                    ),
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
                     init_result = await session.initialize()
@@ -1441,6 +1462,8 @@ def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
         startup_timeout=server.get("startup_timeout", 30),
         tool_filters=_parse_config_tool_filters(name, server.get("tool_filters")),
         prefix=server.get("prefix"),
+        application_name=server.get("application_name", name),
+        application_version=server.get("application_version"),
         continue_on_error=server.get("continue_on_error", False),
     )
 
