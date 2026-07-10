@@ -83,14 +83,18 @@ class JSONEncoder(json.JSONEncoder):
 class Tracer:
     """Handles OpenTelemetry tracing.
 
-    This class provides a simple interface for creating and managing traces,
-    with support for sending to OTLP endpoints.
+    This class provides a simple interface for creating and managing traces, with support for sending to OTLP endpoints.
 
-    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
-    are sent to the OTLP endpoint.
+    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces are sent to the OTLP endpoint.
 
     Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
     or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+
+    Including "gen_ai_span_attributes_only" records message content directly as span attributes instead of
+    span events, for backends that cannot read span events. This applies to the aggregated content events
+    (latest-convention "gen_ai.*" messages and the "memory.query"/"memory.content" events); the legacy
+    per-message events are always emitted as events. The default (token absent, non-Langfuse) emits span
+    events for backward compatibility.
 
     Span attribute redaction is opt-in via the `gen_ai_unredacted_attributes=<list>` token in the same
     environment variable. The list uses `;` as a separator and supports trailing-`*` glob patterns.
@@ -118,6 +122,7 @@ class Tracer:
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
         self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
+        self._span_attributes_only = self.is_langfuse or "gen_ai_span_attributes_only" in opt_in_values
 
         unredacted_token = next(
             (t for t in opt_in_values if t.startswith("gen_ai_unredacted_attributes=")),
@@ -324,18 +329,23 @@ class Tracer:
     ) -> None:
         """Add an event with attributes to a span.
 
+        Per OpenTelemetry the span-event recording API is deprecated. When `to_span_attributes` is set,
+        the attributes are recorded directly on the span and the event is skipped, so the content is
+        recorded once rather than duplicated across both; otherwise the event is emitted.
+
         Args:
             span: The span to add the event to
             event_name: Name of the event
             event_attributes: Dictionary of attributes to set on the event
-            to_span_attributes: Add the attributes to span attributes
+            to_span_attributes: Record the attributes on the span instead of as an event
         """
         if not span:
             return
 
-        # Add to span attribute since some backend can't read the events
-        if to_span_attributes and event_attributes:
-            span.set_attributes(event_attributes)
+        if to_span_attributes:
+            if event_attributes:
+                span.set_attributes(event_attributes)
+            return
 
         span.add_event(event_name, attributes=event_attributes)
 
@@ -449,7 +459,7 @@ class Tracer:
                 span,
                 "gen_ai.client.inference.operation.details",
                 {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             self._add_event(
@@ -517,7 +527,7 @@ class Tracer:
                 span,
                 "gen_ai.client.inference.operation.details",
                 {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             self._add_event(
@@ -568,7 +578,7 @@ class Tracer:
                     span,
                     "gen_ai.client.inference.operation.details",
                     {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
-                    to_span_attributes=self.is_langfuse,
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
@@ -667,7 +677,7 @@ class Tracer:
                     span,
                     "gen_ai.client.inference.operation.details",
                     {"gen_ai.input.messages": self._redact("gen_ai.input.messages", tool_result_messages)},
-                    to_span_attributes=self.is_langfuse,
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
@@ -763,7 +773,7 @@ class Tracer:
                     span,
                     "gen_ai.client.inference.operation.details",
                     {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
-                    to_span_attributes=self.is_langfuse,
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
@@ -841,7 +851,7 @@ class Tracer:
                 span,
                 "gen_ai.client.inference.operation.details",
                 {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             content_value = serialize(task) if isinstance(task, list) else task
@@ -873,7 +883,7 @@ class Tracer:
                     span,
                     "gen_ai.client.inference.operation.details",
                     {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
-                    to_span_attributes=self.is_langfuse,
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
@@ -954,7 +964,7 @@ class Tracer:
         )
 
         span = self._start_span("memory.search", parent_span, attributes=attributes)
-        self._add_event(span, "memory.query", {"content": query}, to_span_attributes=self.is_langfuse)
+        self._add_event(span, "memory.query", {"content": query}, to_span_attributes=self._span_attributes_only)
 
         return span
 
@@ -998,7 +1008,7 @@ class Tracer:
                         ]
                     )
                 },
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
 
         self._end_span(span, attributes, error)
@@ -1038,7 +1048,7 @@ class Tracer:
         )
 
         span = self._start_span("memory.add", parent_span, attributes=attributes, force_root=force_root)
-        self._add_event(span, "memory.content", {"content": content}, to_span_attributes=self.is_langfuse)
+        self._add_event(span, "memory.content", {"content": content}, to_span_attributes=self._span_attributes_only)
 
         return span
 
@@ -1250,7 +1260,7 @@ class Tracer:
                 span,
                 "gen_ai.client.inference.operation.details",
                 {"gen_ai.system_instructions": self._redact("gen_ai.system_instructions", serialize(parts))},
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             # system prompts are sensitive and policed under gen_ai.system_instructions
@@ -1277,13 +1287,11 @@ class Tracer:
                 span,
                 "gen_ai.client.inference.operation.details",
                 {"gen_ai.input.messages": self._redact("gen_ai.input.messages", serialize(input_messages))},
-                to_span_attributes=self.is_langfuse,
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             for message in messages:
-                redact_key = (
-                    "gen_ai.output.messages" if message.get("role") == "assistant" else "gen_ai.input.messages"
-                )
+                redact_key = "gen_ai.output.messages" if message.get("role") == "assistant" else "gen_ai.input.messages"
                 self._add_event(
                     span,
                     self._get_event_name_for_message(message),

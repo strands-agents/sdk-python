@@ -13,9 +13,15 @@ interface Props {
   description?: string
   ogImage?: string
   canonicalUrl?: string
+  /**
+   * Whether this page is included in the Pagefind search index. Defaults to
+   * false so listing pages (index, tags, authors) stay out of search; blog
+   * posts opt in via BlogPostLayout so they surface under the "Blog" facet.
+   */
+  pagefind?: boolean
 }
 
-const { title, description, ogImage, canonicalUrl: canonicalOverride } = Astro.props
+const { title, description, ogImage, canonicalUrl: canonicalOverride, pagefind = false } = Astro.props
 
 const pageUrl = new URL(Astro.url.pathname, Astro.site).href
 const canonicalUrl = canonicalOverride || pageUrl
@@ -43,7 +49,7 @@ if (ogImage) {
 ---
 
 <StarlightPage
-  frontmatter={{ title, description, template: 'splash', pagefind: false, head, hero: { actions: [] } }}
+  frontmatter={{ title, description, template: 'splash', pagefind, head, hero: { actions: [] } }}
   hasSidebar={false}
 >
   <slot name="head" slot="head" />
