@@ -420,7 +420,7 @@ jobs:
 
       - name: Update npm to latest
         # Trusted publishing needs npm >= 11.5.1.
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Download verified tarball
         uses: actions/download-artifact@v8
