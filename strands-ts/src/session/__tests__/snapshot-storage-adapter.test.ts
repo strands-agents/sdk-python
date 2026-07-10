@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { SnapshotStorageAdapter } from '../snapshot-storage-adapter.js'
 import { InMemoryStorage } from '../../storage/in-memory-storage.js'
+import { namespace } from '../../storage/namespaced-storage.js'
 import { SessionError } from '../../errors.js'
 import { createTestSnapshot, createTestManifest, createTestScope } from '../../__fixtures__/mock-storage-provider.js'
 import type { SnapshotLocation } from '../storage.js'
@@ -27,7 +28,7 @@ describe('SnapshotStorageAdapter', () => {
 
   beforeEach(() => {
     backend = new InMemoryStorage()
-    adapter = new SnapshotStorageAdapter(backend)
+    adapter = new SnapshotStorageAdapter(namespace(backend, 'session'))
   })
 
   describe('saveSnapshot', () => {
@@ -240,9 +241,9 @@ describe('SnapshotStorageAdapter', () => {
     })
   })
 
-  describe('custom basePrefix', () => {
-    it('uses custom prefix for all keys', async () => {
-      const customAdapter = new SnapshotStorageAdapter(backend, 'custom/prefix')
+  describe('custom namespace', () => {
+    it('uses the namespace provided to the adapter', async () => {
+      const customAdapter = new SnapshotStorageAdapter(namespace(backend, 'custom/prefix'))
       const location = createLocation()
 
       await customAdapter.saveSnapshot({
@@ -262,10 +263,10 @@ describe('SnapshotStorageAdapter', () => {
   describe('error handling', () => {
     it('wraps storage write errors in SessionError', async () => {
       const failingBackend: InMemoryStorage = new InMemoryStorage()
-      failingBackend.put = async () => {
+      failingBackend.write = async () => {
         throw new Error('disk full')
       }
-      const failAdapter = new SnapshotStorageAdapter(failingBackend)
+      const failAdapter = new SnapshotStorageAdapter(namespace(failingBackend, 'session'))
       const location = createLocation()
 
       await expect(
@@ -275,10 +276,10 @@ describe('SnapshotStorageAdapter', () => {
 
     it('wraps storage read errors in SessionError', async () => {
       const failingBackend: InMemoryStorage = new InMemoryStorage()
-      failingBackend.get = async () => {
+      failingBackend.read = async () => {
         throw new Error('network timeout')
       }
-      const failAdapter = new SnapshotStorageAdapter(failingBackend)
+      const failAdapter = new SnapshotStorageAdapter(namespace(failingBackend, 'session'))
       const location = createLocation()
 
       await expect(failAdapter.loadSnapshot({ location, snapshotId: uuidV7(1) })).rejects.toThrow(SessionError)
@@ -287,7 +288,7 @@ describe('SnapshotStorageAdapter', () => {
     it('throws SessionError on corrupted JSON', async () => {
       const location = createLocation()
       const key = 'session/test-session/scopes/agent/test-agent/snapshots/snapshot_latest.json'
-      await backend.put(key, new TextEncoder().encode('not valid json{{{'))
+      await backend.write(key, new TextEncoder().encode('not valid json{{{'))
 
       await expect(adapter.loadSnapshot({ location })).rejects.toThrow(SessionError)
       await expect(adapter.loadSnapshot({ location })).rejects.toThrow(/Corrupted JSON/)

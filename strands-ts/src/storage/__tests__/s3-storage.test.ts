@@ -36,13 +36,13 @@ describe('S3Storage', () => {
     })
   })
 
-  describe('put', () => {
+  describe('write', () => {
     it('sends a PutObjectCommand with the correct params', async () => {
       mockSend.mockResolvedValue({})
       const storage = new S3Storage('my-bucket', { prefix: 'agents/' })
       const data = new TextEncoder().encode('payload')
 
-      await storage.put('sessions/abc/data.json', data)
+      await storage.write('sessions/abc/data.json', data)
 
       expect(mockPutObjectCommand).toHaveBeenCalledWith({
         Bucket: 'my-bucket',
@@ -56,17 +56,17 @@ describe('S3Storage', () => {
       mockSend.mockRejectedValue(new Error('AccessDenied'))
       const storage = new S3Storage('my-bucket')
 
-      await expect(storage.put('key', new Uint8Array([1]))).rejects.toThrow(StorageError)
+      await expect(storage.write('key', new Uint8Array([1]))).rejects.toThrow(StorageError)
     })
   })
 
-  describe('get', () => {
+  describe('read', () => {
     it('returns bytes when the object exists', async () => {
       const bytes = new Uint8Array([1, 2, 3])
       mockSend.mockResolvedValue({ Body: { transformToByteArray: () => Promise.resolve(bytes) } })
       const storage = new S3Storage('my-bucket')
 
-      const result = await storage.get('some/key')
+      const result = await storage.read('some/key')
       expect(result).toEqual(bytes)
     })
 
@@ -76,7 +76,7 @@ describe('S3Storage', () => {
       mockSend.mockRejectedValue(error)
       const storage = new S3Storage('my-bucket')
 
-      const result = await storage.get('missing')
+      const result = await storage.read('missing')
       expect(result).toBeNull()
     })
 
@@ -86,7 +86,7 @@ describe('S3Storage', () => {
       mockSend.mockRejectedValue(error)
       const storage = new S3Storage('my-bucket')
 
-      const result = await storage.get('missing')
+      const result = await storage.read('missing')
       expect(result).toBeNull()
     })
 
@@ -94,7 +94,7 @@ describe('S3Storage', () => {
       mockSend.mockRejectedValue(new Error('NetworkFailure'))
       const storage = new S3Storage('my-bucket')
 
-      await expect(storage.get('key')).rejects.toThrow(StorageError)
+      await expect(storage.read('key')).rejects.toThrow(StorageError)
     })
   })
 

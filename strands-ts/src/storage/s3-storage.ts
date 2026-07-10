@@ -2,6 +2,7 @@ import type { Storage } from './storage.js'
 
 import { StorageError } from '../errors.js'
 import { normalizeKey, normalizePrefix } from './normalize.js'
+import { namespace } from './namespaced-storage.js'
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {
@@ -27,7 +28,7 @@ const S3_PAGE_SIZE = 1000
  * import { S3Storage } from '@strands-agents/sdk/storage'
  *
  * const storage = new S3Storage('my-bucket', { prefix: 'agents/' })
- * await storage.put('sessions/abc/snapshot.json', bytes)
+ * await storage.write('sessions/abc/snapshot.json', bytes)
  * ```
  */
 export class S3Storage implements Storage {
@@ -58,7 +59,7 @@ export class S3Storage implements Storage {
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the key is invalid or the upload fails
    */
-  async put(key: string, data: Uint8Array): Promise<void> {
+  async write(key: string, data: Uint8Array): Promise<void> {
     const normalized = normalizeKey(key)
     const client = await this._getClient()
     const { PutObjectCommand } = await import('@aws-sdk/client-s3')
@@ -76,7 +77,7 @@ export class S3Storage implements Storage {
    * @returns The stored bytes, or `null` if no value exists for `key`
    * @throws {@link StorageError} if the key is invalid or the download fails
    */
-  async get(key: string): Promise<Uint8Array | null> {
+  async read(key: string): Promise<Uint8Array | null> {
     const normalized = normalizeKey(key)
     const client = await this._getClient()
     const { GetObjectCommand } = await import('@aws-sdk/client-s3')
@@ -152,6 +153,16 @@ export class S3Storage implements Storage {
     const { S3Client } = await import('@aws-sdk/client-s3')
     this._client = new S3Client(this._region ? { region: this._region } : {})
     return this._client
+  }
+
+  /**
+   * Returns a namespaced view of this storage with all keys prefixed.
+   *
+   * @param prefix - Prefix to prepend to all keys
+   * @returns A Storage view scoped to the given prefix
+   */
+  namespace(prefix: string): Storage {
+    return namespace(this, prefix)
   }
 
   private _objectKey(key: string): string {

@@ -19,21 +19,22 @@ const SNAPSHOT_REGEX = /snapshot_([\w-]+)\.json$/
  * Adapts a unified {@link Storage} instance into the {@link SnapshotStorage} interface
  * expected by the session manager.
  *
- * Keys follow the same layout as the filesystem-based storage:
- * `session/<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`
+ * Keys are written directly into the provided storage:
+ * `<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`
+ *
+ * Callers control namespacing by passing a {@link NamespacedStorage} — e.g.
+ * `new NamespacedStorage(storage, 'session')` produces keys like
+ * `session/<sessionId>/scopes/...`.
  *
  * @deprecated Remove in v2 when SnapshotStorage is dropped and SessionManager calls Storage directly.
  * @internal
  * @param storage - The unified Storage backend to delegate to
- * @param basePrefix - Optional key prefix. Defaults to `'session'`.
  */
 export class SnapshotStorageAdapter implements SnapshotStorage {
   private readonly _storage: Storage
-  private readonly _basePrefix: string
 
-  constructor(storage: Storage, basePrefix: string = 'session') {
+  constructor(storage: Storage) {
     this._storage = storage
-    this._basePrefix = basePrefix
   }
 
   /**
@@ -105,7 +106,7 @@ export class SnapshotStorageAdapter implements SnapshotStorage {
    */
   async deleteSession(params: { sessionId: string }): Promise<void> {
     validateIdentifier(params.sessionId)
-    const prefix = `${this._basePrefix}/${params.sessionId}/`
+    const prefix = `${params.sessionId}/`
     const keys = await this._storage.list(prefix)
     const BATCH_SIZE = 100
     for (let i = 0; i < keys.length; i += BATCH_SIZE) {
@@ -143,7 +144,7 @@ export class SnapshotStorageAdapter implements SnapshotStorage {
   private _scopePrefix(location: SnapshotLocation): string {
     validateIdentifier(location.sessionId)
     validateIdentifier(location.scopeId)
-    return `${this._basePrefix}/${location.sessionId}/scopes/${location.scope}/${location.scopeId}/snapshots`
+    return `${location.sessionId}/scopes/${location.scope}/${location.scopeId}/snapshots`
   }
 
   private _latestKey(location: SnapshotLocation): string {
@@ -165,7 +166,7 @@ export class SnapshotStorageAdapter implements SnapshotStorage {
   private async _writeJSON(key: string, data: unknown): Promise<void> {
     try {
       const bytes = new TextEncoder().encode(JSON.stringify(data))
-      await this._storage.put(key, bytes)
+      await this._storage.write(key, bytes)
     } catch (error: unknown) {
       throw new SessionError(`Failed to write '${key}' to storage`, { cause: error })
     }
@@ -173,7 +174,7 @@ export class SnapshotStorageAdapter implements SnapshotStorage {
 
   private async _readJSON<T>(key: string): Promise<T | null> {
     try {
-      const bytes = await this._storage.get(key)
+      const bytes = await this._storage.read(key)
       if (bytes === null) return null
       const text = new TextDecoder().decode(bytes)
       return JSON.parse(text) as T

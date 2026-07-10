@@ -21,7 +21,7 @@ export interface Storage<ListQuery = string> {
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the write fails
    */
-  put(key: string, data: Uint8Array): Promise<void>
+  write(key: string, data: Uint8Array): Promise<void>
 
   /**
    * Retrieves the bytes previously stored under `key`.
@@ -30,7 +30,7 @@ export interface Storage<ListQuery = string> {
    * @returns The stored bytes, or `null` if no value exists for `key`
    * @throws {@link StorageError} if the read fails for a reason other than a missing key
    */
-  get(key: string): Promise<Uint8Array | null>
+  read(key: string): Promise<Uint8Array | null>
 
   /**
    * Deletes the value stored under `key`. A no-op if the key does not exist.

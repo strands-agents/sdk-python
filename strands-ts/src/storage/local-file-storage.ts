@@ -3,15 +3,17 @@ import type { Storage } from './storage.js'
 
 import { StorageError } from '../errors.js'
 import { normalizeKey, normalizePrefix } from './normalize.js'
+import { namespace } from './namespaced-storage.js'
 
 /**
- * Returns true if the error represents a missing file or directory (ENOENT).
+ * Returns true if the error represents a missing or non-directory path (ENOENT or ENOTDIR).
  *
  * @param error - The caught error to inspect
- * @returns Whether the error is a filesystem ENOENT error
+ * @returns Whether the error is a filesystem not-found error
  */
-function isFileNotFoundError(error: unknown): boolean {
-  return error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'
+function isNotFoundError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object' || !('code' in error)) return false
+  return error.code === 'ENOENT' || error.code === 'ENOTDIR'
 }
 
 /**
@@ -29,7 +31,7 @@ function isFileNotFoundError(error: unknown): boolean {
  * import { LocalFileStorage } from '@strands-agents/sdk/storage'
  *
  * const storage = new LocalFileStorage('./.strands/')
- * await storage.put('sessions/abc/snapshot.json', bytes)
+ * await storage.write('sessions/abc/snapshot.json', bytes)
  * ```
  */
 export class LocalFileStorage implements Storage {
@@ -65,7 +67,7 @@ export class LocalFileStorage implements Storage {
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the key is invalid or the write fails
    */
-  async put(key: string, data: Uint8Array): Promise<void> {
+  async write(key: string, data: Uint8Array): Promise<void> {
     const normalized = normalizeKey(key)
     const path = this._pathFor(normalized)
     if (this._sandbox) {
@@ -76,15 +78,20 @@ export class LocalFileStorage implements Storage {
       }
       return
     }
+    let tmpPath: string | undefined
     try {
       const { mkdir, writeFile, rename } = await import('node:fs/promises')
       const { dirname } = await import('node:path')
       await mkdir(dirname(path), { recursive: true })
       const { randomUUID } = await import('node:crypto')
-      const tmpPath = `${path}.__strands_tmp_${randomUUID()}`
+      tmpPath = `${path}.__strands_tmp_${randomUUID()}`
       await writeFile(tmpPath, data)
       await rename(tmpPath, path)
     } catch (error: unknown) {
+      if (tmpPath) {
+        const { rm } = await import('node:fs/promises')
+        await rm(tmpPath, { force: true }).catch(() => {})
+      }
       throw new StorageError(`Failed to write '${normalized}' to local storage`, { cause: error })
     }
   }
@@ -96,14 +103,14 @@ export class LocalFileStorage implements Storage {
    * @returns The stored bytes, or `null` if no value exists for `key`
    * @throws {@link StorageError} if the key is invalid or the read fails
    */
-  async get(key: string): Promise<Uint8Array | null> {
+  async read(key: string): Promise<Uint8Array | null> {
     const normalized = normalizeKey(key)
     const path = this._pathFor(normalized)
     if (this._sandbox) {
       try {
         return await this._sandbox.readFile(path)
       } catch (error: unknown) {
-        if (isFileNotFoundError(error)) return null
+        if (isNotFoundError(error)) return null
         throw new StorageError(`Failed to read '${normalized}' from sandbox storage`, { cause: error })
       }
     }
@@ -112,7 +119,7 @@ export class LocalFileStorage implements Storage {
       const content = await readFile(path)
       return new Uint8Array(content)
     } catch (error: unknown) {
-      if (isFileNotFoundError(error)) return null
+      if (isNotFoundError(error)) return null
       throw new StorageError(`Failed to read '${normalized}' from local storage`, { cause: error })
     }
   }
@@ -130,7 +137,7 @@ export class LocalFileStorage implements Storage {
       try {
         await this._sandbox.removeFile(path)
       } catch (error: unknown) {
-        if (!isFileNotFoundError(error)) {
+        if (!isNotFoundError(error)) {
           throw new StorageError(`Failed to delete '${normalized}' from sandbox storage`, { cause: error })
         }
       }
@@ -177,7 +184,7 @@ export class LocalFileStorage implements Storage {
       try {
         entries = await readdir(walkDir, { withFileTypes: true })
       } catch (error: unknown) {
-        if (isFileNotFoundError(error)) return []
+        if (isNotFoundError(error)) return []
         throw new StorageError(`Failed to list local storage under '${walkPrefix}'`, { cause: error })
       }
       const found: string[] = []
@@ -204,7 +211,7 @@ export class LocalFileStorage implements Storage {
       try {
         entries = await sandbox.listFiles(walkDir)
       } catch (error: unknown) {
-        if (isFileNotFoundError(error)) return []
+        if (isNotFoundError(error)) return []
         throw new StorageError(`Failed to list sandbox storage under '${walkPrefix}'`, { cause: error })
       }
       const found: string[] = []
@@ -221,5 +228,15 @@ export class LocalFileStorage implements Storage {
     }
 
     return walk(dir, keyPrefix)
+  }
+
+  /**
+   * Returns a namespaced view of this storage with all keys prefixed.
+   *
+   * @param prefix - Prefix to prepend to all keys
+   * @returns A Storage view scoped to the given prefix
+   */
+  namespace(prefix: string): Storage {
+    return namespace(this, prefix)
   }
 }

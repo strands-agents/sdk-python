@@ -45,7 +45,7 @@ async function storeContent(
 ): Promise<string> {
   if (isOffloaderStorage(storage)) return storage.store(key, content, contentType)
   const ct = contentType ?? 'application/octet-stream'
-  await storage.put(key, frameContent(content, ct))
+  await storage.write(key, frameContent(content, ct))
   return key
 }
 
@@ -54,7 +54,7 @@ async function retrieveContent(
   reference: string
 ): Promise<{ content: Uint8Array; contentType: string }> {
   if (isOffloaderStorage(storage)) return storage.retrieve(reference)
-  const data = await storage.get(reference)
+  const data = await storage.read(reference)
   if (data === null) throw new Error(`Reference not found: ${reference}`)
   return unframeContent(data)
 }
@@ -157,10 +157,8 @@ export interface ContextOffloaderConfig {
    *   occupies exactly one key (content-type is framed into the stored bytes).
    * - A legacy offloader `Storage` (deprecated, from this module) — manages its own turn-based
    *   eviction internally via its `evictAfterTurns` constructor parameter.
-   *
-   * Required — must be provided in the plugin constructor.
    */
-  storage?: Storage | OffloaderStorage
+  storage: Storage | OffloaderStorage
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
   maxResultTokens?: number
   /** Number of tokens to keep as an inline preview. Defaults to 1,000. */
@@ -213,7 +211,7 @@ export class ContextOffloader implements Plugin {
 
   private static readonly _DEFAULT_EVICT_AFTER_CYCLES = 20
 
-  private readonly _storage: Storage | OffloaderStorage | undefined
+  private readonly _storage: Storage | OffloaderStorage
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
   private readonly _includeRetrievalTool: boolean
@@ -222,7 +220,7 @@ export class ContextOffloader implements Plugin {
   private readonly _keyStoredAt = new Map<string, number>()
   private _retrievalTool: Tool | undefined
 
-  constructor(config: ContextOffloaderConfig = {}) {
+  constructor(config: ContextOffloaderConfig) {
     const maxResultTokens = config.maxResultTokens ?? DEFAULT_MAX_RESULT_TOKENS
     const previewTokens = config.previewTokens ?? DEFAULT_PREVIEW_TOKENS
 
@@ -244,9 +242,6 @@ export class ContextOffloader implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
-    if (!this._storage) {
-      throw new Error('ContextOffloader requires a storage backend. Pass storage in the plugin config.')
-    }
     if (this._storage instanceof LegacyInMemoryStorage) {
       this._storage._bind(agent)
     }
@@ -266,8 +261,8 @@ export class ContextOffloader implements Plugin {
   private _evict(currentCycle: number): void {
     const threshold = currentCycle - this._evictAfterCycles!
     const toEvict: string[] = []
-    for (const [key, lastAccess] of this._keyStoredAt) {
-      if (lastAccess < threshold) {
+    for (const [key, storedCycle] of this._keyStoredAt) {
+      if (storedCycle < threshold) {
         toEvict.push(key)
       }
     }

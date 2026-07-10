@@ -1,6 +1,7 @@
 import type { Storage } from './storage.js'
 
 import { normalizeKey, normalizePrefix } from './normalize.js'
+import { namespace } from './namespaced-storage.js'
 
 /**
  * In-memory {@link Storage} backend backed by a `Map`.
@@ -18,8 +19,8 @@ import { normalizeKey, normalizePrefix } from './normalize.js'
  * @example
  * ```typescript
  * const storage = new InMemoryStorage()
- * await storage.put('memory/notes.json', new TextEncoder().encode('[]'))
- * const bytes = await storage.get('memory/notes.json')
+ * await storage.write('memory/notes.json', new TextEncoder().encode('[]'))
+ * const bytes = await storage.read('memory/notes.json')
  * ```
  */
 export class InMemoryStorage implements Storage {
@@ -33,7 +34,7 @@ export class InMemoryStorage implements Storage {
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the key is empty or contains `..` segments
    */
-  async put(key: string, data: Uint8Array): Promise<void> {
+  async write(key: string, data: Uint8Array): Promise<void> {
     this._store.set(normalizeKey(key), data.slice())
   }
 
@@ -45,7 +46,7 @@ export class InMemoryStorage implements Storage {
    * @returns The stored bytes, or `null` if no value exists for `key`
    * @throws {@link StorageError} if the key is empty or contains `..` segments
    */
-  async get(key: string): Promise<Uint8Array | null> {
+  async read(key: string): Promise<Uint8Array | null> {
     const value = this._store.get(normalizeKey(key))
     if (value === undefined) return null
     return value.slice()
@@ -75,6 +76,16 @@ export class InMemoryStorage implements Storage {
       if (key.startsWith(normalized)) keys.push(key)
     }
     return keys.sort()
+  }
+
+  /**
+   * Returns a namespaced view of this storage with all keys prefixed.
+   *
+   * @param prefix - Prefix to prepend to all keys
+   * @returns A Storage view scoped to the given prefix
+   */
+  namespace(prefix: string): Storage {
+    return namespace(this, prefix)
   }
 
   /**
