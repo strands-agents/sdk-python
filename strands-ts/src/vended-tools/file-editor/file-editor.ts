@@ -277,10 +277,11 @@ function buildStrReplaceResult(
   newStr: string | undefined,
   filePath: string
 ): { newContent: string; snippet: string; startLine: number } {
-  const replacement = newStr ?? ''
+  let replacement = newStr ?? ''
 
   let start: number
   let end: number
+  let resolvedViaTolerant = false
 
   const exact = exactMatchIndices(originalContent, oldStr)
   if (exact.length > 1) {
@@ -309,6 +310,17 @@ function buildStrReplaceResult(
     }
     start = tolerant.start
     end = tolerant.end
+    resolvedViaTolerant = true
+  }
+
+  // When the tolerant fallback matched a CRLF region but new_str uses LF (the
+  // common case — models emit LF), splice in CRLF so the edited span keeps the
+  // matched region's convention instead of leaving a mixed-ending region.
+  if (resolvedViaTolerant) {
+    const matchedRegionIsCRLF = originalContent.slice(start, end).includes('\r\n')
+    if (matchedRegionIsCRLF) {
+      replacement = replacement.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
+    }
   }
 
   const newContent = originalContent.slice(0, start) + replacement + originalContent.slice(end)

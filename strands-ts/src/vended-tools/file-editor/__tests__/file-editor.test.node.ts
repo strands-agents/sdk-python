@@ -394,7 +394,8 @@ describe('fileEditor tool', () => {
     })
 
     // Defect A: exact match fails on CRLF-vs-LF, but the tolerant fallback resolves a single match.
-    it('falls back to a tolerant match for a CRLF-vs-LF near-miss', async () => {
+    // The edited region adopts the matched region's CRLF convention (no mixed endings).
+    it('falls back to a tolerant match for a CRLF-vs-LF near-miss and preserves CRLF in the edited region', async () => {
       const content = 'function foo() {\r\n  return 1\r\n}\r\n'
       const filePath = await createTestFile('crlf.ts', content)
       await fileEditor.invoke(
@@ -407,8 +408,28 @@ describe('fileEditor tool', () => {
         context
       )
       const updated = await fs.readFile(filePath, 'utf-8')
-      // Matched region replaced; the trailing CRLF after the block is preserved.
-      expect(updated).toBe('function foo() {\n  return 2\n}\r\n')
+      // new_str's LF newlines were normalized to CRLF to match the region; the file stays all-CRLF.
+      expect(updated).toBe('function foo() {\r\n  return 2\r\n}\r\n')
+      // No mixed endings: every LF is part of a CRLF pair.
+      expect(updated.replace(/\r\n/g, '')).not.toContain('\n')
+    })
+
+    // Defect A: a CRLF new_str must not gain doubled carriage returns when spliced into a CRLF region.
+    it('does not double carriage returns when new_str already uses CRLF', async () => {
+      const content = 'function foo() {\r\n  return 1\r\n}\r\n'
+      const filePath = await createTestFile('crlf-crlf.ts', content)
+      await fileEditor.invoke(
+        {
+          command: 'str_replace',
+          path: filePath,
+          old_str: 'function foo() {\n  return 1\n}',
+          new_str: 'function foo() {\r\n  return 2\r\n}',
+        },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      expect(updated).toBe('function foo() {\r\n  return 2\r\n}\r\n')
+      expect(updated).not.toContain('\r\r')
     })
 
     // Defect A: tolerant fallback also tolerates trailing whitespace differences.

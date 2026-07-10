@@ -62,7 +62,10 @@ when the exact match finds nothing does it fall back to a **whitespace-tolerant*
 match (line endings, trailing whitespace, and tab-vs-spaces), and only when that
 resolves to a single location — an ambiguous tolerant match is reported rather
 than guessed. The replacement is always applied to the original bytes, so tabs
-and line endings elsewhere in the file are left untouched.
+and line endings elsewhere in the file are left untouched. When a match is
+resolved via the whitespace-tolerant fallback against a CRLF region, `new_str`'s
+line endings are normalized to CRLF before splicing so the edited region keeps
+the file's convention instead of becoming mixed-ending.
 
 **Parameters:**
 
