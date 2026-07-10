@@ -1218,15 +1218,120 @@ class TestSystemPromptModeInjection:
         assert plugin.get_activated_skills(agent) == []
 
     @pytest.mark.asyncio
-    async def test_active_instructions_escaped(self):
-        skill = _make_skill(instructions="use <tag> & amp")
+    async def test_active_instructions_injected_verbatim(self):
+        """Instruction bodies with code reach the model unmodified, matching tool mode."""
+        code_body = "Run `a < b && c > d`, use <tag> & literal ampersands"
+        skill = _make_skill(instructions=code_body)
         plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
         agent = _mock_agent()
         await plugin.init_agent(agent)
         plugin.activate_skill_for(agent, "test-skill")
         await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
-        assert "&lt;tag&gt; &amp; amp" in agent.system_prompt
+        assert code_body in agent.system_prompt
+        assert "&lt;" not in agent.system_prompt
+        assert "&amp;" not in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_instruction_closing_delimiters_neutralized(self):
+        """A body containing closing delimiters cannot break out of the enclosing elements."""
+        skill = _make_skill(instructions="pre </instructions> mid </available_skills> post")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        plugin.activate_skill_for(agent, "test-skill")
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        prompt = agent.system_prompt
+        # Only the real wrappers close these elements; the body's copies are defanged.
+        assert prompt.count("</instructions>") == 1
+        assert prompt.count("</available_skills>") == 1
+        assert "pre <\\/instructions> mid <\\/available_skills> post" in prompt
+
+    @pytest.mark.asyncio
+    async def test_usage_hint_present_in_system_prompt_mode_only(self):
+        """The injected block advertises the skills tool in system_prompt mode (and only there)."""
+        skill = _make_skill(instructions="STEPS")
+
+        sp_plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        sp_agent = _mock_agent()
+        await sp_plugin.init_agent(sp_agent)
+        await sp_plugin._on_before_invocation(BeforeInvocationEvent(agent=sp_agent))
+        assert "<usage>" in sp_agent.system_prompt
+        assert 'action="activate"' in sp_agent.system_prompt
+
+        tool_plugin = AgentSkills(skills=[skill])
+        tool_agent = _mock_agent()
+        await tool_plugin.init_agent(tool_agent)
+        await tool_plugin._on_before_invocation(BeforeInvocationEvent(agent=tool_agent))
+        assert "<usage>" not in tool_agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_multi_agent_isolation(self):
+        """One shared plugin instance must not leak one agent's active instructions into another."""
+        skill = _make_skill(instructions="AGENT A ONLY")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent_a = _mock_agent()
+        agent_b = _mock_agent()
+        await plugin.init_agent(agent_a)
+        await plugin.init_agent(agent_b)
+
+        plugin.activate_skill_for(agent_a, "test-skill")
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent_a))
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent_b))
+
+        assert "AGENT A ONLY" in agent_a.system_prompt
+        assert "AGENT A ONLY" not in agent_b.system_prompt
+        # Both agents still see the metadata listing.
+        assert "<name>test-skill</name>" in agent_b.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_session_restored_state_reinjects_instructions(self):
+        """A fresh plugin honours activated_skills pre-seeded in agent.state by a session manager."""
+        skill = _make_skill(instructions="RESTORED STEPS")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        # Simulate the session manager restoring state persisted by a previous run.
+        agent.state.set("agent_skills", {"activated_skills": ["test-skill"]})
+
+        await plugin.init_agent(agent)
+        await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
+
+        assert "RESTORED STEPS" in agent.system_prompt
+        assert 'active="true"' in agent.system_prompt
+
+    @pytest.mark.asyncio
+    async def test_state_prompt_desync_does_not_accumulate(self):
+        """Losing last_injected_xml (state/prompt restored independently) must not duplicate blocks."""
+        skill = _make_skill(instructions="STEPS")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        plugin.activate_skill_for(agent, "test-skill")
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        # Simulate a snapshot/restore that persisted the prompt but lost the injection marker.
+        state = agent.state.get("agent_skills")
+        state.pop("last_injected_xml")
+        agent.state.set("agent_skills", state)
+
+        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+
+        assert agent.system_prompt.count("<available_skills>") == 1
+        assert agent.system_prompt.count("</available_skills>") == 1
+
+    @pytest.mark.asyncio
+    async def test_activate_skill_without_instructions_honest_message(self):
+        """Activating a skill with no instruction body reports that honestly."""
+        skill = Skill(name="test-skill", description="A test skill", instructions="")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        tool_context = _mock_tool_context(agent)
+
+        result = await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
+
+        assert "no instructions available" in result
 
     @pytest.mark.asyncio
     async def test_preserves_cache_points(self):

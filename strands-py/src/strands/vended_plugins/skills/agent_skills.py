@@ -15,11 +15,14 @@ sandbox-independent and resolve eagerly at construction.
 
 :meth:`Skill.from_url` is synchronous, so URLs resolve at construction and no
 readiness barrier is needed. The observable effect is benign: URL skills are
+available immediately after construction, while filesystem skills appear once
+an agent loads them through its sandbox.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
@@ -61,6 +64,46 @@ SkillInjectionMode: TypeAlias = Literal["tool", "system_prompt"]
 """
 
 _VALID_INJECTION_MODES: tuple[SkillInjectionMode, ...] = ("tool", "system_prompt")
+
+_SKILLS_BLOCK_RE = re.compile(r"\n*<available_skills>.*?</available_skills>", re.DOTALL)
+"""Matches an injected skills block. Safe to be non-greedy because instruction bodies have
+their ``</available_skills>`` closing sequence neutralized before injection."""
+
+
+def _neutralize_delimiters(text: str) -> str:
+    """Neutralize closing delimiters inside a skill instruction body.
+
+    Instruction bodies are injected verbatim -- matching ``tool`` mode, which returns them raw
+    as a tool result -- so code samples containing ``<``, ``>``, or ``&`` reach the model
+    unmodified. Only the two closing sequences that could break out of the enclosing elements
+    are defanged.
+
+    Args:
+        text: The raw instruction body.
+
+    Returns:
+        The body with ``</instructions>`` and ``</available_skills>`` sequences neutralized.
+    """
+    return text.replace("</instructions>", "<\\/instructions>").replace("</available_skills>", "<\\/available_skills>")
+
+
+def _is_skills_block(text: str | None) -> bool:
+    """Return True if a system prompt block's text is an injected skills block.
+
+    Used as a sentinel-based fallback when the exact ``last_injected_xml`` recorded in
+    ``agent.state`` no longer matches the block in the system prompt (state and prompt can be
+    snapshot/restored independently).
+
+    Args:
+        text: The text of a system prompt content block.
+
+    Returns:
+        Whether the text is a skills block.
+    """
+    if not text:
+        return False
+    stripped = text.strip()
+    return stripped.startswith("<available_skills>") and stripped.endswith("</available_skills>")
 
 
 def _normalize_sources(sources: SkillSources) -> list[SkillSource]:
@@ -147,6 +190,7 @@ class AgentSkills(Plugin):
         state_key: str = _DEFAULT_STATE_KEY,
         max_resource_files: int = _DEFAULT_MAX_RESOURCE_FILES,
         strict: bool = False,
+        *,
         injection_mode: SkillInjectionMode = "tool",
     ) -> None:
         """Initialize the AgentSkills plugin.
@@ -216,7 +260,8 @@ class AgentSkills(Plugin):
         the available_skills section of your system prompt.
 
         Args:
-            skill_name: Name of the skill to activate.
+            skill_name: Name of the skill to activate, as listed in the ``<name>`` element of
+                the available_skills section of your system prompt.
             tool_context: Injected by the framework. Not user-facing.
         """
         agent = tool_context.agent
@@ -251,8 +296,9 @@ class AgentSkills(Plugin):
         Args:
             action: ``"activate"`` to load a skill's instructions into your system prompt,
                 ``"deactivate"`` to remove a previously activated skill's instructions.
-            skill_name: Name of the skill, as listed in the available_skills section of
-                your system prompt.
+            skill_name: Name of the skill. For ``"activate"``, use the ``<name>`` element from
+                the available_skills section of your system prompt; for ``"deactivate"``, it must
+                match a currently active skill.
             tool_context: Injected by the framework. Not user-facing.
         """
         agent = tool_context.agent
@@ -272,7 +318,13 @@ class AgentSkills(Plugin):
             self.activate_skill_for(agent, skill_name)
             logger.debug("skill_name=<%s> | skill activated (system_prompt mode)", skill_name)
 
-            parts = [f"Skill '{skill_name}' activated. Its instructions are now in your system prompt."]
+            if not found.instructions:
+                return f"Skill '{skill_name}' activated (no instructions available)."
+
+            parts = [
+                f"Skill '{skill_name}' activated. Its instructions will appear in your system prompt "
+                "from your next turn onward."
+            ]
             if found.path is not None:
                 resources = await self._list_skill_resources(agent.sandbox, str(found.path))
                 if resources:
@@ -335,9 +387,13 @@ class AgentSkills(Plugin):
     def _inject_skills(self, agent: Agent) -> None:
         """Inject the skills block into the agent's system prompt.
 
-        Removes the previously injected block (if any) via exact match and appends a
-        fresh one. Uses agent state to track the injected text per-agent, so a single
-        plugin instance can be shared across multiple agents safely.
+        Removes the previously injected block (if any) and appends a fresh one. Removal
+        first tries an exact match against the text recorded in agent state, then falls
+        back to a sentinel sweep of ``<available_skills>...</available_skills>`` blocks --
+        state and the system prompt may be snapshot/restored independently, and the
+        fallback keeps a desync from accumulating duplicate blocks. Uses agent state to
+        track the injected text per-agent, so a single plugin instance can be shared
+        across multiple agents safely.
 
         When the agent has a structured system prompt (list of SystemContentBlock),
         the injection is done at the block level so that cache points and other
@@ -355,23 +411,31 @@ class AgentSkills(Plugin):
         if content is not None:
             # Content-block path: preserve cache points and other structured blocks
             blocks: list[SystemContentBlock] = list(content)
+            original_len = len(blocks)
             if last_injected_xml is not None:
                 injected_block: SystemContentBlock = {"text": last_injected_xml}
                 if injected_block in blocks:
                     blocks.remove(injected_block)
-                else:
-                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+            # agent.state and the system prompt can be snapshot/restored independently, which can
+            # leave last_injected_xml stale or missing while an injected block survives in the
+            # prompt. Sweep any leftover skills blocks by sentinel so a desync cannot accumulate
+            # duplicates.
+            blocks = [block for block in blocks if not _is_skills_block(block.get("text"))]
+            if last_injected_xml is not None and len(blocks) == original_len:
+                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
             blocks.append({"text": skills_xml})
             self._set_state_field(agent, "last_injected_xml", skills_xml)
             agent.system_prompt = blocks
         else:
             # String path: legacy behaviour for plain-string system prompts
             current_prompt = agent.system_prompt or ""
-            if last_injected_xml is not None:
-                if last_injected_xml in current_prompt:
-                    current_prompt = current_prompt.replace(last_injected_xml, "")
-                else:
-                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+            original_prompt = current_prompt
+            if last_injected_xml is not None and last_injected_xml in current_prompt:
+                current_prompt = current_prompt.replace(last_injected_xml, "")
+            # Same state/prompt desync guard as the block path above.
+            current_prompt = _SKILLS_BLOCK_RE.sub("", current_prompt)
+            if last_injected_xml is not None and current_prompt == original_prompt:
+                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
             injection = f"\n\n{skills_xml}"
             new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
             new_injected_xml = injection if current_prompt else skills_xml
@@ -404,8 +468,8 @@ class AgentSkills(Plugin):
 
         Filesystem paths are re-loaded per-agent on the next invocation. Note:
         this does not persist state or deactivate skills on any agent. Active
-        skill state is managed per-agent and will be reconciled on the next tool
-        call or invocation.
+        skill state is managed per-agent and is not pruned: an activated name
+        that no longer matches an available skill simply stops being rendered.
 
         Args:
             skills: One or more skill sources to resolve and set.
@@ -594,10 +658,13 @@ class AgentSkills(Plugin):
         Otherwise includes a ``<location>`` element for skills loaded from the filesystem,
         following the AgentSkills.io integration spec.
 
-        In ``system_prompt`` mode, skills activated by the agent additionally carry an
-        ``active="true"`` attribute and an ``<instructions>`` element with their full body,
-        so the model can follow them directly from the system prompt. In ``tool`` mode the
-        output is the plain metadata listing.
+        In ``system_prompt`` mode, the block opens with a ``<usage>`` hint that tells the
+        model how to toggle skills with the ``skills`` tool, and skills activated by the
+        agent additionally carry an ``active="true"`` attribute and an ``<instructions>``
+        element with their full body, so the model can follow them directly from the
+        system prompt. Instruction bodies are injected verbatim (matching what ``tool``
+        mode returns) with only the closing delimiters neutralized. In ``tool`` mode the
+        output is the plain metadata listing, byte-identical to previous releases.
 
         Args:
             agent: When provided, lists that agent's full skill set (and, in
@@ -615,6 +682,12 @@ class AgentSkills(Plugin):
         active = set(self.get_activated_skills(agent)) if embed_instructions else set()
 
         lines: list[str] = ["<available_skills>"]
+        if embed_instructions:
+            lines.append(
+                '<usage>Activate a skill with the skills tool (action="activate") to load its full '
+                'instructions into this section; action="deactivate" removes them. Skills marked '
+                'active="true" are in effect - follow their instructions.</usage>'
+            )
 
         for skill in skills.values():
             is_active = skill.name in active
@@ -624,7 +697,7 @@ class AgentSkills(Plugin):
             if skill.path is not None:
                 lines.append(f"<location>{escape(str(skill.path / 'SKILL.md'))}</location>")
             if is_active and skill.instructions:
-                lines.append(f"<instructions>\n{escape(skill.instructions)}\n</instructions>")
+                lines.append(f"<instructions>\n{_neutralize_delimiters(skill.instructions)}\n</instructions>")
             lines.append("</skill>")
 
         lines.append("</available_skills>")
@@ -647,8 +720,9 @@ class AgentSkills(Plugin):
 
         Programmatic counterpart to the ``skills`` tool's ``activate`` action. In ``system_prompt`` mode
         the skill's instructions are injected into the system prompt on the next model call.
-        The change is recorded in ``agent.state`` and persists across runs via the session
-        manager.
+        In ``"tool"`` mode the activation is recorded but has no effect on the system prompt
+        (instructions are only delivered as tool results there). The change is recorded in
+        ``agent.state`` and persists across runs via the session manager.
 
         Args:
             agent: The agent to activate the skill for.
