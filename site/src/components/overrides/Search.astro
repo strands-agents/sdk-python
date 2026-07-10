@@ -293,12 +293,24 @@ const typeValues = [DOC_TYPE_USER, DOC_TYPE_API_PYTHON, DOC_TYPE_API_TYPESCRIPT,
         return true
       }
 
+      // The Component UI bundle loads as a module and registers its custom
+      // elements + `window.PagefindComponents` during one synchronous execution.
+      // Try immediately (already-loaded / warm nav), otherwise wait for the
+      // bundle via `whenDefined`: when `pagefind-config` is defined, the module
+      // has finished executing, so `window.PagefindComponents` is set and
+      // getInstance('default') resolves (verified — the whenDefined microtask
+      // can only run after the whole module completes).
       if (setup()) return
-      // Components register asynchronously after the bundle loads; poll briefly.
-      let tries = 0
-      const timer = setInterval(() => {
-        if (setup() || ++tries > 100) clearInterval(timer)
-      }, 50)
+      customElements.whenDefined('pagefind-config').then(() => {
+        if (!setup()) {
+          // Should not happen; log rather than fail silently so a future Pagefind
+          // rename of the global/instance API is diagnosable.
+          console.error(
+            '[search] Pagefind Component UI loaded but its instance API was not found; ' +
+              'the Type filter is inert. Check window.PagefindComponents.getInstanceManager().'
+          )
+        }
+      })
     }
   }
 
