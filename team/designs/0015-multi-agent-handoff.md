@@ -6,6 +6,12 @@
 
 **Issue**: https://github.com/strands-agents/harness-sdk/issues/911
 
+---
+
+[Problem](#problem) · [Proposal](#proposal) · [Alternatives Considered](#alternatives-considered) · [Developer Experience](#developer-experience) · [Consequences](#consequences)
+
+---
+
 ## Problem
 
 The SDK does not have a first-class handoff mechanism for fully delegating execution from an orchestrator agent to a sub-agent. Builders want to create agents that follow this pattern, but the current primitives either make unnecessary model calls or lose context.
@@ -156,9 +162,9 @@ After `executeTools()` completes, the agent loop checks whether any `ToolUseBloc
 
 The following proposals diverge from this point onward.
 
-### Recommended: Tail-Call, Clone Orchestrator History
+### Recommended: Sub-invocation, Clone Orchestrator History
 
-The orchestrator's full `messages` array is cloned as the input to the sub-agent's `stream()`. The sub-agent applies its own system prompt, tools, and conversation manager. From the sub-agent's perspective, this is a normal invocation. Its response streams directly to the caller without re-entering the orchestrator's loop.
+The orchestrator's full `messages` array is deep cloned as the input to the sub-agent's `stream()`. The sub-agent applies its own system prompt, tools, and conversation manager. From the sub-agent's perspective, this is a normal invocation. Its response streams directly to the caller without re-entering the orchestrator's loop.
 
 Once the sub-agent completes, the orchestrator appends the sub-agent's final assistant message to its own `messages` array. This gives the orchestrator continuity on subsequent invocations: the user can follow up and the orchestrator sees the prior response in its history. Only the final assistant message is appended, not the sub-agent's internal tool calls or reasoning, which would reference tools the orchestrator does not have.
 
@@ -187,16 +193,23 @@ if (handoff) {
 }
 ```
 
-If the sub-agent raises an interrupt during execution (such as due to tool use), the interrupt propagates up through the orchestrator's stream generator and surfaces on the orchestrator's `AgentResult` with `stopReason: 'interrupt'`. The orchestrator does not process or interpret the interrupt, but it does record the interrupted sub-agent in a snapshot.
+#### Interrupts
 
-When the caller resumes by invoking the orchestrator with `InterruptResponseContent` blocks, the orchestrator detects that it has an interrupted sub-agent (as part of its snapshot) and forwards the responses directly to that sub-agent. The orchestrator re-enters the handoff path (resolve target, stream, return result) without making another model call.
+If the sub-agent raises an interrupt during execution (such as due to tool use), the interrupt propagates up through the orchestrator's stream generator and surfaces on the orchestrator's `AgentResult` with `stopReason: 'interrupt'`. The orchestrator records the interrupted sub-agent's name in `appState` under a reserved key (`handoff_target`). This follows the same pattern used by other SDK internals that need state to survive across invocations (Cedar stores rate-limit counters in `appState`, HITL stores trusted tool lists). Since `appState` is included in snapshots and session persistence, the handoff target remains durable in stateless deployments where the orchestrator instance may not survive between calls.
+
+When the caller resumes by invoking the orchestrator with `InterruptResponseContent` blocks, the orchestrator checks `appState` for an active handoff target. If one is found, the orchestrator forwards the responses directly to that sub-agent without making another model call, re-entering the handoff path (resolve target, stream, return result). Once the sub-agent completes successfully, the handoff target is cleared from `appState`.
 
 ```ts
+// Orchestrator records handoff target in appState on interrupt:
+this.appState.set('handoff_target', handoff.agentName)
+
 // Caller resumes after interrupt:
 const result = await orchestrator.invoke([
   new InterruptResponseContent({ interruptId: 'confirm_action', response: 'yes' })
 ])
-// Orchestrator detects interrupted sub-agent, forwards response, streams sub-agent to completion
+// Orchestrator reads 'handoff_target' from appState, forwards response, streams sub-agent to completion
+// On completion:
+this.appState.delete('handoff_target')
 ```
 
 Similarly, sub-agent events are passed directly to the caller. While the sub-agent's hooks and middleware process the sub-agent events, the orchestrator does not touch them. This maintains the delegation pattern because the sub-agent retains full control over execution after the handoff. In the future, new events like `BeforeHandoffEvent` and `AfterHandoffEvent` may be introduced to the orchestrator for visibility into delegation boundaries.
@@ -208,11 +221,11 @@ Similarly, sub-agent events are passed directly to the caller. While the sub-age
 - Composable without special handling. A sub-agent with its own `subAgents` chains naturally (A to B to C) because each handoff is a standard `stream()` call.
 
 **Cons:**
-- Builds the full message history in sub-agent context on each handoff. This increases the sub-agent's input token cost, especially when the same sub-agent is used across multiple invocations
+- Builds the full message history in sub-agent context on each handoff. This increases the sub-agent's input token cost, especially for long conversations
 - The sub-agent's intermediate work is lost on subsequent invocations, so the orchestrator cannot answer questions like "What tools did you use?"
 
 
-### Alternative: Tail Call, Return Full Sub-Agent History
+### Alternative: Sub-invocation, Return Full Sub-Agent History
 
 This is mostly the same as the recommended approach. The only difference is that instead of appending the sub-agent's final assistant message, the orchestrator appends the sub-agent's entire message history. This includes all tool calls, tool results, reasoning, and intermediate assistant messages generated during the sub-agent's execution.
 
@@ -231,7 +244,7 @@ for (const msg of subAgent.messages.slice(originalMessageCount)) {
 - The orchestrator sees `toolUse` blocks for tools it does not have registered, so it may attempt to call those tools on subsequent invocations and fail
 - Consumes significantly more orchestrator context than providing it with only the final sub-agent result
 
-### Alternative: Tail-Call, Summarize Orchestrator History
+### Alternative: Sub-invocation, Summarize Orchestrator History
 
 This option uses the same mechanism as the recommended approach. The only difference is that instead of cloning the orchestrator's full message history, the orchestrator generates a summary of the conversation and passes it to the sub-agent as a single user message.
 
@@ -309,7 +322,7 @@ continue
 
 - Strands has no runner/agent separation. Mutating the agent's identity mid-loop breaks hooks, plugins, middleware, telemetry, and the printer, which all hold a reference to `this` and expect it to be stable.
 - Identity swapping is inconsistent with the rest of the Strands SDK, since existing primitives are separate objects with separate lifecycles
-- If the sub-agent finishes and the orchestrator should resume (ex. on the next orchestrator invocation), the swap must be reversed, requiring bookkeeping that the tail-call approach avoids entirely.
+- If the sub-agent finishes and the orchestrator should resume (ex. on the next orchestrator invocation), the swap must be reversed, requiring bookkeeping that the sub-invocation approach avoids entirely.
 
 ## Developer Experience
 
@@ -373,6 +386,47 @@ orchestrator = Agent(
 )
 
 orchestrator("My wifi doesn't work")
+```
+
+### Composable Delegation
+
+Sub-agents can themselves declare `subAgents`, forming delegation chains.
+
+TypeScript
+```ts
+import { Agent } from '@strands-agents/sdk'
+
+const billingAgent = new Agent({
+    name: "Billing",
+    description: "Processes refunds, invoices, and payment disputes",
+    systemPrompt: "You are a billing specialist...",
+})
+
+const customerService = new Agent({
+    name: "CustomerService",
+    description: "Handles customer service inquiries. Delegates billing and shipping questions to specialists.",
+    systemPrompt: `You are a customer service coordinator.
+    - Use Billing for refunds, invoices, or payment issues
+    - Handle general account questions yourself`,
+    subAgents: [billingAgent],
+})
+
+const technicalSupport = new Agent({
+    name: "TechnicalSupport",
+    description: "Provides technical support for product issues and troubleshooting",
+    systemPrompt: "You are a technical support specialist...",
+})
+
+const orchestrator = new Agent({
+    name: "HelpDesk",
+    description: "Routes customer requests to appropriate departments",
+    systemPrompt: `Route requests to the appropriate department:
+    - Use CustomerService for billing, shipping, or account questions
+    - Use TechnicalSupport for product issues or bugs`,
+    subAgents: [customerService, technicalSupport],
+})
+
+orchestrator.invoke("Where's my refund for order #12345?")
 ```
 
 ## Consequences
