@@ -1,6 +1,6 @@
 ---
-title: "Introducing Harness Optimizer: An Automatic Solution for the Agent Harness"
-date: 2026-07-06
+title: "Introducing Harness Optimizer: automatically optimize your agent harness"
+date: 2026-07-10
 description: "Harness Optimizer is an open-source library that optimizes the context around your LLM agent (system prompt, tool docs, skills) the way you'd train a model: rollouts in, rewards out, parameters updated."
 authors:
   - guande-wu
@@ -35,7 +35,7 @@ In an automatic loop, the Formula runs steps that are similar to training models
 
 ![Training a model vs. optimizing a harness](./resources/harness-optimizer/training-vs-optimizing.png)
 
-In HarnessOptimizer, we have four major classes for forming the optimization loop, i.e., [**Formula**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/formulas/formula.py), [**RewardFunction**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/rewards/reward_function.py), [**FormulaOptimizer**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/optimizers/optimizer.py) (`.step()`), and [**Trainer**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/trainer.py).
+In Harness Optimizer, we have four major classes for forming the optimization loop, i.e., [**Formula**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/formulas/formula.py), [**RewardFunction**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/rewards/reward_function.py), [**FormulaOptimizer**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/optimizers/optimizer.py) (`.step()`), and [**Trainer**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/trainer.py).
 
 1. **Formula** is the recipe of editing a harness component, e.g., system prompt;
 2. **RewardFunction** evaluates the agent trace;
@@ -112,13 +112,13 @@ Each sub-agent analyzes one trace in its own context and returns the trace-speci
 
 ## A full loop, end to end
 
-We can wire the Formula and Optimizer up given a rollout engine (in the code snippet, we use the [`LocalRolloutEngine`](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/rollout_engines/local_engine.py) running on the local server), which generates the agent rollouts with the Formula to run the optimization with `Optimizer.fit()` as:
+We can wire the Formula and Optimizer up given a rollout engine (in the code snippet, we use the [`LocalRolloutEngine`](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/rollout_engines/local_engine.py) running on the local server), which generates the agent rollouts with the Formula to run the optimization with `trainer.fit()` as:
 
 ```python
-from strands_harness_optimizer import SystemPromptFormula, LocalRolloutEngine, Trainer
 from strands import Agent
+from strands_harness_optimizer import LocalRolloutEngine, Trainer
 from strands_harness_optimizer.formulas import SystemPromptFormula
-from strands_harness_optimizer.adapters import apply_formulas_on_strands_agent
+from strands_harness_optimizer.optimizers import ContrastiveReflectionOptimizer
 
 def agent_create() -> Agent:
     # The user's custom agent factory function
@@ -146,7 +146,7 @@ We ran the same loop on three hard, multi-step benchmarks, [AppWorld](https://ap
 
 ![Benchmark results](./resources/harness-optimizer/benchmark-results.png)
 
-The HarnessOptimizer improves the model performance on AppWorld by **+23 points** (72.6 → 95.8).
+The Harness Optimizer improves the model performance on AppWorld by **+23 points** (72.6 → 95.8).
 
 Both optimizers improve every benchmark over baseline, and the multi-agent optimizer comes out ahead. Same code path, no per-benchmark tuning.
 
@@ -154,7 +154,7 @@ Both optimizers improve every benchmark over baseline, and the multi-agent optim
 
 Harness Optimizer is a good fit when:
 
-- You have a reward signal to separate good from bad, whether a programmatic check or an LLM judge, e.g., [AgentCore Eval](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/optimization.html) and [Strands Eval](https://github.com/strands-agents/harness-sdk/tree/main/strands-py/strands-evals).
+- You have a reward signal to separate good from bad, whether a programmatic check or an LLM judge, e.g., [AgentCore Eval](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/evaluation.html) and [Strands Evals](https://github.com/strands-agents/evals).
 - Trajectories are long and the reward is diffuse. Reading the whole trace recovers signal that the real cause can be revealed from the long trajectory.
 - A new task carries rules the base prompt never mentioned. The optimizer surfaces them from real attempts.
 
@@ -175,7 +175,7 @@ pip install strands-harness-optimizer
 ```
 
 - Repo: [github.com/strands-labs/harness-optimizer](https://github.com/strands-labs/harness-optimizer). Star it, file issues, open a PR.
-- Docs: the user guide walks through [Formulas](https://github.com/strands-labs/harness-optimizer#formulas), [Adapters](https://github.com/strands-labs/harness-optimizer#adapters), [Rewards](https://github.com/strands-labs/harness-optimizer#rewards), [Optimizers](https://github.com/strands-labs/harness-optimizer#optimizers), and the [training loop](https://github.com/strands-labs/harness-optimizer#training-loop).
+- Docs: the user guide walks through [Formulas](https://github.com/strands-labs/harness-optimizer#formula-formulas), [Adapters](https://github.com/strands-labs/harness-optimizer#strands-adapter-adapters), [Rewards](https://github.com/strands-labs/harness-optimizer#rewardfunction-rewards), [Optimizers](https://github.com/strands-labs/harness-optimizer#formulaoptimizer-optimizers), and the [rollout engines](https://github.com/strands-labs/harness-optimizer#agentrolloutengine-rollout_engines).
 - Example: [`examples/gsm8k_trainer.py`](https://github.com/strands-labs/harness-optimizer/blob/main/examples/gsm8k_trainer.py) runs the whole loop on real math problems.
 - AgentCore Optimization: Customers can also use our [AgentCore Optimization](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/optimization.html) service on AWS for automatic agent optimization based on real production traces.
 
