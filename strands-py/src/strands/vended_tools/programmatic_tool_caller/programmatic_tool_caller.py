@@ -8,8 +8,8 @@ calls in a single turn instead of one tool call per model round-trip. Only text
 the code sends to ``print()`` is returned to the model; individual tool results
 stay in the code's local scope unless printed.
 
-This tool runs ``exec()`` on model-authored code in the host process. It does
-not sandbox that code, so it should only be used where the code the agent
+This tool runs model-authored code in the host process. It does not sandbox
+that code, so it should only be used where the code the agent
 produces is trusted (or the tool set it can reach is itself constrained via
 ``allowed_tools``). Tools that raise interrupts (human-in-the-loop) are not
 supported here, because interrupts cannot be raised from a direct tool call.
@@ -17,12 +17,12 @@ supported here, because interrupts cannot be raised from a direct tool call.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import importlib
 import io
 import logging
-import textwrap
 import traceback
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -36,11 +36,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Names the injected tools must not shadow: ``asyncio`` is always available to
-# user code and ``__name__`` is the base namespace key.
-_RESERVED_NAMESPACE_NAMES = frozenset({"asyncio", "__name__"})
+# Names the injected tools must not shadow: ``asyncio`` is always available to user code,
+# ``__builtins__`` holds the builtins the code relies on, and ``__name__`` is the base namespace key.
+_RESERVED_NAMESPACE_NAMES = frozenset({"asyncio", "__builtins__", "__name__"})
 
-_USER_CODE_FUNCTION_NAME = "__user_code__"
 _USER_CODE_FILENAME = "<programmatic_tool_caller>"
 
 
@@ -120,7 +119,7 @@ def _resolve_available_tools(agent: Any, allowed_tools: list[str] | None, self_n
 
 
 def _build_namespace(available_tools: set[str], agent: Any, extra_modules: list[str]) -> dict[str, Any]:
-    """Build the ``exec()`` namespace: base entries, extra modules, and tools.
+    """Build the code execution namespace: base entries, extra modules, and tools.
 
     The base namespace mirrors a fresh module (``__name__``) plus ``asyncio``
     (always needed for the async tool wrappers). Each name in ``extra_modules``
@@ -133,7 +132,7 @@ def _build_namespace(available_tools: set[str], agent: Any, extra_modules: list[
         extra_modules: Extra module names to import into the namespace.
 
     Returns:
-        A namespace dict ready to pass to ``exec()``.
+        A namespace dict for executing the code.
 
     Raises:
         ValueError: If a tool name collides with a reserved name (``asyncio``,
@@ -234,20 +233,23 @@ def make_programmatic_tool_caller(
         except ValueError as error:
             return _error_result(str(error))
 
-        # Wrap the user code in an async function so top-level ``await`` is legal.
-        wrapped_code = f"async def {_USER_CODE_FUNCTION_NAME}():\n{textwrap.indent(code, '    ')}\n"
+        # Compile with top-level-await support so the model can ``await`` tools directly. This avoids
+        # wrapping/indenting the code (which would corrupt continuation lines inside string literals)
+        # and keeps tracebacks pointing at the model's own line numbers.
         try:
-            compiled = compile(wrapped_code, _USER_CODE_FILENAME, "exec")
+            compiled = compile(code, _USER_CODE_FILENAME, "exec", flags=ast.PyCF_ALLOW_TOP_LEVEL_AWAIT)
         except SyntaxError:
             return _error_result(f"Syntax error:\n{traceback.format_exc()}")
 
         stdout_capture = io.StringIO()
         stderr_capture = io.StringIO()
         try:
-            # Defines __user_code__ in the namespace; running agent-authored code is this tool's purpose.
-            exec(compiled, exec_namespace)
             with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
-                await exec_namespace[_USER_CODE_FUNCTION_NAME]()
+                # ``eval`` runs synchronous code inline and returns a coroutine only when the code
+                # contains a top-level ``await``; running agent-authored code is this tool's purpose.
+                maybe_coroutine = eval(compiled, exec_namespace)
+                if maybe_coroutine is not None:
+                    await maybe_coroutine
         # SystemExit/KeyboardInterrupt raised by user code are caught so they do not tear down the host.
         except (SystemExit, KeyboardInterrupt) as error:
             return _error_result(f"Execution error: {type(error).__name__}: {error}")

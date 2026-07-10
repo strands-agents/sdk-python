@@ -115,6 +115,58 @@ class TestExecution:
         assert result["status"] == "success"
         assert _text(result) == "120"
 
+    @pytest.mark.asyncio
+    async def test_multiline_string_is_passed_through_verbatim(self):
+        # Regression: the code must not be reindented, or continuation lines inside
+        # string literals would be silently corrupted with leading whitespace.
+        agent = _agent(echo)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(
+            tool_caller,
+            agent,
+            'msg = """line one\nline two\nline three"""\nprint(await echo(text=msg))',
+        )
+        assert result["status"] == "success"
+        assert _text(result) == "line one\nline two\nline three"
+
+    @pytest.mark.asyncio
+    async def test_extra_modules_are_injected(self):
+        agent = _agent(echo)
+        tool_caller = make_programmatic_tool_caller(extra_modules=["json"])
+        result = _call(tool_caller, agent, 'print(json.dumps({"a": 1}))')
+        assert result["status"] == "success"
+        assert _text(result) == '{"a": 1}'
+
+    @pytest.mark.asyncio
+    async def test_stderr_is_captured(self):
+        agent = _agent(echo)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(
+            tool_caller,
+            agent,
+            "import sys\nprint('out')\nprint('err', file=sys.stderr)",
+        )
+        assert result["status"] == "success"
+        assert "out" in _text(result)
+        assert "[stderr]" in _text(result)
+        assert "err" in _text(result)
+
+    @pytest.mark.asyncio
+    async def test_code_without_top_level_await(self):
+        agent = _agent(echo)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, "print(2 + 2)")
+        assert result["status"] == "success"
+        assert _text(result) == "4"
+
+    @pytest.mark.asyncio
+    async def test_comment_only_code_is_a_no_op(self):
+        agent = _agent(echo)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, "# nothing to do here")
+        assert result["status"] == "success"
+        assert _text(result) == "(no output)"
+
 
 class TestToolExposure:
     """Which tools are visible to the executed code."""
