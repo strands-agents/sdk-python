@@ -7,3 +7,4 @@
 
 export { Checkpoint, CHECKPOINT_SCHEMA_VERSION } from './checkpoint.js'
 export type { CheckpointPosition, CheckpointData, CheckpointResumeContent } from './checkpoint.js'
+export { CheckpointError } from '../errors.js'
