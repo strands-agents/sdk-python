@@ -34,14 +34,32 @@ updates:
       semver-minor-days: 7
       semver-patch-days: 3
     groups:
-      # All development dependencies in one PR.
+      # Dev tooling in one PR, matched by name because Dependabot does not
+      # classify PEP 621 pyproject dependencies as development vs production,
+      # so dependency-type grouping never matches for pip and every bump,
+      # including dev tooling like mypy, opens its own PR.
+      # Keep these patterns in sync with the dev/docs extras in
+      # strands-py/pyproject.toml — anything missed here silently falls into
+      # production-minor.
       development-dependencies:
-        dependency-type: 'development'
         applies-to: version-updates
-      # Production minor + patch bumps in one PR.
+        patterns:
+          - 'boto3-stubs'
+          - 'commitizen'
+          - 'hatch'
+          - 'moto'
+          - 'mypy'
+          - 'pre-commit'
+          - 'pytest*'
+          - 'ruff'
+          - 'sphinx*'
+          - 'tenacity'
+      # Everything else: minor + patch bumps in one PR. A dependency joins the
+      # first group it matches, so dev tooling above never lands here.
       production-minor:
-        dependency-type: 'production'
         applies-to: version-updates
+        patterns:
+          - '*'
         update-types:
           - 'minor'
           - 'patch'
