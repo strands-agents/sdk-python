@@ -130,28 +130,6 @@ class TestExecution:
         assert _text(result) == "line one\nline two\nline three"
 
     @pytest.mark.asyncio
-    async def test_extra_modules_are_injected(self):
-        agent = _agent(echo)
-        tool_caller = make_programmatic_tool_caller(extra_modules=["json"])
-        result = _call(tool_caller, agent, 'print(json.dumps({"a": 1}))')
-        assert result["status"] == "success"
-        assert _text(result) == '{"a": 1}'
-
-    @pytest.mark.asyncio
-    async def test_stderr_is_captured(self):
-        agent = _agent(echo)
-        tool_caller = make_programmatic_tool_caller()
-        result = _call(
-            tool_caller,
-            agent,
-            "import sys\nprint('out')\nprint('err', file=sys.stderr)",
-        )
-        assert result["status"] == "success"
-        assert "out" in _text(result)
-        assert "[stderr]" in _text(result)
-        assert "err" in _text(result)
-
-    @pytest.mark.asyncio
     async def test_code_without_top_level_await(self):
         agent = _agent(echo)
         tool_caller = make_programmatic_tool_caller()
@@ -278,17 +256,31 @@ class TestNamespaceClash:
         assert "conflict" in _text(result)
 
     @pytest.mark.asyncio
-    async def test_clash_with_extra_module(self):
-        @tool(name="json")
-        def json_tool() -> str:
-            """A tool whose name collides with an injected extra module."""
+    async def test_clash_with_builtins(self):
+        @tool(name="__builtins__")
+        def builtins_tool() -> str:
+            """A tool whose name collides with the reserved ``__builtins__`` entry."""
             return "x"
 
-        agent = _agent(json_tool)
-        tool_caller = make_programmatic_tool_caller(extra_modules=["json"])
+        agent = _agent(builtins_tool)
+        tool_caller = make_programmatic_tool_caller()
         result = _call(tool_caller, agent, "print(1)")
         assert result["status"] == "error"
-        assert "json" in _text(result)
+        assert "__builtins__" in _text(result)
+        assert "conflict" in _text(result)
+
+    @pytest.mark.asyncio
+    async def test_clash_with_print(self):
+        @tool(name="print")
+        def print_tool() -> str:
+            """A tool whose name collides with the reserved ``print`` entry."""
+            return "x"
+
+        agent = _agent(print_tool)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, "print(1)")
+        assert result["status"] == "error"
+        assert "print" in _text(result)
         assert "conflict" in _text(result)
 
 

@@ -5,22 +5,29 @@ Provides :func:`make_programmatic_tool_caller` (a factory) and
 agent-authored Python code in which every other registered tool is exposed as
 an ``async`` function, so the model can chain, loop over, and parallelize tool
 calls in a single turn instead of one tool call per model round-trip. Only text
-the code sends to ``print()`` is returned to the model; individual tool results
+the code passes to ``print()`` is returned to the model; individual tool results
 stay in the code's local scope unless printed.
 
-This tool runs model-authored code in the host process. It does not sandbox
-that code, so it should only be used where the code the agent
-produces is trusted (or the tool set it can reach is itself constrained via
-``allowed_tools``). Tools that raise interrupts (human-in-the-loop) are not
-supported here, because interrupts cannot be raised from a direct tool call.
+Security: this tool runs model-authored code in the host process and does **not**
+sandbox it. ``allowed_tools`` controls which tools are exposed by name (for
+convenience and to limit accidental use); it is **not** a security boundary --
+code that is not fully trusted can still reach any registered tool, and the agent
+itself, through the objects it is handed. Only use this tool where the code the
+agent produces is trusted.
+
+Limitations:
+- Tools that raise interrupts (human-in-the-loop) are not supported here, because
+  interrupts cannot be raised from a direct tool call.
+- Background tasks created with ``asyncio.create_task`` that outlive the submitted
+  code are not awaited, and their output is not captured.
+- Tools whose registry names are not valid Python identifiers (for example, names
+  containing ``-``) are not reachable by name from the code.
 """
 
 from __future__ import annotations
 
 import ast
 import asyncio
-import contextlib
-import importlib
 import io
 import logging
 import traceback
@@ -37,8 +44,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Names the injected tools must not shadow: ``asyncio`` is always available to user code,
-# ``__builtins__`` holds the builtins the code relies on, and ``__name__`` is the base namespace key.
-_RESERVED_NAMESPACE_NAMES = frozenset({"asyncio", "__builtins__", "__name__"})
+# ``print`` is replaced with an output-capturing version, ``__builtins__`` holds the builtins
+# the code relies on, and ``__name__`` is the base namespace key.
+_RESERVED_NAMESPACE_NAMES = frozenset({"asyncio", "__builtins__", "__name__", "print"})
 
 _USER_CODE_FILENAME = "<programmatic_tool_caller>"
 
@@ -46,6 +54,22 @@ _USER_CODE_FILENAME = "<programmatic_tool_caller>"
 def _error_result(message: str) -> dict[str, Any]:
     """Build an error-status tool result carrying ``message`` as text."""
     return {"status": "error", "content": [{"text": message}]}
+
+
+def _make_capturing_print(buffer: io.StringIO) -> Callable[..., None]:
+    """Return a ``print`` replacement that writes to ``buffer`` by default.
+
+    Injecting this into the execution namespace captures the code's own
+    ``print()`` output without touching the process-global ``sys.stdout`` (which
+    would also capture unrelated concurrent output). A caller that passes an
+    explicit ``file=`` still overrides the destination.
+    """
+
+    def capturing_print(*args: Any, **kwargs: Any) -> None:
+        kwargs.setdefault("file", buffer)
+        print(*args, **kwargs)
+
+    return capturing_print
 
 
 def _execute_tool(agent: Any, tool_name: str, tool_input: dict[str, Any]) -> Any:
@@ -109,54 +133,48 @@ def _resolve_available_tools(agent: Any, allowed_tools: list[str] | None, self_n
 
     The tool never exposes itself. When ``allowed_tools`` is ``None`` every other
     registered tool is exposed; otherwise the exposed set is the intersection of
-    the registered tools with ``allowed_tools`` (names not registered are
-    silently ignored).
+    the registered tools with ``allowed_tools`` (names not registered are ignored
+    and logged, since a tool may be registered after the caller is created).
     """
     registered = set(agent.tool_registry.registry.keys()) - {self_name}
     if allowed_tools is None:
         return registered
-    return registered & set(allowed_tools)
+
+    available = registered & set(allowed_tools)
+    dropped = set(allowed_tools) - registered
+    if dropped:
+        logger.debug("dropped=<%s> | allowed_tools entries are not registered and were ignored", sorted(dropped))
+    return available
 
 
-def _build_namespace(available_tools: set[str], agent: Any, extra_modules: list[str]) -> dict[str, Any]:
-    """Build the code execution namespace: base entries, extra modules, and tools.
+def _build_namespace(available_tools: set[str], agent: Any) -> dict[str, Any]:
+    """Build the code execution namespace: base entries plus tool functions.
 
     The base namespace mirrors a fresh module (``__name__``) plus ``asyncio``
-    (always needed for the async tool wrappers). Each name in ``extra_modules``
-    is imported and injected; a module that cannot be imported is skipped with a
-    warning. Tools are then injected as ``async`` callables.
+    (always needed for the async tool wrappers). Tools are injected as ``async``
+    callables. The output-capturing ``print`` is injected separately by the
+    caller so it can bind the per-call output buffer.
 
     Args:
         available_tools: Registry names of the tools to inject.
         agent: The agent whose tools are being wrapped.
-        extra_modules: Extra module names to import into the namespace.
 
     Returns:
         A namespace dict for executing the code.
 
     Raises:
         ValueError: If a tool name collides with a reserved name (``asyncio``,
-            ``__name__``) or with an injected extra module, which would shadow
-            it in the namespace.
+            ``print``, ``__builtins__``, ``__name__``), which would shadow it in
+            the namespace.
     """
-    namespace: dict[str, Any] = {"__name__": "__main__", "asyncio": asyncio}
-
-    reserved_names = set(_RESERVED_NAMESPACE_NAMES)
-    for module_name in extra_modules:
-        try:
-            namespace[module_name] = importlib.import_module(module_name)
-        except ImportError:
-            logger.warning("module_name=<%s> | could not import extra module, skipping", module_name)
-            continue
-        reserved_names.add(module_name)
-
-    clashing_tools = available_tools & reserved_names
+    clashing_tools = available_tools & _RESERVED_NAMESPACE_NAMES
     if clashing_tools:
         raise ValueError(
             f"Tool name(s) {sorted(clashing_tools)} conflict with reserved namespace entries "
-            f"{sorted(reserved_names)}. Rename the tool(s) or restrict the exposed set via allowed_tools."
+            f"{sorted(_RESERVED_NAMESPACE_NAMES)}. Rename the tool(s) or restrict the exposed set via allowed_tools."
         )
 
+    namespace: dict[str, Any] = {"__name__": "__main__", "asyncio": asyncio}
     for tool_name in available_tools:
         namespace[tool_name] = _make_async_tool_function(agent, tool_name)
 
@@ -166,7 +184,6 @@ def _build_namespace(available_tools: set[str], agent: Any, extra_modules: list[
 def make_programmatic_tool_caller(
     *,
     allowed_tools: list[str] | None = None,
-    extra_modules: list[str] | None = None,
     name: str = "programmatic_tool_caller",
     description: str = DEFAULT_PROGRAMMATIC_TOOL_CALLER_DESCRIPTION,
 ) -> DecoratedFunctionTool:
@@ -176,13 +193,14 @@ def make_programmatic_tool_caller(
     other tools are exposed as ``async`` functions (``await tool_name(...)``).
     Only ``print()`` output is returned to the model.
 
+    This tool runs model-authored code in the host process without sandboxing it;
+    see the module docstring for the security and reachability caveats.
+
     Args:
         allowed_tools: Registry names of the tools to expose to the code. When
             ``None`` (the default), every other registered tool is exposed. The
-            caller tool never exposes itself.
-        extra_modules: Extra Python module names (e.g. ``["json", "math"]``) to
-            import into the execution namespace. Defaults to none; ``asyncio`` is
-            always available. Code may also ``import`` modules itself.
+            caller tool never exposes itself. This limits which tools are exposed
+            by name; it is not a security boundary.
         name: Tool name. Defaults to ``"programmatic_tool_caller"``.
         description: Tool description shown to the model.
 
@@ -190,7 +208,6 @@ def make_programmatic_tool_caller(
         A decorated tool that runs code with access to the agent's other tools.
     """
     resolved_allowed_tools = list(allowed_tools) if allowed_tools is not None else None
-    resolved_extra_modules = list(extra_modules) if extra_modules is not None else []
 
     @tool(name=name, description=description, context="tool_context")
     async def programmatic_tool_caller_tool(code: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -199,7 +216,8 @@ def make_programmatic_tool_caller(
         Tools are available as ``async`` functions, so call them with ``await``.
         The code already runs in an async context; ``asyncio`` is available for
         patterns like ``asyncio.gather(...)``. Only text passed to ``print()`` is
-        returned; a tool's return value stays local unless you print it.
+        returned; a tool's return value stays local unless you print it, and a
+        tool that fails raises an exception you can catch with ``try``/``except``.
 
         Example:
             ```python
@@ -229,7 +247,7 @@ def make_programmatic_tool_caller(
         available_tools = _resolve_available_tools(agent, resolved_allowed_tools, name)
 
         try:
-            exec_namespace = _build_namespace(available_tools, agent, resolved_extra_modules)
+            exec_namespace = _build_namespace(available_tools, agent)
         except ValueError as error:
             return _error_result(str(error))
 
@@ -241,27 +259,22 @@ def make_programmatic_tool_caller(
         except SyntaxError:
             return _error_result(f"Syntax error:\n{traceback.format_exc()}")
 
-        stdout_capture = io.StringIO()
-        stderr_capture = io.StringIO()
+        output_buffer = io.StringIO()
+        exec_namespace["print"] = _make_capturing_print(output_buffer)
+
         try:
-            with contextlib.redirect_stdout(stdout_capture), contextlib.redirect_stderr(stderr_capture):
-                # ``eval`` runs synchronous code inline and returns a coroutine only when the code
-                # contains a top-level ``await``; running agent-authored code is this tool's purpose.
-                maybe_coroutine = eval(compiled, exec_namespace)
-                if maybe_coroutine is not None:
-                    await maybe_coroutine
+            # ``eval`` runs synchronous code inline and returns a coroutine only when the code
+            # contains a top-level ``await``; running agent-authored code is this tool's purpose.
+            maybe_coroutine = eval(compiled, exec_namespace)
+            if maybe_coroutine is not None:
+                await maybe_coroutine
         # SystemExit/KeyboardInterrupt raised by user code are caught so they do not tear down the host.
         except (SystemExit, KeyboardInterrupt) as error:
             return _error_result(f"Execution error: {type(error).__name__}: {error}")
         except Exception:
             return _error_result(f"Execution error:\n{traceback.format_exc()}")
 
-        captured_output = stdout_capture.getvalue()
-        stderr_output = stderr_capture.getvalue()
-        if stderr_output:
-            captured_output += f"\n[stderr]\n{stderr_output}"
-
-        text = captured_output.strip() or "(no output)"
+        text = output_buffer.getvalue().strip() or "(no output)"
         return {"status": "success", "content": [{"text": text}]}
 
     return programmatic_tool_caller_tool
