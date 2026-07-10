@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:56](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L56)
+Defined in: [src/types/messages.ts:70](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L70)
 
 A message in a conversation between user and assistant. Each message has a role (user or assistant) and an array of content blocks.
 
@@ -14,15 +14,16 @@ A message in a conversation between user and assistant. Each message has a role 
 new Message(data): Message;
 ```
 
-Defined in: [src/types/messages.ts:77](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L77)
+Defined in: [src/types/messages.ts:101](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L101)
 
 #### Parameters
 
 | Parameter | Type |
 | --- | --- |
-| `data` | { `role`: [`Role`](/docs/api/typescript/Role/index.md); `content`: [`ContentBlock`](/docs/api/typescript/ContentBlock/index.md)\[\]; `metadata?`: `MessageMetadata`; } |
+| `data` | { `role`: [`Role`](/docs/api/typescript/Role/index.md); `content`: [`ContentBlock`](/docs/api/typescript/ContentBlock/index.md)\[\]; `trackingId?`: `string`; `metadata?`: `MessageMetadata`; } |
 | `data.role` | [`Role`](/docs/api/typescript/Role/index.md) |
 | `data.content` | [`ContentBlock`](/docs/api/typescript/ContentBlock/index.md)\[\] |
+| `data.trackingId?` | `string` |
 | `data.metadata?` | `MessageMetadata` |
 
 #### Returns
@@ -37,7 +38,7 @@ Defined in: [src/types/messages.ts:77](https://github.com/strands-agents/harness
 readonly type: "message";
 ```
 
-Defined in: [src/types/messages.ts:60](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L60)
+Defined in: [src/types/messages.ts:74](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L74)
 
 Discriminator for message type.
 
@@ -49,7 +50,7 @@ Discriminator for message type.
 readonly role: Role;
 ```
 
-Defined in: [src/types/messages.ts:65](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L65)
+Defined in: [src/types/messages.ts:79](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L79)
 
 The role of the message sender.
 
@@ -61,9 +62,21 @@ The role of the message sender.
 readonly content: ContentBlock[];
 ```
 
-Defined in: [src/types/messages.ts:70](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L70)
+Defined in: [src/types/messages.ts:84](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L84)
 
 Array of content blocks that make up this message.
+
+---
+
+### trackingId
+
+```ts
+readonly trackingId: string;
+```
+
+Defined in: [src/types/messages.ts:94](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L94)
+
+Durable, stable UUID for the message, assigned at construction. Every Message has one — a caller-supplied id is preserved, otherwise a fresh UUID is minted (so callers do not normally set it; a caller supplying its own should use a UUID v4, e.g. `crypto.randomUUID()`). Survives session save/restore, and is stripped before model calls. Preserved when a message is copied or restored, so ids are unique within a conversation, but the same message carries the same id across sessions (copying another agent’s messages does not re-key them).
 
 ---
 
@@ -73,7 +86,7 @@ Array of content blocks that make up this message.
 optional metadata?: MessageMetadata;
 ```
 
-Defined in: [src/types/messages.ts:75](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L75)
+Defined in: [src/types/messages.ts:99](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L99)
 
 Optional metadata, not sent to model providers.
 
@@ -85,7 +98,7 @@ Optional metadata, not sent to model providers.
 static fromMessageData(data): Message;
 ```
 
-Defined in: [src/types/messages.ts:88](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L88)
+Defined in: [src/types/messages.ts:115](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L115)
 
 Creates a Message instance from MessageData.
 
@@ -107,7 +120,7 @@ Creates a Message instance from MessageData.
 toJSON(): MessageData;
 ```
 
-Defined in: [src/types/messages.ts:102](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L102)
+Defined in: [src/types/messages.ts:131](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L131)
 
 Serializes the Message to a JSON-compatible MessageData object. Called automatically by JSON.stringify().
 
@@ -129,7 +142,7 @@ JSONSerializable.toJSON
 static fromJSON(data): Message;
 ```
 
-Defined in: [src/types/messages.ts:117](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L117)
+Defined in: [src/types/messages.ts:147](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L147)
 
 Creates a Message instance from MessageData. Alias for fromMessageData for API consistency.
 
@@ -153,7 +166,7 @@ Message instance
 clone(): Message;
 ```
 
-Defined in: [src/types/messages.ts:124](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L124)
+Defined in: [src/types/messages.ts:154](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L154)
 
 Creates a deep copy of this Message (round-trips through serialization).
 

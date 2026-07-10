@@ -2,7 +2,7 @@
 type GuardQualifier = "grounding_source" | "query" | "guard_content";
 ```
 
-Defined in: [src/types/messages.ts:791](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L791)
+Defined in: [src/types/messages.ts:821](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L821)
 
 Qualifier for guard content. Specifies how the content should be evaluated by guardrails.
 

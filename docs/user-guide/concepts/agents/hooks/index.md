@@ -21,7 +21,7 @@ Hook callbacks are registered against specific event types and receive strongly-
 
 ### Registering Individual Hook Callbacks
 
-The simplest way to register a hook callback is using the `agent.add_hook()` `agent.addHook()`  method:
+The simplest way to register a hook callback is using the `agent.add_hook()``agent.addHook()` method:
 
 (( tab "Python" ))
 ```python

@@ -54,7 +54,7 @@ The injected system prompt metadata looks like this:
 </available_skills>
 ```
 
-This XML block is refreshed before each invocation, so changes to available skills (through `set_available_skills` `setAvailableSkills`  ) take effect immediately. Activated skills are tracked in [agent state](/docs/user-guide/concepts/agents/state/index.md) for session persistence.
+This XML block is refreshed before each invocation, so changes to available skills (through `set_available_skills``setAvailableSkills`) take effect immediately. Activated skills are tracked in [agent state](/docs/user-guide/concepts/agents/state/index.md) for session persistence.
 
 ## Usage
 
@@ -328,7 +328,7 @@ The `allowed-tools` field is currently informational. When a skill is activated,
 
 Name validation
 
-Skill names must match the parent directory name. By default, validation issues produce warnings rather than errors. Pass `strict=True` `strict: true`  to raise exceptions instead.
+Skill names must match the parent directory name. By default, validation issues produce warnings rather than errors. Pass `strict=True``strict: true` to raise exceptions instead.
 
 ### Resource directories
 

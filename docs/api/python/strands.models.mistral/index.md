@@ -25,7 +25,7 @@ The implementation handles Mistral-specific features such as:
 class MistralConfig(BaseModelConfig)
 ```
 
-Defined in: [src/strands/models/mistral.py:40](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L40)
+Defined in: [src/strands/models/mistral.py:45](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L45)
 
 Configuration parameters for Mistral models.
 
@@ -46,7 +46,7 @@ def __init__(api_key: str | None = None,
              **model_config: Unpack[MistralConfig]) -> None
 ```
 
-Defined in: [src/strands/models/mistral.py:57](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L57)
+Defined in: [src/strands/models/mistral.py:62](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L62)
 
 Initialize provider instance.
 
@@ -63,7 +63,7 @@ Initialize provider instance.
 def update_config(**model_config: Unpack[MistralConfig]) -> None
 ```
 
-Defined in: [src/strands/models/mistral.py:102](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L102)
+Defined in: [src/strands/models/mistral.py:107](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L107)
 
 Update the Mistral Model configuration with the provided arguments.
 
@@ -78,7 +78,7 @@ Update the Mistral Model configuration with the provided arguments.
 def get_config() -> MistralConfig
 ```
 
-Defined in: [src/strands/models/mistral.py:112](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L112)
+Defined in: [src/strands/models/mistral.py:117](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L117)
 
 Get the Mistral model configuration.
 
@@ -94,7 +94,7 @@ def format_request(messages: Messages,
                    system_prompt: str | None = None) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/models/mistral.py:245](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L245)
+Defined in: [src/strands/models/mistral.py:250](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L250)
 
 Format a Mistral chat streaming request.
 
@@ -118,7 +118,7 @@ A Mistral chat streaming request.
 def format_chunk(event: dict[str, Any]) -> StreamEvent
 ```
 
-Defined in: [src/strands/models/mistral.py:291](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L291)
+Defined in: [src/strands/models/mistral.py:296](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L296)
 
 Format the Mistral response events into standardized message chunks.
 
@@ -146,7 +146,7 @@ async def stream(messages: Messages,
                  **kwargs: Any) -> AsyncGenerator[StreamEvent, None]
 ```
 
-Defined in: [src/strands/models/mistral.py:402](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L402)
+Defined in: [src/strands/models/mistral.py:407](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L407)
 
 Stream conversation with the Mistral model.
 
@@ -164,6 +164,7 @@ Formatted message chunks from the model.
 
 **Raises**:
 
+-   `ContextWindowOverflowException` - If the input exceeds the model’s context window.
 -   `ModelThrottledException` - When the model service is throttling requests.
 
 #### structured\_output
@@ -177,7 +178,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/mistral.py:511](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L511)
+Defined in: [src/strands/models/mistral.py:519](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/mistral.py#L519)
 
 Get structured output from the model.
 
@@ -194,4 +195,5 @@ An instance of the output model with the generated data.
 
 **Raises**:
 
+-   `ContextWindowOverflowException` - If the input exceeds the model’s context window.
 -   `ValueError` - If the response cannot be parsed into the output model.

@@ -6,7 +6,7 @@ Tool loading utilities.
 def load_tool_from_string(tool_string: str) -> list[AgentTool]
 ```
 
-Defined in: [src/strands/tools/loader.py:23](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L23)
+Defined in: [src/strands/tools/loader.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L77)
 
 Load tools follows strands supported input string formats.
 
@@ -21,7 +21,7 @@ This function can load a tool based on a string in the following ways:
 def load_tools_from_file_path(tool_path: str) -> list[AgentTool]
 ```
 
-Defined in: [src/strands/tools/loader.py:45](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L45)
+Defined in: [src/strands/tools/loader.py:99](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L99)
 
 Load module from specified path, and then load tools from that module.
 
@@ -33,7 +33,7 @@ This function attempts to load the passed in path as a python module, and if it 
 def load_tools_from_module_path(module_tool_path: str) -> list[AgentTool]
 ```
 
-Defined in: [src/strands/tools/loader.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L77)
+Defined in: [src/strands/tools/loader.py:120](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L120)
 
 Load strands tool from a module path.
 
@@ -46,7 +46,7 @@ def load_tools_from_module(module: ModuleType,
                            module_name: str) -> list[AgentTool]
 ```
 
-Defined in: [src/strands/tools/loader.py:108](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L108)
+Defined in: [src/strands/tools/loader.py:151](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L151)
 
 Load tools from a module.
 
@@ -58,7 +58,7 @@ First checks if the passed in module has instances of DecoratedToolFunction clas
 class ToolLoader()
 ```
 
-Defined in: [src/strands/tools/loader.py:152](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L152)
+Defined in: [src/strands/tools/loader.py:195](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L195)
 
 Handles loading of tools from different sources.
 
@@ -69,7 +69,7 @@ Handles loading of tools from different sources.
 def load_python_tools(tool_path: str, tool_name: str) -> list[AgentTool]
 ```
 
-Defined in: [src/strands/tools/loader.py:156](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L156)
+Defined in: [src/strands/tools/loader.py:199](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L199)
 
 DEPRECATED: Load a Python tool module and return all discovered function-based tools as a list.
 
@@ -82,7 +82,7 @@ This method always returns a list of AgentTool (possibly length 1). It is the ca
 def load_python_tool(tool_path: str, tool_name: str) -> AgentTool
 ```
 
-Defined in: [src/strands/tools/loader.py:243](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L243)
+Defined in: [src/strands/tools/loader.py:278](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L278)
 
 DEPRECATED: Load a Python tool module and return a single AgentTool for backwards compatibility.
 
@@ -95,7 +95,7 @@ Use `load_python_tools` to retrieve all tools defined in a .py file (returns a l
 def load_tool(cls, tool_path: str, tool_name: str) -> AgentTool
 ```
 
-Defined in: [src/strands/tools/loader.py:262](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L262)
+Defined in: [src/strands/tools/loader.py:297](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L297)
 
 DEPRECATED: Load a single tool based on its file extension for backwards compatibility.
 
@@ -108,7 +108,7 @@ Use `load_tools` to retrieve all tools defined in a file (returns a list). This 
 def load_tools(cls, tool_path: str, tool_name: str) -> list[AgentTool]
 ```
 
-Defined in: [src/strands/tools/loader.py:282](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L282)
+Defined in: [src/strands/tools/loader.py:317](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/tools/loader.py#L317)
 
 DEPRECATED: Load tools from a file based on its file extension.
 

@@ -2,7 +2,7 @@ Looking for something beyond the built-in implementations? Build a custom sandbo
 
 ## Extending PosixShellSandbox
 
-`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `execute_streaming` `executeStreaming`  (run a shell command via your backend and stream the output), you get everything else for free:
+`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `execute_streaming``executeStreaming` (run a shell command via your backend and stream the output), you get everything else for free:
 
 -   Code execution via base64-encoded heredoc piped to the interpreter
 -   File read/write via base64 encoding over the shell
@@ -126,7 +126,7 @@ def get_tools(self) -> list[AgentTool]:
 
 ## Extend the base interface directly
 
-For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: `execute_streaming` `executeStreaming`  , `execute_code_streaming` `executeCodeStreaming`  , `read_file` `readFile`  , `write_file` `writeFile`  , `remove_file` `removeFile`  , and `list_files` `listFiles`  .
+For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: `execute_streaming``executeStreaming`, `execute_code_streaming``executeCodeStreaming`, `read_file``readFile`, `write_file``writeFile`, `remove_file``removeFile`, and `list_files``listFiles`.
 
 Prefer the shell base whenever your backend can run `sh -c`. Reach for the raw interface only when shaping every operation as a shell command would be a worse fit than calling your backend’s native API.
 

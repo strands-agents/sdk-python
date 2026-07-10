@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:357](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L357)
+Defined in: [src/types/messages.ts:387](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L387)
 
 Tool result content block.
 
@@ -14,7 +14,7 @@ Tool result content block.
 new ToolResultBlock(data): ToolResultBlock;
 ```
 
-Defined in: [src/types/messages.ts:385](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L385)
+Defined in: [src/types/messages.ts:415](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L415)
 
 #### Parameters
 
@@ -38,7 +38,7 @@ Defined in: [src/types/messages.ts:385](https://github.com/strands-agents/harnes
 readonly type: "toolResultBlock";
 ```
 
-Defined in: [src/types/messages.ts:361](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L361)
+Defined in: [src/types/messages.ts:391](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L391)
 
 Discriminator for tool result content.
 
@@ -50,7 +50,7 @@ Discriminator for tool result content.
 readonly toolUseId: string;
 ```
 
-Defined in: [src/types/messages.ts:366](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L366)
+Defined in: [src/types/messages.ts:396](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L396)
 
 The ID of the tool use that this result corresponds to.
 
@@ -62,7 +62,7 @@ The ID of the tool use that this result corresponds to.
 readonly status: "success" | "error";
 ```
 
-Defined in: [src/types/messages.ts:371](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L371)
+Defined in: [src/types/messages.ts:401](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L401)
 
 Status of the tool execution.
 
@@ -74,7 +74,7 @@ Status of the tool execution.
 readonly content: ToolResultContent[];
 ```
 
-Defined in: [src/types/messages.ts:376](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L376)
+Defined in: [src/types/messages.ts:406](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L406)
 
 The content returned by the tool.
 
@@ -86,7 +86,7 @@ The content returned by the tool.
 readonly optional error?: Error;
 ```
 
-Defined in: [src/types/messages.ts:383](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L383)
+Defined in: [src/types/messages.ts:413](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L413)
 
 The original error object when status is ‘error’. Available for inspection by hooks, error handlers, and agent loop. Tools must wrap non-Error thrown values into Error objects.
 
@@ -100,7 +100,7 @@ toJSON(): {
 };
 ```
 
-Defined in: [src/types/messages.ts:399](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L399)
+Defined in: [src/types/messages.ts:429](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L429)
 
 Serializes the ToolResultBlock to a JSON-compatible ContentBlockData object. Called automatically by JSON.stringify(). Note: The error field is not serialized (deferred for future implementation).
 
@@ -114,7 +114,7 @@ Serializes the ToolResultBlock to a JSON-compatible ContentBlockData object. Cal
 
 | Name | Type | Defined in |
 | --- | --- | --- |
-| `toolResult` | [`ToolResultBlockData`](/docs/api/typescript/ToolResultBlockData/index.md) | [src/types/messages.ts:399](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L399) |
+| `toolResult` | [`ToolResultBlockData`](/docs/api/typescript/ToolResultBlockData/index.md) | [src/types/messages.ts:429](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L429) |
 
 #### Implementation of
 
@@ -130,7 +130,7 @@ JSONSerializable.toJSON
 static fromJSON(data): ToolResultBlock;
 ```
 
-Defined in: [src/types/messages.ts:415](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L415)
+Defined in: [src/types/messages.ts:445](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L445)
 
 Creates a ToolResultBlock instance from its wrapped data format.
 

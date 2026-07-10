@@ -240,7 +240,7 @@ if (result && !result.passed) {
 ```
 (( /tab "TypeScript" ))
 
-The result is `None` `undefined`  before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
+The result is `None``undefined` before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
 
 ### Stateless Retries
 
@@ -266,7 +266,7 @@ const plugin = new GoalLoop({
 ```
 (( /tab "TypeScript" ))
 
-The snapshot excludes agent state ( `state` `appState`  ) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
+The snapshot excludes agent state (`state``appState`) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
 
 ### Custom Judge Configuration
 
@@ -306,7 +306,7 @@ const plugin = new GoalLoop({
 
 ### Custom Resume Prompt
 
-Override how feedback is injected before each retry. The template receives the trimmed feedback string (or `None` `undefined`  when the validator gave none) and returns the user message content:
+Override how feedback is injected before each retry. The template receives the trimmed feedback string (or `None``undefined` when the validator gave none) and returns the user message content:
 
 (( tab "Python" ))
 ```python

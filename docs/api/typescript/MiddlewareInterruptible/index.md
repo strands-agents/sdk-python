@@ -1,4 +1,4 @@
-Defined in: [src/middleware/stages.ts:38](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/middleware/stages.ts#L38)
+Defined in: [src/middleware/stages.ts:38](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/middleware/stages.ts#L38)
 
 Interface for middleware contexts that support interrupts. Unlike the hook/tool `Interruptible`, middleware interrupts return a wrapper object to allow non-breaking additions in the future.
 
@@ -14,7 +14,7 @@ Interface for middleware contexts that support interrupts. Unlike the hook/tool 
 interrupt<T>(params): MiddlewareInterruptResult<T>;
 ```
 
-Defined in: [src/middleware/stages.ts:50](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/middleware/stages.ts#L50)
+Defined in: [src/middleware/stages.ts:50](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/middleware/stages.ts#L50)
 
 Request a human-in-the-loop interrupt.
 

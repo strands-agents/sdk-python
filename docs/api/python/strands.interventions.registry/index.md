@@ -8,7 +8,7 @@ Registers one hook callback per lifecycle event type, dispatches to all handlers
 class InterventionRegistry()
 ```
 
-Defined in: [src/strands/interventions/registry.py:27](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/interventions/registry.py#L27)
+Defined in: [src/strands/interventions/registry.py:28](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/interventions/registry.py#L28)
 
 Bridges InterventionHandler instances and the Strands hook system.
 
@@ -21,7 +21,7 @@ def __init__(handlers: list[InterventionHandler],
              hook_registry: HookRegistry) -> None
 ```
 
-Defined in: [src/strands/interventions/registry.py:34](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/interventions/registry.py#L34)
+Defined in: [src/strands/interventions/registry.py:35](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/interventions/registry.py#L35)
 
 Initialize the registry and wire handlers into the hook system.
 
@@ -41,6 +41,6 @@ Initialize the registry and wire handlers into the hook system.
 def handlers() -> list[InterventionHandler]
 ```
 
-Defined in: [src/strands/interventions/registry.py:54](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/interventions/registry.py#L54)
+Defined in: [src/strands/interventions/registry.py:55](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/interventions/registry.py#L55)
 
 Registered handlers in registration order.

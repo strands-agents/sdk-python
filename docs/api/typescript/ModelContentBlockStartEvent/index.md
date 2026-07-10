@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:101](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/models/streaming.ts#L101)
+Defined in: [src/models/streaming.ts:101](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/streaming.ts#L101)
 
 Event emitted when a new content block starts in the stream.
 
@@ -14,7 +14,7 @@ Event emitted when a new content block starts in the stream.
 new ModelContentBlockStartEvent(data): ModelContentBlockStartEvent;
 ```
 
-Defined in: [src/models/streaming.ts:113](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/models/streaming.ts#L113)
+Defined in: [src/models/streaming.ts:113](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/streaming.ts#L113)
 
 #### Parameters
 
@@ -34,7 +34,7 @@ Defined in: [src/models/streaming.ts:113](https://github.com/strands-agents/harn
 readonly type: "modelContentBlockStartEvent";
 ```
 
-Defined in: [src/models/streaming.ts:105](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/models/streaming.ts#L105)
+Defined in: [src/models/streaming.ts:105](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/streaming.ts#L105)
 
 Discriminator for content block start events.
 
@@ -50,7 +50,7 @@ Discriminator for content block start events.
 readonly optional start?: ToolUseStart;
 ```
 
-Defined in: [src/models/streaming.ts:111](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/models/streaming.ts#L111)
+Defined in: [src/models/streaming.ts:111](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/streaming.ts#L111)
 
 Information about the content block being started. Only present for tool use blocks.
 

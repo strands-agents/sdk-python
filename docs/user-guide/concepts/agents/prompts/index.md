@@ -108,7 +108,7 @@ result = agent.tool.current_time(timezone="US/Pacific")
 ```
 (( /tab "TypeScript" ))
 
-Direct tool calls bypass the natural language interface and execute the tool using specified parameters. These calls are added to the conversation history by default. However, you can opt out of this behavior by setting `record_direct_tool_call=False` `recordDirectToolCall: false`  .
+Direct tool calls bypass the natural language interface and execute the tool using specified parameters. These calls are added to the conversation history by default. However, you can opt out of this behavior by setting `record_direct_tool_call=False``recordDirectToolCall: false`.
 
 ## Prompt Engineering
 

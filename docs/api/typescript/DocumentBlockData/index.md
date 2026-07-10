@@ -1,4 +1,4 @@
-Defined in: [src/types/media.ts:398](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/media.ts#L398)
+Defined in: [src/types/media.ts:397](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/media.ts#L397)
 
 Data for a document block.
 
@@ -10,7 +10,7 @@ Data for a document block.
 name: string;
 ```
 
-Defined in: [src/types/media.ts:402](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/media.ts#L402)
+Defined in: [src/types/media.ts:401](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/media.ts#L401)
 
 Document name.
 
@@ -22,7 +22,7 @@ Document name.
 format: DocumentFormat;
 ```
 
-Defined in: [src/types/media.ts:407](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/media.ts#L407)
+Defined in: [src/types/media.ts:406](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/media.ts#L406)
 
 Document format.
 
@@ -34,7 +34,7 @@ Document format.
 source: DocumentSourceData;
 ```
 
-Defined in: [src/types/media.ts:412](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/media.ts#L412)
+Defined in: [src/types/media.ts:411](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/media.ts#L411)
 
 Document source.
 
@@ -48,7 +48,7 @@ optional citations?: {
 };
 ```
 
-Defined in: [src/types/media.ts:417](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/media.ts#L417)
+Defined in: [src/types/media.ts:416](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/media.ts#L416)
 
 Citation configuration.
 
@@ -66,6 +66,6 @@ enabled: boolean;
 optional context?: string;
 ```
 
-Defined in: [src/types/media.ts:422](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/media.ts#L422)
+Defined in: [src/types/media.ts:421](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/media.ts#L421)
 
 Context information for the document.

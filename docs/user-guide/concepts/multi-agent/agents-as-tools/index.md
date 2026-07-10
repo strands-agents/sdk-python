@@ -27,7 +27,7 @@ When implementing the “Agents as Tools” pattern with Strands Agents SDK:
 
 ## Implementing Agents as Tools with Strands Agents SDK
 
-Strands Agents SDK provides three ways to implement the “Agents as Tools” pattern: passing agents directly in the `tools` array for the simplest setup, `.as_tool()` `.asTool()`  when you need to customize tool name, description, or context behavior, and the `@tool` decorator or `tool()` function for full control over how the agent is invoked.
+Strands Agents SDK provides three ways to implement the “Agents as Tools” pattern: passing agents directly in the `tools` array for the simplest setup, `.as_tool()``.asTool()` when you need to customize tool name, description, or context behavior, and the `@tool` decorator or `tool()` function for full control over how the agent is invoked.
 
 ```mermaid
 flowchart TD
@@ -129,7 +129,7 @@ Always select the most appropriate tool based on the user's query.`,
 
 ### Customizing Agent Tools
 
-When you need to customize the tool name, description, or context behavior, use `.as_tool()` `.asTool()`  explicitly:
+When you need to customize the tool name, description, or context behavior, use `.as_tool()``.asTool()` explicitly:
 
 (( tab "Python" ))
 ```python
@@ -162,7 +162,7 @@ const orchestrator = new Agent({
 
 #### Context Management
 
-By default, both direct passing and `.as_tool()` `.asTool()`  reset the agent’s conversation context between invocations, ensuring every call starts from a clean baseline. To preserve the agent’s conversation history across invocations:
+By default, both direct passing and `.as_tool()``.asTool()` reset the agent’s conversation context between invocations, ensuring every call starts from a clean baseline. To preserve the agent’s conversation history across invocations:
 
 (( tab "Python" ))
 ```python

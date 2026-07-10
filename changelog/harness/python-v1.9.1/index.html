@@ -1,0 +1,739 @@
+<!DOCTYPE html><html lang="en" dir="ltr" data-theme="dark" data-has-hero class="astro-vdxcvpsm"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Harness Python v1.9.1 | Strands Agents</title><link rel="sitemap" href="/sitemap-index.xml"/><link rel="canonical" href="https://strandsagents.com/changelog/harness/python-v1.9.1/"/><link rel="alternate" type="application/rss+xml" title="Strands Agents Changelog" href="/changelog/feed.xml"/><link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml"/><meta name="generator" content="Astro v7.0.6"/><meta name="generator" content="Starlight v0.41.3"/><meta property="og:url" content="https://strandsagents.com/changelog/harness/python-v1.9.1/"/><meta property="og:locale" content="en"/><meta property="og:site_name" content="Strands Agents"/><meta name="twitter:card" content="summary_large_image"/><meta name="description" content="Release notes for Harness Python v1.9.1, published Sep 19, 2025."/><meta property="og:image" content="https://strandsagents.com/og-image.png"/><meta name="twitter:image" content="https://strandsagents.com/og-image.png"/><meta property="og:title" content="Harness Python v1.9.1"/><meta property="og:type" content="website"/><meta property="og:description" content="Release notes for Harness Python v1.9.1, published Sep 19, 2025."/><!-- Favicon - uses logo-auto.svg which adapts to light/dark mode via prefers-color-scheme --><link rel="icon" type="image/svg+xml" href="/favicon.svg"><!-- AWS Shortbread cookie consent --><link rel="stylesheet" href="https://prod.assets.shortbread.aws.dev/shortbread.css"><script src="https://prod.assets.shortbread.aws.dev/shortbread.js"></script><script>
+  /**
+   * Shortbread Cookie Consent and AWS Analytics WebSDK Initialization
+   * CRITICAL: Site must operate even if Shortbread is unavailable.
+   */
+  ;(function () {
+    'use strict'
+
+    const hostname = window.location.hostname
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1'
+    const isCloudFrontPreview = hostname === 'd3ehv1nix5p99z.cloudfront.net'
+    const isProduction = hostname.endsWith('.strandsagents.com') || hostname === 'strandsagents.com'
+
+    const domain = isLocal || isCloudFrontPreview ? hostname : '.strandsagents.com'
+
+    let webSdkStage, webSdkDomain
+    if (isProduction) {
+      webSdkStage = 'prod'
+      webSdkDomain = 'https://d0.m.awsstatic.com'
+    } else if (isLocal) {
+      webSdkStage = 'alpha'
+      webSdkDomain = 'https://da0.m.awsstatic.com'
+    } else {
+      webSdkStage = 'gamma'
+      webSdkDomain = 'https://dg0.m.awsstatic.com'
+    }
+
+    if (typeof AWSCShortbread === 'undefined') {
+      console.warn('Shortbread unavailable. Using essential cookies only.')
+      return
+    }
+
+    try {
+      const existingShortbreadEl = document.getElementById('awsccc-sb-ux-c')
+      if (existingShortbreadEl) existingShortbreadEl.remove()
+
+      const shortbread = AWSCShortbread({
+        domain,
+        registry: {
+          GitHubRepoCache: { category: 'essential' },
+        },
+        language: AWSCShortbread.Locale?.getLocaleIdShortbread(
+          AWSCShortbread.Locale.getCurrentLocale()
+        ),
+      })
+
+      shortbread.checkForCookieConsent()
+      window.strandsShortbread = shortbread
+
+      document.addEventListener('click', function (e) {
+        if (e.target.id === 'cookie-preferences') {
+          e.preventDefault()
+          shortbread.customizeCookies()
+        }
+      })
+
+      loadWebSDK(webSdkStage, webSdkDomain)
+    } catch (error) {
+      console.error('Shortbread error:', error)
+    }
+
+    function loadWebSDK(stage, sdkDomain) {
+      try {
+        const script = document.createElement('script')
+        script.type = 'module'
+        script.id = 'awsm-csa'
+        script.src = sdkDomain + '/awsm-acslibs/1.0.0/bundle/slim/wsdk.js'
+        script.setAttribute('data-awsm-csa-meta', JSON.stringify({ env: { stage } }))
+        document.head.appendChild(script)
+      } catch (error) {
+        console.error('WebSDK loading error:', error)
+      }
+    }
+  })()
+</script><!-- Analytics instrumentation (site sections, anchors, search, scroll, nav) --><script>
+;(function () {
+  'use strict'
+
+  // Guard against this inline script running more than once on a page.
+  if (window.__strandsAnalyticsInit) return
+  window.__strandsAnalyticsInit = true
+
+  // The AWS WebSDK listens on this single event name and reads event content from the
+  // XDM `_aws` namespace (detail.xdm._aws.<namespace>). Events sent in any other shape are
+  // rejected by its validators and silently dropped. Values verified against the upstream
+  // source: AWSMarketingAdobeWebSDKHelpers (constants + helpers/*-event.ts).
+  var ANALYTICS_EVENT_LISTENER = 'custom-awsm-acs-event-listener'
+
+  var scrollData = { initial: 0, max: 0, latest: 0 }
+  var scrollSent = false
+
+  // --- Helpers ---
+
+  // Pipe-delimited page hierarchy from the URL path, used to label code-copy events.
+  // Anchors on the 'docs' segment and takes everything after it, so any leading base
+  // path (e.g. a "/pr-xxxx/" preview deploy) is ignored:
+  // /pr-x/docs/user-guide/quickstart/ -> "user-guide|quickstart".
+  function pageHierarchy(pathname) {
+    var segments = pathname.replace(/^\/|\/$/g, '').split('/').filter(Boolean)
+    var docsIndex = segments.indexOf('docs')
+    var start = docsIndex >= 0 ? docsIndex + 1 : 0
+    return segments.slice(start).join('|') || 'home'
+  }
+
+  // Consent is enforced by the WebSDK listener itself - events dispatched here
+  // are silently dropped if the user has not accepted performance cookies via Shortbread.
+  function dispatchXdmEvent(eventType, awsContent, useBeacon) {
+    var detail = {
+      eventType: eventType,
+      xdm: { _aws: awsContent },
+      useBeacon: !!useBeacon,
+    }
+    window.dispatchEvent(new CustomEvent(ANALYTICS_EVENT_LISTENER, { detail: detail }))
+  }
+
+  // navigates: pass true for clicks that take the user to another page (links, toggles that
+  // redirect). Those are dispatched via beacon so the request isn't cancelled on unload - the
+  // same reason scroll depth uses the beacon path. In-page clicks (tabs, copy) pass false.
+  function dispatchCTAClick(name, type, navigates) {
+    // Collapse whitespace so labels stay clean regardless of the source (textContent from
+    // elements with icons/SVG/newlines, hrefs, etc.) - keeps every caller consistent.
+    var cleanName = String(name).replace(/\s+/g, ' ').trim()
+    dispatchXdmEvent(
+      'web.awsm.customCTAClick',
+      {
+        pageInteraction: {
+          click: { name: cleanName, type: type || 'customClick' },
+        },
+      },
+      !!navigates
+    )
+  }
+
+  function dispatchSearchEvent(searchTerm, resultCount) {
+    dispatchXdmEvent('web.awsm.search', {
+      searchOperations: {
+        searchTerm: searchTerm,
+        searchFilter: [],
+        resultCount: resultCount,
+      },
+    })
+  }
+
+  // --- 1. Click Tracking (anchors, nav tabs, code copy, outbound, UI controls) ---
+
+  function setupClickTracking() {
+    document.addEventListener('click', function (e) {
+      if (!e.target || !e.target.closest) return
+
+      // Anchor / TOC clicks
+      var anchorLink = e.target.closest('a[href^="#"]')
+      if (anchorLink) {
+        var anchor = anchorLink.getAttribute('href').replace('#', '')
+        if (!anchor) return
+        var isToc = !!anchorLink.closest('nav.right-sidebar, [class*="toc"], starlight-toc')
+        var prefix = isToc ? 'toc-click' : 'anchor-click'
+        dispatchCTAClick(prefix + ':' + anchor, 'linkClick')
+        return
+      }
+
+      // Nav tab clicks
+      var navTab = e.target.closest('.nav-tab, .mobile-nav-link')
+      if (navTab) {
+        var label = navTab.textContent.trim().replace(/\s*↗$/, '')
+        dispatchCTAClick('nav-tab:' + label, 'click', true)
+        return
+      }
+
+      // Language toggle (Python / TypeScript) - language-toggle > button.lang-option[data-lang]
+      var langControl = e.target.closest('.language-toggle .lang-option')
+      if (langControl) {
+        var lang = (langControl.getAttribute('data-lang') || '').trim()
+        // The toggle navigates to the paired page in the other language, so beacon it.
+        dispatchCTAClick('lang-toggle:' + lang, 'click', true)
+        return
+      }
+
+      // GitHub dropdown menu links (.github-dropdown .github-link, label in .github-link-text)
+      var ghLink = e.target.closest('.github-dropdown a.github-link')
+      if (ghLink) {
+        var ghTextEl = ghLink.querySelector('.github-link-text')
+        var ghLabel = (ghTextEl ? ghTextEl.textContent : ghLink.textContent).trim().replace(/\s*↗$/, '')
+        dispatchCTAClick('github-menu:' + ghLabel, 'linkClick', true)
+        return
+      }
+
+      // Sidebar collapsible group expand/collapse (nav.sidebar > details > summary).
+      // Skip the inner group-link anchor so its navigation is tracked as a normal link, not an expand.
+      var sidebarSummary = e.target.closest('nav.sidebar summary')
+      if (sidebarSummary && !e.target.closest('.group-link')) {
+        var groupLabelEl = sidebarSummary.querySelector('.group-label, .section-label')
+        var groupLabel = (groupLabelEl ? groupLabelEl.textContent : sidebarSummary.textContent).trim()
+        dispatchCTAClick('sidebar-expand:' + groupLabel, 'click')
+        return
+      }
+
+      // Tab clicks (npm/yarn, OS, etc.). AutoSyncTabs hides the Python/TypeScript language
+      // tablists (display:none) and routes language switching through the header toggle, so a
+      // real click only lands on a visible tablist - which excludes those redundant language tabs.
+      var tab = e.target.closest('[role="tab"]')
+      if (tab) {
+        dispatchCTAClick('tab:' + tab.textContent.trim(), 'click')
+        return
+      }
+
+      // Landing page CTAs. Buttons have short text labels; the Labs/Evals cards wrap a
+      // large block of text, so use their href (stable, concise) instead of textContent.
+      var homeCta = e.target.closest('a.cta-button, a.le-card')
+      if (homeCta) {
+        var ctaLabel = homeCta.matches('a.le-card') ? homeCta.getAttribute('href') : homeCta.textContent
+        dispatchCTAClick('home-cta:' + ctaLabel, 'linkClick', true)
+        return
+      }
+
+      // Blog post cards and navigation
+      var blogCard = e.target.closest('a.blog-card')
+      if (blogCard) {
+        dispatchCTAClick('blog-card:' + blogCard.getAttribute('href'), 'linkClick', true)
+        return
+      }
+      var blogNav = e.target.closest('a.blog-post-author, a.blog-back-link')
+      if (blogNav) {
+        dispatchCTAClick('blog-nav:' + blogNav.textContent.trim(), 'linkClick', true)
+        return
+      }
+
+      // Code copy button (docs Starlight + landing CodeBlock + install commands)
+      var copyBtn = e.target.closest(
+        '.copy button, button.copy, [data-code] button, button.copy-button, button.copy-button-floating, button.install-copy'
+      )
+      if (copyBtn) {
+        var copyLabel
+        if (copyBtn.matches('button.install-copy')) {
+          var installEl = copyBtn.closest('[data-copy]')
+          var cmd = installEl && installEl.getAttribute('data-copy')
+          copyLabel = cmd ? 'install:' + cmd : 'install'
+        } else {
+          copyLabel = pageHierarchy(window.location.pathname)
+        }
+        dispatchCTAClick('code-copy:' + copyLabel, 'customClick')
+        return
+      }
+
+      // Outbound links
+      var link = e.target.closest('a[href]')
+      if (link && link.hostname && link.hostname !== window.location.hostname) {
+        dispatchCTAClick('outbound:' + link.hostname + link.pathname, 'linkClick', true)
+        return
+      }
+    })
+  }
+
+  // --- 2. Search Events ---
+
+  function setupSearchTracking() {
+    var searchTimeout = null
+
+    document.addEventListener('input', function (e) {
+      var input = e.target
+      if (!input || !input.matches || !input.matches('[data-pagefind-ui] input')) return
+
+      clearTimeout(searchTimeout)
+      // 800ms debounce captures user intent; result count may lag if Pagefind
+      // hasn't responded yet, but this is acceptable for analytics purposes.
+      searchTimeout = setTimeout(function () {
+        var term = input.value
+        if (!term) return
+        var results = document.querySelectorAll('[data-pagefind-ui] .pagefind-ui__result')
+        dispatchSearchEvent(term, results.length)
+      }, 800)
+    })
+  }
+
+  // --- 3. Scroll Depth ---
+
+  function updateScroll() {
+    var scrollTop = window.scrollY || document.documentElement.scrollTop
+    var docHeight = document.documentElement.scrollHeight - window.innerHeight
+    var depth = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0
+    scrollData.latest = depth
+    if (depth > scrollData.max) scrollData.max = depth
+  }
+
+  function sendScrollDepth() {
+    if (scrollSent) return
+    scrollSent = true
+    updateScroll()
+    dispatchXdmEvent(
+      'web.awsm.pageInteraction',
+      {
+        pageInteraction: {
+          name: 'scroll',
+          scrollDepths: {
+            initial: scrollData.initial,
+            max: scrollData.max,
+            latest: scrollData.latest,
+          },
+        },
+      },
+      true
+    )
+  }
+
+  function setupScrollTracking() {
+    var debounceTimer
+    window.addEventListener('scroll', function () {
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(updateScroll, 200)
+    }, { passive: true })
+
+    window.addEventListener('beforeunload', sendScrollDepth)
+
+    // visibilitychange is more reliable on mobile (iOS Safari doesn't always fire beforeunload)
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') {
+        sendScrollDepth()
+      }
+    })
+  }
+
+  function resetScrollData() {
+    scrollData.initial = 0
+    scrollData.max = 0
+    scrollData.latest = 0
+    scrollSent = false
+    setTimeout(function () {
+      updateScroll()
+      scrollData.initial = scrollData.latest
+    }, 500)
+  }
+
+  // --- 4. Setup ---
+  // The WebSDK auto-fires the standard page view (web.webpagedetails.pageViews) and derives
+  // Base URL, entry/exit, and section data from the URL server-side, so no page-view event is
+  // sent here. Each full page load re-runs this IIFE, so setup below runs fresh per page.
+  setupClickTracking()
+  setupSearchTracking()
+  setupScrollTracking()
+
+  // If view transitions (ClientRouter) are enabled later, navigations won't reload the page,
+  // so reset the per-page scroll baseline on astro:page-load. No-op while full reloads are used.
+  document.addEventListener('astro:page-load', resetScrollData)
+})()
+</script><!-- Structured Data --><script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"Strands Agents","url":"https://strandsagents.com","logo":"https://strandsagents.com/favicon.svg","sameAs":["https://github.com/strands-agents"],"parentOrganization":{"@type":"Organization","name":"Amazon Web Services","url":"https://aws.amazon.com"}},{"@type":"SoftwareApplication","name":"Strands Agents SDK","applicationCategory":"DeveloperApplication","operatingSystem":"Cross-platform","programmingLanguage":["Python","TypeScript"],"license":"https://github.com/strands-agents/harness-sdk/blob/main/LICENSE.APACHE","url":"https://strandsagents.com","author":{"@type":"Organization","name":"Strands Agents"},"offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Changelog","item":"https://strandsagents.com/changelog/"},{"@type":"ListItem","position":2,"name":"Harness","item":"https://strandsagents.com/changelog/harness/"},{"@type":"ListItem","position":3,"name":"Harness Python v1.9.1"}]}]}</script><script type="module" src="/_astro/Head.astro_astro_type_script_index_0_lang.Dw_ItPjX.js"></script><script>
+	window.StarlightThemeProvider = (() => {
+		const storedTheme =
+			typeof localStorage !== 'undefined' && localStorage.getItem('starlight-theme');
+		const theme =
+			storedTheme ||
+			(window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+		document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+		return {
+			updatePickers(theme = storedTheme || 'auto') {
+				document.querySelectorAll('starlight-theme-select').forEach((picker) => {
+					const select = picker.querySelector('select');
+					if (select) select.value = theme;
+					/** @type {HTMLTemplateElement | null} */
+					const tmpl = document.querySelector(`#theme-icons`);
+					const newIcon = tmpl && tmpl.content.querySelector('.' + theme);
+					if (newIcon) {
+						const oldIcon = picker.querySelector('svg.label-icon');
+						if (oldIcon) {
+							oldIcon.replaceChildren(...newIcon.cloneNode(true).childNodes);
+						}
+					}
+				});
+			},
+		};
+	})();
+</script><template id="theme-icons"><svg aria-hidden="true" class="light astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M5 12a1 1 0 0 0-1-1H3a1 1 0 0 0 0 2h1a1 1 0 0 0 1-1Zm.64 5-.71.71a1 1 0 0 0 0 1.41 1 1 0 0 0 1.41 0l.71-.71A1 1 0 0 0 5.64 17ZM12 5a1 1 0 0 0 1-1V3a1 1 0 0 0-2 0v1a1 1 0 0 0 1 1Zm5.66 2.34a1 1 0 0 0 .7-.29l.71-.71a1 1 0 1 0-1.41-1.41l-.66.71a1 1 0 0 0 0 1.41 1 1 0 0 0 .66.29Zm-12-.29a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.71-.71a1.004 1.004 0 1 0-1.43 1.41l.73.71ZM21 11h-1a1 1 0 0 0 0 2h1a1 1 0 0 0 0-2Zm-2.64 6A1 1 0 0 0 17 18.36l.71.71a1 1 0 0 0 1.41 0 1 1 0 0 0 0-1.41l-.76-.66ZM12 6.5a5.5 5.5 0 1 0 5.5 5.5A5.51 5.51 0 0 0 12 6.5Zm0 9a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Zm0 3.5a1 1 0 0 0-1 1v1a1 1 0 0 0 2 0v-1a1 1 0 0 0-1-1Z"/></svg><svg aria-hidden="true" class="dark astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21.64 13a1 1 0 0 0-1.05-.14 8.049 8.049 0 0 1-3.37.73 8.15 8.15 0 0 1-8.14-8.1 8.59 8.59 0 0 1 .25-2A1 1 0 0 0 8 2.36a10.14 10.14 0 1 0 14 11.69 1 1 0 0 0-.36-1.05Zm-9.5 6.69A8.14 8.14 0 0 1 7.08 5.22v.27a10.15 10.15 0 0 0 10.14 10.14 9.784 9.784 0 0 0 2.1-.22 8.11 8.11 0 0 1-7.18 4.32v-.04Z"/></svg><svg aria-hidden="true" class="auto astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg></template><link rel="stylesheet" href="/_astro/print.ehPL0gv-.css" media="print"><link rel="stylesheet" href="/_astro/ThemeProvider.CL70XtCV.css"><link rel="stylesheet" href="/_astro/changelog.BxknAWff.css"><link rel="stylesheet" href="/_astro/middleware.A3bSSegJ.css"><style>@layer starlight.components{.card-grid:where(.astro-lmor3ela){grid-template-columns:100%;gap:1rem;display:grid}.card-grid:where(.astro-lmor3ela)>*{margin-top:0!important}@media (width>=50rem){.card-grid:where(.astro-lmor3ela){grid-template-columns:1fr 1fr;gap:1.5rem}.stagger:where(.astro-lmor3ela){--stagger-height:5rem;padding-bottom:var(--stagger-height)}.stagger:where(.astro-lmor3ela)>:nth-child(2n){transform:translateY(var(--stagger-height))}}.sl-link-card:where(.astro-vodiqeol){border:1px solid var(--sl-color-gray-5);box-shadow:var(--sl-shadow-sm);border-radius:.5rem;grid-template-columns:1fr auto;gap:.5rem;padding:1rem;display:grid;position:relative}a:where(.astro-vodiqeol){line-height:var(--sl-line-height-headings);text-decoration:none}a:where(.astro-vodiqeol):before{content:"";position:absolute;inset:0}.stack:where(.astro-vodiqeol){flex-direction:column;gap:.5rem}.title:where(.astro-vodiqeol){color:var(--sl-color-white);font-weight:600;font-size:var(--sl-text-lg)}.description:where(.astro-vodiqeol){color:var(--sl-color-gray-3);line-height:1.5}.icon:where(.astro-vodiqeol){color:var(--sl-color-gray-3)}.sl-link-card:where(.astro-vodiqeol):hover{background:var(--sl-color-gray-7,var(--sl-color-gray-6));border-color:var(--sl-color-gray-2)}.sl-link-card:where(.astro-vodiqeol):hover .icon:where(.astro-vodiqeol){color:var(--sl-color-white)}}
+@layer starlight.components{svg:where(.astro-n5k4ipy7){color:var(--sl-icon-color);font-size:var(--sl-icon-size,1em);width:1em;height:1em}}
+@layer starlight.components{starlight-tabs:where(.astro-hbt4ddzs){display:block}.tablist-wrapper:where(.astro-hbt4ddzs){overflow-x:auto}:where(.astro-hbt4ddzs)[role=tablist]{border-bottom:2px solid var(--sl-color-gray-5);padding:0;list-style:none;display:flex}.tab:where(.astro-hbt4ddzs){display:flex}.tab:where(.astro-hbt4ddzs)>:where(.astro-hbt4ddzs)[role=tab]{--sl-tab-color-border:var(--sl-color-gray-5);line-height:var(--sl-line-height-headings);box-shadow:0 2px 0 var(--sl-tab-color-border);color:var(--sl-color-gray-3);outline-offset:var(--sl-outline-offset-inside);overflow-wrap:initial;align-items:center;gap:.5rem;padding:.275rem 1.25rem;text-decoration:none;display:flex}.tab:where(.astro-hbt4ddzs) :where(.astro-hbt4ddzs)[role=tab][aria-selected=true]{--sl-tab-color-border:var(--sl-color-text-accent);color:var(--sl-color-white);font-weight:600}.tablist-wrapper:where(.astro-hbt4ddzs)~[role=tabpanel]{margin-top:1rem}}[data-language-tabs] starlight-tabs>.tablist-wrapper,syntax-switch:where(.astro-z3a4hsz2) :where(.astro-z3a4hsz2)[data-lang=Python]{display:none}
+</style><script type="module" src="/_astro/page.B2uBVZjk.js"></script></head><body class="astro-vdxcvpsm"><a class="sl-skip-link astro-vxeigawq" href="#_top">Skip to content</a><div class="page sl-flex astro-oiou2loo"><header class="header astro-oiou2loo"><div class="header astro-xiqy3rs3"><div class="header-top astro-xiqy3rs3"><div class="title-wrapper sl-flex astro-xiqy3rs3"><a href="/" class="site-title sl-flex astro-xiqy3rs3"><img src="/_astro/logo-header-light.AFIwZt-M.svg" alt="Strands Agents SDK" class="header-logo light-logo astro-xiqy3rs3"><img src="/_astro/logo-header-dark.LyjuOEMF.svg" alt="Strands Agents SDK" class="header-logo dark-logo astro-xiqy3rs3"></a></div><div class="header-spacer astro-xiqy3rs3"></div><div class="search-wrapper print:hidden astro-xiqy3rs3"><link rel="stylesheet" href="/pagefind/pagefind-component-ui.css"><starlight-pagefind-search class="astro-xiqy3rs3 astro-au2y2t7u" data-type-key="Type"><pagefind-config bundle-path="/pagefind/" instance="default" faceted="true" preload="true" class="astro-au2y2t7u"></pagefind-config><pagefind-modal-trigger instance="default" placeholder="Search" class="astro-au2y2t7u"></pagefind-modal-trigger><pagefind-modal instance="default" reset-on-close="true" class="astro-au2y2t7u"><pagefind-modal-header class="astro-au2y2t7u"><pagefind-input instance="default" placeholder="Search the docs" autofocus="true" class="astro-au2y2t7u"></pagefind-input></pagefind-modal-header><pagefind-modal-body class="astro-au2y2t7u"><div class="sl-search-layout astro-au2y2t7u"><fieldset class="sl-search-types astro-au2y2t7u" aria-label="Filter by type"><legend class="sl-search-types__legend astro-au2y2t7u">Type</legend><label class="sl-search-types__option astro-au2y2t7u"><input type="checkbox" name="Type" value="User Docs" checked class="astro-au2y2t7u"><span class="astro-au2y2t7u">User Docs</span></label><label class="sl-search-types__option astro-au2y2t7u"><input type="checkbox" name="Type" value="Python API" checked class="astro-au2y2t7u"><span class="astro-au2y2t7u">Python API</span></label><label class="sl-search-types__option astro-au2y2t7u"><input type="checkbox" name="Type" value="TypeScript API" checked class="astro-au2y2t7u"><span class="astro-au2y2t7u">TypeScript API</span></label><label class="sl-search-types__option astro-au2y2t7u"><input type="checkbox" name="Type" value="Blog" checked class="astro-au2y2t7u"><span class="astro-au2y2t7u">Blog</span></label></fieldset><div style="min-width:0;" class="astro-au2y2t7u"><pagefind-summary instance="default" default-message="Type to search." class="astro-au2y2t7u"></pagefind-summary><pagefind-results instance="default" show-sub-results="true" max-results="100" class="astro-au2y2t7u"></pagefind-results></div></div></pagefind-modal-body><pagefind-modal-footer class="astro-au2y2t7u"><pagefind-keyboard-hints instance="default" class="astro-au2y2t7u"></pagefind-keyboard-hints></pagefind-modal-footer></pagefind-modal></starlight-pagefind-search><script type="module" src="/pagefind/pagefind-component-ui.js"></script><script type="module">function e(e){let t=e;try{t=new URL(e,`https://x`).pathname}catch{}return/\/docs\/api\/python(\/|$)/.test(t)?`Python API`:/\/docs\/api\/typescript(\/|$)/.test(t)?`TypeScript API`:/\/blog\//.test(t)?`Blog`:/\/docs\//.test(t)?`User Docs`:null}var t=`sl-search-types`,n=class extends HTMLElement{connectedCallback(){let n=this.dataset.typeKey||`Type`,r=()=>{let e=document.documentElement.dataset.theme===`light`?`light`:`dark`;document.documentElement.setAttribute(`data-pf-theme`,e)};r(),new MutationObserver(r).observe(document.documentElement,{attributes:!0,attributeFilter:[`data-theme`]});let i=Array.from(this.querySelectorAll(`.sl-search-types input[name="Type"]`)),a=()=>{let e=i.filter(e=>e.checked).map(e=>e.value);return e.length===0?{}:e.length===1?{[n]:e[0]}:{[n]:{any:e}}},o=()=>{try{let e=i.filter(e=>e.checked).map(e=>e.value);localStorage.setItem(t,JSON.stringify(e))}catch{}},s=()=>{try{let e=localStorage.getItem(t);if(e){let t=JSON.parse(e);if(Array.isArray(t))return t.filter(e=>typeof e==`string`)}}catch{}return null},c=()=>{let e=this.querySelector(`pagefind-summary`);e&&new MutationObserver(()=>{let t=e.querySelector(`.pf-summary`);if(!t)return;let n=(t.textContent||``).match(/^(\d+ )(results? for )(.+)$/);if(n&&!t.querySelector(`em`)){let e=document.createElement(`span`);e.textContent=n[1]+n[2];let r=document.createElement(`em`);r.className=`sl-search-summary__term`,r.textContent=n[3],t.replaceChildren(e,r)}}).observe(e,{childList:!0,subtree:!0,characterData:!0})},l=()=>{let t=this.querySelector(`pagefind-results`);if(!t)return;let n=()=>{let n=t.querySelectorAll(`.pf-result-card .pf-result-title`);for(let t of n){if(t.dataset.slTyped)continue;let n=e(t.querySelector(`a`)?.getAttribute(`href`)||``);if(!n)continue;t.dataset.slTyped=`true`;let r=document.createElement(`span`);r.className=`sl-search-badge`,r.textContent=n,t.insertBefore(r,t.firstChild)}};n(),new MutationObserver(n).observe(t,{childList:!0,subtree:!0})},u=()=>{let e=window.PagefindComponents?.getInstanceManager?.()?.getInstance?.(`default`);if(!e)return!1;let t=()=>{e.triggerFilters(a()),o()};if(!this.dataset.wired){this.dataset.wired=`true`;for(let e of i)e.addEventListener(`change`,t)}if(!this.dataset.defaultsApplied){this.dataset.defaultsApplied=`true`;let t=s();if(t){let n=!1;for(let e of i){let r=t.includes(e.value);r!==e.checked&&(e.checked=r,n=!0)}n&&e.triggerFilters(a())}}return c(),l(),!0};u()||customElements.whenDefined(`pagefind-config`).then(()=>{u()||console.error(`[search] Pagefind Component UI loaded but its instance API was not found; the Type filter is inert. Check window.PagefindComponents.getInstanceManager().`)})}};customElements.define(`starlight-pagefind-search`,n);</script></div><nav class="mobile-nav md:sl-hidden print:hidden astro-xiqy3rs3" aria-label="Main navigation"><details class="mobile-nav-dropdown astro-xiqy3rs3"><summary class="mobile-nav-toggle astro-xiqy3rs3"><span class="mobile-nav-current astro-xiqy3rs3">Changelog</span><svg aria-hidden="true" class="mobile-nav-caret astro-xiqy3rs3 astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1rem;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><div class="mobile-nav-menu astro-xiqy3rs3"><div class="mobile-nav-section-label mobile-nav-section-label--first astro-xiqy3rs3">Language</div><div class="mobile-nav-language astro-xiqy3rs3"><language-toggle class="language-toggle astro-ra2rg4ph" role="radiogroup" aria-label="Preferred language"><button class="lang-option astro-ra2rg4ph" role="radio" aria-checked="false" aria-label="Python" data-lang="Python"><svg class="lang-icon astro-ra2rg4ph" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M11.914 0C5.82 0 6.2 2.656 6.2 2.656l.007 2.752h5.814v.826H3.9S0 5.789 0 11.969c0 6.18 3.403 5.96 3.403 5.96h2.03v-2.867s-.109-3.42 3.35-3.42h5.766s3.24.052 3.24-3.148V3.202S18.28 0 11.914 0zM8.708 1.85a1.06 1.06 0 110 2.12 1.06 1.06 0 010-2.12z" class="astro-ra2rg4ph"></path><path fill="currentColor" d="M12.086 24c6.094 0 5.714-2.656 5.714-2.656l-.007-2.752H11.98v-.826h8.121S24 18.211 24 12.031c0-6.18-3.403-5.96-3.403-5.96h-2.03v2.867s.109 3.42-3.35 3.42H9.451s-3.24-.052-3.24 3.148v5.292S5.72 24 12.086 24zm3.206-1.85a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12z" class="astro-ra2rg4ph"></path></svg><span class="lang-label astro-ra2rg4ph">Python</span></button><button class="lang-option astro-ra2rg4ph" role="radio" aria-checked="false" aria-label="TypeScript" data-lang="TypeScript"><svg class="lang-icon astro-ra2rg4ph" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M0 12v12h24V0H0zm19.341-.956c.61.152 1.074.423 1.501.865.221.236.549.666.575.77.008.03-1.036.73-1.668 1.123-.023.015-.115-.084-.217-.236-.31-.45-.633-.644-1.128-.678-.728-.05-1.196.331-1.192.967a.88.88 0 00.102.45c.16.331.458.53 1.39.933 1.719.74 2.454 1.227 2.911 1.92.509.773.625 2.008.278 2.926-.38 1.023-1.325 1.716-2.655 1.95-.41.073-1.382.062-1.828-.018-.964-.172-1.878-.648-2.442-1.273-.221-.243-.652-.88-.625-.925.011-.016.11-.077.22-.141l.89-.514.69-.4.145.213c.201.31.643.731.91.872.766.404 1.817.347 2.335-.118a.883.883 0 00.313-.72c0-.278-.035-.4-.18-.61-.186-.266-.567-.49-1.649-.96-1.238-.533-1.771-.864-2.259-1.39a3.165 3.165 0 01-.659-1.2c-.091-.364-.114-1.27-.042-1.635.31-1.554 1.534-2.64 3.202-2.84.434-.05 1.443-.01 1.872.074zm-5.66 1.077l.007.983H10.15v8.876H7.787V12.104H4.25v-.963c0-.534.011-.98.026-.99.012-.016 2.125-.023 4.694-.018l4.665.011z" class="astro-ra2rg4ph"></path></svg><span class="lang-label astro-ra2rg4ph">TypeScript</span></button></language-toggle><script>(function(){const STORAGE_KEY = "starlight-synced-tabs__jarkqt";
+const DEFAULT_LANG = "TypeScript";
+
+  (function () {
+    // Idempotency guard: <LanguageToggle /> can render in multiple places
+    // (desktop right-group + mobile dropdown menu). Astro inlines this script
+    // tag once per instance, but the document-level listeners and DOM-wide
+    // sync logic only need to run once. Skip on subsequent invocations.
+    if (window.__strandsLanguageToggleInit) return;
+    window.__strandsLanguageToggleInit = true;
+    // STORAGE_KEY + DEFAULT_LANG are injected via define:vars from the shared
+    // language-preference module (shared with the changelog page). The key
+    // matches the one Starlight derives by djb2-hashing the synced-tab labels.
+
+    // IMPORTANT: Keep in sync with navigation.yml navbar entries.
+    // When adding new language-paired pages, update both lists below.
+    // Each entry: [navLinkLabel, pythonHref, typescriptHref]
+    var LANG_AWARE_LINKS = [
+      ['Docs', '/docs/user-guide/quickstart/python/', '/docs/user-guide/quickstart/typescript/'],
+      ['API Reference', '/docs/api/python/', '/docs/api/typescript/']
+    ];
+
+    // IMPORTANT: Keep in sync with navigation.yml.
+    // Any URL prefix where /python/ and /typescript/ variants both exist.
+    var PAIRED_PATH_PREFIXES = [
+      '/docs/user-guide/quickstart/',
+      '/docs/api/',
+      '/docs/user-guide/deploy/deploy_to_bedrock_agentcore/',
+      '/docs/user-guide/deploy/deploy_to_docker/'
+    ];
+
+    function getPreference() {
+      try {
+        return localStorage.getItem(STORAGE_KEY) || DEFAULT_LANG;
+      } catch (e) {
+        if (typeof console !== 'undefined') console.debug('[LanguageToggle] localStorage read error:', e);
+        return DEFAULT_LANG;
+      }
+    }
+
+    function setPreference(lang) {
+      try {
+        localStorage.setItem(STORAGE_KEY, lang);
+      } catch (e) {
+        if (typeof console !== 'undefined') console.debug('[LanguageToggle] localStorage write error:', e);
+      }
+    }
+
+    function langSlug(lang) {
+      return lang === 'Python' ? 'python' : 'typescript';
+    }
+
+    function otherLangSlug(lang) {
+      return lang === 'Python' ? 'typescript' : 'python';
+    }
+
+    /** Rewrite nav link hrefs to match the current language preference. */
+    function updateNavLinks(lang) {
+      var slug = langSlug(lang);
+      document.querySelectorAll('.nav-tab, .mobile-nav-link').forEach(function (link) {
+        var label = link.textContent.trim();
+        for (var i = 0; i < LANG_AWARE_LINKS.length; i++) {
+          if (label === LANG_AWARE_LINKS[i][0]) {
+            var href = lang === 'Python' ? LANG_AWARE_LINKS[i][1] : LANG_AWARE_LINKS[i][2];
+            // Preserve any base path prefix already on the link
+            var currentHref = link.getAttribute('href') || '';
+            var base = '';
+            for (var j = 0; j < LANG_AWARE_LINKS[i].length; j++) {
+              if (j === 0) continue;
+              var candidate = LANG_AWARE_LINKS[i][j];
+              var idx = currentHref.indexOf(candidate);
+              if (idx > 0) {
+                base = currentHref.substring(0, idx);
+                break;
+              }
+            }
+            link.setAttribute('href', base + href);
+            break;
+          }
+        }
+      });
+    }
+
+    /**
+     * If the current page is a paired page, return the counterpart URL
+     * for the given language. Returns null if no swap applies.
+     */
+    function getPairedUrl(lang) {
+      var path = window.location.pathname;
+      var target = langSlug(lang);
+      var other = otherLangSlug(lang);
+
+      for (var i = 0; i < PAIRED_PATH_PREFIXES.length; i++) {
+        var prefix = PAIRED_PATH_PREFIXES[i];
+        // Also match with a base path prefix (e.g., /latest/docs/...)
+        if (path.indexOf(prefix) !== -1) {
+          // Check if the current path contains the OTHER language slug
+          // e.g., we're on /quickstart/python/ and switching to TypeScript
+          var regex = new RegExp('/' + other + '(/|$)');
+          if (regex.test(path)) {
+            return path.replace('/' + other + '/', '/' + target + '/');
+          }
+          break;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Sync all visible Starlight tab groups to match the selected language.
+     * Delegates to Starlight's own tab switching by clicking the matching tab,
+     * so we don't duplicate Starlight's internal aria/panel management.
+     */
+    function syncStarlightTabs(lang) {
+      document.querySelectorAll('starlight-tabs').forEach(function (tabGroup) {
+        var tabs = tabGroup.querySelectorAll('[role="tab"]');
+        tabs.forEach(function (tab) {
+          if (tab.textContent.trim() === lang && tab.getAttribute('aria-selected') !== 'true') {
+            tab.click();
+          }
+        });
+      });
+    }
+
+    function updateToggle(lang) {
+      document.querySelectorAll('language-toggle .lang-option').forEach(function (btn) {
+        btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
+      });
+    }
+
+    /** Full UI sync: toggle state + nav links + inline tabs. */
+    function syncAll(lang) {
+      updateToggle(lang);
+      updateNavLinks(lang);
+      syncStarlightTabs(lang);
+    }
+
+    // Restore on page load
+    var current = getPreference();
+    setPreference(current);
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { syncAll(current); });
+    } else {
+      syncAll(current);
+    }
+
+    // Handle toggle clicks. setPreference/syncAll run via the
+    // lang-preference-changed listener below (single execution path — calling
+    // them here too would run side effects like tab clicks twice).
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.lang-option');
+      if (!btn) return;
+      var lang = btn.dataset.lang;
+      if (!lang) return;
+      // Notify same-tab listeners, including our own (storage events only fire cross-tab).
+      window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: lang } }));
+
+      // Navigate to paired page if one exists
+      var paired = getPairedUrl(lang);
+      if (paired) {
+        window.location.href = paired;
+      }
+    });
+
+    // Listen for storage changes from other tabs/windows
+    window.addEventListener('storage', function (e) {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        syncAll(e.newValue);
+      }
+    });
+
+    // Listen for same-tab preference changes (storage events don't fire in the
+    // tab that wrote the value). Other components dispatch this when they change
+    // the language programmatically (e.g. the changelog auto-switching to Python).
+    window.addEventListener('lang-preference-changed', function (e) {
+      var lang = e && e.detail && e.detail.lang;
+      if (lang) {
+        setPreference(lang);
+        syncAll(lang);
+      }
+    });
+  })();
+})();</script></div><div class="mobile-nav-divider astro-xiqy3rs3"></div><a href="/" class="mobile-nav-link astro-xiqy3rs3">Home</a><a href="/docs/user-guide/quickstart/typescript/" class="mobile-nav-link astro-xiqy3rs3">Docs</a><a href="/docs/examples/" class="mobile-nav-link astro-xiqy3rs3">Examples</a><a href="/docs/community/community-packages/" class="mobile-nav-link astro-xiqy3rs3">Community</a><a href="/docs/api/typescript/" class="mobile-nav-link astro-xiqy3rs3">API Reference</a><a href="/blog/" class="mobile-nav-link astro-xiqy3rs3">Blog</a><a href="/changelog/" class="mobile-nav-link active astro-xiqy3rs3">Changelog</a><a href="https://github.com/strands-labs" class="mobile-nav-link astro-xiqy3rs3" target="_blank" rel="noopener noreferrer">Labs<span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><div class="mobile-nav-divider astro-xiqy3rs3"></div><div class="mobile-nav-section-label astro-xiqy3rs3">GitHub</div><a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-py" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3"><span class="astro-xiqy3rs3">PY</span> Python SDK <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-ts" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3"><span class="astro-xiqy3rs3">TS</span> TypeScript SDK <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><div class=" astro-xiqy3rs3"></div><div class="mobile-nav-section-label astro-xiqy3rs3">Strands</div><a href="https://github.com/strands-agents/evals" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3"><span class="astro-xiqy3rs3">EV</span> Evals <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><a href="https://github.com/strands-agents/shell" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3"><span class="astro-xiqy3rs3">SH</span> Shell <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><div class=" astro-xiqy3rs3"></div><div class="mobile-nav-section-label astro-xiqy3rs3">Organizations</div><a href="https://github.com/strands-agents" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3"> strands-agents <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><a href="https://github.com/strands-labs" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3"> strands-labs <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a><div class="mobile-nav-divider astro-xiqy3rs3"></div><a href="https://discord.gg/strands" target="_blank" rel="noopener noreferrer" class="mobile-nav-link astro-xiqy3rs3">Discord <span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a></div></details></nav><div class="sl-hidden md:sl-flex print:hidden right-group astro-xiqy3rs3"><language-toggle class="language-toggle astro-ra2rg4ph" role="radiogroup" aria-label="Preferred language"><button class="lang-option astro-ra2rg4ph" role="radio" aria-checked="false" aria-label="Python" data-lang="Python"><svg class="lang-icon astro-ra2rg4ph" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M11.914 0C5.82 0 6.2 2.656 6.2 2.656l.007 2.752h5.814v.826H3.9S0 5.789 0 11.969c0 6.18 3.403 5.96 3.403 5.96h2.03v-2.867s-.109-3.42 3.35-3.42h5.766s3.24.052 3.24-3.148V3.202S18.28 0 11.914 0zM8.708 1.85a1.06 1.06 0 110 2.12 1.06 1.06 0 010-2.12z" class="astro-ra2rg4ph"></path><path fill="currentColor" d="M12.086 24c6.094 0 5.714-2.656 5.714-2.656l-.007-2.752H11.98v-.826h8.121S24 18.211 24 12.031c0-6.18-3.403-5.96-3.403-5.96h-2.03v2.867s.109 3.42-3.35 3.42H9.451s-3.24-.052-3.24 3.148v5.292S5.72 24 12.086 24zm3.206-1.85a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12z" class="astro-ra2rg4ph"></path></svg><span class="lang-label astro-ra2rg4ph">Python</span></button><button class="lang-option astro-ra2rg4ph" role="radio" aria-checked="false" aria-label="TypeScript" data-lang="TypeScript"><svg class="lang-icon astro-ra2rg4ph" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M0 12v12h24V0H0zm19.341-.956c.61.152 1.074.423 1.501.865.221.236.549.666.575.77.008.03-1.036.73-1.668 1.123-.023.015-.115-.084-.217-.236-.31-.45-.633-.644-1.128-.678-.728-.05-1.196.331-1.192.967a.88.88 0 00.102.45c.16.331.458.53 1.39.933 1.719.74 2.454 1.227 2.911 1.92.509.773.625 2.008.278 2.926-.38 1.023-1.325 1.716-2.655 1.95-.41.073-1.382.062-1.828-.018-.964-.172-1.878-.648-2.442-1.273-.221-.243-.652-.88-.625-.925.011-.016.11-.077.22-.141l.89-.514.69-.4.145.213c.201.31.643.731.91.872.766.404 1.817.347 2.335-.118a.883.883 0 00.313-.72c0-.278-.035-.4-.18-.61-.186-.266-.567-.49-1.649-.96-1.238-.533-1.771-.864-2.259-1.39a3.165 3.165 0 01-.659-1.2c-.091-.364-.114-1.27-.042-1.635.31-1.554 1.534-2.64 3.202-2.84.434-.05 1.443-.01 1.872.074zm-5.66 1.077l.007.983H10.15v8.876H7.787V12.104H4.25v-.963c0-.534.011-.98.026-.99.012-.016 2.125-.023 4.694-.018l4.665.011z" class="astro-ra2rg4ph"></path></svg><span class="lang-label astro-ra2rg4ph">TypeScript</span></button></language-toggle><script>(function(){const STORAGE_KEY = "starlight-synced-tabs__jarkqt";
+const DEFAULT_LANG = "TypeScript";
+
+  (function () {
+    // Idempotency guard: <LanguageToggle /> can render in multiple places
+    // (desktop right-group + mobile dropdown menu). Astro inlines this script
+    // tag once per instance, but the document-level listeners and DOM-wide
+    // sync logic only need to run once. Skip on subsequent invocations.
+    if (window.__strandsLanguageToggleInit) return;
+    window.__strandsLanguageToggleInit = true;
+    // STORAGE_KEY + DEFAULT_LANG are injected via define:vars from the shared
+    // language-preference module (shared with the changelog page). The key
+    // matches the one Starlight derives by djb2-hashing the synced-tab labels.
+
+    // IMPORTANT: Keep in sync with navigation.yml navbar entries.
+    // When adding new language-paired pages, update both lists below.
+    // Each entry: [navLinkLabel, pythonHref, typescriptHref]
+    var LANG_AWARE_LINKS = [
+      ['Docs', '/docs/user-guide/quickstart/python/', '/docs/user-guide/quickstart/typescript/'],
+      ['API Reference', '/docs/api/python/', '/docs/api/typescript/']
+    ];
+
+    // IMPORTANT: Keep in sync with navigation.yml.
+    // Any URL prefix where /python/ and /typescript/ variants both exist.
+    var PAIRED_PATH_PREFIXES = [
+      '/docs/user-guide/quickstart/',
+      '/docs/api/',
+      '/docs/user-guide/deploy/deploy_to_bedrock_agentcore/',
+      '/docs/user-guide/deploy/deploy_to_docker/'
+    ];
+
+    function getPreference() {
+      try {
+        return localStorage.getItem(STORAGE_KEY) || DEFAULT_LANG;
+      } catch (e) {
+        if (typeof console !== 'undefined') console.debug('[LanguageToggle] localStorage read error:', e);
+        return DEFAULT_LANG;
+      }
+    }
+
+    function setPreference(lang) {
+      try {
+        localStorage.setItem(STORAGE_KEY, lang);
+      } catch (e) {
+        if (typeof console !== 'undefined') console.debug('[LanguageToggle] localStorage write error:', e);
+      }
+    }
+
+    function langSlug(lang) {
+      return lang === 'Python' ? 'python' : 'typescript';
+    }
+
+    function otherLangSlug(lang) {
+      return lang === 'Python' ? 'typescript' : 'python';
+    }
+
+    /** Rewrite nav link hrefs to match the current language preference. */
+    function updateNavLinks(lang) {
+      var slug = langSlug(lang);
+      document.querySelectorAll('.nav-tab, .mobile-nav-link').forEach(function (link) {
+        var label = link.textContent.trim();
+        for (var i = 0; i < LANG_AWARE_LINKS.length; i++) {
+          if (label === LANG_AWARE_LINKS[i][0]) {
+            var href = lang === 'Python' ? LANG_AWARE_LINKS[i][1] : LANG_AWARE_LINKS[i][2];
+            // Preserve any base path prefix already on the link
+            var currentHref = link.getAttribute('href') || '';
+            var base = '';
+            for (var j = 0; j < LANG_AWARE_LINKS[i].length; j++) {
+              if (j === 0) continue;
+              var candidate = LANG_AWARE_LINKS[i][j];
+              var idx = currentHref.indexOf(candidate);
+              if (idx > 0) {
+                base = currentHref.substring(0, idx);
+                break;
+              }
+            }
+            link.setAttribute('href', base + href);
+            break;
+          }
+        }
+      });
+    }
+
+    /**
+     * If the current page is a paired page, return the counterpart URL
+     * for the given language. Returns null if no swap applies.
+     */
+    function getPairedUrl(lang) {
+      var path = window.location.pathname;
+      var target = langSlug(lang);
+      var other = otherLangSlug(lang);
+
+      for (var i = 0; i < PAIRED_PATH_PREFIXES.length; i++) {
+        var prefix = PAIRED_PATH_PREFIXES[i];
+        // Also match with a base path prefix (e.g., /latest/docs/...)
+        if (path.indexOf(prefix) !== -1) {
+          // Check if the current path contains the OTHER language slug
+          // e.g., we're on /quickstart/python/ and switching to TypeScript
+          var regex = new RegExp('/' + other + '(/|$)');
+          if (regex.test(path)) {
+            return path.replace('/' + other + '/', '/' + target + '/');
+          }
+          break;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Sync all visible Starlight tab groups to match the selected language.
+     * Delegates to Starlight's own tab switching by clicking the matching tab,
+     * so we don't duplicate Starlight's internal aria/panel management.
+     */
+    function syncStarlightTabs(lang) {
+      document.querySelectorAll('starlight-tabs').forEach(function (tabGroup) {
+        var tabs = tabGroup.querySelectorAll('[role="tab"]');
+        tabs.forEach(function (tab) {
+          if (tab.textContent.trim() === lang && tab.getAttribute('aria-selected') !== 'true') {
+            tab.click();
+          }
+        });
+      });
+    }
+
+    function updateToggle(lang) {
+      document.querySelectorAll('language-toggle .lang-option').forEach(function (btn) {
+        btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
+      });
+    }
+
+    /** Full UI sync: toggle state + nav links + inline tabs. */
+    function syncAll(lang) {
+      updateToggle(lang);
+      updateNavLinks(lang);
+      syncStarlightTabs(lang);
+    }
+
+    // Restore on page load
+    var current = getPreference();
+    setPreference(current);
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { syncAll(current); });
+    } else {
+      syncAll(current);
+    }
+
+    // Handle toggle clicks. setPreference/syncAll run via the
+    // lang-preference-changed listener below (single execution path — calling
+    // them here too would run side effects like tab clicks twice).
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.lang-option');
+      if (!btn) return;
+      var lang = btn.dataset.lang;
+      if (!lang) return;
+      // Notify same-tab listeners, including our own (storage events only fire cross-tab).
+      window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: lang } }));
+
+      // Navigate to paired page if one exists
+      var paired = getPairedUrl(lang);
+      if (paired) {
+        window.location.href = paired;
+      }
+    });
+
+    // Listen for storage changes from other tabs/windows
+    window.addEventListener('storage', function (e) {
+      if (e.key === STORAGE_KEY && e.newValue) {
+        syncAll(e.newValue);
+      }
+    });
+
+    // Listen for same-tab preference changes (storage events don't fire in the
+    // tab that wrote the value). Other components dispatch this when they change
+    // the language programmatically (e.g. the changelog auto-switching to Python).
+    window.addEventListener('lang-preference-changed', function (e) {
+      var lang = e && e.detail && e.detail.lang;
+      if (lang) {
+        setPreference(lang);
+        syncAll(lang);
+      }
+    });
+  })();
+})();</script><div class="sl-flex github-dropdown-wrapper astro-pitlp6lt"><details class="github-dropdown astro-pitlp6lt"><summary class="github-toggle astro-pitlp6lt" aria-label="GitHub repositories"><svg aria-hidden="true" class="astro-pitlp6lt astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.09-.73.09-.73 1.2.09 1.83 1.24 1.83 1.24 1.08 1.83 2.81 1.3 3.5 1 .1-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.63-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.2.69.82.57A12 12 0 0 0 12 .3Z"/></svg><svg aria-hidden="true" class="github-caret astro-pitlp6lt astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 0.75rem;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></summary><div class="github-menu astro-pitlp6lt"><div class="github-section-label astro-pitlp6lt">Strands Harness</div><a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-py" target="_blank" rel="noopener noreferrer" class="github-link astro-pitlp6lt"><span class="github-link-icon astro-pitlp6lt">PY</span><span class="github-link-text astro-pitlp6lt">Python SDK</span><span class="github-link-arrow astro-pitlp6lt" aria-hidden="true">↗</span></a><a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-ts" target="_blank" rel="noopener noreferrer" class="github-link astro-pitlp6lt"><span class="github-link-icon astro-pitlp6lt">TS</span><span class="github-link-text astro-pitlp6lt">TypeScript SDK</span><span class="github-link-arrow astro-pitlp6lt" aria-hidden="true">↗</span></a><div class="github-divider astro-pitlp6lt"></div><div class="github-section-label astro-pitlp6lt">Strands</div><a href="https://github.com/strands-agents/evals" target="_blank" rel="noopener noreferrer" class="github-link astro-pitlp6lt"><span class="github-link-icon astro-pitlp6lt">EV</span><span class="github-link-text astro-pitlp6lt">Evals</span><span class="github-link-arrow astro-pitlp6lt" aria-hidden="true">↗</span></a><a href="https://github.com/strands-agents/shell" target="_blank" rel="noopener noreferrer" class="github-link astro-pitlp6lt"><span class="github-link-icon astro-pitlp6lt">SH</span><span class="github-link-text astro-pitlp6lt">Shell</span><span class="github-link-arrow astro-pitlp6lt" aria-hidden="true">↗</span></a><div class="github-divider astro-pitlp6lt"></div><div class="github-section-label astro-pitlp6lt">Organizations</div><a href="https://github.com/strands-agents" target="_blank" rel="noopener noreferrer" class="github-link astro-pitlp6lt"><span class="github-link-text astro-pitlp6lt">strands-agents</span><span class="github-link-arrow astro-pitlp6lt" aria-hidden="true">↗</span></a><a href="https://github.com/strands-labs" target="_blank" rel="noopener noreferrer" class="github-link astro-pitlp6lt"><span class="github-link-text astro-pitlp6lt">strands-labs</span><span class="github-link-arrow astro-pitlp6lt" aria-hidden="true">↗</span></a></div></details></div><script type="module">document.addEventListener(`click`,e=>{document.querySelectorAll(`.github-dropdown[open]`).forEach(t=>{t.contains(e.target)||t.removeAttribute(`open`)})}),document.addEventListener(`keydown`,e=>{e.key===`Escape`&&document.querySelectorAll(`.github-dropdown[open]`).forEach(e=>{e.removeAttribute(`open`)})});</script><a href="https://discord.gg/strands" target="_blank" rel="noopener noreferrer" class="discord-link astro-a2xwpxup" aria-label="Strands Agents Discord"><svg aria-hidden="true" class="astro-a2xwpxup astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1.25rem;"><path d="M20.32 4.37a19.8 19.8 0 0 0-4.93-1.51 13.78 13.78 0 0 0-.64 1.28 18.27 18.27 0 0 0-5.5 0 12.64 12.64 0 0 0-.64-1.28h-.05A19.74 19.74 0 0 0 3.64 4.4 20.26 20.26 0 0 0 .11 18.09l.02.02a19.9 19.9 0 0 0 6.04 3.03l.04-.02a14.24 14.24 0 0 0 1.23-2.03.08.08 0 0 0-.05-.07 13.1 13.1 0 0 1-1.9-.92.08.08 0 0 1 .02-.1 10.2 10.2 0 0 0 .41-.31h.04a14.2 14.2 0 0 0 12.1 0l.04.01a9.63 9.63 0 0 0 .4.32.08.08 0 0 1-.03.1 12.29 12.29 0 0 1-1.9.91.08.08 0 0 0-.02.1 15.97 15.97 0 0 0 1.27 2.01h.04a19.84 19.84 0 0 0 6.03-3.05v-.03a20.12 20.12 0 0 0-3.57-13.69ZM8.02 15.33c-1.18 0-2.16-1.08-2.16-2.42 0-1.33.96-2.42 2.16-2.42 1.21 0 2.18 1.1 2.16 2.42 0 1.34-.96 2.42-2.16 2.42Zm7.97 0c-1.18 0-2.15-1.08-2.15-2.42 0-1.33.95-2.42 2.15-2.42 1.22 0 2.18 1.1 2.16 2.42 0 1.34-.94 2.42-2.16 2.42Z"/></svg></a><starlight-theme-select><label style="--sl-select-width: 6.25em" class="astro-r2p65idu"><span class="sr-only astro-r2p65idu">Select theme</span><svg aria-hidden="true" class="icon label-icon astro-r2p65idu astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M21 14h-1V7a3 3 0 0 0-3-3H7a3 3 0 0 0-3 3v7H3a1 1 0 0 0-1 1v2a3 3 0 0 0 3 3h14a3 3 0 0 0 3-3v-2a1 1 0 0 0-1-1ZM6 7a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v7H6V7Zm14 10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-1h16v1Z"/></svg><select autocomplete="off" class="astro-r2p65idu"><option value="dark" class="astro-r2p65idu">Dark</option><option value="light" class="astro-r2p65idu">Light</option><option value="auto" selected class="astro-r2p65idu">Auto</option></select><svg aria-hidden="true" class="icon caret astro-r2p65idu astro-n5k4ipy7" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="--sl-icon-size: 1em;"><path d="M17 9.17a1 1 0 0 0-1.41 0L12 12.71 8.46 9.17a1 1 0 1 0-1.41 1.42l4.24 4.24a1.002 1.002 0 0 0 1.42 0L17 10.59a1.002 1.002 0 0 0 0-1.42Z"/></svg></label></starlight-theme-select><script>
+	StarlightThemeProvider.updatePickers();
+</script><script type="module">var e=`starlight-theme`,t=e=>e===`auto`||e===`dark`||e===`light`?e:`auto`,n=()=>t(typeof localStorage<`u`&&localStorage.getItem(e));function r(t){typeof localStorage<`u`&&localStorage.setItem(e,t===`light`||t===`dark`?t:``)}var i=()=>matchMedia(`(prefers-color-scheme: light)`).matches?`light`:`dark`;function a(e){StarlightThemeProvider.updatePickers(e),document.documentElement.dataset.theme=e===`auto`?i():e,r(e)}matchMedia(`(prefers-color-scheme: light)`).addEventListener(`change`,()=>{n()===`auto`&&a(`auto`)});var o=class extends HTMLElement{constructor(){super(),a(n()),this.querySelector(`select`)?.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&a(t(e.currentTarget.value))})}};customElements.define(`starlight-theme-select`,o);</script><script type="module">var e=class extends HTMLElement{constructor(){super();let e=this.querySelector(`select`);e&&(e.addEventListener(`change`,e=>{e.currentTarget instanceof HTMLSelectElement&&(window.location.pathname=e.currentTarget.value)}),window.addEventListener(`pageshow`,t=>{if(!t.persisted)return;let n=e.querySelector(`option[selected]`)?.index;n!==e.selectedIndex&&(e.selectedIndex=n??0)}))}};customElements.define(`starlight-lang-select`,e);</script></div></div><nav class="nav-tabs sl-hidden md:sl-flex astro-xiqy3rs3" aria-label="Main navigation"><a href="/" class="nav-tab astro-xiqy3rs3">Home</a><a href="/docs/user-guide/quickstart/typescript/" class="nav-tab astro-xiqy3rs3">Docs</a><a href="/docs/examples/" class="nav-tab astro-xiqy3rs3">Examples</a><a href="/docs/community/community-packages/" class="nav-tab astro-xiqy3rs3">Community</a><a href="/docs/api/typescript/" class="nav-tab astro-xiqy3rs3">API Reference</a><div class="nav-tabs-spacer astro-xiqy3rs3"></div><a href="/blog/" class="nav-tab nav-tab-secondary astro-xiqy3rs3">Blog</a><a href="/changelog/" class="nav-tab nav-tab-secondary active astro-xiqy3rs3">Changelog</a><a href="https://github.com/strands-labs" class="nav-tab nav-tab-secondary astro-xiqy3rs3" target="_blank" rel="noopener noreferrer">Labs<span class="external-icon astro-xiqy3rs3" aria-hidden="true">↗</span></a></nav></div></header><div class="main-frame astro-oiou2loo"><script type="module">var e=document.getElementById(`starlight__sidebar`),t=e?.querySelector(`sl-sidebar-state-persist`),n=`sl-sidebar-state`,r=()=>{let r=[],i=t?.dataset.hash||``;try{let e=sessionStorage.getItem(n),t=JSON.parse(e||`{}`);Array.isArray(t.open)&&t.hash===i&&(r=t.open)}catch{}return{hash:i,open:r,scroll:e?.scrollTop||0}},i=e=>{try{sessionStorage.setItem(n,JSON.stringify(e))}catch{}},a=()=>i(r()),o=(e,t)=>{let n=r();n.open[t]=e,i(n)};t?.addEventListener(`click`,e=>{if(!(e.target instanceof Element))return;let t=e.target.closest(`summary`)?.closest(`details`);if(!t)return;let n=t.querySelector(`sl-sidebar-restore`),r=parseInt(n?.dataset.index||``);isNaN(r)||o(!t.open,r)}),addEventListener(`visibilitychange`,()=>{document.visibilityState===`hidden`&&a()}),addEventListener(`pageHide`,a);</script><div class="lg:sl-flex astro-abfeecmu"><div class="main-pane astro-abfeecmu"><main class="astro-vdxcvpsm" lang="en" dir="ltr"><div class="content-panel astro-oil7k7jf"><div class="sl-container astro-oil7k7jf"><div class="sl-markdown-content"><div class="cl-page cl-detail"><a class="cl-back" href="/changelog/"><span aria-hidden="true">←</span> All releases</a><ol class="cl-feed-list" role="list"><li class="cl-version-item"><article class="cl-version" id="harness-python-v1.9.1" data-sdk="harness" data-language="python" aria-labelledby="harness-python-v1.9.1-h"><div class="cl-version-meta"><h1 class="cl-version-num" id="harness-python-v1.9.1-h"><span class="cl-version-numtext">v1.9.1</span><span class="cl-latest" data-cl-latest hidden>Latest</span></h1><div class="cl-version-date">Sep 19, 2025</div><div class="cl-version-links"><a href="https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.9.1" target="_blank" rel="noopener">GitHub release <span aria-hidden="true">↗</span></a><a href="https://pypi.org/project/strands-agents/1.9.1/" target="_blank" rel="noopener"><svg class="cl-icon" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11.914 0C5.82 0 6.2 2.656 6.2 2.656l.007 2.752h5.814v.826H3.9S0 5.789 0 11.969c0 6.18 3.403 5.96 3.403 5.96h2.03v-2.867s-.109-3.42 3.35-3.42h5.766s3.24.052 3.24-3.148V3.202S18.28 0 11.914 0zM8.708 1.85a1.06 1.06 0 110 2.12 1.06 1.06 0 010-2.12z"></path><path fill="currentColor" d="M12.086 24c6.094 0 5.714-2.656 5.714-2.656l-.007-2.752H11.98v-.826h8.121S24 18.211 24 12.031c0-6.18-3.403-5.96-3.403-5.96h-2.03v2.867s.109 3.42-3.35 3.42H9.451s-3.24-.052-3.24 3.148v5.292S5.72 24 12.086 24zm3.206-1.85a1.06 1.06 0 110-2.12 1.06 1.06 0 010 2.12z"></path></svg>PyPI 1.9.1 <span aria-hidden="true">↗</span></a></div></div><div class="cl-rail-line"><span class="cl-dot"></span><span class="cl-line"></span></div><div class="cl-version-body"><div class="cl-version-notes"></div><h3 class="cl-group">✦ Features <span class="cl-n">1</span></h3><ul class="cl-entries"><li class="cl-entry" data-areas data-type="feat" data-search="decouple strands contentblock and bedrockmodel dbschmigelski"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/836" target="_blank" rel="noopener">decouple Strands ContentBlock and BedrockModel</a></li></ul><h3 class="cl-group fixes">⊘ Fixes <span class="cl-n">6</span></h3><ul class="cl-entries"><li class="cl-entry" data-areas="structured-output" data-type="fix" data-search="invoke callback handler for structured_output zastrowm"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/857" target="_blank" rel="noopener">Invoke callback handler for structured_output</a><span class="cl-atag">structured-output</span></li><li class="cl-entry" data-areas data-type="fix" data-search="update prepare to use format instead of test-format zastrowm"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/858" target="_blank" rel="noopener">Update prepare to use format instead of test-format</a></li><li class="cl-entry" data-areas data-type="fix" data-search="add explicit permissions to auto-close workflow unshure"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/893" target="_blank" rel="noopener">add explicit permissions to auto-close workflow</a></li><li class="cl-entry" data-areas data-type="fix" data-search="make mcp_instrumentation idempotent to prevent recursion errors unshure"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/892" target="_blank" rel="noopener">make mcp_instrumentation idempotent to prevent recursion errors</a></li><li class="cl-entry" data-areas data-type="fix" data-search="fix github workflow to use fmt instead of hatch run unshure"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/898" target="_blank" rel="noopener">Fix github workflow to use fmt instead of hatch run</a></li><li class="cl-entry" data-areas="model" data-type="fix" data-search="make tool_choice an optional keyword arg instead positional dbschmigelski"><a class="cl-entry-title" href="https://github.com/strands-agents/sdk-python/pull/899" target="_blank" rel="noopener">make tool_choice an optional keyword arg instead positional</a><span class="cl-atag">model</span></li></ul></div></article></li></ol><nav class="cl-pager" aria-label="Other Harness Python releases"><a class="cl-pager-link cl-pager-prev" href="/changelog/harness/python-v1.9.0/" rel="prev"><span class="cl-pager-dir"><span aria-hidden="true">←</span> Older</span><span class="cl-pager-ver">v1.9.0</span></a><a class="cl-pager-link cl-pager-next" href="/changelog/harness/python-v1.10.0/" rel="next"><span class="cl-pager-dir">Newer <span aria-hidden="true">→</span></span><span class="cl-pager-ver">v1.10.0</span></a></nav></div><script type="module">function e(){document.querySelectorAll(`aside.page-tags`).forEach(e=>{let t=e.querySelectorAll(`.page-tags__pill`),n=e.querySelectorAll(`.page-tags__panel`),r=e.querySelectorAll(`[data-action="close"]`);function i(e){t.forEach(t=>{let n=t.dataset.tag===e;t.setAttribute(`aria-expanded`,String(n)),t.classList.toggle(`is-active`,n)}),n.forEach(t=>{t.hidden=t.dataset.tag!==e})}t.forEach(e=>{e.addEventListener(`click`,()=>{i(e.classList.contains(`is-active`)?null:e.dataset.tag??null)})}),r.forEach(e=>e.addEventListener(`click`,()=>i(null)))})}document.readyState===`loading`?document.addEventListener(`DOMContentLoaded`,e):e();</script></div><footer class="sl-flex astro-xhxjzfa7"><div class="meta sl-flex astro-xhxjzfa7"></div><div class="pagination-links print:hidden astro-jgq3vlii" dir="ltr"></div></footer></div></div></main></div></div></div><footer class="site-footer print:hidden astro-oiou2loo"><p class="copyright astro-tvd4q2mz"><a href="https://aws.amazon.com/privacy" target="_blank" rel="noopener noreferrer" class="astro-tvd4q2mz">Privacy</a>|<a href="https://aws.amazon.com/terms" target="_blank" rel="noopener noreferrer" class="astro-tvd4q2mz">Site Terms</a>|<a href="#" id="cookie-preferences" class="astro-tvd4q2mz">Cookie Preferences</a>| &copy; 2026, Amazon Web Services, Inc. or its affiliates. All rights reserved.</p></footer></div></body></html>

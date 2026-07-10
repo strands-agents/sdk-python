@@ -288,8 +288,11 @@ End the current event loop cycle and record its duration.
 #### add\_tool\_usage
 
 ```python
-def add_tool_usage(tool: ToolUse, duration: float, tool_trace: Trace,
-                   success: bool, message: Message) -> None
+def add_tool_usage(tool: ToolUse,
+                   duration: float,
+                   tool_trace: Trace,
+                   success: bool,
+                   message: Message | None = None) -> None
 ```
 
 Defined in: [src/strands/telemetry/metrics.py:295](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L295)
@@ -302,7 +305,7 @@ Record metrics for a tool invocation.
 -   `duration` - How long the tool call took in seconds.
 -   `tool_trace` - The trace object for this tool call.
 -   `success` - Whether the tool call was successful.
--   `message` - The message associated with the tool call.
+-   `message` - The message associated with the tool call, if any. Pass `None` when the call ended without producing a tool result (e.g. on interrupt).
 
 #### update\_usage
 
@@ -310,7 +313,7 @@ Record metrics for a tool invocation.
 def update_usage(usage: Usage) -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:353](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L353)
+Defined in: [src/strands/telemetry/metrics.py:355](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L355)
 
 Update the accumulated token usage with new usage data.
 
@@ -324,7 +327,7 @@ Update the accumulated token usage with new usage data.
 def reset_usage_metrics() -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:376](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L376)
+Defined in: [src/strands/telemetry/metrics.py:378](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L378)
 
 Start a new agent invocation by creating a new AgentInvocation.
 
@@ -336,7 +339,7 @@ This should be called at the start of a new request to begin tracking a new agen
 def update_metrics(metrics: Metrics) -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:384](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L384)
+Defined in: [src/strands/telemetry/metrics.py:386](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L386)
 
 Update the accumulated performance metrics with new metrics data.
 
@@ -350,7 +353,7 @@ Update the accumulated performance metrics with new metrics data.
 def get_summary() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:395](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L395)
+Defined in: [src/strands/telemetry/metrics.py:397](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L397)
 
 Generate a comprehensive summary of all collected metrics.
 
@@ -365,7 +368,7 @@ def metrics_to_string(event_loop_metrics: EventLoopMetrics,
                       allowed_names: set[str] | None = None) -> str
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:534](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L534)
+Defined in: [src/strands/telemetry/metrics.py:536](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L536)
 
 Convert event loop metrics to a human-readable string representation.
 
@@ -384,7 +387,7 @@ A formatted string representation of the metrics.
 class MetricsClient()
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:547](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L547)
+Defined in: [src/strands/telemetry/metrics.py:549](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L549)
 
 Singleton client for managing OpenTelemetry metrics instruments.
 
@@ -398,7 +401,7 @@ This class uses a thread-safe double-checked locking pattern to ensure safe conc
 def __new__(cls) -> "MetricsClient"
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:575](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L575)
+Defined in: [src/strands/telemetry/metrics.py:577](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L577)
 
 Create or return the singleton instance of MetricsClient.
 
@@ -414,7 +417,7 @@ The single MetricsClient instance.
 def __init__() -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:590](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L590)
+Defined in: [src/strands/telemetry/metrics.py:592](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L592)
 
 Initialize the MetricsClient.
 
@@ -426,6 +429,6 @@ This method only runs once due to the singleton pattern. Sets up the OpenTelemet
 def create_instruments() -> None
 ```
 
-Defined in: [src/strands/telemetry/metrics.py:610](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L610)
+Defined in: [src/strands/telemetry/metrics.py:612](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/telemetry/metrics.py#L612)
 
 Create and initialize all OpenTelemetry metric instruments.

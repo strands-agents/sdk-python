@@ -18,7 +18,7 @@ Writer API model provider implementation.
 class WriterConfig(BaseModelConfig)
 ```
 
-Defined in: [src/strands/models/writer.py:32](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L32)
+Defined in: [src/strands/models/writer.py:41](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L41)
 
 Configuration options for Writer API.
 
@@ -38,7 +38,7 @@ def __init__(client_args: dict[str, Any] | None = None,
              **model_config: Unpack[WriterConfig])
 ```
 
-Defined in: [src/strands/models/writer.py:51](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L51)
+Defined in: [src/strands/models/writer.py:60](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L60)
 
 Initialize provider instance.
 
@@ -54,7 +54,7 @@ Initialize provider instance.
 def update_config(**model_config: Unpack[WriterConfig]) -> None
 ```
 
-Defined in: [src/strands/models/writer.py:67](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L67)
+Defined in: [src/strands/models/writer.py:76](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L76)
 
 Update the Writer Model configuration with the provided arguments.
 
@@ -69,7 +69,7 @@ Update the Writer Model configuration with the provided arguments.
 def get_config() -> WriterConfig
 ```
 
-Defined in: [src/strands/models/writer.py:77](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L77)
+Defined in: [src/strands/models/writer.py:86](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L86)
 
 Get the Writer model configuration.
 
@@ -85,7 +85,7 @@ def format_request(messages: Messages,
                    system_prompt: str | None = None) -> Any
 ```
 
-Defined in: [src/strands/models/writer.py:258](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L258)
+Defined in: [src/strands/models/writer.py:267](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L267)
 
 Format a streaming request to the underlying model.
 
@@ -105,7 +105,7 @@ The formatted request.
 def format_chunk(event: Any) -> StreamEvent
 ```
 
-Defined in: [src/strands/models/writer.py:299](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L299)
+Defined in: [src/strands/models/writer.py:308](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L308)
 
 Format the model response events into standardized message chunks.
 
@@ -129,7 +129,7 @@ async def stream(messages: Messages,
                  **kwargs: Any) -> AsyncGenerator[StreamEvent, None]
 ```
 
-Defined in: [src/strands/models/writer.py:364](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L364)
+Defined in: [src/strands/models/writer.py:373](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L373)
 
 Stream conversation with the Writer model.
 
@@ -147,6 +147,7 @@ Formatted message chunks from the model.
 
 **Raises**:
 
+-   `ContextWindowOverflowException` - If the input exceeds the model’s context window.
 -   `ModelThrottledException` - When the model service is throttling requests from the client.
 
 #### structured\_output
@@ -160,7 +161,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/writer.py:444](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L444)
+Defined in: [src/strands/models/writer.py:458](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/writer.py#L458)
 
 Get structured output from the model.
 
@@ -170,3 +171,7 @@ Get structured output from the model.
 -   `prompt` - The prompt messages to use for the agent.
 -   `system_prompt` - System prompt to provide context to the model.
 -   `**kwargs` - Additional keyword arguments for future extensibility.
+
+**Raises**:
+
+-   `ContextWindowOverflowException` - If the input exceeds the model’s context window.

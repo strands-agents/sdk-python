@@ -4,7 +4,7 @@ The SDK ships context management configurations that work out of the box, so you
 
 ## Automatic context management
 
-For most agents with multi-turn conversations, you don’t need to configure conversation management and context offloading separately. Pass `context_manager="auto"` `contextManager: "auto"`  and the SDK wires up both with tuned defaults:
+For most agents with multi-turn conversations, you don’t need to configure conversation management and context offloading separately. Pass `context_manager="auto"``contextManager: "auto"` and the SDK wires up both with tuned defaults:
 
 (( tab "Python" ))
 ```python
@@ -37,7 +37,7 @@ For full details on each component, see [Conversation Management](/docs/user-gui
 
 Your own settings take precedence when you need fine-grained control:
 
--   **Custom conversation manager**: If you also pass `conversation_manager` `conversationManager`  , your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
+-   **Custom conversation manager**: If you also pass `conversation_manager``conversationManager`, your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
 -   **Existing ContextOffloader**: If your `plugins` list already contains a `ContextOffloader` instance, no duplicate is added. Your configuration is preserved.
 
 (( tab "Python" ))
@@ -75,7 +75,7 @@ const agent = new Agent({
 
 ## Agentic context management
 
-Auto mode compresses on a fixed threshold the SDK controls. Agentic mode hands that control to the model. Pass `context_manager="agentic"` `contextManager: "agentic"`  and the model manages its own working memory: it sees how full the context window is and chooses when to compress, what to compress, and what to protect.
+Auto mode compresses on a fixed threshold the SDK controls. Agentic mode hands that control to the model. Pass `context_manager="agentic"``contextManager: "agentic"` and the model manages its own working memory: it sees how full the context window is and chooses when to compress, what to compress, and what to protect.
 
 (( tab "Python" ))
 ```python
@@ -128,7 +128,7 @@ Use `"auto"` for most agents. It manages context in the background, with no mode
 
 ## Limitations
 
-**Stateful models**: Stateful models manage conversation state server-side. Setting `context_manager` `contextManager`  to either mode with a stateful model raises a `ValueError` `Error`  .
+**Stateful models**: Stateful models manage conversation state server-side. Setting `context_manager``contextManager` to either mode with a stateful model raises a `ValueError``Error`.
 
 Both modes compose an offloader that uses in-memory storage, which does not persist across process restarts. If your agent uses session management and needs durable offloaded content, configure an explicit `ContextOffloader` with `FileStorage` or `S3Storage`. See [Storage Backends](/docs/user-guide/concepts/plugins/context-offloader/index.md#storage-backends).
 

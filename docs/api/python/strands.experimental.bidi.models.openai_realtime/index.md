@@ -66,7 +66,7 @@ Establish bidirectional connection to OpenAI Realtime API.
 async def receive() -> AsyncGenerator[BidiOutputEvent, None]
 ```
 
-Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:424](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L424)
+Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:419](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L419)
 
 Receive OpenAI events and convert to Strands TypedEvent format.
 
@@ -76,7 +76,7 @@ Receive OpenAI events and convert to Strands TypedEvent format.
 async def send(content: BidiInputEvent | ToolResultEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:704](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L704)
+Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:687](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L687)
 
 Unified send method for all content types. Sends the given content to OpenAI.
 
@@ -96,6 +96,6 @@ Dispatches to appropriate internal handler based on content type.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:791](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L791)
+Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:774](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L774)
 
 Close session and cleanup resources.

@@ -2,7 +2,7 @@
 function contentBlockFromData(data): ContentBlock;
 ```
 
-Defined in: [src/types/messages.ts:942](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L942)
+Defined in: [src/types/messages.ts:972](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L972)
 
 Converts ContentBlockData to a ContentBlock instance. Handles all content block types including text, tool use/result, reasoning, cache points, guard content, and media blocks.
 

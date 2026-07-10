@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/model-extractor.ts:14](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/extraction/model-extractor.ts#L14)
+Defined in: [src/memory/extraction/model-extractor.ts:14](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/extraction/model-extractor.ts#L14)
 
 Options for [ModelExtractor](/docs/api/typescript/ModelExtractor/index.md).
 
@@ -10,7 +10,7 @@ Options for [ModelExtractor](/docs/api/typescript/ModelExtractor/index.md).
 optional model?: Model;
 ```
 
-Defined in: [src/memory/extraction/model-extractor.ts:16](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/extraction/model-extractor.ts#L16)
+Defined in: [src/memory/extraction/model-extractor.ts:16](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/extraction/model-extractor.ts#L16)
 
 Model used to extract facts. Defaults to the agent’s own model; set a cheaper one to cut cost.
 
@@ -22,6 +22,6 @@ Model used to extract facts. Defaults to the agent’s own model; set a cheaper 
 optional systemPrompt?: string;
 ```
 
-Defined in: [src/memory/extraction/model-extractor.ts:18](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/extraction/model-extractor.ts#L18)
+Defined in: [src/memory/extraction/model-extractor.ts:18](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/extraction/model-extractor.ts#L18)
 
 System prompt steering what counts as a fact. Defaults to a general fact-extraction prompt.

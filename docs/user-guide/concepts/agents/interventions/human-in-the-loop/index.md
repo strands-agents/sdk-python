@@ -87,7 +87,7 @@ if (result.stopReason === 'interrupt') {
 
 ### Stdio Mode
 
-For CLI applications, pass `ask="stdio"` `ask: 'stdio'`  to prompt the user inline via stdin. The agent blocks until the user responds, so no interrupt handling is needed on the caller side.
+For CLI applications, pass `ask="stdio"``ask: 'stdio'` to prompt the user inline via stdin. The agent blocks until the user responds, so no interrupt handling is needed on the caller side.
 
 (( tab "Python" ))
 ```python
@@ -168,11 +168,11 @@ await agent.invoke('Delete the temp files')
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `allowed_tools` `allowedTools`  | `list[str]` `string[]`  | `None` `undefined`  | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
-| `enable_trust` `enableTrust`  | `bool` `boolean`  | `False` `false`  | When enabled, trust responses are remembered for the session. |
-| `evaluate_trust` `evaluateTrust`  | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
-| `evaluate` | Function | Accepts `True, "y", or "yes"` `true, 'y', or 'yes'`  | Custom validator for approval responses. |
-| `ask` | `Function or "stdio"` `Function or 'stdio'`  | `None` `undefined`  | Pass a function for custom UIs, `"stdio"` for CLI prompting, or omit for interrupt/resume. |
+| `allowed_tools``allowedTools` | `list[str]``string[]` | `None``undefined` | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
+| `enable_trust``enableTrust` | `bool``boolean` | `False``false` | When enabled, trust responses are remembered for the session. |
+| `evaluate_trust``evaluateTrust` | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
+| `evaluate` | Function | Accepts `True, "y", or "yes"``true, 'y', or 'yes'` | Custom validator for approval responses. |
+| `ask` | `Function or "stdio"``Function or 'stdio'` | `None``undefined` | Pass a function for custom UIs, `"stdio"` for CLI prompting, or omit for interrupt/resume. |
 
 ### Allowed Tools
 
@@ -231,7 +231,7 @@ await agent.invoke('Read config.json then delete /tmp/old-logs')
 
 When trust is enabled, a human can respond with `'t'` or `'trust'` to approve the current tool call AND remember that decision for the rest of the session. Subsequent calls to the same tool skip the prompt entirely. Trust works in all modes: interrupt/resume, stdio, and custom callbacks.
 
-Trust state is stored in `agent.state` `agent.appState`  and persists across turns within a session but resets when the agent is re-created. Negated tools (`"!tool_name"`) cannot be trusted and always prompt.
+Trust state is stored in `agent.state``agent.appState` and persists across turns within a session but resets when the agent is re-created. Negated tools (`"!tool_name"`) cannot be trusted and always prompt.
 
 (( tab "Python" ))
 ```python
@@ -277,7 +277,7 @@ await agent.invoke('Delete all log files in /tmp')
 
 ### Custom Evaluate
 
-By default, the handler accepts `True, "y", or "yes"` `true, 'y', or 'yes'`  as approval. Use `evaluate` to define your own approval logic, for example requiring the user to type “confirm”:
+By default, the handler accepts `True, "y", or "yes"``true, 'y', or 'yes'` as approval. Use `evaluate` to define your own approval logic, for example requiring the user to type “confirm”:
 
 (( tab "Python" ))
 ```python
@@ -332,7 +332,7 @@ Use `HumanInTheLoop` when you want tool-level approval gating with minimal code:
 
 -   [Interventions](/docs/user-guide/concepts/agents/interventions/index.md): The intervention handler framework that HITL is built on
 -   [Interrupts](/docs/user-guide/concepts/interrupts/index.md): Low-level interrupt/resume mechanism
--   [Agent State](/docs/user-guide/concepts/agents/state/index.md): How trust decisions persist via `agent.state` `agent.appState` 
+-   [Agent State](/docs/user-guide/concepts/agents/state/index.md): How trust decisions persist via `agent.state``agent.appState`
 -   [Session Management](/docs/user-guide/concepts/agents/session-management/index.md): Persisting interrupt state across sessions
 
 ## Related pages

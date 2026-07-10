@@ -1,4 +1,4 @@
-Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](/docs/user-guide/concepts/plugins/steering/index.md), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, `system_prompt` `systemPrompt`  , `messages`, `tools`, and `hooks`—and executing logic to improve an agent’s behavior.
+Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](/docs/user-guide/concepts/plugins/steering/index.md), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, `system_prompt``systemPrompt`, `messages`, `tools`, and `hooks`—and executing logic to improve an agent’s behavior.
 
 The Strands SDK provides built-in plugins that you can use out of the box:
 
@@ -221,7 +221,7 @@ class ModelMonitorPlugin implements Plugin {
 
 ### Manual Hook and Tool Registration
 
-For more control, you can manually register hooks and tools in the `init_agent` `initAgent`  method:
+For more control, you can manually register hooks and tools in the `init_agent``initAgent` method:
 
 (( tab "Python" ))
 ```python

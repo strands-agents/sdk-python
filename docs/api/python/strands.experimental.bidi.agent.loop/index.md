@@ -19,7 +19,7 @@ Agent loop.
 -   `_task_pool` - Track active async tasks created in loop.
 -   `_event_queue` - Queue model and tool call events for receiver.
 -   `_invocation_state` - Optional context to pass to tools during execution. This allows passing custom data (user\_id, session\_id, database connections, etc.) that tools can access via their invocation\_state parameter.
--   `_send_gate` - Gate the sending of events to the model. Blocks when agent is reseting the model connection after timeout.
+-   `_send_gate` - Gate the sending of events to the model. Blocks when agent is resetting the model connection after timeout.
 
 #### \_\_init\_\_
 

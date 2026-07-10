@@ -21,7 +21,7 @@ async def event_loop_cycle(
         limits: Limits | None = None) -> AsyncGenerator[TypedEvent, None]
 ```
 
-Defined in: [src/strands/event\_loop/event\_loop.py:183](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/event_loop.py#L183)
+Defined in: [src/strands/event\_loop/event\_loop.py:182](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/event_loop/event_loop.py#L182)
 
 Execute a single cycle of the event loop.
 

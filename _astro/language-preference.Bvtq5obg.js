@@ -1,0 +1,1 @@
+var e=`starlight-synced-tabs__jarkqt`,t=`TypeScript`;async function n(e){try{return await navigator.clipboard.writeText(e),!0}catch{return!1}}export{e as n,n as r,t};

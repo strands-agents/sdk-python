@@ -95,7 +95,7 @@ Cedar uses default-deny semantics. Tools without a matching `permit` statement a
 
 ## Role-based access control
 
-For multi-tenant agents where each request carries user identity, use `principal_resolver` `principalResolver`  to extract the principal from `invocation_state` `invocationState`  and `context_enricher` `contextEnricher`  to forward role information into Cedar context:
+For multi-tenant agents where each request carries user identity, use `principal_resolver``principalResolver` to extract the principal from `invocation_state``invocationState` and `context_enricher``contextEnricher` to forward role information into Cedar context:
 
 (( tab "Python" ))
 ```python
@@ -219,7 +219,7 @@ await agent.invoke('Delete record 42', {
 ```
 (( /tab "TypeScript" ))
 
-When `principal_resolver` `principalResolver`  returns `None` `undefined`  (no identity found), the handler denies all tool calls for that request.
+When `principal_resolver``principalResolver` returns `None``undefined` (no identity found), the handler denies all tool calls for that request.
 
 ## Rate limiting
 
@@ -418,9 +418,64 @@ const cedar = new CedarAuthorization({
 
 Schema validation integrates with the [`cedar-for-agents`](https://github.com/cedar-policy/cedar-for-agents) ecosystem via `@cedar-policy/mcp-schema-generator-wasm` (TypeScript) and `cedar-policy-mcp-schema-generator` (Python).
 
+## Namespaced policies
+
+When using policy generators like [`cedar-agent-policy-builder`](https://github.com/cedar-policy/cedar-for-agents) that produce namespaced Cedar policies (e.g. `Agent::Action::"search"` instead of `Action::"search"`), set the `namespace` option to match:
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent, tool } from '@strands-agents/sdk'
+import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/cedar'
+import { z } from 'zod'
+
+const searchTool = tool({
+  name: 'search',
+  description: 'Search for information',
+  inputSchema: z.object({ query: z.string() }),
+  callback: (input) => `Results for: ${input.query}`,
+})
+
+const cedar = new CedarAuthorization({
+  namespace: 'Agent',
+  policies: `
+    permit(principal, action == Agent::Action::"search", resource);
+  `,
+  tools: [searchTool],
+  entities: [{ uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] }],
+  principalResolver: (state) => {
+    if (!state.user_id) return undefined
+    return { type: 'Agent::User', id: String(state.user_id) }
+  },
+})
+
+const agent = new Agent({
+  tools: [searchTool],
+  interventions: [cedar],
+})
+
+await agent.invoke('Search for reports', {
+  invocationState: { user_id: 'alice' },
+})
+```
+(( /tab "TypeScript" ))
+
+When `namespace` is set:
+
+| Cedar concept | Unnamespaced (default) | Namespaced (`namespace: 'Agent'`) |
+| --- | --- | --- |
+| **Action** | `Action::"search"` | `Agent::Action::"search"` |
+| **Resource** | `Resource::"agent"` | `Agent::Resource::"default"` |
+| **Default principal** | `User::"anonymous"` | `Agent::User::"anonymous"` |
+
+Schema generation also uses the configured namespace, so `tools` and `namespace` work together correctly.
+
+Note
+
+The `namespace` option is currently available in the TypeScript SDK only. Python support is planned.
+
 ## Environment gating
 
-Block tools based on deployment context by forwarding environment metadata through `context_enricher` `contextEnricher`  :
+Block tools based on deployment context by forwarding environment metadata through `context_enricher``contextEnricher`:
 
 (( tab "Python" ))
 ```python
@@ -623,13 +678,13 @@ Every authorization request includes a structured context object:
 -   `context.input` contains the tool’s input arguments, accessible in policies via `context.input.fieldName`
 -   `context.session.hour_utc` is auto-populated with the current UTC hour (0-23)
 -   `context.session.call_count` tracks per-tool invocation count
--   Additional `context.session` fields come from your `context_enricher` `contextEnricher` 
+-   Additional `context.session` fields come from your `context_enricher``contextEnricher`
 
 ## Error handling
 
 Cedar engine failures (malformed policies, evaluation errors) are always fail-closed: the tool call is denied regardless of configuration.
 
-The `on_error` `onError`  option controls what happens when your user-supplied callbacks ( `principal_resolver` `principalResolver`  or `context_enricher` `contextEnricher`  ) raise an exception:
+The `on_error``onError` option controls what happens when your user-supplied callbacks (`principal_resolver``principalResolver` or `context_enricher``contextEnricher`) raise an exception:
 
 -   `'throw'` (default): re-raises the exception to the caller
 -   `'deny'`: treats the callback failure as a denial (fail-closed)

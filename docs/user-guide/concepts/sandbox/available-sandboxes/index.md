@@ -38,9 +38,9 @@ agent("Run the test suite and summarize any failures")
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `container` `container`  | `str` `string`  | (required) | ID or name of a running container |
-| `working_dir` `workingDir`  | `str \| None` `string`  | `None` `container default`  | Working directory for executed commands. If omitted, runs in the container’s configured working directory. |
-| `user` `user`  | `str \| None` `string`  | `None` `container default`  | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container’s configured user. |
+| `container``container` | `str``string` | (required) | ID or name of a running container |
+| `working_dir``workingDir` | `str \| None``string` | `None``container default` | Working directory for executed commands. If omitted, runs in the container’s configured working directory. |
+| `user``user` | `str \| None``string` | `None``container default` | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container’s configured user. |
 
 ## SshSandbox
 
@@ -80,13 +80,13 @@ agent("Check disk usage and list running processes")
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `host` `host`  | `str` `string`  | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
-| `working_dir` `workingDir`  | `str` `string`  | (required) | Working directory on the remote host |
-| `identity_file` `identityFile`  | `str \| None` `string`  | `None` `undefined`  | Path to SSH private key file |
-| `port` `port`  | `int` `number`  | `22` | SSH port |
-| `allow_unknown_hosts` `allowUnknownHosts`  | `bool` `boolean`  | `False` `false`  | When false, uses `StrictHostKeyChecking=accept-new`. When true, disables host key verification. |
-| `ssh_options` `sshOptions`  | `list[str] \| None` `string[]`  | `None` `[]`  | Additional SSH options passed as `-o` flags |
-| `allow_unsafe_ssh_options` `allowUnsafeSshOptions`  | `bool` `boolean`  | `False` `false`  | Bypass the SSH option allowlist. When false, unknown options throw at construction time. |
+| `host``host` | `str``string` | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
+| `working_dir``workingDir` | `str``string` | (required) | Working directory on the remote host |
+| `identity_file``identityFile` | `str \| None``string` | `None``undefined` | Path to SSH private key file |
+| `port``port` | `int``number` | `22` | SSH port |
+| `allow_unknown_hosts``allowUnknownHosts` | `bool``boolean` | `False``false` | When false, uses `StrictHostKeyChecking=accept-new`. When true, disables host key verification. |
+| `ssh_options``sshOptions` | `list[str] \| None``string[]` | `None``[]` | Additional SSH options passed as `-o` flags |
+| `allow_unsafe_ssh_options``allowUnsafeSshOptions` | `bool``boolean` | `False``false` | Bypass the SSH option allowlist. When false, unknown options throw at construction time. |
 
 ### SSH Option Allowlist
 
@@ -96,7 +96,7 @@ Security Warning
 
 Setting `allowUnsafeSshOptions: true` bypasses this allowlist and lets any SSH option through, including directives that run commands on the local host. Only enable it with options you control, never with model-generated or untrusted input.
 
-Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on `execute()` `execute()`  / `execute_code()` `executeCode()`  .
+Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on `execute()``execute()` / `execute_code()``executeCode()`.
 
 ## Working with a sandbox directly
 
@@ -104,10 +104,10 @@ You can drive a sandbox directly from your own code. This is useful for setup an
 
 | Method | Description |
 | --- | --- |
-| `execute` `execute`  | Run a shell command, return the result |
-| `execute_code` `executeCode`  | Run code via an interpreter, return the result |
-| `read_text` `readText`  | Read a file as a UTF-8 string |
-| `write_text` `writeText`  | Write a string as UTF-8 |
+| `execute``execute` | Run a shell command, return the result |
+| `execute_code``executeCode` | Run code via an interpreter, return the result |
+| `read_text``readText` | Read a file as a UTF-8 string |
+| `write_text``writeText` | Write a string as UTF-8 |
 
 (( tab "TypeScript" ))
 ```typescript

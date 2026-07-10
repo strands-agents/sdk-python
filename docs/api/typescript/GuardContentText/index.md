@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:808](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L808)
+Defined in: [src/types/messages.ts:838](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L838)
 
 Text content to be evaluated by guardrails.
 
@@ -10,7 +10,7 @@ Text content to be evaluated by guardrails.
 qualifiers: GuardQualifier[];
 ```
 
-Defined in: [src/types/messages.ts:812](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L812)
+Defined in: [src/types/messages.ts:842](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L842)
 
 Qualifiers that specify how this content should be evaluated.
 
@@ -22,6 +22,6 @@ Qualifiers that specify how this content should be evaluated.
 text: string;
 ```
 
-Defined in: [src/types/messages.ts:817](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L817)
+Defined in: [src/types/messages.ts:847](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L847)
 
 The text content to be evaluated.

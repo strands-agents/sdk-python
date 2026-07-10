@@ -21,7 +21,7 @@ Key benefits:
 
 ## Basic Usage
 
-Define an output structure using a schema and pass it to `structured_output_model` `structuredOutputSchema`  . Then, access the validated output from the `AgentResult`.
+Define an output structure using a schema and pass it to `structured_output_model``structuredOutputSchema`. Then, access the validated output from the `AgentResult`.
 
 (( tab "Python" ))
 ```python
@@ -108,7 +108,7 @@ const result = await agent.invoke('John Smith is a 30 year-old software engineer
 
 The structured output system converts your schema definitions into tool specifications that guide the language model to produce correctly formatted responses. All of the model providers supported in Strands can work with Structured Output.
 
-Strands accepts the `structured_output_model` `structuredOutputSchema`  parameter in agent invocations, which manages the conversion, validation, and response processing automatically. The validated result is available in the `AgentResult.structured_output` `AgentResult.structuredOutput`  field.
+Strands accepts the `structured_output_model``structuredOutputSchema` parameter in agent invocations, which manages the conversion, validation, and response processing automatically. The validated result is available in the `AgentResult.structured_output``AgentResult.structuredOutput` field.
 
 ### Error Handling
 

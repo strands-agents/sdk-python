@@ -14,9 +14,9 @@ Before you start, you need:
 
 Select your preferred programming language to get started with deploying Strands agents to Amazon Bedrock AgentCore Runtime:
 
-[Python Deployment](python/index.md) Deploy your Python Strands agent to AgentCore Runtime!
+[Python Deployment](python/index.md)Deploy your Python Strands agent to AgentCore Runtime!
 
-[TypeScript Deployment](typescript/index.md) Deploy your TypeScript Strands agent to AgentCore Runtime!
+[TypeScript Deployment](typescript/index.md)Deploy your TypeScript Strands agent to AgentCore Runtime!
 
 ## Additional Resources
 

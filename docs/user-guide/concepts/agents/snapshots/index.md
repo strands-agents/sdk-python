@@ -152,7 +152,7 @@ const noPrompt = agent.takeSnapshot({ preset: 'session', exclude: ['systemPrompt
 
 ## Application Data
 
-Snapshots support an `app_data` `appData`  field for storing application-owned data alongside the agent state. Strands does not read or modify this data — it’s passed through verbatim.
+Snapshots support an `app_data``appData` field for storing application-owned data alongside the agent state. Strands does not read or modify this data — it’s passed through verbatim.
 
 This is useful for attaching metadata like a display name for the snapshot, the current step in a workflow, user preferences, or any other context your application needs to associate with a particular point in time.
 

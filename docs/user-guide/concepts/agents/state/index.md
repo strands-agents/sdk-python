@@ -398,7 +398,7 @@ console.log(result.invocationState)
 ```
 (( /tab "TypeScript" ))
 
-Invocation state ( `invocation_state` `invocationState`  ):
+Invocation state (`invocation_state``invocationState`):
 
 -   Is initialized at the beginning of each agent invocation (defaults to `{}` when omitted)
 -   Persists through recursive event loop cycles within a single invocation

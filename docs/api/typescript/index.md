@@ -142,6 +142,7 @@
     -   [McpCallToolOptions](/docs/api/typescript/McpCallToolOptions/index.md)
     -   [McpClientCredentials](/docs/api/typescript/McpClientCredentials/index.md)
     -   [McpClientOptions](/docs/api/typescript/McpClientOptions/index.md)
+    -   [McpServerConfig](/docs/api/typescript/McpServerConfig/index.md)
     -   [MemoryAddOptions](/docs/api/typescript/MemoryAddOptions/index.md)
     -   [MemoryAddToolConfig](/docs/api/typescript/MemoryAddToolConfig/index.md)
     -   [MemoryEntry](/docs/api/typescript/MemoryEntry/index.md)

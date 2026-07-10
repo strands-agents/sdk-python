@@ -1,0 +1,409 @@
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.47.0</title><link>https://strandsagents.com/changelog/harness/python-v1.47.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.47.0/</guid><description>• validate the AWS region before building the Nova Sonic endpoint URL
+• add changelog generator and sync workflow
+• remove duplicate client creation in Nova Sonic start()
+• fix typo and inconsistent error messages across model providers
+• declarative rebuild for _fix_broken_tool_use</description><pubDate>Fri, 10 Jul 2026 00:00:00 GMT</pubDate><category>model</category><category>bidirectional-streaming</category><category>devx</category><category>context</category><category>sessions</category><category>persistence</category><category>agent</category><category>mcp</category><category>tool</category><category>otel</category></item><item><title>Harness TypeScript v1.9.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.9.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.9.0/</guid><description>• expose metrics getter on LocalAgent
+• add changelog generator and sync workflow
+• fixed typescript release-workflow not running integ tests
+• map labels to native issue type and language field
+• harden npm lifecycle scripts for best practices</description><pubDate>Fri, 10 Jul 2026 00:00:00 GMT</pubDate><category>devx</category><category>agent</category><category>sessions</category><category>language</category><category>persistence</category></item><item><title>Harness TypeScript v1.8.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.8.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.8.0/</guid><description>• result handling, model-state isolation, and system-prompt fidelity
+• add local memory store
+• add Strandslator design doc
+• improve agent guidance
+• change-based selective integration testing</description><pubDate>Wed, 08 Jul 2026 00:00:00 GMT</pubDate><category>hooks</category><category>model</category><category>persistence</category><category>language</category><category>tool</category><category>mcp</category><category>config</category><category>async</category><category>multiagent</category><category>context</category></item><item><title>Harness Python v1.46.0</title><link>https://strandsagents.com/changelog/harness/python-v1.46.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.46.0/</guid><description>• update litellm requirement from &lt;=1.89.3,&gt;=1.75.9 to &gt;=1.75.9,&lt;=1.89.4 in /strands-py
+• revert pinning virtualenv now that hatch 1.16.5 is out
+• telemetry for memory manager
+• raise specific error for interrupt responses without active interrupt state
+• result handling, model-state isolation, and system-prompt fidelity</description><pubDate>Tue, 07 Jul 2026 00:00:00 GMT</pubDate><category>otel</category><category>devx</category><category>hil</category><category>hooks</category><category>model</category><category>persistence</category><category>language</category><category>multiagent</category><category>context</category><category>interventions</category><category>agent</category><category>mcp</category><category>config</category><category>sessions</category><category>bidirectional-streaming</category></item><item><title>Harness Python v1.45.0</title><link>https://strandsagents.com/changelog/harness/python-v1.45.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.45.0/</guid><description>• type the Bedrock KB store&apos;s S3 client via boto3-stubs
+• add memory manager docs
+• bound tool schema normalization recursion depth
+• add sandbox docs
+• require 2 maintainer reviews on bot/agent PRs</description><pubDate>Thu, 25 Jun 2026 00:00:00 GMT</pubDate><category>model</category><category>persistence</category><category>mcp</category><category>tool</category><category>server</category><category>devx</category><category>bidirectional-streaming</category><category>interventions</category><category>multiagent</category><category>agent</category><category>context</category><category>structured-output</category><category>async</category></item><item><title>Harness TypeScript v1.7.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.7.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.7.0/</guid><description>• add memory manager docs
+• require 2 maintainer reviews on bot/agent PRs
+• add pre-push skill mirroring the CI merge gate locally
+• raise timeout for sandbox isolation test
+• add SSH sandbox integration tests for Py and TS</description><pubDate>Thu, 25 Jun 2026 00:00:00 GMT</pubDate><category>devx</category><category>server</category><category>otel</category><category>model</category><category>interventions</category><category>tool</category><category>agent</category><category>multiagent</category></item><item><title>Evals v1.0.1</title><link>https://strandsagents.com/changelog/evals/v1.0.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v1.0.1/</guid><description>• bump actions/github-script from 8 to 9
+• added fetch command to pull traces from different sources
+• bump actions/checkout from 6 to 7
+• update opentelemetry-instrumentation-langchain requirement from &lt;0.50.0,&gt;=0.40.0 to &gt;=0.40.0,&lt;0.62.0
+• provide tool parameters in evaluation prompt, update refusal and helpfulness prompts</description><pubDate>Thu, 25 Jun 2026 00:00:00 GMT</pubDate><category>cli</category><category>tracing</category><category>evaluators</category></item><item><title>Harness Python v1.44.0</title><link>https://strandsagents.com/changelog/harness/python-v1.44.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.44.0/</guid><description>• add turn-based eviction to InMemoryStorage
+• add message pinning section to conversation management page
+• design: add context management presets design doc
+• remove pin messaging barrel export
+• reduce workflow noise from deployment history and label churn</description><pubDate>Tue, 16 Jun 2026 00:00:00 GMT</pubDate><category>context</category><category>devx</category><category>documentation</category><category>hooks</category><category>model</category><category>multiagent</category><category>hil</category><category>async</category><category>persistence</category><category>structured-output</category><category>agent</category><category>interventions</category><category>server</category><category>tool</category></item><item><title>Harness TypeScript v1.6.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.6.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.6.0/</guid><description>• add turn-based eviction to InMemoryStorage
+• memory injection
+• copy middleware context inputs to prevent accidental mutation
+• add message pinning section to conversation management page
+• design: add context management presets design doc</description><pubDate>Tue, 16 Jun 2026 00:00:00 GMT</pubDate><category>context</category><category>agent</category><category>hooks</category><category>devx</category><category>documentation</category><category>model</category><category>interventions</category><category>tool</category><category>persistence</category><category>server</category></item><item><title>Evals v1.0.0</title><link>https://strandsagents.com/changelog/evals/v1.0.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v1.0.0/</guid><description>• add GOAT multi-turn attack strategy
+• add PAIR single-stream multi-turn attack strategy
+• updated markdown files and skills to know the CLI exists
+• added RedTeamExperiment round-trips
+• redteam multi-agent session</description><pubDate>Tue, 16 Jun 2026 00:00:00 GMT</pubDate><category>redteam</category><category>cli</category><category>simulation</category><category>devx</category></item><item><title>Harness Python v1.43.0</title><link>https://strandsagents.com/changelog/harness/python-v1.43.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.43.0/</guid><description>• commit LICENSE and NOTICE directly into package directories
+• resolve dependabot alerts and bump CI actions
+• add python wasm release workflow
+• workflow_dispatch step for python wasm release
+• add optional hook order</description><pubDate>Fri, 12 Jun 2026 00:00:00 GMT</pubDate><category>hooks</category><category>persistence</category><category>server</category><category>context</category><category>documentation</category><category>a2a</category><category>devx</category><category>sessions</category><category>interventions</category><category>multiagent</category></item><item><title>Harness TypeScript v1.5.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.5.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.5.0/</guid><description>• sync strands-agents/docs and strands-agents/sdk-typescript into monorepo
+• commit LICENSE and NOTICE directly into package directories
+• resolve dependabot alerts and bump CI actions
+• add python wasm release workflow
+• workflow_dispatch step for python wasm release</description><pubDate>Fri, 12 Jun 2026 00:00:00 GMT</pubDate><category>memory</category><category>server</category><category>tool</category><category>documentation</category><category>model</category><category>context</category><category>persistence</category><category>devx</category><category>agent</category><category>a2a</category><category>sessions</category><category>hooks</category></item><item><title>Evals v0.3.0</title><link>https://strandsagents.com/changelog/evals/v0.3.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.3.0/</guid><description>• add built-in red teaming support
+• allow importing EvaluationReport from root
+• added trace-based evaluators into defaults
+• always return flattened report
+• add chaos resilience evaluators (failure communication, partial completion, recovery strategy)</description><pubDate>Fri, 12 Jun 2026 00:00:00 GMT</pubDate><category>redteam</category><category>cli</category><category>agent</category></item><item><title>Harness Python v1.42.0</title><link>https://strandsagents.com/changelog/harness/python-v1.42.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.42.0/</guid><description>• fix flaky tests to accept string or number
+• prepare directory layout for monorepo convergence
+• add endpoint_url parameter to S3SessionManager
+• plumb through cache tokens in metadata events
+• handle None text in message content sanitization</description><pubDate>Mon, 01 Jun 2026 00:00:00 GMT</pubDate><category>model</category><category>otel</category><category>a2a</category><category>bidirectional-streaming</category><category>multiagent</category><category>hooks</category><category>structured-output</category><category>devx</category><category>mcp</category><category>tool</category><category>context</category></item><item><title>Harness TypeScript v1.4.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.4.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.4.0/</guid><description>First TypeScript release cut from the unified harness-sdk monorepo. The
+itemized change list was omitted during the repository merge — see the
+[release on GitHub](https://github.com/strands-agents/harness-sdk/releases/tag/typescript/v1.4.0)
+for the full compare. Earlier TypeScript history continues below from the
+original sdk-typescript repository.
+</description><pubDate>Mon, 01 Jun 2026 00:00:00 GMT</pubDate></item><item><title>Evals v0.2.1</title><link>https://strandsagents.com/changelog/evals/v0.2.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.2.1/</guid><description>• added evals-skills
+• add chaos testing module for fault injection</description><pubDate>Fri, 29 May 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.41.0</title><link>https://strandsagents.com/changelog/harness/python-v1.41.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.41.0/</guid><description>• add MultiAgentPlugin for Swarm and Graph orchestrators
+• bump starlette dependency to 1.x
+• add TTL support to auto-injected tool and system/user cache points
+• add use_native_token_count=True when expected</description><pubDate>Thu, 21 May 2026 00:00:00 GMT</pubDate><category>multiagent</category><category>model</category></item><item><title>Harness TypeScript v1.3.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.3.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.3.0/</guid><description>• add interventions primitive
+• add search results tool
+• added bedrock-mantle support
+• add confirm action with built-in approve/deny semantics
+• defer tool announcement until after hooks resolve</description><pubDate>Thu, 21 May 2026 00:00:00 GMT</pubDate><category>tool</category><category>model</category><category>interventions</category></item><item><title>Harness Python v1.40.0</title><link>https://strandsagents.com/changelog/harness/python-v1.40.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.40.0/</guid><description>• add proactive context compression to conversation managers
+• cache AccessDenied error for count tokens
+• update return type of latencyMs metric for ollama model provider
+• add official Discord link
+• set use_native_token_count default to false</description><pubDate>Thu, 14 May 2026 00:00:00 GMT</pubDate><category>context</category><category>model</category><category>multiagent</category></item><item><title>Harness TypeScript v1.2.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.2.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.2.0/</guid><description>• refine sliding window coversation manager logic
+• add npm-pack test to ci-cd
+• cache AccessDenied error for count tokens
+• npm security audit fix
+• serialized interrupts and structuredOutput as JSON and citationsBlock</description><pubDate>Thu, 14 May 2026 00:00:00 GMT</pubDate><category>mcp</category><category>agent</category><category>context</category><category>tool</category><category>model</category><category>multiagent</category></item><item><title>Evals v0.2.0</title><link>https://strandsagents.com/changelog/evals/v0.2.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.2.0/</guid><description>• update import to include DiagnosisTrigger
+• structured_output for ActorSimulator
+• added strands-reviewer workflow into evals
+• add official Discord link</description><pubDate>Thu, 14 May 2026 00:00:00 GMT</pubDate><category>detectors</category><category>structured-output</category></item><item><title>Harness Python v1.39.0</title><link>https://strandsagents.com/changelog/harness/python-v1.39.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.39.0/</guid><description>• enable openai provider use aws profile
+• include root cause in MCPClientInitializationError message
+• add context window limit lookup table
+• fix count tokens for bedrock models
+• cache unsupported models for bedrocks token counting</description><pubDate>Fri, 08 May 2026 00:00:00 GMT</pubDate><category>model</category><category>context</category><category>a2a</category></item><item><title>Harness TypeScript v1.1.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.1.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.1.0/</guid><description>• migrate LifecycleBridge from deleted HookProvider to Plugin
+• format entry.ts
+• add hook fields on Before/After Tool Call Event and AfterInvocationEvent
+• fix stale imports and ToolRegistry API in WASM bridge
+• add missing root script delegations</description><pubDate>Fri, 08 May 2026 00:00:00 GMT</pubDate><category>tool</category><category>model</category><category>agent</category><category>mcp</category><category>context</category><category>structured-output</category><category>hooks</category></item><item><title>Evals v0.1.17</title><link>https://strandsagents.com/changelog/evals/v0.1.17/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.17/</guid><description>• add multimodal evaluators and prompt templates for image-to-text evaluation
+• added analyze_root_cause
+• integrated rca into evaluation workflow
+• included more fields to the RCAItem
+• updated confidencelevel and diagnose_trigger to enum</description><pubDate>Fri, 08 May 2026 00:00:00 GMT</pubDate><category>detectors</category><category>evaluators</category><category>tool</category></item><item><title>Harness Python v1.38.0</title><link>https://strandsagents.com/changelog/harness/python-v1.38.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.38.0/</guid><description>• preserve CallToolResult.isError flag in MCPToolResult
+• add `count_token` method to model with naive estimation using tiktoken
+• added warning for default model awareness and is subject to change
+• forward ttl field from CachePoint in _format_system_messages
+• preserve cache points in system prompt during skills inj…</description><pubDate>Thu, 30 Apr 2026 00:00:00 GMT</pubDate><category>mcp</category><category>context</category><category>model</category><category>tool</category></item><item><title>Harness TypeScript v1.0.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0/</guid><description>• add prepack script so git installs build dist/
+• add version field to root package.json so downstream file: insta…
+• add mcp tool result multimodal support
+• add concise inline comments in the wit contract
+• update wasm content with guides</description><pubDate>Thu, 30 Apr 2026 00:00:00 GMT</pubDate><category>mcp</category><category>tool</category><category>model</category></item><item><title>Evals v0.1.16</title><link>https://strandsagents.com/changelog/evals/v0.1.16/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.16/</guid><description>• simplify devx by adding @eval_task decorator and handlers for wrapping task functions
+• detectors interface and failure_detector implementation
+• use PEP 604 union syntax and add Model type to HarmfulnessEvaluator</description><pubDate>Thu, 30 Apr 2026 00:00:00 GMT</pubDate><category>detectors</category><category>evaluators</category></item><item><title>Harness Python v1.37.0</title><link>https://strandsagents.com/changelog/harness/python-v1.37.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.37.0/</guid><description>• add fallback trim point for tool-heavy conversations in SlidingWindowConversationManager
+• introduce checkpoint in experimental
+• add context_window_limit to model configs
+• skip MCPClient cleanup during interpreter finalization
+• update retired claude-3-haiku model in integration tests</description><pubDate>Wed, 22 Apr 2026 00:00:00 GMT</pubDate><category>tool</category><category>persistence</category><category>mcp</category></item><item><title>Harness TypeScript v1.0.0-rc.5</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.5/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.5/</guid><description>• remove preview status from README
+• move TS package into strands-ts/ for monorepo structure
+• add strands-wasm, strands-py, strands-dev, and wit from wasm monorepo
+• update AGENTS.md and CONTRIBUTING.md for strands-ts workspace layout
+• update setuptools requirement from &gt;=68.0 to &gt;=82.0.1 in /strands-py</description><pubDate>Wed, 22 Apr 2026 00:00:00 GMT</pubDate><category>mcp</category><category>model</category><category>otel</category></item><item><title>Harness Python v1.36.0</title><link>https://strandsagents.com/changelog/harness/python-v1.36.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.36.0/</guid><description>• accept callable hook callbacks in Agent constructor
+• handle missing optional fields in non-streaming citation conversion
+• add common gen_ai attributes to event loop cycle spans
+• use per-invocation usage in agent span attributes
+• add client_config param and deprecate a2a_client_factory</description><pubDate>Fri, 17 Apr 2026 00:00:00 GMT</pubDate><category>hooks</category><category>bidirectional-streaming</category><category>otel</category><category>a2a</category><category>mcp</category><category>model</category><category>agent</category><category>context</category></item><item><title>Harness TypeScript v1.0.0-rc.4</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.4/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.4/</guid><description>• evaluate all incoming edge handlers in Graph._findReady
+• add swarm+session manager resume logic,unit tests, integration test
+• support custom ClientFactory in A2AAgent for authenticated requests
+• track agent.messages token size
+• added function replacer for notebook_tool replace</description><pubDate>Fri, 17 Apr 2026 00:00:00 GMT</pubDate><category>multiagent</category><category>a2a</category><category>context</category><category>tool</category><category>agent</category><category>otel</category></item><item><title>Evals v0.1.15</title><link>https://strandsagents.com/changelog/evals/v0.1.15/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.15/</guid><description>• updated simulators README
+• add correctness evaluator, trace-based and reference-based
+• add OpenSearchProvider and OpenSearchSessionMapper</description><pubDate>Fri, 17 Apr 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.35.0</title><link>https://strandsagents.com/changelog/harness/python-v1.35.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.35.0/</guid><description>• add service_tier support to BedrockModel
+• forward _meta to MCP tool calls and fix model_dump alias seriali…
+• avoid Pydantic warnings for message_stop events
+• propagate tool exceptions to spans so StatusCode.ERROR is set correctly
+• enforce that the first message is a user message in the sliding window conversation manager</description><pubDate>Wed, 08 Apr 2026 00:00:00 GMT</pubDate></item><item><title>Harness TypeScript v1.0.0-rc.3</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.3/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.3/</guid><description>• add browser-based agent example
+• add multiagent snapshot
+• sync BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES with Python SDK
+• update browser-agent example for current SDK API
+• add AgentAsTool internal class</description><pubDate>Wed, 08 Apr 2026 00:00:00 GMT</pubDate></item><item><title>Evals v0.1.14</title><link>https://strandsagents.com/changelog/evals/v0.1.14/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.14/</guid><description>• devx to allow for passing the Provider directly to evaluations with creating a wrapper task
+• add ground truth assertion support to Goal Success Rate evaluator</description><pubDate>Wed, 08 Apr 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.34.1</title><link>https://strandsagents.com/changelog/harness/python-v1.34.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.34.1/</guid><description>• fix type imcompatible
+• isolate langfuse env vars
+• restore explicit span.end() to fix span end_time regression
+• track context tokens</description><pubDate>Wed, 01 Apr 2026 00:00:00 GMT</pubDate><category>otel</category><category>context</category></item><item><title>Harness Python v1.34.0</title><link>https://strandsagents.com/changelog/harness/python-v1.34.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.34.0/</guid><description>• remove Cohere from required integ test providers
+• add AgentAsTool
+• auto-wrap Agent instances passed in tools list
+• emit system prompt on chat spans per GenAI semconv
+• add support for MCP elicitation -32042 error handling</description><pubDate>Tue, 31 Mar 2026 00:00:00 GMT</pubDate><category>tool</category><category>otel</category><category>mcp</category><category>model</category></item><item><title>Harness TypeScript v1.0.0-rc.2</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.2/</guid><description>• make multiagent state implements stateSerializable
+• add VercelModel adapter for Language Model Specification v3 providers
+• rename VercelModelOptions.model to provider
+• add SummarizationConversationManager
+• mark LocalAgent interface as internal-only</description><pubDate>Tue, 31 Mar 2026 00:00:00 GMT</pubDate><category>multiagent</category></item><item><title>Evals v0.1.13</title><link>https://strandsagents.com/changelog/evals/v0.1.13/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.13/</guid><description>• add LocalFileTaskResultStore for caching task results locally
+• langfuse provider changes to support newer version of langfuse</description><pubDate>Tue, 31 Mar 2026 00:00:00 GMT</pubDate></item><item><title>Harness TypeScript v1.0.0-rc.1</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.1/</guid><description>• remove top level telemetry export</description><pubDate>Thu, 26 Mar 2026 00:00:00 GMT</pubDate><category>otel</category></item><item><title>Harness TypeScript v1.0.0-rc.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.0.0-rc.0/</guid><description>• gemini model should handle throttling correctly
+• prevent self-handoffs in Swarm
+• use logger instead of console log that bypass logging system
+• update default model to Claude Sonnet 4 (claude-sonnet-4-6)
+• remove vi.restoreAllMocks() breaking Anthropic mock in browser tests</description><pubDate>Thu, 26 Mar 2026 00:00:00 GMT</pubDate><category>model</category><category>multiagent</category><category>hooks</category><category>otel</category><category>agent</category><category>structured-output</category><category>tool</category><category>bidirectional-streaming</category></item><item><title>Evals v0.1.12</title><link>https://strandsagents.com/changelog/evals/v0.1.12/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.12/</guid><description>• added framework detection for traces from CloudWatch
+• unify sync/async evaluation by defaulting aevaluate to asyncio.to_thread
+• add TaskResultStore for caching and replaying task execution results
+• cloudwatch change for openinference</description><pubDate>Thu, 26 Mar 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.33.0</title><link>https://strandsagents.com/changelog/harness/python-v1.33.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.33.0/</guid><description>• summarization conversation manager sometimes returns empty response
+• remove agent from swarm test to get more consistency out of it
+• CRITICAL: Hard pin `litellm&lt;=1.82.6` to mitigate supply chain attack</description><pubDate>Tue, 24 Mar 2026 00:00:00 GMT</pubDate><category>multiagent</category><category>model</category></item><item><title>Harness Python v1.32.0</title><link>https://strandsagents.com/changelog/harness/python-v1.32.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.32.0/</guid><description>• ensure all cycle metrics include end time and duration
+• pin upper bound for mistralai dependency
+• override end_turn stop reason when streaming response contains toolUse blocks</description><pubDate>Fri, 20 Mar 2026 00:00:00 GMT</pubDate><category>otel</category><category>bidirectional-streaming</category></item><item><title>Harness Python v1.31.0</title><link>https://strandsagents.com/changelog/harness/python-v1.31.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.31.0/</guid><description>• pass A2A request context metadata as invocation state
+• s3session manager bug
+• only evaluate outbound edges from completed nodes
+• always use string content for tool messages
+• widen openai dependency to support 2.x for litellm compatibility</description><pubDate>Thu, 19 Mar 2026 00:00:00 GMT</pubDate><category>a2a</category><category>sessions</category><category>multiagent</category><category>model</category></item><item><title>Harness TypeScript v0.7.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.7.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.7.0/</guid><description>• add guardLatestUserMessage guardrail option
+• implement Plugin system to replace HookProvider
+• delete package-lock.json
+• add concrete metric assertions and usage support to MockMessageModel
+• add multi-agent orchestration documentation and examples</description><pubDate>Thu, 19 Mar 2026 00:00:00 GMT</pubDate><category>model</category><category>multiagent</category><category>a2a</category><category>otel</category><category>tool</category><category>agent</category></item><item><title>Evals v0.1.11</title><link>https://strandsagents.com/changelog/evals/v0.1.11/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.11/</guid><description>• allow flattened report
+• add environment state evaluation support
+• added Langchain mappers
+• add environment state support to OutputEvaluator
+• hatch run test-lint</description><pubDate>Thu, 19 Mar 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.30.0</title><link>https://strandsagents.com/changelog/harness/python-v1.30.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.30.0/</guid><description>• add &quot;anthropic&quot; cache strategy to bypass model ID check
+• serialize tool results as JSON when possible
+• summary manager using structured output
+• expose server instructions from InitializeResult on MCPClient
+• added LANGFUSE_BASE_URL check for additinoal attribute</description><pubDate>Wed, 11 Mar 2026 00:00:00 GMT</pubDate><category>model</category><category>tool</category><category>structured-output</category><category>mcp</category><category>sessions</category><category>agent</category><category>hooks</category></item><item><title>Harness TypeScript v0.6.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.6.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.6.0/</guid><description>• add CitationsBlock for document citation support
+• remove circular import of barrel index.js in agent.ts
+• bump express-rate-limit from 8.2.1 to 8.3.0
+• add session manager implementation and related tests
+• remove color assertions from image/video integ tests</description><pubDate>Wed, 11 Mar 2026 00:00:00 GMT</pubDate><category>agent</category><category>sessions</category><category>mcp</category><category>multiagent</category><category>otel</category><category>tool</category><category>model</category></item><item><title>Evals v0.1.10</title><link>https://strandsagents.com/changelog/evals/v0.1.10/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.10/</guid><description>• add deterministic evaluators for output and trajectory checks</description><pubDate>Wed, 11 Mar 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.29.0</title><link>https://strandsagents.com/changelog/harness/python-v1.29.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.29.0/</guid><description>• pin virtualenv to &lt;21 for hatch bug
+• added latest semantic conventions as span attributes for langfuse
+• preserve guardrail_latest_message wrapping after tool execution
+• improve tool result truncation strategy
+• improve plugin creation devex with @hook and @tool decorators</description><pubDate>Wed, 04 Mar 2026 00:00:00 GMT</pubDate><category>otel</category><category>tool</category><category>model</category></item><item><title>Harness TypeScript v0.5.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.5.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.5.0/</guid><description>• auto-approve strands command and review workflows
+• multiagents - components
+• rename event loop to agent loop
+• remove rollup pin
+• add rebased telemetry implementation</description><pubDate>Wed, 04 Mar 2026 00:00:00 GMT</pubDate><category>agent</category><category>otel</category><category>mcp</category><category>structured-output</category></item><item><title>Evals v0.1.9</title><link>https://strandsagents.com/changelog/evals/v0.1.9/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.9/</guid><description>• add CloudWatchProvider to pull remote cloudwatch traces and run evals against them.
+• add ToolSimulator for tool response simulation</description><pubDate>Wed, 04 Mar 2026 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v1.28.0</title><link>https://strandsagents.com/changelog/harness/python-v1.28.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.28.0/</guid><description>• update region for agentcore in our new account
+• remove test that fails for python 3.14
+• support union types and list of types for add_hook
+• make pyaudio an optional dependency by lazy loading
+• add Plugin Protocol for agent extensibility</description><pubDate>Wed, 25 Feb 2026 00:00:00 GMT</pubDate><category>hooks</category><category>agent</category><category>model</category></item><item><title>Harness TypeScript v0.4.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.4.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.4.0/</guid><description>• add structured output support with Zod schema validation
+• sessionManager - Interface Design &amp; Storage Implementation
+• add serialization/deserialization support for Message &amp; ContentBlocks
+• implement low-level snapshot API
+• wrap raw data objects in event wrappers for agent stream</description><pubDate>Wed, 25 Feb 2026 00:00:00 GMT</pubDate><category>structured-output</category><category>agent</category><category>bidirectional-streaming</category><category>multiagent</category></item><item><title>Evals v0.1.8</title><link>https://strandsagents.com/changelog/evals/v0.1.8/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.8/</guid><description>• handle parallel tool calls during tool extraction
+• trace provider interface
+• add LangfuseProvider for remote trace evaluation
+• bump amannn/action-semantic-pull-request from 5 to 6</description><pubDate>Wed, 25 Feb 2026 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v1.27.0</title><link>https://strandsagents.com/changelog/harness/python-v1.27.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.27.0/</guid><description>• Propagate exceptions to AfterToolCallEvent for decorated tools (#1565)
+• add conventional commit workflow in PR
+• the A2AAgent returns empty AgentResult content
+• auto run review workflow on maintainer PR
+• correct output reference for approval-env in integration test</description><pubDate>Thu, 19 Feb 2026 00:00:00 GMT</pubDate><category>tool</category><category>agent</category><category>model</category><category>mcp</category></item><item><title>Harness TypeScript v0.3.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.3.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.3.0/</guid><description>• auto run review workflow on maintainer PR
+• add conventional commit workflow in PR
+• bump qs from 6.14.1 to 6.14.2
+• add tool calling support
+• correct output reference for approval-env in integration test</description><pubDate>Thu, 19 Feb 2026 00:00:00 GMT</pubDate><category>model</category></item><item><title>Evals v0.1.7</title><link>https://strandsagents.com/changelog/evals/v0.1.7/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.7/</guid><description>• retrieve multiple text contentBlock in messageConent
+• add conventional commit workflow in PR
+• add tool info to concisenss, harmfulness, helpfulness and response relevance evaluators
+• update output variable name in workflow
+• update finalize condition for workflow execution</description><pubDate>Thu, 19 Feb 2026 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v1.26.0</title><link>https://strandsagents.com/changelog/harness/python-v1.26.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.26.0/</guid><description>• bump aws-actions/configure-aws-credentials from 5 to 6
+• add guidance on using Protocol instead of Callable for extensible interfaces
+• Implement basic support for Tasks
+• set empty text part data in `parts` for `Artifact`
+• use model stream to generate summary</description><pubDate>Wed, 11 Feb 2026 00:00:00 GMT</pubDate><category>mcp</category><category>multiagent</category><category>bidirectional-streaming</category><category>model</category></item><item><title>Harness TypeScript v0.2.2</title><link>https://strandsagents.com/changelog/harness/typescript-v0.2.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.2.2/</guid><description>• run npm clean install
+• Support Anthropic as a model provider
+• add ModelThrottledError for rate limiting
+• add dependency management guidelines to AGENTS.md
+• add apiKey option to BedrockModel for bearer token authentication</description><pubDate>Wed, 11 Feb 2026 00:00:00 GMT</pubDate><category>model</category><category>hooks</category></item><item><title>Evals v0.1.6</title><link>https://strandsagents.com/changelog/evals/v0.1.6/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.6/</guid><description>• centralized InputT and OutputT
+• Added CoherenceEvaluator</description><pubDate>Wed, 11 Feb 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.25.0</title><link>https://strandsagents.com/changelog/harness/python-v1.25.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.25.0/</guid><description>• Increase pytest timeout to 45 seconds
+• Publish integ tests results to cloudwatch
+• add A2AAgent class
+• preserve nullable semantics for required Union[T, None] params
+• Feature: Allow s3Location as Document, Image, and Video location source</description><pubDate>Thu, 05 Feb 2026 00:00:00 GMT</pubDate></item><item><title>Harness TypeScript v0.2.1</title><link>https://strandsagents.com/changelog/harness/typescript-v0.2.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.2.1/</guid><description>• add sqs arn from secret
+• Add always condition to finalize step, fix audit, and update bash test to use real path
+• Add sqs arn
+• add text only implementation of gemini model
+• add retry property to AfterToolCallEvent</description><pubDate>Thu, 05 Feb 2026 00:00:00 GMT</pubDate></item><item><title>Evals v0.1.5</title><link>https://strandsagents.com/changelog/evals/v0.1.5/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.5/</guid><description>• replace deprecated structured_output methods with new API
+• Feat/retry throttled tenacity
+• added ResponseRelevanceEvaluator
+• bump aws-actions/configure-aws-credentials from 5 to 6
+• added ConcisenessEvaluator</description><pubDate>Thu, 05 Feb 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.24.0</title><link>https://strandsagents.com/changelog/harness/python-v1.24.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.24.0/</guid><description>• fix flaky openai structured output test by adding Field guidance
+• interrupts - multiagent - do not emit AfterNodeCallEvent on interrupt
+• add workflow for lambda layer publish
+• Populate tool_args correctly for steering
+• interrupts - graph - agent based</description><pubDate>Thu, 29 Jan 2026 00:00:00 GMT</pubDate><category>model</category><category>multiagent</category><category>hooks</category><category>tool</category><category>agent</category></item><item><title>Harness TypeScript v0.2.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.2.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.2.0/</guid><description>• Update to use shared auth check
+• Create v1 issue template for feature requests
+• Add condition to authorization-check job
+• Update issue template for v1 release
+• Rename issue template from &apos;v1&apos; to &apos;V1 Release&apos;</description><pubDate>Thu, 29 Jan 2026 00:00:00 GMT</pubDate><category>model</category><category>mcp</category></item><item><title>Evals v0.1.4</title><link>https://strandsagents.com/changelog/evals/v0.1.4/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.4/</guid><description>• include tool executions in _extract_trace_level</description><pubDate>Thu, 29 Jan 2026 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v1.23.0</title><link>https://strandsagents.com/changelog/harness/python-v1.23.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.23.0/</guid><description>• prevent agent hang by checking session closure state
+• update sphinx-rtd-theme requirement from &lt;2.0.0,&gt;=1.0.0 to &gt;=1.0.0,&lt;4.0.0
+• update websockets requirement from &lt;16.0.0,&gt;=15.0.0 to &gt;=15.0.0,&lt;17.0.0
+• Update ruff configuration to apply pyupgrade to modernize python syntax
+• extract text from citationsContent in AgentResult.__str__</description><pubDate>Wed, 21 Jan 2026 00:00:00 GMT</pubDate><category>mcp</category><category>agent</category><category>hooks</category><category>multiagent</category><category>tool</category><category>model</category><category>a2a</category></item><item><title>Harness TypeScript v0.1.6</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.6/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.6/</guid><description>• add support for task-augmented MCP tools
+• Test multiple node versions
+• bump the production-minor group with 3 updates
+• Add PR review agent - rebased
+• bump the production-minor group with 2 updates</description><pubDate>Wed, 21 Jan 2026 00:00:00 GMT</pubDate><category>mcp</category><category>agent</category></item><item><title>Evals v0.1.3</title><link>https://strandsagents.com/changelog/evals/v0.1.3/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.3/</guid><description>• Multiple Tool Usage Not Detected in tools_use_extractor.py</description><pubDate>Wed, 21 Jan 2026 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v1.22.0</title><link>https://strandsagents.com/changelog/harness/python-v1.22.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.22.0/</guid><description>• update github agent action to reference S3_SESSION_BUCKET
+• provide extra command content as the the prompt to the agent
+• [FEATURE] add MCP resource operations in MCP Tools
+• import errors for models with optional imports
+• add BidiGeminiLiveModel and BidiOpenAIRealtimeModel to the init</description><pubDate>Tue, 13 Jan 2026 00:00:00 GMT</pubDate><category>agent</category><category>mcp</category><category>model</category><category>tool</category></item><item><title>Harness TypeScript v0.1.5</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.5/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.5/</guid><description>• Fix audit issue
+• Fix audit errors + split out audit to a separate workflow
+• Update model to opus 4.5</description><pubDate>Tue, 13 Jan 2026 00:00:00 GMT</pubDate></item><item><title>Evals v0.1.2</title><link>https://strandsagents.com/changelog/evals/v0.1.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.2/</guid><description>• Isolate evaluator errors in run_evaluations
+• Add null check for toolResult in message extraction</description><pubDate>Tue, 13 Jan 2026 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.21.0</title><link>https://strandsagents.com/changelog/harness/python-v1.21.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.21.0/</guid><description>• Add issue-responder action agent
+• support passing additional keyword arguments to FastAPI and Starlette constructors
+• add replace method to ToolRegistry
+• add meta field support to MCP tool results
+• remove unnecessary None from dict.get() calls</description><pubDate>Fri, 02 Jan 2026 00:00:00 GMT</pubDate><category>agent</category><category>a2a</category><category>tool</category><category>mcp</category><category>bidirectional-streaming</category><category>otel</category><category>model</category><category>hooks</category></item><item><title>Harness TypeScript v0.1.4</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.4/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.4/</guid><description>• Add release-notes SOP for generating release notes
+• bump the development-dependencies group across 1 directory with 4 updates
+• bump the production-minor group with 2 updates
+• bump actions/upload-artifact from 5 to 6
+• reset accumulatedReasoning state to prevent corrupting ReasoningBlock with accumulated content</description><pubDate>Fri, 02 Jan 2026 00:00:00 GMT</pubDate><category>model</category></item><item><title>Harness Python v1.20.0</title><link>https://strandsagents.com/changelog/harness/python-v1.20.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.20.0/</guid><description>• Remove toolResult message when toolUse is missing due to pagination in session management
+• interrupts - swarm
+• Return structured output JSON when AgentResult has no text
+• bidi - fix record direct tool call
+• Update doc strings to eliminate warnings in doc build</description><pubDate>Mon, 15 Dec 2025 00:00:00 GMT</pubDate><category>sessions</category><category>multiagent</category><category>agent</category><category>tool</category><category>hooks</category><category>mcp</category></item><item><title>Harness TypeScript v0.1.3</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.3/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.3/</guid><description>• missing export entry for vended_tools/bash
+• Allow OpenAI apiKey to accept function for dynamic key loading
+• Enable vitest test reports + upload artifacts
+• Update TypeScript configurations for tests &amp; source
+• Tweak agent runner to be more general-purpose</description><pubDate>Mon, 15 Dec 2025 00:00:00 GMT</pubDate><category>model</category><category>agent</category><category>mcp</category></item><item><title>Evals v0.1.1</title><link>https://strandsagents.com/changelog/evals/v0.1.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.1/</guid><description>• fix broken links
+• Extract whether tool result was an error
+• updated README to include simulator feature
+• preserve non-ASCII characters in JSON file output
+• bump actions/download-artifact from 4 to 7</description><pubDate>Mon, 15 Dec 2025 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness TypeScript v0.1.2</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.2/</guid><description>• Update repository url for TypeDoc
+• fix broken API reference link in README
+• Update exports to account for CJS</description><pubDate>Thu, 04 Dec 2025 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.19.0</title><link>https://strandsagents.com/changelog/harness/python-v1.19.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.19.0/</guid><description>• avoid KeyError in direct tool calls with context
+• attached custom attributes to all spans
+• hooks - before node call - cancel node
+• interrupts - support falsey responses
+• Bidirectional Streaming Agent</description><pubDate>Wed, 03 Dec 2025 00:00:00 GMT</pubDate><category>tool</category><category>hooks</category><category>bidirectional-streaming</category><category>mcp</category></item><item><title>Harness TypeScript v0.1.1</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.1/</guid><description>• bump @aws-sdk/client-bedrock-runtime from 3.941.0 to 3.943.0
+• bump actions/upload-artifact from 4 to 5
+• bump the development-dependencies group with 10 updates
+• Update mcp version
+• Update MCP example in readme</description><pubDate>Wed, 03 Dec 2025 00:00:00 GMT</pubDate><category>model</category><category>mcp</category></item><item><title>Evals v0.1.0</title><link>https://strandsagents.com/changelog/evals/v0.1.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v0.1.0/</guid><description>Release 0.1.0</description><pubDate>Wed, 03 Dec 2025 00:00:00 GMT</pubDate></item><item><title>Harness TypeScript v0.1.0</title><link>https://strandsagents.com/changelog/harness/typescript-v0.1.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v0.1.0/</guid><description>Release 0.1.0</description><pubDate>Wed, 03 Dec 2025 00:00:00 GMT</pubDate></item><item><title>Harness Python v1.18.0</title><link>https://strandsagents.com/changelog/harness/python-v1.18.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.18.0/</guid><description>• multi agent input
+• interrupt - activate - set context separately
+• In PrintingCallbackHandler, make the verbose description and counting…
+• fix swarm session management integ test.
+• move tool caller definition out of agent module</description><pubDate>Fri, 21 Nov 2025 00:00:00 GMT</pubDate><category>agent</category><category>context</category><category>multiagent</category><category>tool</category><category>hooks</category><category>mcp</category><category>model</category></item><item><title>Harness Python v1.17.0</title><link>https://strandsagents.com/changelog/harness/python-v1.17.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.17.0/</guid><description>• allow setting a timeout when creating MCPAgentTool
+• add validation for stream parameter in LiteLLM
+• handle MetadataEvents without optional usage and metrics
+• swarm - switch to handoff node only after current node stops
+• base64 decode byte data before placing in ContentBlocks</description><pubDate>Tue, 18 Nov 2025 00:00:00 GMT</pubDate><category>model</category><category>otel</category><category>multiagent</category><category>a2a</category></item><item><title>Harness Python v1.16.0</title><link>https://strandsagents.com/changelog/harness/python-v1.16.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.16.0/</guid><description>• handle non-JSON error messages from Gemini API
+• Handle &quot;prompt is too long&quot; from Anthropic
+• Add tool definitions to traces via semconv opt-in
+• Strip argument sections out of inputSpec top-level description
+• share thread context</description><pubDate>Wed, 12 Nov 2025 00:00:00 GMT</pubDate><category>model</category><category>otel</category><category>context</category><category>hooks</category><category>tool</category><category>mcp</category></item><item><title>Harness Python v1.15.0</title><link>https://strandsagents.com/changelog/harness/python-v1.15.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.15.0/</guid><description>• (bug): Drop reasoningContent from request
+• Dont initialize an agent on swarm init
+• add multiagent session/repository management.
+• Add stream_async
+• Fix #1077: properly redact toolResult blocks to avoid corrupting the conversation</description><pubDate>Tue, 04 Nov 2025 00:00:00 GMT</pubDate><category>multiagent</category><category>structured-output</category><category>model</category></item><item><title>Harness Python v1.14.0</title><link>https://strandsagents.com/changelog/harness/python-v1.14.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.14.0/</guid><description>• models - litellm - start and stop reasoning
+• add experimental AgentConfig with comprehensive tool management
+• make strands agent invoke_agent span as INTERNAL spanKind
+• add multiagent hooks, add serialize &amp; deserialize function to multiagent base &amp; agent result
+• Add Structured Output as part of the agent loop</description><pubDate>Wed, 29 Oct 2025 00:00:00 GMT</pubDate><category>model</category><category>tool</category><category>otel</category><category>multiagent</category><category>structured-output</category><category>mcp</category></item><item><title>Harness Python v1.13.0</title><link>https://strandsagents.com/changelog/harness/python-v1.13.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.13.0/</guid><description>• replace kwargs with invocation_state in agent APIs
+• updated semantic conventions, added timeToFirstByteMs into spans and metrics
+• added gen_ai.tool.description and gen_ai.tool.json_schema
+• validate ToolContext parameter name and raise clear error
+• integ tests - fix flaky structured output test</description><pubDate>Fri, 17 Oct 2025 00:00:00 GMT</pubDate><category>agent</category><category>otel</category><category>structured-output</category><category>tool</category></item><item><title>Harness Python v1.12.0</title><link>https://strandsagents.com/changelog/harness/python-v1.12.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.12.0/</guid><description>• Refactor and update tool loading to support modules
+• Adding Development Tenets to CONTRIBUTING.md
+• Revert &quot;feat: implement concurrent message reading for session managers (#897)&quot;
+• use tool for litellm structured_output when supports_response_schema=false
+• Add EmbeddedResource support to mcp (read GitHub file contents blocker)</description><pubDate>Fri, 10 Oct 2025 00:00:00 GMT</pubDate><category>tool</category><category>sessions</category><category>model</category><category>mcp</category></item><item><title>Harness Python v1.11.0</title><link>https://strandsagents.com/changelog/harness/python-v1.11.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.11.0/</guid><description>• GeminiModel argument in README
+• tool - executors - concurrent - remove no-op gather
+• updated traces to match OTEL v1.37 semantic conventions
+• event loop - handle model execution
+• implement concurrent message reading for session managers</description><pubDate>Wed, 08 Oct 2025 00:00:00 GMT</pubDate><category>tool</category><category>otel</category><category>sessions</category><category>model</category></item><item><title>Harness Python v1.10.0</title><link>https://strandsagents.com/changelog/harness/python-v1.10.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.10.0/</guid><description>• add optional outputSchema support for tool specifications
+• add Gemini model provider
+• Improve OpenAI error handling
+• update sphinx-autodoc-typehints requirement from &lt;2.0.0,&gt;=1.12.0 to &gt;=1.12.0,&lt;4.0.0
+• update sphinx requirement from &lt;6.0.0,&gt;=5.0.0 to &gt;=5.0.0,&lt;9.0.0</description><pubDate>Mon, 29 Sep 2025 00:00:00 GMT</pubDate><category>tool</category><category>model</category><category>mcp</category><category>hooks</category><category>multiagent</category></item><item><title>Harness Python v1.9.1</title><link>https://strandsagents.com/changelog/harness/python-v1.9.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.9.1/</guid><description>• decouple Strands ContentBlock and BedrockModel
+• Invoke callback handler for structured_output
+• Update prepare to use format instead of test-format
+• add explicit permissions to auto-close workflow
+• make mcp_instrumentation idempotent to prevent recursion errors</description><pubDate>Fri, 19 Sep 2025 00:00:00 GMT</pubDate><category>structured-output</category><category>model</category></item><item><title>Harness Python v1.9.0</title><link>https://strandsagents.com/changelog/harness/python-v1.9.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.9.0/</guid><description>• add cache usage metrics to OpenTelemetry spans
+• improve docstring formatting
+• bump actions/setup-python from 5 to 6
+• bump actions/github-script from 7 to 8
+• bump aws-actions/configure-aws-credentials from 4 to 5</description><pubDate>Wed, 17 Sep 2025 00:00:00 GMT</pubDate><category>otel</category><category>multiagent</category><category>model</category><category>tool</category><category>mcp</category></item><item><title>Harness Python v1.8.0</title><link>https://strandsagents.com/changelog/harness/python-v1.8.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.8.0/</guid><description>• Moved tool_spec retrieval to after the before model invocation callback
+• fix cyclic graph behavior
+• filter reasoningContent in Bedrock requests using DeepSeek
+• cleanup docs so the yields section renders correctly
+• Warn on unknown model configuration properties</description><pubDate>Wed, 10 Sep 2025 00:00:00 GMT</pubDate><category>multiagent</category><category>model</category><category>structured-output</category><category>tool</category></item><item><title>Harness Python v1.7.1</title><link>https://strandsagents.com/changelog/harness/python-v1.7.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.7.1/</guid><description>• don&apos;t emit ToolStream events for non generator functions
+• adjust test_bedrock_guardrails to account for async behavior
+• replace invalid Hook names in doc comment with BeforeInvocationEvent &amp; AfterInvocationEvent
+• Remove status field from toolResult for non-claude 3 models in Bedrock model provider
+• filter &apos;SDK_UNKNOWN_MEMBER&apos; from response content</description><pubDate>Fri, 05 Sep 2025 00:00:00 GMT</pubDate><category>hooks</category><category>model</category><category>tool</category></item><item><title>Harness Python v1.7.0</title><link>https://strandsagents.com/changelog/harness/python-v1.7.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.7.0/</guid><description>• Implement typed events internally
+• summarization manager - add summary prompt to messages
+• Use TypedEvent inheritance for callback behavior
+• claude citation support with BedrockModel
+• Enable hooks for MultiAgents</description><pubDate>Tue, 02 Sep 2025 00:00:00 GMT</pubDate><category>model</category><category>hooks</category><category>tool</category></item><item><title>Harness Python v1.6.0</title><link>https://strandsagents.com/changelog/harness/python-v1.6.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.6.0/</guid><description>• fix non-serializable parameter of agent from toolUse block
+• Add .DS_Store to .gitignore
+• support A2A FileParts and DataParts
+• update pre-commit requirement from &lt;4.2.0,&gt;=3.2.0 to &gt;=3.2.0,&lt;4.4.0
+• update ruff requirement from &lt;0.5.0,&gt;=0.4.4 to &gt;=0.4.4,&lt;0.13.0</description><pubDate>Tue, 26 Aug 2025 00:00:00 GMT</pubDate><category>agent</category><category>a2a</category><category>multiagent</category><category>tool</category></item><item><title>Harness Python v1.5.0</title><link>https://strandsagents.com/changelog/harness/python-v1.5.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.5.0/</guid><description>• feature(graph): Allow cyclic graphs
+• request to include code snippet section
+• Add configuration option to MCP Client for server init timeout
+• Properly handle prompt=None &amp; avoid agent hanging
+• add structured_output_span</description><pubDate>Tue, 19 Aug 2025 00:00:00 GMT</pubDate><category>multiagent</category><category>mcp</category><category>agent</category><category>model</category><category>tool</category><category>sessions</category></item><item><title>Harness Python v1.4.0</title><link>https://strandsagents.com/changelog/harness/python-v1.4.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.4.0/</guid><description>• added mcp tracing context propagation
+• Change max_tokens type to int to match Anthropic API
+• Add additional intructions for contributors to find issues that are ready to be worked on
+• configurable request handler
+• update host per AppSec recommendation</description><pubDate>Fri, 08 Aug 2025 00:00:00 GMT</pubDate><category>otel</category><category>model</category><category>a2a</category><category>structured-output</category></item><item><title>Harness Python v1.3.0</title><link>https://strandsagents.com/changelog/harness/python-v1.3.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.3.0/</guid><description>• pin a2a-sdk&gt;=0.2.16 to resolve #572
+• pin a2a to a minor version while it is still in beta
+• sessions code fence, a2a tests &amp; lint
+• raise dedicated exception when encountering max toke…</description><pubDate>Mon, 04 Aug 2025 00:00:00 GMT</pubDate><category>a2a</category></item><item><title>Harness Python v1.2.0</title><link>https://strandsagents.com/changelog/harness/python-v1.2.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.2.0/</guid><description>• Support for Amazon SageMaker AI endpoints as Model Provider
+• Remove leftover print statement from sagemaker model provider
+• [Feat] Update structured output error message
+• retain structured content in the AgentTool response
+• Add list_prompts, get_prompt methods</description><pubDate>Wed, 30 Jul 2025 00:00:00 GMT</pubDate><category>model</category><category>structured-output</category><category>mcp</category></item><item><title>Harness Python v1.1.0</title><link>https://strandsagents.com/changelog/harness/python-v1.1.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.1.0/</guid><description>• Update to use dedicated github logo
+• deps(a2a): address interface changes and bump min version
+• expose STRANDS_TEST_API_KEYS_SECRET_NAME to integration tests
+• Don&apos;t re-run workflows on un/approvals
+• Doc fixes: suppressing some typos in various texts</description><pubDate>Thu, 24 Jul 2025 00:00:00 GMT</pubDate><category>a2a</category><category>model</category><category>tool</category></item><item><title>Harness Python v1.0.1</title><link>https://strandsagents.com/changelog/harness/python-v1.0.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.0.1/</guid><description>• Switch readme to use light logo for better display in github dark mode
+• update development status classifier
+• enable parallel execution in graph workflow
+• Update README.md with Writer
+• prevent JSON serialization errors with non-serializable direct tool parameters</description><pubDate>Fri, 18 Jul 2025 00:00:00 GMT</pubDate><category>multiagent</category><category>agent</category><category>otel</category></item><item><title>Harness Python v1.0.0</title><link>https://strandsagents.com/changelog/harness/python-v1.0.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.0.0/</guid><description>• configurable host and port and remove excessive logging
+• models - bedrock - remove signaling
+• Graph - support multi-modal inputs
+• deps(a2a): upper bound a2a sdk dep
+• models - ollama - init async client per request</description><pubDate>Tue, 15 Jul 2025 00:00:00 GMT</pubDate><category>a2a</category><category>model</category><category>multiagent</category><category>sessions</category><category>otel</category><category>structured-output</category></item><item><title>Harness Python v0.3.0</title><link>https://strandsagents.com/changelog/harness/python-v0.3.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.3.0/</guid><description>• Implement the core system of typed hooks &amp; callbacks
+• iterative tool handler process
+• remove thread pool wrapper
+• updated scope name, enable setting up meter
+• async model stream interface</description><pubDate>Fri, 11 Jul 2025 00:00:00 GMT</pubDate><category>hooks</category><category>tool</category><category>bidirectional-streaming</category><category>agent</category><category>model</category><category>a2a</category><category>multiagent</category><category>structured-output</category><category>async</category></item><item><title>Harness Python v0.2.1</title><link>https://strandsagents.com/changelog/harness/python-v0.2.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.2.1/</guid><description>• tools - parallel execution - sleep</description><pubDate>Fri, 04 Jul 2025 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v0.2.0</title><link>https://strandsagents.com/changelog/harness/python-v0.2.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.2.0/</guid><description>• iterative event loop
+• Add additional exception information for common bedrock errors
+• iterative structured output
+• correcting incorrect docstring in tracer.py - non-existing argument documented
+• tools - do not remove $defs</description><pubDate>Wed, 02 Jul 2025 00:00:00 GMT</pubDate><category>model</category><category>structured-output</category><category>tool</category><category>agent</category><category>a2a</category><category>sessions</category></item><item><title>Harness Python v0.1.9</title><link>https://strandsagents.com/changelog/harness/python-v0.1.9/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.9/</guid><description>• add meter
+• models - openai - images - b64 validate
+• Inline event loop helper functions
+• add structured output support using Pydantic models
+• Emit warning that default region behavior will be changing</description><pubDate>Tue, 24 Jun 2025 00:00:00 GMT</pubDate><category>model</category><category>structured-output</category><category>otel</category><category>bidirectional-streaming</category><category>a2a</category><category>tool</category></item><item><title>Harness Python v0.1.8</title><link>https://strandsagents.com/changelog/harness/python-v0.1.8/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.8/</guid><description>• Enable underscores in direct method invocations to match hyphens
+• implement summarizing conversation manager
+• moved truncation logic to conversation manager and added should_truncate_results
+• Disallow similar tool names in the tool registry
+• add integration test workflow</description><pubDate>Wed, 18 Jun 2025 00:00:00 GMT</pubDate><category>tool</category><category>model</category><category>agent</category><category>a2a</category><category>otel</category></item><item><title>Harness Python v0.1.7</title><link>https://strandsagents.com/changelog/harness/python-v0.1.7/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.7/</guid><description>• models - unsupported content types
+• Add CachePoint type definition to ContentBlock
+• [Docs] add meta copyright header
+• Update conversation manager interface
+• models - correct tool result content</description><pubDate>Mon, 09 Jun 2025 00:00:00 GMT</pubDate><category>tool</category><category>agent</category><category>model</category><category>mcp</category></item><item><title>Harness Python v0.1.6</title><link>https://strandsagents.com/changelog/harness/python-v0.1.6/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.6/</guid><description>• fix docstring for PrintingCallbackHandler.__call__
+• Add unit tests for user agent changes
+• Increasing Coverage Message Processor : From 79% to 94%
+• Add non-streaming support to BedrockModel
+• Added hyphen to allowed characters in tool name validation</description><pubDate>Fri, 30 May 2025 00:00:00 GMT</pubDate><category>agent</category><category>bidirectional-streaming</category><category>tool</category><category>model</category><category>otel</category></item><item><title>Harness Python v0.1.5</title><link>https://strandsagents.com/changelog/harness/python-v0.1.5/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.5/</guid><description>• models - openai - argument none
+• add open PRs badge + link to samples repo + change &apos;Docs&apos; to &apos;Documentation&apos;
+• add logo
+• add logo, title, badges, links to other repos, standardize headings
+• use dark logo for clearer visibility when system is using light color scheme</description><pubDate>Mon, 26 May 2025 00:00:00 GMT</pubDate><category>model</category><category>otel</category></item><item><title>Harness Python v0.1.4</title><link>https://strandsagents.com/changelog/harness/python-v0.1.4/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.4/</guid><description>• Updated GitHub Action to use GitHub native approvals
+• models - litellm - capture usage
+• fixing various typos in markdowns and scripts
+• add missing quotation marks in pip install commands
+• Merge strands-agents user agent into existing botocore config</description><pubDate>Fri, 23 May 2025 00:00:00 GMT</pubDate><category>model</category><category>agent</category><category>otel</category></item><item><title>Harness Python v0.1.3</title><link>https://strandsagents.com/changelog/harness/python-v0.1.3/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.3/</guid><description>• update direct tool call references
+• Update README.md - corrected spelling of &quot;model&quot;
+• style guide
+• Update version to 0.1.3</description><pubDate>Wed, 21 May 2025 00:00:00 GMT</pubDate><category>tool</category></item><item><title>Harness Python v0.1.2</title><link>https://strandsagents.com/changelog/harness/python-v0.1.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.2/</guid><description>• Update README.md mention of tools repo
+• Update README to mention Meta Llama API as a supported model provider
+• tracing of non-serializable values, e.g. bytes
+• use the AWS_REGION environment variable for the Bedrock model provider region if set and boto_session is not passed
+• v0.1.2</description><pubDate>Sun, 18 May 2025 00:00:00 GMT</pubDate><category>tool</category><category>model</category><category>otel</category></item><item><title>Harness Python v0.1.1</title><link>https://strandsagents.com/changelog/harness/python-v0.1.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.1/</guid><description>• Update the PyPI package description
+• update README with LlamaAPI
+• Update readme to include badges
+• actions: fix docs dispatch
+• actions: remove dispatch docs</description><pubDate>Sat, 17 May 2025 00:00:00 GMT</pubDate><category>model</category></item><item><title>Harness Python v0.1.0</title><link>https://strandsagents.com/changelog/harness/python-v0.1.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v0.1.0/</guid><description>Release 0.1.0</description><pubDate>Fri, 16 May 2025 00:00:00 GMT</pubDate></item></channel></rss>

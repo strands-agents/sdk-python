@@ -44,7 +44,7 @@ from strands_tools import calculator
 
 async def main() -> None:
     model = BidiNovaSonicModel(
-        model_id="amazon.nova-sonic-v1:0",
+        model_id="amazon.nova-2-sonic-v1:0",
         provider_config={
             "audio": {
                 "voice": "tiffany",
@@ -104,15 +104,19 @@ For more details on this approach, please refer to the [boto3 session docs](http
 
 | Parameter | Description | Default |
 | --- | --- | --- |
-| `boto3_session` | A `boto3.Session` instance under which AWS credentials are configured. | `None` |
+| `boto_session` | A `boto3.Session` instance under which AWS credentials are configured. | `None` |
 | `region` | Region under which credentials are configured. Cannot use if providing `boto3_session`. | `us-east-1` |
 
 ### Provider Configs
 
 | Parameter | Description | Example | Options |
 | --- | --- | --- | --- |
-| `audio` | `AudioConfig` instance. | `{"voice": "tiffany"}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
+| `audio` | `AudioConfig` instance. | `{"voice": "tiffany", "output_rate": 24000}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
 | `inference` | Session start `inferenceConfiguration`’s (as snake\_case). | `{"top_p": 0.9}` | [reference](https://docs.aws.amazon.com/nova/latest/userguide/input-events.html) |
+
+Note
+
+The `audio` config accepts any sample rate supported by the underlying model API. Refer to the [Nova Sonic documentation](https://docs.aws.amazon.com/nova/latest/userguide/speech.html) for the full list of supported rates.
 
 ## Troubleshooting
 

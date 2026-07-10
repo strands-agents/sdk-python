@@ -1,4 +1,4 @@
-Defined in: [src/tools/tool.ts:41](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/tool.ts#L41)
+Defined in: [src/tools/tool.ts:41](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/tool.ts#L41)
 
 Data for a tool stream event.
 
@@ -10,7 +10,7 @@ Data for a tool stream event.
 type: "toolStreamEvent";
 ```
 
-Defined in: [src/tools/tool.ts:45](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/tool.ts#L45)
+Defined in: [src/tools/tool.ts:45](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/tool.ts#L45)
 
 Discriminator for tool stream events.
 
@@ -22,6 +22,6 @@ Discriminator for tool stream events.
 optional data?: unknown;
 ```
 
-Defined in: [src/tools/tool.ts:51](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/tool.ts#L51)
+Defined in: [src/tools/tool.ts:51](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/tool.ts#L51)
 
 Caller-provided data for the progress update. Can be any type of data the tool wants to report.

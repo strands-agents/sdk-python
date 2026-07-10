@@ -1,8 +1,8 @@
 The Strands Agents SDK empowers developers to quickly build, manage, evaluate and deploy AI-powered agents. These quick start guides get you set up and running a simple agent in less than 20 minutes.
 
-[Python Quickstart](../python/index.md) Create your first Python Strands agent with full feature access!
+[Python Quickstart](../python/index.md)Create your first Python Strands agent with full feature access!
 
-[TypeScript Quickstart](../typescript/index.md) Create your first TypeScript Strands agent!
+[TypeScript Quickstart](../typescript/index.md)Create your first TypeScript Strands agent!
 
 ---
 

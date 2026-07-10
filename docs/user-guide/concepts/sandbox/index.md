@@ -27,12 +27,12 @@ All Sandbox implementations share the same abstract interface:
 
 | Method | Description |
 | --- | --- |
-| `execute_streaming` `executeStreaming`  | Run a shell command, stream output |
-| `execute_code_streaming` `executeCodeStreaming`  | Run code via an interpreter, stream output |
-| `read_file` `readFile`  | Read a file as bytes |
-| `write_file` `writeFile`  | Write bytes to a file |
-| `remove_file` `removeFile`  | Delete a file |
-| `list_files` `listFiles`  | List directory contents |
+| `execute_streaming``executeStreaming` | Run a shell command, stream output |
+| `execute_code_streaming``executeCodeStreaming` | Run code via an interpreter, stream output |
+| `read_file``readFile` | Read a file as bytes |
+| `write_file``writeFile` | Write bytes to a file |
+| `remove_file``removeFile` | Delete a file |
+| `list_files``listFiles` | List directory contents |
 
 The execution methods accept optional parameters: `timeout` (seconds, throws `SandboxTimeoutError` when exceeded), `cwd` (working directory override), `env` (environment variables), and in TypeScript, `signal` (AbortSignal, throws `SandboxAbortError`).
 
@@ -122,7 +122,7 @@ agent = Agent(sandbox=sandbox, tools=[locked_bash])
 ```
 (( /tab "Python" ))
 
-Custom sandbox implementations can also override `get_tools()` `getTools()`  to vend their own tools entirely.
+Custom sandbox implementations can also override `get_tools()``getTools()` to vend their own tools entirely.
 
 ### Custom tools
 

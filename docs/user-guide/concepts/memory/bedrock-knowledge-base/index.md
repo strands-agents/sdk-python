@@ -78,18 +78,18 @@ const store = new BedrockKnowledgeBaseStore({
 
 ### Scope and namespaces
 
-`scope` isolates documents within a single knowledge base. It is stamped on every write (under `scope_metadata_key` `scopeMetadataKey`  , default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
+`scope` isolates documents within a single knowledge base. It is stamped on every write (under `scope_metadata_key``scopeMetadataKey`, default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
 
 ### Store config
 
-The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and behavior, plus the [shared `MemoryStore` fields](/docs/user-guide/concepts/memory/overview/index.md#stores) (`name`, `description`, `max_search_results` `maxSearchResults`  , `writable`, `extraction`):
+The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and behavior, plus the [shared `MemoryStore` fields](/docs/user-guide/concepts/memory/overview/index.md#stores) (`name`, `description`, `max_search_results``maxSearchResults`, `writable`, `extraction`):
 
 | Field | Purpose |
 | --- | --- |
 | `config` | The knowledge base connection (see below). Reuse one across stores that differ only by `scope`. |
 | `scope` | Logical namespace isolating documents. Applied as a metadata filter on search and stamped on writes. |
 | `filter` | Explicit retrieval filter; overrides the auto-generated scope filter on search. |
-| `access_control_list` `accessControlList`  | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
+| `access_control_list``accessControlList` | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
 
 ### Connection config
 
@@ -97,13 +97,13 @@ The inner `BedrockKnowledgeBaseConfig` is the reusable connection: which knowled
 
 | Field | Purpose |
 | --- | --- |
-| `knowledge_base_id` `knowledgeBaseId`  | The Bedrock Knowledge Base to query and ingest into. Required. |
-| `knowledge_base_type` `knowledgeBaseType`  | The knowledge base type (`'MANAGED'`, `'VECTOR'`, `'KENDRA'`, or `'SQL'`). When provided, skips the `GetKnowledgeBase` call during initialization. When omitted, detected automatically. |
-| `data_source_type` `dataSourceType`  | `'CUSTOM'`, `'S3'`, or `'OTHER'`. Governs whether and how the store can be written to. |
-| `data_source_id` `dataSourceId`  | The data source to ingest into. Required for writes. |
+| `knowledge_base_id``knowledgeBaseId` | The Bedrock Knowledge Base to query and ingest into. Required. |
+| `knowledge_base_type``knowledgeBaseType` | The knowledge base type (`'MANAGED'`, `'VECTOR'`, `'KENDRA'`, or `'SQL'`). When provided, skips the `GetKnowledgeBase` call during initialization. When omitted, detected automatically. |
+| `data_source_type``dataSourceType` | `'CUSTOM'`, `'S3'`, or `'OTHER'`. Governs whether and how the store can be written to. |
+| `data_source_id``dataSourceId` | The data source to ingest into. Required for writes. |
 | `s3` | S3 ingestion settings (`bucket`, `prefix`). Required when the data source type is `'S3'`. |
-| `scope_metadata_key` `scopeMetadataKey`  | Metadata attribute key used for scope filtering. Defaults to `'namespace'`. |
-| `runtime_client / agent_client` `runtimeClient / agentClient`  | Pre-constructed AWS clients. When omitted, default clients are constructed using the standard credential chain (the agent client lazily, on first write). |
+| `scope_metadata_key``scopeMetadataKey` | Metadata attribute key used for scope filtering. Defaults to `'namespace'`. |
+| `runtime_client / agent_client``runtimeClient / agentClient` | Pre-constructed AWS clients. When omitted, default clients are constructed using the standard credential chain (the agent client lazily, on first write). |
 
 Because the connection is a separate object, you build it once and vary only `name` and `scope` per store. This is the cheap way to give each tenant an isolated namespace over a single knowledge base:
 
@@ -257,9 +257,9 @@ const { documentId } = await store.add('User prefers aisle seats', {
 ```
 (( /tab "TypeScript" ))
 
-The search result cap defaults to `10` when neither the call nor the store sets one. This `10` default applies only to direct calls on the store. Reached through a `MemoryManager` tool or its search method, the manager supplies its own per-call cap instead; set `max_search_results` `maxSearchResults`  on the store to pin a value across both paths.
+The search result cap defaults to `10` when neither the call nor the store sets one. This `10` default applies only to direct calls on the store. Reached through a `MemoryManager` tool or its search method, the manager supplies its own per-call cap instead; set `max_search_results``maxSearchResults` on the store to pin a value across both paths.
 
-Each entry’s `metadata` carries the document’s own attributes plus two reserved synthetic keys: `_relevance_score` `_relevanceScore`  (the Bedrock relevance score) and `_source_location` `_sourceLocation`  (the retrieval location). When `scope` is set, search filters to that namespace automatically; an explicit `filter` overrides the scope-derived one. The asymmetry is deliberate: an explicit `filter` affects search only, while writes always scope by `scope`.
+Each entry’s `metadata` carries the document’s own attributes plus two reserved synthetic keys: `_relevance_score``_relevanceScore` (the Bedrock relevance score) and `_source_location``_sourceLocation` (the retrieval location). When `scope` is set, search filters to that namespace automatically; an explicit `filter` overrides the scope-derived one. The asymmetry is deliberate: an explicit `filter` affects search only, while writes always scope by `scope`.
 
 The document id from `add` is the generated UUID for a `CUSTOM` document, or the `s3://` URI of the uploaded object for `S3`. Writes require a data source ID (and an `s3` config for S3 data sources); a write against a missing or read-only configuration raises.
 
@@ -306,7 +306,7 @@ To change the cadence, swap the extractor, or extract server-side, see [Automati
 The credentials the store uses must allow the Bedrock operations it calls, plus S3 writes when using an S3 data source:
 
 -   `bedrock:Retrieve` - for search.
--   `bedrock:GetKnowledgeBase` - called once at initialization to detect the knowledge base type, then memoized. Not required if you provide `knowledge_base_type` `knowledgeBaseType`  in the config.
+-   `bedrock:GetKnowledgeBase` - called once at initialization to detect the knowledge base type, then memoized. Not required if you provide `knowledge_base_type``knowledgeBaseType` in the config.
 -   `bedrock:IngestKnowledgeBaseDocuments` - for writes (`CUSTOM` and `S3`).
 -   `s3:PutObject` - for writes to an `S3` data source, on the configured bucket and prefix.
 
@@ -341,7 +341,7 @@ For an `S3` data source, add `s3:PutObject` on the bucket and prefix the store u
 
 ## Access Control Lists
 
-Managed knowledge base data sources can have [ACL awareness](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-acl.html) enabled, which requires every ingested document to carry an access control list specifying who can retrieve it. Set `access_control_list` `accessControlList`  on the store to supply entries for every write:
+Managed knowledge base data sources can have [ACL awareness](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-acl.html) enabled, which requires every ingested document to carry an access control list specifying who can retrieve it. Set `access_control_list``accessControlList` on the store to supply entries for every write:
 
 (( tab "Python" ))
 ```python
@@ -383,7 +383,7 @@ const store = new BedrockKnowledgeBaseStore({
 
 Each entry specifies `access` (`'ALLOW'` or `'DENY'`), `name` (the user’s email), and `type` (`'USER'`). Deny overrides allow. The entries apply to both `CUSTOM` and `S3` writes. For the `CUSTOM` path, an inline ACL requires at least one metadata attribute (a `scope` satisfies this); if none is present the store raises with guidance.
 
-If the data source has ACL awareness enabled and no `access_control_list` `accessControlList`  is set, the store surfaces a clear error pointing at the field.
+If the data source has ACL awareness enabled and no `access_control_list``accessControlList` is set, the store surfaces a clear error pointing at the field.
 
 ## Related
 

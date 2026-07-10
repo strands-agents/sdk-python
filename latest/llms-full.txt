@@ -130,12 +130,20 @@ Session managers provide alternative storage backends for conversation history. 
 | [Amazon AgentCore Memory](/docs/community/session-managers/agentcore-memory/index.md) | Amazon AgentCore | ✅ | ❌ |
 | [Valkey/Redis](/docs/community/session-managers/strands-valkey-session-manager/index.md) | Valkey session manager | ✅ | ❌ |
 
+## Memory stores
+
+Memory stores are backends that give agents long-term memory across sessions. Each implements the `MemoryStore` interface and plugs into an agent through a `MemoryManager`. See the [Memory Stores overview](/docs/community/memory-stores/overview/index.md) for how they fit together.
+
+| Package | Description | Python | TypeScript |
+| --- | --- | --- | --- |
+
 ## Tools
 
 Tools extend your agents with capabilities for specific services and platforms. Each package provides one or more tools you can add to your agents.
 
 | Package | Description | Python | TypeScript |
 | --- | --- | --- | --- |
+| [apify](/docs/community/tools/strands-apify/index.md) | Web scraping for social media, search engines, e-commerce, and more via Apify Actors | ✅ | ❌ |
 | [deepgram](/docs/community/tools/strands-deepgram/index.md) | Deepgram speech-to-text | ✅ | ❌ |
 | [google](/docs/community/tools/strands-google/index.md) | Google API integration | ✅ | ❌ |
 | [hubspot](/docs/community/tools/strands-hubspot/index.md) | HubSpot CRM integration | ✅ | ❌ |
@@ -177,7 +185,8 @@ We feature **reusable packages** that extend Strands Agents capabilities:
 
 -   **Model Providers** — integrations with LLM services (OpenAI-compatible endpoints, custom APIs, etc.)
 -   **Tools** — packaged tools that solve common problems (API integrations, utilities, etc.)
--   **Session Managers** — custom session/memory implementations
+-   **Session Managers** — custom storage backends for conversation history
+-   **Memory Stores** — `MemoryStore` implementations giving agents long-term knowledge across sessions
 -   **Plugins** — extend or modify agent behavior during lifecycle events
 -   **Integrations** — protocol implementations, framework bridges, etc.
 -   **Agent Extensions** — specialized agent subclasses that change how agents reason and act
@@ -204,6 +213,7 @@ Place your documentation in the right spot:
 | Model Providers | `community/model-providers/` | `cohere.mdx` |
 | Tools | `community/tools/` | `strands-deepgram.mdx` |
 | Session Managers | `community/session-managers/` | `agentcore-memory.mdx` |
+| Memory Stores | `community/memory-stores/` | `my-store.mdx` |
 | Plugins | `community/plugins/` | `my-plugin.mdx` |
 | Integrations | `community/integrations/` | `ag-ui.mdx` |
 | Agent Extensions | `community/agent-extensions/` | `strands-code-agent.mdx` |
@@ -244,7 +254,7 @@ Links to your repo, PyPI, official docs, etc.
 
 Every community page needs frontmatter with catalog fields so it appears in the [community catalog](/docs/community/community-packages/index.md). Without `community: true`, `integrationType`, `description`, and `languages`, your page won’t show up in the catalog tables.
 
-Here’s the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `plugin`, `integration`, or `agent-extension`):
+Here’s the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, or `agent-extension`):
 
 ```yaml
 ---
@@ -268,7 +278,7 @@ service:
 | Field | Required | Notes |
 | --- | --- | --- |
 | `community` | ✅ | Must be `true` |
-| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `plugin`, or `integration` |
+| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, or `agent-extension` |
 | `description` | ✅ | Shown in the catalog table |
 | `languages` | ✅ | `Python`, `TypeScript`, or omit for both |
 | `project` | Recommended | PyPI/npm link, GitHub repo, maintainer |
@@ -484,6 +494,28 @@ To see what other features you can build into your UI with AG-UI, refer to the C
 Or try them out in the [AG-UI Dojo](https://dojo.ag-ui.com).
 
 Source: https://strandsagents.com/docs/community/integrations/ag-ui/index.md
+
+---
+
+## Community Memory Stores
+
+A **memory store** is the backend that holds an agent’s long-term knowledge. The [`MemoryManager`](/docs/user-guide/concepts/memory/overview/index.md) orchestrates one or more stores to recall, inject, and extract memories across sessions. Any backend that implements the `MemoryStore` interface can plug in: see [Custom Stores](/docs/user-guide/concepts/memory/overview/index.md#custom-stores) for the contract.
+
+The SDK ships reference stores like the [Bedrock Knowledge Base store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md). The packages below go further: they are **community-built** memory stores you can install and attach to an agent, backed by vector databases, managed services, and other stores the SDK does not vend itself.
+
+Community maintained
+
+These packages are maintained by their authors, not the Strands team. Review packages before using them in production. Quality and support may vary.
+
+## Browse the catalog
+
+See the [Memory stores section of the community catalog](/docs/community/community-packages/index.md#memory-stores) for the current list, with language support and links to each package.
+
+## Add your memory store
+
+Built a `MemoryStore` implementation? See the [Get Featured guide](/docs/community/get-featured/index.md) to list it here, and the [Extensions guide](/docs/contribute/contributing/extensions/index.md) for how to build and publish a package.
+
+Source: https://strandsagents.com/docs/community/memory-stores/overview/index.md
 
 ---
 
@@ -3225,6 +3257,68 @@ Source: https://strandsagents.com/docs/community/session-managers/strands-valkey
 
 ---
 
+## strands-apify
+
+[strands-apify](https://github.com/apify/strands-apify) gives your Strands agent web scraping, search, crawling, e-commerce, and social media capabilities through the [Apify platform](https://apify.com/) and its library of thousands of pre-built Actors. For the full tool reference and model provider setup, see the [Strands Agents on Apify docs](https://docs.apify.com/platform/integrations/strands-agents).
+
+## Prerequisites
+
+-   An [Apify account](https://apify.com/) (free tier available)
+-   [Apify API token](https://console.apify.com/account/integrations) from Apify Console > Integrations
+
+## Installation
+
+```bash
+pip install strands-apify
+```
+
+## Usage
+
+```python
+from strands import Agent
+from strands_apify import APIFY_CORE_TOOLS
+
+agent = Agent(tools=APIFY_CORE_TOOLS)
+agent("Scrape https://docs.apify.com and summarize the page")
+```
+
+Pick individual tools for a more focused agent:
+
+```python
+from strands import Agent
+from strands_apify import apify_google_search_scraper
+
+agent = Agent(tools=[apify_google_search_scraper])
+agent("Find the top-rated Italian restaurants in Prague")
+```
+
+## Key Features
+
+-   **18 pre-built tools** for scraping, search, social media, and e-commerce
+-   **Focused tool sets** (`APIFY_CORE_TOOLS`, `APIFY_SEARCH_TOOLS`, `APIFY_SOCIAL_TOOLS`) sized for reliable LLM tool selection; `APIFY_ALL_TOOLS` bundles everything but can overwhelm tool choice
+-   **Apify Store access** to run any of thousands of Actors with a single generic tool
+-   **Dataset integration** to fetch and process Actor results directly
+-   **URL to markdown** conversion for any webpage
+
+## Configuration
+
+```bash
+APIFY_TOKEN=your_apify_api_token          # Required
+STRANDS_APIFY_QUIET=1                     # Optional: suppress rich panels in interactive shells
+```
+
+## Resources
+
+-   [PyPI package](https://pypi.org/project/strands-apify/)
+-   [GitHub repository](https://github.com/apify/strands-apify)
+-   [Full tool reference and examples](https://docs.apify.com/platform/integrations/strands-agents)
+-   [Apify Store](https://apify.com/store)
+-   [Apify API reference](https://docs.apify.com/api/v2)
+
+Source: https://strandsagents.com/docs/community/tools/strands-apify/index.md
+
+---
+
 ## strands-deepgram
 
 [strands-deepgram](https://github.com/eraykeskinmac/strands-deepgram) is a production-ready speech and audio processing tool powered by [Deepgram’s AI platform](https://deepgram.com/) with 30+ language support.
@@ -5303,6 +5397,8 @@ The memory agent utilizes two primary tools:
     -   Creating natural, contextual answers using memory context
 
 ## Memory-Enhanced Response Generation Workflow
+
+> \[!NOTE\] By default, mem0 persists memories to local storage at `~/.mem0/`. See [mem0 vector store configuration](https://docs.mem0.ai/components/vectordbs/config) for options on using a different backend for production use.
 
 This example demonstrates a workflow where memories are used to generate contextually relevant responses:
 
@@ -7865,9 +7961,9 @@ Each model invocation ends with a stop reason that determines what happens next:
 -   **End turn**: The model has finished its response and has no further actions to take. This is the normal successful termination. The loop exits and returns the model’s final message.
 -   **Tool use**: The model wants to execute one or more tools before continuing. The loop executes the requested tools, appends the results to the conversation history, and invokes the model again.
 -   **Cancelled**: The agent was stopped externally via `agent.cancel()`. See [Cancellation](#cancellation) below.
--   **Limit turns** ( `limit_turns` `limitTurns`  ): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
--   **Limit total tokens** ( `limit_total_tokens` `limitTotalTokens`  ): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
--   **Limit output tokens** ( `limit_output_tokens` `limitOutputTokens`  ): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
+-   **Limit turns** (`limit_turns``limitTurns`): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
+-   **Limit total tokens** (`limit_total_tokens``limitTotalTokens`): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
+-   **Limit output tokens** (`limit_output_tokens``limitOutputTokens`): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
 -   **Max tokens**: The model’s response was truncated because it hit the token limit. This is unrecoverable within the current loop. The model cannot continue from a partial response, and the loop terminates with an error.
 -   **Stop sequence**: The model encountered a configured stop sequence. Like end turn, this terminates the loop normally.
 -   **Content filtered**: The response was blocked by safety mechanisms.
@@ -8047,7 +8143,9 @@ When multiple caps trip simultaneously, the reported stop reason follows priorit
 Sometimes more than one request targets the same agent instance at once: a retried API call, a double-submitted form, two web requests that happen to share an agent.
 
 (( tab "Python" ))
-An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. Invoking an agent that is already running raises `ConcurrencyException`:
+An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. The `concurrent_invocation_mode` constructor parameter controls this behavior. It accepts a `ConcurrentInvocationMode` enum — either `THROW` (the default) or `UNSAFE_REENTRANT`.
+
+In the default `THROW` mode, invoking an agent that is already running raises `ConcurrencyException`:
 
 ```python
 from strands import Agent
@@ -8066,9 +8164,11 @@ For most applications this is the behavior you want. One agent instance maps to 
 
 #### Deduplicating retried requests
 
-When a retry arrives for a request that is still running, returning the original’s result beats both erroring and starting the work twice. Pass an idempotency token that identifies the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
+When a retry arrives for a request that is still running, returning the original’s result beats both erroring and starting the work twice. Pass `idempotency_token` to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
 
-If a call with the same token is already in flight, this call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+If a call with the same token is already in flight, the new call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+
+If the tokens differ while an invocation is in flight, the new call raises `ConcurrencyException` — deduplication only applies to matching tokens.
 
 A deduplicated call gets the final result only, not the original’s streamed events. Its `callback_handler` still fires once with that result, so output consumers are not left empty-handed.
 
@@ -8086,8 +8186,6 @@ except IdempotencyAbortedError:
     # The original was aborted before producing a result
     ...
 ```
-
-The idempotency token works the same way on `invoke_async` and `stream_async`.
 
 #### Allowing concurrent invocations
 
@@ -8280,7 +8378,7 @@ Key features of the `SlidingWindowConversationManager`:
     
 -   **Overflow Trimming**: In the case of a context window overflow, it will trim the oldest messages from history until the request fits in the models context window.
     
--   **Configurable Tool Result Truncation**: Enable or disable truncation of tool results when the message exceeds context window limits. When enabled (the default; `should_truncate_results=True` `shouldTruncateResults: true`  ), the oldest message with tool results is truncated first so recent context is preserved as long as possible. Truncation depends on content type:
+-   **Configurable Tool Result Truncation**: Enable or disable truncation of tool results when the message exceeds context window limits. When enabled (the default; `should_truncate_results=True``shouldTruncateResults: true`), the oldest message with tool results is truncated first so recent context is preserved as long as possible. Truncation depends on content type:
     
     -   Text payloads keep their head and tail, separated by a `<truncated chars="N"/>` marker.
     -   Images, videos, binary documents, and oversized JSON are replaced by a typed placeholder, for example `[image: png, source: bytes, 12345 bytes]`.
@@ -8407,7 +8505,7 @@ import { Agent, SummarizingConversationManager, BedrockModel } from '@strands-ag
 
 // Optionally use a different model for summarization
 const summarizationModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
 })
 
 const conversationManager = new SummarizingConversationManager({
@@ -8862,7 +8960,7 @@ Hook callbacks are registered against specific event types and receive strongly-
 
 ### Registering Individual Hook Callbacks
 
-The simplest way to register a hook callback is using the `agent.add_hook()` `agent.addHook()`  method:
+The simplest way to register a hook callback is using the `agent.add_hook()``agent.addHook()` method:
 
 (( tab "Python" ))
 ```python
@@ -10541,7 +10639,7 @@ await agent.invoke('Clean up the temp directory')
 ```
 (( /tab "TypeScript" ))
 
-Handlers only need to override the lifecycle methods relevant to their concern — all methods default to `Proceed()` `proceed()`  .
+Handlers only need to override the lifecycle methods relevant to their concern — all methods default to `Proceed()``proceed()`.
 
 ## Action Types
 
@@ -10700,22 +10798,22 @@ Intervention handlers can override five lifecycle methods. Each method supports 
 
 | Method | Valid Actions | When it Runs |
 | --- | --- | --- |
-| `before_invocation` `beforeInvocation`  | Proceed, Deny, Guide, Transform | Before the agent loop starts |
-| `before_tool_call` `beforeToolCall`  | Proceed, Deny, Guide, Confirm, Transform | Before each tool execution |
-| `after_tool_call` `afterToolCall`  | Proceed, Transform | After each tool execution |
-| `before_model_call` `beforeModelCall`  | Proceed, Deny, Guide, Transform | Before each model API call |
-| `after_model_call` `afterModelCall`  | Proceed, Guide, Transform | After each model response |
+| `before_invocation``beforeInvocation` | Proceed, Deny, Guide, Transform | Before the agent loop starts |
+| `before_tool_call``beforeToolCall` | Proceed, Deny, Guide, Confirm, Transform | Before each tool execution |
+| `after_tool_call``afterToolCall` | Proceed, Transform | After each tool execution |
+| `before_model_call``beforeModelCall` | Proceed, Deny, Guide, Transform | Before each model API call |
+| `after_model_call``afterModelCall` | Proceed, Guide, Transform | After each model response |
 
 How actions behave depends on the lifecycle method:
 
 | Action | Before events | After events |
 | --- | --- | --- |
 | **Deny** | Sets `event.cancel`, short-circuits remaining handlers | No effect (warns at runtime) |
-| **Guide** | On `before_tool_call` `beforeToolCall`  / `before_invocation` `beforeInvocation`  : cancels with accumulated feedback. On `before_model_call` `beforeModelCall`  : injects feedback as user message | Injects feedback and retries |
+| **Guide** | On `before_tool_call``beforeToolCall`/`before_invocation``beforeInvocation`: cancels with accumulated feedback. On `before_model_call``beforeModelCall`: injects feedback as user message | Injects feedback and retries |
 | **Confirm** | Pauses agent via interrupt/resume for human approval; denied responses set `event.cancel` | Not supported |
 | **Transform** | Calls `action.apply(event)` — later handlers see modified content | Calls `action.apply(event)` |
 
-On `after_model_call` `afterModelCall`  , `Guide` triggers a model retry. Handlers must ensure convergence (e.g., by tracking retry count and escalating to `Deny` after repeated failures). The framework imposes no retry cap on guide-triggered retries.
+On `after_model_call``afterModelCall`, `Guide` triggers a model retry. Handlers must ensure convergence (e.g., by tracking retry count and escalating to `Deny` after repeated failures). The framework imposes no retry cap on guide-triggered retries.
 
 ## Evaluation Order and Short-Circuiting
 
@@ -10800,7 +10898,7 @@ For `Guide` actions, all handlers continue to run and their feedback is accumula
 
 ## Error Handling
 
-The `on_error` `onError`  property controls what happens when a handler throws an exception:
+The `on_error``onError` property controls what happens when a handler throws an exception:
 
 | Value | Behavior |
 | --- | --- |
@@ -10907,7 +11005,7 @@ Use `'deny'` for security-critical handlers where a failure should block executi
 
 ## Confirm Action
 
-The `Confirm` action is only supported on `before_tool_call` `beforeToolCall`  . It integrates with the SDK’s interrupt/resume system to pause for human approval before a tool executes.
+The `Confirm` action is only supported on `before_tool_call``beforeToolCall`. It integrates with the SDK’s interrupt/resume system to pause for human approval before a tool executes.
 
 (( tab "Python" ))
 `Confirm` supports two modes depending on whether `response` is provided:
@@ -10981,7 +11079,7 @@ Interventions return typed actions that the framework interprets. This enables:
 -   **Feedback accumulation** — multiple handlers can return `Guide` and their feedback is combined into a single message to the model, rather than overwriting each other.
 -   **Human-in-the-loop** — `Confirm` integrates with the SDK’s interrupt/resume system to pause for approval without the handler needing to manage interrupt lifecycle.
 -   **Ordered evaluation** — handlers always run in registration order with well-defined precedence (deny > confirm > guide > transform > proceed).
--   **Error policies** — each handler declares its own failure mode via `on_error` `onError`  . A logging handler can use `'proceed'` (skip on failure), while an auth handler can use `'deny'` (fail closed). Hooks have no equivalent — a thrown error always propagates.
+-   **Error policies** — each handler declares its own failure mode via `on_error``onError`. A logging handler can use `'proceed'` (skip on failure), while an auth handler can use `'deny'` (fail closed). Hooks have no equivalent — a thrown error always propagates.
 
 ## Related topics
 
@@ -11123,7 +11221,7 @@ Cedar uses default-deny semantics. Tools without a matching `permit` statement a
 
 ## Role-based access control
 
-For multi-tenant agents where each request carries user identity, use `principal_resolver` `principalResolver`  to extract the principal from `invocation_state` `invocationState`  and `context_enricher` `contextEnricher`  to forward role information into Cedar context:
+For multi-tenant agents where each request carries user identity, use `principal_resolver``principalResolver` to extract the principal from `invocation_state``invocationState` and `context_enricher``contextEnricher` to forward role information into Cedar context:
 
 (( tab "Python" ))
 ```python
@@ -11247,7 +11345,7 @@ await agent.invoke('Delete record 42', {
 ```
 (( /tab "TypeScript" ))
 
-When `principal_resolver` `principalResolver`  returns `None` `undefined`  (no identity found), the handler denies all tool calls for that request.
+When `principal_resolver``principalResolver` returns `None``undefined` (no identity found), the handler denies all tool calls for that request.
 
 ## Rate limiting
 
@@ -11446,9 +11544,64 @@ const cedar = new CedarAuthorization({
 
 Schema validation integrates with the [`cedar-for-agents`](https://github.com/cedar-policy/cedar-for-agents) ecosystem via `@cedar-policy/mcp-schema-generator-wasm` (TypeScript) and `cedar-policy-mcp-schema-generator` (Python).
 
+## Namespaced policies
+
+When using policy generators like [`cedar-agent-policy-builder`](https://github.com/cedar-policy/cedar-for-agents) that produce namespaced Cedar policies (e.g. `Agent::Action::"search"` instead of `Action::"search"`), set the `namespace` option to match:
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent, tool } from '@strands-agents/sdk'
+import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/cedar'
+import { z } from 'zod'
+
+const searchTool = tool({
+  name: 'search',
+  description: 'Search for information',
+  inputSchema: z.object({ query: z.string() }),
+  callback: (input) => `Results for: ${input.query}`,
+})
+
+const cedar = new CedarAuthorization({
+  namespace: 'Agent',
+  policies: `
+    permit(principal, action == Agent::Action::"search", resource);
+  `,
+  tools: [searchTool],
+  entities: [{ uid: { type: 'Agent::Resource', id: 'default' }, attrs: {}, parents: [] }],
+  principalResolver: (state) => {
+    if (!state.user_id) return undefined
+    return { type: 'Agent::User', id: String(state.user_id) }
+  },
+})
+
+const agent = new Agent({
+  tools: [searchTool],
+  interventions: [cedar],
+})
+
+await agent.invoke('Search for reports', {
+  invocationState: { user_id: 'alice' },
+})
+```
+(( /tab "TypeScript" ))
+
+When `namespace` is set:
+
+| Cedar concept | Unnamespaced (default) | Namespaced (`namespace: 'Agent'`) |
+| --- | --- | --- |
+| **Action** | `Action::"search"` | `Agent::Action::"search"` |
+| **Resource** | `Resource::"agent"` | `Agent::Resource::"default"` |
+| **Default principal** | `User::"anonymous"` | `Agent::User::"anonymous"` |
+
+Schema generation also uses the configured namespace, so `tools` and `namespace` work together correctly.
+
+Note
+
+The `namespace` option is currently available in the TypeScript SDK only. Python support is planned.
+
 ## Environment gating
 
-Block tools based on deployment context by forwarding environment metadata through `context_enricher` `contextEnricher`  :
+Block tools based on deployment context by forwarding environment metadata through `context_enricher``contextEnricher`:
 
 (( tab "Python" ))
 ```python
@@ -11651,13 +11804,13 @@ Every authorization request includes a structured context object:
 -   `context.input` contains the tool’s input arguments, accessible in policies via `context.input.fieldName`
 -   `context.session.hour_utc` is auto-populated with the current UTC hour (0-23)
 -   `context.session.call_count` tracks per-tool invocation count
--   Additional `context.session` fields come from your `context_enricher` `contextEnricher` 
+-   Additional `context.session` fields come from your `context_enricher``contextEnricher`
 
 ## Error handling
 
 Cedar engine failures (malformed policies, evaluation errors) are always fail-closed: the tool call is denied regardless of configuration.
 
-The `on_error` `onError`  option controls what happens when your user-supplied callbacks ( `principal_resolver` `principalResolver`  or `context_enricher` `contextEnricher`  ) raise an exception:
+The `on_error``onError` option controls what happens when your user-supplied callbacks (`principal_resolver``principalResolver` or `context_enricher``contextEnricher`) raise an exception:
 
 -   `'throw'` (default): re-raises the exception to the caller
 -   `'deny'`: treats the callback failure as a denial (fail-closed)
@@ -11804,7 +11957,7 @@ if (result.stopReason === 'interrupt') {
 
 ### Stdio Mode
 
-For CLI applications, pass `ask="stdio"` `ask: 'stdio'`  to prompt the user inline via stdin. The agent blocks until the user responds, so no interrupt handling is needed on the caller side.
+For CLI applications, pass `ask="stdio"``ask: 'stdio'` to prompt the user inline via stdin. The agent blocks until the user responds, so no interrupt handling is needed on the caller side.
 
 (( tab "Python" ))
 ```python
@@ -11885,11 +12038,11 @@ await agent.invoke('Delete the temp files')
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
-| `allowed_tools` `allowedTools`  | `list[str]` `string[]`  | `None` `undefined`  | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
-| `enable_trust` `enableTrust`  | `bool` `boolean`  | `False` `false`  | When enabled, trust responses are remembered for the session. |
-| `evaluate_trust` `evaluateTrust`  | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
-| `evaluate` | Function | Accepts `True, "y", or "yes"` `true, 'y', or 'yes'`  | Custom validator for approval responses. |
-| `ask` | `Function or "stdio"` `Function or 'stdio'`  | `None` `undefined`  | Pass a function for custom UIs, `"stdio"` for CLI prompting, or omit for interrupt/resume. |
+| `allowed_tools``allowedTools` | `list[str]``string[]` | `None``undefined` | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
+| `enable_trust``enableTrust` | `bool``boolean` | `False``false` | When enabled, trust responses are remembered for the session. |
+| `evaluate_trust``evaluateTrust` | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
+| `evaluate` | Function | Accepts `True, "y", or "yes"``true, 'y', or 'yes'` | Custom validator for approval responses. |
+| `ask` | `Function or "stdio"``Function or 'stdio'` | `None``undefined` | Pass a function for custom UIs, `"stdio"` for CLI prompting, or omit for interrupt/resume. |
 
 ### Allowed Tools
 
@@ -11948,7 +12101,7 @@ await agent.invoke('Read config.json then delete /tmp/old-logs')
 
 When trust is enabled, a human can respond with `'t'` or `'trust'` to approve the current tool call AND remember that decision for the rest of the session. Subsequent calls to the same tool skip the prompt entirely. Trust works in all modes: interrupt/resume, stdio, and custom callbacks.
 
-Trust state is stored in `agent.state` `agent.appState`  and persists across turns within a session but resets when the agent is re-created. Negated tools (`"!tool_name"`) cannot be trusted and always prompt.
+Trust state is stored in `agent.state``agent.appState` and persists across turns within a session but resets when the agent is re-created. Negated tools (`"!tool_name"`) cannot be trusted and always prompt.
 
 (( tab "Python" ))
 ```python
@@ -11994,7 +12147,7 @@ await agent.invoke('Delete all log files in /tmp')
 
 ### Custom Evaluate
 
-By default, the handler accepts `True, "y", or "yes"` `true, 'y', or 'yes'`  as approval. Use `evaluate` to define your own approval logic, for example requiring the user to type “confirm”:
+By default, the handler accepts `True, "y", or "yes"``true, 'y', or 'yes'` as approval. Use `evaluate` to define your own approval logic, for example requiring the user to type “confirm”:
 
 (( tab "Python" ))
 ```python
@@ -12049,7 +12202,7 @@ Use `HumanInTheLoop` when you want tool-level approval gating with minimal code:
 
 -   [Interventions](/docs/user-guide/concepts/agents/interventions/index.md): The intervention handler framework that HITL is built on
 -   [Interrupts](/docs/user-guide/concepts/interrupts/index.md): Low-level interrupt/resume mechanism
--   [Agent State](/docs/user-guide/concepts/agents/state/index.md): How trust decisions persist via `agent.state` `agent.appState` 
+-   [Agent State](/docs/user-guide/concepts/agents/state/index.md): How trust decisions persist via `agent.state``agent.appState`
 -   [Session Management](/docs/user-guide/concepts/agents/session-management/index.md): Persisting interrupt state across sessions
 
 ## Related pages
@@ -12530,7 +12683,7 @@ result = agent.tool.current_time(timezone="US/Pacific")
 ```
 (( /tab "TypeScript" ))
 
-Direct tool calls bypass the natural language interface and execute the tool using specified parameters. These calls are added to the conversation history by default. However, you can opt out of this behavior by setting `record_direct_tool_call=False` `recordDirectToolCall: false`  .
+Direct tool calls bypass the natural language interface and execute the tool using specified parameters. These calls are added to the conversation history by default. However, you can opt out of this behavior by setting `record_direct_tool_call=False``recordDirectToolCall: false`.
 
 ## Prompt Engineering
 
@@ -12617,7 +12770,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/agents/prompts/index.
 
 ## Retry Strategies
 
-Model providers occasionally encounter errors such as rate limits, service unavailability, or network timeouts. By default, the agent retries throttled responses automatically with exponential backoff. The `Agent.retry_strategy` `Agent.retryStrategy`  parameter lets you customize this behavior.
+Model providers occasionally encounter errors such as rate limits, service unavailability, or network timeouts. By default, the agent retries throttled responses automatically with exponential backoff. The `Agent.retry_strategy``Agent.retryStrategy` parameter lets you customize this behavior.
 
 ## Default Behavior
 
@@ -12741,7 +12894,7 @@ const agent = new Agent({
 
 ## When Retries Occur
 
-Default retry strategies handle throttling errors ( `ModelThrottledException` `ModelThrottledError`  ) raised by model providers for rate-limiting. Other exceptions propagate immediately without retry.
+Default retry strategies handle throttling errors (`ModelThrottledException``ModelThrottledError`) raised by model providers for rate-limiting. Other exceptions propagate immediately without retry.
 
 To extend or narrow the retryable set, see [Custom Retry Logic](#custom-retry-logic).
 
@@ -13781,7 +13934,7 @@ const noPrompt = agent.takeSnapshot({ preset: 'session', exclude: ['systemPrompt
 
 ## Application Data
 
-Snapshots support an `app_data` `appData`  field for storing application-owned data alongside the agent state. Strands does not read or modify this data — it’s passed through verbatim.
+Snapshots support an `app_data``appData` field for storing application-owned data alongside the agent state. Strands does not read or modify this data — it’s passed through verbatim.
 
 This is useful for attaching metadata like a display name for the snapshot, the current step in a workflow, user preferences, or any other context your application needs to associate with a particular point in time.
 
@@ -14398,7 +14551,7 @@ console.log(result.invocationState)
 ```
 (( /tab "TypeScript" ))
 
-Invocation state ( `invocation_state` `invocationState`  ):
+Invocation state (`invocation_state``invocationState`):
 
 -   Is initialized at the beginning of each agent invocation (defaults to `{}` when omitted)
 -   Persists through recursive event loop cycles within a single invocation
@@ -14460,7 +14613,7 @@ Key benefits:
 
 ## Basic Usage
 
-Define an output structure using a schema and pass it to `structured_output_model` `structuredOutputSchema`  . Then, access the validated output from the `AgentResult`.
+Define an output structure using a schema and pass it to `structured_output_model``structuredOutputSchema`. Then, access the validated output from the `AgentResult`.
 
 (( tab "Python" ))
 ```python
@@ -14547,7 +14700,7 @@ const result = await agent.invoke('John Smith is a 30 year-old software engineer
 
 The structured output system converts your schema definitions into tool specifications that guide the language model to produce correctly formatted responses. All of the model providers supported in Strands can work with Structured Output.
 
-Strands accepts the `structured_output_model` `structuredOutputSchema`  parameter in agent invocations, which manages the conversion, validation, and response processing automatically. The validated result is available in the `AgentResult.structured_output` `AgentResult.structuredOutput`  field.
+Strands accepts the `structured_output_model``structuredOutputSchema` parameter in agent invocations, which manages the conversion, validation, and response processing automatically. The validated result is available in the `AgentResult.structured_output``AgentResult.structuredOutput` field.
 
 ### Error Handling
 
@@ -15255,7 +15408,7 @@ Each model provider has specific configuration options:
 from strands.experimental.bidi.models import BidiNovaSonicModel
 
 model = BidiNovaSonicModel(
-    model_id="amazon.nova-sonic-v1:0",
+    model_id="amazon.nova-2-sonic-v1:0",
     provider_config={
         "audio": {
             "input_rate": 16000,
@@ -17126,7 +17279,7 @@ from strands_tools import calculator
 
 async def main() -> None:
     model = BidiNovaSonicModel(
-        model_id="amazon.nova-sonic-v1:0",
+        model_id="amazon.nova-2-sonic-v1:0",
         provider_config={
             "audio": {
                 "voice": "tiffany",
@@ -17186,15 +17339,19 @@ For more details on this approach, please refer to the [boto3 session docs](http
 
 | Parameter | Description | Default |
 | --- | --- | --- |
-| `boto3_session` | A `boto3.Session` instance under which AWS credentials are configured. | `None` |
+| `boto_session` | A `boto3.Session` instance under which AWS credentials are configured. | `None` |
 | `region` | Region under which credentials are configured. Cannot use if providing `boto3_session`. | `us-east-1` |
 
 ### Provider Configs
 
 | Parameter | Description | Example | Options |
 | --- | --- | --- | --- |
-| `audio` | `AudioConfig` instance. | `{"voice": "tiffany"}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
+| `audio` | `AudioConfig` instance. | `{"voice": "tiffany", "output_rate": 24000}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
 | `inference` | Session start `inferenceConfiguration`’s (as snake\_case). | `{"top_p": 0.9}` | [reference](https://docs.aws.amazon.com/nova/latest/userguide/input-events.html) |
+
+Note
+
+The `audio` config accepts any sample rate supported by the underlying model API. Refer to the [Nova Sonic documentation](https://docs.aws.amazon.com/nova/latest/userguide/speech.html) for the full list of supported rates.
 
 ## Troubleshooting
 
@@ -17887,6 +18044,8 @@ from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
 model = BidiOpenAIRealtimeModel()
 
 # Or handle restarts gracefully
+from strands.experimental.bidi import BidiConnectionRestartEvent
+
 async for event in agent.receive():
     if isinstance(event, BidiConnectionRestartEvent):
         print("Reconnecting...")
@@ -18171,7 +18330,7 @@ The SDK ships context management configurations that work out of the box, so you
 
 ## Automatic context management
 
-For most agents with multi-turn conversations, you don’t need to configure conversation management and context offloading separately. Pass `context_manager="auto"` `contextManager: "auto"`  and the SDK wires up both with tuned defaults:
+For most agents with multi-turn conversations, you don’t need to configure conversation management and context offloading separately. Pass `context_manager="auto"``contextManager: "auto"` and the SDK wires up both with tuned defaults:
 
 (( tab "Python" ))
 ```python
@@ -18204,7 +18363,7 @@ For full details on each component, see [Conversation Management](/docs/user-gui
 
 Your own settings take precedence when you need fine-grained control:
 
--   **Custom conversation manager**: If you also pass `conversation_manager` `conversationManager`  , your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
+-   **Custom conversation manager**: If you also pass `conversation_manager``conversationManager`, your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
 -   **Existing ContextOffloader**: If your `plugins` list already contains a `ContextOffloader` instance, no duplicate is added. Your configuration is preserved.
 
 (( tab "Python" ))
@@ -18242,7 +18401,7 @@ const agent = new Agent({
 
 ## Agentic context management
 
-Auto mode compresses on a fixed threshold the SDK controls. Agentic mode hands that control to the model. Pass `context_manager="agentic"` `contextManager: "agentic"`  and the model manages its own working memory: it sees how full the context window is and chooses when to compress, what to compress, and what to protect.
+Auto mode compresses on a fixed threshold the SDK controls. Agentic mode hands that control to the model. Pass `context_manager="agentic"``contextManager: "agentic"` and the model manages its own working memory: it sees how full the context window is and chooses when to compress, what to compress, and what to protect.
 
 (( tab "Python" ))
 ```python
@@ -18295,7 +18454,7 @@ Use `"auto"` for most agents. It manages context in the background, with no mode
 
 ## Limitations
 
-**Stateful models**: Stateful models manage conversation state server-side. Setting `context_manager` `contextManager`  to either mode with a stateful model raises a `ValueError` `Error`  .
+**Stateful models**: Stateful models manage conversation state server-side. Setting `context_manager``contextManager` to either mode with a stateful model raises a `ValueError``Error`.
 
 Both modes compose an offloader that uses in-memory storage, which does not persist across process restarts. If your agent uses session management and needs durable offloaded content, configure an explicit `ContextOffloader` with `FileStorage` or `S3Storage`. See [Storage Backends](/docs/user-guide/concepts/plugins/context-offloader/index.md#storage-backends).
 
@@ -19476,18 +19635,18 @@ const store = new BedrockKnowledgeBaseStore({
 
 ### Scope and namespaces
 
-`scope` isolates documents within a single knowledge base. It is stamped on every write (under `scope_metadata_key` `scopeMetadataKey`  , default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
+`scope` isolates documents within a single knowledge base. It is stamped on every write (under `scope_metadata_key``scopeMetadataKey`, default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
 
 ### Store config
 
-The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and behavior, plus the [shared `MemoryStore` fields](/docs/user-guide/concepts/memory/overview/index.md#stores) (`name`, `description`, `max_search_results` `maxSearchResults`  , `writable`, `extraction`):
+The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and behavior, plus the [shared `MemoryStore` fields](/docs/user-guide/concepts/memory/overview/index.md#stores) (`name`, `description`, `max_search_results``maxSearchResults`, `writable`, `extraction`):
 
 | Field | Purpose |
 | --- | --- |
 | `config` | The knowledge base connection (see below). Reuse one across stores that differ only by `scope`. |
 | `scope` | Logical namespace isolating documents. Applied as a metadata filter on search and stamped on writes. |
 | `filter` | Explicit retrieval filter; overrides the auto-generated scope filter on search. |
-| `access_control_list` `accessControlList`  | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
+| `access_control_list``accessControlList` | Document-level ACL entries stamped on every write. Required when the data source has ACL awareness enabled. See [Access control lists](#access-control-lists). |
 
 ### Connection config
 
@@ -19495,13 +19654,13 @@ The inner `BedrockKnowledgeBaseConfig` is the reusable connection: which knowled
 
 | Field | Purpose |
 | --- | --- |
-| `knowledge_base_id` `knowledgeBaseId`  | The Bedrock Knowledge Base to query and ingest into. Required. |
-| `knowledge_base_type` `knowledgeBaseType`  | The knowledge base type (`'MANAGED'`, `'VECTOR'`, `'KENDRA'`, or `'SQL'`). When provided, skips the `GetKnowledgeBase` call during initialization. When omitted, detected automatically. |
-| `data_source_type` `dataSourceType`  | `'CUSTOM'`, `'S3'`, or `'OTHER'`. Governs whether and how the store can be written to. |
-| `data_source_id` `dataSourceId`  | The data source to ingest into. Required for writes. |
+| `knowledge_base_id``knowledgeBaseId` | The Bedrock Knowledge Base to query and ingest into. Required. |
+| `knowledge_base_type``knowledgeBaseType` | The knowledge base type (`'MANAGED'`, `'VECTOR'`, `'KENDRA'`, or `'SQL'`). When provided, skips the `GetKnowledgeBase` call during initialization. When omitted, detected automatically. |
+| `data_source_type``dataSourceType` | `'CUSTOM'`, `'S3'`, or `'OTHER'`. Governs whether and how the store can be written to. |
+| `data_source_id``dataSourceId` | The data source to ingest into. Required for writes. |
 | `s3` | S3 ingestion settings (`bucket`, `prefix`). Required when the data source type is `'S3'`. |
-| `scope_metadata_key` `scopeMetadataKey`  | Metadata attribute key used for scope filtering. Defaults to `'namespace'`. |
-| `runtime_client / agent_client` `runtimeClient / agentClient`  | Pre-constructed AWS clients. When omitted, default clients are constructed using the standard credential chain (the agent client lazily, on first write). |
+| `scope_metadata_key``scopeMetadataKey` | Metadata attribute key used for scope filtering. Defaults to `'namespace'`. |
+| `runtime_client / agent_client``runtimeClient / agentClient` | Pre-constructed AWS clients. When omitted, default clients are constructed using the standard credential chain (the agent client lazily, on first write). |
 
 Because the connection is a separate object, you build it once and vary only `name` and `scope` per store. This is the cheap way to give each tenant an isolated namespace over a single knowledge base:
 
@@ -19655,9 +19814,9 @@ const { documentId } = await store.add('User prefers aisle seats', {
 ```
 (( /tab "TypeScript" ))
 
-The search result cap defaults to `10` when neither the call nor the store sets one. This `10` default applies only to direct calls on the store. Reached through a `MemoryManager` tool or its search method, the manager supplies its own per-call cap instead; set `max_search_results` `maxSearchResults`  on the store to pin a value across both paths.
+The search result cap defaults to `10` when neither the call nor the store sets one. This `10` default applies only to direct calls on the store. Reached through a `MemoryManager` tool or its search method, the manager supplies its own per-call cap instead; set `max_search_results``maxSearchResults` on the store to pin a value across both paths.
 
-Each entry’s `metadata` carries the document’s own attributes plus two reserved synthetic keys: `_relevance_score` `_relevanceScore`  (the Bedrock relevance score) and `_source_location` `_sourceLocation`  (the retrieval location). When `scope` is set, search filters to that namespace automatically; an explicit `filter` overrides the scope-derived one. The asymmetry is deliberate: an explicit `filter` affects search only, while writes always scope by `scope`.
+Each entry’s `metadata` carries the document’s own attributes plus two reserved synthetic keys: `_relevance_score``_relevanceScore` (the Bedrock relevance score) and `_source_location``_sourceLocation` (the retrieval location). When `scope` is set, search filters to that namespace automatically; an explicit `filter` overrides the scope-derived one. The asymmetry is deliberate: an explicit `filter` affects search only, while writes always scope by `scope`.
 
 The document id from `add` is the generated UUID for a `CUSTOM` document, or the `s3://` URI of the uploaded object for `S3`. Writes require a data source ID (and an `s3` config for S3 data sources); a write against a missing or read-only configuration raises.
 
@@ -19704,7 +19863,7 @@ To change the cadence, swap the extractor, or extract server-side, see [Automati
 The credentials the store uses must allow the Bedrock operations it calls, plus S3 writes when using an S3 data source:
 
 -   `bedrock:Retrieve` - for search.
--   `bedrock:GetKnowledgeBase` - called once at initialization to detect the knowledge base type, then memoized. Not required if you provide `knowledge_base_type` `knowledgeBaseType`  in the config.
+-   `bedrock:GetKnowledgeBase` - called once at initialization to detect the knowledge base type, then memoized. Not required if you provide `knowledge_base_type``knowledgeBaseType` in the config.
 -   `bedrock:IngestKnowledgeBaseDocuments` - for writes (`CUSTOM` and `S3`).
 -   `s3:PutObject` - for writes to an `S3` data source, on the configured bucket and prefix.
 
@@ -19739,7 +19898,7 @@ For an `S3` data source, add `s3:PutObject` on the bucket and prefix the store u
 
 ## Access Control Lists
 
-Managed knowledge base data sources can have [ACL awareness](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-acl.html) enabled, which requires every ingested document to carry an access control list specifying who can retrieve it. Set `access_control_list` `accessControlList`  on the store to supply entries for every write:
+Managed knowledge base data sources can have [ACL awareness](https://docs.aws.amazon.com/bedrock/latest/userguide/kb-managed-acl.html) enabled, which requires every ingested document to carry an access control list specifying who can retrieve it. Set `access_control_list``accessControlList` on the store to supply entries for every write:
 
 (( tab "Python" ))
 ```python
@@ -19781,7 +19940,7 @@ const store = new BedrockKnowledgeBaseStore({
 
 Each entry specifies `access` (`'ALLOW'` or `'DENY'`), `name` (the user’s email), and `type` (`'USER'`). Deny overrides allow. The entries apply to both `CUSTOM` and `S3` writes. For the `CUSTOM` path, an inline ACL requires at least one metadata attribute (a `scope` satisfies this); if none is present the store raises with guidance.
 
-If the data source has ACL awareness enabled and no `access_control_list` `accessControlList`  is set, the store surfaces a clear error pointing at the field.
+If the data source has ACL awareness enabled and no `access_control_list``accessControlList` is set, the store surfaces a clear error pointing at the field.
 
 ## Related
 
@@ -19830,7 +19989,7 @@ Recall and injection are enabled by default when you attach a store. Extraction 
 
 ## Getting Started
 
-Attach a memory manager to an agent through the `memory_manager` `memoryManager`  parameter. The examples below use a `store`, a `MemoryStore` you provide; see [Bedrock Knowledge Base](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) for a managed backend or [Custom Stores](#custom-stores) to create your own.
+Attach a memory manager to an agent through the `memory_manager``memoryManager` parameter. The examples below use a `store`, a `MemoryStore` you provide; see [Bedrock Knowledge Base](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) for a managed backend or [Custom Stores](#custom-stores) to create your own.
 
 (( tab "Python" ))
 ```python
@@ -19862,7 +20021,7 @@ const agent = new Agent({
 
 With no further configuration, reading through recall and injection is enabled. Writing is opt-in, and comes in two modes:
 
--   **The `add_memory` tool** lets the agent decide what to save. Enable it on the manager with `add_tool_config=True` `addToolConfig: true`  .
+-   **The `add_memory` tool** lets the agent decide what to save. Enable it on the manager with `add_tool_config=True``addToolConfig: true`.
 -   **Automatic extraction** captures memories from the conversation without tool call. Enable it on a writable store, where it runs every 5 turns by default using your agent’s model.
 
 (( tab "Python" ))
@@ -19966,7 +20125,7 @@ Each store carries its own identity and behavior:
 | --- | --- |
 | `name` | Unique identifier, used to target the store from tools and the programmatic API. |
 | `description` | Human-readable summary, surfaced in the memory tool descriptions so the model knows what each store holds. |
-| `max_search_results` `maxSearchResults`  | Default result cap per search when a caller does not pass one. The manager falls back to `3` if neither is set. |
+| `max_search_results``maxSearchResults` | Default result cap per search when a caller does not pass one. The manager falls back to `3` if neither is set. |
 | `writable` | Whether the store accepts writes. |
 
 The manager attaches each store’s `name` to its results, so the model and your code can tell which store produced each entry and target follow-up queries.
@@ -20022,7 +20181,7 @@ const agent = new Agent({
 
 `search_memory` lets the agent recall knowledge on demand. Rename or re-describe it through its config, or turn it off. When the manager owns multiple stores, their names and descriptions are folded into the tool description so the model can target a specific store by name or search them all.
 
-`add_memory` lets the agent write new memories. Enable it to allow writes to your writable stores, or pass a config to scope it to specific ones. By default it waits for writes so it can report failures back to the model. The fire-and-forget option returns as soon as writes are dispatched, so a slow backend never blocks the agent loop. This tool can only targets stores implementing `add` `add`  .
+`add_memory` lets the agent write new memories. Enable it to allow writes to your writable stores, or pass a config to scope it to specific ones. By default it waits for writes so it can report failures back to the model. The fire-and-forget option returns as soon as writes are dispatched, so a slow backend never blocks the agent loop. This tool can only targets stores implementing `add``add`.
 
 ## Context Injection
 
@@ -20081,7 +20240,7 @@ const agent = new Agent({
 (( /tab "TypeScript" ))
 
 -   `trigger` accepts `'userTurn'` (the default, inject only on a fresh user ask), `'everyTurn'` (inject before every model call, for autonomous agents), or a predicate: a function that receives the injection context and returns whether to inject this call.
--   `max_entries` `maxEntries`  caps how many entries are retrieved and injected.
+-   `max_entries``maxEntries` caps how many entries are retrieved and injected.
 -   `query` overrides the adaptive default with your own query logic. Return an empty value to skip injection for this call.
 -   `format` renders the retrieved entries. The default emits an escaped `<memory>` block; a custom formatter that emits markup owns its own escaping.
 
@@ -20122,7 +20281,7 @@ const store = new BedrockKnowledgeBaseStore({
 ```
 (( /tab "TypeScript" ))
 
-With defaults, extraction runs every 5 turns. For a store that implements only `add` `add`  (like Bedrock Knowledge Bases), it uses a `ModelExtractor` to distill facts from the conversation; a store that implements `add_messages` `addMessages`  extracts server-side instead, covered under [Custom Stores](#custom-stores).
+With defaults, extraction runs every 5 turns. For a store that implements only `add``add` (like Bedrock Knowledge Bases), it uses a `ModelExtractor` to distill facts from the conversation; a store that implements `add_messages``addMessages` extracts server-side instead, covered under [Custom Stores](#custom-stores).
 
 ### Triggers and extractors
 
@@ -20171,7 +20330,7 @@ const store = new BedrockKnowledgeBaseStore({
 ```
 (( /tab "TypeScript" ))
 
-The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent’s own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the `add_messages` `addMessages`  sink receives the raw message batch with no model call, so for those you omit the extractor.
+The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent’s own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the `add_messages``addMessages` sink receives the raw message batch with no model call, so for those you omit the extractor.
 
 Two triggers ship with the SDK. `InvocationTrigger` runs after every turn, `IntervalTrigger` runs every N turns. For a custom trigger, extend `ExtractionTrigger`. A trigger registers a hook on the agent and calls `fire()` when extraction should run. Tying it to agent state can let a tool decide the moment, rather than extracting on a turn cadence:
 
@@ -20363,7 +20522,7 @@ class InMemoryStore implements MemoryStore {
 A store exposes two write paths, and which ones it implements decides how it can be written to:
 
 -   `add` takes a single piece of content. It backs the `add_memory` tool, the programmatic `add` method, and extraction that distills facts client-side with a `ModelExtractor`.
--   `add_messages` `addMessages`  takes a batch of raw conversation messages. It backs **server-side extraction**: the manager hands the filtered message batch straight to this method with no client-side model call, so the backend does the distillation itself. The batch preserves the conversation’s role structure.
+-   `add_messages``addMessages` takes a batch of raw conversation messages. It backs **server-side extraction**: the manager hands the filtered message batch straight to this method with no client-side model call, so the backend does the distillation itself. The batch preserves the conversation’s role structure.
 
 A store can implement either path or both. The following store extracts server-side, delegating to `my_backend`, a stand-in for your managed backend’s client:
 
@@ -20704,7 +20863,7 @@ session = boto3.Session(
 
 # Create a Bedrock model with the custom session
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     boto_session=session
 )
 ```
@@ -20758,7 +20917,7 @@ import { BedrockModel } from '@strands-agents/sdk/models/bedrock'
 // https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html
 
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   region: 'us-west-2',
   clientConfig: {
     credentials: {
@@ -20792,7 +20951,7 @@ You can specify which Bedrock model to use by passing in the model ID string dir
 from strands import Agent
 
 # Create an agent with a specific model by passing the model ID string
-agent = Agent(model="anthropic.claude-sonnet-4-20250514-v1:0")
+agent = Agent(model="global.anthropic.claude-sonnet-4-6")
 
 response = agent("Tell me about Amazon Bedrock.")
 ```
@@ -20815,7 +20974,7 @@ You can specify which Bedrock model to use by passing in the model ID string dir
 import { Agent } from '@strands-agents/sdk'
 
 // Create an agent using the model
-const agent = new Agent({ model: 'anthropic.claude-sonnet-4-20250514-v1:0' })
+const agent = new Agent({ model: 'global.anthropic.claude-sonnet-4-6' })
 
 const response = await agent.invoke('Tell me about Amazon Bedrock.')
 ```
@@ -20918,10 +21077,9 @@ boto_config = BotocoreConfig(
 
 # Create a configured Bedrock model
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     region_name="us-east-1",  # Specify a different region than the default
     temperature=0.3,
-    top_p=0.8,
     stop_sequences=["###", "END"],
     boto_client_config=boto_config,
 )
@@ -20938,10 +21096,9 @@ response = agent("Write a short story about an AI assistant.")
 ```typescript
 // Create a configured Bedrock model
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   region: 'us-east-1', // Specify a different region than the default
   temperature: 0.3,
-  topP: 0.8,
   stopSequences: ['###', 'END'],
   clientConfig: {
     retryMode: 'standard',
@@ -20965,7 +21122,7 @@ The TypeScript SDK applies a default `requestTimeout` of 120000 ms (120 seconds)
 import { BedrockModel } from '@strands-agents/sdk/models/bedrock'
 
 const bedrockModel = new BedrockModel({
-  modelId: 'us.anthropic.claude-sonnet-4-6',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   clientConfig: {
     requestHandler: { requestTimeout: 60_000 },
   },
@@ -20984,7 +21141,7 @@ Certain Amazon Bedrock models only support non-streaming tool use, so you can se
 ```python
 # Streaming model (default)
 streaming_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     streaming=True,  # This is the default
 )
 
@@ -21000,7 +21157,7 @@ non_streaming_model = BedrockModel(
 ```typescript
 // Streaming model (default)
 const streamingModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   stream: true, // This is the default
 })
 
@@ -21025,7 +21182,7 @@ from strands.models import BedrockModel
 
 # Create a Bedrock model that supports multimodal inputs
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0"
+    model_id="global.anthropic.claude-sonnet-4-6"
 )
 agent = Agent(model=bedrock_model)
 
@@ -21052,7 +21209,7 @@ response = agent(
 (( tab "TypeScript" ))
 ```typescript
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
 })
 
 const agent = new Agent({ model: bedrockModel })
@@ -21147,7 +21304,7 @@ from strands.models import BedrockModel
 
 # Using guardrails with BedrockModel
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     guardrail_id="your-guardrail-id",
     guardrail_version="DRAFT",
     guardrail_trace="enabled",  # Options: "enabled", "disabled", "enabled_full"
@@ -21183,7 +21340,7 @@ Amazon Bedrock supports guardrails to help ensure model outputs meet your requir
 ```typescript
 // Using guardrails with BedrockModel
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   guardrailConfig: {
     guardrailIdentifier: 'your-guardrail-id',
     guardrailVersion: 'DRAFT',
@@ -21306,7 +21463,7 @@ from strands_tools import calculator, current_time
 
 # Using tool caching with BedrockModel
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     cache_tools="default"
 )
 
@@ -21332,7 +21489,7 @@ In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig`
 
 ```typescript
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   cacheConfig: { strategy: 'auto' },
 })
 
@@ -21390,7 +21547,7 @@ def web_search(query: str) -> str:
     """
 
 model = BedrockModel(
-    model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     cache_config=CacheConfig(strategy="auto")
 )
 agent = Agent(model=model, tools=[web_search])
@@ -21410,7 +21567,7 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 (( tab "TypeScript" ))
 ```typescript
 const bedrockModel = new BedrockModel({
-  modelId: 'us.anthropic.claude-sonnet-4-6',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   cacheConfig: { strategy: 'auto' },
 })
 
@@ -21585,14 +21742,13 @@ You can update the model configuration during runtime:
 ```python
 # Create the model with initial configuration
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     temperature=0.7
 )
 
 # Update configuration later
 bedrock_model.update_config(
     temperature=0.3,
-    top_p=0.2,
 )
 ```
 (( /tab "Python" ))
@@ -21601,14 +21757,13 @@ bedrock_model.update_config(
 ```typescript
 // Create the model with initial configuration
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   temperature: 0.7,
 })
 
 // Update configuration later
 bedrockModel.updateConfig({
   temperature: 0.3,
-  topP: 0.2,
 })
 ```
 (( /tab "TypeScript" ))
@@ -21666,7 +21821,7 @@ const updateTemperature = tool({
 })
 
 const agent = new Agent({
-  model: new BedrockModel({ modelId: 'anthropic.claude-sonnet-4-20250514-v1:0' }),
+  model: new BedrockModel({ modelId: 'global.anthropic.claude-sonnet-4-6' }),
   tools: [updateTemperature],
 })
 ```
@@ -21685,7 +21840,7 @@ from strands.models import BedrockModel
 
 # Create a Bedrock model with reasoning configuration
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     additional_request_fields={
         "thinking": {
             "type": "enabled",
@@ -21708,7 +21863,7 @@ Strands allows you to enable and configure reasoning capabilities with your [`Be
 ```typescript
 // Create a Bedrock model with reasoning configuration
 const bedrockModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   additionalRequestFields: {
     thinking: {
       type: 'enabled',
@@ -21823,7 +21978,7 @@ You can enable native token counting with:
 
 ```python
 model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     use_native_token_count=True,
 )
 ```
@@ -21838,7 +21993,7 @@ You can enable native token counting with:
 
 ```typescript
 const model = new BedrockModel({
-  modelId: ‘anthropic.claude-sonnet-4-20250514-v1:0’,
+  modelId: 'global.anthropic.claude-sonnet-4-6',
   useNativeTokenCount: true,
 })
 ```
@@ -21857,13 +22012,13 @@ This typically indicates that the model requires Cross-Region Inference, as docu
 Instead of:
 
 ```plaintext
-anthropic.claude-sonnet-4-20250514-v1:0
+anthropic.claude-sonnet-4-6
 ```
 
 Use:
 
 ```plaintext
-us.anthropic.claude-sonnet-4-20250514-v1:0
+us.anthropic.claude-sonnet-4-6
 ```
 
 ### Model identifier is invalid
@@ -21872,7 +22027,7 @@ If you encounter the error:
 
 > ValidationException: An error occurred (ValidationException) when calling the ConverseStream operation: The provided model identifier is invalid
 
-This is very likely due to calling Bedrock with an inference model id, such as: `us.anthropic.claude-sonnet-4-20250514-v1:0` from a region that does not [support inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html). If so, pass in a valid model id, as follows:
+This is very likely due to calling Bedrock with an inference model id, such as: `us.anthropic.claude-sonnet-4-6` from a region that does not [support inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html). If so, pass in a valid model id, as follows:
 
 (( tab "Python" ))
 ```python
@@ -21896,7 +22051,7 @@ Strands uses a default Claude 4 Sonnet inference model from the region of your c
 
 If you’re using an ARN-based application inference profile as your `model_id` (e.g., `arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123`), `CacheConfig(strategy="auto")` will not automatically enable prompt caching.
 
-The `strategy="auto"` detection checks the model ID string for `"claude"` or `"anthropic"` substrings. Cross-region inference profile IDs like `us.anthropic.claude-sonnet-4-20250514-v1:0` contain `"anthropic"` and are detected correctly, but application inference profiles use opaque resource IDs (`application-inference-profile/abc123`) that carry no model name information, so detection returns `None`, caching is skipped, and Strands logs a warning: `model_id=<your-arn> | cache_config is enabled but this model does not support automatic caching`.
+The `strategy="auto"` detection checks the model ID string for `"claude"` or `"anthropic"` substrings. Cross-region inference profile IDs like `us.anthropic.claude-sonnet-4-6` contain `"anthropic"` and are detected correctly, but application inference profiles use opaque resource IDs (`application-inference-profile/abc123`) that carry no model name information, so detection returns `None`, caching is skipped, and Strands logs a warning: `model_id=<your-arn> | cache_config is enabled but this model does not support automatic caching`.
 
 Use `strategy="anthropic"` explicitly to fix this:
 
@@ -23375,7 +23530,7 @@ If you encounter import errors for `@google/genai`, ensure the package is instal
 
 ### API Key Issues
 
-Make sure your Google AI API key is properly set via `client_args` `apiKey`  , or as the `GOOGLE_API_KEY` / `GEMINI_API_KEY` environment variable. You can obtain an API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
+Make sure your Google AI API key is properly set via `client_args``apiKey`, or as the `GOOGLE_API_KEY` / `GEMINI_API_KEY` environment variable. You can obtain an API key from the [Google AI Studio](https://aistudio.google.com/app/apikey).
 
 ### Rate Limiting and Safety Issues
 
@@ -26977,7 +27132,7 @@ When implementing the “Agents as Tools” pattern with Strands Agents SDK:
 
 ## Implementing Agents as Tools with Strands Agents SDK
 
-Strands Agents SDK provides three ways to implement the “Agents as Tools” pattern: passing agents directly in the `tools` array for the simplest setup, `.as_tool()` `.asTool()`  when you need to customize tool name, description, or context behavior, and the `@tool` decorator or `tool()` function for full control over how the agent is invoked.
+Strands Agents SDK provides three ways to implement the “Agents as Tools” pattern: passing agents directly in the `tools` array for the simplest setup, `.as_tool()``.asTool()` when you need to customize tool name, description, or context behavior, and the `@tool` decorator or `tool()` function for full control over how the agent is invoked.
 
 ```mermaid
 flowchart TD
@@ -27079,7 +27234,7 @@ Always select the most appropriate tool based on the user's query.`,
 
 ### Customizing Agent Tools
 
-When you need to customize the tool name, description, or context behavior, use `.as_tool()` `.asTool()`  explicitly:
+When you need to customize the tool name, description, or context behavior, use `.as_tool()``.asTool()` explicitly:
 
 (( tab "Python" ))
 ```python
@@ -27112,7 +27267,7 @@ const orchestrator = new Agent({
 
 #### Context Management
 
-By default, both direct passing and `.as_tool()` `.asTool()`  reset the agent’s conversation context between invocations, ensuring every call starts from a clean baseline. To preserve the agent’s conversation history across invocations:
+By default, both direct passing and `.as_tool()``.asTool()` reset the agent’s conversation context between invocations, ensuring every call starts from a clean baseline. To preserve the agent’s conversation history across invocations:
 
 (( tab "Python" ))
 ```python
@@ -29532,7 +29687,7 @@ Source: https://strandsagents.com/docs/user-guide/concepts/multi-agent/workflow/
 
 ## Plugins
 
-Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](/docs/user-guide/concepts/plugins/steering/index.md), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, `system_prompt` `systemPrompt`  , `messages`, `tools`, and `hooks`—and executing logic to improve an agent’s behavior.
+Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](/docs/user-guide/concepts/plugins/steering/index.md), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, `system_prompt``systemPrompt`, `messages`, `tools`, and `hooks`—and executing logic to improve an agent’s behavior.
 
 The Strands SDK provides built-in plugins that you can use out of the box:
 
@@ -29755,7 +29910,7 @@ class ModelMonitorPlugin implements Plugin {
 
 ### Manual Hook and Tool Registration
 
-For more control, you can manually register hooks and tools in the `init_agent` `initAgent`  method:
+For more control, you can manually register hooks and tools in the `init_agent``initAgent` method:
 
 (( tab "Python" ))
 ```python
@@ -30042,7 +30197,7 @@ const clock = new ContextInjector({
 ```
 (( /tab "TypeScript" ))
 
-For finer control, pass a predicate: a function that receives the injection context and returns whether to inject this call. The context carries the current messages, durable state shared across calls via `context.state` `context.appState`  , and the agent. A predicate that throws fails open, so the model call still proceeds:
+For finer control, pass a predicate: a function that receives the injection context and returns whether to inject this call. The context carries the current messages, durable state shared across calls via `context.state``context.appState`, and the agent. A predicate that throws fails open, so the model call still proceeds:
 
 (( tab "Python" ))
 ```python
@@ -30074,7 +30229,7 @@ const injector = new ContextInjector({
 
 | Field | Purpose |
 | --- | --- |
-| `render_content` `renderContent`  | Returns the text to inject for this call, or `None / empty string` `undefined / empty string`  to skip. Required, and the only positional argument. |
+| `render_content``renderContent` | Returns the text to inject for this call, or `None / empty string``undefined / empty string` to skip. Required, and the only positional argument. |
 | `trigger` | `'userTurn'` (default), `'everyTurn'`, or a predicate over the injection context. |
 | `name` | Plugin name for logging and duplicate detection. Defaults to `'strands:context-injector'`. Set a distinct name when registering more than one. |
 
@@ -30122,12 +30277,12 @@ The default [`SlidingWindowConversationManager`](/docs/user-guide/concepts/agent
 
 ## How It Works
 
-After each tool call, the plugin estimates the result’s token count and compares it against the `max_result_tokens` `maxResultTokens`  threshold (default: 2,500 tokens). If the result exceeds it, the plugin:
+After each tool call, the plugin estimates the result’s token count and compares it against the `max_result_tokens``maxResultTokens` threshold (default: 2,500 tokens). If the result exceeds it, the plugin:
 
 1.  Stores each content block individually in the configured storage backend, preserving its content type
-2.  Replaces the in-context result with the first `preview_tokens` `previewTokens`  tokens (default: 1,000) plus per-block storage references
+2.  Replaces the in-context result with the first `preview_tokens``previewTokens` tokens (default: 1,000) plus per-block storage references
 
-Token estimation uses `model.count_tokens()` `model.countTokens()`  , which delegates to the model provider’s native counting API if available, otherwise falling back to a character-based heuristic (chars/4 for text, chars/2 for JSON).
+Token estimation uses `model.count_tokens()``model.countTokens()`, which delegates to the model provider’s native counting API if available, otherwise falling back to a character-based heuristic (chars/4 for text, chars/2 for JSON).
 
 Results under the threshold pass through unchanged.
 
@@ -30146,7 +30301,7 @@ For non-text content, the plugin replaces the result with a descriptive placehol
 
 | Content Type | What the agent sees |
 | --- | --- |
-| Text / JSON | First `preview_tokens` `previewTokens`  tokens + storage reference |
+| Text / JSON | First `preview_tokens``previewTokens` tokens + storage reference |
 | Image | `[image: format, N bytes]` placeholder + storage reference |
 | Document | `[document: format, name, N bytes]` placeholder + storage reference |
 
@@ -30814,7 +30969,7 @@ if (result && !result.passed) {
 ```
 (( /tab "TypeScript" ))
 
-The result is `None` `undefined`  before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
+The result is `None``undefined` before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
 
 ### Stateless Retries
 
@@ -30840,7 +30995,7 @@ const plugin = new GoalLoop({
 ```
 (( /tab "TypeScript" ))
 
-The snapshot excludes agent state ( `state` `appState`  ) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
+The snapshot excludes agent state (`state``appState`) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
 
 ### Custom Judge Configuration
 
@@ -30880,7 +31035,7 @@ const plugin = new GoalLoop({
 
 ### Custom Resume Prompt
 
-Override how feedback is injected before each retry. The template receives the trimmed feedback string (or `None` `undefined`  when the validator gave none) and returns the user message content:
+Override how feedback is injected before each retry. The template receives the trimmed feedback string (or `None``undefined` when the validator gave none) and returns the user message content:
 
 (( tab "Python" ))
 ```python
@@ -31073,7 +31228,7 @@ The injected system prompt metadata looks like this:
 </available_skills>
 ```
 
-This XML block is refreshed before each invocation, so changes to available skills (through `set_available_skills` `setAvailableSkills`  ) take effect immediately. Activated skills are tracked in [agent state](/docs/user-guide/concepts/agents/state/index.md) for session persistence.
+This XML block is refreshed before each invocation, so changes to available skills (through `set_available_skills``setAvailableSkills`) take effect immediately. Activated skills are tracked in [agent state](/docs/user-guide/concepts/agents/state/index.md) for session persistence.
 
 ## Usage
 
@@ -31347,7 +31502,7 @@ The `allowed-tools` field is currently informational. When a skill is activated,
 
 Name validation
 
-Skill names must match the parent directory name. By default, validation issues produce warnings rather than errors. Pass `strict=True` `strict: true`  to raise exceptions instead.
+Skill names must match the parent directory name. By default, validation issues produce warnings rather than errors. Pass `strict=True``strict: true` to raise exceptions instead.
 
 ### Resource directories
 
@@ -31658,12 +31813,12 @@ All Sandbox implementations share the same abstract interface:
 
 | Method | Description |
 | --- | --- |
-| `execute_streaming` `executeStreaming`  | Run a shell command, stream output |
-| `execute_code_streaming` `executeCodeStreaming`  | Run code via an interpreter, stream output |
-| `read_file` `readFile`  | Read a file as bytes |
-| `write_file` `writeFile`  | Write bytes to a file |
-| `remove_file` `removeFile`  | Delete a file |
-| `list_files` `listFiles`  | List directory contents |
+| `execute_streaming``executeStreaming` | Run a shell command, stream output |
+| `execute_code_streaming``executeCodeStreaming` | Run code via an interpreter, stream output |
+| `read_file``readFile` | Read a file as bytes |
+| `write_file``writeFile` | Write bytes to a file |
+| `remove_file``removeFile` | Delete a file |
+| `list_files``listFiles` | List directory contents |
 
 The execution methods accept optional parameters: `timeout` (seconds, throws `SandboxTimeoutError` when exceeded), `cwd` (working directory override), `env` (environment variables), and in TypeScript, `signal` (AbortSignal, throws `SandboxAbortError`).
 
@@ -31753,7 +31908,7 @@ agent = Agent(sandbox=sandbox, tools=[locked_bash])
 ```
 (( /tab "Python" ))
 
-Custom sandbox implementations can also override `get_tools()` `getTools()`  to vend their own tools entirely.
+Custom sandbox implementations can also override `get_tools()``getTools()` to vend their own tools entirely.
 
 ### Custom tools
 
@@ -31885,9 +32040,9 @@ agent("Run the test suite and summarize any failures")
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `container` `container`  | `str` `string`  | (required) | ID or name of a running container |
-| `working_dir` `workingDir`  | `str \| None` `string`  | `None` `container default`  | Working directory for executed commands. If omitted, runs in the container’s configured working directory. |
-| `user` `user`  | `str \| None` `string`  | `None` `container default`  | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container’s configured user. |
+| `container``container` | `str``string` | (required) | ID or name of a running container |
+| `working_dir``workingDir` | `str \| None``string` | `None``container default` | Working directory for executed commands. If omitted, runs in the container’s configured working directory. |
+| `user``user` | `str \| None``string` | `None``container default` | User to run commands as (`"uid"`, `"uid:gid"`, or name). If omitted, runs as the container’s configured user. |
 
 ## SshSandbox
 
@@ -31927,13 +32082,13 @@ agent("Check disk usage and list running processes")
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `host` `host`  | `str` `string`  | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
-| `working_dir` `workingDir`  | `str` `string`  | (required) | Working directory on the remote host |
-| `identity_file` `identityFile`  | `str \| None` `string`  | `None` `undefined`  | Path to SSH private key file |
-| `port` `port`  | `int` `number`  | `22` | SSH port |
-| `allow_unknown_hosts` `allowUnknownHosts`  | `bool` `boolean`  | `False` `false`  | When false, uses `StrictHostKeyChecking=accept-new`. When true, disables host key verification. |
-| `ssh_options` `sshOptions`  | `list[str] \| None` `string[]`  | `None` `[]`  | Additional SSH options passed as `-o` flags |
-| `allow_unsafe_ssh_options` `allowUnsafeSshOptions`  | `bool` `boolean`  | `False` `false`  | Bypass the SSH option allowlist. When false, unknown options throw at construction time. |
+| `host``host` | `str``string` | (required) | SSH destination (e.g., `"user@host"`, `"192.168.1.10"`) |
+| `working_dir``workingDir` | `str``string` | (required) | Working directory on the remote host |
+| `identity_file``identityFile` | `str \| None``string` | `None``undefined` | Path to SSH private key file |
+| `port``port` | `int``number` | `22` | SSH port |
+| `allow_unknown_hosts``allowUnknownHosts` | `bool``boolean` | `False``false` | When false, uses `StrictHostKeyChecking=accept-new`. When true, disables host key verification. |
+| `ssh_options``sshOptions` | `list[str] \| None``string[]` | `None``[]` | Additional SSH options passed as `-o` flags |
+| `allow_unsafe_ssh_options``allowUnsafeSshOptions` | `bool``boolean` | `False``false` | Bypass the SSH option allowlist. When false, unknown options throw at construction time. |
 
 ### SSH Option Allowlist
 
@@ -31943,7 +32098,7 @@ Security Warning
 
 Setting `allowUnsafeSshOptions: true` bypasses this allowlist and lets any SSH option through, including directives that run commands on the local host. Only enable it with options you control, never with model-generated or untrusted input.
 
-Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on `execute()` `execute()`  / `execute_code()` `executeCode()`  .
+Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on `execute()``execute()` / `execute_code()``executeCode()`.
 
 ## Working with a sandbox directly
 
@@ -31951,10 +32106,10 @@ You can drive a sandbox directly from your own code. This is useful for setup an
 
 | Method | Description |
 | --- | --- |
-| `execute` `execute`  | Run a shell command, return the result |
-| `execute_code` `executeCode`  | Run code via an interpreter, return the result |
-| `read_text` `readText`  | Read a file as a UTF-8 string |
-| `write_text` `writeText`  | Write a string as UTF-8 |
+| `execute``execute` | Run a shell command, return the result |
+| `execute_code``executeCode` | Run code via an interpreter, return the result |
+| `read_text``readText` | Read a file as a UTF-8 string |
+| `write_text``writeText` | Write a string as UTF-8 |
 
 (( tab "TypeScript" ))
 ```typescript
@@ -32064,7 +32219,7 @@ Looking for something beyond the built-in implementations? Build a custom sandbo
 
 ## Extending PosixShellSandbox
 
-`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `execute_streaming` `executeStreaming`  (run a shell command via your backend and stream the output), you get everything else for free:
+`PosixShellSandbox` is a base class that reduces the implementation burden to a single method. If you can implement `execute_streaming``executeStreaming` (run a shell command via your backend and stream the output), you get everything else for free:
 
 -   Code execution via base64-encoded heredoc piped to the interpreter
 -   File read/write via base64 encoding over the shell
@@ -32188,7 +32343,7 @@ def get_tools(self) -> list[AgentTool]:
 
 ## Extend the base interface directly
 
-For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: `execute_streaming` `executeStreaming`  , `execute_code_streaming` `executeCodeStreaming`  , `read_file` `readFile`  , `write_file` `writeFile`  , `remove_file` `removeFile`  , and `list_files` `listFiles`  .
+For environments where you have native API access (no shell), extend `Sandbox` directly and implement all six abstract methods: `execute_streaming``executeStreaming`, `execute_code_streaming``executeCodeStreaming`, `read_file``readFile`, `write_file``writeFile`, `remove_file``removeFile`, and `list_files``listFiles`.
 
 Prefer the shell base whenever your backend can run `sh -c`. Reach for the raw interface only when shaping every operation as a shell command would be a worse fit than calling your backend’s native API.
 
@@ -33682,7 +33837,7 @@ For more information on using MCP tools, see [MCP Tools](/docs/user-guide/concep
 
 ### 4\. Agents as Tools
 
-Agents can be passed directly in another agent’s `tools` array — the SDK automatically converts them into tools. Use `.as_tool()` `.asTool()`  when you need to customize the tool name, description, or context behavior. For full details, see [Agents as Tools](/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md).
+Agents can be passed directly in another agent’s `tools` array — the SDK automatically converts them into tools. Use `.as_tool()``.asTool()` when you need to customize the tool name, description, or context behavior. For full details, see [Agents as Tools](/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md).
 
 (( tab "Python" ))
 ```python
@@ -37649,9 +37804,9 @@ Before you start, you need:
 
 Select your preferred programming language to get started with deploying Strands agents to Amazon Bedrock AgentCore Runtime:
 
-[Python Deployment](python/index.md) Deploy your Python Strands agent to AgentCore Runtime!
+[Python Deployment](python/index.md)Deploy your Python Strands agent to AgentCore Runtime!
 
-[TypeScript Deployment](typescript/index.md) Deploy your TypeScript Strands agent to AgentCore Runtime!
+[TypeScript Deployment](typescript/index.md)Deploy your TypeScript Strands agent to AgentCore Runtime!
 
 ## Additional Resources
 
@@ -39142,9 +39297,9 @@ This guide walks you through containerizing your Strands agents with Docker, tes
 
 Select your preferred programming language to get started with deploying Strands agents to Docker:
 
-[Python Deployment](python/index.md) Deploy your Python Strands agent to Docker!
+[Python Deployment](python/index.md)Deploy your Python Strands agent to Docker!
 
-[TypeScript Deployment](typescript/index.md) Deploy your TypeScript Strands agent to Docker!
+[TypeScript Deployment](typescript/index.md)Deploy your TypeScript Strands agent to Docker!
 
 ## Additional Resources
 
@@ -50520,7 +50675,7 @@ from strands_evals.evaluators import OutputEvaluator
 
 @eval_task()
 def my_task():
-    return Agent(model="us.anthropic.claude-sonnet-4-20250514-v1:0", callback_handler=None)
+    return Agent(model="global.anthropic.claude-sonnet-4-6", callback_handler=None)
 
 cases = [Case(name="greeting", input="Hello!")]
 evaluator = OutputEvaluator(rubric="Score 1.0 if friendly. Score 0.0 otherwise.")
@@ -55559,7 +55714,7 @@ from strands import Agent
 # Option 1: Skip StrandsTelemetry if global tracer provider and/or meter provider are already configured
 # (your existing OpenTelemetry setup will be used automatically)
 agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+    model="global.anthropic.claude-sonnet-4-6",
     system_prompt="You are a helpful AI assistant"
 )
 
@@ -55584,7 +55739,7 @@ strands_telemetry.setup_otlp_exporter().setup_console_exporter()  # Chaining sup
 
 # Create agent (tracing will be enabled automatically)
 agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+    model="global.anthropic.claude-sonnet-4-6",
     system_prompt="You are a helpful AI assistant"
 )
 
@@ -55698,7 +55853,7 @@ Strands traces include rich attributes that provide context for each operation:
 | `gen_ai.agent.name` | Name of the agent |
 | `gen_ai.user.message` | Formatted prompt sent to the model |
 | `gen_ai.assistant.message` | Formatted assistant prompt sent to the model |
-| `gen_ai.request.model` | Model ID (e.g., “us.anthropic.claude-sonnet-4-20250514-v1:0”) |
+| `gen_ai.request.model` | Model ID (e.g., “global.anthropic.claude-sonnet-4-6”) |
 | `gen_ai.event.start_time` | When model invocation began |
 | `gen_ai.event.end_time` | When model invocation completed |
 | `gen_ai.choice` | Response from the model (may include tool calls) |
@@ -55863,7 +56018,7 @@ span.end()
 
 Tip
 
-`trace.get_tracer()` `getTracer()`  uses the global tracer provider. When you use `StrandsTelemetry()` `setupTracer()`  without a custom provider, it’s automatically registered as global — so your custom spans will use the same provider as the agent’s auto-instrumented spans.
+`trace.get_tracer()``getTracer()` uses the global tracer provider. When you use `StrandsTelemetry()``setupTracer()` without a custom provider, it’s automatically registered as global — so your custom spans will use the same provider as the agent’s auto-instrumented spans.
 
 ### Configuring the exporters from source code
 
@@ -55965,7 +56120,7 @@ strands_telemetry.setup_console_exporter()   # Print traces to console
 
 # Create agent
 agent = Agent(
-    model="us.anthropic.claude-sonnet-4-20250514-v1:0",
+    model="global.anthropic.claude-sonnet-4-6",
     system_prompt="You are a helpful AI assistant"
 )
 
@@ -56039,9 +56194,9 @@ Source: https://strandsagents.com/docs/user-guide/observability-evaluation/trace
 
 The Strands Agents SDK empowers developers to quickly build, manage, evaluate and deploy AI-powered agents. These quick start guides get you set up and running a simple agent in less than 20 minutes.
 
-[Python Quickstart](../python/index.md) Create your first Python Strands agent with full feature access!
+[Python Quickstart](../python/index.md)Create your first Python Strands agent with full feature access!
 
-[TypeScript Quickstart](../typescript/index.md) Create your first TypeScript Strands agent!
+[TypeScript Quickstart](../typescript/index.md)Create your first TypeScript Strands agent!
 
 ---
 
@@ -56507,7 +56662,7 @@ The simplest way to specify a model is to pass the model ID string directly:
 from strands import Agent
 
 # Create an agent with a specific model by passing the model ID string
-agent = Agent(model="anthropic.claude-sonnet-4-20250514-v1:0")
+agent = Agent(model="global.anthropic.claude-sonnet-4-6")
 ```
 
 ### Amazon Bedrock (Default)
@@ -56521,7 +56676,7 @@ from strands.models import BedrockModel
 
 # Create a BedrockModel
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     region_name="us-west-2",
     temperature=0.3,
 )

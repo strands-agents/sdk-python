@@ -10,7 +10,7 @@ Recall and injection are enabled by default when you attach a store. Extraction 
 
 ## Getting Started
 
-Attach a memory manager to an agent through the `memory_manager` `memoryManager`  parameter. The examples below use a `store`, a `MemoryStore` you provide; see [Bedrock Knowledge Base](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) for a managed backend or [Custom Stores](#custom-stores) to create your own.
+Attach a memory manager to an agent through the `memory_manager``memoryManager` parameter. The examples below use a `store`, a `MemoryStore` you provide; see [Bedrock Knowledge Base](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) for a managed backend or [Custom Stores](#custom-stores) to create your own.
 
 (( tab "Python" ))
 ```python
@@ -42,7 +42,7 @@ const agent = new Agent({
 
 With no further configuration, reading through recall and injection is enabled. Writing is opt-in, and comes in two modes:
 
--   **The `add_memory` tool** lets the agent decide what to save. Enable it on the manager with `add_tool_config=True` `addToolConfig: true`  .
+-   **The `add_memory` tool** lets the agent decide what to save. Enable it on the manager with `add_tool_config=True``addToolConfig: true`.
 -   **Automatic extraction** captures memories from the conversation without tool call. Enable it on a writable store, where it runs every 5 turns by default using your agent’s model.
 
 (( tab "Python" ))
@@ -146,7 +146,7 @@ Each store carries its own identity and behavior:
 | --- | --- |
 | `name` | Unique identifier, used to target the store from tools and the programmatic API. |
 | `description` | Human-readable summary, surfaced in the memory tool descriptions so the model knows what each store holds. |
-| `max_search_results` `maxSearchResults`  | Default result cap per search when a caller does not pass one. The manager falls back to `3` if neither is set. |
+| `max_search_results``maxSearchResults` | Default result cap per search when a caller does not pass one. The manager falls back to `3` if neither is set. |
 | `writable` | Whether the store accepts writes. |
 
 The manager attaches each store’s `name` to its results, so the model and your code can tell which store produced each entry and target follow-up queries.
@@ -202,7 +202,7 @@ const agent = new Agent({
 
 `search_memory` lets the agent recall knowledge on demand. Rename or re-describe it through its config, or turn it off. When the manager owns multiple stores, their names and descriptions are folded into the tool description so the model can target a specific store by name or search them all.
 
-`add_memory` lets the agent write new memories. Enable it to allow writes to your writable stores, or pass a config to scope it to specific ones. By default it waits for writes so it can report failures back to the model. The fire-and-forget option returns as soon as writes are dispatched, so a slow backend never blocks the agent loop. This tool can only targets stores implementing `add` `add`  .
+`add_memory` lets the agent write new memories. Enable it to allow writes to your writable stores, or pass a config to scope it to specific ones. By default it waits for writes so it can report failures back to the model. The fire-and-forget option returns as soon as writes are dispatched, so a slow backend never blocks the agent loop. This tool can only targets stores implementing `add``add`.
 
 ## Context Injection
 
@@ -261,7 +261,7 @@ const agent = new Agent({
 (( /tab "TypeScript" ))
 
 -   `trigger` accepts `'userTurn'` (the default, inject only on a fresh user ask), `'everyTurn'` (inject before every model call, for autonomous agents), or a predicate: a function that receives the injection context and returns whether to inject this call.
--   `max_entries` `maxEntries`  caps how many entries are retrieved and injected.
+-   `max_entries``maxEntries` caps how many entries are retrieved and injected.
 -   `query` overrides the adaptive default with your own query logic. Return an empty value to skip injection for this call.
 -   `format` renders the retrieved entries. The default emits an escaped `<memory>` block; a custom formatter that emits markup owns its own escaping.
 
@@ -302,7 +302,7 @@ const store = new BedrockKnowledgeBaseStore({
 ```
 (( /tab "TypeScript" ))
 
-With defaults, extraction runs every 5 turns. For a store that implements only `add` `add`  (like Bedrock Knowledge Bases), it uses a `ModelExtractor` to distill facts from the conversation; a store that implements `add_messages` `addMessages`  extracts server-side instead, covered under [Custom Stores](#custom-stores).
+With defaults, extraction runs every 5 turns. For a store that implements only `add``add` (like Bedrock Knowledge Bases), it uses a `ModelExtractor` to distill facts from the conversation; a store that implements `add_messages``addMessages` extracts server-side instead, covered under [Custom Stores](#custom-stores).
 
 ### Triggers and extractors
 
@@ -351,7 +351,7 @@ const store = new BedrockKnowledgeBaseStore({
 ```
 (( /tab "TypeScript" ))
 
-The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent’s own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the `add_messages` `addMessages`  sink receives the raw message batch with no model call, so for those you omit the extractor.
+The `ModelExtractor` distills messages into discrete facts with a model call. It uses the agent’s own model by default. Pass a cheaper model to cut cost, or a system prompt to steer what information you want to save as memories. Some backends extract server-side instead: a store that implements the `add_messages``addMessages` sink receives the raw message batch with no model call, so for those you omit the extractor.
 
 Two triggers ship with the SDK. `InvocationTrigger` runs after every turn, `IntervalTrigger` runs every N turns. For a custom trigger, extend `ExtractionTrigger`. A trigger registers a hook on the agent and calls `fire()` when extraction should run. Tying it to agent state can let a tool decide the moment, rather than extracting on a turn cadence:
 
@@ -543,7 +543,7 @@ class InMemoryStore implements MemoryStore {
 A store exposes two write paths, and which ones it implements decides how it can be written to:
 
 -   `add` takes a single piece of content. It backs the `add_memory` tool, the programmatic `add` method, and extraction that distills facts client-side with a `ModelExtractor`.
--   `add_messages` `addMessages`  takes a batch of raw conversation messages. It backs **server-side extraction**: the manager hands the filtered message batch straight to this method with no client-side model call, so the backend does the distillation itself. The batch preserves the conversation’s role structure.
+-   `add_messages``addMessages` takes a batch of raw conversation messages. It backs **server-side extraction**: the manager hands the filtered message batch straight to this method with no client-side model call, so the backend does the distillation itself. The batch preserves the conversation’s role structure.
 
 A store can implement either path or both. The following store extracts server-side, delegating to `my_backend`, a stand-in for your managed backend’s client:
 

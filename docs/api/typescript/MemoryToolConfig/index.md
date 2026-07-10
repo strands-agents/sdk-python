@@ -1,4 +1,4 @@
-Defined in: [src/memory/types.ts:189](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L189)
+Defined in: [src/memory/types.ts:189](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L189)
 
 Configuration for customizing a memory tool’s name or description.
 
@@ -14,7 +14,7 @@ Configuration for customizing a memory tool’s name or description.
 optional name?: string;
 ```
 
-Defined in: [src/memory/types.ts:191](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L191)
+Defined in: [src/memory/types.ts:191](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L191)
 
 Custom tool name.
 
@@ -26,6 +26,6 @@ Custom tool name.
 optional description?: string;
 ```
 
-Defined in: [src/memory/types.ts:193](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L193)
+Defined in: [src/memory/types.ts:193](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L193)
 
 Custom tool description.

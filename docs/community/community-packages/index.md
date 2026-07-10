@@ -52,12 +52,20 @@ Session managers provide alternative storage backends for conversation history. 
 | [Amazon AgentCore Memory](/docs/community/session-managers/agentcore-memory/index.md) | Amazon AgentCore | ✅ | ❌ |
 | [Valkey/Redis](/docs/community/session-managers/strands-valkey-session-manager/index.md) | Valkey session manager | ✅ | ❌ |
 
+## Memory stores
+
+Memory stores are backends that give agents long-term memory across sessions. Each implements the `MemoryStore` interface and plugs into an agent through a `MemoryManager`. See the [Memory Stores overview](/docs/community/memory-stores/overview/index.md) for how they fit together.
+
+| Package | Description | Python | TypeScript |
+| --- | --- | --- | --- |
+
 ## Tools
 
 Tools extend your agents with capabilities for specific services and platforms. Each package provides one or more tools you can add to your agents.
 
 | Package | Description | Python | TypeScript |
 | --- | --- | --- | --- |
+| [apify](/docs/community/tools/strands-apify/index.md) | Web scraping for social media, search engines, e-commerce, and more via Apify Actors | ✅ | ❌ |
 | [deepgram](/docs/community/tools/strands-deepgram/index.md) | Deepgram speech-to-text | ✅ | ❌ |
 | [google](/docs/community/tools/strands-google/index.md) | Google API integration | ✅ | ❌ |
 | [hubspot](/docs/community/tools/strands-hubspot/index.md) | HubSpot CRM integration | ✅ | ❌ |

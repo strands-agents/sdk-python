@@ -100,7 +100,7 @@ Key features of the `SlidingWindowConversationManager`:
     
 -   **Overflow Trimming**: In the case of a context window overflow, it will trim the oldest messages from history until the request fits in the models context window.
     
--   **Configurable Tool Result Truncation**: Enable or disable truncation of tool results when the message exceeds context window limits. When enabled (the default; `should_truncate_results=True` `shouldTruncateResults: true`  ), the oldest message with tool results is truncated first so recent context is preserved as long as possible. Truncation depends on content type:
+-   **Configurable Tool Result Truncation**: Enable or disable truncation of tool results when the message exceeds context window limits. When enabled (the default; `should_truncate_results=True``shouldTruncateResults: true`), the oldest message with tool results is truncated first so recent context is preserved as long as possible. Truncation depends on content type:
     
     -   Text payloads keep their head and tail, separated by a `<truncated chars="N"/>` marker.
     -   Images, videos, binary documents, and oversized JSON are replaced by a typed placeholder, for example `[image: png, source: bytes, 12345 bytes]`.
@@ -227,7 +227,7 @@ import { Agent, SummarizingConversationManager, BedrockModel } from '@strands-ag
 
 // Optionally use a different model for summarization
 const summarizationModel = new BedrockModel({
-  modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+  modelId: 'global.anthropic.claude-sonnet-4-6',
 })
 
 const conversationManager = new SummarizingConversationManager({

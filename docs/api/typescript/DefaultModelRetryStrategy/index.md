@@ -1,4 +1,4 @@
-Defined in: [src/retry/default-model-retry-strategy.ts:70](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/default-model-retry-strategy.ts#L70)
+Defined in: [src/retry/default-model-retry-strategy.ts:70](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/default-model-retry-strategy.ts#L70)
 
 Retries failed model calls classified by the SDK as retryable.
 
@@ -31,7 +31,7 @@ const agent = new Agent({
 new DefaultModelRetryStrategy(opts?): DefaultModelRetryStrategy;
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:79](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/default-model-retry-strategy.ts#L79)
+Defined in: [src/retry/default-model-retry-strategy.ts:79](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/default-model-retry-strategy.ts#L79)
 
 #### Parameters
 
@@ -55,7 +55,7 @@ Defined in: [src/retry/default-model-retry-strategy.ts:79](https://github.com/st
 readonly name: string = 'strands:default-model-retry-strategy';
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:71](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/default-model-retry-strategy.ts#L71)
+Defined in: [src/retry/default-model-retry-strategy.ts:71](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/default-model-retry-strategy.ts#L71)
 
 A stable string identifier for this retry strategy.
 
@@ -71,7 +71,7 @@ A stable string identifier for this retry strategy.
 protected isRetryable(error): boolean;
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:94](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/default-model-retry-strategy.ts#L94)
+Defined in: [src/retry/default-model-retry-strategy.ts:94](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/default-model-retry-strategy.ts#L94)
 
 Whether `error` should be retried. Override to extend or narrow the retryable set (e.g. to also retry transient 5xx errors).
 
@@ -93,7 +93,7 @@ Whether `error` should be retried. Override to extend or narrow the retryable se
 protected computeRetryDecision(event): RetryDecision;
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:98](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/default-model-retry-strategy.ts#L98)
+Defined in: [src/retry/default-model-retry-strategy.ts:98](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/default-model-retry-strategy.ts#L98)
 
 Decide whether to retry the failed model call, and how long to wait first.
 
@@ -123,7 +123,7 @@ Return `{ retry: false }` to let the error propagate. Return `{ retry: true, wai
 protected onFirstModelAttempt(): void;
 ```
 
-Defined in: [src/retry/default-model-retry-strategy.ts:126](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/default-model-retry-strategy.ts#L126)
+Defined in: [src/retry/default-model-retry-strategy.ts:126](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/default-model-retry-strategy.ts#L126)
 
 Called when `event.attemptCount === 1`, i.e. at the start of a fresh turn. Subclasses with per-turn state override this to clear it; the default is a no-op.
 
@@ -145,7 +145,7 @@ The agent loop guarantees `attemptCount === 1` on every new turn, so this is a r
 initAgent(agent): void;
 ```
 
-Defined in: [src/retry/model-retry-strategy.ts:99](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/retry/model-retry-strategy.ts#L99)
+Defined in: [src/retry/model-retry-strategy.ts:99](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/retry/model-retry-strategy.ts#L99)
 
 Initialize the retry strategy with the agent instance.
 

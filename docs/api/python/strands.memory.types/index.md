@@ -38,7 +38,11 @@ Defined in: [src/strands/memory/types.py:49](https://github.com/strands-agents/h
 
 Context the manager supplies to :meth:`MemoryStore.add_messages`.
 
-Intentionally empty for now so fields can be added later without a breaking signature change.
+An extension point: fields are added here without changing the :meth:`MemoryStore.add_messages` signature.
+
+**Attributes**:
+
+-   `sequence_numbers` - Per-message identities aligned one-to-one with `messages` (`sequence_numbers[i]` identifies `messages[i]`). A retried batch reuses the same numbers, so a store can build an idempotency key that survives retries — unlike a content hash, which collides when two messages share text (e.g. “ok”). Numbers increase with order but may have gaps (a message filtered to empty is dropped while its siblings keep their own numbers), and reset to 0 each agent run, so a durable dedup token must combine one with a run-unique id. `None` when the manager has no per-message numbers to supply.
 
 ## MemorySearchOptions
 
@@ -46,7 +50,7 @@ Intentionally empty for now so fields can be added later without a breaking sign
 class MemorySearchOptions(SearchOptions)
 ```
 
-Defined in: [src/strands/memory/types.py:57](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L57)
+Defined in: [src/strands/memory/types.py:70](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L70)
 
 Options for `MemoryManager.search`.
 
@@ -60,7 +64,7 @@ Options for `MemoryManager.search`.
 class MemoryAddOptions(TypedDict)
 ```
 
-Defined in: [src/strands/memory/types.py:70](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L70)
+Defined in: [src/strands/memory/types.py:83](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L83)
 
 Options for `MemoryManager.add`.
 
@@ -74,7 +78,7 @@ Options for `MemoryManager.add`.
 class MemoryToolConfig(TypedDict)
 ```
 
-Defined in: [src/strands/memory/types.py:84](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L84)
+Defined in: [src/strands/memory/types.py:97](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L97)
 
 Configuration for customizing a memory tool’s name or description.
 
@@ -84,7 +88,7 @@ Configuration for customizing a memory tool’s name or description.
 class MemoryAddToolConfig(MemoryToolConfig)
 ```
 
-Defined in: [src/strands/memory/types.py:91](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L91)
+Defined in: [src/strands/memory/types.py:104](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L104)
 
 Configuration for the `add_memory` tool.
 
@@ -101,7 +105,7 @@ Configuration for the `add_memory` tool.
 class InjectionQueryContext()
 ```
 
-Defined in: [src/strands/memory/types.py:108](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L108)
+Defined in: [src/strands/memory/types.py:121](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L121)
 
 Context passed to :attr:`MemoryInjectionConfig.query`.
 
@@ -116,7 +120,7 @@ Context passed to :attr:`MemoryInjectionConfig.query`.
 class InjectionFormatContext()
 ```
 
-Defined in: [src/strands/memory/types.py:119](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L119)
+Defined in: [src/strands/memory/types.py:132](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L132)
 
 Context passed to :attr:`MemoryInjectionConfig.format`.
 
@@ -130,7 +134,7 @@ Context passed to :attr:`MemoryInjectionConfig.format`.
 class InjectionQueryCallback(Protocol)
 ```
 
-Defined in: [src/strands/memory/types.py:129](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L129)
+Defined in: [src/strands/memory/types.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L142)
 
 Derives the injection search query from the current conversation.
 
@@ -142,7 +146,7 @@ Implemented by a plain function as well — the `**kwargs` tail lets the calling
 def __call__(context: InjectionQueryContext, **kwargs: Any) -> str | None
 ```
 
-Defined in: [src/strands/memory/types.py:136](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L136)
+Defined in: [src/strands/memory/types.py:149](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L149)
 
 Return the search query, or `None`/`""` to skip injection this call.
 
@@ -152,7 +156,7 @@ Return the search query, or `None`/`""` to skip injection this call.
 class InjectionFormatCallback(Protocol)
 ```
 
-Defined in: [src/strands/memory/types.py:141](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L141)
+Defined in: [src/strands/memory/types.py:154](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L154)
 
 Renders retrieved memory entries into the injected text.
 
@@ -164,7 +168,7 @@ Implemented by a plain function as well — the `**kwargs` tail lets the calling
 def __call__(context: InjectionFormatContext, **kwargs: Any) -> str
 ```
 
-Defined in: [src/strands/memory/types.py:148](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L148)
+Defined in: [src/strands/memory/types.py:161](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L161)
 
 Return the text to inject for the given entries.
 
@@ -174,7 +178,7 @@ Return the text to inject for the given entries.
 class MemoryInjectionConfig(InjectionConfig)
 ```
 
-Defined in: [src/strands/memory/types.py:160](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L160)
+Defined in: [src/strands/memory/types.py:173](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L173)
 
 Configuration for memory context injection.
 
@@ -192,7 +196,7 @@ Extends the generic :class:`~strands.injection.InjectionConfig` (which carries `
 class MemoryManagerConfig(TypedDict)
 ```
 
-Defined in: [src/strands/memory/types.py:193](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L193)
+Defined in: [src/strands/memory/types.py:206](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L206)
 
 Configuration for the `MemoryManager`, mirroring the constructor kwargs.
 
@@ -209,7 +213,7 @@ Configuration for the `MemoryManager`, mirroring the constructor kwargs.
 class MemoryStoreConfig(TypedDict)
 ```
 
-Defined in: [src/strands/memory/types.py:213](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L213)
+Defined in: [src/strands/memory/types.py:226](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L226)
 
 Declarative identity and behavior fields a store is configured with.
 
@@ -227,7 +231,7 @@ Declarative identity and behavior fields a store is configured with.
 class MemoryStore(Protocol)
 ```
 
-Defined in: [src/strands/memory/types.py:241](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L241)
+Defined in: [src/strands/memory/types.py:254](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L254)
 
 Runtime contract for a memory store backend.
 
@@ -248,7 +252,7 @@ async def search(query: str,
                  options: SearchOptions | None = None) -> list[MemoryEntry]
 ```
 
-Defined in: [src/strands/memory/types.py:262](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L262)
+Defined in: [src/strands/memory/types.py:275](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L275)
 
 Search the store for entries matching the query, ordered by relevance.
 
@@ -258,7 +262,7 @@ Search the store for entries matching the query, ordered by relevance.
 async def add(content: str, metadata: Metadata | None = None) -> Any
 ```
 
-Defined in: [src/strands/memory/types.py:268](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L268)
+Defined in: [src/strands/memory/types.py:281](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L281)
 
 Add a single piece of content to the store.
 
@@ -271,7 +275,7 @@ async def add_messages(messages: list[Message],
                        context: AddMessagesContext | None = None) -> Any
 ```
 
-Defined in: [src/strands/memory/types.py:277](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L277)
+Defined in: [src/strands/memory/types.py:290](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L290)
 
 Ingest a batch of conversation messages, preserving role structure.
 
@@ -283,7 +287,7 @@ The sink for extraction without a client-side extractor: the manager hands the f
 async def initialize() -> None
 ```
 
-Defined in: [src/strands/memory/types.py:286](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L286)
+Defined in: [src/strands/memory/types.py:299](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L299)
 
 Perform async setup that must succeed before the agent runs.
 
@@ -295,6 +299,6 @@ Called by the `MemoryManager` during `init_agent`. Stores that require remote re
 def get_tools() -> list[AgentTool]
 ```
 
-Defined in: [src/strands/memory/types.py:294](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L294)
+Defined in: [src/strands/memory/types.py:307](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/memory/types.py#L307)
 
 Return store-specific tools to register alongside the manager’s tools.

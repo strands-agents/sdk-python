@@ -40,8 +40,6 @@ Pause-point marker. Treat as opaque — pass back to resume.
 
 -   `position` - Which boundary fired (`after_model` or `after_tools`).
 -   `cycle_index` - ReAct loop cycle (0-based).
--   `snapshot` - Reserved for forward extensibility (e.g. a future hook that lets callers attach agent state to the checkpoint). The SDK does not populate or read it today; it round-trips through serialization.
--   `app_data` - Reserved for forward extensibility — caller metadata that round-trips through serialization. The SDK does not populate or read it.
 -   `schema_version` - Rejects incompatible checkpoints on resume.
 
 #### to\_dict
@@ -50,7 +48,7 @@ Pause-point marker. Treat as opaque — pass back to resume.
 def to_dict() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/experimental/checkpoint/checkpoint.py:66](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/checkpoint/checkpoint.py#L66)
+Defined in: [src/strands/experimental/checkpoint/checkpoint.py:59](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/checkpoint/checkpoint.py#L59)
 
 Serialize for persistence.
 
@@ -61,7 +59,7 @@ Serialize for persistence.
 def from_dict(cls, data: dict[str, Any]) -> "Checkpoint"
 ```
 
-Defined in: [src/strands/experimental/checkpoint/checkpoint.py:71](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/checkpoint/checkpoint.py#L71)
+Defined in: [src/strands/experimental/checkpoint/checkpoint.py:64](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/checkpoint/checkpoint.py#L64)
 
 Reconstruct from a dict produced by to\_dict().
 

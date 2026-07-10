@@ -18,8 +18,8 @@ Model providers build this configuration by merging user-provided values with th
 
 **Attributes**:
 
--   `input_rate` - Input sample rate in Hz (e.g., 16000, 24000, 48000)
--   `output_rate` - Output sample rate in Hz (e.g., 16000, 24000, 48000)
+-   `input_rate` - Input sample rate in Hz (e.g., 8000, 16000, 24000, 48000)
+-   `output_rate` - Output sample rate in Hz (e.g., 8000, 16000, 24000, 48000)
 -   `channels` - Number of audio channels (1=mono, 2=stereo)
 -   `format` - Audio encoding format
 -   `voice` - Voice identifier for text-to-speech (e.g., “alloy”, “matthew”)

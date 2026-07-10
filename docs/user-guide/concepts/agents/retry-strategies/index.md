@@ -1,4 +1,4 @@
-Model providers occasionally encounter errors such as rate limits, service unavailability, or network timeouts. By default, the agent retries throttled responses automatically with exponential backoff. The `Agent.retry_strategy` `Agent.retryStrategy`  parameter lets you customize this behavior.
+Model providers occasionally encounter errors such as rate limits, service unavailability, or network timeouts. By default, the agent retries throttled responses automatically with exponential backoff. The `Agent.retry_strategy``Agent.retryStrategy` parameter lets you customize this behavior.
 
 ## Default Behavior
 
@@ -122,7 +122,7 @@ const agent = new Agent({
 
 ## When Retries Occur
 
-Default retry strategies handle throttling errors ( `ModelThrottledException` `ModelThrottledError`  ) raised by model providers for rate-limiting. Other exceptions propagate immediately without retry.
+Default retry strategies handle throttling errors (`ModelThrottledException``ModelThrottledError`) raised by model providers for rate-limiting. Other exceptions propagate immediately without retry.
 
 To extend or narrow the retryable set, see [Custom Retry Logic](#custom-retry-logic).
 

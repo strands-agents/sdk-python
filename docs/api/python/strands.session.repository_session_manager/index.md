@@ -100,7 +100,7 @@ Initialize an agent with a session.
 def sync_multi_agent(source: "MultiAgentBase", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/repository\_session\_manager.py:309](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L309)
+Defined in: [src/strands/session/repository\_session\_manager.py:321](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L321)
 
 Serialize and update the multi-agent state into the session repository.
 
@@ -115,7 +115,7 @@ Serialize and update the multi-agent state into the session repository.
 def initialize_multi_agent(source: "MultiAgentBase", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/repository\_session\_manager.py:318](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L318)
+Defined in: [src/strands/session/repository\_session\_manager.py:330](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L330)
 
 Initialize multi-agent state from the session repository.
 
@@ -130,7 +130,7 @@ Initialize multi-agent state from the session repository.
 def initialize_bidi_agent(agent: "BidiAgent", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/repository\_session\_manager.py:339](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L339)
+Defined in: [src/strands/session/repository\_session\_manager.py:351](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L351)
 
 Initialize a bidirectional agent with a session.
 
@@ -146,7 +146,7 @@ def append_bidi_message(message: Message, agent: "BidiAgent",
                         **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/repository\_session\_manager.py:398](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L398)
+Defined in: [src/strands/session/repository\_session\_manager.py:410](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L410)
 
 Append a message to the bidirectional agent’s session.
 
@@ -162,7 +162,7 @@ Append a message to the bidirectional agent’s session.
 def sync_bidi_agent(agent: "BidiAgent", **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/session/repository\_session\_manager.py:417](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L417)
+Defined in: [src/strands/session/repository\_session\_manager.py:429](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/session/repository_session_manager.py#L429)
 
 Serialize and update the bidirectional agent into the session repository.
 

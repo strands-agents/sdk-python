@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:35](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L35)
+Defined in: [src/types/messages.ts:35](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L35)
 
 Data for a message.
 
@@ -10,7 +10,7 @@ Data for a message.
 role: Role;
 ```
 
-Defined in: [src/types/messages.ts:39](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L39)
+Defined in: [src/types/messages.ts:39](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L39)
 
 The role of the message sender.
 
@@ -22,9 +22,21 @@ The role of the message sender.
 content: ContentBlockData[];
 ```
 
-Defined in: [src/types/messages.ts:44](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L44)
+Defined in: [src/types/messages.ts:44](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L44)
 
 Array of content blocks that make up this message.
+
+---
+
+### trackingId?
+
+```ts
+optional trackingId?: string;
+```
+
+Defined in: [src/types/messages.ts:50](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L50)
+
+Durable, stable UUID for the message. Optional here because serialized/legacy data may omit it; the Message constructor backfills a fresh UUID when absent, so a live Message always has one.
 
 ---
 
@@ -34,6 +46,6 @@ Array of content blocks that make up this message.
 optional metadata?: MessageMetadata;
 ```
 
-Defined in: [src/types/messages.ts:49](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L49)
+Defined in: [src/types/messages.ts:55](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L55)
 
 Optional metadata, not sent to model providers.

@@ -1,4 +1,4 @@
-Defined in: [src/sandbox/types.ts:19](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/sandbox/types.ts#L19)
+Defined in: [src/sandbox/types.ts:19](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/sandbox/types.ts#L19)
 
 A typed chunk of streaming output from command or code execution.
 
@@ -12,7 +12,7 @@ Allows consumers to distinguish stdout from stderr during streaming, enabling ri
 readonly type: "streamChunk";
 ```
 
-Defined in: [src/sandbox/types.ts:20](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/sandbox/types.ts#L20)
+Defined in: [src/sandbox/types.ts:20](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/sandbox/types.ts#L20)
 
 ---
 
@@ -22,7 +22,7 @@ Defined in: [src/sandbox/types.ts:20](https://github.com/strands-agents/harness-
 readonly data: string;
 ```
 
-Defined in: [src/sandbox/types.ts:21](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/sandbox/types.ts#L21)
+Defined in: [src/sandbox/types.ts:21](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/sandbox/types.ts#L21)
 
 ---
 
@@ -32,4 +32,4 @@ Defined in: [src/sandbox/types.ts:21](https://github.com/strands-agents/harness-
 readonly streamType: StreamType;
 ```
 
-Defined in: [src/sandbox/types.ts:22](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/sandbox/types.ts#L22)
+Defined in: [src/sandbox/types.ts:22](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/sandbox/types.ts#L22)

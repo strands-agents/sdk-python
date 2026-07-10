@@ -6,9 +6,9 @@ This guide walks you through containerizing your Strands agents with Docker, tes
 
 Select your preferred programming language to get started with deploying Strands agents to Docker:
 
-[Python Deployment](python/index.md) Deploy your Python Strands agent to Docker!
+[Python Deployment](python/index.md)Deploy your Python Strands agent to Docker!
 
-[TypeScript Deployment](typescript/index.md) Deploy your TypeScript Strands agent to Docker!
+[TypeScript Deployment](typescript/index.md)Deploy your TypeScript Strands agent to Docker!
 
 ## Additional Resources
 

@@ -1,4 +1,4 @@
-Defined in: [src/tools/zod-tool.ts:50](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L50)
+Defined in: [src/tools/zod-tool.ts:52](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L52)
 
 Zod-based tool implementation. Extends Tool abstract class and implements InvokableTool interface.
 
@@ -11,7 +11,7 @@ Zod-based tool implementation. Extends Tool abstract class and implements Invoka
 | Type Parameter | Default type |
 | --- | --- |
 | `TInput` *extends* `z.ZodType` | `undefined` | \- |
-| `TReturn` *extends* [`JSONValue`](/docs/api/typescript/JSONValue/index.md) | [`JSONValue`](/docs/api/typescript/JSONValue/index.md) |
+| `TReturn` | [`JSONValue`](/docs/api/typescript/JSONValue/index.md) |
 
 ## Implements
 
@@ -25,7 +25,7 @@ Zod-based tool implementation. Extends Tool abstract class and implements Invoka
 new ZodTool<TInput, TReturn>(config): ZodTool<TInput, TReturn>;
 ```
 
-Defined in: [src/tools/zod-tool.ts:73](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L73)
+Defined in: [src/tools/zod-tool.ts:75](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L75)
 
 #### Parameters
 
@@ -51,7 +51,7 @@ Defined in: [src/tools/zod-tool.ts:73](https://github.com/strands-agents/harness
 get name(): string;
 ```
 
-Defined in: [src/tools/zod-tool.ts:117](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L117)
+Defined in: [src/tools/zod-tool.ts:117](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L117)
 
 The unique name of the tool.
 
@@ -79,7 +79,7 @@ The unique name of the tool. This MUST match the name in the toolSpec.
 get description(): string;
 ```
 
-Defined in: [src/tools/zod-tool.ts:124](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L124)
+Defined in: [src/tools/zod-tool.ts:124](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L124)
 
 Human-readable description of what the tool does.
 
@@ -109,7 +109,7 @@ This MUST match the description in the toolSpec.description.
 get toolSpec(): ToolSpec;
 ```
 
-Defined in: [src/tools/zod-tool.ts:131](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L131)
+Defined in: [src/tools/zod-tool.ts:131](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L131)
 
 OpenAPI JSON specification for the tool.
 
@@ -135,7 +135,7 @@ OpenAPI JSON specification for the tool. Defines the tool’s name, description,
 stream(toolContext): ToolStreamGenerator;
 ```
 
-Defined in: [src/tools/zod-tool.ts:142](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L142)
+Defined in: [src/tools/zod-tool.ts:142](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L142)
 
 Executes the tool with streaming support. Delegates to internal FunctionTool implementation.
 
@@ -167,7 +167,7 @@ Async generator that yields ToolStreamEvents and returns a ToolResultBlock
 invoke(input, context?): Promise<TReturn>;
 ```
 
-Defined in: [src/tools/zod-tool.ts:158](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L158)
+Defined in: [src/tools/zod-tool.ts:158](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L158)
 
 Invokes the tool directly with type-safe input and returns the unwrapped result.
 

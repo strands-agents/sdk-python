@@ -1,0 +1,56 @@
+# Harness Python v1.46.0
+
+Released 2026-07-07
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.46.0 · Package: https://pypi.org/project/strands-agents/1.46.0/
+
+## Features
+- telemetry for memory manager [otel] (https://github.com/strands-agents/harness-sdk/pull/2858)
+- result handling, model-state isolation, and system-prompt fidelity [hooks, model] (https://github.com/strands-agents/harness-sdk/pull/2812)
+- add local memory store [persistence] (https://github.com/strands-agents/harness-sdk/pull/2859)
+- add Port Request template [language] (https://github.com/strands-agents/harness-sdk/pull/3009)
+- load MCP servers from JSON [mcp, config] (https://github.com/strands-agents/harness-sdk/pull/3053)
+- pass per-message sequence numbers to add\_messages [persistence, sessions] (https://github.com/strands-agents/harness-sdk/pull/3030)
+- add storage design doc proposal [persistence] (https://github.com/strands-agents/harness-sdk/pull/3080)
+
+## Fixes
+- raise specific error for interrupt responses without active interrupt state [devx, hil] (https://github.com/strands-agents/harness-sdk/pull/1979)
+- normalize 3gp video format [model] (https://github.com/strands-agents/harness-sdk/pull/2306)
+- map webp images explicitly [model] (https://github.com/strands-agents/harness-sdk/pull/2304)
+- prevent reset\_executor\_state from corrupting MultiAgentBase state [multiagent] (https://github.com/strands-agents/harness-sdk/pull/1988)
+- raise ContextWindowOverflowException for ollama/llama/mistral/writer [context, model] (https://github.com/strands-agents/harness-sdk/pull/2958)
+- update outdated document url of exception note [model] (https://github.com/strands-agents/harness-sdk/pull/2049)
+- treat guardContent qualifiers as optional [model, interventions] (https://github.com/strands-agents/harness-sdk/pull/3027)
+- surface cache\_read/write input tokens in metadata chunk [model] (https://github.com/strands-agents/harness-sdk/pull/2302)
+- route gpt-5 mantle traffic through /openai/v1 base path [model] (https://github.com/strands-agents/harness-sdk/pull/3032)
+- drop misleading gen\_ai.agent.name from multiagent spans [multiagent, otel] (https://github.com/strands-agents/harness-sdk/pull/3023)
+- preserve body when search output exceeds max\_chars [context] (https://github.com/strands-agents/harness-sdk/pull/3064)
+- log exception type instead of full traceback on cycle failure [otel, agent] (https://github.com/strands-agents/harness-sdk/pull/2989)
+- record tool\_trace on interrupted tool calls [otel, hil] (https://github.com/strands-agents/harness-sdk/pull/3031)
+- exclude edges from bypassed nodes in resume AND-join [multiagent] (https://github.com/strands-agents/harness-sdk/pull/3069)
+- preserve failed status reported by graph nodes [multiagent] (https://github.com/strands-agents/harness-sdk/pull/3028)
+- repair mid-iteration skip of orphaned toolUse [context, sessions] (https://github.com/strands-agents/harness-sdk/pull/3026)
+- guard upload-metrics on integration-test job result (https://github.com/strands-agents/harness-sdk/pull/3102)
+- validate transcript message roles [bidirectional-streaming] (https://github.com/strands-agents/harness-sdk/pull/3037)
+- create release tag via git push instead of gh release --target (https://github.com/strands-agents/harness-sdk/pull/3115)
+
+## Other
+- update litellm requirement from \<=1.89.3,\>=1.75.9 to \>=1.75.9,\<=1.89.4 in /strands-py (https://github.com/strands-agents/harness-sdk/pull/2960)
+- revert pinning virtualenv now that hatch 1.16.5 is out (https://github.com/strands-agents/harness-sdk/pull/1780)
+- add Strandslator design doc [language] (https://github.com/strands-agents/harness-sdk/pull/2790)
+- fix two broken main tests (https://github.com/strands-agents/harness-sdk/pull/2982)
+- improve agent guidance (https://github.com/strands-agents/harness-sdk/pull/2959)
+- move strandslator design docs into team/designs (https://github.com/strands-agents/harness-sdk/pull/3006)
+- add TypeScript-to-Python porting guide (https://github.com/strands-agents/harness-sdk/pull/3010)
+- restrict issue responder to collaborators and pin action version (https://github.com/strands-agents/harness-sdk/pull/2991)
+- add CODEOWNERS to scaffold PR assignment (https://github.com/strands-agents/harness-sdk/pull/3078)
+- bump astral-sh/setup-uv from 7.6.0 to 8.2.0 (https://github.com/strands-agents/harness-sdk/pull/2974)
+- update google-genai requirement from \<2.0.0,\>=1.32.0 to \>=1.32.0,\<3.0.0 in /strands-py (https://github.com/strands-agents/harness-sdk/pull/2927)
+- bump cedarpy from 4.8.5 to 4.8.6 in /strands-py (https://github.com/strands-agents/harness-sdk/pull/2997)
+- update litellm requirement from \<=1.89.4,\>=1.75.9 to \>=1.75.9,\<=1.90.2 in /strands-py (https://github.com/strands-agents/harness-sdk/pull/3057)
+- bump commander from 14.0.3 to 15.0.0 (https://github.com/strands-agents/harness-sdk/pull/2999)
+- bump dorny/paths-filter from 4.0.1 to 4.0.2 (https://github.com/strands-agents/harness-sdk/pull/3083)
+- bump astral-sh/setup-uv from 8.2.0 to 8.3.0 (https://github.com/strands-agents/harness-sdk/pull/3094)
+- update litellm requirement from \<=1.90.2,\>=1.75.9 to \>=1.75.9,\<=1.91.0 in /strands-py (https://github.com/strands-agents/harness-sdk/pull/3097)
+- added release workflow (https://github.com/strands-agents/harness-sdk/pull/2940)
+- drop unused snapshot and app\_data fields [hil, persistence] (https://github.com/strands-agents/harness-sdk/pull/3104)
+- fix integration test runs (https://github.com/strands-agents/harness-sdk/pull/3112)

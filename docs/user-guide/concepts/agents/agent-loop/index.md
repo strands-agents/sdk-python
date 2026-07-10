@@ -82,9 +82,9 @@ Each model invocation ends with a stop reason that determines what happens next:
 -   **End turn**: The model has finished its response and has no further actions to take. This is the normal successful termination. The loop exits and returns the model’s final message.
 -   **Tool use**: The model wants to execute one or more tools before continuing. The loop executes the requested tools, appends the results to the conversation history, and invokes the model again.
 -   **Cancelled**: The agent was stopped externally via `agent.cancel()`. See [Cancellation](#cancellation) below.
--   **Limit turns** ( `limit_turns` `limitTurns`  ): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
--   **Limit total tokens** ( `limit_total_tokens` `limitTotalTokens`  ): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
--   **Limit output tokens** ( `limit_output_tokens` `limitOutputTokens`  ): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
+-   **Limit turns** (`limit_turns``limitTurns`): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
+-   **Limit total tokens** (`limit_total_tokens``limitTotalTokens`): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
+-   **Limit output tokens** (`limit_output_tokens``limitOutputTokens`): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
 -   **Max tokens**: The model’s response was truncated because it hit the token limit. This is unrecoverable within the current loop. The model cannot continue from a partial response, and the loop terminates with an error.
 -   **Stop sequence**: The model encountered a configured stop sequence. Like end turn, this terminates the loop normally.
 -   **Content filtered**: The response was blocked by safety mechanisms.
@@ -264,7 +264,9 @@ When multiple caps trip simultaneously, the reported stop reason follows priorit
 Sometimes more than one request targets the same agent instance at once: a retried API call, a double-submitted form, two web requests that happen to share an agent.
 
 (( tab "Python" ))
-An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. Invoking an agent that is already running raises `ConcurrencyException`:
+An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. The `concurrent_invocation_mode` constructor parameter controls this behavior. It accepts a `ConcurrentInvocationMode` enum — either `THROW` (the default) or `UNSAFE_REENTRANT`.
+
+In the default `THROW` mode, invoking an agent that is already running raises `ConcurrencyException`:
 
 ```python
 from strands import Agent
@@ -283,9 +285,11 @@ For most applications this is the behavior you want. One agent instance maps to 
 
 #### Deduplicating retried requests
 
-When a retry arrives for a request that is still running, returning the original’s result beats both erroring and starting the work twice. Pass an idempotency token that identifies the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
+When a retry arrives for a request that is still running, returning the original’s result beats both erroring and starting the work twice. Pass `idempotency_token` to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
 
-If a call with the same token is already in flight, this call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+If a call with the same token is already in flight, the new call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+
+If the tokens differ while an invocation is in flight, the new call raises `ConcurrencyException` — deduplication only applies to matching tokens.
 
 A deduplicated call gets the final result only, not the original’s streamed events. Its `callback_handler` still fires once with that result, so output consumers are not left empty-handed.
 
@@ -303,8 +307,6 @@ except IdempotencyAbortedError:
     # The original was aborted before producing a result
     ...
 ```
-
-The idempotency token works the same way on `invoke_async` and `stream_async`.
 
 #### Allowing concurrent invocations
 

@@ -1,6 +1,7 @@
 ```ts
 type StopReason =
   | "cancelled"
+  | "checkpoint"
   | "contentFiltered"
   | "endTurn"
   | "guardrailIntervened"
@@ -18,7 +19,7 @@ type StopReason =
 };
 ```
 
-Defined in: [src/types/messages.ts:677](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L677)
+Defined in: [src/types/messages.ts:708](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L708)
 
 Reason why the model stopped generating content.
 
@@ -26,6 +27,7 @@ Reason why the model stopped generating content.
 -   `contentFiltered` - Content was filtered by safety mechanisms
 -   `endTurn` - Natural end of the model’s turn
 -   `guardrailIntervened` - A guardrail policy stopped generation
+-   `checkpoint` - Agent paused at a cycle boundary for durable execution (experimental; see experimental checkpoint module)
 -   `interrupt` - Agent execution was interrupted for human input
 -   `maxTokens` - The model provider’s per-call token cap was reached
 -   `limitOutputTokens` - Agent loop stopped because `InvokeOptions.limits.outputTokens` was reached

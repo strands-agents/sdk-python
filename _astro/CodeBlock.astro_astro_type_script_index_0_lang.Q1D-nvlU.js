@@ -1,0 +1,1 @@
+import{r as e}from"./language-preference.Bvtq5obg.js";document.addEventListener(`DOMContentLoaded`,()=>{document.querySelectorAll(`.code-block`).forEach(t=>{let n=t.querySelector(`.copy-button`),r=t.dataset.code;!n||!r||n.addEventListener(`click`,async()=>{await e(r)&&(n.classList.add(`copied`),setTimeout(()=>n.classList.remove(`copied`),2e3))})})});

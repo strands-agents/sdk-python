@@ -1,4 +1,4 @@
-Defined in: [src/tools/zod-tool.ts:20](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L20)
+Defined in: [src/tools/zod-tool.ts:20](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L20)
 
 Configuration for creating a Zod-based tool.
 
@@ -7,7 +7,7 @@ Configuration for creating a Zod-based tool.
 | Type Parameter | Default type | Description |
 | --- | --- | --- |
 | `TInput` *extends* `z.ZodType` | `undefined` | \- | Zod schema type for input validation |
-| `TReturn` *extends* [`JSONValue`](/docs/api/typescript/JSONValue/index.md) | [`JSONValue`](/docs/api/typescript/JSONValue/index.md) | Return type of the callback function |
+| `TReturn` | [`JSONValue`](/docs/api/typescript/JSONValue/index.md) | Return type of the callback function |
 
 ## Properties
 
@@ -17,7 +17,7 @@ Configuration for creating a Zod-based tool.
 name: string;
 ```
 
-Defined in: [src/tools/zod-tool.ts:22](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L22)
+Defined in: [src/tools/zod-tool.ts:22](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L22)
 
 The name of the tool
 
@@ -29,7 +29,7 @@ The name of the tool
 optional description?: string;
 ```
 
-Defined in: [src/tools/zod-tool.ts:25](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L25)
+Defined in: [src/tools/zod-tool.ts:25](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L25)
 
 A description of what the tool does (optional)
 
@@ -41,7 +41,7 @@ A description of what the tool does (optional)
 optional inputSchema?: TInput;
 ```
 
-Defined in: [src/tools/zod-tool.ts:31](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L31)
+Defined in: [src/tools/zod-tool.ts:31](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L31)
 
 Zod schema for input validation and JSON schema generation. If omitted or z.void(), the tool takes no input parameters.
 
@@ -56,9 +56,11 @@ callback: (input, context?) =>
 | Promise<TReturn>;
 ```
 
-Defined in: [src/tools/zod-tool.ts:40](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/tools/zod-tool.ts#L40)
+Defined in: [src/tools/zod-tool.ts:42](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/zod-tool.ts#L42)
 
 Callback function that implements the tool’s functionality.
+
+The return value must be JSON-serializable.
 
 #### Parameters
 

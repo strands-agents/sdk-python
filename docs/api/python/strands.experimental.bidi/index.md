@@ -6,7 +6,7 @@ Bidirectional streaming package.
 def __getattr__(name: str) -> Any
 ```
 
-Defined in: [src/strands/experimental/bidi/**init**.py:70](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/__init__.py#L70)
+Defined in: [src/strands/experimental/bidi/**init**.py:72](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/__init__.py#L72)
 
 Lazy load IO implementations only when accessed.
 

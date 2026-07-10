@@ -73,7 +73,7 @@ const clock = new ContextInjector({
 ```
 (( /tab "TypeScript" ))
 
-For finer control, pass a predicate: a function that receives the injection context and returns whether to inject this call. The context carries the current messages, durable state shared across calls via `context.state` `context.appState`  , and the agent. A predicate that throws fails open, so the model call still proceeds:
+For finer control, pass a predicate: a function that receives the injection context and returns whether to inject this call. The context carries the current messages, durable state shared across calls via `context.state``context.appState`, and the agent. A predicate that throws fails open, so the model call still proceeds:
 
 (( tab "Python" ))
 ```python
@@ -105,7 +105,7 @@ const injector = new ContextInjector({
 
 | Field | Purpose |
 | --- | --- |
-| `render_content` `renderContent`  | Returns the text to inject for this call, or `None / empty string` `undefined / empty string`  to skip. Required, and the only positional argument. |
+| `render_content``renderContent` | Returns the text to inject for this call, or `None / empty string``undefined / empty string` to skip. Required, and the only positional argument. |
 | `trigger` | `'userTurn'` (default), `'everyTurn'`, or a predicate over the injection context. |
 | `name` | Plugin name for logging and duplicate detection. Defaults to `'strands:context-injector'`. Set a distinct name when registering more than one. |
 

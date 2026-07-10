@@ -494,7 +494,7 @@ For more information on using MCP tools, see [MCP Tools](/docs/user-guide/concep
 
 ### 4\. Agents as Tools
 
-Agents can be passed directly in another agent’s `tools` array — the SDK automatically converts them into tools. Use `.as_tool()` `.asTool()`  when you need to customize the tool name, description, or context behavior. For full details, see [Agents as Tools](/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md).
+Agents can be passed directly in another agent’s `tools` array — the SDK automatically converts them into tools. Use `.as_tool()``.asTool()` when you need to customize the tool name, description, or context behavior. For full details, see [Agents as Tools](/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md).
 
 (( tab "Python" ))
 ```python

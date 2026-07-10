@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:839](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L839)
+Defined in: [src/types/messages.ts:869](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L869)
 
 Data for a guard content block. Can contain either text or image content for guardrail evaluation.
 
@@ -10,7 +10,7 @@ Data for a guard content block. Can contain either text or image content for gua
 optional text?: GuardContentText;
 ```
 
-Defined in: [src/types/messages.ts:843](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L843)
+Defined in: [src/types/messages.ts:873](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L873)
 
 Text content with evaluation qualifiers.
 
@@ -22,6 +22,6 @@ Text content with evaluation qualifiers.
 optional image?: GuardContentImage;
 ```
 
-Defined in: [src/types/messages.ts:848](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/types/messages.ts#L848)
+Defined in: [src/types/messages.ts:878](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L878)
 
 Image content with evaluation qualifiers.

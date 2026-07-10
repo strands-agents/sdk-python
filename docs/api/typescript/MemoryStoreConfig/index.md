@@ -1,4 +1,4 @@
-Defined in: [src/memory/types.ts:61](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L61)
+Defined in: [src/memory/types.ts:61](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L61)
 
 Declarative properties shared by every memory store and its config.
 
@@ -16,7 +16,7 @@ This is the single source of truth for a store’s identity and behavior knobs. 
 readonly name: string;
 ```
 
-Defined in: [src/memory/types.ts:63](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L63)
+Defined in: [src/memory/types.ts:63](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L63)
 
 Identifier for this store, used to target specific stores in search/add tools. Must be unique.
 
@@ -28,7 +28,7 @@ Identifier for this store, used to target specific stores in search/add tools. M
 readonly optional description?: string;
 ```
 
-Defined in: [src/memory/types.ts:65](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L65)
+Defined in: [src/memory/types.ts:65](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L65)
 
 Human-readable description of what this store contains. Included in tool descriptions.
 
@@ -40,7 +40,7 @@ Human-readable description of what this store contains. Included in tool descrip
 readonly optional maxSearchResults?: number;
 ```
 
-Defined in: [src/memory/types.ts:70](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L70)
+Defined in: [src/memory/types.ts:70](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L70)
 
 Default maximum number of results this store returns per search, used when a caller does not pass a per-call `maxSearchResults`.
 
@@ -52,7 +52,7 @@ Default maximum number of results this store returns per search, used when a cal
 readonly optional writable?: boolean;
 ```
 
-Defined in: [src/memory/types.ts:77](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L77)
+Defined in: [src/memory/types.ts:77](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L77)
 
 Whether this store accepts writes. Optional at config time (caller intent, defaults to `false`); concrete stores resolve it to a definite boolean on the [MemoryStore](/docs/api/typescript/MemoryStore/index.md) interface.
 
@@ -70,7 +70,7 @@ false
 readonly optional extraction?: boolean | ExtractionConfig;
 ```
 
-Defined in: [src/memory/types.ts:90](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/memory/types.ts#L90)
+Defined in: [src/memory/types.ts:90](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L90)
 
 Automatic-extraction config for this writable store, as a `boolean | config` shorthand. `true` enables it with defaults; an [ExtractionConfig](/docs/api/typescript/ExtractionConfig/index.md) defaults any unset field; `false`/omitted is off.
 

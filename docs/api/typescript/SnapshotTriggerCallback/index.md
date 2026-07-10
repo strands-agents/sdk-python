@@ -2,7 +2,7 @@
 type SnapshotTriggerCallback = (params) => boolean;
 ```
 
-Defined in: [src/session/types.ts:41](https://github.com/strands-agents/harness-sdk/blob/d9b9061486aa20414699f47b5b1caddccb3e0dff/strands-ts/src/session/types.ts#L41)
+Defined in: [src/session/types.ts:41](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/session/types.ts#L41)
 
 Callback function to determine when to create immutable snapshots. Called after each agent invocation to decide if a snapshot should be saved.
 

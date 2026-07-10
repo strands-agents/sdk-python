@@ -165,7 +165,7 @@ Initialize a SessionAgent from a dictionary, ignoring keys that are not class pa
 def to_dict() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/types/session.py:171](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L171)
+Defined in: [src/strands/types/session.py:172](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L172)
 
 Convert the SessionAgent to a dictionary representation.
 
@@ -175,7 +175,7 @@ Convert the SessionAgent to a dictionary representation.
 def initialize_internal_state(agent: "Agent") -> None
 ```
 
-Defined in: [src/strands/types/session.py:175](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L175)
+Defined in: [src/strands/types/session.py:176](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L176)
 
 Initialize internal state of agent.
 
@@ -185,7 +185,7 @@ Initialize internal state of agent.
 def initialize_bidi_internal_state(agent: "BidiAgent") -> None
 ```
 
-Defined in: [src/strands/types/session.py:182](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L182)
+Defined in: [src/strands/types/session.py:183](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L183)
 
 Initialize internal state of BidiAgent.
 
@@ -200,7 +200,7 @@ Initialize internal state of BidiAgent.
 class Session()
 ```
 
-Defined in: [src/strands/types/session.py:195](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L195)
+Defined in: [src/strands/types/session.py:196](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L196)
 
 Session data model.
 
@@ -211,7 +211,7 @@ Session data model.
 def from_dict(cls, env: dict[str, Any]) -> "Session"
 ```
 
-Defined in: [src/strands/types/session.py:204](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L204)
+Defined in: [src/strands/types/session.py:205](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L205)
 
 Initialize a Session from a dictionary, ignoring keys that are not class parameters.
 
@@ -221,6 +221,6 @@ Initialize a Session from a dictionary, ignoring keys that are not class paramet
 def to_dict() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/types/session.py:208](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L208)
+Defined in: [src/strands/types/session.py:209](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/session.py#L209)
 
 Convert the Session to a dictionary representation.

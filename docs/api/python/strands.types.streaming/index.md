@@ -60,6 +60,8 @@ Tool use input delta in a streaming response.
 **Attributes**:
 
 -   `input` - The tool input fragment being streamed.
+-   `toolUseId` - Optional tool use identifier. Some providers emit this in the delta instead of contentBlockStart.
+-   `name` - Optional tool name. Some providers emit this in the delta instead of contentBlockStart.
 
 ## CitationSourceContentDelta
 
@@ -67,7 +69,7 @@ Tool use input delta in a streaming response.
 class CitationSourceContentDelta(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:59](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L59)
+Defined in: [src/strands/types/streaming.py:65](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L65)
 
 Contains incremental updates to source content text during streaming.
 
@@ -83,7 +85,7 @@ Allows clients to build up the cited content progressively during streaming resp
 class CitationsDelta(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:73](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L73)
+Defined in: [src/strands/types/streaming.py:79](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L79)
 
 Contains incremental updates to citation information during streaming.
 
@@ -101,7 +103,7 @@ This allows clients to build up citation data progressively as the response is g
 class ReasoningContentBlockDelta(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:94](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L94)
+Defined in: [src/strands/types/streaming.py:100](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L100)
 
 Delta for reasoning content block in a streaming response.
 
@@ -117,7 +119,7 @@ Delta for reasoning content block in a streaming response.
 class ContentBlockDelta(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:108](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L108)
+Defined in: [src/strands/types/streaming.py:114](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L114)
 
 A block of content in a streaming response.
 
@@ -133,7 +135,7 @@ A block of content in a streaming response.
 class ContentBlockDeltaEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:123](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L123)
+Defined in: [src/strands/types/streaming.py:129](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L129)
 
 Event containing a delta update for a content block in a streaming response.
 
@@ -148,7 +150,7 @@ Event containing a delta update for a content block in a streaming response.
 class ContentBlockStopEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:136](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L136)
+Defined in: [src/strands/types/streaming.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L142)
 
 Event signaling the end of a content block in a streaming response.
 
@@ -162,7 +164,7 @@ Event signaling the end of a content block in a streaming response.
 class MessageStopEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:147](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L147)
+Defined in: [src/strands/types/streaming.py:153](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L153)
 
 Event signaling the end of a message in a streaming response.
 
@@ -177,7 +179,7 @@ Event signaling the end of a message in a streaming response.
 class MetadataEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:159](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L159)
+Defined in: [src/strands/types/streaming.py:165](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L165)
 
 Event containing metadata about the streaming response.
 
@@ -193,7 +195,7 @@ Event containing metadata about the streaming response.
 class ExceptionEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:173](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L173)
+Defined in: [src/strands/types/streaming.py:179](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L179)
 
 Base event for exceptions in a streaming response.
 
@@ -207,7 +209,7 @@ Base event for exceptions in a streaming response.
 class ModelStreamErrorEvent(ExceptionEvent)
 ```
 
-Defined in: [src/strands/types/streaming.py:183](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L183)
+Defined in: [src/strands/types/streaming.py:189](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L189)
 
 Event for model streaming errors.
 
@@ -222,7 +224,7 @@ Event for model streaming errors.
 class RedactContentEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:195](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L195)
+Defined in: [src/strands/types/streaming.py:201](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L201)
 
 Event for redacting content.
 
@@ -237,7 +239,7 @@ Event for redacting content.
 class StreamEvent(TypedDict)
 ```
 
-Defined in: [src/strands/types/streaming.py:208](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L208)
+Defined in: [src/strands/types/streaming.py:214](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/streaming.py#L214)
 
 The messages output stream.
 

@@ -125,6 +125,9 @@
     -   **Bedrock Knowledge Base**
         -   [Store](/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.store)
         -   [Types](/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.types)
+    -   **Test Memory Store**
+        -   [Store](/docs/api/python/strands.vended_memory_stores.test_memory_store.store)
+        -   [Types](/docs/api/python/strands.vended_memory_stores.test_memory_store.types)
 -   **Vended Plugins**
     -   **Context Injector**
         -   [Plugin](/docs/api/python/strands.vended_plugins.context_injector.plugin)
