@@ -12,6 +12,8 @@ import base64
 import contextvars
 import json
 import logging
+import os
+import re
 import sys
 import threading
 import uuid
@@ -19,19 +21,24 @@ from asyncio import AbstractEventLoop
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent import futures
 from datetime import timedelta
+from importlib.metadata import version as pkg_version
+from pathlib import Path
 from re import Pattern
 from types import TracebackType
 from typing import Any, TypeVar, cast
 
 import anyio
-from mcp import ClientSession, ListToolsResult
+from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
 from mcp.client.session import ElicitationFnT
+from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     BlobResourceContents,
     ElicitationRequiredErrorData,
     GetPromptResult,
+    Implementation,
     ListPromptsResult,
     ListResourcesResult,
     ListResourceTemplatesResult,
@@ -79,6 +86,35 @@ class ToolFilters(TypedDict, total=False):
     rejected: list[_ToolMatcher]
 
 
+class MCPServerConfig(TypedDict, total=False):
+    """Schema for a single MCP server entry in a load_servers config.
+
+    Provide either 'command' (stdio) or 'url' (streamable-http/sse), not both. When 'transport' is
+    omitted it is auto-detected from the fields present. String values support '${VAR}' /
+    '${env:VAR}' interpolation, and '~' in 'command' and 'cwd' is expanded to the home directory.
+
+    'disabled' skips the server entirely. 'continue_on_error' keeps the rest of the servers usable
+    when this one fails: a config-resolution failure (e.g. a missing env var) skips it during
+    load_servers instead of raising, and a connection failure yields no tools instead of raising
+    when the agent loads them.
+    """
+
+    command: str
+    args: list[str]
+    env: dict[str, str]
+    cwd: str
+    url: str
+    headers: dict[str, str]
+    transport: str
+    disabled: bool
+    continue_on_error: bool
+    prefix: str
+    tool_filters: ToolFilters
+    startup_timeout: int
+    application_name: str
+    application_version: str
+
+
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
@@ -114,6 +150,62 @@ class MCPClient(ToolProvider):
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
     """
 
+    @classmethod
+    def load_servers(cls, config: "str | dict[str, Any]") -> "list[MCPClient]":
+        """Create MCPClient instances from an ``mcpServers`` JSON config (file path or mapping).
+
+        Returns one client per enabled server. Accepts either a flat mapping of server name to
+        config, or that mapping nested under an ``mcpServers`` key. Servers marked
+        ``"disabled": true`` are skipped. When a server sets ``"continue_on_error": true``, a
+        failure resolving its config (e.g. a missing env var) skips that server instead of raising.
+
+        Transport is auto-detected from the fields present: ``command`` selects stdio and ``url``
+        selects streamable-http. Set ``transport`` explicitly (``"stdio"``, ``"sse"``, or
+        ``"streamable-http"``) to override. String values support ``${VAR}`` / ``${env:VAR}``
+        interpolation against the process environment, and ``~`` in ``command`` and ``cwd`` is
+        expanded to the user's home directory.
+
+        Args:
+            config: A file path (with optional ``file://`` prefix) to a JSON config, or a
+                dictionary mapping server names to configs (optionally under an ``mcpServers`` key).
+
+        Returns:
+            One MCPClient per enabled server, ready to pass to ``Agent(tools=...)``.
+
+        Raises:
+            FileNotFoundError: If the config file does not exist.
+            json.JSONDecodeError: If the config file contains invalid JSON.
+            ValueError: If the overall config shape is invalid or a server entry is not a mapping.
+                These are malformed-config errors and always raise, regardless of
+                ``continue_on_error``. A failure building an individual server (e.g. a missing env
+                var) also raises unless that server set ``continue_on_error``, in which case it is
+                skipped.
+        """
+        servers = _load_servers_mapping(config)
+
+        clients: list[MCPClient] = []
+        for name, server in servers.items():
+            # A non-dict entry is a malformed-config error and always raises, unlike per-server failures.
+            if not isinstance(server, dict):
+                raise ValueError(f"server '{name}' configuration must be a dictionary, got {type(server).__name__}")
+            unknown_keys = sorted(server.keys() - MCPServerConfig.__annotations__.keys())
+            if unknown_keys:
+                logger.warning(
+                    "server_name=<%s>, unknown_keys=<%s> | ignoring unrecognized MCP config keys", name, unknown_keys
+                )
+            if server.get("disabled", False):
+                logger.debug("server_name=<%s> | skipping disabled MCP server", name)
+                continue
+            try:
+                clients.append(_build_client_from_config(name, server))
+            except Exception as e:
+                if not server.get("continue_on_error", False):
+                    raise
+                logger.warning("server_name=<%s>, error=<%s> | MCP server config failed, skipping", name, e)
+
+        logger.debug("loaded_servers=<%d> | created MCP clients from config", len(clients))
+        return clients
+
     def __init__(
         self,
         transport_callable: Callable[[], MCPTransport],
@@ -121,6 +213,9 @@ class MCPClient(ToolProvider):
         startup_timeout: int = 30,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
+        application_name: str | None = None,
+        application_version: str | None = None,
+        continue_on_error: bool = False,
         elicitation_callback: ElicitationFnT | None = None,
         progress_callback: ProgressFnT | None = None,
         tasks_config: TasksConfig | None = None,
@@ -133,6 +228,15 @@ class MCPClient(ToolProvider):
                 Defaults to 30.
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
+            application_name: Optional name to identify this agent via clientInfo.name.
+                If provided, the MCP server will see this name during the initialize handshake.
+                Defaults to None (uses the MCP SDK default "mcp").
+            application_version: Optional version string to report alongside application_name.
+                Defaults to None (uses the Strands SDK version).
+            continue_on_error: When True, a connection failure during ``load_tools`` is logged and
+                yields no tools instead of raising, so one unavailable server does not prevent an
+                agent from using the others. Only the connection (``start()``) is swallowed; an error
+                while listing tools after a successful connect still propagates. Defaults to False.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
             progress_callback: Optional callback to receive progress notifications during tool execution.
                 Called with ``(progress, total, message)`` as the server reports progress. The ``total``
@@ -144,6 +248,11 @@ class MCPClient(ToolProvider):
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
+        self._application_name = application_name
+        self._application_version = application_version
+        self._continue_on_error = continue_on_error
+        # True after a swallowed init failure, so load_tools stops retrying a failed server.
+        self._connection_failed = False
         self._elicitation_callback = elicitation_callback
         self._progress_callback = progress_callback
 
@@ -234,6 +343,21 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(f"the client initialization failed: {e}") from e
         return self
 
+    @property
+    def continue_on_error(self) -> bool:
+        """Whether a connection failure is swallowed instead of raised (see ``__init__``)."""
+        return self._continue_on_error
+
+    @property
+    def connection_failed(self) -> bool:
+        """Whether a ``continue_on_error`` connection attempt has failed and not yet been reset.
+
+        Sticky within a connection lifecycle: stays True until teardown (removing the last consumer,
+        or ``stop()``) resets the client. Always False when ``continue_on_error`` is not set, since a
+        failure raises instead.
+        """
+        return self._connection_failed
+
     # ToolProvider interface methods
     async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
         """Load and return tools from the MCP server.
@@ -245,13 +369,20 @@ class MCPClient(ToolProvider):
             **kwargs: Additional arguments for future compatibility.
 
         Returns:
-            List of AgentTool instances from the MCP server.
+            List of AgentTool instances from the MCP server. Empty when the connection fails and
+            ``continue_on_error`` is set; the failure is sticky within a connection lifecycle and is
+            not retried on subsequent calls. Teardown (removing the last consumer, or ``stop()``)
+            resets the client so a later consumer reconnects.
         """
         logger.debug(
             "started=<%s>, cached_tools=<%s> | loading tools",
             self._tool_provider_started,
             self._loaded_tools is not None,
         )
+
+        # A previously swallowed init failure is not retried on subsequent calls.
+        if self._connection_failed:
+            return []
 
         if not self._tool_provider_started:
             try:
@@ -260,6 +391,10 @@ class MCPClient(ToolProvider):
                 self._tool_provider_started = True
                 logger.debug("MCP client started successfully")
             except Exception as e:
+                if self._continue_on_error:
+                    logger.warning("error=<%s> | MCP server failed to start, continuing with no tools", e)
+                    self._connection_failed = True
+                    return []
                 logger.error("error=<%s> | failed to start MCP client", e)
                 raise ToolProviderException(f"Failed to start MCP client: {e}") from e
 
@@ -317,7 +452,10 @@ class MCPClient(ToolProvider):
         self._consumers.discard(consumer_id)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))
 
-        if not self._consumers and self._tool_provider_started:
+        # A swallowed continue_on_error failure leaves _tool_provider_started False but still needs
+        # teardown so the sticky _connection_failed flag resets and the client can reconnect for a
+        # later consumer, matching the reset-on-zero-consumers behavior of a successful client.
+        if not self._consumers and (self._tool_provider_started or self._connection_failed):
             logger.debug("no consumers remaining, cleaning up")
             try:
                 self.stop(None, None, None)  # Existing sync method - safe for finalizers
@@ -398,6 +536,7 @@ class MCPClient(ToolProvider):
         self._session_id = uuid.uuid4()
         self._loaded_tools = None
         self._tool_provider_started = False
+        self._connection_failed = False
         self._consumers = set()
         self._server_task_capable = None
         self._tool_task_support_cache = {}
@@ -813,6 +952,14 @@ class MCPClient(ToolProvider):
                     write_stream,
                     message_handler=self._handle_error_message,
                     elicitation_callback=self._elicitation_callback,
+                    client_info=(
+                        Implementation(
+                            name=self._application_name,
+                            version=self._application_version or pkg_version("strands-agents"),
+                        )
+                        if self._application_name
+                        else None
+                    ),
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
                     init_result = await session.initialize()
@@ -1259,3 +1406,148 @@ class MCPClient(ToolProvider):
             final_status.status,
         )
         return self._create_task_error_result(f"Unexpected task status: {final_status.status}")
+
+
+# Matches ${VAR} and ${env:VAR} where VAR is a valid environment variable identifier.
+_ENV_VAR_PATTERN = re.compile(r"\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _load_servers_mapping(config: str | dict[str, Any]) -> dict[str, Any]:
+    """Resolve the load_servers input into a mapping of server name to server config.
+
+    Reads and parses the file when config is a path, then unwraps the optional ``mcpServers`` key
+    so both wrapped and flat shapes are accepted.
+    """
+    if isinstance(config, str):
+        file_path = config[len("file://") :] if config.startswith("file://") else config
+        path = Path(file_path).expanduser()
+        if not path.exists():
+            raise FileNotFoundError(f"MCP configuration file not found: {file_path}")
+        config_dict = json.loads(path.read_text())
+    elif isinstance(config, dict):
+        config_dict = config
+    else:
+        raise ValueError("config must be a file path string or a dictionary")
+
+    servers = config_dict.get("mcpServers", config_dict) if isinstance(config_dict, dict) else None
+    if not isinstance(servers, dict):
+        raise ValueError(
+            'MCP config must be a JSON object mapping server names to configs, e.g. {"my-server": {"command": "node"}}'
+        )
+    return servers
+
+
+def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
+    """Build a single MCPClient from one server entry.
+
+    Interpolates ``${VAR}`` references first so secrets can live in the environment, then detects
+    the transport and constructs the matching transport callable.
+    """
+    server = cast(dict[str, Any], _interpolate_env_vars(server))
+
+    if server.get("command") and server.get("url") and not server.get("transport"):
+        raise ValueError(f"server '{name}' has both 'command' and 'url' — set 'transport' explicitly or remove one")
+
+    transport = server.get("transport")
+    if transport is None:
+        transport = "stdio" if server.get("command") else "streamable-http" if server.get("url") else None
+    if transport is None:
+        raise ValueError(f"server '{name}' must include either 'command' (stdio) or 'url' (http)")
+
+    transport_callable = _config_transport_callable(name, transport, server)
+
+    logger.debug("server_name=<%s>, transport=<%s> | creating MCP client from config", name, transport)
+    return MCPClient(
+        transport_callable,
+        startup_timeout=server.get("startup_timeout", 30),
+        tool_filters=_parse_config_tool_filters(name, server.get("tool_filters")),
+        prefix=server.get("prefix"),
+        application_name=server.get("application_name", name),
+        application_version=server.get("application_version"),
+        continue_on_error=server.get("continue_on_error", False),
+    )
+
+
+def _config_transport_callable(name: str, transport: str, server: dict[str, Any]) -> Callable[[], MCPTransport]:
+    """Return a zero-arg callable that opens the transport for the given server entry."""
+    match transport:
+        case "stdio":
+            command = server.get("command")
+            if not command:
+                raise ValueError(f"server '{name}': stdio transport requires 'command'")
+            params = StdioServerParameters(
+                command=os.path.expanduser(command),
+                args=server.get("args", []),
+                env=server.get("env"),
+                cwd=os.path.expanduser(server["cwd"]) if server.get("cwd") else None,
+            )
+            return lambda: stdio_client(params)
+
+        case "streamable-http":
+            url = server.get("url")
+            if not url:
+                raise ValueError(f"server '{name}': streamable-http transport requires 'url'")
+            headers = server.get("headers")
+            return lambda: streamablehttp_client(url=cast(str, url), headers=headers)
+
+        case "sse":
+            url = server.get("url")
+            if not url:
+                raise ValueError(f"server '{name}': sse transport requires 'url'")
+            headers = server.get("headers")
+            return lambda: sse_client(url=cast(str, url), headers=headers)
+
+        case _:
+            raise ValueError(f"server '{name}': unsupported transport type '{transport}'")
+
+
+def _parse_config_tool_filters(name: str, config: dict[str, Any] | None) -> ToolFilters | None:
+    """Compile a tool-filter config into a ToolFilters mapping of regex patterns.
+
+    Patterns match the server-side (unprefixed) tool name; any ``prefix`` is applied afterwards.
+    """
+    if not config:
+        return None
+
+    result: ToolFilters = {}
+    if config.get("allowed") is not None:
+        result["allowed"] = _compile_filter_patterns(name, "allowed", config["allowed"])
+    if config.get("rejected") is not None:
+        result["rejected"] = _compile_filter_patterns(name, "rejected", config["rejected"])
+
+    return result or None
+
+
+def _compile_filter_patterns(name: str, key: str, patterns: list[str]) -> list[_ToolMatcher]:
+    """Compile a list of regex strings into patterns, raising a clear error on an invalid one."""
+    compiled: list[_ToolMatcher] = []
+    for pattern in patterns:
+        try:
+            compiled.append(re.compile(pattern))
+        except re.error as e:
+            raise ValueError(f"server '{name}': invalid regex in tool_filters.{key}: '{pattern}': {e}") from e
+    return compiled
+
+
+def _interpolate_env_vars(value: Any) -> Any:
+    """Recursively replace ``${VAR}`` / ``${env:VAR}`` references in strings with env values.
+
+    Strings nested inside lists and dicts are interpolated; other types pass through unchanged.
+
+    Raises:
+        ValueError: If a referenced environment variable is not set.
+    """
+    if isinstance(value, str):
+
+        def _replace(match: re.Match[str]) -> str:
+            var = match.group(1)
+            if var not in os.environ:
+                raise ValueError(f"environment variable '{var}' is not set")
+            return os.environ[var]
+
+        return _ENV_VAR_PATTERN.sub(_replace, value)
+    if isinstance(value, list):
+        return [_interpolate_env_vars(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _interpolate_env_vars(item) for key, item in value.items()}
+    return value

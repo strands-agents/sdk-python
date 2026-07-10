@@ -139,7 +139,8 @@ def _search_by_pattern(
     safe_pattern = re.sub(r"[\n\r/\]]", " ", pattern)[:50]
     header = f"[{len(matched_set)} match{'es' if len(matched_set) > 1 else ''} for /{safe_pattern}/{scope_label}]"
     body = _format_lines(lines, sorted(visible), matched_set)
-    return _truncate(f"{header}\n\n{body}", max_chars, "output truncated, narrow your search")
+    truncated_body = _truncate(body, max_chars, "output truncated, narrow your search")
+    return f"{header}\n\n{truncated_body}"
 
 
 def _search_by_line_range(
@@ -149,4 +150,5 @@ def _search_by_line_range(
     indices = list(range(start, end + 1))
     header = f"[Lines {start + 1}-{end + 1} of {total_lines}]"
     body = _format_lines(lines, indices, set())
-    return _truncate(f"{header}\n\n{body}", max_chars, "output truncated, narrow your range")
+    truncated_body = _truncate(body, max_chars, "output truncated, narrow your range")
+    return f"{header}\n\n{truncated_body}"

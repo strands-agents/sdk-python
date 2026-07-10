@@ -96,6 +96,23 @@ async def test_model_initialization(model_id, boto_session):
     assert model._connection_id is None
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("region", ["us-east-1", "ap-southeast-1", "us-gov-east-1"])
+async def test_valid_region_accepted(model_id, region):
+    """A well-formed region resolves successfully and is used for the model."""
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+
+    assert model.region == region
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n"])
+async def test_invalid_region_rejected(model_id, region):
+    """A malformed region is rejected before it can reach the endpoint URL."""
+    with pytest.raises(ValueError, match="invalid AWS region"):
+        BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+
+
 # Audio Configuration Tests
 
 
@@ -188,7 +205,6 @@ async def test_model_stop_alone(nova_model):
 @pytest.mark.asyncio
 async def test_connection_with_message_history(nova_model, mock_client, mock_stream):
     """Test connection initialization with conversation history."""
-    nova_model.client = mock_client
 
     # Create message history
     messages = [

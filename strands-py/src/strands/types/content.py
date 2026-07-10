@@ -6,6 +6,7 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
+import uuid
 from typing import Any, Literal
 
 from typing_extensions import NotRequired, TypedDict
@@ -24,7 +25,7 @@ class GuardContentText(TypedDict):
         text: The input text details to be evaluated by the guardrail.
     """
 
-    qualifiers: list[Literal["grounding_source", "query", "guard_content"]]
+    qualifiers: NotRequired[list[Literal["grounding_source", "query", "guard_content"]]]
     text: str
 
 
@@ -232,16 +233,46 @@ class Message(TypedDict):
     Attributes:
         content: The message content.
         role: The role of the message sender.
+        tracking_id: Durable, stable UUID for the message. The agent assigns one automatically, so
+            callers do not normally set it; a caller supplying its own should use a UUID v4
+            (``str(uuid.uuid4())``). Survives session save/restore and snapshots, and is stripped
+            before model calls. Preserved when a message is copied or restored, so ids are unique
+            within a conversation, but the same message carries the same id across sessions (copying
+            another agent's messages does not re-key them).
         metadata: Optional metadata, stripped before model calls.
     """
 
     content: list[ContentBlock]
     role: Role
+    tracking_id: NotRequired[str]
     metadata: NotRequired[MessageMetadata]
 
 
 Messages = list[Message]
 """A list of messages representing a conversation."""
+
+
+def _generate_tracking_id() -> str:
+    """Generate a durable tracking identifier for a message.
+
+    Returns a canonical UUID v4 string
+    """
+    return str(uuid.uuid4())
+
+
+def _ensure_tracking_id(message: Message) -> str:
+    """Assign a durable tracking id to the message in place if it does not already have a usable one.
+
+    A message that already carries a non-empty tracking id (e.g. restored from a session or supplied
+    by a caller) keeps it, so the same message has a stable identifier everywhere it is observed. A
+    missing, ``None``, or empty-string tracking id is treated as absent and replaced.
+
+    Returns:
+        The message's tracking id (existing or newly assigned).
+    """
+    if not message.get("tracking_id"):
+        message["tracking_id"] = _generate_tracking_id()
+    return message["tracking_id"]
 
 
 def get_message_metadata(message: Message) -> MessageMetadata:

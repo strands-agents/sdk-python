@@ -2,13 +2,12 @@
 /**
  * Global Python/TypeScript language toggle for the site header.
  *
- * Reads and writes the same localStorage key used by AutoSyncTabs
- * (starlight-synced-tabs__jarkqt) so the header toggle and inline
- * code tabs stay in sync. The key + default come from config/changelog.ts
- * (single source, shared with the changelog page) and are injected into the
- * inline script via define:vars.
+ * Reads and writes the same localStorage key used by AutoSyncTabs so the
+ * header toggle and inline code tabs stay in sync. The key + default come
+ * from the shared language-preference module (single source, shared with the
+ * changelog page) and are injected into the inline script via define:vars.
  */
-import { LANG_STORAGE_KEY, DEFAULT_LANG_LABEL } from '../config/changelog'
+import { LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE_LABEL } from '../util/language-preference'
 ---
 
 <language-toggle class="language-toggle" role="radiogroup" aria-label="Preferred language">
@@ -87,7 +86,7 @@ import { LANG_STORAGE_KEY, DEFAULT_LANG_LABEL } from '../config/changelog'
 
 </style>
 
-<script is:inline define:vars={{ STORAGE_KEY: LANG_STORAGE_KEY, DEFAULT_LANG: DEFAULT_LANG_LABEL }}>
+<script is:inline define:vars={{ STORAGE_KEY: LANGUAGE_STORAGE_KEY, DEFAULT_LANG: DEFAULT_LANGUAGE_LABEL }}>
   (function () {
     // Idempotency guard: <LanguageToggle /> can render in multiple places
     // (desktop right-group + mobile dropdown menu). Astro inlines this script
@@ -95,9 +94,9 @@ import { LANG_STORAGE_KEY, DEFAULT_LANG_LABEL } from '../config/changelog'
     // sync logic only need to run once. Skip on subsequent invocations.
     if (window.__strandsLanguageToggleInit) return;
     window.__strandsLanguageToggleInit = true;
-    // STORAGE_KEY + DEFAULT_LANG are injected via define:vars from
-    // config/changelog.ts (shared with the changelog page). The key matches the
-    // one Starlight derives by djb2-hashing the synced-tab labels.
+    // STORAGE_KEY + DEFAULT_LANG are injected via define:vars from the shared
+    // language-preference module (shared with the changelog page). The key
+    // matches the one Starlight derives by djb2-hashing the synced-tab labels.
 
     // IMPORTANT: Keep in sync with navigation.yml navbar entries.
     // When adding new language-paired pages, update both lists below.

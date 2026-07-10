@@ -782,6 +782,59 @@ def test_format_chunk_metadata(model):
     assert tru_chunk == exp_chunk
 
 
+def test_format_chunk_metadata_with_cache_tokens(model):
+    """When prompt caching is active, Anthropic returns cache_read_input_tokens
+    and cache_creation_input_tokens alongside input_tokens; surface them so
+    downstream cost accounting reflects what the user is billed for."""
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 50,
+        },
+    }
+
+    tru_chunk = model.format_chunk(event)
+    exp_chunk = {
+        "metadata": {
+            "usage": {
+                "inputTokens": 5,
+                "outputTokens": 7,
+                "totalTokens": 12,
+                "cacheReadInputTokens": 100,
+                "cacheWriteInputTokens": 50,
+            },
+            "metrics": {
+                "latencyMs": 0,
+            },
+        },
+    }
+
+    assert tru_chunk == exp_chunk
+
+
+def test_format_chunk_metadata_omits_zero_cache_tokens(model):
+    """When cache fields are absent or zero, keep the legacy chunk shape so
+    consumers expecting only inputTokens/outputTokens keep working."""
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        },
+    }
+
+    tru_chunk = model.format_chunk(event)
+
+    assert "cacheReadInputTokens" not in tru_chunk["metadata"]["usage"]
+    assert "cacheWriteInputTokens" not in tru_chunk["metadata"]["usage"]
+    assert tru_chunk["metadata"]["usage"]["totalTokens"] == 12
+
+
 def test_format_chunk_unknown(model):
     event = {"type": "unknown"}
 

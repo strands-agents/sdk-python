@@ -187,7 +187,9 @@ class OpenAIResponsesModel(Model):
         Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
         """
         if self._bedrock_mantle_config is not None:
-            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
+            return resolve_bedrock_client_args(
+                self._bedrock_mantle_config, self.client_args, model_id=str(self.config.get("model_id", ""))
+            )
         return self.client_args
 
     @property

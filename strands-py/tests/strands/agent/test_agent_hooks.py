@@ -174,6 +174,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
                 "content": [{"toolUse": tool_use}],
                 "role": "assistant",
                 "metadata": ANY,
+                "tracking_id": ANY,
             },
             stop_reason="tool_use",
         ),
@@ -200,7 +201,12 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"role": "assistant", "content": [{"text": "I invoked a tool!"}], "metadata": ANY},
+            message={
+                "role": "assistant",
+                "content": [{"text": "I invoked a tool!"}],
+                "metadata": ANY,
+                "tracking_id": ANY,
+            },
             stop_reason="end_turn",
         ),
         exception=None,
@@ -248,6 +254,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
                 "content": [{"toolUse": tool_use}],
                 "role": "assistant",
                 "metadata": ANY,
+                "tracking_id": ANY,
             },
             stop_reason="tool_use",
         ),
@@ -274,7 +281,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"role": "assistant", "content": [{"text": "I invoked a tool!"}], "metadata": ANY},
+            message={
+                "role": "assistant",
+                "content": [{"text": "I invoked a tool!"}],
+                "metadata": ANY,
+                "tracking_id": ANY,
+            },
             stop_reason="end_turn",
         ),
         exception=None,

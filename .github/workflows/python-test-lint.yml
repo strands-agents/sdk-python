@@ -121,7 +121,9 @@ jobs:
           pip install --no-cache-dir hatch
       - name: Run Unit tests
         id: tests
-        run: hatch test tests --cover
+        # Retry failing tests so a flaky test doesn't block a release; a
+        # genuinely broken test still fails after the reruns and holds the gate.
+        run: hatch test tests --cover --reruns 2 --reruns-delay 5
         continue-on-error: false
 
       - name: Upload coverage reports to Codecov

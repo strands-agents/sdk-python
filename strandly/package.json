@@ -15,10 +15,10 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "commander": "^14"
+    "commander": "^15"
   },
   "devDependencies": {
-    "@types/node": "^22",
-    "typescript": "^5.5.0"
+    "@types/node": "^25.9.4",
+    "typescript": "^6.0.3"
   }
 }
