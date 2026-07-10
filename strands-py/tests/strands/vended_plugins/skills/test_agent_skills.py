@@ -1040,9 +1040,16 @@ class TestInjectionModeConfig:
         plugin = AgentSkills(skills=[_make_skill()])
         assert [t.tool_name for t in plugin.tools] == ["skills"]
 
-    def test_system_prompt_mode_exposes_toggle_tools(self):
+    def test_system_prompt_mode_exposes_action_based_skills_tool(self):
         plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
-        assert sorted(t.tool_name for t in plugin.tools) == ["activate_skill", "deactivate_skill"]
+        assert [t.tool_name for t in plugin.tools] == ["skills"]
+        # The system_prompt variant takes an `action` parameter; the tool-mode variant does not.
+        assert "action" in plugin.tools[0].tool_spec["inputSchema"]["json"]["properties"]
+
+    def test_tool_mode_skills_tool_has_no_action_param(self):
+        plugin = AgentSkills(skills=[_make_skill()])
+        assert [t.tool_name for t in plugin.tools] == ["skills"]
+        assert "action" not in plugin.tools[0].tool_spec["inputSchema"]["json"]["properties"]
 
     def test_invalid_mode_raises(self):
         with pytest.raises(ValueError, match="injection_mode"):
@@ -1072,7 +1079,7 @@ class TestSystemPromptModeInjection:
         tool_context = _mock_tool_context(agent)
 
         await plugin.init_agent(agent)
-        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
         await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
         assert 'active="true"' in agent.system_prompt
@@ -1086,11 +1093,11 @@ class TestSystemPromptModeInjection:
         tool_context = _mock_tool_context(agent)
 
         await plugin.init_agent(agent)
-        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
         await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
         assert "FULL INSTRUCTIONS HERE" in agent.system_prompt
 
-        await plugin.deactivate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin.manage_skills(action="deactivate", skill_name="test-skill", tool_context=tool_context)
         await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
         assert "FULL INSTRUCTIONS HERE" not in agent.system_prompt
@@ -1105,7 +1112,7 @@ class TestSystemPromptModeInjection:
         tool_context = _mock_tool_context(agent)
 
         await plugin.init_agent(agent)
-        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
         await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
         first = agent.system_prompt
         await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
@@ -1132,7 +1139,7 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result = await plugin.activate_skill(skill_name="ghost", tool_context=tool_context)
+        result = await plugin.manage_skills(action="activate", skill_name="ghost", tool_context=tool_context)
 
         assert "not found" in result
         assert plugin.get_activated_skills(agent) == []
@@ -1143,7 +1150,7 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result = await plugin.activate_skill(skill_name="", tool_context=tool_context)
+        result = await plugin.manage_skills(action="activate", skill_name="", tool_context=tool_context)
 
         assert "required" in result.lower()
 
@@ -1153,9 +1160,20 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result = await plugin.deactivate_skill(skill_name="test-skill", tool_context=tool_context)
+        result = await plugin.manage_skills(action="deactivate", skill_name="test-skill", tool_context=tool_context)
 
         assert "not active" in result
+
+    @pytest.mark.asyncio
+    async def test_unknown_action_returns_error(self):
+        plugin = AgentSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        result = await plugin.manage_skills(action="toggle", skill_name="test-skill", tool_context=tool_context)  # type: ignore[arg-type]
+
+        assert "unknown action" in result
+        assert plugin.get_activated_skills(agent) == []
 
     @pytest.mark.asyncio
     async def test_activate_tracks_state(self):
@@ -1163,7 +1181,7 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        await plugin.activate_skill(skill_name="test-skill", tool_context=tool_context)
+        await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
 
         assert plugin.get_activated_skills(agent) == ["test-skill"]
 
@@ -1177,7 +1195,7 @@ class TestSystemPromptModeInjection:
         await plugin.init_agent(agent)
         tool_context = _mock_tool_context(agent)
 
-        result = await plugin.activate_skill(skill_name="res-skill", tool_context=tool_context)
+        result = await plugin.manage_skills(action="activate", skill_name="res-skill", tool_context=tool_context)
 
         assert "scripts/run.py" in result
 

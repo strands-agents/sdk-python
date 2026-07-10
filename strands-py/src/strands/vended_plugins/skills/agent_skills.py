@@ -5,8 +5,8 @@ to add Agent Skills support. The plugin injects skill metadata into the system
 prompt and exposes tools for activating skills. Two ``injection_mode`` values
 control how a skill's full instructions reach the model: ``"tool"`` returns them
 as a tool result (progressive disclosure), while ``"system_prompt"`` injects the
-instructions of activated skills directly into the system prompt and exposes
-``activate_skill`` / ``deactivate_skill`` tools to toggle them.
+instructions of activated skills directly into the system prompt and exposes a
+``skills`` tool with ``activate`` / ``deactivate`` actions to toggle them.
 
 Filesystem skill sources are loaded through the agent's sandbox (host or
 container) at ``init_agent`` time, not at construction, so each agent sees the
@@ -56,8 +56,8 @@ SkillInjectionMode: TypeAlias = Literal["tool", "system_prompt"]
   returned on demand as the result of the ``skills`` tool (progressive disclosure).
 - ``"system_prompt"``: skill metadata is injected into the system prompt, and the full
   instructions of *activated* skills are injected directly into the system prompt. The agent
-  toggles skills with the ``activate_skill`` / ``deactivate_skill`` tools (or the matching
-  programmatic methods) instead of receiving instructions as a tool result.
+  toggles skills with the ``skills`` tool's ``activate`` / ``deactivate`` actions (or the
+  matching programmatic methods) instead of receiving instructions as a tool result.
 """
 
 _VALID_INJECTION_MODES: tuple[SkillInjectionMode, ...] = ("tool", "system_prompt")
@@ -103,8 +103,8 @@ class AgentSkills(Plugin):
     - ``"tool"`` (default): the agent calls the ``skills`` tool with a skill name and
       receives the full instructions as the tool result (progressive disclosure). This
       keeps the system prompt small and is ideal when many skills are available.
-    - ``"system_prompt"``: the agent calls ``activate_skill`` / ``deactivate_skill`` to
-      toggle skills on and off. Active skills have their full instructions injected
+    - ``"system_prompt"``: the agent calls the ``skills`` tool with an ``activate`` or
+      ``deactivate`` action to toggle skills on and off. Active skills have their full instructions injected
       directly into the system prompt, so the guidance persists across turns without
       re-reading a tool result. This suits long-running workflows where a skill should
       stay "loaded" for the remainder of the conversation.
@@ -163,8 +163,8 @@ class AgentSkills(Plugin):
             strict: If True, raise on skill validation issues. If False (default), warn and load anyway.
             injection_mode: How activated skill instructions reach the model. ``"tool"`` (default)
                 returns instructions as the result of the ``skills`` tool. ``"system_prompt"`` injects
-                the instructions of activated skills directly into the system prompt and exposes
-                ``activate_skill`` / ``deactivate_skill`` tools to toggle them.
+                the instructions of activated skills directly into the system prompt; the ``skills``
+                tool instead takes ``activate`` / ``deactivate`` actions to toggle them.
 
         Raises:
             ValueError: If ``injection_mode`` is not one of ``"tool"`` or ``"system_prompt"``.
@@ -184,10 +184,13 @@ class AgentSkills(Plugin):
         # instance can serve multiple agents without leaking references once an agent is collected.
         self._agent_skills: weakref.WeakKeyDictionary[Agent, dict[str, Skill]] = weakref.WeakKeyDictionary()
         super().__init__()
-        # Expose only the tools relevant to the active injection mode. ``tool`` mode uses the
-        # single ``skills`` tool (activate-and-return); ``system_prompt`` mode uses the
-        # ``activate_skill`` / ``deactivate_skill`` toggle tools.
-        self._tools = [t for t in self._tools if t.tool_name in self._tools_for_mode()]
+        # Both modes surface a single tool named ``skills``; only the variant matching the
+        # active injection mode is exposed. ``tool`` mode uses the activate-and-return variant
+        # (the ``skills`` method); ``system_prompt`` mode uses the action-based toggle variant
+        # (the ``manage_skills`` method, published under the ``skills`` tool name). The variants
+        # share a tool name, so filtering is by the defining method's name.
+        wanted_method = self._tool_method_for_mode()
+        self._tools = [t for t in self._tools if t.__name__ == wanted_method]
 
     async def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
@@ -232,65 +235,64 @@ class AgentSkills(Plugin):
         self._track_activated_skill(agent, skill_name)
         return await self._format_skill_response(found, agent.sandbox)
 
-    @tool(context=True)
-    async def activate_skill(self, skill_name: str, tool_context: ToolContext) -> str:
-        """Activate a skill so its full instructions are added to your system prompt.
+    @tool(name="skills", context=True)
+    async def manage_skills(
+        self,
+        action: Literal["activate", "deactivate"],
+        skill_name: str,
+        tool_context: ToolContext,
+    ) -> str:
+        """Activate or deactivate a skill.
 
-        Use this tool to load a skill listed in the available_skills section of your
-        system prompt. Once activated, the skill's complete instructions stay in your
-        system prompt for the rest of the conversation until you deactivate it.
-
-        Args:
-            skill_name: Name of the skill to activate.
-            tool_context: Injected by the framework. Not user-facing.
-        """
-        agent = tool_context.agent
-        skills = self._skills_for(agent)
-
-        if not skill_name:
-            available = ", ".join(skills)
-            return f"Error: skill_name is required. Available skills: {available}"
-
-        found = skills.get(skill_name)
-        if found is None:
-            available = ", ".join(skills)
-            return f"Skill '{skill_name}' not found. Available skills: {available}"
-
-        self.activate_skill_for(agent, skill_name)
-        logger.debug("skill_name=<%s> | skill activated (system_prompt mode)", skill_name)
-
-        parts = [f"Skill '{skill_name}' activated. Its instructions are now in your system prompt."]
-        if found.path is not None:
-            resources = await self._list_skill_resources(agent.sandbox, str(found.path))
-            if resources:
-                parts.append("Available resources:\n" + "\n".join(f"  {r}" for r in resources))
-        return "\n".join(parts)
-
-    @tool(context=True)
-    async def deactivate_skill(self, skill_name: str, tool_context: ToolContext) -> str:
-        """Deactivate a skill, removing its instructions from your system prompt.
-
-        Use this tool when a skill is no longer relevant to the task, to free up
-        context. Only skills previously activated with ``activate_skill`` can be
-        deactivated.
+        Activating a skill loads its complete instructions into your system prompt, where
+        they stay for the rest of the conversation until you deactivate it. Deactivate a
+        skill that is no longer relevant to remove its instructions and free up context.
 
         Args:
-            skill_name: Name of the skill to deactivate.
+            action: ``"activate"`` to load a skill's instructions into your system prompt,
+                ``"deactivate"`` to remove a previously activated skill's instructions.
+            skill_name: Name of the skill, as listed in the available_skills section of
+                your system prompt.
             tool_context: Injected by the framework. Not user-facing.
         """
         agent = tool_context.agent
 
-        if not skill_name:
-            active = ", ".join(self.get_activated_skills(agent))
-            return f"Error: skill_name is required. Active skills: {active}"
+        if action == "activate":
+            skills = self._skills_for(agent)
 
-        if skill_name not in self.get_activated_skills(agent):
-            active = ", ".join(self.get_activated_skills(agent))
-            return f"Skill '{skill_name}' is not active. Active skills: {active}"
+            if not skill_name:
+                available = ", ".join(skills)
+                return f"Error: skill_name is required. Available skills: {available}"
 
-        self.deactivate_skill_for(agent, skill_name)
-        logger.debug("skill_name=<%s> | skill deactivated (system_prompt mode)", skill_name)
-        return f"Skill '{skill_name}' deactivated. Its instructions were removed from your system prompt."
+            found = skills.get(skill_name)
+            if found is None:
+                available = ", ".join(skills)
+                return f"Skill '{skill_name}' not found. Available skills: {available}"
+
+            self.activate_skill_for(agent, skill_name)
+            logger.debug("skill_name=<%s> | skill activated (system_prompt mode)", skill_name)
+
+            parts = [f"Skill '{skill_name}' activated. Its instructions are now in your system prompt."]
+            if found.path is not None:
+                resources = await self._list_skill_resources(agent.sandbox, str(found.path))
+                if resources:
+                    parts.append("Available resources:\n" + "\n".join(f"  {r}" for r in resources))
+            return "\n".join(parts)
+
+        if action == "deactivate":
+            if not skill_name:
+                active = ", ".join(self.get_activated_skills(agent))
+                return f"Error: skill_name is required. Active skills: {active}"
+
+            if skill_name not in self.get_activated_skills(agent):
+                active = ", ".join(self.get_activated_skills(agent))
+                return f"Skill '{skill_name}' is not active. Active skills: {active}"
+
+            self.deactivate_skill_for(agent, skill_name)
+            logger.debug("skill_name=<%s> | skill deactivated (system_prompt mode)", skill_name)
+            return f"Skill '{skill_name}' deactivated. Its instructions were removed from your system prompt."
+
+        return f"Error: unknown action '{action}'. Valid actions: activate, deactivate"
 
     @hook
     async def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
@@ -347,7 +349,7 @@ class AgentSkills(Plugin):
         state_data = agent.state.get(self._state_key)
         last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
 
-        skills_xml = self._generate_injection_text(agent)
+        skills_xml = self._generate_skills_xml(agent)
         content = agent.system_prompt_content
 
         if content is not None:
@@ -592,8 +594,14 @@ class AgentSkills(Plugin):
         Otherwise includes a ``<location>`` element for skills loaded from the filesystem,
         following the AgentSkills.io integration spec.
 
+        In ``system_prompt`` mode, skills activated by the agent additionally carry an
+        ``active="true"`` attribute and an ``<instructions>`` element with their full body,
+        so the model can follow them directly from the system prompt. In ``tool`` mode the
+        output is the plain metadata listing.
+
         Args:
-            agent: When provided, lists that agent's full skill set; otherwise lists
+            agent: When provided, lists that agent's full skill set (and, in
+                ``system_prompt`` mode, renders its activation state); otherwise lists
                 only the base skills.
 
         Returns:
@@ -603,69 +611,11 @@ class AgentSkills(Plugin):
         if not skills:
             return "<available_skills>\nNo skills are currently available.\n</available_skills>"
 
-        lines: list[str] = ["<available_skills>"]
-
-        for skill in skills.values():
-            lines.append("<skill>")
-            lines.append(f"<name>{escape(skill.name)}</name>")
-            lines.append(f"<description>{escape(skill.description)}</description>")
-            if skill.path is not None:
-                lines.append(f"<location>{escape(str(skill.path / 'SKILL.md'))}</location>")
-            lines.append("</skill>")
-
-        lines.append("</available_skills>")
-        return "\n".join(lines)
-
-    def _tools_for_mode(self) -> tuple[str, ...]:
-        """Return the names of the tools exposed for the active injection mode.
-
-        Returns:
-            ``("skills",)`` for ``tool`` mode, or ``("activate_skill", "deactivate_skill")``
-            for ``system_prompt`` mode.
-        """
-        if self._injection_mode == "system_prompt":
-            return ("activate_skill", "deactivate_skill")
-        return ("skills",)
-
-    def _generate_injection_text(self, agent: Agent | None = None) -> str:
-        """Generate the system-prompt block for the active injection mode.
-
-        In ``tool`` mode this is the skill metadata listing (``_generate_skills_xml``). In
-        ``system_prompt`` mode it additionally embeds the full instructions of activated
-        skills so they persist in the system prompt across turns.
-
-        Args:
-            agent: When provided, uses that agent's full skill set and activation state;
-                otherwise uses only the base skills.
-
-        Returns:
-            The text block to inject into the system prompt.
-        """
-        if self._injection_mode != "system_prompt":
-            return self._generate_skills_xml(agent)
-        return self._generate_skills_xml_with_active(agent)
-
-    def _generate_skills_xml_with_active(self, agent: Agent | None) -> str:
-        """Generate the skills block including instructions for activated skills.
-
-        Each available skill is listed with its name and description (and location, if
-        loaded from the filesystem). Skills that are currently activated additionally
-        carry an ``active="true"`` attribute and an ``<instructions>`` element with their
-        full body, so the model can follow them directly from the system prompt.
-
-        Args:
-            agent: The agent whose skill set and activation state to render, or ``None``.
-
-        Returns:
-            XML-formatted string with skill metadata and activated-skill instructions.
-        """
-        skills = self._skills_for(agent)
-        if not skills:
-            return "<available_skills>\nNo skills are currently available.\n</available_skills>"
-
-        active = set(self.get_activated_skills(agent)) if agent is not None else set()
+        embed_instructions = self._injection_mode == "system_prompt" and agent is not None
+        active = set(self.get_activated_skills(agent)) if embed_instructions else set()
 
         lines: list[str] = ["<available_skills>"]
+
         for skill in skills.values():
             is_active = skill.name in active
             lines.append('<skill active="true">' if is_active else "<skill>")
@@ -676,13 +626,26 @@ class AgentSkills(Plugin):
             if is_active and skill.instructions:
                 lines.append(f"<instructions>\n{escape(skill.instructions)}\n</instructions>")
             lines.append("</skill>")
+
         lines.append("</available_skills>")
         return "\n".join(lines)
+
+    def _tool_method_for_mode(self) -> str:
+        """Return the name of the method backing the ``skills`` tool for the active mode.
+
+        Returns:
+            ``"skills"`` (activate-and-return) for ``tool`` mode, or ``"manage_skills"``
+            (action-based activate/deactivate) for ``system_prompt`` mode. Both are
+            published under the ``skills`` tool name.
+        """
+        if self._injection_mode == "system_prompt":
+            return "manage_skills"
+        return "skills"
 
     def activate_skill_for(self, agent: Agent, skill_name: str) -> None:
         """Activate a skill for an agent, persisting it in the activation list.
 
-        Programmatic counterpart to the ``activate_skill`` tool. In ``system_prompt`` mode
+        Programmatic counterpart to the ``skills`` tool's ``activate`` action. In ``system_prompt`` mode
         the skill's instructions are injected into the system prompt on the next model call.
         The change is recorded in ``agent.state`` and persists across runs via the session
         manager.
@@ -696,7 +659,7 @@ class AgentSkills(Plugin):
     def deactivate_skill_for(self, agent: Agent, skill_name: str) -> None:
         """Deactivate a skill for an agent, removing it from the activation list.
 
-        Programmatic counterpart to the ``deactivate_skill`` tool. Deactivating a skill that
+        Programmatic counterpart to the ``skills`` tool's ``deactivate`` action. Deactivating a skill that
         is not active is a no-op.
 
         Args:
