@@ -4,7 +4,7 @@ This implementation follows the behavioral spec defined in `strands-ts/src/middl
 
 ## Scope
 
-Only `InvokeModelStage` is implemented. `ExecuteToolStage` and `AgentStreamStage` will be added as needed.
+`InvokeModelStage` and `ExecuteToolStage` are implemented. `AgentStreamStage` will be added as needed.
 
 ## Result encoding
 
@@ -50,6 +50,55 @@ If we later want per-stage typed results (e.g., `InvokeModelResult` with named f
 instead of an opaque `.value`), those can derive from `MiddlewareResult`. Existing Output
 handlers that accept `MiddlewareResult` continue to work; new handlers can narrow to the
 subclass for typed access. This is a two-way door — no migration required.
+
+## Per-stage result types
+
+Each stage's result is the last event its chain yields. TypeScript wraps these in named
+result objects (`InvokeModelResult`, `ExecuteToolResult`); Python uses the underlying event
+directly, so there is no equivalent wrapper class:
+
+- `InvokeModelStage` → `ModelStopReason` (the last event from `stream_messages()`).
+- `ExecuteToolStage` → `ToolResultEvent` (the last event from tool execution). It already
+  carries both `tool_result` and `exception`, so a separate `ExecuteToolResult` is redundant.
+
+Short-circuiting a tool call yields a `ToolResultEvent` directly:
+```python
+async def cached(context, next_fn):
+    yield ToolResultEvent({"toolUseId": context.tool_use["toolUseId"], "status": "success", ...})
+```
+
+## Middleware-initiated interrupts (ExecuteToolStage)
+
+`ExecuteToolContext.interrupt(name, reason=..., response=...)` lets tool middleware gate
+execution behind a human-in-the-loop approval, mirroring the TS `MiddlewareInterruptible`
+contract. It returns a `MiddlewareInterruptResult` (a wrapper around `response`, kept for
+forward-compatibility with TS) on resume, and raises `InterruptException` on first call.
+
+`interrupt()` is **read-only** with respect to interrupt state — it inspects prior responses
+but never registers the interrupt itself. The tool executor's `InterruptException` handler is
+the single registration site. This matches TS, where middleware interrupts deliberately never
+write to interrupt state (unlike hook/tool interrupts, which self-register).
+
+A halted (or partially executed) tool call has no result, so interrupts must not be treated as
+the stage result:
+
+- **Middleware-initiated** (`context.interrupt()`) raises `InterruptException`, which unwinds
+  the chain past the Output adapter; `ToolExecutor._stream` catches it and registers the
+  interrupt.
+- **Tool-originated** (a `ToolInterruptEvent` from `tool.stream()`, including sub-agent
+  interrupts via `_AgentAsTool`) flows through the chain as a normal event. The Output adapter
+  skips any event exposing a truthy `is_interrupt` when picking the positional result, so it is
+  never mistaken for the result; `_stream` registers its interrupts and short-circuits.
+
+Either way `_stream` surfaces a single `ToolInterruptEvent` to the event loop. Only
+`ExecuteToolStage` supports interrupts — `InvokeModelStage` does not, matching TS (only
+`ExecuteToolContext` and `AgentStreamContext` are `MiddlewareInterruptible`).
+
+Interrupt IDs are `v1:middleware_execute_tool:<toolUseId>:<uuid5(name)>` — deterministic across
+resumes so a resumed response resolves the same interrupt. This follows Python's `v1:`
+interrupt-id scheme (`v1:tool_call:...`, `v1:before_tool_call:...`) and its convention of
+hashing the name with `uuid5`. (TS uses a different, unversioned literal — id *strings* are
+opaque per-SDK handles and are not compared across SDKs, so only the within-SDK scheme matters.)
 
 ## No removal / cleanup
 
