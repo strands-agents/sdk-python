@@ -16,15 +16,8 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { v7 as uuidv7 } from 'uuid'
 import { z } from 'zod'
-import {
-  Agent,
-  tool,
-  SessionManager,
-  FileStorage,
-  type Checkpoint,
-  type CheckpointData,
-  type Tool,
-} from '@strands-agents/sdk'
+import { Agent, tool, SessionManager, FileStorage, type Tool } from '@strands-agents/sdk'
+import { type Checkpoint, type CheckpointData } from '@strands-agents/sdk/experimental'
 import { bedrock } from './__fixtures__/model-providers.js'
 
 const SYSTEM_PROMPT =
