@@ -169,7 +169,6 @@ export interface ContextOffloaderConfig {
    * Number of agent loop cycles before an offloaded entry is evicted.
    * Entries stored more than this many cycles ago are deleted.
    * Defaults to 20. Set to `null` to disable eviction.
-   * Only applies to unified `Storage` backends — legacy backends manage their own eviction.
    */
   evictAfterCycles?: number | null
 }
@@ -183,15 +182,8 @@ export interface ContextOffloaderConfig {
  *
  * ## Eviction behavior
  *
- * How offloaded entries are evicted depends on the storage backend:
- *
- * - **Unified `Storage`** (from `@strands-agents/sdk/storage`): the plugin records the
- *   cycle count (from `agent.metrics.cycleCount`) when each key is stored. Entries stored
- *   more than `evictAfterCycles` cycles ago are deleted. Defaults to 20 cycles.
- *
- * - **Legacy offloader storage** (deprecated `InMemoryStorage` from this module): the storage
- *   manages its own turn-based eviction internally. Entries not accessed within
- *   `evictAfterTurns` model invocation cycles are automatically removed.
+ * Offloaded entries are evicted after `evictAfterCycles` agent loop cycles (default 20).
+ * This applies to both unified `Storage` backends and legacy offloader storage.
  *
  * @example
  * ```typescript
@@ -244,6 +236,12 @@ export class ContextOffloader implements Plugin {
   initAgent(agent: LocalAgent): void {
     if (this._storage instanceof LegacyInMemoryStorage) {
       this._storage._bind(agent)
+      if (
+        this._evictAfterCycles !== null &&
+        this._storage._evictAfterTurns === LegacyInMemoryStorage.DEFAULT_EVICT_AFTER_TURNS
+      ) {
+        this._storage._evictAfterTurns = this._evictAfterCycles
+      }
     }
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))

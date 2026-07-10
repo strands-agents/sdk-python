@@ -2,8 +2,7 @@ import type { Sandbox } from '../sandbox/base.js'
 import type { Storage } from './storage.js'
 
 import { StorageError } from '../errors.js'
-import { normalizeKey, normalizePrefix } from './normalize.js'
-import { namespace } from './namespaced-storage.js'
+import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 
 /**
  * Returns true if the error represents a missing or non-directory path (ENOENT or ENOTDIR).

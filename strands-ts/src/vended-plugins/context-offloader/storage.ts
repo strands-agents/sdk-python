@@ -85,7 +85,8 @@ export class InMemoryStorage implements Storage {
   private _store = new Map<string, { content: Uint8Array; contentType: string; lastAccessedCycle: number }>()
   private _counter = 0
   private _currentCycle = 0
-  private readonly _evictAfterTurns: number | null
+  /** @internal */
+  _evictAfterTurns: number | null
   private _boundAgent: WeakRef<object> | null = null
 
   static readonly DEFAULT_EVICT_AFTER_TURNS = 20

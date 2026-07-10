@@ -1,7 +1,6 @@
 import type { Storage } from './storage.js'
 
-import { normalizeKey, normalizePrefix } from './normalize.js'
-import { namespace } from './namespaced-storage.js'
+import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 
 /**
  * In-memory {@link Storage} backend backed by a `Map`.

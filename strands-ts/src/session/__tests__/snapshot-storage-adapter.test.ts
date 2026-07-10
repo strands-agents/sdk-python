@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { SnapshotStorageAdapter } from '../snapshot-storage-adapter.js'
 import { InMemoryStorage } from '../../storage/in-memory-storage.js'
-import { namespace } from '../../storage/namespaced-storage.js'
+import { namespace } from '../../storage/storage.js'
 import { SessionError } from '../../errors.js'
 import { createTestSnapshot, createTestManifest, createTestScope } from '../../__fixtures__/mock-storage-provider.js'
 import type { SnapshotLocation } from '../storage.js'

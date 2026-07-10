@@ -1,6 +1,6 @@
 import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Storage } from '../storage/storage.js'
-import { namespace } from '../storage/namespaced-storage.js'
+import { namespace } from '../storage/storage.js'
 import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
 import { validateIdentifier } from './validation.js'
 import type { SnapshotTriggerCallback } from './types.js'

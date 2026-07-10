@@ -1,8 +1,7 @@
 import type { Storage } from './storage.js'
 
 import { StorageError } from '../errors.js'
-import { normalizeKey, normalizePrefix } from './normalize.js'
-import { namespace } from './namespaced-storage.js'
+import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {

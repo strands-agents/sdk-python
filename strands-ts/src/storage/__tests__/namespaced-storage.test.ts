@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { InMemoryStorage } from '../in-memory-storage.js'
-import { namespace } from '../namespaced-storage.js'
+import { namespace } from '../storage.js'
 import type { Storage } from '../storage.js'
 
 describe('namespace', () => {
