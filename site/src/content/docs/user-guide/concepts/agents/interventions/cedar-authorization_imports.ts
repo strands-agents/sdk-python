@@ -24,6 +24,12 @@ import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/ced
 import { z } from 'zod'
 // --8<-- [end:schema_validation_imports]
 
+// --8<-- [start:namespace_imports]
+import { Agent, tool } from '@strands-agents/sdk'
+import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/cedar'
+import { z } from 'zod'
+// --8<-- [end:namespace_imports]
+
 // --8<-- [start:env_gating_imports]
 import { Agent, tool } from '@strands-agents/sdk'
 import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/cedar'

@@ -107,11 +107,12 @@ import { Tracer } from '../telemetry/tracer.js'
 import { AgentMetrics, Meter } from '../telemetry/meter.js'
 import type { AttributeValue } from '@opentelemetry/api'
 import { logger } from '../logging/logger.js'
-import { CancelledError } from '../errors.js'
+import { CancelledError, CheckpointError } from '../errors.js'
 import { DefaultModelRetryStrategy } from '../retry/default-model-retry-strategy.js'
 import type { RetryStrategy } from '../retry/retry-strategy.js'
 import { warnOnDuplicateRetryStrategyTypes } from '../retry/retry-strategy.js'
 import { Interrupt, InterruptError, InterruptState, interruptFromAgent } from '../interrupt.js'
+import { Checkpoint, type CheckpointPosition, type CheckpointResumeContent } from '../experimental/checkpoint.js'
 import type { InterruptParams } from '../types/interrupt.js'
 import { isInterruptResponseContent, type InterruptResponseContent } from '../types/interrupt.js'
 import { takeSnapshot as takeSnapshotInternal, loadSnapshot as loadSnapshotInternal } from './snapshot.js'
@@ -295,6 +296,19 @@ export type AgentConfig = {
    * Defaults to `'concurrent'`. See {@link ToolExecutorStrategy} for details.
    */
   toolExecutor?: ToolExecutorStrategy
+  /**
+   * When `true`, the agent loop pauses at cycle boundaries (`afterModel`,
+   * `afterTools`) and returns `stopReason: 'checkpoint'` with a populated
+   * `checkpoint` field. Resume by passing the checkpoint back as
+   * `{ checkpointResume: { checkpoint: ... } }`.
+   *
+   * The SDK does not capture conversation state in the checkpoint; pair with a
+   * `SessionManager` for cross-process state continuity. Defaults to `false`.
+   * See the experimental checkpoint module.
+   *
+   * @experimental
+   */
+  checkpointing?: boolean
   /**
    * Execution environment for running commands, code, and file operations.
    * When provided, sandbox-aware tools route operations through it.
@@ -480,6 +494,8 @@ export class Agent implements LocalAgent, InvokableAgent {
   _interruptState: InterruptState
   /** Strategy for executing tool calls from a single assistant turn. */
   private readonly _toolExecutor: ToolExecutorStrategy
+  /** When true, the agent loop pauses at cycle boundaries for durable execution. */
+  private readonly _checkpointing: boolean
   /** Direct tool caller — created via {@link ToolCaller.create} factory. */
   private readonly _toolCaller: ToolCallerProxy
 
@@ -606,6 +622,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this._interruptState = new InterruptState()
 
     this._toolExecutor = config?.toolExecutor ?? 'concurrent'
+    this._checkpointing = config?.checkpointing ?? false
     // Pass a private helper into ToolCaller so message append + hook firing
     // remains an internal concern of Agent (not exposed as a public method).
     this._toolCaller = ToolCaller.create(this, (message, invocationState) =>
@@ -939,7 +956,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   /**
    * Cancels the current agent invocation cooperatively.
    *
-   * The agent will stop at the next cancellation checkpoint:
+   * The agent will stop at the next cancellation-safe point:
    * - During model response streaming
    * - Before tool execution
    * - Between sequential tool executions
@@ -1368,6 +1385,22 @@ export class Agent implements LocalAgent, InvokableAgent {
 
     this._validateLimits(options)
 
+    // Checkpoint resume: consume a { checkpointResume: { checkpoint } } arg.
+    // On resume we append no new input and re-derive the cycle position from the
+    // checkpoint. `cycleIndex` and `resumePosition` are loop-local, so a stale
+    // position never leaks from a prior invocation.
+    const resumeCheckpoint = this._extractCheckpointResume(args)
+    let cycleIndex = 0
+    let resumePosition: CheckpointPosition | undefined
+    if (resumeCheckpoint) {
+      // afterTools means the cycle finished; the next afterModel checkpoint
+      // belongs to the following cycle.
+      cycleIndex =
+        resumeCheckpoint.position === 'afterTools' ? resumeCheckpoint.cycleIndex + 1 : resumeCheckpoint.cycleIndex
+      resumePosition = resumeCheckpoint.position
+      currentArgs = undefined
+    }
+
     // Resolve structured output schema from per-invocation options or constructor config
     const structuredOutputSchema = options?.structuredOutputSchema ?? this._structuredOutputSchema
     const structuredOutputTool = structuredOutputSchema ? new StructuredOutputTool(structuredOutputSchema) : undefined
@@ -1526,6 +1559,30 @@ export class Agent implements LocalAgent, InvokableAgent {
               return result
             }
 
+            // afterModel checkpoint: model returned tool use, tools have not run
+            // yet. Skipped when resuming from an afterModel checkpoint: the
+            // assistant tool-use message was not persisted (deferred append), so
+            // this cycle re-invoked the model to regenerate it — now fall through
+            // to run the tools. Cancel wins — the isCancelled branch above returns
+            // before we reach here.
+            if (this._checkpointing) {
+              const priorResumePosition = resumePosition
+              resumePosition = undefined
+              if (priorResumePosition !== 'afterModel') {
+                this._meter.endCycle(cycleStartTime)
+                this._tracer.endAgentLoopSpan(cycleSpan)
+                result = new AgentResult({
+                  stopReason: 'checkpoint',
+                  lastMessage: modelResult.message,
+                  traces: this._tracer.localTraces,
+                  metrics: this._meter.metrics,
+                  invocationState,
+                  checkpoint: new Checkpoint({ position: 'afterModel', cycleIndex }),
+                })
+                return result
+              }
+            }
+
             assistantMessage = modelResult.message
           }
 
@@ -1596,6 +1653,22 @@ export class Agent implements LocalAgent, InvokableAgent {
               structuredOutput,
               metrics: this._meter.metrics,
               invocationState,
+            })
+            return result
+          }
+
+          // afterTools checkpoint: tools finished, next model call pending. Placed
+          // after the endTurn / structured-output returns so it only fires when the
+          // loop would continue. Cancel wins: skip when cancelled and let the next
+          // iteration's cancellation check return `cancelled`.
+          if (this._checkpointing && !this.isCancelled) {
+            result = new AgentResult({
+              stopReason: 'checkpoint',
+              lastMessage: assistantMessage,
+              traces: this._tracer.localTraces,
+              metrics: this._meter.metrics,
+              invocationState,
+              checkpoint: new Checkpoint({ position: 'afterTools', cycleIndex }),
             })
             return result
           }
@@ -1739,6 +1812,35 @@ export class Agent implements LocalAgent, InvokableAgent {
     }
 
     return responses
+  }
+
+  /**
+   * Consumes a `{ checkpointResume: { checkpoint } }` invocation argument,
+   * returning the reconstructed {@link Checkpoint} or `undefined` when the args
+   * are not a checkpoint-resume payload.
+   *
+   * @throws CheckpointError if a checkpointResume block is passed but the agent
+   *   was created with `checkpointing: false`, if the block is missing its
+   *   `checkpoint` key, or if the checkpoint schema version is incompatible.
+   */
+  private _extractCheckpointResume(args: InvokeArgs): Checkpoint | undefined {
+    if (typeof args !== 'object' || args === null || Array.isArray(args) || !('checkpointResume' in args)) {
+      return undefined
+    }
+
+    if (!this._checkpointing) {
+      throw new CheckpointError(
+        'Received a checkpointResume block but the agent was created with checkpointing: false. ' +
+          'Pass checkpointing: true when constructing the Agent.'
+      )
+    }
+
+    const payload = (args as CheckpointResumeContent).checkpointResume
+    if (typeof payload !== 'object' || payload === null || !('checkpoint' in payload)) {
+      throw new CheckpointError('The checkpointResume block is missing its required "checkpoint" key.')
+    }
+
+    return Checkpoint.fromJSON(payload.checkpoint)
   }
 
   /**
