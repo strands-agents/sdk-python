@@ -6,7 +6,7 @@ type BedrockCacheTTL =
 };
 ```
 
-Defined in: [src/models/bedrock.ts:144](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/bedrock.ts#L144)
+Defined in: [src/models/bedrock.ts:144](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/models/bedrock.ts#L144)
 
 TTL durations accepted by Bedrock for prompt-cache checkpoints.
 

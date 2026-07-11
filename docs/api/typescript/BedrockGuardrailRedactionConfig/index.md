@@ -1,4 +1,4 @@
-Defined in: [src/models/bedrock.ts:162](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/bedrock.ts#L162)
+Defined in: [src/models/bedrock.ts:162](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/models/bedrock.ts#L162)
 
 Redaction configuration for Bedrock guardrails. Controls whether and how blocked content is replaced.
 
@@ -10,7 +10,7 @@ Redaction configuration for Bedrock guardrails. Controls whether and how blocked
 optional input?: boolean;
 ```
 
-Defined in: [src/models/bedrock.ts:164](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/bedrock.ts#L164)
+Defined in: [src/models/bedrock.ts:164](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/models/bedrock.ts#L164)
 
 Redact input when blocked.
 
@@ -28,7 +28,7 @@ true
 optional inputMessage?: string;
 ```
 
-Defined in: [src/models/bedrock.ts:167](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/bedrock.ts#L167)
+Defined in: [src/models/bedrock.ts:167](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/models/bedrock.ts#L167)
 
 Replacement message for redacted input.
 
@@ -46,7 +46,7 @@ Replacement message for redacted input.
 optional output?: boolean;
 ```
 
-Defined in: [src/models/bedrock.ts:170](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/bedrock.ts#L170)
+Defined in: [src/models/bedrock.ts:170](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/models/bedrock.ts#L170)
 
 Redact output when blocked.
 
@@ -64,7 +64,7 @@ false
 optional outputMessage?: string;
 ```
 
-Defined in: [src/models/bedrock.ts:173](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/models/bedrock.ts#L173)
+Defined in: [src/models/bedrock.ts:173](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/models/bedrock.ts#L173)
 
 Replacement message for redacted output.
 

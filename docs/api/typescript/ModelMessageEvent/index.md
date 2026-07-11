@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:596](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L596)
+Defined in: [src/hooks/events.ts:596](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L596)
 
 Event triggered when the model completes a full message. Wraps the assembled message and stop reason after model streaming finishes.
 
@@ -14,7 +14,7 @@ Event triggered when the model completes a full message. Wraps the assembled mes
 new ModelMessageEvent(data): ModelMessageEvent;
 ```
 
-Defined in: [src/hooks/events.ts:603](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L603)
+Defined in: [src/hooks/events.ts:603](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L603)
 
 #### Parameters
 
@@ -42,7 +42,7 @@ Defined in: [src/hooks/events.ts:603](https://github.com/strands-agents/harness-
 readonly type: "modelMessageEvent";
 ```
 
-Defined in: [src/hooks/events.ts:597](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L597)
+Defined in: [src/hooks/events.ts:597](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L597)
 
 ---
 
@@ -52,7 +52,7 @@ Defined in: [src/hooks/events.ts:597](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:598](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L598)
+Defined in: [src/hooks/events.ts:598](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L598)
 
 ---
 
@@ -62,7 +62,7 @@ Defined in: [src/hooks/events.ts:598](https://github.com/strands-agents/harness-
 readonly message: Message;
 ```
 
-Defined in: [src/hooks/events.ts:599](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L599)
+Defined in: [src/hooks/events.ts:599](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L599)
 
 ---
 
@@ -72,7 +72,7 @@ Defined in: [src/hooks/events.ts:599](https://github.com/strands-agents/harness-
 readonly stopReason: StopReason;
 ```
 
-Defined in: [src/hooks/events.ts:600](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L600)
+Defined in: [src/hooks/events.ts:600](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L600)
 
 ---
 
@@ -82,7 +82,7 @@ Defined in: [src/hooks/events.ts:600](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:601](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L601)
+Defined in: [src/hooks/events.ts:601](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L601)
 
 ## Methods
 
@@ -92,7 +92,7 @@ Defined in: [src/hooks/events.ts:601](https://github.com/strands-agents/harness-
 toJSON(): Pick<ModelMessageEvent, "type" | "message" | "stopReason">;
 ```
 
-Defined in: [src/hooks/events.ts:615](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L615)
+Defined in: [src/hooks/events.ts:615](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L615)
 
 Serializes for wire transport, excluding the agent reference and invocationState. Called automatically by JSON.stringify().
 

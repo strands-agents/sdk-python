@@ -4,7 +4,7 @@ type McpTransport = Omit<Transport, "sessionId"> & {
 };
 ```
 
-Defined in: [src/mcp/client.ts:29](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/mcp/client.ts#L29)
+Defined in: [src/mcp/client.ts:29](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/mcp/client.ts#L29)
 
 Widened transport type that accepts MCP transport implementations without requiring explicit casts.
 
@@ -14,4 +14,4 @@ Under `exactOptionalPropertyTypes`, `StreamableHTTPClientTransport` is not direc
 
 | Name | Type | Defined in |
 | --- | --- | --- |
-| `sessionId?` | `string` | [src/mcp/client.ts:29](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/mcp/client.ts#L29) |
+| `sessionId?` | `string` | [src/mcp/client.ts:29](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/mcp/client.ts#L29) |

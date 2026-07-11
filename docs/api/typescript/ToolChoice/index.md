@@ -13,7 +13,7 @@ type ToolChoice =
 };
 ```
 
-Defined in: [src/tools/types.ts:67](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/tools/types.ts#L67)
+Defined in: [src/tools/types.ts:67](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/tools/types.ts#L67)
 
 Specifies how the model should choose which tool to use.
 

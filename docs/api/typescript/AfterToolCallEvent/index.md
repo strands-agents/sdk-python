@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:318](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L318)
+Defined in: [src/hooks/events.ts:318](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L318)
 
 Event triggered after a tool execution completes. Fired after tool execution finishes, whether successful or failed. Uses reverse callback ordering for proper cleanup semantics.
 
@@ -16,7 +16,7 @@ Hook callbacks can mutate [result](#result) to rewrite the tool result before it
 new AfterToolCallEvent(data): AfterToolCallEvent;
 ```
 
-Defined in: [src/hooks/events.ts:339](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L339)
+Defined in: [src/hooks/events.ts:339](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L339)
 
 #### Parameters
 
@@ -46,7 +46,7 @@ Defined in: [src/hooks/events.ts:339](https://github.com/strands-agents/harness-
 readonly type: "afterToolCallEvent";
 ```
 
-Defined in: [src/hooks/events.ts:319](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L319)
+Defined in: [src/hooks/events.ts:319](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L319)
 
 ---
 
@@ -56,7 +56,7 @@ Defined in: [src/hooks/events.ts:319](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:320](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L320)
+Defined in: [src/hooks/events.ts:320](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L320)
 
 ---
 
@@ -66,7 +66,7 @@ Defined in: [src/hooks/events.ts:320](https://github.com/strands-agents/harness-
 readonly toolUse: ToolUseData;
 ```
 
-Defined in: [src/hooks/events.ts:321](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L321)
+Defined in: [src/hooks/events.ts:321](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L321)
 
 ---
 
@@ -76,7 +76,7 @@ Defined in: [src/hooks/events.ts:321](https://github.com/strands-agents/harness-
 readonly tool: Tool;
 ```
 
-Defined in: [src/hooks/events.ts:322](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L322)
+Defined in: [src/hooks/events.ts:322](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L322)
 
 ---
 
@@ -86,7 +86,7 @@ Defined in: [src/hooks/events.ts:322](https://github.com/strands-agents/harness-
 result: ToolResultBlock;
 ```
 
-Defined in: [src/hooks/events.ts:328](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L328)
+Defined in: [src/hooks/events.ts:328](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L328)
 
 The tool result. Can be replaced by hook callbacks to transform the result before it enters the conversation history.
 
@@ -98,7 +98,7 @@ The tool result. Can be replaced by hook callbacks to transform the result befor
 readonly optional error?: Error;
 ```
 
-Defined in: [src/hooks/events.ts:330](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L330)
+Defined in: [src/hooks/events.ts:330](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L330)
 
 ---
 
@@ -108,7 +108,7 @@ Defined in: [src/hooks/events.ts:330](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:331](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L331)
+Defined in: [src/hooks/events.ts:331](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L331)
 
 ---
 
@@ -118,7 +118,7 @@ Defined in: [src/hooks/events.ts:331](https://github.com/strands-agents/harness-
 optional retry?: boolean;
 ```
 
-Defined in: [src/hooks/events.ts:337](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L337)
+Defined in: [src/hooks/events.ts:337](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L337)
 
 Optional flag that can be set by hook callbacks to request a retry of the tool call. When set to true, the agent will re-execute the tool.
 
@@ -134,7 +134,7 @@ toJSON(): Pick<AfterToolCallEvent, "toolUse" | "type" | "result"> & {
 };
 ```
 
-Defined in: [src/hooks/events.ts:367](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/hooks/events.ts#L367)
+Defined in: [src/hooks/events.ts:367](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/hooks/events.ts#L367)
 
 Serializes for wire transport, excluding the agent reference, tool instance, invocationState, and mutable retry flag. Converts Error to an extensible object for safe wire serialization. Called automatically by JSON.stringify().
 

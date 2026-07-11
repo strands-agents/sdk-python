@@ -1,4 +1,4 @@
-Defined in: [src/memory/types.ts:101](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L101)
+Defined in: [src/memory/types.ts:101](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L101)
 
 Interface for a memory store backend.
 
@@ -16,7 +16,7 @@ Extends [MemoryStoreConfig](/docs/api/typescript/MemoryStoreConfig/index.md) wit
 readonly name: string;
 ```
 
-Defined in: [src/memory/types.ts:63](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L63)
+Defined in: [src/memory/types.ts:63](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L63)
 
 Identifier for this store, used to target specific stores in search/add tools. Must be unique.
 
@@ -32,7 +32,7 @@ Identifier for this store, used to target specific stores in search/add tools. M
 readonly optional description?: string;
 ```
 
-Defined in: [src/memory/types.ts:65](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L65)
+Defined in: [src/memory/types.ts:65](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L65)
 
 Human-readable description of what this store contains. Included in tool descriptions.
 
@@ -48,7 +48,7 @@ Human-readable description of what this store contains. Included in tool descrip
 readonly optional maxSearchResults?: number;
 ```
 
-Defined in: [src/memory/types.ts:70](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L70)
+Defined in: [src/memory/types.ts:70](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L70)
 
 Default maximum number of results this store returns per search, used when a caller does not pass a per-call `maxSearchResults`.
 
@@ -64,7 +64,7 @@ Default maximum number of results this store returns per search, used when a cal
 readonly optional extraction?: boolean | ExtractionConfig;
 ```
 
-Defined in: [src/memory/types.ts:90](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L90)
+Defined in: [src/memory/types.ts:90](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L90)
 
 Automatic-extraction config for this writable store, as a `boolean | config` shorthand. `true` enables it with defaults; an [ExtractionConfig](/docs/api/typescript/ExtractionConfig/index.md) defaults any unset field; `false`/omitted is off.
 
@@ -88,7 +88,7 @@ false
 readonly writable: boolean;
 ```
 
-Defined in: [src/memory/types.ts:108](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L108)
+Defined in: [src/memory/types.ts:108](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L108)
 
 Whether this store accepts writes.
 
@@ -107,7 +107,7 @@ Whether this store accepts writes.
 search(query, options?): Promise<MemoryEntry[]>;
 ```
 
-Defined in: [src/memory/types.ts:110](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L110)
+Defined in: [src/memory/types.ts:110](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L110)
 
 Search the store for entries matching the query, ordered by relevance.
 
@@ -130,7 +130,7 @@ Search the store for entries matching the query, ordered by relevance.
 optional add(content, metadata?): Promise<unknown>;
 ```
 
-Defined in: [src/memory/types.ts:127](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L127)
+Defined in: [src/memory/types.ts:127](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L127)
 
 Add a single piece of content to the store. Used by the `add_memory` tool, the programmatic MemoryManager.add, and by extraction when an [ExtractionConfig.extractor](/docs/api/typescript/ExtractionConfig/index.md#extractor) produces discrete entries (an extraction config with an extractor requires this method).
 
@@ -159,7 +159,7 @@ The resolved value is store-specific (e.g. a created record id or a write receip
 optional addMessages(messages, context?): Promise<unknown>;
 ```
 
-Defined in: [src/memory/types.ts:147](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L147)
+Defined in: [src/memory/types.ts:147](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L147)
 
 Ingest a batch of conversation messages, preserving their role structure. This is the sink for automatic extraction that does not distill facts client-side: the manager hands the filtered [MessageData](/docs/api/typescript/MessageData/index.md) batch straight here in one call — no serialization, no model call. Backends that turn raw turns into memory themselves (e.g. role-aware conversational APIs that summarize server-side) implement this so the user/assistant structure survives. A store using extraction implements this method, unless it configures an [ExtractionConfig.extractor](/docs/api/typescript/ExtractionConfig/index.md#extractor) (which produces discrete entries written via [add](#add) instead).
 
@@ -186,7 +186,7 @@ A store scopes its writes (e.g. by tenant or namespace) through its own configur
 optional initialize(): Promise<void>;
 ```
 
-Defined in: [src/memory/types.ts:154](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L154)
+Defined in: [src/memory/types.ts:154](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L154)
 
 Perform async setup that must succeed before the agent runs.
 
@@ -204,7 +204,7 @@ Called by the [MemoryManager](/docs/api/typescript/MemoryManager/index.md) durin
 optional getTools(): Tool[];
 ```
 
-Defined in: [src/memory/types.ts:163](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/memory/types.ts#L163)
+Defined in: [src/memory/types.ts:163](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/memory/types.ts#L163)
 
 Returns store-specific tools to register with the agent, through a [MemoryManager](/docs/api/typescript/MemoryManager/index.md). Registers tools alongside `search_memory` / `add_memory` tools if enabled on the [MemoryManager](/docs/api/typescript/MemoryManager/index.md). Implement to expose backend-specific capabilities (e.g. a store-native query tool). Optional, mirrors [Plugin.getTools](/docs/api/typescript/Plugin/index.md#gettools).
 

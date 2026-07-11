@@ -681,6 +681,7 @@
 
 ## Blog
 
+- [Introducing Harness Optimizer: Automatically optimize your agent harness](https://strandsagents.com/blog/introducing-harness-optimizer/index.md)
 - [Reduced cost, better isolation, and more resilience: Strands Agents evolves next-gen capabilities](https://strandsagents.com/blog/reduced-cost-better-isolation-more-resilience/index.md)
 - [Inside Agentic Football Cup: 10 Strands Agents, 1 Second to Decide](https://strandsagents.com/blog/inside-agentic-football-cup/index.md)
 - [Multimodal evaluators: MLLM-as-a-judge for image-to-text tasks in Strands Evals](https://strandsagents.com/blog/multimodal-evaluators-mllm-as-a-judge-image-to-text-strands-evals/index.md)

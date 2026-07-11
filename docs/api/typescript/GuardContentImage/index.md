@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:853](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L853)
+Defined in: [src/types/messages.ts:853](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/types/messages.ts#L853)
 
 Image content to be evaluated by guardrails.
 
@@ -10,7 +10,7 @@ Image content to be evaluated by guardrails.
 format: GuardImageFormat;
 ```
 
-Defined in: [src/types/messages.ts:857](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L857)
+Defined in: [src/types/messages.ts:857](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/types/messages.ts#L857)
 
 Image format.
 
@@ -22,6 +22,6 @@ Image format.
 source: GuardImageSource;
 ```
 
-Defined in: [src/types/messages.ts:862](https://github.com/strands-agents/harness-sdk/blob/dad124e5b0c50916073da7d22f040371c09628ef/strands-ts/src/types/messages.ts#L862)
+Defined in: [src/types/messages.ts:862](https://github.com/strands-agents/harness-sdk/blob/e579bdedc73f07ea3b980a1268c57585bf984fe3/strands-ts/src/types/messages.ts#L862)
 
 Image source (bytes only).
