@@ -7,13 +7,14 @@ from strands.telemetry import StrandsTelemetry
 
 
 @pytest.fixture(autouse=True)
-def _clear_otel_sdk_disabled(monkeypatch):
-    """Keep tests independent of an ambient OTEL_SDK_DISABLED env var.
+def _clear_telemetry_disabled_env(monkeypatch):
+    """Keep tests independent of ambient telemetry-disable env vars.
 
-    Tests that exercise the disabled path set it explicitly via monkeypatch; the
-    rest must see it unset so they observe the default-enabled behavior.
+    Tests that exercise the disabled path set one explicitly via monkeypatch; the
+    rest must see them unset so they observe the default-enabled behavior.
     """
-    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
+    for name in telemetry_config._DISABLE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
@@ -243,11 +244,12 @@ def test_get_otel_resource_respects_otel_service_name(monkeypatch):
     assert resource.attributes.get("service.name") == "my-service"
 
 
+@pytest.mark.parametrize("disable_var", ["OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED"])
 def test_init_disabled_via_env(
-    monkeypatch, mock_resource, mock_tracer_provider, mock_set_tracer_provider, mock_set_global_textmap
+    disable_var, monkeypatch, mock_resource, mock_tracer_provider, mock_set_tracer_provider, mock_set_global_textmap
 ):
-    """OTEL_SDK_DISABLED=true makes StrandsTelemetry skip global provider registration (#1059)."""
-    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+    """Any disable env var makes StrandsTelemetry skip global provider registration (#1059)."""
+    monkeypatch.setenv(disable_var, "true")
 
     telemetry = StrandsTelemetry()
 
@@ -327,6 +329,7 @@ def test_disabled_setup_methods_are_noops(
     mock_metrics_api.set_meter_provider.assert_not_called()
 
 
+@pytest.mark.parametrize("var", ["OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED"])
 @pytest.mark.parametrize(
     "value, expected_disabled",
     [
@@ -340,13 +343,14 @@ def test_disabled_setup_methods_are_noops(
         ("yes", False),
     ],
 )
-def test_otel_sdk_disabled_env_parsing(monkeypatch, value, expected_disabled):
-    """OTEL_SDK_DISABLED is parsed case-insensitively/trimmed; only 'true' disables."""
-    monkeypatch.setenv("OTEL_SDK_DISABLED", value)
-    assert telemetry_config._otel_sdk_disabled() is expected_disabled
+def test_telemetry_disabled_env_parsing(monkeypatch, var, value, expected_disabled):
+    """Each disable var is parsed case-insensitively/trimmed; only 'true' disables."""
+    monkeypatch.setenv(var, value)
+    assert telemetry_config._telemetry_disabled() is expected_disabled
 
 
-def test_otel_sdk_disabled_absent_is_enabled(monkeypatch):
-    """With OTEL_SDK_DISABLED unset, instrumentation defaults to enabled."""
-    monkeypatch.delenv("OTEL_SDK_DISABLED", raising=False)
-    assert telemetry_config._otel_sdk_disabled() is False
+def test_telemetry_disabled_absent_is_enabled(monkeypatch):
+    """With no disable var set, instrumentation defaults to enabled."""
+    for name in telemetry_config._DISABLE_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    assert telemetry_config._telemetry_disabled() is False

@@ -44,13 +44,17 @@ def get_otel_resource() -> Resource:
     return resource
 
 
-def _otel_sdk_disabled() -> bool:
-    """Return True when the OTel-standard ``OTEL_SDK_DISABLED`` env var is set.
+# Environment variables that, when set to the (case-insensitive) string "true",
+# disable Strands telemetry. ``OTEL_SDK_DISABLED`` is the OpenTelemetry-standard
+# flag; ``STRANDS_OTEL_DISABLED`` / ``STRANDS_TELEMETRY_DISABLED`` are
+# Strands-specific escape hatches so a host that owns its own OpenTelemetry setup
+# can silence Strands without touching the OTel-standard variable (#1059).
+_DISABLE_ENV_VARS = ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED")
 
-    Mirrors the OpenTelemetry specification: the SDK is treated as disabled when
-    ``OTEL_SDK_DISABLED`` is set to the (case-insensitive) string ``"true"``.
-    """
-    return os.environ.get("OTEL_SDK_DISABLED", "").strip().lower() == "true"
+
+def _telemetry_disabled() -> bool:
+    """Return True when any Strands telemetry disable env var is set to ``"true"``."""
+    return any(os.environ.get(name, "").strip().lower() == "true" for name in _DISABLE_ENV_VARS)
 
 
 class StrandsTelemetry:
@@ -69,10 +73,15 @@ class StrandsTelemetry:
         - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint URL
         - OTEL_EXPORTER_OTLP_HEADERS: Headers for OTLP requests
         - OTEL_SERVICE_NAME: Overrides resource service name
-        - OTEL_SDK_DISABLED: When set to "true", Strands does not register a
-          global tracer/meter provider and the setup_* methods are no-ops, so the
-          host application's OpenTelemetry setup (if any) is left untouched. The
-          ``enabled`` constructor argument takes precedence when provided.
+        - OTEL_SDK_DISABLED / STRANDS_OTEL_DISABLED / STRANDS_TELEMETRY_DISABLED:
+          When any is set to "true", Strands does not register a global
+          tracer/meter provider and the setup_* methods are no-ops, so the host
+          application's OpenTelemetry setup (if any) is left untouched. The same
+          flags also make ``Tracer`` emit through a no-op provider regardless of
+          the global provider (see ``telemetry.tracer``). ``OTEL_SDK_DISABLED`` is
+          the OpenTelemetry-standard flag; the ``STRANDS_*`` variants let a host
+          that owns OTel silence Strands without touching the standard variable.
+          The ``enabled`` constructor argument takes precedence when provided.
 
     Examples:
         Quick setup with method chaining:
@@ -122,7 +131,7 @@ class StrandsTelemetry:
         The instance is ready to use immediately after initialization, though
         trace exporters must be configured separately using the setup methods.
         """
-        self.enabled = (not _otel_sdk_disabled()) if enabled is None else enabled
+        self.enabled = (not _telemetry_disabled()) if enabled is None else enabled
         self.resource = get_otel_resource()
         self.tracer_provider: SDKTracerProvider | None
         if not self.enabled:
