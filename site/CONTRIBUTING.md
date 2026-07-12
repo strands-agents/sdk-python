@@ -49,7 +49,7 @@ Pre-commit hooks run these automatically.
 
 ### Sync Docs with Source Code Updates
 
-After merging source code changes, run 
+After merging source code changes, run
 
 ```bash
 npm run sdk:sync

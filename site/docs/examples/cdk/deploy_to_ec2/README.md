@@ -81,7 +81,7 @@ curl -X POST \
   http://$SERVICE_URL/weather \
   -H 'Content-Type: application/json' \
   -d '{"prompt": "What is the weather in New York?"}'
-  
+
  # Call the streaming endpoint
  curl -X POST \
   http://$SERVICE_URL/weather-streaming \
