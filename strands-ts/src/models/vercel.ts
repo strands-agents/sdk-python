@@ -160,6 +160,7 @@ export class VercelModel extends Model<VercelModelConfig> {
 
     const reader = result.stream.getReader()
     const incrementalToolCallIds = new Set<string>()
+    let sawToolUse = false
     try {
       while (true) {
         let readResult
@@ -172,12 +173,30 @@ export class VercelModel extends Model<VercelModelConfig> {
         if (done) break
         if (value.type === 'tool-input-start') {
           incrementalToolCallIds.add(value.id)
+          // Only client-executed tool calls need the agent to run them; provider-executed calls
+          // were already handled by the provider, so they must not drive the promotion below.
+          if (value.providerExecuted !== true) {
+            sawToolUse = true
+          }
         }
         // Skip complete tool-call events when we already received incremental tool-input-* events for the same call
         if (value.type === 'tool-call' && incrementalToolCallIds.has(value.toolCallId)) {
           continue
         }
-        yield* mapStreamPart(value)
+        if (value.type === 'tool-call' && value.providerExecuted !== true) {
+          sawToolUse = true
+        }
+        for (const event of mapStreamPart(value)) {
+          // Some community providers (e.g. ai-sdk-ollama) stream tool-call blocks but still report
+          // finish_reason "stop", which maps to endTurn and would leave the agent skipping tool
+          // execution. Decide from the streamed content, not just the provider's finish label: if any
+          // client tool use was emitted, promote the terminating endTurn to toolUse. See #3185.
+          if (event.type === 'modelMessageStopEvent' && sawToolUse && event.stopReason === 'endTurn') {
+            yield new ModelMessageStopEvent({ ...event, stopReason: 'toolUse' })
+          } else {
+            yield event
+          }
+        }
       }
     } finally {
       reader.releaseLock()
