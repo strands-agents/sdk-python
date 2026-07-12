@@ -428,6 +428,26 @@ const typeValues = [DOC_TYPE_USER, DOC_TYPE_API_PYTHON, DOC_TYPE_API_TYPESCRIPT,
     font-family: var(--__sl-font);
   }
 
+  /* On mobile, collapse the trigger to an icon-only button (like Starlight's
+     default search) so the header row — logo | search | nav dropdown — fits
+     narrow viewports without pushing the nav dropdown under the fixed
+     sidebar menu button. 50rem matches the header's mobile/desktop switch. */
+  @media (max-width: 49.99rem) {
+    .search-wrapper starlight-pagefind-search,
+    .search-wrapper pagefind-modal-trigger {
+      width: auto;
+    }
+    .pf-trigger-btn {
+      width: 40px !important;
+      justify-content: center !important;
+      padding-inline: 0 !important;
+    }
+    .pf-trigger-text,
+    .pf-trigger-key {
+      display: none !important;
+    }
+  }
+
   /* Search input — match the reference's taller, green-bordered input. */
   .pf-input {
     height: 51px !important;
