@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
 import { getLanguageSwitchTarget } from '../src/util/language-switch'
+import { buildApiCounterpartMap } from '../src/util/api-counterparts'
 
 describe('getLanguageSwitchTarget', () => {
   const docIds = new Set([
@@ -63,12 +64,14 @@ describe('getLanguageSwitchTarget', () => {
     it('every language-paired page resolves to an existing page in the other language', async () => {
       const docs = await getCollection('docs')
       const ids = new Set(docs.map((doc) => doc.id))
+      const counterparts = buildApiCounterpartMap(docs.map((doc) => ({ id: doc.id, body: doc.body })))
 
       const broken: string[] = []
       for (const doc of docs) {
         for (const target of ['python', 'typescript'] as const) {
-          const result = getLanguageSwitchTarget(`/${doc.id}/`, target, ids)
-          if (result && !ids.has(result.replace(/^\/|\/$/g, ''))) {
+          const result = getLanguageSwitchTarget(`/${doc.id}/`, target, ids, counterparts)
+          const resultSlug = result?.replace(/^\//, '').replace(/\/(#.*)?$/, '')
+          if (resultSlug && !ids.has(resultSlug)) {
             broken.push(`${doc.id} -> ${result}`)
           }
         }
@@ -83,6 +86,7 @@ describe('getLanguageSwitchTarget', () => {
 
       // The bug this guards against: /docs/api/python/strands.agent.a2a_agent/
       // naively swapped to /docs/api/typescript/strands.agent.a2a_agent/ (404).
+      // Without a counterpart map the switch lands on the section index.
       const target = getLanguageSwitchTarget('/docs/api/python/strands.agent.a2a_agent/', 'typescript', ids)
       expect(target).toBe('/docs/api/typescript/')
     })

@@ -15,10 +15,12 @@
 import { getCollection } from 'astro:content'
 import { LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE_LABEL } from '../util/language-preference'
 import { getLanguageSwitchTarget, type LanguageSlug } from '../util/language-switch'
+import { buildApiCounterpartMap } from '../util/api-counterparts'
 import { getBase, pathWithBase } from '../util/links'
 
 const allDocs = await getCollection('docs')
 const docIds = new Set(allDocs.map((doc) => doc.id))
+const apiCounterparts = buildApiCounterpartMap(allDocs)
 
 // Strip the base so slugs compare against bare collection ids, then re-apply it
 const base = getBase()
@@ -26,7 +28,7 @@ const rawPath = Astro.url.pathname
 const currentPath = base && rawPath.startsWith(base) ? rawPath.slice(base.length) || '/' : rawPath
 
 function switchHref(lang: LanguageSlug): string | undefined {
-  const target = getLanguageSwitchTarget(currentPath, lang, docIds)
+  const target = getLanguageSwitchTarget(currentPath, lang, docIds, apiCounterparts)
   return target ? pathWithBase(target) : undefined
 }
 ---
