@@ -35,6 +35,9 @@ export type S3StorageConfig = {
  * S3-based implementation of SnapshotStorage.
  * Persists session snapshots as JSON objects in an S3 bucket.
  *
+ * @deprecated Pass a unified `Storage` (e.g. `S3Storage` from `@strands-agents/sdk/storage`)
+ * to `SessionManagerConfig.storage` instead. The session manager wraps it internally.
+ *
  * Object key layout:
  * ```
  * [<prefix>/]<sessionId>/scopes/<scope>/<scopeId>/snapshots/

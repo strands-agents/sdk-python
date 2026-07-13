@@ -10,8 +10,54 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
-import { FileStorage, InMemoryStorage, type Storage } from './storage.js'
+import { FileStorage, InMemoryStorage as LegacyInMemoryStorage, type Storage as OffloaderStorage } from './storage.js'
+import type { Storage } from '../../storage/storage.js'
 import { isSearchableContent, searchContent } from './search.js'
+
+function isOffloaderStorage(storage: Storage | OffloaderStorage): storage is OffloaderStorage {
+  return 'store' in storage && 'retrieve' in storage
+}
+
+// Framed format for unified Storage: [2-byte contentType length BE][contentType UTF-8][content bytes]
+// This keeps one storage key per offloaded block so content-type metadata doesn't consume maxEntries.
+function frameContent(content: Uint8Array, contentType: string): Uint8Array {
+  const ctBytes = new TextEncoder().encode(contentType)
+  const frame = new Uint8Array(2 + ctBytes.length + content.length)
+  frame[0] = (ctBytes.length >> 8) & 0xff
+  frame[1] = ctBytes.length & 0xff
+  frame.set(ctBytes, 2)
+  frame.set(content, 2 + ctBytes.length)
+  return frame
+}
+
+function unframeContent(frame: Uint8Array): { content: Uint8Array; contentType: string } {
+  const ctLen = (frame[0]! << 8) | frame[1]!
+  const contentType = new TextDecoder().decode(frame.subarray(2, 2 + ctLen))
+  const content = frame.subarray(2 + ctLen)
+  return { content, contentType }
+}
+
+async function storeContent(
+  storage: Storage | OffloaderStorage,
+  key: string,
+  content: Uint8Array,
+  contentType?: string
+): Promise<string> {
+  if (isOffloaderStorage(storage)) return storage.store(key, content, contentType)
+  const ct = contentType ?? 'application/octet-stream'
+  await storage.write(key, frameContent(content, ct))
+  return key
+}
+
+async function retrieveContent(
+  storage: Storage | OffloaderStorage,
+  reference: string
+): Promise<{ content: Uint8Array; contentType: string }> {
+  if (isOffloaderStorage(storage)) return storage.retrieve(reference)
+  const data = await storage.read(reference)
+  if (data === null) throw new Error(`Reference not found: ${reference}`)
+  return unframeContent(data)
+}
 
 const CHARS_PER_TOKEN = 4
 const DEFAULT_MAX_RESULT_TOKENS = 2_500
@@ -103,14 +149,27 @@ function decodeStoredContent(content: Uint8Array, contentType: string, reference
 
 /** Configuration for the {@link ContextOffloader} plugin. */
 export interface ContextOffloaderConfig {
-  /** Storage backend for persisting offloaded content. */
-  storage: Storage
+  /**
+   * Storage backend for persisting offloaded content.
+   *
+   * Accepts either:
+   * - A unified `Storage` (from `@strands-agents/sdk/storage`) — each offloaded content block
+   *   occupies exactly one key (content-type is framed into the stored bytes).
+   * - A legacy offloader `Storage` (deprecated, from this module).
+   */
+  storage: Storage | OffloaderStorage
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
   maxResultTokens?: number
   /** Number of tokens to keep as an inline preview. Defaults to 1,000. */
   previewTokens?: number
   /** Whether to register the `retrieve_offloaded_content` tool. Defaults to true. */
   includeRetrievalTool?: boolean
+  /**
+   * Number of agent loop cycles before an offloaded entry is evicted.
+   * Entries stored more than this many cycles ago are deleted.
+   * Defaults to 20. Set to `null` to disable eviction.
+   */
+  evictAfterCycles?: number | null
 }
 
 /**
@@ -120,24 +179,36 @@ export interface ContextOffloaderConfig {
  * each content block to a storage backend and replaces the in-context result with
  * a truncated text preview plus per-block storage references.
  *
+ * ## Eviction behavior
+ *
+ * Offloaded entries are evicted after `evictAfterCycles` agent loop cycles (default 20).
+ * This applies to both unified `Storage` backends and legacy offloader storage.
+ *
  * @example
  * ```typescript
- * import { ContextOffloader, InMemoryStorage } from '@strands-agents/sdk/vended-plugins/context-offloader'
+ * import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+ * import { InMemoryStorage } from '@strands-agents/sdk/storage'
  *
  * const agent = new Agent({
  *   model,
- *   plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
+ *   plugins: [new ContextOffloader({
+ *     storage: new InMemoryStorage(),
+ *   })],
  * })
  * ```
  */
 export class ContextOffloader implements Plugin {
   readonly name = 'strands:context-offloader'
 
-  private readonly _storage: Storage
+  private static readonly _DEFAULT_EVICT_AFTER_CYCLES = 20
+
+  private readonly _storage: Storage | OffloaderStorage
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
   private readonly _includeRetrievalTool: boolean
-  private readonly _storageByAgent = new WeakMap<LocalAgent, Storage>()
+  private readonly _evictAfterCycles: number | null
+  private readonly _storageByAgent = new WeakMap<LocalAgent, Storage | OffloaderStorage>()
+  private readonly _keyStoredAt = new Map<string, number>()
   private _retrievalTool: Tool | undefined
 
   constructor(config: ContextOffloaderConfig) {
@@ -148,25 +219,51 @@ export class ContextOffloader implements Plugin {
     if (previewTokens < 0) throw new Error('previewTokens must be non-negative')
     if (previewTokens >= maxResultTokens) throw new Error('previewTokens must be less than maxResultTokens')
 
+    const evictAfterCycles =
+      config.evictAfterCycles === undefined ? ContextOffloader._DEFAULT_EVICT_AFTER_CYCLES : config.evictAfterCycles
+    if (evictAfterCycles !== null && (!Number.isInteger(evictAfterCycles) || evictAfterCycles < 1)) {
+      throw new Error('evictAfterCycles must be a positive integer')
+    }
+
     this._storage = config.storage
     this._maxResultTokens = maxResultTokens
     this._previewTokens = previewTokens
     this._includeRetrievalTool = config.includeRetrievalTool ?? true
+    this._evictAfterCycles = evictAfterCycles
   }
 
   initAgent(agent: LocalAgent): void {
-    if (this._storage instanceof InMemoryStorage) {
-      this._storage._bind(agent)
+    if (this._storage instanceof LegacyInMemoryStorage) {
+      this._storage._bind(agent, this._evictAfterCycles)
     }
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
-    let cycleCount = 0
+
     agent.addHook(BeforeModelCallEvent, () => {
-      cycleCount++
-      if (this._storage instanceof InMemoryStorage) {
+      const cycleCount = agent.metrics.cycleCount
+      if (this._storage instanceof LegacyInMemoryStorage) {
         this._storage._evict(cycleCount)
+      } else if (this._evictAfterCycles !== null) {
+        this._evict(cycleCount)
       }
     })
+  }
+
+  private _evict(currentCycle: number): void {
+    const threshold = currentCycle - this._evictAfterCycles!
+    const toEvict: string[] = []
+    for (const [key, storedCycle] of this._keyStoredAt) {
+      if (storedCycle < threshold) {
+        toEvict.push(key)
+      }
+    }
+    if (toEvict.length === 0) return
+    const storage = this._storage as Storage
+    for (const key of toEvict) {
+      this._keyStoredAt.delete(key)
+      storage.delete(key).catch(() => {})
+    }
+    logger.debug(`evicted=<${toEvict.length}>, threshold=<${threshold}> | evicted stale offloaded entries`)
   }
 
   getTools(): Tool[] {
@@ -175,8 +272,8 @@ export class ContextOffloader implements Plugin {
     return [this._retrievalTool]
   }
 
-  private _storageForAgent(agent: LocalAgent): Storage {
-    if (!(this._storage instanceof FileStorage)) return this._storage
+  private _storageForAgent(agent: LocalAgent): Storage | OffloaderStorage {
+    if (!(this._storage instanceof FileStorage)) return this._storage!
 
     let storage = this._storageByAgent.get(agent)
     if (!storage) {
@@ -186,8 +283,8 @@ export class ContextOffloader implements Plugin {
     return storage
   }
 
-  private _storageForToolContext(context?: ToolContext): Storage {
-    if (!(this._storage instanceof FileStorage)) return this._storage
+  private _storageForToolContext(context?: ToolContext): Storage | OffloaderStorage {
+    if (!(this._storage instanceof FileStorage)) return this._storage!
     if (!context) {
       throw new Error('FileStorage retrieval requires a tool execution context.')
     }
@@ -218,7 +315,7 @@ export class ContextOffloader implements Plugin {
       callback: async (input, context) => {
         try {
           const storage = this._storageForToolContext(context)
-          const result = await storage.retrieve(input.reference)
+          const result = await retrieveContent(storage, input.reference)
 
           if (!input.pattern && !input.line_range && input.context_lines === undefined) {
             return decodeStoredContent(result.content, result.contentType, input.reference)
@@ -246,18 +343,18 @@ export class ContextOffloader implements Plugin {
   }
 
   private async _storeBlock(
-    storage: Storage,
+    storage: Storage | OffloaderStorage,
     block: ToolResultContent,
     key: string
   ): Promise<{ ref: string; contentType: string; description: string }> {
     if (block instanceof TextBlock && block.text) {
-      const ref = await storage.store(key, new TextEncoder().encode(block.text), 'text/plain')
+      const ref = await storeContent(storage, key, new TextEncoder().encode(block.text), 'text/plain')
       return { ref, contentType: 'text/plain', description: `text, ${block.text.length.toLocaleString()} chars` }
     }
     if (block instanceof JsonBlock) {
       const jsonStr = JSON.stringify(block.json, null, 2)
       const jsonBytes = new TextEncoder().encode(jsonStr)
-      const ref = await storage.store(key, jsonBytes, 'application/json')
+      const ref = await storeContent(storage, key, jsonBytes, 'application/json')
       return { ref, contentType: 'application/json', description: `json, ${jsonBytes.length.toLocaleString()} bytes` }
     }
     if (block instanceof ImageBlock || block instanceof VideoBlock || block instanceof DocumentBlock) {
@@ -270,7 +367,7 @@ export class ContextOffloader implements Plugin {
             : `application/${block.format}`
       const label = block instanceof DocumentBlock ? block.name : contentType
       if (bytes) {
-        const ref = await storage.store(key, bytes, contentType)
+        const ref = await storeContent(storage, key, bytes, contentType)
         return { ref, contentType, description: `${label}, ${bytes.length.toLocaleString()} bytes` }
       }
       return { ref: '', contentType, description: `${label}, 0 bytes` }
@@ -338,11 +435,16 @@ export class ContextOffloader implements Plugin {
     try {
       const storage = this._storageForAgent(event.agent)
       references = await Promise.all(content.map((block, i) => this._storeBlock(storage, block, `${toolUseId}_${i}`)))
+      if (!isOffloaderStorage(storage)) {
+        const storedAt = event.agent.metrics.cycleCount
+        for (const entry of references) {
+          if (entry.ref) this._keyStoredAt.set(entry.ref, storedAt)
+        }
+      }
     } catch (err) {
       logger.warn(`tool_use_id=<${toolUseId}> | failed to offload tool result, keeping original`, err)
       return
     }
-
     logger.debug(
       `tool_use_id=<${toolUseId}>, blocks=<${references.length}>, tokens=<${tokenCount}> | tool result offloaded`
     )
