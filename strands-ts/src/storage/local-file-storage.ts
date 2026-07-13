@@ -2,7 +2,7 @@ import type { Sandbox } from '../sandbox/base.js'
 import type { Storage } from './storage.js'
 
 import { StorageError } from '../errors.js'
-import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { normalizeKey, normalizePrefix } from './storage.js'
 
 /**
  * Returns true if the error represents a missing or non-directory path (ENOENT or ENOTDIR).
@@ -227,15 +227,5 @@ export class LocalFileStorage implements Storage {
     }
 
     return walk(dir, keyPrefix)
-  }
-
-  /**
-   * Returns a namespaced view of this storage with all keys prefixed.
-   *
-   * @param prefix - Prefix to prepend to all keys
-   * @returns A Storage view scoped to the given prefix
-   */
-  namespace(prefix: string): Storage {
-    return namespace(this, prefix)
   }
 }

@@ -1,7 +1,7 @@
 import type { Storage } from './storage.js'
 
 import { StorageError } from '../errors.js'
-import { namespace, normalizeKey, normalizePrefix } from './storage.js'
+import { normalizeKey, normalizePrefix } from './storage.js'
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {
@@ -152,16 +152,6 @@ export class S3Storage implements Storage {
     const { S3Client } = await import('@aws-sdk/client-s3')
     this._client = new S3Client(this._region ? { region: this._region } : {})
     return this._client
-  }
-
-  /**
-   * Returns a namespaced view of this storage with all keys prefixed.
-   *
-   * @param prefix - Prefix to prepend to all keys
-   * @returns A Storage view scoped to the given prefix
-   */
-  namespace(prefix: string): Storage {
-    return namespace(this, prefix)
   }
 
   private _objectKey(key: string): string {
