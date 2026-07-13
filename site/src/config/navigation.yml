@@ -329,6 +329,7 @@ sidebar:
         items:
           - docs/community/model-providers/cohere
           - docs/community/model-providers/clova-studio
+          - docs/community/model-providers/crusoe
           - docs/community/model-providers/fireworksai
           - docs/community/model-providers/nebius-token-factory
           - docs/community/model-providers/nvidia-nim
