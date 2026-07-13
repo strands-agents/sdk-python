@@ -1,0 +1,117 @@
+---
+title: DaoXE
+community: true
+description: DaoXE multi-protocol multi-model API gateway
+integrationType: model-provider
+languages: Python
+sidebar:
+  label: "DaoXE"
+service:
+  name: DaoXE
+  link: https://daoxe.com/
+project:
+  github: https://github.com/seven7763/DaoXE-AI
+  maintainer: seven7763
+---
+
+
+[DaoXE](https://daoxe.com) is a multi-model multi-protocol AI API gateway. It exposes OpenAI-compatible Chat Completions (and related) endpoints at a single base URL, and also supports other protocol surfaces such as Anthropic Messages where available. This page covers the Strands path via the OpenAI compatibility layer (`base_url=https://daoxe.com/v1`).
+
+:::note[Availability]
+DaoXE is **not available in mainland China**. Model IDs are account-scoped—use the catalog in your DaoXE dashboard (or `GET https://daoxe.com/v1/models`) rather than hardcoding a public model list.
+:::
+
+## Installation
+
+The Strands Agents SDK provides access to OpenAI-compatible gateways through the OpenAI compatibility layer, configured as an optional dependency. To install, run:
+
+```bash
+pip install 'strands-agents[openai]' strands-agents-tools
+```
+
+## Usage
+
+After installing the `openai` package, initialize Strands' OpenAI-compatible provider with DaoXE's base URL and your API key:
+
+```python
+import os
+
+from strands import Agent
+from strands.models.openai import OpenAIModel
+from strands_tools import calculator
+
+model = OpenAIModel(
+    client_args={
+        "api_key": os.environ["DAOXE_API_KEY"],  # or your DaoXE key env name
+        "base_url": "https://daoxe.com/v1",
+    },
+    # Use a model ID from your DaoXE account catalog — not a fixed public list
+    model_id=os.environ["DAOXE_MODEL_ID"],
+    params={
+        "max_tokens": 2048,
+        "temperature": 0.2,
+    },
+)
+
+agent = Agent(model=model, tools=[calculator])
+agent("What is 2+2?")
+```
+
+### Environment variables
+
+```bash
+export DAOXE_API_KEY="your-daoxe-api-key"
+export DAOXE_MODEL_ID="your-account-model-id"
+# Optional equivalent for OpenAI-style tooling:
+# export OPENAI_API_KEY="$DAOXE_API_KEY"
+# export OPENAI_BASE_URL="https://daoxe.com/v1"
+```
+
+## Configuration
+
+### Client Configuration
+
+The `client_args` configure the underlying OpenAI-compatible client. When using DaoXE, set:
+
+* `api_key`: Your DaoXE API key (from the [DaoXE](https://daoxe.com) console).
+* `base_url`: `https://daoxe.com/v1`
+
+Refer to [OpenAI Python SDK GitHub](https://github.com/openai/openai-python) for full client options.
+
+### Model Configuration
+
+| Parameter  | Description               | Example                                    | Options |
+| ---------- | ------------------------- | ------------------------------------------ | ------- |
+| `model_id` | Account-scoped model ID   | value from your DaoXE catalog              | Dashboard / `GET /v1/models` |
+| `params`   | Model-specific parameters | `{"max_tokens": 2048, "temperature": 0.2}` | Standard OpenAI-compatible chat params |
+
+## Multi-protocol note
+
+This Strands integration uses DaoXE's **OpenAI-compatible** Chat Completions surface. DaoXE also exposes other protocol paths (for example Anthropic Messages) for clients that speak those APIs natively; use the matching client/SDK for those paths. For client setup samples outside Strands, see [DaoXE-AI examples](https://github.com/seven7763/DaoXE-AI).
+
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'openai'`
+
+Install the OpenAI optional dependency:
+
+```bash
+pip install 'strands-agents[openai]'
+```
+
+### Unexpected model behavior?
+
+* Confirm `base_url` is exactly `https://daoxe.com/v1` (include `/v1`).
+* Confirm `model_id` is one enabled for **your** DaoXE account (IDs are not a universal public list).
+* Confirm the service is reachable from your region (not available in mainland China).
+
+## Affiliation
+
+Community contribution from a DaoXE maintainer (`seven7763`).
+
+## References
+
+* [DaoXE](https://daoxe.com)
+* [DaoXE-AI client examples](https://github.com/seven7763/DaoXE-AI)
+* [OpenAI Python SDK](https://github.com/openai/openai-python)
+* [Strands Agents API](@api/python/strands.models.model)
