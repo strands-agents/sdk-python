@@ -48,6 +48,22 @@ jobs:
           node-version-file: .node-version
       - run: npm ci --prefix site
 
+      # Keep the bot fork's default branch current with upstream before opening
+      # PRs from it. create-pull-request cuts the PR branch from the fork's base;
+      # if the fork is behind, the branch diff picks up files that changed
+      # upstream since -- notably this workflow under .github/workflows/, which
+      # the fork PAT (public_repo scope, no workflow scope) is forbidden to push,
+      # rejecting the whole push. Syncing first keeps every sync PR data-only.
+      # continue-on-error: a failed/flaky sync (409 divergence, transient API
+      # hiccup) must not abort a run that would otherwise succeed -- if the sync
+      # was actually needed, the create-pull-request push below fails anyway with
+      # the underlying error. The step still surfaces as a visible annotation.
+      - name: Sync bot fork with upstream
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.CHANGELOG_BOT_TOKEN }}
+        run: gh api repos/strands-agent/harness-sdk/merge-upstream -f branch=main
+
       # Cheap step first: if branch-name computation is going to fail, fail
       # before the expensive Generate step.
       - name: Compute harness branch name
