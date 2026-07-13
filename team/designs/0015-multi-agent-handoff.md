@@ -225,7 +225,7 @@ This is mostly the same as the recommended approach. The only difference is that
 
 ```ts
 const subResult = next.value
-// Append everything the sub-agent produced
+// Append every message the sub-agent produced to the orchestrator's history
 for (const msg of subAgent.messages.slice(originalMessageCount)) {
   this.messages.push(msg)
 }
@@ -242,7 +242,7 @@ for (const msg of subAgent.messages.slice(originalMessageCount)) {
 
 This option uses the same mechanism as the recommended approach. The only difference is that instead of cloning the orchestrator's full message history, the orchestrator generates a summary of the conversation and passes it to the sub-agent as a single user message.
 
-The summary is produced by a model call before the handoff executes. The orchestrator sends its messages to the model with a system prompt instructing it to produce a concise summary of the conversation relevant to the handoff target.
+The summary is produced by a model call before the handoff executes. The orchestrator sends its messages to its model with a prompt instructing it to produce a concise summary of the conversation relevant to the handoff target.
 
 ```ts
 const handoff = this._extractHandoff(assistantMessage, toolResultMessage)
@@ -292,20 +292,25 @@ const subGen = subAgent.stream(userMessage)
 - Requires significant redesigns to state management, from a agent-owned mutable history to a shared state object
 - Models can view messages generated under instructions and tools they cannot access, creating the possibility of the orchestrator calling tools it does not have access to
 - Snapshots and context reduction from the sub-agent may silently mutate the orchestrator's state.
+- Need to handle edge case where conversation manager configurations are different between the orchestrator and sub-agent (reduction strategy, compression threshold)
 
 ### Alternative: Agent Swap
 
 In the OpenAI Agents SDK, the runner loop maintains a `currentAgent` variable. When a handoff occurs, the runner swaps `currentAgent` to the target agent and continues the same loop with the new agent's system prompt, tools, and handoff definitions, but the same conversation history. There is no sub-invocation; the loop just changes which "personality" drives the next model call.
 
-In Strands, this would mean the orchestrator's agent loop detects the handoff tool, then swaps its own system prompt, tool registry, and model to those of the target sub-agent, and continues looping:
+In Strands, this would mean the orchestrator's agent loop detects the handoff tool, then swaps its own configuration to those of the target sub-agent, and continues looping:
 
 ```ts
 this.systemPrompt = target.systemPrompt
 this._toolRegistry = target._toolRegistry
 this.model = target.model
+this._mcpClients = target._mcpClients
+this._printer = target._printer
 // Continue the while(true) loop with the new config
 continue
 ```
+
+By the end of the invocation, the orchestrator swaps back to its original identity. This requires the orchestrator to maintain a stack of identity frames. At swap time, the orchestrator's current swapped members are pushed onto the stack (stored in `appState` for durability). The sub-agent signals completion either by calling a `return_to_orchestrator` tool or by producing a final assistant message with no tool calls, at which point the loop pops the frame and restores the orchestrator's fields. For composable chains (A→B→C), each handoff pushes a new frame and each completion pops one.
 
 **Pros:**
 
@@ -314,9 +319,9 @@ continue
 
 **Cons:**
 
-- Strands has no runner/agent separation. Mutating the agent's identity mid-loop breaks hooks, plugins, middleware, telemetry, and the printer, which all hold a reference to `this` and expect it to be stable.
+- Strands has no runner/agent separation. Mutating the agent's identity mid-loop breaks hooks, plugins, middleware, and telemetry, which all hold a reference to `this` and expect it to be stable.
 - Identity swapping is inconsistent with the rest of the Strands SDK, since existing primitives are separate objects with separate lifecycles
-- If the sub-agent finishes and the orchestrator should resume (ex. on the next orchestrator invocation), the swap must be reversed, requiring bookkeeping that the sub-invocation approach avoids entirely.
+- Requires identity bookkeeping that may break as more data members are introduced to Agent
 
 ## Developer Experience
 
