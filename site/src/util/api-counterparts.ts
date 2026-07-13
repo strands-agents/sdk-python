@@ -27,12 +27,14 @@ export interface ApiDocEntry {
   body?: string
 }
 
-/** PascalCase a snake_case module segment (`conversation_manager` -> `ConversationManager`). */
-function pascalCase(segment: string): string {
-  return segment
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('')
+/**
+ * Whether a PascalCase symbol is the natural name for a snake_case module
+ * segment. Compared case-insensitively with underscores stripped so acronym
+ * casing still matches (`conversation_manager` ~ `ConversationManager`,
+ * `a2a_agent` ~ `A2AAgent`).
+ */
+function symbolMatchesSegment(symbol: string, segment: string): boolean {
+  return symbol.toLowerCase() === segment.replace(/_/g, '').toLowerCase()
 }
 
 /** Top-level symbols documented by a Python module page, in document order. */
@@ -90,7 +92,7 @@ export function buildApiCounterpartMap(entries: readonly ApiDocEntry[]): Map<str
     // (`conversation_manager` -> ConversationManager); prefer it when several
     // symbols match, otherwise take the first documented match.
     const lastSegment = moduleName.split('.').pop() ?? ''
-    const primary = matches.find((symbol) => symbol === pascalCase(lastSegment)) ?? matches[0]
+    const primary = matches.find((symbol) => symbolMatchesSegment(symbol, lastSegment)) ?? matches[0]
     map.set(entry.id, `/${TS_PREFIX}${primary}/`)
   }
 
@@ -112,4 +114,17 @@ export function buildApiCounterpartMap(entries: readonly ApiDocEntry[]): Map<str
   }
 
   return map
+}
+
+let cachedMap: Map<string, string> | undefined
+
+/**
+ * Memoized accessor for component use: the collection is stable within a
+ * build, and LanguageToggle renders on every page (twice — desktop + mobile
+ * header), so building the map per render would repeat the same regex work
+ * over every Python page body ~2x per page across the whole static build.
+ */
+export function getApiCounterpartMap(entries: readonly ApiDocEntry[]): Map<string, string> {
+  cachedMap ??= buildApiCounterpartMap(entries)
+  return cachedMap
 }

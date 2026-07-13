@@ -15,12 +15,12 @@
 import { getCollection } from 'astro:content'
 import { LANGUAGE_STORAGE_KEY, DEFAULT_LANGUAGE_LABEL } from '../util/language-preference'
 import { getLanguageSwitchTarget, type LanguageSlug } from '../util/language-switch'
-import { buildApiCounterpartMap } from '../util/api-counterparts'
+import { getApiCounterpartMap } from '../util/api-counterparts'
 import { getBase, pathWithBase } from '../util/links'
 
 const allDocs = await getCollection('docs')
 const docIds = new Set(allDocs.map((doc) => doc.id))
-const apiCounterparts = buildApiCounterpartMap(allDocs)
+const apiCounterparts = getApiCounterpartMap(allDocs)
 
 // Strip the base so slugs compare against bare collection ids, then re-apply it
 const base = getBase()

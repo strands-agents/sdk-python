@@ -44,6 +44,21 @@ describe('buildApiCounterpartMap', () => {
     )
   })
 
+  it('matches the module-named symbol despite acronym casing', () => {
+    const acronymEntries: ApiDocEntry[] = [
+      {
+        id: 'docs/api/python/strands.agent.a2a_agent',
+        body: '<a id="strands.agent.a2a_agent.AgentCard"></a>\n<a id="strands.agent.a2a_agent.A2AAgent"></a>',
+      },
+      { id: 'docs/api/typescript/AgentCard', body: '' },
+      { id: 'docs/api/typescript/A2AAgent', body: '' },
+    ]
+    const acronymMap = buildApiCounterpartMap(acronymEntries)
+    // pascalCase('a2a_agent') would be 'A2aAgent'; the case-insensitive match
+    // must still pick A2AAgent over the first documented symbol (AgentCard).
+    expect(acronymMap.get('docs/api/python/strands.agent.a2a_agent')).toBe('/docs/api/typescript/A2AAgent/')
+  })
+
   it('leaves pages without a shared symbol out of the map', () => {
     // A2AAgent has no TypeScript page in this fixture
     expect(map.has('docs/api/python/strands.agent.a2a_agent')).toBe(false)

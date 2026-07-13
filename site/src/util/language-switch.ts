@@ -48,6 +48,8 @@ export function getLanguageSwitchTarget(
   const slug = normalizePathToSlug(currentPath.replace(/^\//, ''))
   const segments = slug.split('/')
 
+  // First language segment wins: assumes no page nests a language-named
+  // segment under a tree of the other language (true of today's structure).
   const langIndex = segments.findIndex(isLanguageSlug)
   if (langIndex === -1) return null
   if (segments[langIndex] === targetLang) return null
