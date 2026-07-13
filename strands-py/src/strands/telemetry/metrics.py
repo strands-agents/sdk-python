@@ -204,6 +204,17 @@ class EventLoopMetrics:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
     @property
+    def total_cost(self) -> float | None:
+        """Best-effort estimated total cost in USD across all model invocations.
+
+        Returns:
+            The accumulated cost, or None when no model call in this loop reported a cost (e.g.
+            providers that do not price calls). A returned value is a lower bound: calls that
+            could not be priced contribute nothing to the total.
+        """
+        return self.accumulated_usage.get("totalCost")
+
+    @property
     def latest_context_size(self) -> int | None:
         """Most recent context size from the last LLM call.
 
@@ -351,6 +362,11 @@ class EventLoopMetrics:
 
         if "cacheWriteInputTokens" in source:
             target["cacheWriteInputTokens"] = target.get("cacheWriteInputTokens", 0) + source["cacheWriteInputTokens"]
+
+        # Cost is optional and provider-specific: only sum when the source reports it, so a total
+        # remains absent (not a misleading 0) for providers that never price a call.
+        if "totalCost" in source:
+            target["totalCost"] = target.get("totalCost", 0.0) + source["totalCost"]
 
     def update_usage(self, usage: Usage) -> None:
         """Update the accumulated token usage with new usage data.

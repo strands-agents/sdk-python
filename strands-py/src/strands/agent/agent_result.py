@@ -41,6 +41,17 @@ class AgentResult:
     checkpoint: Checkpoint | None = None
 
     @property
+    def cost(self) -> float | None:
+        """Best-effort estimated total cost in USD for this invocation.
+
+        Returns:
+            The accumulated cost across all model calls, or None when the model provider does not
+            report cost (currently only LiteLLM does). A returned value is a lower bound: calls
+            that could not be priced contribute 0.
+        """
+        return self.metrics.total_cost
+
+    @property
     def context_size(self) -> int | None:
         """Most recent context size in tokens from the last LLM call.
 

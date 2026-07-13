@@ -388,6 +388,20 @@ def test_context_size_none_when_no_data(mock_metrics, simple_message: Message):
     assert result.context_size is None
 
 
+def test_cost_delegates_to_metrics(mock_metrics, simple_message: Message):
+    """Test that cost delegates to metrics.total_cost."""
+    mock_metrics.total_cost = 0.0045
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+    assert result.cost == 0.0045
+
+
+def test_cost_none_when_untracked(mock_metrics, simple_message: Message):
+    """Test that cost returns None when the provider did not report cost."""
+    mock_metrics.total_cost = None
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+    assert result.cost is None
+
+
 def test_projected_context_size_delegates_to_metrics(mock_metrics, simple_message: Message):
     """Test that projected_context_size delegates to metrics.projected_context_size."""
     mock_metrics.projected_context_size = 15000

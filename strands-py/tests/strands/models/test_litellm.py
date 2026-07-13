@@ -680,6 +680,44 @@ def test_format_chunk_metadata_without_cache_tokens():
     assert "cacheWriteInputTokens" not in result["metadata"]["usage"]
 
 
+def test_format_chunk_metadata_with_cost():
+    """format_chunk sets usage.totalCost when the model can be priced."""
+    model = LiteLLMModel(model_id="openai/gpt-4o")
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    with unittest.mock.patch.object(model, "_compute_cost", return_value=0.0045):
+        result = model.format_chunk(event)
+
+    assert result["metadata"]["usage"]["totalCost"] == 0.0045
+
+
+def test_format_chunk_metadata_without_cost_when_unpriceable():
+    """format_chunk omits totalCost when the model cannot be priced, so absence means untracked."""
+    model = LiteLLMModel(model_id="test")
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    with unittest.mock.patch.object(model, "_compute_cost", return_value=None):
+        result = model.format_chunk(event)
+
+    assert "totalCost" not in result["metadata"]["usage"]
+
+
 def test_stream_switch_content_same_type():
     """Test _stream_switch_content when data_type is the same as prev_data_type."""
     model = LiteLLMModel(model_id="test")
