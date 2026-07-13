@@ -1705,7 +1705,7 @@ def test_start_agent_span_includes_tool_definitions_when_enabled(monkeypatch):
 
 
 def test_end_model_invoke_span_langfuse_adds_attributes(mock_span, monkeypatch):
-    """Test that end_model_invoke_span adds attributes via set_attributes for Langfuse."""
+    """Test that end_model_invoke_span records content on span attributes, not an event, for Langfuse."""
     monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://us.cloud.langfuse.com")
 
@@ -1741,10 +1741,9 @@ def test_end_model_invoke_span_langfuse_adds_attributes(mock_span, monkeypatch):
         }
     )
 
-    mock_span.add_event.assert_called_with(
-        "gen_ai.client.inference.operation.details",
-        attributes={"gen_ai.output.messages": expected_output},
-    )
+    # Content is recorded once as a span attribute; the deprecated content event is not duplicated.
+    content_event_names = [call.args[0] for call in mock_span.add_event.call_args_list]
+    assert "gen_ai.client.inference.operation.details" not in content_event_names
 
 
 def test_end_model_invoke_span_non_langfuse_no_extra_attributes(mock_span, monkeypatch):
@@ -2409,3 +2408,72 @@ class TestSpanAttributeRedaction:
                 for k, v in (call.kwargs.get("attributes") or {}).items()
             }
             assert call_kwargs.get("tool.result") == "[REDACTED]"
+
+
+class TestSpanAttributesOnly:
+    """Tests for the gen_ai_span_attributes_only opt-in.
+
+    With the opt-in set, the latest-convention message content is recorded as span attributes
+    rather than a deprecated span event, for backends that cannot read span events.
+    """
+
+    def _user_message(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    def test_flag_parsed_from_env(self, mock_tracer, monkeypatch):
+        """The opt-in token is parsed off OTEL_SEMCONV_STABILITY_OPT_IN."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental,gen_ai_span_attributes_only")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            assert tracer._span_attributes_only is True
+
+    def test_flag_defaults_off(self, mock_tracer, monkeypatch):
+        """Absent the token, the flag is off and output stays event-based."""
+        monkeypatch.delenv("OTEL_SEMCONV_STABILITY_OPT_IN", raising=False)
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            assert tracer._span_attributes_only is False
+
+    def test_content_written_to_span_attributes_not_events(self, mock_tracer, monkeypatch):
+        """Message content is stamped on the span and no content event is emitted."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental,gen_ai_span_attributes_only")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m")
+
+            input_messages = serialize([{"role": "user", "parts": [{"type": "text", "content": "hello"}]}])
+            mock_span.set_attributes.assert_any_call({"gen_ai.input.messages": input_messages})
+            event_names = [call.args[0] for call in mock_span.add_event.call_args_list]
+            assert "gen_ai.client.inference.operation.details" not in event_names
+
+    def test_no_effect_without_latest_conventions(self, mock_tracer, monkeypatch):
+        """The flag only applies to latest conventions; legacy per-message events are unchanged."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_span_attributes_only")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m")
+
+            mock_span.add_event.assert_any_call(
+                "gen_ai.user.message",
+                attributes={"content": json.dumps([{"text": "hello"}])},
+            )
+
+    def test_empty_attributes_records_nothing(self, mock_tracer, monkeypatch):
+        """With no attributes, neither a span attribute nor an event is recorded."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_span_attributes_only")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            mock_span = mock.MagicMock()
+
+            tracer._add_event(mock_span, "gen_ai.user.message", event_attributes=None, to_span_attributes=True)
+
+            mock_span.set_attributes.assert_not_called()
+            mock_span.add_event.assert_not_called()

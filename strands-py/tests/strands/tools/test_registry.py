@@ -2,7 +2,9 @@
 Tests for the SDK tool registry module.
 """
 
+import json
 import logging
+import sys
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,8 +12,30 @@ import pytest
 import strands
 from strands.tools import PythonAgentTool, ToolProvider
 from strands.tools.decorator import DecoratedFunctionTool, tool
+from strands.tools.loader import _TOOL_MODULE_PREFIX
 from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
+
+
+@pytest.fixture(autouse=True)
+def _restore_sys_state():
+    """Snapshot and restore sys.modules keys and sys.path entries introduced by a test.
+
+    Loading directory tools mutates global state: the tool module lands in sys.modules under
+    its namespaced key, sibling imports land under their own bare names (a known limitation),
+    and the tool directory is briefly added to sys.path. Restoring this state keeps the tests
+    order-independent.
+    """
+    original_modules = dict(sys.modules)
+    original_path = list(sys.path)
+    try:
+        yield
+    finally:
+        for key in set(sys.modules) - set(original_modules):
+            del sys.modules[key]
+        for key, value in original_modules.items():
+            sys.modules[key] = value
+        sys.path[:] = original_path
 
 
 @pytest.mark.filterwarnings("ignore:load_tool_from_filepath is deprecated:DeprecationWarning")
@@ -722,3 +746,118 @@ def test_get_all_tools_config_skips_tool_with_too_deeply_nested_schema(caplog):
     assert "hostile_tool" not in tool_config
     assert "valid_tool" in tool_config
     assert "hostile_tool" in caplog.text
+
+
+_STDLIB_TOOL_SOURCE = """
+TOOL_SPEC = {
+    "name": "json",
+    "description": "a tool whose name collides with a stdlib module",
+    "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+}
+
+
+def json(tool, **kwargs):
+    return {"status": "success", "content": [{"text": "ok"}]}
+"""
+
+
+def _write_stdlib_named_tool(tmp_path):
+    """Write a tool file named after a stdlib module and return its directory."""
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "json.py").write_text(_STDLIB_TOOL_SOURCE)
+    return tools_dir
+
+
+def test_reload_tool_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
+    """Reloading a tool named "json" must not replace the stdlib json module in sys.modules.
+
+    Guards against a sys.modules collision: dynamically loaded tool
+    modules are registered under a namespaced key, leaving imported modules untouched.
+    """
+    tools_dir = _write_stdlib_named_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.reload_tool("json")
+
+    assert tool_registry.registry["json"].tool_name == "json"
+    assert sys.modules["json"] is json
+    assert sys.modules["json"].dumps({"a": 1}) == '{"a": 1}'
+    assert f"{_TOOL_MODULE_PREFIX}json" in sys.modules
+
+
+_SIBLING_MODULE_SOURCE = """
+GREETING = "hello from sibling"
+"""
+
+_SIBLING_TOOL_SOURCE = """
+import sibling_helper
+
+TOOL_SPEC = {
+    "name": "needs_sibling",
+    "description": "a tool that imports a sibling module from its own directory",
+    "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+}
+
+
+def needs_sibling(tool, **kwargs):
+    return {"status": "success", "content": [{"text": sibling_helper.GREETING}]}
+"""
+
+
+def _write_sibling_importing_tool(tmp_path):
+    """Write a tool that imports a sibling module from the same directory and return its directory."""
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "sibling_helper.py").write_text(_SIBLING_MODULE_SOURCE)
+    (tools_dir / "needs_sibling.py").write_text(_SIBLING_TOOL_SOURCE)
+    return tools_dir
+
+
+def test_reload_tool_supports_sibling_imports(tmp_path, monkeypatch):
+    """Reloading a tool must let it import a sibling module from its own directory.
+
+    Guards against a regression where a directory tool doing a top-level
+    ``import <sibling>`` failed: the tool directory is on sys.path while the module executes.
+    """
+    tools_dir = _write_sibling_importing_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.reload_tool("needs_sibling")
+
+    assert tool_registry.registry["needs_sibling"].tool_name == "needs_sibling"
+    assert str(tools_dir) not in sys.path
+
+
+def test_initialize_tools_supports_sibling_imports(tmp_path, monkeypatch):
+    """Initializing tools from a directory must let a tool import a sibling module.
+
+    Guards against the same regression for the directory-load path.
+    """
+    tools_dir = _write_sibling_importing_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.initialize_tools(load_tools_from_directory=True)
+
+    assert tool_registry.registry["needs_sibling"].tool_name == "needs_sibling"
+    assert str(tools_dir) not in sys.path
+
+
+def test_initialize_tools_does_not_clobber_stdlib_module(tmp_path, monkeypatch):
+    """Initializing tools from a directory must not replace the stdlib json module in sys.modules.
+
+    Guards against the same sys.modules collision for the directory-load path.
+    """
+    tools_dir = _write_stdlib_named_tool(tmp_path)
+    monkeypatch.setattr(ToolRegistry, "get_tools_dirs", lambda self: [tools_dir])
+
+    tool_registry = ToolRegistry()
+    tool_registry.initialize_tools(load_tools_from_directory=True)
+
+    assert tool_registry.registry["json"].tool_name == "json"
+    assert sys.modules["json"] is json
+    assert sys.modules["json"].dumps({"a": 1}) == '{"a": 1}'
+    assert f"{_TOOL_MODULE_PREFIX}json" in sys.modules
