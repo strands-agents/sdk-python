@@ -22,11 +22,10 @@ const SNAPSHOT_REGEX = /snapshot_([\w-]+)\.json$/
  * Keys are written directly into the provided storage:
  * `<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`
  *
- * Callers control namespacing by passing a {@link NamespacedStorage} — e.g.
- * `new NamespacedStorage(storage, 'session')` produces keys like
+ * Callers control namespacing by passing a namespaced storage — e.g.
+ * `namespace(storage, 'session')` produces keys like
  * `session/<sessionId>/scopes/...`.
  *
- * @deprecated Remove in v2 when SnapshotStorage is dropped and SessionManager calls Storage directly.
  * @internal
  * @param storage - The unified Storage backend to delegate to
  */
