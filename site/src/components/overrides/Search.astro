@@ -428,8 +428,9 @@ const typeValues = [DOC_TYPE_USER, DOC_TYPE_API_PYTHON, DOC_TYPE_API_TYPESCRIPT,
     font-family: var(--__sl-font);
   }
 
-  /* On mobile, collapse the trigger to an icon-only button (like Starlight's
-     default search) so the header row — logo | search | nav dropdown — fits
+  /* On mobile, collapse the trigger to a plain icon-only button (like
+     Starlight's default mobile search): no border or fill, icon centered.
+     This keeps the header row — logo | search | nav dropdown — fitting
      narrow viewports without pushing the nav dropdown under the fixed
      sidebar menu button. 50rem matches the header's mobile/desktop switch. */
   @media (max-width: 49.99rem) {
@@ -440,10 +441,19 @@ const typeValues = [DOC_TYPE_USER, DOC_TYPE_API_PYTHON, DOC_TYPE_API_TYPESCRIPT,
     .pf-trigger-btn {
       width: 40px !important;
       justify-content: center !important;
-      padding-inline: 0 !important;
+      align-items: center !important;
+      gap: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+      background-color: transparent !important;
+    }
+    .pf-trigger-icon {
+      margin: 0 !important;
+      width: 20px !important;
+      height: 20px !important;
     }
     .pf-trigger-text,
-    .pf-trigger-key {
+    .pf-trigger-shortcut {
       display: none !important;
     }
   }
