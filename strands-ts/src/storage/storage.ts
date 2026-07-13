@@ -1,6 +1,14 @@
 import { StorageError } from '../errors.js'
 
 /**
+ * Symbol present on namespaced storage views. Constructs use this to detect
+ * whether the caller already scoped the storage, skipping the default prefix.
+ *
+ * @internal
+ */
+export const NAMESPACED: unique symbol = Symbol.for('strands.storage.namespaced')
+
+/**
  * Validates and normalizes a storage key: collapses runs of `/`, strips leading
  * and trailing `/`, and rejects empty keys and any `..` segment.
  *
@@ -118,11 +126,13 @@ export interface Storage<ListQuery = string> {
 export function namespace(storage: Storage, prefix: string): Storage {
   const normalized = normalizePrefix(prefix)
   const p = normalized ? `${normalized}/` : ''
-  return {
+  const view: Storage & { [NAMESPACED]: true } = {
     write: (key, data) => storage.write(`${p}${key}`, data),
     read: (key) => storage.read(`${p}${key}`),
     delete: (key) => storage.delete(`${p}${key}`),
     list: (query) => storage.list(`${p}${query}`).then((keys) => keys.map((key) => key.slice(p.length))),
     namespace: (sub) => namespace(storage, `${p}${sub}`),
+    [NAMESPACED]: true,
   }
+  return view
 }

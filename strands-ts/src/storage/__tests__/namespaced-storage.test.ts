@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { InMemoryStorage } from '../in-memory-storage.js'
-import { namespace } from '../storage.js'
+import { NAMESPACED, namespace } from '../storage.js'
 import type { Storage } from '../storage.js'
 
 describe('namespace', () => {
@@ -71,5 +71,13 @@ describe('namespace', () => {
 
     const result = await backend.read('key')
     expect(result).toEqual(new Uint8Array([7]))
+  })
+
+  it('sets NAMESPACED symbol on returned view', () => {
+    expect(NAMESPACED in namespaced).toBe(true)
+  })
+
+  it('does not have NAMESPACED symbol on raw storage', () => {
+    expect(NAMESPACED in backend).toBe(false)
   })
 })

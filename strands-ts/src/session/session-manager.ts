@@ -1,6 +1,6 @@
 import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Storage } from '../storage/storage.js'
-import { namespace } from '../storage/storage.js'
+import { NAMESPACED, namespace } from '../storage/storage.js'
 import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
 import { validateIdentifier } from './validation.js'
 import type { SnapshotTriggerCallback } from './types.js'
@@ -125,7 +125,8 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
   private _resolveSnapshotStorage(storage: Storage | { snapshot: SnapshotStorage }): SnapshotStorage {
     if ('snapshot' in storage) return storage.snapshot
-    return new SnapshotStorageAdapter(namespace(storage, 'session'))
+    const scoped = NAMESPACED in storage ? storage : namespace(storage, 'session')
+    return new SnapshotStorageAdapter(scoped)
   }
 
   /** Initializes the plugin by registering lifecycle hook callbacks. */
