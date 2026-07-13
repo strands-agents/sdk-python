@@ -6,12 +6,6 @@
 
 **Issue**: https://github.com/strands-agents/harness-sdk/issues/911
 
----
-
-[Problem](#problem) · [Proposal](#proposal) · [Alternatives Considered](#alternatives-considered) · [Developer Experience](#developer-experience) · [Consequences](#consequences)
-
----
-
 ## Problem
 
 The SDK does not have a first-class handoff mechanism for fully delegating execution from an orchestrator agent to a sub-agent. Builders want to create agents that follow this pattern, but the current primitives either make unnecessary model calls or lose context.
@@ -36,8 +30,8 @@ const orchestrator = new Agent({
 
 This pattern has two problems:
 
-1. **Redundant model calls.** The parent agent must post-process the sub-agent's response before returning it to the user, even when the sub-agent's output is ready to serve as-is. This doubles latency and token usage for scenarios where no additional reasoning is required.
-2. **Response corruption.** If the sub-agent produces structured output (JSON, code, formatted data), the parent agent may paraphrase or reformat it during post-processing, breaking the structure.
+1. The parent agent must post-process the sub-agent's response with an additional model call before returning the response to the user, even when the sub-agent's output is ready to serve as-is. This adds latency and token usage for scenarios where no additional reasoning is required.
+2. If the sub-agent produces structured output (JSON, code, formatted data), the parent agent may paraphrase or reformat it during post-processing, breaking the structure.
 
 #### Graphs
 
@@ -73,7 +67,7 @@ const swarm = new Swarm({
 })
 ```
 
-As with graphs, swarm agents lose context during handoffs. Only the handoff message and optional context are transferred between agents. The original agent's full conversation history is lost. Additionally, sub-agents can hand off back to the original agent, which breaks the delegation pattern. When the goal is route to a specialist, bidirectional flow adds complexity without value.
+As with graphs, swarm agents lose context during handoffs. Only the handoff message and optional context (formatted as JSON) are transferred between agents. The original agent's full conversation history is lost. Additionally, sub-agents can hand off back to the original agent, which breaks the delegation pattern. When the goal is route to a specialist, bidirectional flow adds complexity without value.
 
 ### What's Missing
 
@@ -94,8 +88,8 @@ All three patterns share a fundamental gap: there is no way for an orchestrator 
 
 - Extending Graph/Swarm primitives. They serve a different use case where agents are peers with limited context sharing
 - Replacing agents-as-tools. It already implements return semantics, whereas this proposal focuses on delegation semantics
-- Multi-invocation delegation. The orchestrator should not automatically reuse the current sub-agent in the next invocation because the new user prompt may favor a different sub-agent
-- Circular delegation detection. Execution may be handed to a previous agent in a cycle but with new information, which is a valid agent flow
+- Sticky routing. The orchestrator should not automatically reuse the current sub-agent in the next invocation because the new user prompt may favor a different sub-agent
+- Circular delegation detection. Execution may be handed to a previous agent in a cycle but with new information, which is a valid agent flow.
 
 ## Proposal
 
@@ -160,7 +154,7 @@ After `executeTools()` completes, the agent loop checks whether any `ToolUseBloc
 - If it does find one, the `agentName` is extracted from the JSON content and the sub-agent is resolved by name.
   - If the name is invalid, an error tool result is appended and the loop continues so the model can self-correct.
 
-The following proposals diverge from this point onward.
+The following proposals diverge from this point onwards.
 
 ### Recommended: Sub-invocation, Clone Orchestrator History
 
@@ -392,7 +386,6 @@ orchestrator("My wifi doesn't work")
 
 Sub-agents can themselves declare `subAgents`, forming delegation chains.
 
-TypeScript
 ```ts
 import { Agent } from '@strands-agents/sdk'
 
@@ -431,8 +424,8 @@ orchestrator.invoke("Where's my refund for order #12345?")
 
 ## Consequences
 
-- Builders get a simple path to multi-agent routing that avoids the latency/token cost of agents-as-tools and the context loss of swarms.
-- Adding `subAgents` as a first-class concept introduces a new relationship type between agents. This needs clear documentation to help builders choose between `tools: [agent]`, `subAgents: [agent]`, and multi-agent primitives.
+- Builders get a simple path to multi-agent routing that avoids the extra model calls of agents-as-tools and the context loss of swarms.
+- Adding `subAgents` as a first-class concept introduces a new relationship type between agents. This needs clear documentation to help builders choose between agent-as-tools, sub-agents, and multi-agent primitives.
 
 ## Willingness to Implement
 
