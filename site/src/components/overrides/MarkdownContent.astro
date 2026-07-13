@@ -4,22 +4,12 @@ import CommunityContributionAside from '../CommunityContributionAside.astro';
 import LanguageSupportAside from '../LanguageSupportAside.astro';
 import ExperimentalAside from '../ExperimentalAside.astro';
 import PageTags from '../PageTags.astro';
-import { getDocTypeFilter } from '../../util/search';
 
 const { starlightRoute } = Astro.locals;
 const { languages, community, experimental } = starlightRoute.entry.data;
-
-// Search (Pagefind) doc-type facet. This wrapper lives inside
-// <main data-pagefind-body>, so its data-pagefind-filter attribute tags the
-// page with a "Type" facet that the search UI surfaces as a toggle (the facet
-// values are defined in src/util/search.ts — the single source of truth).
-// Pages that opt out of the search index (pagefind: false — e.g.
-// landing/changelog pages) get no tag, since they aren't indexed anyway.
-const indexed = starlightRoute.entry.data.pagefind !== false;
-const docTypeFilter = indexed ? getDocTypeFilter(starlightRoute.id) : undefined;
 ---
 
-<div class="sl-markdown-content" data-pagefind-filter={docTypeFilter}>
+<div class="sl-markdown-content">
   {experimental && <ExperimentalAside />}
   {community && <CommunityContributionAside />}
   {/* Language support aside is omitted for community pages — the CommunityContributionAside already
