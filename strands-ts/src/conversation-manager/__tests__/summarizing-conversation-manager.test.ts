@@ -53,6 +53,23 @@ describe('SummarizingConversationManager', () => {
       expect(mockAgent.messages.slice(-2)).toEqual(lastTwo)
     })
 
+    it('assigns a durable tracking id to the generated summary message', async () => {
+      const model = new MockMessageModel()
+      model.addTurn({ type: 'textBlock', text: 'Summary of conversation' })
+
+      const manager = new SummarizingConversationManager({ summaryRatio: 0.5, preserveRecentMessages: 2 })
+      const mockAgent = createMockAgent({ messages: makeMessages(20) })
+
+      await manager.reduce({
+        agent: mockAgent,
+        model: model as unknown as Model,
+        error: new ContextWindowOverflowError('overflow'),
+      })
+
+      expect(typeof mockAgent.messages[0]!.trackingId).toBe('string')
+      expect(mockAgent.messages[0]!.trackingId).toBeTruthy()
+    })
+
     it('uses the config model over the reduce model when provided', async () => {
       const configModel = new MockMessageModel()
       configModel.addTurn({ type: 'textBlock', text: 'Config model summary' })

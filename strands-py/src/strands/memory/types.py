@@ -49,9 +49,22 @@ class SearchOptions(TypedDict, total=False):
 class AddMessagesContext:
     """Context the manager supplies to :meth:`MemoryStore.add_messages`.
 
-    Intentionally empty for now so fields can be added later without a breaking
-    signature change.
+    An extension point: fields are added here without changing the
+    :meth:`MemoryStore.add_messages` signature.
+
+    Attributes:
+        sequence_numbers: Per-message identities aligned one-to-one with
+            ``messages`` (``sequence_numbers[i]`` identifies ``messages[i]``). A
+            retried batch reuses the same numbers, so a store can build an
+            idempotency key that survives retries -- unlike a content hash, which
+            collides when two messages share text (e.g. "ok"). Numbers increase
+            with order but may have gaps (a message filtered to empty is dropped
+            while its siblings keep their own numbers), and reset to 0 each agent
+            run, so a durable dedup token must combine one with a run-unique id.
+            ``None`` when the manager has no per-message numbers to supply.
     """
+
+    sequence_numbers: list[int] | None = None
 
 
 class MemorySearchOptions(SearchOptions, total=False):
@@ -280,6 +293,14 @@ class MemoryStore(Protocol):
         The sink for extraction without a client-side extractor: the manager
         hands the filtered batch straight here. The resolved value is
         store-specific.
+        """
+        ...
+
+    async def initialize(self) -> None:
+        """Perform async setup that must succeed before the agent runs.
+
+        Called by the ``MemoryManager`` during ``init_agent``. Stores that require remote resources
+        (e.g. resolving a knowledge base type) implement this; the default is a no-op.
         """
         ...
 

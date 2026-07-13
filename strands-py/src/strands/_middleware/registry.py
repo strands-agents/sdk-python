@@ -74,15 +74,27 @@ class MiddlewareRegistry:
     def _add_output(self, phase: MiddlewareOutputPhase[Any, Any, Any], handler: MiddlewareOutputHandler) -> None:
         stage = phase._stage
 
+        # Output handlers receive and return a MiddlewareResult wrapping the result event
+        # (the last event in the chain, e.g. ModelStopReason). The wrapper lets handlers
+        # carry metadata alongside the result without touching the streamed events. The
+        # registry wraps the result event before calling the handler and unwraps the
+        # returned wrapper back into the event stream, so the rest of the chain (and the
+        # event-loop integration) continues to see a plain result event.
         async def adapted(context: Any, next_fn: MiddlewareNext) -> AsyncGenerator[Any, None]:
+            last_event = None
             async for event in next_fn(context):
-                if isinstance(event, MiddlewareResult):
-                    transformed = handler(event.value)
-                    if inspect.isawaitable(transformed):
-                        transformed = await transformed
-                    yield MiddlewareResult(transformed)
-                else:
-                    yield event
+                if last_event is not None:
+                    yield last_event
+                last_event = event
+            if last_event is not None:
+                transformed = handler(MiddlewareResult(value=last_event))
+                if inspect.isawaitable(transformed):
+                    transformed = await transformed
+                if not isinstance(transformed, MiddlewareResult):
+                    raise TypeError(
+                        f"Output handler must return a MiddlewareResult, got {type(transformed).__name__}"
+                    )
+                yield transformed.value
 
         handlers = self._handlers.setdefault(stage, [])
         handlers.append(_TaggedHandler(phase="output", handler=adapted))

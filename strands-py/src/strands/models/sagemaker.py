@@ -519,7 +519,7 @@ class SageMakerAIModel(OpenAIModel):
         content_parts = []
         for content in tool_result["content"]:
             if "json" in content:
-                content_parts.append(json.dumps(content["json"]))
+                content_parts.append(json.dumps(content["json"], ensure_ascii=False))
             elif "text" in content:
                 content_parts.append(content["text"])
             else:

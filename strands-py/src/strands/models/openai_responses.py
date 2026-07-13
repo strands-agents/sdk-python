@@ -187,7 +187,9 @@ class OpenAIResponsesModel(Model):
         Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
         """
         if self._bedrock_mantle_config is not None:
-            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
+            return resolve_bedrock_client_args(
+                self._bedrock_mantle_config, self.client_args, model_id=str(self.config.get("model_id", ""))
+            )
         return self.client_args
 
     @property
@@ -489,11 +491,9 @@ class OpenAIResponsesModel(Model):
         """
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
-                response = await client.responses.parse(
-                    model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
-                    text_format=output_model,
-                )
+                request = self._format_request(prompt, system_prompt=system_prompt)
+                request.pop("stream", None)
+                response = await client.responses.parse(**request, text_format=output_model)
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
@@ -550,16 +550,22 @@ class OpenAIResponsesModel(Model):
 
         # Add tools if provided
         if tool_specs:
-            # Merge with any built-in tools (e.g. web_search) already in the request from params
-            request.setdefault("tools", []).extend(
-                {
-                    "type": "function",
-                    "name": tool_spec["name"],
-                    "description": tool_spec.get("description", ""),
-                    "parameters": tool_spec["inputSchema"]["json"],
-                }
-                for tool_spec in tool_specs
-            )
+            # Merge function tools with any built-in tools (e.g. web_search) carried in from params.
+            # Build a new list rather than extending in place: ** unpacking above aliases
+            # self.config["params"]["tools"] by reference, so mutating it would duplicate every tool
+            # spec into the stored config on each call.
+            request["tools"] = [
+                *request.get("tools", []),
+                *(
+                    {
+                        "type": "function",
+                        "name": tool_spec["name"],
+                        "description": tool_spec.get("description", ""),
+                        "parameters": tool_spec["inputSchema"]["json"],
+                    }
+                    for tool_spec in tool_specs
+                ),
+            ]
             request.update(self._format_request_tool_choice(tool_choice))
 
         return request
@@ -695,7 +701,7 @@ class OpenAIResponsesModel(Model):
             "type": "function_call",
             "call_id": tool_use["toolUseId"],
             "name": tool_use["name"],
-            "arguments": json.dumps(tool_use["input"]),
+            "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
         }
 
     @classmethod
@@ -721,7 +727,7 @@ class OpenAIResponsesModel(Model):
 
         for content in tool_result["content"]:
             if "json" in content:
-                output_parts.append({"type": "input_text", "text": json.dumps(content["json"])})
+                output_parts.append({"type": "input_text", "text": json.dumps(content["json"], ensure_ascii=False)})
             elif "text" in content:
                 output_parts.append({"type": "input_text", "text": content["text"]})
             elif "image" in content:

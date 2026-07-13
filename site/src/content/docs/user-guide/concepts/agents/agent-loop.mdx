@@ -245,6 +245,76 @@ When multiple caps trip simultaneously, the reported stop reason
 follows priority order: turns, then total tokens, then output
 tokens.
 
+## Concurrent Invocations
+
+Sometimes more than one request targets the same agent instance at once: a retried API call, a double-submitted form, two web requests that happen to share an agent.
+
+<Tabs>
+  <Tab label="Python">
+
+  An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. The <Syntax py="concurrent_invocation_mode" /> constructor parameter controls this behavior. It accepts a `ConcurrentInvocationMode` enum — either `THROW` (the default) or `UNSAFE_REENTRANT`.
+
+  In the default `THROW` mode, invoking an agent that is already running raises `ConcurrencyException`:
+
+  ```python
+  from strands import Agent
+  from strands.types.exceptions import ConcurrencyException
+
+  agent = Agent()
+
+  try:
+      result = agent("Summarize this report")
+  except ConcurrencyException:
+      # Another invocation is already running on this agent instance
+      ...
+  ```
+
+  For most applications this is the behavior you want. One agent instance maps to one conversation, and letting invocations overlap would interleave their messages and corrupt the history.
+
+  #### Deduplicating retried requests
+
+  When a retry arrives for a request that is still running, returning the original's result beats both erroring and starting the work twice. Pass <Syntax py="idempotency_token" /> to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
+
+  If a call with the same token is already in flight, the new call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+
+  If the tokens differ while an invocation is in flight, the new call raises `ConcurrencyException` — deduplication only applies to matching tokens.
+
+  A deduplicated call gets the final result only, not the original's streamed events. Its `callback_handler` still fires once with that result, so output consumers are not left empty-handed.
+
+  If the original ends without producing a result, for instance when it is cancelled mid-flight, the waiting calls raise `IdempotencyAbortedError` so they can decide whether to retry:
+
+  ```python
+  from strands import Agent
+  from strands.types.exceptions import IdempotencyAbortedError
+
+  agent = Agent()
+
+  try:
+      result = agent("Process order 1234", idempotency_token="order-1234")
+  except IdempotencyAbortedError:
+      # The original was aborted before producing a result
+      ...
+  ```
+
+  #### Allowing concurrent invocations
+
+  To run multiple invocations on one agent at the same time, set the concurrency mode when you construct it:
+
+  ```python
+  from strands import Agent
+  from strands.types.agent import ConcurrentInvocationMode
+
+  agent = Agent(concurrent_invocation_mode=ConcurrentInvocationMode.UNSAFE_REENTRANT)
+  ```
+
+  This removes the single-invocation guard entirely: overlapping calls neither raise nor deduplicate, and an idempotency token is ignored. Nothing protects the conversation history from concurrent mutation, so interleaved invocations can corrupt it. Reach for this only when each invocation works on isolated state, or when you handle synchronization yourself. To run independent work in parallel, a separate agent per task is safer than sharing one.
+  </Tab>
+  <Tab label="TypeScript">
+
+  TypeScript rejects overlapping invocations: invoking an agent that is already running throws `ConcurrentInvocationError`. It does not offer a configurable concurrency mode or idempotency-token deduplication of retries; both are available only in the Python SDK.
+  </Tab>
+</Tabs>
+
 ## Common Problems
 
 ### Context Window Exhaustion

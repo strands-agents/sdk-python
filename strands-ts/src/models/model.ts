@@ -436,9 +436,12 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
           case 'modelMessageStopEvent':
             // Store message and stop reason
             if (messageRole) {
+              const filtered = contentBlocks.filter(
+                (block) => !(block instanceof TextBlock && block.text.trim() === '')
+              )
               stoppedMessage = new Message({
                 role: messageRole,
-                content: [...contentBlocks],
+                content: filtered,
               })
               finalStopReason = event.stopReason!
             }

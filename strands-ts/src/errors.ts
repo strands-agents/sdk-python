@@ -254,3 +254,14 @@ export class DefaultNotConfiguredError extends Error {
     this.name = 'DefaultNotConfiguredError'
   }
 }
+
+/**
+ * Error thrown when checkpoint operations fail (e.g. an incompatible schema
+ * version when resuming a durable run). See the experimental checkpoint module.
+ */
+export class CheckpointError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CheckpointError'
+  }
+}

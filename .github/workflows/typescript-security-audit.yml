@@ -29,5 +29,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run security audit
+      # Informational: full-tree audit for visibility into pre-existing
+      # advisories. Does not block merge so unrelated PRs are not held hostage
+      # by transitive vulns; drive these down via Dependabot. PR-introduced
+      # vulns are gated by the repo-level Dependency Review job in ci.yml.
+      - name: Run security audit (informational)
+        continue-on-error: true
         run: npm audit --audit-level=high

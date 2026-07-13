@@ -7,7 +7,6 @@ import { ContextOffloader } from '../../vended-plugins/context-offloader/plugin.
 import { InMemoryStorage } from '../../vended-plugins/context-offloader/storage.js'
 import type { ConversationManager } from '../../conversation-manager/conversation-manager.js'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function internals(agent: Agent): any {
   return agent as any
 }

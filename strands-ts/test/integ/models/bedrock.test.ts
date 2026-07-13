@@ -570,8 +570,7 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
 
         // Find the ModelRedactionEvent with outputRedaction
         const redactEvent = events.find((e) => e.type === 'modelRedactionEvent' && e.outputRedaction) as
-          | ModelRedactionEvent
-          | undefined
+          ModelRedactionEvent | undefined
 
         expect(redactEvent).toBeDefined()
         expect(redactEvent?.outputRedaction?.replaceContent).toBe(REDACT_MESSAGE)

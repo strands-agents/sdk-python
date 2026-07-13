@@ -18,6 +18,7 @@ from ..hooks.events import (
 )
 from ..hooks.registry import HookOrder, HookRegistry
 from ..interrupt import InterruptException
+from ..types.content import _generate_tracking_id
 from .actions import Confirm, Deny, Guide, InterventionAction, LifecycleEvent, Proceed, Transform, default_evaluate
 from .handler import InterventionHandler
 
@@ -163,7 +164,9 @@ class InterventionRegistry:
             event.cancel = f"DENIED: {action.reason}"
             return True
         elif isinstance(action, Guide):
-            event.agent.messages.append({"role": "user", "content": [{"text": action.feedback}]})
+            event.agent.messages.append(
+                {"role": "user", "content": [{"text": action.feedback}], "tracking_id": _generate_tracking_id()}
+            )
             return False
         elif isinstance(action, Transform):
             action.apply(event)
@@ -176,7 +179,9 @@ class InterventionRegistry:
     def _apply_after_model_call(self, event: LifecycleEvent, action: InterventionAction, handler_name: str) -> bool:
         if isinstance(action, Guide):
             event.retry = True
-            event.agent.messages.append({"role": "user", "content": [{"text": action.feedback}]})
+            event.agent.messages.append(
+                {"role": "user", "content": [{"text": action.feedback}], "tracking_id": _generate_tracking_id()}
+            )
             return False
         elif isinstance(action, Transform):
             action.apply(event)

@@ -19,8 +19,6 @@ import CredibilityStrip from '../components/landing/CredibilityStrip.astro'
 import LabsEvalsSection from '../components/landing/LabsEvalsSection.astro'
 import curvePrimary from '../assets/curve-primary.svg'
 import curveSecondary from '../assets/curve-secondary.svg'
-
-const base = import.meta.env.BASE_URL || '/'
 ---
 
 <LandingLayout
@@ -34,7 +32,7 @@ const base = import.meta.env.BASE_URL || '/'
   </div>
 
   <div class="landing-page">
-    <HeroSection baseUrl={base} />
+    <HeroSection />
     <ModelDrivenSection />
     <ControlSection />
     <OutcomesSection />

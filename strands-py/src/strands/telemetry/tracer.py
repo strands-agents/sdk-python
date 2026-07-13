@@ -9,11 +9,12 @@ import logging
 import os
 from collections.abc import Mapping
 from datetime import date, datetime, timezone
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+import opentelemetry.context as context_api
 import opentelemetry.trace as trace_api
 from opentelemetry.instrumentation.threading import ThreadingInstrumentor
-from opentelemetry.trace import Span, StatusCode
+from opentelemetry.trace import Link, Span, SpanContext, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
@@ -23,7 +24,12 @@ from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
 
+if TYPE_CHECKING:
+    from ..memory.types import MemoryEntry
+
 logger = logging.getLogger(__name__)
+
+REDACTED_VALUE = "[REDACTED]"
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -77,14 +83,29 @@ class JSONEncoder(json.JSONEncoder):
 class Tracer:
     """Handles OpenTelemetry tracing.
 
-    This class provides a simple interface for creating and managing traces,
-    with support for sending to OTLP endpoints.
+    This class provides a simple interface for creating and managing traces, with support for sending to OTLP endpoints.
 
-    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
-    are sent to the OTLP endpoint.
+    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces are sent to the OTLP endpoint.
 
     Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
     or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+
+    Including "gen_ai_span_attributes_only" records message content directly as span attributes instead of
+    span events, for backends that cannot read span events. This applies to the aggregated content events
+    (latest-convention "gen_ai.*" messages and the "memory.query"/"memory.content" events); the legacy
+    per-message events are always emitted as events. The default (token absent, non-Langfuse) emits span
+    events for backward compatibility.
+
+    Span attribute redaction is opt-in via the `gen_ai_unredacted_attributes=<list>` token in the same
+    environment variable. The list uses `;` as a separator and supports trailing-`*` glob patterns.
+    When the token is absent, all attributes are emitted unredacted (backward compatible).
+
+    Note: only a single trailing `*` is honored (e.g. `gen_ai.output.*`). A mid-string wildcard such
+    as `gen_ai.*.messages` will not match anything at the moment — it is treated as an exact name.
+
+    Sensitive attributes subject to the redaction policy are: `gen_ai.input.messages` (user messages
+    and tool inputs/results being fed into the model), `gen_ai.output.messages` (agent/model responses
+    and tool call responses), and `gen_ai.system_instructions` (system prompts).
     """
 
     def __init__(self) -> None:
@@ -101,15 +122,72 @@ class Tracer:
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
         self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
+        self._span_attributes_only = self.is_langfuse or "gen_ai_span_attributes_only" in opt_in_values
+
+        unredacted_token = next(
+            (t for t in opt_in_values if t.startswith("gen_ai_unredacted_attributes=")),
+            None,
+        )
+        self._redaction_enabled = unredacted_token is not None
+        self._unredacted_exact, self._unredacted_globs = self._compile_unredacted_patterns(
+            unredacted_token.partition("=")[2] if unredacted_token else ""
+        )
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
 
         Returns:
-            A set of opt-in values from the environment variable.
+            A set of opt-in tokens from the environment variable.
         """
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
         return {value.strip() for value in opt_in_env.split(",")}
+
+    @staticmethod
+    def _compile_unredacted_patterns(value: str) -> tuple[frozenset[str], tuple[str, ...]]:
+        """Split an unredacted-attributes value into exact names and glob prefixes.
+
+        Globs are limited to a single trailing `*` (e.g. `gen_ai.output.*`). Empty entries are
+        ignored, which is how a value like `gen_ai_unredacted_attributes=` resolves to "redact
+        everything sensitive".
+        """
+        exact: set[str] = set()
+        globs: list[str] = []
+        for raw in value.split(";"):
+            entry = raw.strip()
+            if not entry:
+                continue
+            if entry.endswith("*"):
+                globs.append(entry[:-1])
+            else:
+                exact.add(entry)
+        return frozenset(exact), tuple(globs)
+
+    def _is_attribute_unredacted(self, attribute_name: str) -> bool:
+        """Return True if the attribute should be emitted as-is, False if it must be redacted."""
+        if not self._redaction_enabled:
+            return True
+        if attribute_name in self._unredacted_exact:
+            return True
+        return any(attribute_name.startswith(prefix) for prefix in self._unredacted_globs)
+
+    def _redact(self, attribute_name: str, value: str) -> str:
+        """Apply the redaction policy to a single sensitive attribute value.
+
+        Args:
+            attribute_name: The canonical semantic attribute name used for policy lookup
+                (one of `gen_ai.input.messages`, `gen_ai.output.messages`, or
+                `gen_ai.system_instructions`). This may differ from the physical event
+                field key emitted under legacy conventions (which uses `content`/`message`),
+                but the canonical name is always used so that allowlist entries are
+                independent of the convention in use.
+            value: The serialized attribute value to potentially redact.
+
+        Returns:
+            The original value if the attribute is unredacted, otherwise ``REDACTED_VALUE``.
+        """
+        if self._is_attribute_unredacted(attribute_name):
+            return value
+        return REDACTED_VALUE
 
     @property
     def is_langfuse(self) -> bool:
@@ -129,6 +207,8 @@ class Tracer:
         parent_span: Span | None = None,
         attributes: dict[str, AttributeValue] | None = None,
         span_kind: trace_api.SpanKind = trace_api.SpanKind.INTERNAL,
+        force_root: bool = False,
+        links: list[Link] | None = None,
     ) -> Span:
         """Generic helper method to start a span with common attributes.
 
@@ -137,18 +217,27 @@ class Tracer:
             parent_span: Optional parent span to link this span to
             attributes: Dictionary of attributes to set on the span
             span_kind: enum of OptenTelemetry SpanKind
+            force_root: Start the span as a trace root, ignoring any current span.
+                Use for work that runs detached from the span that scheduled it
+                (e.g. background tasks whose parent span has already ended).
+            links: Optional spans to link to without implying a parent-child
+                timing relationship (useful for causally-related detached work).
 
         Returns:
             The created span, or None if tracing is not enabled
         """
-        if not parent_span:
-            parent_span = trace_api.get_current_span()
+        if force_root:
+            # An empty context detaches the span from any (possibly ended) current span.
+            context = context_api.Context()
+        else:
+            if not parent_span:
+                parent_span = trace_api.get_current_span()
 
-        context = None
-        if parent_span and parent_span.is_recording() and parent_span != trace_api.INVALID_SPAN:
-            context = trace_api.set_span_in_context(parent_span)
+            context = None
+            if parent_span and parent_span.is_recording() and parent_span != trace_api.INVALID_SPAN:
+                context = trace_api.set_span_in_context(parent_span)
 
-        span = self.tracer.start_span(name=span_name, context=context, kind=span_kind)
+        span = self.tracer.start_span(name=span_name, context=context, kind=span_kind, links=links)
 
         # Set start time as a common attribute
         span.set_attribute("gen_ai.event.start_time", datetime.now(timezone.utc).isoformat())
@@ -240,18 +329,23 @@ class Tracer:
     ) -> None:
         """Add an event with attributes to a span.
 
+        Per OpenTelemetry the span-event recording API is deprecated. When `to_span_attributes` is set,
+        the attributes are recorded directly on the span and the event is skipped, so the content is
+        recorded once rather than duplicated across both; otherwise the event is emitted.
+
         Args:
             span: The span to add the event to
             event_name: Name of the event
             event_attributes: Dictionary of attributes to set on the event
-            to_span_attributes: Add the attributes to span attributes
+            to_span_attributes: Record the attributes on the span instead of as an event
         """
         if not span:
             return
 
-        # Add to span attribute since some backend can't read the events
-        if to_span_attributes and event_attributes:
-            span.set_attributes(event_attributes)
+        if to_span_attributes:
+            if event_attributes:
+                span.set_attributes(event_attributes)
+            return
 
         span.add_event(event_name, attributes=event_attributes)
 
@@ -352,27 +446,29 @@ class Tracer:
         self._add_optional_usage_and_metrics_attributes(attributes, usage, metrics)
 
         if self.use_latest_genai_conventions:
+            output_messages = serialize(
+                [
+                    {
+                        "role": message["role"],
+                        "parts": self._map_content_blocks_to_otel_parts(message["content"]),
+                        "finish_reason": str(stop_reason),
+                    }
+                ]
+            )
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.output.messages": serialize(
-                        [
-                            {
-                                "role": message["role"],
-                                "parts": self._map_content_blocks_to_otel_parts(message["content"]),
-                                "finish_reason": str(stop_reason),
-                            }
-                        ]
-                    ),
-                },
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             self._add_event(
                 span,
                 "gen_ai.choice",
-                event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
+                event_attributes={
+                    "finish_reason": str(stop_reason),
+                    "message": self._redact("gen_ai.output.messages", serialize(message["content"])),
+                },
             )
 
         self._end_span(span, attributes)
@@ -412,27 +508,26 @@ class Tracer:
         span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
         if self.use_latest_genai_conventions:
+            input_messages = serialize(
+                [
+                    {
+                        "role": "tool",
+                        "parts": [
+                            {
+                                "type": "tool_call",
+                                "name": tool["name"],
+                                "id": tool["toolUseId"],
+                                "arguments": tool["input"],
+                            }
+                        ],
+                    }
+                ]
+            )
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.input.messages": serialize(
-                        [
-                            {
-                                "role": "tool",
-                                "parts": [
-                                    {
-                                        "type": "tool_call",
-                                        "name": tool["name"],
-                                        "id": tool["toolUseId"],
-                                        "arguments": tool["input"],
-                                    }
-                                ],
-                            }
-                        ]
-                    )
-                },
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             self._add_event(
@@ -440,7 +535,7 @@ class Tracer:
                 "gen_ai.tool.message",
                 event_attributes={
                     "role": "tool",
-                    "content": serialize(tool["input"]),
+                    "content": self._redact("gen_ai.input.messages", serialize(tool["input"])),
                     "id": tool["toolUseId"],
                 },
             )
@@ -465,33 +560,32 @@ class Tracer:
             attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "tool",
+                            "parts": [
+                                {
+                                    "type": "tool_call_response",
+                                    "id": tool_result.get("toolUseId", ""),
+                                    "response": content,
+                                }
+                            ],
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "tool",
-                                    "parts": [
-                                        {
-                                            "type": "tool_call_response",
-                                            "id": tool_result.get("toolUseId", ""),
-                                            "response": content,
-                                        }
-                                    ],
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
                     event_attributes={
-                        "message": serialize(content),
+                        "message": self._redact("gen_ai.output.messages", serialize(content)),
                         "id": tool_result.get("toolUseId", ""),
                     },
                 )
@@ -559,26 +653,31 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
-        event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
+        event_attributes: dict[str, AttributeValue] = {
+            "message": self._redact("gen_ai.output.messages", serialize(message["content"])),
+        }
 
         if tool_result_message:
-            event_attributes["tool.result"] = serialize(tool_result_message["content"])
+            # tool results are conceptually fed back to the model as input, so they are
+            # policied under gen_ai.input.messages even when the emitted attribute key differs
+            event_attributes["tool.result"] = self._redact(
+                "gen_ai.input.messages", serialize(tool_result_message["content"])
+            )
 
             if self.use_latest_genai_conventions:
+                tool_result_messages = serialize(
+                    [
+                        {
+                            "role": tool_result_message["role"],
+                            "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": tool_result_message["role"],
-                                    "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.input.messages": self._redact("gen_ai.input.messages", tool_result_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
@@ -661,27 +760,29 @@ class Tracer:
 
         if response:
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": str(response)}],
+                            "finish_reason": str(response.stop_reason),
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "assistant",
-                                    "parts": [{"type": "text", "content": str(response)}],
-                                    "finish_reason": str(response.stop_reason),
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
-                    event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
+                    event_attributes={
+                        "message": self._redact("gen_ai.output.messages", str(response)),
+                        "finish_reason": str(response.stop_reason),
+                    },
                 )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
@@ -733,11 +834,6 @@ class Tracer:
         """Start a new span for swarm invocation."""
         operation = f"invoke_{instance}"
         attributes: dict[str, AttributeValue] = self._get_common_attributes(operation)
-        attributes.update(
-            {
-                "gen_ai.agent.name": instance,
-            }
-        )
 
         if custom_trace_attributes:
             attributes.update(custom_trace_attributes)
@@ -750,17 +846,19 @@ class Tracer:
                 parts = self._map_content_blocks_to_otel_parts(task)
             else:
                 parts = [{"type": "text", "content": task}]
+            input_messages = serialize([{"role": "user", "parts": parts}])
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
+            content_value = serialize(task) if isinstance(task, list) else task
             self._add_event(
                 span,
                 "gen_ai.user.message",
-                event_attributes={"content": serialize(task) if isinstance(task, list) else task},
+                event_attributes={"content": self._redact("gen_ai.input.messages", content_value)},
             )
 
         return span
@@ -773,27 +871,335 @@ class Tracer:
         """End a swarm span with results."""
         if result:
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": result}],
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "assistant",
-                                    "parts": [{"type": "text", "content": result}],
-                                }
-                            ]
-                        )
-                    },
-                    to_span_attributes=self.is_langfuse,
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    to_span_attributes=self._span_attributes_only,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
-                    event_attributes={"message": result},
+                    event_attributes={"message": self._redact("gen_ai.output.messages", result)},
                 )
+
+    def _build_memory_span_attributes(
+        self,
+        operation_name: str,
+        memory_attributes: dict[str, AttributeValue],
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        extra_kwargs: dict[str, Any] | None = None,
+    ) -> dict[str, AttributeValue]:
+        """Assemble span attributes for a memory operation.
+
+        Combines the common GenAI attributes for ``operation_name`` with the
+        operation's own attributes, any caller-supplied custom trace attributes,
+        and scalar ``**kwargs`` forwarded by the public span methods.
+
+        Args:
+            operation_name: The ``gen_ai.operation.name`` value for this span. Memory
+                operations use a ``memory.*`` namespace (``memory.search`` etc.) rather
+                than a standard GenAI operation, since they are SDK-internal and have no
+                OpenTelemetry GenAI equivalent.
+            memory_attributes: Attributes specific to this memory operation.
+            custom_trace_attributes: Optional caller-supplied trace attributes.
+            extra_kwargs: Optional forwarded kwargs; only scalar values (str/int/float/bool)
+                are kept, since OpenTelemetry attributes must be scalars; non-scalar values
+                are dropped.
+
+        Returns:
+            The merged attribute dictionary.
+        """
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name=operation_name)
+        attributes.update(memory_attributes)
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
+        if extra_kwargs:
+            attributes.update({k: v for k, v in extra_kwargs.items() if isinstance(v, (str, int, float, bool))})
+        return attributes
+
+    def start_memory_search_span(
+        self,
+        query: str,
+        store_names: list[str],
+        max_search_results: int | None = None,
+        parent_span: Span | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        **kwargs: Any,
+    ) -> Span:
+        """Start a new span for a memory search.
+
+        The query is recorded verbatim as a span event, consistent with how model and
+        tool spans record their inputs. Memory payloads may contain user PII; suppress
+        span content at the exporter or processor when that is a concern.
+
+        Args:
+            query: The search query.
+            store_names: Names of the stores being searched.
+            max_search_results: Optional cap on results per store.
+            parent_span: Optional parent span to link this span to.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            **kwargs: Additional attributes to add to the span.
+
+        Returns:
+            The created span.
+        """
+        memory_attributes: dict[str, AttributeValue] = {
+            "memory.store.names": serialize(store_names),
+            "memory.store.count": len(store_names),
+        }
+        if max_search_results is not None:
+            memory_attributes["memory.max_search_results"] = max_search_results
+        attributes = self._build_memory_span_attributes(
+            "memory.search", memory_attributes, custom_trace_attributes, kwargs
+        )
+
+        span = self._start_span("memory.search", parent_span, attributes=attributes)
+        self._add_event(span, "memory.query", {"content": query}, to_span_attributes=self._span_attributes_only)
+
+        return span
+
+    def end_memory_search_span(
+        self,
+        span: Span,
+        entries: "list[MemoryEntry] | None" = None,
+        store_failure_count: int = 0,
+        error: Exception | None = None,
+    ) -> None:
+        """End a memory search span with results.
+
+        Args:
+            span: The span to end.
+            entries: The retrieved memory entries (each with ``content``, ``store_name``, ``metadata``).
+            store_failure_count: Number of stores whose search raised (logged and skipped).
+            error: Optional exception if the search failed outright.
+        """
+        if not span or not span.is_recording():
+            return
+
+        results = entries if entries is not None else []
+        attributes: dict[str, AttributeValue] = {
+            "memory.result.count": len(results),
+            "memory.store.failure_count": store_failure_count,
+        }
+
+        if error is None:
+            self._add_event(
+                span,
+                "memory.results",
+                {
+                    "content": serialize(
+                        [
+                            {
+                                "content": entry.content,
+                                "store_name": entry.store_name,
+                                "metadata": entry.metadata,
+                            }
+                            for entry in results
+                        ]
+                    )
+                },
+                to_span_attributes=self._span_attributes_only,
+            )
+
+        self._end_span(span, attributes, error)
+
+    def start_memory_add_span(
+        self,
+        content: str,
+        store_names: list[str],
+        parent_span: Span | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        force_root: bool = False,
+        **kwargs: Any,
+    ) -> Span:
+        """Start a new span for a memory add.
+
+        The content is recorded verbatim as a span event, consistent with how model and
+        tool spans record their inputs. Memory payloads may contain user PII; suppress
+        span content at the exporter or processor when that is a concern.
+
+        Args:
+            content: The content being written.
+            store_names: Names of the writable stores being targeted.
+            parent_span: Optional parent span to link this span to.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            force_root: Start the span as a trace root (for detached fire-and-forget writes).
+            **kwargs: Additional attributes to add to the span.
+
+        Returns:
+            The created span.
+        """
+        memory_attributes: dict[str, AttributeValue] = {
+            "memory.store.names": serialize(store_names),
+            "memory.store.count": len(store_names),
+        }
+        attributes = self._build_memory_span_attributes(
+            "memory.add", memory_attributes, custom_trace_attributes, kwargs
+        )
+
+        span = self._start_span("memory.add", parent_span, attributes=attributes, force_root=force_root)
+        self._add_event(span, "memory.content", {"content": content}, to_span_attributes=self._span_attributes_only)
+
+        return span
+
+    def end_memory_add_span(
+        self,
+        span: Span,
+        store_failure_count: int = 0,
+        error: Exception | None = None,
+    ) -> None:
+        """End a memory add span.
+
+        Args:
+            span: The span to end.
+            store_failure_count: Number of targeted stores whose write failed.
+            error: Optional exception if the add failed.
+        """
+        if not span or not span.is_recording():
+            return
+
+        attributes: dict[str, AttributeValue] = {"memory.store.failure_count": store_failure_count}
+        self._end_span(span, attributes, error)
+
+    def start_memory_inject_span(
+        self,
+        max_entries: int | None = None,
+        parent_span: Span | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        **kwargs: Any,
+    ) -> Span:
+        """Start a new span for memory context injection.
+
+        Args:
+            max_entries: Optional cap on entries injected for this model call.
+            parent_span: Optional parent span to link this span to.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            **kwargs: Additional attributes to add to the span.
+
+        Returns:
+            The created span.
+        """
+        memory_attributes: dict[str, AttributeValue] = {}
+        if max_entries is not None:
+            memory_attributes["memory.max_entries"] = max_entries
+        attributes = self._build_memory_span_attributes(
+            "memory.inject", memory_attributes, custom_trace_attributes, kwargs
+        )
+
+        return self._start_span("memory.inject", parent_span, attributes=attributes)
+
+    def end_memory_inject_span(
+        self,
+        span: Span,
+        injected: bool,
+        entry_count: int = 0,
+        format_error: bool = False,
+    ) -> None:
+        """End a memory injection span.
+
+        Injection fails open, so a format failure ends the span OK with a flag
+        rather than an error status (the agent did not fail).
+
+        Args:
+            span: The span to end.
+            injected: Whether memory context was injected for this model call.
+            entry_count: Number of entries injected.
+            format_error: Whether the format callback raised (injection skipped).
+        """
+        if not span or not span.is_recording():
+            return
+
+        attributes: dict[str, AttributeValue] = {
+            "memory.injected": injected,
+            "memory.entry.count": entry_count,
+        }
+        if format_error:
+            attributes["memory.inject.format_error"] = True
+
+        self._end_span(span, attributes)
+
+    def start_memory_extract_span(
+        self,
+        store_name: str,
+        message_count: int,
+        filtered_count: int = 0,
+        extractor: str | None = None,
+        agent_span_context: SpanContext | None = None,
+        **kwargs: Any,
+    ) -> Span:
+        """Start a new root span for a background memory extraction.
+
+        Extraction runs detached from the agent invocation that scheduled it (the
+        agent span has typically ended by the time the save runs), so the span is
+        a trace root, optionally linked back to the agent span for causality.
+
+        Args:
+            store_name: Name of the store being saved to.
+            message_count: Number of messages written, i.e. after the message filter ran
+                (recorded as ``memory.message.count``). The pre-filter input count is
+                ``message_count + filtered_count``.
+            filtered_count: Number of messages dropped by the message filter.
+            extractor: The extractor class name, or None for the ``add_messages`` path.
+            agent_span_context: Optional span context of the agent run that scheduled
+                this extraction, attached as a link.
+            **kwargs: Additional attributes to add to the span.
+
+        Returns:
+            The created span.
+        """
+        memory_attributes: dict[str, AttributeValue] = {
+            "memory.store.name": store_name,
+            "memory.message.count": message_count,
+            "memory.message.filtered_count": filtered_count,
+        }
+        if extractor is not None:
+            memory_attributes["memory.extractor"] = extractor
+
+        # The extract span is a detached root, so its OTel parent is empty. Record the scheduling
+        # agent run's ids as plain attributes (in addition to the link below) so backends that don't
+        # render span links can still trace the extraction back to the run that triggered it.
+        links = None
+        if agent_span_context is not None and agent_span_context.is_valid:
+            memory_attributes["memory.parent.trace_id"] = trace_api.format_trace_id(agent_span_context.trace_id)
+            memory_attributes["memory.parent.span_id"] = trace_api.format_span_id(agent_span_context.span_id)
+            links = [Link(agent_span_context)]
+
+        attributes = self._build_memory_span_attributes("memory.extract", memory_attributes, extra_kwargs=kwargs)
+
+        return self._start_span("memory.extract", attributes=attributes, force_root=True, links=links)
+
+    def end_memory_extract_span(
+        self,
+        span: Span,
+        entry_count: int | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """End a memory extraction span.
+
+        Args:
+            span: The span to end.
+            entry_count: Number of entries written to the store.
+            error: Optional exception if the extraction failed (saving never raises;
+                failures are recorded here and swallowed by the coordinator).
+        """
+        if not span or not span.is_recording():
+            return
+
+        attributes: dict[str, AttributeValue] = {}
+        if entry_count is not None:
+            attributes["memory.entry.count"] = entry_count
+
+        self._end_span(span, attributes, error)
 
     def _get_common_attributes(
         self,
@@ -849,17 +1255,19 @@ class Tracer:
 
         if self.use_latest_genai_conventions:
             parts = self._map_content_blocks_to_otel_parts(content_blocks)
+            # system prompts are sensitive and policed under gen_ai.system_instructions
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.system_instructions": serialize(parts)},
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.system_instructions": self._redact("gen_ai.system_instructions", serialize(parts))},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
+            # system prompts are sensitive and policed under gen_ai.system_instructions
             self._add_event(
                 span,
                 "gen_ai.system.message",
-                {"content": serialize(content_blocks)},
+                {"content": self._redact("gen_ai.system_instructions", serialize(content_blocks))},
             )
 
     def _add_event_messages(self, span: Span, messages: Messages) -> None:
@@ -878,15 +1286,16 @@ class Tracer:
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize(input_messages)},
-                to_span_attributes=self.is_langfuse,
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", serialize(input_messages))},
+                to_span_attributes=self._span_attributes_only,
             )
         else:
             for message in messages:
+                redact_key = "gen_ai.output.messages" if message.get("role") == "assistant" else "gen_ai.input.messages"
                 self._add_event(
                     span,
                     self._get_event_name_for_message(message),
-                    {"content": serialize(message["content"])},
+                    {"content": self._redact(redact_key, serialize(message["content"]))},
                 )
 
     def _map_content_blocks_to_otel_parts(

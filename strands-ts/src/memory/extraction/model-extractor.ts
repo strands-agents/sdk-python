@@ -2,6 +2,7 @@ import { Message, TextBlock, type MessageData } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import type { JSONValue } from '../../types/json.js'
 import { logger } from '../../logging/logger.js'
+import { normalizeError } from '../../errors.js'
 import type { ExtractionResult, Extractor, ExtractorContext } from './types.js'
 
 /** Default instruction guiding the model to emit discrete, durable facts as a JSON array. */
@@ -62,19 +63,42 @@ export class ModelExtractor implements Extractor {
       }),
     ]
 
-    const stream = model.streamAggregated(promptMessages, { systemPrompt: this._systemPrompt })
-    // Manual .next() loop: streamAggregated returns its result as the generator return value
-    // (done:true), which for-await-of discards.
-    let result: Awaited<ReturnType<typeof stream.next>> | undefined
-    for (;;) {
-      result = await stream.next()
-      if (result.done) break
-    }
-    if (!result?.done || !result.value) {
-      throw new Error('ModelExtractor: model returned no response')
+    const span =
+      context?.tracer?.startModelInvokeSpan({
+        messages: promptMessages,
+        ...(model.modelId !== undefined && { modelId: model.modelId }),
+        systemPrompt: this._systemPrompt,
+      }) ?? null
+
+    let result: Awaited<ReturnType<ReturnType<typeof model.streamAggregated>['next']>> | undefined
+    try {
+      const stream = model.streamAggregated(promptMessages, { systemPrompt: this._systemPrompt })
+      // Manual .next() loop: streamAggregated returns its result as the generator return value
+      // (done:true), which for-await-of discards.
+      for (;;) {
+        result = await stream.next()
+        if (result.done) break
+      }
+    } catch (error) {
+      context?.tracer?.endModelInvokeSpan(span, { error: normalizeError(error) })
+      throw error
     }
 
-    const text = result.value.message.content
+    if (!result?.done || !result.value) {
+      const noResponseError = new Error('ModelExtractor: model returned no response')
+      context?.tracer?.endModelInvokeSpan(span, { error: noResponseError })
+      throw noResponseError
+    }
+
+    const { message, stopReason, metadata } = result.value
+    context?.tracer?.endModelInvokeSpan(span, {
+      output: message,
+      stopReason,
+      ...(metadata?.usage !== undefined && { usage: metadata.usage }),
+      ...(metadata?.metrics !== undefined && { metrics: metadata.metrics }),
+    })
+
+    const text = message.content
       .map((block) => ('text' in block ? block.text : ''))
       .join('')
       .trim()

@@ -9,6 +9,7 @@ from typing import Any
 
 __all__ = [
     "BedrockKnowledgeBaseStore",
+    "TestMemoryStore",
 ]
 
 
@@ -21,4 +22,8 @@ def __getattr__(name: str) -> Any:
         from .bedrock_knowledge_base import BedrockKnowledgeBaseStore
 
         return BedrockKnowledgeBaseStore
+    if name == "TestMemoryStore":
+        from .test_memory_store import TestMemoryStore
+
+        return TestMemoryStore
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")

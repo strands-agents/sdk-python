@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -30,6 +30,15 @@ T = TypeVar("T", bound=BaseModel)
 
 class LlamaAPIModel(Model):
     """Llama API model provider implementation."""
+
+    OVERFLOW_MESSAGES = {
+        "this model's maximum context length is",
+        "exceed context limit",
+        "model's maximum context limit",
+        "is longer than the model's context length",
+        "prompt is too long",
+        "too many tokens",
+    }
 
     class LlamaConfig(BaseModelConfig, total=False):
         """Configuration options for Llama API models.
@@ -131,7 +140,7 @@ class LlamaAPIModel(Model):
         """
         return {
             "function": {
-                "arguments": json.dumps(tool_use["input"]),
+                "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
                 "name": tool_use["name"],
             },
             "id": tool_use["toolUseId"],
@@ -149,7 +158,7 @@ class LlamaAPIModel(Model):
         contents = cast(
             list[ContentBlock],
             [
-                {"text": json.dumps(content["json"])} if "json" in content else content
+                {"text": json.dumps(content["json"], ensure_ascii=False)} if "json" in content else content
                 for content in tool_result["content"]
             ],
         )
@@ -355,6 +364,7 @@ class LlamaAPIModel(Model):
             Formatted message chunks from the model.
 
         Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: When the model service is throttling requests from the client.
         """
         warn_on_tool_choice_not_supported(tool_choice)
@@ -368,6 +378,10 @@ class LlamaAPIModel(Model):
             response = self.client.chat.completions.create(**request)
         except llama_api_client.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
+        except llama_api_client.BadRequestError as e:
+            if any(message in str(e).lower() for message in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(e)) from e
+            raise
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})

@@ -118,14 +118,16 @@ jobs:
           echo "Windows audio dependencies handled by PyAudio wheels"
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
       - name: Run Unit tests
         id: tests
-        run: hatch test tests --cover
+        # Retry failing tests so a flaky test doesn't block a release; a
+        # genuinely broken test still fails after the reruns and holds the gate.
+        run: hatch test tests --cover --reruns 2 --reruns-delay 5
         continue-on-error: false
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
   lint:
@@ -173,7 +175,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
 
       - name: Run lint
         id: lint

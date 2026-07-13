@@ -10,6 +10,10 @@ sourceLinks:
   - path: strands-ts/src/interventions/handler.ts
   - path: strands-ts/src/interventions/actions.ts
   - path: strands-ts/src/interventions/registry.ts
+sidebar:
+  badge:
+    text: New
+    variant: tip
 ---
 
 Interventions are a composable control layer for agents. They provide a typed action model for common control concerns — authorization, guardrails, steering, and content transformation — with ordered evaluation and short-circuiting. Unlike raw [hooks](../hooks.mdx) and [plugins](../../plugins/index.mdx) which mutate event objects directly, intervention handlers return typed decisions (`proceed`, `deny`, `guide`, `confirm`, `transform`) that the framework applies with well-defined semantics — enabling automatic short-circuiting, feedback accumulation, and conflict resolution.

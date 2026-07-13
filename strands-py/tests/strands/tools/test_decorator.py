@@ -2,13 +2,14 @@
 Tests for the function-based tool decorator pattern.
 """
 
+import warnings
 from asyncio import Queue
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 import strands
 from strands import Agent
@@ -601,6 +602,43 @@ async def test_tool_decorator_with_different_return_values(alist):
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
     assert result["tool_result"]["content"][0]["text"] == "null"
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_preserves_non_ascii_structured_return_values(alist):
+    """Test dict/list returns preserve non-ASCII text like Pydantic models."""
+
+    class Reply(BaseModel):
+        message: str
+
+    @strands.tool
+    def dict_return_tool() -> dict[str, str]:
+        """Return a dict with non-ASCII content."""
+        return {"message": "こんにちは 🌏"}
+
+    @strands.tool
+    def list_return_tool() -> list[str]:
+        """Return a list with non-ASCII content."""
+        return ["你好", "🙂"]
+
+    @strands.tool
+    def model_return_tool() -> Reply:
+        """Return a Pydantic model with non-ASCII content."""
+        return Reply(message="こんにちは 🌏")
+
+    tool_use: ToolUse = {"toolUseId": "test-id", "name": "test-tool", "input": {}}
+
+    for tool, expected_fragments in (
+        (dict_return_tool, ('"message": "こんにちは 🌏"',)),
+        (list_return_tool, ('"你好"', '"🙂"')),
+        (model_return_tool, ('"message":"こんにちは 🌏"',)),
+    ):
+        events = await alist(tool.stream(tool_use, {}))
+        text = events[-1]["tool_result"]["content"][0]["text"]
+
+        assert "\\u" not in text
+        for fragment in expected_fragments:
+            assert fragment in text
 
 
 @pytest.mark.asyncio
@@ -1946,6 +1984,28 @@ def test_tool_decorator_annotated_field_with_inner_default():
         @strands.tool
         def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
             return f"{name} is at level {level}"
+
+
+def test_tool_decorator_param_default_field_preserves_constraints():
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/1914."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        @strands.tool
+        def with_field_default(
+            items: list = Field(default_factory=list),  # noqa: B008
+            score: int = Field(default=0, ge=0),  # noqa: B008
+            label: str = Field(default="x", description="Label override"),  # noqa: B008
+        ) -> str:
+            return f"{len(items)}:{score}:{label}"
+
+    pydantic_warnings = [w for w in caught if "PydanticJsonSchemaWarning" in type(w.message).__name__]
+    assert not pydantic_warnings, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+
+    properties = with_field_default.tool_spec["inputSchema"]["json"]["properties"]
+    assert properties["items"] == {"description": "Parameter items", "items": {}, "type": "array"}
+    assert properties["score"] == {"default": 0, "description": "Parameter score", "minimum": 0, "type": "integer"}
+    assert properties["label"] == {"default": "x", "description": "Label override", "type": "string"}
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ import type { MessageData } from '../../types/messages.js'
 import { InvokeModelStage } from '../../middleware/index.js'
 import type { InvokeModelContext } from '../../middleware/index.js'
 import { createMockAgent } from '../../__fixtures__/agent-helpers.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 function createMockStore(
   name: string,
@@ -612,22 +613,22 @@ describe('MemoryManager', () => {
   })
 
   describe('initAgent', () => {
-    it('does not throw', () => {
+    it('does not throw', async () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')] })
-      expect(() => mm.initAgent(createMockAgent())).not.toThrow()
+      await expect(mm.initAgent(createMockAgent())).resolves.not.toThrow()
     })
 
-    it('does not register injection middleware when injection is disabled', () => {
+    it('does not register injection middleware when injection is disabled', async () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')], injection: false })
       const addMiddleware = vi.fn()
-      mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
+      await mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
       expect(addMiddleware).not.toHaveBeenCalled()
     })
 
-    it('registers an InvokeModelStage input middleware when injection is enabled', () => {
+    it('registers an InvokeModelStage input middleware when injection is enabled', async () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')], injection: true })
       const addMiddleware = vi.fn()
-      mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
+      await mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
 
       expect(addMiddleware).toHaveBeenCalledTimes(1)
       expect(addMiddleware.mock.calls[0]![0]).toBe(InvokeModelStage.Input)
@@ -639,7 +640,7 @@ describe('MemoryManager', () => {
       const mm = new MemoryManager({ stores: [store], injection: true })
       const addMiddleware = vi.fn()
       const agent = createMockAgent({ extra: { addMiddleware } as never })
-      mm.initAgent(agent)
+      await mm.initAgent(agent)
 
       const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
       const messages = [
@@ -649,13 +650,14 @@ describe('MemoryManager', () => {
       const result = await handler({ messages, agent } as unknown as InvokeModelContext)
 
       expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
-        { role: 'assistant', content: [{ text: 'prior' }] },
+        { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
         {
           role: 'user',
           content: [
             { text: '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>' },
             { text: 'what is my plan' },
           ],
+          trackingId: anyTrackingId,
         },
       ])
       expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })

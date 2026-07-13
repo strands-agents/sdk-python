@@ -79,7 +79,7 @@ export const httpRequest = tool({
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         const reason = timeoutSignal.aborted ? `timed out after ${timeout} seconds` : 'cancelled'
-        throw new Error(`Request ${reason}: ${method} ${url}`)
+        throw new Error(`Request ${reason}: ${method} ${url}`, { cause: error })
       }
       throw error
     }

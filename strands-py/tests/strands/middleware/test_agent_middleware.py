@@ -6,13 +6,45 @@ from unittest.mock import AsyncMock
 import pytest
 
 from strands import Agent, Plugin
-from strands._middleware.stages import InvokeModelContext, InvokeModelResult, InvokeModelStage
+from strands._middleware.stages import InvokeModelContext, InvokeModelStage
 from strands._middleware.types import MiddlewareResult
 from strands.hooks import AfterModelCallEvent, BeforeModelCallEvent
 from strands.types._events import ModelStopReason
 from strands.types.streaming import Metrics, Usage
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
+
+
+class PromptCapturingModel(MockedModelProvider):
+    """Captures the system_prompt / system_prompt_content the model receives."""
+
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.received_system_prompt = "UNSET"
+        self.received_system_prompt_content = "UNSET"
+
+    async def stream(self, messages, tool_specs=None, system_prompt=None, *args, **kwargs):
+        self.received_system_prompt = system_prompt
+        self.received_system_prompt_content = kwargs.get("system_prompt_content")
+        async for event in super().stream(messages, tool_specs, system_prompt, *args, **kwargs):
+            yield event
+
+
+class ModelStateMutatingModel(MockedModelProvider):
+    """Model that mutates the model_state dict it receives during stream()."""
+
+    def __init__(self, responses, mutate):
+        super().__init__(responses)
+        self._mutate = mutate
+        self.received_model_state = None
+
+    async def stream(self, *args, **kwargs):
+        model_state = kwargs.get("model_state")
+        # Capture a copy of what the model actually received
+        self.received_model_state = dict(model_state) if model_state is not None else None
+        self._mutate(model_state)
+        async for event in super().stream(*args, **kwargs):
+            yield event
 
 
 @pytest.fixture
@@ -110,6 +142,56 @@ def test_wrap_context_transformation_tool_specs(agent):
     assert received_tool_specs == []
 
 
+def test_string_system_prompt_reaches_model_as_both_forms():
+    """A string system prompt is passed to the model as both string and content blocks."""
+    model = PromptCapturingModel([{"role": "assistant", "content": [{"text": "ok"}]}])
+    agent = Agent(model=model, callback_handler=None, system_prompt="be concise")
+    agent("test")
+
+    assert model.received_system_prompt == "be concise"
+    assert model.received_system_prompt_content == [{"text": "be concise"}]
+
+
+def test_system_prompt_blocks_with_cache_point_preserved_through_middleware():
+    """System-prompt content blocks (incl. cachePoint) survive the middleware round-trip."""
+    blocks = [{"text": "be concise"}, {"cachePoint": {"type": "default"}}]
+    model = PromptCapturingModel([{"role": "assistant", "content": [{"text": "ok"}]}])
+    agent = Agent(model=model, callback_handler=None, system_prompt=blocks)
+
+    received_in_middleware = None
+
+    async def capture(context, next_fn):
+        nonlocal received_in_middleware
+        received_in_middleware = context.system_prompt
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, capture)
+    agent("test")
+
+    # Middleware sees the full content-block form (not the lossy string)
+    assert received_in_middleware == blocks
+    # The model receives the cachePoint-preserving content blocks
+    assert model.received_system_prompt_content == blocks
+
+
+def test_middleware_transformed_system_prompt_reaches_model():
+    """A system_prompt transformed by middleware is what the model receives."""
+    model = PromptCapturingModel([{"role": "assistant", "content": [{"text": "ok"}]}])
+    agent = Agent(model=model, callback_handler=None, system_prompt="original")
+
+    async def inject(context, next_fn):
+        modified = replace(context, system_prompt="transformed by middleware")
+        async for event in next_fn(modified):
+            yield event
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, inject)
+    agent("test")
+
+    assert model.received_system_prompt == "transformed by middleware"
+    assert model.received_system_prompt_content == [{"text": "transformed by middleware"}]
+
+
 def test_context_modification_does_not_mutate_agent_state():
     """Context fields are defensive copies — middleware mutations don't affect agent state."""
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "ok"}]}])
@@ -140,18 +222,22 @@ def test_wrap_short_circuit_skips_model_call(agent):
             usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
             metrics=Metrics(latencyMs=0),
         )
-        yield MiddlewareResult(
-            InvokeModelResult(
-                stop_reason="end_turn",
-                message=cached_message,
-                usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
-                metrics={"latencyMs": 0},
-            )
-        )
 
     agent._middleware_registry.add_middleware(InvokeModelStage, cached_response)
     result = agent("test")
     assert result.message["content"][0]["text"] == "Cached!"
+
+
+def test_wrap_yields_nothing_raises_runtime_error(agent):
+    """Middleware that yields zero events produces an actionable RuntimeError."""
+
+    async def silent(context, next_fn):
+        if False:
+            yield  # noqa: B901
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, silent)
+    with pytest.raises(RuntimeError, match="did not yield a result event"):
+        agent("test")
 
 
 def test_wrap_multiple_middleware_compose_correctly(agent):
@@ -250,18 +336,170 @@ def test_input_async_handler(agent):
 
 
 def test_output_transforms_result(agent):
-    transformed_results: list[InvokeModelResult] = []
+    """Output handler receives a MiddlewareResult wrapping the result event and can transform it."""
+    transformed = []
 
     def output_handler(result):
-        new_result = replace(result, stop_reason="custom_stop")
-        transformed_results.append(new_result)
-        return new_result
+        transformed.append(result)
+        # result.value is the ModelStopReason event
+        stop_reason, message, usage, metrics = result.value["stop"]
+        return result.replace(
+            value=ModelStopReason(stop_reason="custom_stop", message=message, usage=usage, metrics=metrics),
+        )
+
+    agent._middleware_registry.add_middleware(InvokeModelStage.Output, output_handler)
+    result = agent("test")
+
+    assert len(transformed) == 1
+    assert isinstance(transformed[0], MiddlewareResult)
+    assert result.stop_reason == "custom_stop"
+
+
+def test_output_transformed_message_appended_to_history(agent):
+    """The message from a transformed Output result is what lands in agent.messages."""
+
+    def output_handler(result):
+        stop_reason, message, usage, metrics = result.value["stop"]
+        rewritten = {"role": "assistant", "content": [{"text": "rewritten by middleware"}]}
+        return result.replace(
+            value=ModelStopReason(stop_reason=stop_reason, message=rewritten, usage=usage, metrics=metrics),
+        )
 
     agent._middleware_registry.add_middleware(InvokeModelStage.Output, output_handler)
     agent("test")
 
-    assert len(transformed_results) == 1
-    assert transformed_results[0].stop_reason == "custom_stop"
+    assistant_messages = [m for m in agent.messages if m["role"] == "assistant"]
+    assert assistant_messages[-1]["content"][0]["text"] == "rewritten by middleware"
+
+
+def test_output_stop_reason_change_prevents_tool_dispatch():
+    """Changing stop_reason from tool_use to end_turn via Output prevents tool execution."""
+    import strands
+
+    tool_called = False
+
+    @strands.tool(name="should_not_run")
+    def should_not_run() -> str:
+        """A tool that must not be dispatched."""
+        nonlocal tool_called
+        tool_called = True
+        return "ran"
+
+    tool_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "should_not_run", "input": {}}}],
+    }
+    model = MockedModelProvider([tool_msg])
+    agent = Agent(model=model, tools=[should_not_run], callback_handler=None)
+
+    def force_end_turn(result):
+        stop_reason, message, usage, metrics = result.value["stop"]
+        return result.replace(
+            value=ModelStopReason(stop_reason="end_turn", message=message, usage=usage, metrics=metrics),
+        )
+
+    agent._middleware_registry.add_middleware(InvokeModelStage.Output, force_end_turn)
+    result = agent("test")
+
+    assert result.stop_reason == "end_turn"
+    assert not tool_called
+
+
+# --- model state isolation ---
+
+
+def test_model_state_not_exposed_on_context(agent):
+    """InvokeModelContext does not expose a model_state field (state isolation)."""
+    captured: list[InvokeModelContext] = []
+
+    async def capture(context, next_fn):
+        captured.append(context)
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, capture)
+    agent("test")
+
+    assert len(captured) == 1
+    assert not hasattr(captured[0], "model_state")
+
+
+def test_model_state_changes_written_back_after_streaming():
+    """Model writes to model_state during streaming; changes land on agent._model_state."""
+
+    def mutate(state):
+        state["responseId"] = "resp_123"
+
+    model = ModelStateMutatingModel([{"role": "assistant", "content": [{"text": "Hi"}]}], mutate)
+    agent = Agent(model=model, callback_handler=None)
+    agent("Hello")
+
+    assert agent._model_state == {"responseId": "resp_123"}
+
+
+def test_model_state_deletions_synced_back():
+    """Model deletions and additions to model_state sync back to the agent."""
+
+    def mutate(state):
+        state.pop("oldKey", None)
+        state["newKey"] = "fresh"
+
+    model = ModelStateMutatingModel([{"role": "assistant", "content": [{"text": "Hi"}]}], mutate)
+    agent = Agent(model=model, callback_handler=None)
+    agent._model_state = {"oldKey": "stale"}
+    agent("Hello")
+
+    assert "oldKey" not in agent._model_state
+    assert agent._model_state["newKey"] == "fresh"
+
+
+def test_middleware_mutation_before_next_does_not_reach_model():
+    """Middleware mutating agent._model_state before next() does not affect the model call."""
+
+    def mutate(state):
+        pass  # model reads but doesn't change
+
+    model = ModelStateMutatingModel([{"role": "assistant", "content": [{"text": "Hi"}]}], mutate)
+    agent = Agent(model=model, callback_handler=None)
+    agent._model_state = {"key": "snapshotted"}
+
+    async def mutate_before_next(context, next_fn):
+        agent._model_state["key"] = "mutated-before-next"
+        agent._model_state["extra"] = "injected"
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, mutate_before_next)
+    agent("Hello")
+
+    # The model received the pre-middleware snapshot, not the mutated state
+    assert model.received_model_state == {"key": "snapshotted"}
+
+
+def test_middleware_mutation_after_next_does_not_persist():
+    """Middleware mutating agent._model_state after next() is discarded by writeback."""
+
+    def mutate(state):
+        state["fromModel"] = "model-wrote-this"
+
+    model = ModelStateMutatingModel([{"role": "assistant", "content": [{"text": "Hi"}]}], mutate)
+    agent = Agent(model=model, callback_handler=None)
+    agent._model_state = {"key": "original"}
+
+    async def mutate_after_next(context, next_fn):
+        async for event in next_fn(context):
+            yield event
+        agent._model_state["sneaky"] = "should-be-gone"
+        agent._model_state["fromModel"] = "overwritten"
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, mutate_after_next)
+    agent("Hello")
+
+    # Writeback (from the snapshot the model wrote to) overwrites post-next mutations
+    assert agent._model_state["fromModel"] == "model-wrote-this"
+    assert "sneaky" not in agent._model_state
+    # 'key' persists because it was in the snapshot the model received
+    assert agent._model_state["key"] == "original"
 
 
 # --- hooks fire outside middleware ---
@@ -397,7 +635,6 @@ def test_short_circuit_model_not_called(model):
     async def cached(context, next_fn):
         msg = {"role": "assistant", "content": [{"text": "Cached"}]}
         yield ModelStopReason("end_turn", msg, Usage(**usage), Metrics(**metrics))
-        yield MiddlewareResult(InvokeModelResult("end_turn", msg, usage, metrics))
 
     agent._middleware_registry.add_middleware(InvokeModelStage, cached)
     agent("test")
@@ -416,7 +653,6 @@ def test_hooks_fire_when_middleware_short_circuits(model):
     async def cached(context, next_fn):
         msg = {"role": "assistant", "content": [{"text": "Cached"}]}
         yield ModelStopReason("end_turn", msg, Usage(**usage), Metrics(**metrics))
-        yield MiddlewareResult(InvokeModelResult("end_turn", msg, usage, metrics))
 
     agent._middleware_registry.add_middleware(InvokeModelStage, cached)
     agent("test")

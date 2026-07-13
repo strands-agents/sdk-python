@@ -45,6 +45,20 @@ function sanitizeId(rawId: string): string {
 }
 
 /**
+ * Remove any trailing `/` characters from a path-like string.
+ *
+ * Implemented as a linear scan rather than a `/\/+$/` replacement so that
+ * inputs with long runs of slashes are handled in linear time.
+ */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length
+  while (end > 0 && value[end - 1] === '/') {
+    end--
+  }
+  return value.slice(0, end)
+}
+
+/**
  * In-memory storage backend.
  *
  * Useful for testing and serverless environments where disk access is not available.
@@ -310,7 +324,7 @@ export class FileStorage implements Storage {
 
     const filePath = path.resolve(this._artifactDir, reference)
     const resolvedDir = path.resolve(this._artifactDir)
-    if (!filePath.startsWith(resolvedDir)) {
+    if (filePath !== resolvedDir && !filePath.startsWith(resolvedDir + path.sep)) {
       throw new Error(`Reference not found: ${reference}`)
     }
 
@@ -347,7 +361,7 @@ export class S3Storage implements Storage {
     options?: { prefix?: string; region?: string; s3Client?: import('@aws-sdk/client-s3').S3Client }
   ) {
     this._bucket = bucket
-    this._prefix = options?.prefix ? options.prefix.replace(/\/+$/, '') + '/' : ''
+    this._prefix = options?.prefix ? stripTrailingSlashes(options.prefix) + '/' : ''
     this._client = options?.s3Client
     this._region = options?.region ?? 'us-east-1'
   }
@@ -409,7 +423,7 @@ export class S3Storage implements Storage {
       return { content: new Uint8Array(body), contentType }
     } catch (error: unknown) {
       if (error instanceof Error && error.name === 'NoSuchKey') {
-        throw new Error(`Reference not found: ${reference}`)
+        throw new Error(`Reference not found: ${reference}`, { cause: error })
       }
       throw error
     }

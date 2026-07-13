@@ -499,6 +499,27 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "redactedContent": b"",
             },
         ),
+        # Reasoning with empty text but non-empty signature
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "123",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [{"reasoningContent": {"reasoningText": {"text": "", "signature": "123"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "123",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
         # redactedContent
         (
             {
@@ -1197,6 +1218,40 @@ async def test_stream_messages(agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_messages_strips_id_before_model_call(agenerator, alist):
+    """The durable message id must never leak to the model provider."""
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt_content=None,
+        messages=[
+            {
+                "role": "user",
+                "content": [{"text": "hi"}],
+                "tracking_id": "durable-1",
+                "metadata": {"usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}},
+            }
+        ],
+        tool_specs=None,
+        system_prompt=None,
+    )
+
+    await alist(stream)
+
+    sent_messages = mock_model.stream.call_args[0][0]
+    assert sent_messages == [{"role": "user", "content": [{"text": "hi"}]}]
+    assert "tracking_id" not in sent_messages[0]
+    assert "metadata" not in sent_messages[0]
+
+
+@pytest.mark.asyncio
 async def test_stream_messages_with_system_prompt_content(agenerator, alist):
     """Test stream_messages with SystemContentBlock input."""
     mock_model = unittest.mock.MagicMock()
@@ -1440,3 +1495,113 @@ async def test_process_stream_keeps_tool_use_stop_reason_unchanged(agenerator, a
     last_event = cast(ModelStopReason, (await alist(stream))[-1])
 
     assert last_event["stop"][0] == "tool_use"
+
+
+def test_handle_content_block_delta_captures_tool_use_id_and_name_from_delta():
+    """Delta events that include toolUseId and name should populate current_tool_use."""
+    event = {"delta": {"toolUse": {"input": '{"x": 1}', "toolUseId": "abc123", "name": "output_slide"}}}
+    state = {"current_tool_use": {}}
+
+    updated_state, _ = strands.event_loop.streaming.handle_content_block_delta(event, state)
+
+    assert updated_state["current_tool_use"] == {
+        "toolUseId": "abc123",
+        "name": "output_slide",
+        "input": '{"x": 1}',
+    }
+
+
+def test_handle_content_block_delta_does_not_override_existing_tool_use_id_and_name():
+    """toolUseId and name from contentBlockStart should not be overridden by a later delta."""
+    event = {"delta": {"toolUse": {"input": '{"x": 1}', "toolUseId": "from_delta", "name": "from_delta"}}}
+    state = {"current_tool_use": {"toolUseId": "from_start", "name": "from_start", "input": ""}}
+
+    updated_state, _ = strands.event_loop.streaming.handle_content_block_delta(event, state)
+
+    assert updated_state["current_tool_use"] == {
+        "toolUseId": "from_start",
+        "name": "from_start",
+        "input": '{"x": 1}',
+    }
+
+
+def test_handle_content_block_delta_tool_use_without_input_key():
+    """A toolUse delta missing the input key should not raise KeyError."""
+    event = {"delta": {"toolUse": {}}}
+    state = {"current_tool_use": {"toolUseId": "t1", "name": "tool"}}
+
+    updated_state, _ = strands.event_loop.streaming.handle_content_block_delta(event, state)
+
+    assert updated_state["current_tool_use"]["input"] == ""
+
+
+def test_handle_content_block_stop_skips_incomplete_tool_use_missing_id(caplog):
+    """A tool use block missing toolUseId is skipped with a warning."""
+    import logging
+
+    state = {
+        "content": [],
+        "current_tool_use": {"name": "output_slide", "input": '{"x": 1}'},
+        "text": "",
+        "reasoningText": "",
+        "citationsContent": [],
+    }
+
+    with caplog.at_level(logging.WARNING, logger="strands.event_loop.streaming"):
+        updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
+
+    assert updated_state["content"] == []
+    assert updated_state["current_tool_use"] == {}
+    assert "incomplete tool use block" in caplog.text
+
+
+def test_handle_content_block_stop_skips_incomplete_tool_use_missing_name(caplog):
+    """A tool use block missing name is skipped with a warning."""
+    import logging
+
+    state = {
+        "content": [],
+        "current_tool_use": {"toolUseId": "abc123", "input": '{"x": 1}'},
+        "text": "",
+        "reasoningText": "",
+        "citationsContent": [],
+    }
+
+    with caplog.at_level(logging.WARNING, logger="strands.event_loop.streaming"):
+        updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
+
+    assert updated_state["content"] == []
+    assert updated_state["current_tool_use"] == {}
+    assert "incomplete tool use block" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_process_stream_tool_use_info_in_delta(agenerator, alist):
+    """Models that provide toolUseId and name in contentBlockDelta (not contentBlockStart) work correctly."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockDelta": {
+                "delta": {"toolUse": {"input": '{"title": "Test"}', "toolUseId": "xyz789", "name": "output_slide"}}
+            }
+        },
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
+                "metrics": {"latencyMs": 50},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+    last_event = cast(ModelStopReason, events[-1])
+
+    stop_reason, message, _, _ = last_event["stop"]
+    assert stop_reason == "tool_use"
+    assert len(message["content"]) == 1
+    tool_use = message["content"][0]["toolUse"]
+    assert tool_use == {"toolUseId": "xyz789", "name": "output_slide", "input": {"title": "Test"}}
