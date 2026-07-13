@@ -22,8 +22,8 @@ const SNAPSHOT_REGEX = /snapshot_([\w-]+)\.json$/
  * Keys are written directly into the provided storage:
  * `<sessionId>/scopes/<scope>/<scopeId>/snapshots/...`
  *
- * Callers control namespacing by passing a namespaced storage — e.g.
- * `namespace(storage, 'session')` produces keys like
+ * Callers control namespacing by passing a scoped storage — e.g.
+ * `storage.namespace('session')` produces keys like
  * `session/<sessionId>/scopes/...`.
  *
  * @internal

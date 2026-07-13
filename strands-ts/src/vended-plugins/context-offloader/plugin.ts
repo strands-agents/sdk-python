@@ -155,8 +155,7 @@ export interface ContextOffloaderConfig {
    * Accepts either:
    * - A unified `Storage` (from `@strands-agents/sdk/storage`) — each offloaded content block
    *   occupies exactly one key (content-type is framed into the stored bytes).
-   * - A legacy offloader `Storage` (deprecated, from this module) — manages its own turn-based
-   *   eviction internally via its `evictAfterTurns` constructor parameter.
+   * - A legacy offloader `Storage` (deprecated, from this module).
    */
   storage: Storage | OffloaderStorage
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */

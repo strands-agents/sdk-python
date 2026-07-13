@@ -115,7 +115,7 @@ export interface Storage<ListQuery = string> {
  * @param prefix - Prefix to prepend to all keys
  * @returns A namespaced Storage view
  */
-export function namespace(storage: Storage, prefix: string): Storage & { namespace(prefix: string): Storage } {
+export function namespace(storage: Storage, prefix: string): Storage {
   const normalized = normalizePrefix(prefix)
   const p = normalized ? `${normalized}/` : ''
   return {
