@@ -1,6 +1,6 @@
 import type { Storage } from './storage.js'
 
-import { normalizeKey, normalizePrefix } from './storage.js'
+import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 
 /**
  * In-memory {@link Storage} backend backed by a `Map`.
@@ -75,6 +75,11 @@ export class InMemoryStorage implements Storage {
       if (key.startsWith(normalized)) keys.push(key)
     }
     return keys.sort()
+  }
+
+  /** Returns a prefixed view of this storage without mutating the original. */
+  namespace(prefix: string): Storage {
+    return namespace(this, prefix)
   }
 
   /**

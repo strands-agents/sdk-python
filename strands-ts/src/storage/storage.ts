@@ -92,6 +92,17 @@ export interface Storage<ListQuery = string> {
    * @throws {@link StorageError} if the listing fails
    */
   list(query: ListQuery): Promise<string[]>
+
+  /**
+   * Returns a view of this storage with all keys prefixed by `prefix`.
+   * The original storage is not mutated.
+   *
+   * Optional — shipped backends implement this, custom backends may omit it.
+   *
+   * @param prefix - Prefix to prepend to all keys
+   * @returns A Storage view scoped to the given prefix
+   */
+  namespace?(prefix: string): Storage
 }
 
 /**

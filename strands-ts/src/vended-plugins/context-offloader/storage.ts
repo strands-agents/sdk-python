@@ -129,11 +129,7 @@ export class InMemoryStorage implements Storage {
           'Use a separate InMemoryStorage instance per agent.'
       )
     }
-    if (
-      evictAfterCycles !== undefined &&
-      evictAfterCycles !== null &&
-      this._evictAfterTurns === InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS
-    ) {
+    if (evictAfterCycles !== undefined && this._evictAfterTurns === InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS) {
       this._evictAfterTurns = evictAfterCycles
     }
   }
