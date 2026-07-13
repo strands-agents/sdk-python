@@ -62,6 +62,10 @@ jobs:
     timeout-minutes: 25
     env:
       LOG_LEVEL: DEBUG
+      # litellm's native bridge builds against PyO3 0.23.x, which caps at
+      # Python 3.13. On 3.14 (no prebuilt wheel yet) the source build aborts
+      # unless we opt into PyO3's stable-ABI forward-compatibility path.
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     defaults:
       run:
         working-directory: strands-py
