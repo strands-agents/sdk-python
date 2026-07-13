@@ -211,7 +211,7 @@ Similarly, sub-agent events are passed directly to the caller. While the sub-age
 **Pros:**
 - Prevents the sub-agent from mutating the orchestrator's message history, maintaining the orchestrator's ownership of its messages
 - Minimal context pollution, since the orchestrator's history stays clean of sub-agent tools
-- Consistent with existing SDK patterns. Uses the same `InvokeArgs` for input and the same `invocationState` forwarding as graphs, swarms, and agent-as-tool.
+- Consistent with existing patterns where each agent owns their own state
 - Composable without special handling. A sub-agent with its own `subAgents` chains naturally (A to B to C) because each handoff is a standard `stream()` call.
 
 **Cons:**
@@ -431,6 +431,12 @@ orchestrator.invoke("Where's my refund for order #12345?")
 
 - Builders get a simple path to multi-agent routing that avoids the extra model calls of agents-as-tools and the context loss of swarms.
 - Adding `subAgents` as a first-class concept introduces a new relationship type between agents. This needs clear documentation to help builders choose between agent-as-tools, sub-agents, and multi-agent primitives.
+
+## Open Questions
+- Can sub-agents have session managers for persisting state? If so, how is that handled during delegation?
+- Should handoff blocks be stripped from the message history before sending them to sub-agents? What about on subsequent invocations?
+- Should sub-agent spans be children of orchestrator spans?
+- Should sub-agent metrics be merged into the orchestrator's metrics?
 
 ## Willingness to Implement
 
