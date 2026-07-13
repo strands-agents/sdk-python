@@ -62,7 +62,7 @@ def test_init_default():
     assert tracer.tracer is not None
 
 
-@pytest.mark.parametrize("disable_var", ["OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED"])
+@pytest.mark.parametrize("disable_var", ["OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED"])
 def test_init_disabled_uses_noop_tracer_over_global_provider(disable_var, monkeypatch):
     """When disabled, the Tracer instance emits through a no-op provider even if a real
     provider is registered globally — the tracer reads from global, so gating only the
@@ -70,7 +70,7 @@ def test_init_disabled_uses_noop_tracer_over_global_provider(disable_var, monkey
     from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
     from opentelemetry.trace import NoOpTracer, NoOpTracerProvider
 
-    for name in ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED"):
+    for name in ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED"):
         monkeypatch.delenv(name, raising=False)
     # Host app owns OTel: a real provider is globally registered.
     real_provider = SDKTracerProvider()
@@ -86,7 +86,7 @@ def test_init_disabled_uses_noop_tracer_over_global_provider(disable_var, monkey
 
 def test_init_enabled_uses_global_provider(monkeypatch):
     """With no disable env var, the Tracer instance uses the global provider unchanged."""
-    for name in ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED"):
+    for name in ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED"):
         monkeypatch.delenv(name, raising=False)
     sentinel_provider = mock.MagicMock()
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer_provider", return_value=sentinel_provider):

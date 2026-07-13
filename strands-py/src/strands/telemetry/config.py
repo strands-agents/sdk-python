@@ -45,11 +45,12 @@ def get_otel_resource() -> Resource:
 
 
 # Environment variables that, when set to the (case-insensitive) string "true",
-# disable Strands telemetry. ``OTEL_SDK_DISABLED`` is the OpenTelemetry-standard
-# flag; ``STRANDS_OTEL_DISABLED`` / ``STRANDS_TELEMETRY_DISABLED`` are
-# Strands-specific escape hatches so a host that owns its own OpenTelemetry setup
-# can silence Strands without touching the OTel-standard variable (#1059).
-_DISABLE_ENV_VARS = ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED", "STRANDS_TELEMETRY_DISABLED")
+# silence Strands' own telemetry. ``OTEL_SDK_DISABLED`` is the OpenTelemetry-standard
+# flag; ``STRANDS_OTEL_DISABLED`` is a Strands-specific escape hatch so a host that
+# owns its own OpenTelemetry setup can silence just Strands' spans/metrics without
+# touching the OTel-standard variable (#1059). Consumed at the instance level by
+# ``Tracer`` and ``MetricsClient`` (no-op providers when disabled).
+_DISABLE_ENV_VARS = ("OTEL_SDK_DISABLED", "STRANDS_OTEL_DISABLED")
 
 
 def _telemetry_disabled() -> bool:
@@ -73,15 +74,6 @@ class StrandsTelemetry:
         - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint URL
         - OTEL_EXPORTER_OTLP_HEADERS: Headers for OTLP requests
         - OTEL_SERVICE_NAME: Overrides resource service name
-        - OTEL_SDK_DISABLED / STRANDS_OTEL_DISABLED / STRANDS_TELEMETRY_DISABLED:
-          When any is set to "true", Strands does not register a global
-          tracer/meter provider and the setup_* methods are no-ops, so the host
-          application's OpenTelemetry setup (if any) is left untouched. The same
-          flags also make ``Tracer`` emit through a no-op provider regardless of
-          the global provider (see ``telemetry.tracer``). ``OTEL_SDK_DISABLED`` is
-          the OpenTelemetry-standard flag; the ``STRANDS_*`` variants let a host
-          that owns OTel silence Strands without touching the standard variable.
-          The ``enabled`` constructor argument takes precedence when provided.
 
     Examples:
         Quick setup with method chaining:
@@ -106,38 +98,17 @@ class StrandsTelemetry:
         - All setup methods return self to enable method chaining
     """
 
-    def __init__(
-        self,
-        tracer_provider: SDKTracerProvider | None = None,
-        *,
-        enabled: bool | None = None,
-    ) -> None:
+    def __init__(self, tracer_provider: SDKTracerProvider | None = None) -> None:
         """Initialize the StrandsTelemetry instance.
 
         Args:
             tracer_provider: Optional pre-configured tracer provider.
                 If None, a new one will be created and set as global.
-            enabled: Whether to set up OpenTelemetry instrumentation. When None
-                (the default), instrumentation is enabled unless the OTel-standard
-                ``OTEL_SDK_DISABLED`` environment variable is set to ``"true"``.
-                Pass ``enabled=False`` to disable programmatically regardless of
-                the env var — e.g. when the host application owns OpenTelemetry
-                setup and does not want Strands to register its own providers.
-                When disabled, no global tracer/meter provider is registered and
-                the ``setup_*`` methods are no-ops; a ``tracer_provider`` passed
-                alongside ``enabled=False`` is therefore ignored (nothing is
-                registered when disabled).
 
         The instance is ready to use immediately after initialization, though
         trace exporters must be configured separately using the setup methods.
         """
-        self.enabled = (not _telemetry_disabled()) if enabled is None else enabled
         self.resource = get_otel_resource()
-        self.tracer_provider: SDKTracerProvider | None
-        if not self.enabled:
-            logger.info("OpenTelemetry instrumentation disabled; skipping provider registration")
-            self.tracer_provider = None
-            return
         if tracer_provider:
             self.tracer_provider = tracer_provider
         else:
@@ -177,8 +148,6 @@ class StrandsTelemetry:
         allowing trace data to be output to the console. Any additional keyword
         arguments provided will be forwarded to the ConsoleSpanExporter.
         """
-        if not self.enabled or self.tracer_provider is None:
-            return self
         try:
             logger.info("Enabling console export")
             console_processor = SimpleSpanProcessor(ConsoleSpanExporter(**kwargs))
@@ -201,8 +170,6 @@ class StrandsTelemetry:
         allowing trace data to be exported to an OTLP endpoint. Any additional
         keyword arguments provided will be forwarded to the OTLPSpanExporter.
         """
-        if not self.enabled or self.tracer_provider is None:
-            return self
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         try:
@@ -218,8 +185,6 @@ class StrandsTelemetry:
         self, enable_console_exporter: bool = False, enable_otlp_exporter: bool = False
     ) -> "StrandsTelemetry":
         """Initialize the OpenTelemetry Meter."""
-        if not self.enabled:
-            return self
         logger.info("Initializing meter")
         metrics_readers = []
         try:
