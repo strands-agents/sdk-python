@@ -51,7 +51,7 @@ describe('LocalFileStorage', () => {
       await expect(stat(join(baseDir, 'atomic/test.tmp'))).rejects.toThrow()
     })
 
-    it('cleans up tmp file on rename failure', async () => {
+    it.skipIf(process.platform === 'win32')('cleans up tmp file on rename failure', async () => {
       const { mkdir, chmod, readdir } = await import('node:fs/promises')
       const dir = join(baseDir, 'readonly')
       await mkdir(dir, { recursive: true })
