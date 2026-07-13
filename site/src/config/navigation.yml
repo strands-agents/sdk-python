@@ -318,6 +318,8 @@ sidebar:
       - label: Agent Extensions
         items:
           - docs/community/agent-extensions/strands-code-agent
+      - label: Interventions
+        items: []
       - label: Plugins
         items:
           - docs/community/plugins/agent-control
