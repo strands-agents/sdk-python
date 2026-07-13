@@ -321,7 +321,6 @@ sidebar:
       - label: Interventions
         items:
           - docs/community/interventions/overview
-          - docs/community/interventions/strands-agt
       - label: Plugins
         items:
           - docs/community/plugins/agent-control
