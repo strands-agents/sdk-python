@@ -242,7 +242,6 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
       overflow: clip;
       padding: 0.25rem;
       margin: -0.25rem;
-      width: max-content;
     }
 
     @media (min-width: 50rem) {
@@ -387,8 +386,7 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
      * ==========================================================================
      * Replaces nav-tabs on mobile with a compact dropdown menu
      * Uses native <details>/<summary> for accessibility and no-JS fallback
-     */
-    /*
+     *
      * min-width: 0 lets the dropdown shrink below its content width inside
      * the flex row; the current-section label truncates with an ellipsis
      * instead of pushing the pill under the fixed sidebar menu button.
@@ -420,6 +418,7 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
 
     .mobile-nav-current {
       min-width: 0;
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
