@@ -160,6 +160,7 @@ export class VercelModel extends Model<VercelModelConfig> {
 
     const reader = result.stream.getReader()
     const incrementalToolCallIds = new Set<string>()
+    const clientToolInputStarts = new Set<string>()
     let sawToolUse = false
     try {
       while (true) {
@@ -175,9 +176,15 @@ export class VercelModel extends Model<VercelModelConfig> {
           incrementalToolCallIds.add(value.id)
           // Only client-executed tool calls need the agent to run them; provider-executed calls
           // were already handled by the provider, so they must not drive the promotion below.
+          // Remember the flag here, but don't promote yet: a block that never closes produces no
+          // ToolUseBlock in the aggregator, and promoting the stop reason for it would leave the
+          // agent with stopReason toolUse and zero tool blocks — an invariant violation.
           if (value.providerExecuted !== true) {
-            sawToolUse = true
+            clientToolInputStarts.add(value.id)
           }
+        }
+        if (value.type === 'tool-input-end' && clientToolInputStarts.has(value.id)) {
+          sawToolUse = true
         }
         // Skip complete tool-call events when we already received incremental tool-input-* events for the same call
         if (value.type === 'tool-call' && incrementalToolCallIds.has(value.toolCallId)) {
@@ -190,7 +197,7 @@ export class VercelModel extends Model<VercelModelConfig> {
           // Some community providers (e.g. ai-sdk-ollama) stream tool-call blocks but still report
           // finish_reason "stop", which maps to endTurn and would leave the agent skipping tool
           // execution. Decide from the streamed content, not just the provider's finish label: if any
-          // client tool use was emitted, promote the terminating endTurn to toolUse. See #3185.
+          // client tool use block completed, promote the terminating endTurn to toolUse. See #3185.
           if (event.type === 'modelMessageStopEvent' && sawToolUse && event.stopReason === 'endTurn') {
             yield new ModelMessageStopEvent({ ...event, stopReason: 'toolUse' })
           } else {

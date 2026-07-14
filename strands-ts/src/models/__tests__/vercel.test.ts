@@ -328,6 +328,24 @@ describe('VercelModel', () => {
         const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
         expect(stopEvent).toMatchObject({ stopReason: 'endTurn' })
       })
+
+      // A malformed stream can open a client tool block and finish without ever closing it (no
+      // tool-input-end, no complete tool-call). The aggregator never builds a ToolUseBlock for the
+      // half-streamed input, so promoting would hand the agent stopReason toolUse with zero tool
+      // blocks — an invariant violation that throws. Only a completed client tool block promotes;
+      // a truncated one keeps the endTurn mapping.
+      it('does not promote endTurn for a truncated tool block that never completes', async () => {
+        const { model } = setupCaptureTest([
+          { type: 'stream-start', warnings: [] },
+          { type: 'tool-input-start', id: 'call_1', toolName: 'calculator' },
+          { type: 'tool-input-delta', id: 'call_1', delta: '{"expr":' },
+          { type: 'finish', usage: testUsage, finishReason: stopFinish },
+        ])
+
+        const events = await collectIterator(model.stream([]))
+        const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
+        expect(stopEvent).toMatchObject({ stopReason: 'endTurn' })
+      })
     })
 
     describe('finish reasons', () => {
