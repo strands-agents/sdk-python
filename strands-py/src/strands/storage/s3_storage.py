@@ -39,7 +39,7 @@ class S3Storage:
         bucket: str,
         *,
         prefix: str = "",
-        region: str | None = None,
+        region_name: str | None = None,
         boto_session: boto3.Session | None = None,
         boto_client_config: BotocoreConfig | None = None,
     ) -> None:
@@ -49,32 +49,33 @@ class S3Storage:
             bucket: Target S3 bucket name.
             prefix: Optional key prefix prepended to every key (a leading namespace
                 within the bucket).
-            region: AWS region override. When omitted, the standard boto3
+            region_name: AWS region override. When omitted, the standard boto3
                 resolution chain applies. Cannot be combined with ``boto_session``.
             boto_session: Pre-configured boto3 session. Cannot be combined with
-                ``region``.
+                ``region_name``.
             boto_client_config: Optional botocore client configuration.
 
         Raises:
-            StorageError: If both ``region`` and ``boto_session`` are provided.
+            StorageError: If both ``region_name`` and ``boto_session`` are provided.
         """
-        if boto_session is not None and region is not None:
+        if boto_session is not None and region_name is not None:
             raise StorageError(
-                "Cannot specify both boto_session and region. Configure the region on the boto session instead."
+                "Cannot specify both boto_session and region_name. Configure the region on the boto session instead."
             )
         self._bucket = bucket
         self._prefix = f"{prefix.rstrip('/')}/" if prefix else ""
-        self._region = region
+        self._region_name = region_name
         self._boto_session = boto_session
         self._boto_client_config = boto_client_config
         self._client: S3Client | None = None
 
-    async def write(self, key: str, data: bytes) -> None:
+    async def write(self, key: str, data: bytes, **kwargs: Any) -> None:
         """Store ``data`` under ``key``, overwriting any existing value.
 
         Args:
             key: Opaque, ``/``-separated key identifying the value.
             data: Raw bytes to persist.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is invalid or the upload fails.
@@ -86,11 +87,12 @@ class S3Storage:
         except Exception as error:
             raise StorageError(f"Failed to write '{normalized}' to S3 bucket '{self._bucket}'") from error
 
-    async def read(self, key: str) -> bytes | None:
+    async def read(self, key: str, **kwargs: Any) -> bytes | None:
         """Retrieve the bytes previously stored under ``key``.
 
         Args:
             key: The key to read.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The stored bytes, or ``None`` if no value exists for ``key``.
@@ -111,11 +113,12 @@ class S3Storage:
         except Exception as error:
             raise StorageError(f"Failed to read '{normalized}' from S3 bucket '{self._bucket}'") from error
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str, **kwargs: Any) -> None:
         """Delete the value stored under ``key``. A no-op if the key does not exist.
 
         Args:
             key: The key to delete.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is invalid or the delete request fails.
@@ -127,11 +130,12 @@ class S3Storage:
         except Exception as error:
             raise StorageError(f"Failed to delete '{normalized}' from S3 bucket '{self._bucket}'") from error
 
-    async def list(self, prefix: str) -> list[str]:
+    async def list(self, prefix: str, **kwargs: Any) -> list[str]:
         """List the keys whose names begin with ``prefix``, sorted lexicographically.
 
         Args:
             prefix: Key prefix to match. An empty string matches all keys.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The matching keys, sorted ascending.
@@ -171,7 +175,7 @@ class S3Storage:
     def _get_client(self) -> S3Client:
         if self._client is not None:
             return self._client
-        session = self._boto_session or boto3.Session(region_name=self._region)
+        session = self._boto_session or boto3.Session(region_name=self._region_name)
         if self._boto_client_config:
             existing_user_agent = getattr(self._boto_client_config, "user_agent_extra", None)
             new_user_agent = f"{existing_user_agent} strands-agents" if existing_user_agent else "strands-agents"

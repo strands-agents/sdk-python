@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from .base import Storage, namespace, normalize_key, normalize_prefix
 
 
@@ -31,7 +33,7 @@ class InMemoryStorage:
         """Initialize an empty in-memory store."""
         self._store: dict[str, bytes] = {}
 
-    async def write(self, key: str, data: bytes) -> None:
+    async def write(self, key: str, data: bytes, **kwargs: Any) -> None:
         """Store ``data`` under ``key``, overwriting any existing value.
 
         The bytes are copied on write so later mutation of a caller-supplied
@@ -40,17 +42,19 @@ class InMemoryStorage:
         Args:
             key: Opaque, ``/``-separated key identifying the value.
             data: Raw bytes to persist.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is empty or contains ``..`` segments.
         """
         self._store[normalize_key(key)] = bytes(data)
 
-    async def read(self, key: str) -> bytes | None:
+    async def read(self, key: str, **kwargs: Any) -> bytes | None:
         """Retrieve the bytes previously stored under ``key``.
 
         Args:
             key: The key to read.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The stored bytes, or ``None`` if no value exists for ``key``. The
@@ -61,22 +65,24 @@ class InMemoryStorage:
         """
         return self._store.get(normalize_key(key))
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str, **kwargs: Any) -> None:
         """Delete the value stored under ``key``. A no-op if the key does not exist.
 
         Args:
             key: The key to delete.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is empty or contains ``..`` segments.
         """
         self._store.pop(normalize_key(key), None)
 
-    async def list(self, prefix: str) -> list[str]:
+    async def list(self, prefix: str, **kwargs: Any) -> list[str]:
         """List the keys whose names begin with ``prefix``, sorted lexicographically.
 
         Args:
             prefix: Key prefix to match. An empty string matches all keys.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The matching keys, sorted ascending.

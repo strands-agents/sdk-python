@@ -23,9 +23,9 @@ def _client_error(code):
 
 
 class TestConstructor:
-    def test_raises_when_both_boto_session_and_region_are_provided(self):
+    def test_raises_when_both_boto_session_and_region_name_are_provided(self):
         with pytest.raises(StorageError):
-            S3Storage("bucket", region="us-west-2", boto_session=object())
+            S3Storage("bucket", region_name="us-west-2", boto_session=object())
 
     def test_accepts_just_a_bucket_name(self):
         S3Storage("my-bucket")

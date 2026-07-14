@@ -11,14 +11,17 @@ Example:
     ```
 """
 
-from .base import Storage
+from ..types.exceptions import StorageError
+from .base import Storage, namespace
 from .in_memory_storage import InMemoryStorage
 from .local_file_storage import LocalFileStorage
 from .s3_storage import S3Storage
 
 __all__ = [
     "Storage",
+    "StorageError",
     "InMemoryStorage",
     "LocalFileStorage",
     "S3Storage",
+    "namespace",
 ]

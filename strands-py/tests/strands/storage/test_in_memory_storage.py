@@ -116,3 +116,25 @@ class TestKeyNormalization:
     async def test_rejects_prefixes_with_dotdot_segments(self, storage):
         with pytest.raises(StorageError):
             await storage.list("../")
+
+
+class TestPublicApiSurface:
+    def test_namespace_and_error_are_exported_from_package(self):
+        from strands.storage import InMemoryStorage, S3Storage, Storage, namespace
+        from strands.storage import LocalFileStorage as _LFS
+        from strands.storage import StorageError as _SE
+
+        assert callable(namespace)
+        assert isinstance(InMemoryStorage(), Storage)
+        assert issubclass(_SE, Exception)
+        assert _LFS is not None and S3Storage is not None
+
+    @pytest.mark.asyncio
+    async def test_operations_tolerate_forward_compat_kwargs(self, storage):
+        # Protocol methods carry **kwargs for forward compatibility; unknown kwargs
+        # must not break existing implementations.
+        await storage.write("k", b"v", request_id="abc")
+        assert await storage.read("k", request_id="abc") == b"v"
+        assert await storage.list("", request_id="abc") == ["k"]
+        await storage.delete("k", request_id="abc")
+        assert await storage.read("k") is None

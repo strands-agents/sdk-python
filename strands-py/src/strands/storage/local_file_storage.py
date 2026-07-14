@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..types.exceptions import StorageError
@@ -62,12 +62,13 @@ class LocalFileStorage:
             return self
         return LocalFileStorage(self._base_dir, sandbox=sandbox)
 
-    async def write(self, key: str, data: bytes) -> None:
+    async def write(self, key: str, data: bytes, **kwargs: Any) -> None:
         """Store ``data`` under ``key``, overwriting any existing value.
 
         Args:
             key: Opaque, ``/``-separated key identifying the value.
             data: Raw bytes to persist.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is invalid or the write fails.
@@ -95,11 +96,12 @@ class LocalFileStorage:
                     pass
             raise StorageError(f"Failed to write '{normalized}' to local storage") from error
 
-    async def read(self, key: str) -> bytes | None:
+    async def read(self, key: str, **kwargs: Any) -> bytes | None:
         """Retrieve the bytes previously stored under ``key``.
 
         Args:
             key: The key to read.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The stored bytes, or ``None`` if no value exists for ``key``.
@@ -124,11 +126,12 @@ class LocalFileStorage:
         except OSError as error:
             raise StorageError(f"Failed to read '{normalized}' from local storage") from error
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str, **kwargs: Any) -> None:
         """Delete the value stored under ``key``. A no-op if the key does not exist.
 
         Args:
             key: The key to delete.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is invalid or the delete fails.
@@ -150,11 +153,12 @@ class LocalFileStorage:
         except OSError as error:
             raise StorageError(f"Failed to delete '{normalized}' from local storage") from error
 
-    async def list(self, prefix: str) -> list[str]:
+    async def list(self, prefix: str, **kwargs: Any) -> list[str]:
         """List the keys whose names begin with ``prefix``, sorted lexicographically.
 
         Args:
             prefix: Key prefix to match. An empty string matches all keys.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The matching keys, sorted ascending.

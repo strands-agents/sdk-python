@@ -2,8 +2,8 @@
 
 import pytest
 
-from strands.storage import InMemoryStorage
-from strands.storage.base import NAMESPACED, namespace
+from strands.storage import InMemoryStorage, namespace
+from strands.storage.base import _NAMESPACED
 
 
 @pytest.fixture
@@ -80,8 +80,8 @@ async def test_handles_empty_namespace_as_no_op_prefix(backend):
 
 
 def test_sets_namespaced_marker_on_returned_view(namespaced):
-    assert getattr(namespaced, NAMESPACED, False) is True
+    assert getattr(namespaced, _NAMESPACED, False) is True
 
 
 def test_does_not_set_namespaced_marker_on_raw_storage(backend):
-    assert getattr(backend, NAMESPACED, False) is False
+    assert getattr(backend, _NAMESPACED, False) is False

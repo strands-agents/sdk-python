@@ -9,7 +9,7 @@ root.
 from __future__ import annotations
 
 import re
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from ..types.exceptions import StorageError
 
@@ -17,7 +17,7 @@ from ..types.exceptions import StorageError
 # ``getattr``) to detect whether the caller already scoped the storage, so they
 # can skip applying a default prefix. This is the Python analog of the TypeScript
 # ``NAMESPACED`` symbol.
-NAMESPACED = "_strands_storage_namespaced"
+_NAMESPACED = "_strands_storage_namespaced"
 
 _SLASH_RUN = re.compile(r"/+")
 
@@ -82,7 +82,8 @@ class Storage(Protocol):
     Implement this to add a custom backend; the SDK ships :class:`InMemoryStorage`,
     :class:`LocalFileStorage`, and :class:`S3Storage`. Those shipped backends also
     expose a ``namespace(prefix)`` convenience method; a custom backend can instead
-    be scoped with the standalone :func:`namespace` factory.
+    be scoped with the standalone :func:`namespace` factory (exported from
+    ``strands.storage``).
 
     Example:
         ```python
@@ -94,23 +95,25 @@ class Storage(Protocol):
         ```
     """
 
-    async def write(self, key: str, data: bytes) -> None:
+    async def write(self, key: str, data: bytes, **kwargs: Any) -> None:
         """Store ``data`` under ``key``, overwriting any existing value.
 
         Args:
             key: Opaque, ``/``-separated key identifying the value.
             data: Raw bytes to persist.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the key is invalid or the write fails.
         """
         ...
 
-    async def read(self, key: str) -> bytes | None:
+    async def read(self, key: str, **kwargs: Any) -> bytes | None:
         """Retrieve the bytes previously stored under ``key``.
 
         Args:
             key: The key to read.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The stored bytes, or ``None`` if no value exists for ``key``.
@@ -120,18 +123,19 @@ class Storage(Protocol):
         """
         ...
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str, **kwargs: Any) -> None:
         """Delete the value stored under ``key``. A no-op if the key does not exist.
 
         Args:
             key: The key to delete.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             StorageError: If the delete fails.
         """
         ...
 
-    async def list(self, prefix: str) -> list[str]:
+    async def list(self, prefix: str, **kwargs: Any) -> list[str]:
         """List keys matching the given prefix.
 
         Returns full keys (not the suffix after the prefix), sorted
@@ -139,6 +143,7 @@ class Storage(Protocol):
 
         Args:
             prefix: A key prefix. An empty string matches all keys.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
             The matching keys, sorted ascending.
@@ -166,23 +171,23 @@ class _NamespacedStorage:
         """
         self._storage = storage
         self._prefix = prefix
-        setattr(self, NAMESPACED, True)
+        setattr(self, _NAMESPACED, True)
 
-    async def write(self, key: str, data: bytes) -> None:
+    async def write(self, key: str, data: bytes, **kwargs: Any) -> None:
         """Store ``data`` under the namespaced key."""
-        await self._storage.write(f"{self._prefix}{key}", data)
+        await self._storage.write(f"{self._prefix}{key}", data, **kwargs)
 
-    async def read(self, key: str) -> bytes | None:
+    async def read(self, key: str, **kwargs: Any) -> bytes | None:
         """Read the bytes stored under the namespaced key."""
-        return await self._storage.read(f"{self._prefix}{key}")
+        return await self._storage.read(f"{self._prefix}{key}", **kwargs)
 
-    async def delete(self, key: str) -> None:
+    async def delete(self, key: str, **kwargs: Any) -> None:
         """Delete the value stored under the namespaced key."""
-        await self._storage.delete(f"{self._prefix}{key}")
+        await self._storage.delete(f"{self._prefix}{key}", **kwargs)
 
-    async def list(self, prefix: str) -> list[str]:
+    async def list(self, prefix: str, **kwargs: Any) -> list[str]:
         """List keys under the namespace, with the namespace prefix stripped off."""
-        keys = await self._storage.list(f"{self._prefix}{prefix}")
+        keys = await self._storage.list(f"{self._prefix}{prefix}", **kwargs)
         offset = len(self._prefix)
         return [key[offset:] for key in keys]
 
