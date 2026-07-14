@@ -429,7 +429,27 @@ class BedrockModel(Model):
             cache_config = self.config.get("cache_config")
             if cache_config and cache_config.ttl:
                 cache_point["ttl"] = cache_config.ttl
-            messages[last_user_idx]["content"].append({"cachePoint": cache_point})
+
+            content = messages[last_user_idx]["content"]
+
+            # Insert before non-PDF document blocks to avoid Bedrock ValidationException
+            first_non_pdf_doc_idx: int | None = None
+            for i, block in enumerate(content):
+                if "document" in block and block["document"].get("format", "") != "pdf":
+                    first_non_pdf_doc_idx = i
+                    break
+
+            # Insert the cache point before the first non-PDF document so it is not directly
+            # preceded by that block, which Bedrock rejects with a ValidationException
+            if first_non_pdf_doc_idx is None:
+                content.append({"cachePoint": cache_point})
+            elif first_non_pdf_doc_idx > 0:
+                content.insert(first_non_pdf_doc_idx, {"cachePoint": cache_point})
+            else:
+                # A leading non-PDF document leaves no prefix to cache and Bedrock rejects it
+                logger.debug("msg_idx=<%s> | skipped cache point for leading non-PDF document", last_user_idx)
+                return
+
             logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
