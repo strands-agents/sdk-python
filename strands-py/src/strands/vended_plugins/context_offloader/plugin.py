@@ -81,8 +81,17 @@ def _unframe_content(frame: bytes) -> tuple[bytes, str]:
 
     Returns:
         Tuple of (content bytes, content type).
+
+    Raises:
+        ValueError: If the frame is truncated or corrupt.
     """
+    if len(frame) < 2:
+        raise ValueError(f"Corrupt storage frame: expected at least 2 bytes, got {len(frame)}")
     ct_len = (frame[0] << 8) | frame[1]
+    if len(frame) < 2 + ct_len:
+        raise ValueError(
+            f"Corrupt storage frame: content-type length {ct_len} exceeds frame size {len(frame)}"
+        )
     content_type = frame[2 : 2 + ct_len].decode("utf-8")
     content = frame[2 + ct_len :]
     return content, content_type
@@ -223,7 +232,7 @@ class ContextOffloader(Plugin):
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
         self._evict_after_cycles = evict_after_cycles
-        self._stored_cycles: dict[str, int] = {}
+        self._stored_cycles: weakref.WeakKeyDictionary[Agent, dict[str, int]] = weakref.WeakKeyDictionary()
         super().__init__()
 
     @staticmethod
@@ -233,7 +242,7 @@ class ContextOffloader(Plugin):
             return storage
         if getattr(storage, "_namespaced", None) is _NAMESPACED:
             return storage
-        return _NamespacedStorage(storage, "offloader")
+        return _NamespacedStorage(storage, "offloader")  # type: ignore[arg-type]
 
     def _storage_for_agent(self, agent: Agent) -> Storage | _LegacyStorage:
         """Return the storage for an agent, binding file-based storage to its sandbox.
@@ -254,7 +263,7 @@ class ContextOffloader(Plugin):
         storage = self._storage_by_agent.get(agent)
         if storage is None:
             if sandboxable is not None:
-                storage = sandboxable.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
+                storage = sandboxable.for_sandbox(agent.sandbox)
             else:
                 storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
             self._storage_by_agent[agent] = storage
@@ -283,15 +292,18 @@ class ContextOffloader(Plugin):
 
         # Cycle-based eviction for unified Storage
         storage = self._storage_for_agent(event.agent)
+        agent_cycles = self._stored_cycles.get(event.agent)
+        if not agent_cycles:
+            return
         threshold = cycle - self._evict_after_cycles
-        stale_keys = [key for key, stored_cycle in self._stored_cycles.items() if stored_cycle < threshold]
+        stale_keys = [key for key, stored_cycle in agent_cycles.items() if stored_cycle < threshold]
         if stale_keys:
             for key in stale_keys:
                 try:
                     await storage.delete(key)  # type: ignore[union-attr]
                 except Exception:
-                    pass
-                del self._stored_cycles[key]
+                    logger.debug("key=<%s> | failed to evict stale entry", key)
+                del agent_cycles[key]
             logger.debug("evicted=<%d>, cycle=<%d> | stale entries removed", len(stale_keys), cycle)
 
     @tool(context=True)
@@ -423,12 +435,12 @@ class ContextOffloader(Plugin):
                 if block.get("text"):
                     ref = await _store_content(storage, key, block["text"].encode("utf-8"), "text/plain")
                     references.append((ref, "text/plain", f"text, {len(block['text']):,} chars"))
-                    self._track_stored_cycle(ref, cycle)
+                    self._track_stored_cycle(event.agent, ref, cycle)
                 elif "json" in block:
                     json_bytes = json.dumps(block["json"], indent=2).encode("utf-8")
                     ref = await _store_content(storage, key, json_bytes, "application/json")
                     references.append((ref, "application/json", f"json, {len(json_bytes):,} bytes"))
-                    self._track_stored_cycle(ref, cycle)
+                    self._track_stored_cycle(event.agent, ref, cycle)
                 elif "image" in block:
                     image = block["image"]
                     img_format = image.get("format", "unknown")
@@ -436,7 +448,7 @@ class ContextOffloader(Plugin):
                     if img_bytes:
                         ref = await _store_content(storage, key, img_bytes, f"image/{img_format}")
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
-                        self._track_stored_cycle(ref, cycle)
+                        self._track_stored_cycle(event.agent, ref, cycle)
                     else:
                         references.append(("", f"image/{img_format}", f"image/{img_format}, 0 bytes"))
                 elif "document" in block:
@@ -447,7 +459,7 @@ class ContextOffloader(Plugin):
                     if doc_bytes:
                         ref = await _store_content(storage, key, doc_bytes, f"application/{doc_format}")
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
-                        self._track_stored_cycle(ref, cycle)
+                        self._track_stored_cycle(event.agent, ref, cycle)
                     else:
                         references.append(("", f"application/{doc_format}", f"{doc_name}, 0 bytes"))
         except Exception:
@@ -524,10 +536,14 @@ class ContextOffloader(Plugin):
             content=new_content,
         )
 
-    def _track_stored_cycle(self, ref: str, cycle: int) -> None:
+    def _track_stored_cycle(self, agent: Agent, ref: str, cycle: int) -> None:
         """Record the cycle at which a key was stored (unified Storage eviction)."""
         if not _is_offloader_storage(self._storage):
-            self._stored_cycles[ref] = cycle
+            agent_cycles = self._stored_cycles.get(agent)
+            if agent_cycles is None:
+                agent_cycles = {}
+                self._stored_cycles[agent] = agent_cycles
+            agent_cycles[ref] = cycle
 
     def _slice_preview(self, text: str) -> str:
         """Slice text to approximately preview_tokens using character-based estimation.

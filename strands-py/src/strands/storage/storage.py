@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import re
 from typing import Protocol, runtime_checkable
 
@@ -9,7 +10,7 @@ from typing_extensions import TypeVar
 
 from ..types.exceptions import StorageError
 
-ListQuery = TypeVar("ListQuery", default=str)
+ListQuery = TypeVar("ListQuery", default=str, contravariant=True)
 
 _NAMESPACED: object = object()
 """Internal sentinel marking a storage view as already namespace-scoped.
@@ -117,7 +118,7 @@ class Storage(Protocol[ListQuery]):
         """
         ...
 
-    async def list(self, query: ListQuery) -> list[str]:
+    async def list(self, query: ListQuery) -> builtins.list[str]:
         """List keys matching the given prefix query.
 
         Returns full keys (not the suffix after the prefix), sorted
@@ -160,7 +161,7 @@ class _NamespacedStorage:
         """Delete the prefixed key."""
         await self._storage.delete(f"{self._prefix}{key}")
 
-    async def list(self, query: str = "") -> list[str]:
+    async def list(self, query: str = "") -> builtins.list[str]:
         """List keys under the prefix, stripping it from results."""
         keys = await self._storage.list(f"{self._prefix}{query}")
         return [key[len(self._prefix) :] for key in keys]

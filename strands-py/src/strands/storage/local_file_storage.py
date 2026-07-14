@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import os
 import uuid
 from pathlib import Path
@@ -152,7 +153,7 @@ class LocalFileStorage:
         except Exception as error:
             raise StorageError(f"Failed to delete '{key}'") from error
 
-    async def list(self, query: str = "") -> list[str]:
+    async def list(self, query: str = "") -> builtins.list[str]:
         """List keys matching the given prefix by walking the directory tree.
 
         Args:
@@ -195,7 +196,7 @@ class LocalFileStorage:
         """Map a normalized key to a filesystem path."""
         return os.path.join(self._base_dir, key)
 
-    def _list_keys_host(self, prefix: str) -> list[str]:
+    def _list_keys_host(self, prefix: str) -> builtins.list[str]:
         """Recursively walk the base directory to find all stored keys."""
         base = Path(self._base_dir)
 
@@ -209,7 +210,7 @@ class LocalFileStorage:
                 else:
                     break
 
-        keys: list[str] = []
+        keys: builtins.list[str] = []
         if not narrow_dir.exists():
             return keys
 
@@ -224,15 +225,15 @@ class LocalFileStorage:
 
         return keys
 
-    async def _list_keys_sandbox(self, prefix: str) -> list[str]:
+    async def _list_keys_sandbox(self, prefix: str) -> builtins.list[str]:
         """List keys via sandbox file listing."""
         base = Path(self._base_dir)
 
-        keys: list[str] = []
+        keys: builtins.list[str] = []
         await self._walk_sandbox(base, keys)
         return keys
 
-    async def _walk_sandbox(self, directory: Path, keys: list[str]) -> None:
+    async def _walk_sandbox(self, directory: Path, keys: builtins.list[str]) -> None:
         """Recursively walk sandbox directories to collect keys."""
         try:
             entries = await self._sandbox.list_files(str(directory))  # type: ignore[union-attr]

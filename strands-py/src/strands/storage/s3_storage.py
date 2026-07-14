@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from typing import Any
 
 from ..types.exceptions import StorageError
@@ -122,7 +123,7 @@ class S3Storage:
         except Exception as error:
             raise StorageError(f"Failed to delete '{key}' from S3") from error
 
-    async def list(self, query: str = "") -> list[str]:
+    async def list(self, query: str = "") -> builtins.list[str]:
         """List S3 objects matching the given prefix.
 
         Paginates automatically for large result sets.
@@ -145,9 +146,9 @@ class S3Storage:
         except Exception as error:
             raise StorageError(f"Failed to list keys with prefix '{query}' from S3") from error
 
-    def _list_sync(self, client: Any, s3_prefix: str) -> list[str]:
+    def _list_sync(self, client: Any, s3_prefix: str) -> builtins.list[str]:
         """Paginate list_objects_v2 synchronously (called via to_thread)."""
-        keys: list[str] = []
+        keys: builtins.list[str] = []
         continuation_token: str | None = None
 
         while True:

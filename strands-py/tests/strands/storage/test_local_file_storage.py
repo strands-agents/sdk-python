@@ -140,6 +140,73 @@ class TestLocalFileStorage:
         result = await storage.read("img.png")
         assert result == binary_data
 
+    @pytest.mark.asyncio
+    async def test_sandbox_delete(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        sandbox = MagicMock()
+        sandbox.remove_file = AsyncMock()
+        storage = LocalFileStorage(str(tmp_path), sandbox=sandbox)
+        await storage.delete("key.txt")
+        sandbox.remove_file.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_sandbox_delete_missing_is_noop(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        sandbox = MagicMock()
+        sandbox.remove_file = AsyncMock(side_effect=FileNotFoundError)
+        storage = LocalFileStorage(str(tmp_path), sandbox=sandbox)
+        await storage.delete("missing.txt")
+
+    @pytest.mark.asyncio
+    async def test_sandbox_list(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        entry = MagicMock()
+        entry.name = "file.txt"
+        entry.is_dir = False
+        sandbox = MagicMock()
+        sandbox.list_files = AsyncMock(return_value=[entry])
+        storage = LocalFileStorage(str(tmp_path) + "/", sandbox=sandbox)
+        keys = await storage.list("")
+        assert keys == ["file.txt"]
+
+    @pytest.mark.asyncio
+    async def test_sandbox_list_nested(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        dir_entry = MagicMock()
+        dir_entry.name = "sub"
+        dir_entry.is_dir = True
+        file_entry = MagicMock()
+        file_entry.name = "nested.txt"
+        file_entry.is_dir = False
+        sandbox = MagicMock()
+        sandbox.list_files = AsyncMock(side_effect=[[dir_entry], [file_entry]])
+        storage = LocalFileStorage(str(tmp_path) + "/", sandbox=sandbox)
+        keys = await storage.list("")
+        assert "sub/nested.txt" in keys
+
+    @pytest.mark.asyncio
+    async def test_write_error_raises_storage_error(self, tmp_path):
+        storage = LocalFileStorage("/nonexistent/readonly/path/")
+        with pytest.raises(StorageError):
+            await storage.write("key", b"data")
+
+    @pytest.mark.asyncio
+    async def test_read_error_raises_storage_error(self, tmp_path):
+        storage = LocalFileStorage(str(tmp_path) + "/")
+        await storage.write("key", b"data")
+        import os
+
+        os.chmod(os.path.join(str(tmp_path), "key"), 0o000)
+        try:
+            with pytest.raises(StorageError):
+                await storage.read("key")
+        finally:
+            os.chmod(os.path.join(str(tmp_path), "key"), 0o644)
+
     def test_namespace_preserves_for_sandbox(self, tmp_path):
         from unittest.mock import MagicMock
 

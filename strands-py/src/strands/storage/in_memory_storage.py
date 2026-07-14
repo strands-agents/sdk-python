@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import threading
 
 from .storage import _NamespacedStorage, _normalize_key, _normalize_prefix
@@ -72,7 +73,7 @@ class InMemoryStorage:
         with self._lock:
             self._store.pop(normalized, None)
 
-    async def list(self, query: str = "") -> list[str]:
+    async def list(self, query: str = "") -> builtins.list[str]:
         """List keys matching the given prefix.
 
         Args:
