@@ -1,6 +1,7 @@
 import type { Plugin } from '../../plugins/plugin.js'
 import type { Tool, ToolContext } from '../../tools/tool.js'
 import type { LocalAgent } from '../../types/agent.js'
+import type { Sandbox } from '../../sandbox/base.js'
 import { AfterToolCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { TextBlock, JsonBlock, ToolResultBlock, Message } from '../../types/messages.js'
 import type { ToolResultContent } from '../../types/messages.js'
@@ -11,7 +12,7 @@ import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
 import { FileStorage, InMemoryStorage as LegacyInMemoryStorage, type Storage as OffloaderStorage } from './storage.js'
-import type { Storage } from '../../storage/storage.js'
+import { NAMESPACED, namespace, type Storage } from '../../storage/storage.js'
 import { isSearchableContent, searchContent } from './search.js'
 
 function isOffloaderStorage(storage: Storage | OffloaderStorage): storage is OffloaderStorage {
@@ -156,6 +157,11 @@ export interface ContextOffloaderConfig {
    * - A unified `Storage` (from `@strands-agents/sdk/storage`) — each offloaded content block
    *   occupies exactly one key (content-type is framed into the stored bytes).
    * - A legacy offloader `Storage` (deprecated, from this module).
+   *
+   * When a unified `Storage` is provided, the plugin auto-scopes keys under `offloader/`
+   * unless the storage is already namespaced. If the resolved storage exposes a
+   * `forSandbox(sandbox)` method (as `LocalFileStorage` and its namespace views do),
+   * the plugin auto-routes I/O through the agent's sandbox.
    */
   storage: Storage | OffloaderStorage
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
@@ -202,6 +208,7 @@ export class ContextOffloader implements Plugin {
 
   private static readonly _DEFAULT_EVICT_AFTER_CYCLES = 20
 
+  private readonly _sandboxableStorage: { forSandbox(sandbox: Sandbox): Storage } | undefined
   private readonly _storage: Storage | OffloaderStorage
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
@@ -225,7 +232,19 @@ export class ContextOffloader implements Plugin {
       throw new Error('evictAfterCycles must be a positive integer')
     }
 
-    this._storage = config.storage
+    if (isOffloaderStorage(config.storage)) {
+      this._storage = config.storage
+    } else if (NAMESPACED in config.storage) {
+      this._storage = config.storage
+    } else if (config.storage.namespace) {
+      this._storage = config.storage.namespace('offloader')
+    } else {
+      this._storage = namespace(config.storage, 'offloader')
+    }
+    this._sandboxableStorage =
+      !isOffloaderStorage(this._storage) && 'forSandbox' in this._storage
+        ? (this._storage as { forSandbox(sandbox: Sandbox): Storage })
+        : undefined
     this._maxResultTokens = maxResultTokens
     this._previewTokens = previewTokens
     this._includeRetrievalTool = config.includeRetrievalTool ?? true
@@ -244,12 +263,12 @@ export class ContextOffloader implements Plugin {
       if (this._storage instanceof LegacyInMemoryStorage) {
         this._storage._evict(cycleCount)
       } else if (this._evictAfterCycles !== null) {
-        this._evict(cycleCount)
+        this._evict(cycleCount, agent)
       }
     })
   }
 
-  private _evict(currentCycle: number): void {
+  private _evict(currentCycle: number, agent: LocalAgent): void {
     const threshold = currentCycle - this._evictAfterCycles!
     const toEvict: string[] = []
     for (const [key, storedCycle] of this._keyStoredAt) {
@@ -258,7 +277,7 @@ export class ContextOffloader implements Plugin {
       }
     }
     if (toEvict.length === 0) return
-    const storage = this._storage as Storage
+    const storage = this._storageForAgent(agent) as Storage
     for (const key of toEvict) {
       this._keyStoredAt.delete(key)
       storage.delete(key).catch(() => {})
@@ -273,20 +292,24 @@ export class ContextOffloader implements Plugin {
   }
 
   private _storageForAgent(agent: LocalAgent): Storage | OffloaderStorage {
-    if (!(this._storage instanceof FileStorage)) return this._storage!
+    if (!this._sandboxableStorage && !(this._storage instanceof FileStorage)) return this._storage
 
     let storage = this._storageByAgent.get(agent)
     if (!storage) {
-      storage = this._storage.forSandbox(agent.sandbox)
+      if (this._sandboxableStorage) {
+        storage = this._sandboxableStorage.forSandbox(agent.sandbox)
+      } else {
+        storage = (this._storage as FileStorage).forSandbox(agent.sandbox)
+      }
       this._storageByAgent.set(agent, storage)
     }
     return storage
   }
 
   private _storageForToolContext(context?: ToolContext): Storage | OffloaderStorage {
-    if (!(this._storage instanceof FileStorage)) return this._storage!
+    if (!this._sandboxableStorage && !(this._storage instanceof FileStorage)) return this._storage
     if (!context) {
-      throw new Error('FileStorage retrieval requires a tool execution context.')
+      throw new Error('File-based storage retrieval requires a tool execution context.')
     }
     return this._storageForAgent(context.agent)
   }

@@ -17,14 +17,14 @@ export const NAMESPACED: unique symbol = Symbol.for('strands.storage.namespaced'
  * @throws {@link StorageError} if the key is empty or contains a `..` segment
  */
 export function normalizeKey(key: string): string {
-  const normalized = key.replace(/\/+/g, '/').replace(/^\/+|\/+$/g, '')
-  if (normalized.length === 0) {
+  const segments = key.split('/').filter(Boolean)
+  if (segments.length === 0) {
     throw new StorageError('Storage key must not be empty')
   }
-  if (normalized.split('/').includes('..')) {
+  if (segments.includes('..')) {
     throw new StorageError(`Invalid storage key '${key}': '..' path segments are not allowed`)
   }
-  return normalized
+  return segments.join('/')
 }
 
 /**
@@ -36,10 +36,13 @@ export function normalizeKey(key: string): string {
  * @throws {@link StorageError} if the prefix contains a `..` segment
  */
 export function normalizePrefix(prefix: string): string {
-  const normalized = prefix.replace(/\/+/g, '/').replace(/^\/+/, '')
-  if (normalized.split('/').includes('..')) {
+  const parts = prefix.split('/')
+  const segments = parts.filter(Boolean)
+  if (segments.includes('..')) {
     throw new StorageError(`Invalid storage prefix '${prefix}': '..' path segments are not allowed`)
   }
+  const joined = segments.join('/')
+  const normalized = parts[parts.length - 1] === '' && joined ? joined + '/' : joined
   return normalized
 }
 
