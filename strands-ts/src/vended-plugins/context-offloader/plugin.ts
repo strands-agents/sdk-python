@@ -159,8 +159,9 @@ export interface ContextOffloaderConfig {
    * - A legacy offloader `Storage` (deprecated, from this module).
    *
    * When a unified `Storage` is provided, the plugin auto-scopes keys under `offloader/`
-   * unless the storage is already namespaced. A `LocalFileStorage` (including one returned
-   * by `.namespace('prefix')`) is also auto-routed through the agent's sandbox.
+   * unless the storage is already namespaced. If the resolved storage exposes a
+   * `forSandbox(sandbox)` method (as `LocalFileStorage` and its namespace views do),
+   * the plugin auto-routes I/O through the agent's sandbox.
    */
   storage: Storage | OffloaderStorage
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
@@ -262,12 +263,12 @@ export class ContextOffloader implements Plugin {
       if (this._storage instanceof LegacyInMemoryStorage) {
         this._storage._evict(cycleCount)
       } else if (this._evictAfterCycles !== null) {
-        this._evict(cycleCount)
+        this._evict(cycleCount, agent)
       }
     })
   }
 
-  private _evict(currentCycle: number): void {
+  private _evict(currentCycle: number, agent: LocalAgent): void {
     const threshold = currentCycle - this._evictAfterCycles!
     const toEvict: string[] = []
     for (const [key, storedCycle] of this._keyStoredAt) {
@@ -276,7 +277,7 @@ export class ContextOffloader implements Plugin {
       }
     }
     if (toEvict.length === 0) return
-    const storage = this._storage as Storage
+    const storage = this._storageForAgent(agent) as Storage
     for (const key of toEvict) {
       this._keyStoredAt.delete(key)
       storage.delete(key).catch(() => {})

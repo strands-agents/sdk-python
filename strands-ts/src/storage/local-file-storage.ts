@@ -229,7 +229,11 @@ export class LocalFileStorage implements Storage {
     return walk(dir, keyPrefix)
   }
 
-  /** Returns a prefixed view of this storage without mutating the original. */
+  /**
+   * Returns a prefixed view of this storage without mutating the original.
+   * The returned view preserves `forSandbox` for single-level namespacing;
+   * nested `.namespace()` calls on the view do not carry sandbox routing.
+   */
   namespace(prefix: string): Storage & { forSandbox(sandbox: Sandbox): Storage } {
     const view = namespace(this, prefix)
     return {

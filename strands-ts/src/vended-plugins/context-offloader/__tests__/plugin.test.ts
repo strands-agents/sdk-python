@@ -789,8 +789,7 @@ describe('ContextOffloader', () => {
       await invokeTrackedHook(agent, event)
 
       const keys = await unifiedStorage.list('')
-      expect(keys.length).toBe(1)
-      expect(keys[0]).toMatch(/^offloader\//)
+      expect(keys).toEqual(['offloader/tool-123_0'])
     })
 
     it('does not double-namespace an already-namespaced Storage', async () => {
@@ -811,9 +810,7 @@ describe('ContextOffloader', () => {
       await invokeTrackedHook(agent, event)
 
       const keys = await unifiedStorage.list('')
-      expect(keys.length).toBe(1)
-      expect(keys[0]).toMatch(/^custom\//)
-      expect(keys[0]).not.toMatch(/^offloader\//)
+      expect(keys).toEqual(['custom/tool-123_0'])
     })
 
     it('does not namespace legacy OffloaderStorage', async () => {
