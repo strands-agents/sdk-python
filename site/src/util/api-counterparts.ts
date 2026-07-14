@@ -64,7 +64,8 @@ function extractPythonSymbols(moduleName: string, body: string): string[] {
 export function buildApiCounterpartMap(entries: readonly ApiDocEntry[]): Map<string, string> {
   const tsSymbols = new Set<string>()
   for (const entry of entries) {
-    if (entry.id.startsWith(TS_PREFIX) && entry.id !== TS_PREFIX.slice(0, -1)) {
+    // The trailing slash in the prefix excludes the section index page itself
+    if (entry.id.startsWith(TS_PREFIX)) {
       tsSymbols.add(entry.id.slice(TS_PREFIX.length))
     }
   }
@@ -123,6 +124,11 @@ let cachedMap: Map<string, string> | undefined
  * build, and LanguageToggle renders on every page (twice — desktop + mobile
  * header), so building the map per render would repeat the same regex work
  * over every Python page body ~2x per page across the whole static build.
+ *
+ * The cache ignores `entries` after the first call, so in `astro dev` the map
+ * is stale until server restart if generated API pages change. Acceptable:
+ * the map only changes when the SDK docs are regenerated, which requires a
+ * restart anyway.
  */
 export function getApiCounterpartMap(entries: readonly ApiDocEntry[]): Map<string, string> {
   cachedMap ??= buildApiCounterpartMap(entries)
