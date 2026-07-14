@@ -216,3 +216,60 @@ class TestLocalFileStorage:
         assert hasattr(ns, "for_sandbox")
         bound = ns.for_sandbox(sandbox)
         assert bound is not ns
+
+    @pytest.mark.asyncio
+    async def test_list_prefix_narrows_directory(self, storage, tmp_path):
+        await storage.write("deep/nested/a.txt", b"a")
+        await storage.write("deep/nested/b.txt", b"b")
+        await storage.write("deep/other/c.txt", b"c")
+        keys = await storage.list("deep/nested/")
+        assert keys == ["deep/nested/a.txt", "deep/nested/b.txt"]
+
+    @pytest.mark.asyncio
+    async def test_list_prefix_nonexistent_dir(self, storage):
+        keys = await storage.list("nonexistent/path/")
+        assert keys == []
+
+    @pytest.mark.asyncio
+    async def test_list_prefix_partial_match_dir(self, storage, tmp_path):
+        await storage.write("ab/file.txt", b"data")
+        keys = await storage.list("abc/")
+        assert keys == []
+
+    @pytest.mark.asyncio
+    async def test_delete_error_raises_storage_error(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        sandbox = MagicMock()
+        sandbox.remove_file = AsyncMock(side_effect=PermissionError("forbidden"))
+        storage = LocalFileStorage(str(tmp_path) + "/", sandbox=sandbox)
+        with pytest.raises(StorageError):
+            await storage.delete("key.txt")
+
+    @pytest.mark.asyncio
+    async def test_list_error_raises_storage_error(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        sandbox = MagicMock()
+        sandbox.list_files = AsyncMock(side_effect=PermissionError("forbidden"))
+        storage = LocalFileStorage(str(tmp_path) + "/", sandbox=sandbox)
+        with pytest.raises(StorageError):
+            await storage.list("")
+
+    @pytest.mark.asyncio
+    async def test_write_atomic_cleanup_on_replace_failure(self, tmp_path, monkeypatch):
+        storage = LocalFileStorage(str(tmp_path) + "/")
+        # First write succeeds to create the directory
+        await storage.write("key", b"original")
+
+        # Patch os.replace to fail, simulating atomic rename failure
+        def failing_replace(src, dst):
+            raise OSError("replace failed")
+
+        monkeypatch.setattr(os, "replace", failing_replace)
+        with pytest.raises(StorageError):
+            await storage.write("key", b"new data")
+
+        # Temp file should be cleaned up
+        all_files = list(tmp_path.rglob("*"))
+        assert not any("__strands_tmp" in str(f) for f in all_files)

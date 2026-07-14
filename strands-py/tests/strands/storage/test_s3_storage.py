@@ -90,6 +90,123 @@ class TestS3Storage:
             S3Storage("bucket", region_name="us-east-1", boto_session=boto3.Session())
 
 
+    @pytest.mark.asyncio
+    async def test_write_error_raises_storage_error(self, s3_bucket):
+        storage = S3Storage("nonexistent-bucket-xyz", boto_session=s3_bucket)
+        with pytest.raises(StorageError, match="Failed to write"):
+            await storage.write("key", b"data")
+
+    @pytest.mark.asyncio
+    async def test_read_error_raises_storage_error(self):
+        from unittest.mock import MagicMock
+
+        storage = S3Storage("bucket", region_name="us-east-1")
+        mock_client = MagicMock()
+        mock_client.exceptions = MagicMock()
+        mock_client.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
+        mock_client.get_object.side_effect = RuntimeError("connection reset")
+        storage._client = mock_client
+        with pytest.raises(StorageError, match="Failed to read"):
+            await storage.read("key")
+
+    @pytest.mark.asyncio
+    async def test_read_nosuchkey_via_response_code(self):
+        from unittest.mock import MagicMock
+
+        storage = S3Storage("bucket", region_name="us-east-1")
+        mock_client = MagicMock()
+        mock_client.exceptions = MagicMock()
+        mock_client.exceptions.NoSuchKey = type("NoSuchKey", (Exception,), {})
+        error = Exception("not found")
+        error.response = {"Error": {"Code": "NoSuchKey"}}
+        mock_client.get_object.side_effect = error
+        storage._client = mock_client
+        assert await storage.read("key") is None
+
+    @pytest.mark.asyncio
+    async def test_delete_error_raises_storage_error(self, s3_bucket):
+        storage = S3Storage("nonexistent-bucket-xyz", boto_session=s3_bucket)
+        with pytest.raises(StorageError, match="Failed to delete"):
+            await storage.delete("key")
+
+    @pytest.mark.asyncio
+    async def test_list_error_raises_storage_error(self, s3_bucket):
+        storage = S3Storage("nonexistent-bucket-xyz", boto_session=s3_bucket)
+        with pytest.raises(StorageError, match="Failed to list"):
+            await storage.list("")
+
+    @pytest.mark.asyncio
+    async def test_list_pagination(self, storage):
+        # Write more than would fit in a single page to exercise pagination
+        for i in range(5):
+            await storage.write(f"item_{i:03d}", b"data")
+        keys = await storage.list("")
+        assert len(keys) == 5
+        assert keys == sorted(keys)
+
+    def test_client_created_with_boto_session(self):
+        from unittest.mock import MagicMock
+
+        mock_session = MagicMock()
+        mock_client = MagicMock()
+        mock_session.client.return_value = mock_client
+        storage = S3Storage("bucket", boto_session=mock_session)
+        client = storage._get_client()
+        mock_session.client.assert_called_once()
+        assert client is mock_client
+
+    def test_client_created_with_region(self):
+        from unittest.mock import MagicMock, patch
+
+        with patch("boto3.Session") as mock_session_cls:
+            mock_session = MagicMock()
+            mock_client = MagicMock()
+            mock_session.client.return_value = mock_client
+            mock_session_cls.return_value = mock_session
+            storage = S3Storage("bucket", region_name="eu-west-1")
+            client = storage._get_client()
+            mock_session_cls.assert_called_once_with(region_name="eu-west-1")
+            assert client is mock_client
+
+    def test_client_merges_user_agent_on_existing_config(self):
+        from unittest.mock import MagicMock
+
+        from botocore.config import Config
+
+        mock_session = MagicMock()
+        mock_client = MagicMock()
+        mock_session.client.return_value = mock_client
+        config = Config(read_timeout=30)
+        storage = S3Storage("bucket", boto_session=mock_session, boto_client_config=config)
+        storage._get_client()
+        call_kwargs = mock_session.client.call_args[1]
+        assert "strands-agents" in call_kwargs["config"].user_agent_extra
+
+    @pytest.mark.asyncio
+    async def test_list_paginates(self):
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_client.list_objects_v2.side_effect = [
+            {
+                "IsTruncated": True,
+                "NextContinuationToken": "token_1",
+                "Contents": [{"Key": "a"}, {"Key": "b"}],
+            },
+            {
+                "IsTruncated": False,
+                "Contents": [{"Key": "c"}],
+            },
+        ]
+        storage = S3Storage("bucket", region_name="us-east-1")
+        storage._client = mock_client
+        keys = await storage.list("")
+        assert keys == ["a", "b", "c"]
+        # Verify continuation token was passed on second call
+        second_call_kwargs = mock_client.list_objects_v2.call_args_list[1][1]
+        assert second_call_kwargs["ContinuationToken"] == "token_1"
+
+
 class TestS3StorageWithPrefix:
     @pytest.fixture
     def prefixed_storage(self, s3_bucket):
