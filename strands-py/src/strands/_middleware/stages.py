@@ -9,10 +9,9 @@ from .types import MiddlewareStage
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
-    from ..types.content import Message, Messages, SystemPrompt
-    from ..types.event_loop import Metrics, Usage
-    from ..types.streaming import StopReason
-    from ..types.tools import ToolSpec
+    from ..types._events import ModelStopReason, TypedEvent
+    from ..types.content import Messages, SystemPrompt
+    from ..types.tools import ToolChoice, ToolSpec
 
 
 @dataclass
@@ -28,19 +27,9 @@ class InvokeModelContext:
     messages: Messages
     system_prompt: SystemPrompt
     tool_specs: list[ToolSpec]
-    tool_choice: Any | None
+    tool_choice: ToolChoice | None
     invocation_state: dict[str, Any]
     projected_input_tokens: int | None = None
 
 
-@dataclass
-class InvokeModelResult:
-    """Result from InvokeModelStage middleware."""
-
-    stop_reason: StopReason
-    message: Message
-    usage: Usage
-    metrics: Metrics
-
-
-InvokeModelStage: MiddlewareStage[InvokeModelContext, InvokeModelResult, Any] = MiddlewareStage(name="invokeModel")
+InvokeModelStage: MiddlewareStage[InvokeModelContext, ModelStopReason, TypedEvent] = MiddlewareStage(name="invokeModel")

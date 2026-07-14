@@ -3,6 +3,7 @@ import type { StateStore } from '../state-store.js'
 import type { ContentBlock, ContentBlockData, Message, MessageData, StopReason, SystemPrompt } from './messages.js'
 import type { Interrupt } from '../interrupt.js'
 import type { InterruptResponseContent, InterruptResponseContentData } from './interrupt.js'
+import type { Checkpoint, CheckpointResumeContent } from '../experimental/checkpoint.js'
 import type { AgentTrace } from '../telemetry/tracer.js'
 import type { Snapshot } from './snapshot.js'
 import type { TakeSnapshotOptions } from '../agent/snapshot.js'
@@ -49,6 +50,9 @@ import { AgentMetrics } from '../telemetry/meter.js'
  * - `ContentBlock[]` | `ContentBlockData[]` - Array of content blocks (creates single user Message)
  * - `Message[]` | `MessageData[]` - Array of messages (appends all to conversation)
  * - `InterruptResponseContent[]` - Array of interrupt responses (resumes from interrupted state)
+ * - `CheckpointResumeContent` - Resume payload for a checkpointing agent
+ *
+ * @experimental The `CheckpointResumeContent` member is experimental and subject to change.
  */
 export type InvokeArgs =
   | string
@@ -58,6 +62,7 @@ export type InvokeArgs =
   | MessageData[]
   | InterruptResponseContent[]
   | InterruptResponseContentData[]
+  | CheckpointResumeContent
 
 /**
  * Per-invocation state threaded through hooks and tools for a single agent
@@ -281,6 +286,12 @@ export interface LocalAgent {
   readonly sandbox: Sandbox
 
   /**
+   * Aggregated metrics for the agent's loop execution.
+   * Tracks cycle counts, token usage, tool execution stats, and model latency.
+   */
+  readonly metrics: AgentMetrics
+
+  /**
    * The model provider used by the agent for inference.
    */
   readonly model: Model
@@ -434,6 +445,15 @@ export class AgentResult {
    */
   readonly interrupts?: Interrupt[]
 
+  /**
+   * Checkpoint captured when the agent paused for durable execution. Populated
+   * only when `stopReason` is `'checkpoint'`. See the experimental checkpoint
+   * module for usage.
+   *
+   * @experimental
+   */
+  readonly checkpoint?: Checkpoint
+
   constructor(data: {
     stopReason: StopReason
     lastMessage: Message
@@ -442,6 +462,7 @@ export class AgentResult {
     metrics?: AgentMetrics
     structuredOutput?: z.output<z.ZodType>
     interrupts?: Interrupt[]
+    checkpoint?: Checkpoint
   }) {
     this.stopReason = data.stopReason
     this.lastMessage = data.lastMessage
@@ -457,6 +478,9 @@ export class AgentResult {
     }
     if (data.interrupts !== undefined) {
       this.interrupts = data.interrupts
+    }
+    if (data.checkpoint !== undefined) {
+      this.checkpoint = data.checkpoint
     }
   }
 
@@ -494,6 +518,7 @@ export class AgentResult {
       stopReason: this.stopReason,
       lastMessage: this.lastMessage,
       ...(this.structuredOutput !== undefined && { structuredOutput: this.structuredOutput }),
+      ...(this.checkpoint !== undefined && { checkpoint: this.checkpoint.toJSON() }),
     }
   }
 

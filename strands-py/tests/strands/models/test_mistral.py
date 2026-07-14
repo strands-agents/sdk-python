@@ -6,7 +6,7 @@ import pytest
 
 import strands
 from strands.models.mistral import MistralModel
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
 @pytest.fixture
@@ -641,6 +641,47 @@ async def test_stream_other_error(mistral_client, model, alist):
     messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(Exception, match="some other error"):
         await alist(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_error(mistral_client, model, alist):
+    overflow_message = (
+        "Prompt contains 152960 tokens and 0 draft tokens, too large for model with 131072 maximum context length"
+    )
+    error = Exception(overflow_message)
+    mistral_client.chat.stream_async.side_effect = error
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.stream(messages))
+
+    assert overflow_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_error(mistral_client, model, test_output_model_cls, alist):
+    overflow_message = (
+        "Prompt contains 152960 tokens and 0 draft tokens, too large for model with 131072 maximum context length"
+    )
+    error = Exception(overflow_message)
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.structured_output(test_output_model_cls, messages))
+
+    assert overflow_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_other_error(mistral_client, model, test_output_model_cls, alist):
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(side_effect=Exception("some other error"))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(Exception, match="some other error"):
+        await alist(model.structured_output(test_output_model_cls, messages))
 
 
 @pytest.mark.asyncio

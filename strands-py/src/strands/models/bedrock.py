@@ -43,6 +43,12 @@ DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
 _DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
+_BEDROCK_VIDEO_FORMAT_ALIASES = {
+    "3gp": "three_gp",
+    "3g2": "three_gp",
+    "3gpp": "three_gp",
+}
+
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
@@ -617,8 +623,10 @@ class BedrockModel(Model):
         if "guardContent" in content:
             guard = content["guardContent"]
             guard_text = guard["text"]
-            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
-            return {"guardContent": result}
+            text_block: dict[str, Any] = {"text": guard_text["text"]}
+            if "qualifiers" in guard_text:
+                text_block["qualifiers"] = guard_text["qualifiers"]
+            return {"guardContent": {"text": text_block}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
         if "image" in content:
@@ -710,7 +718,8 @@ class BedrockModel(Model):
                     return None
             elif "bytes" in source:
                 formatted_video_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_video_source}
+            video_format = _BEDROCK_VIDEO_FORMAT_ALIASES.get(video["format"], video["format"])
+            result = {"format": video_format, "source": formatted_video_source}
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
@@ -1034,6 +1043,16 @@ class BedrockModel(Model):
                     e,
                     "└ For more information see "
                     "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#required-iam-permissions",
+                )
+
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "The provided model identifier is invalid" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
                 )
 
             if (

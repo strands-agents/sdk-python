@@ -6,13 +6,14 @@ import type { JSONSchema, JSONValue } from '../types/json.js'
 import { JsonBlock, TextBlock, ToolResultBlock, type ToolResultContent } from '../types/messages.js'
 import { ImageBlock, decodeBase64 } from '../types/media.js'
 import { toMediaFormat, IMAGE_FORMATS, type ImageFormat } from '../mime.js'
-import type { McpClient } from '../mcp.js'
+import type { McpClient } from '../mcp/index.js'
 import { logger } from '../logging/logger.js'
 
 export interface McpToolConfig {
   name: string
   description: string
   inputSchema: JSONSchema
+  outputSchema?: JSONSchema
   client: McpClient
 }
 
@@ -37,6 +38,7 @@ export class McpTool extends Tool {
       name: config.name,
       description: config.description,
       inputSchema: config.inputSchema,
+      ...(config.outputSchema !== undefined && { outputSchema: config.outputSchema }),
     }
     this.mcpClient = config.client
   }

@@ -2,6 +2,7 @@
 Tests for the function-based tool decorator pattern.
 """
 
+import warnings
 from asyncio import Queue
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
@@ -1983,6 +1984,28 @@ def test_tool_decorator_annotated_field_with_inner_default():
         @strands.tool
         def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
             return f"{name} is at level {level}"
+
+
+def test_tool_decorator_param_default_field_preserves_constraints():
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/1914."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        @strands.tool
+        def with_field_default(
+            items: list = Field(default_factory=list),  # noqa: B008
+            score: int = Field(default=0, ge=0),  # noqa: B008
+            label: str = Field(default="x", description="Label override"),  # noqa: B008
+        ) -> str:
+            return f"{len(items)}:{score}:{label}"
+
+    pydantic_warnings = [w for w in caught if "PydanticJsonSchemaWarning" in type(w.message).__name__]
+    assert not pydantic_warnings, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+
+    properties = with_field_default.tool_spec["inputSchema"]["json"]["properties"]
+    assert properties["items"] == {"description": "Parameter items", "items": {}, "type": "array"}
+    assert properties["score"] == {"default": 0, "description": "Parameter score", "minimum": 0, "type": "integer"}
+    assert properties["label"] == {"default": "x", "description": "Label override", "type": "string"}
 
 
 @pytest.mark.asyncio

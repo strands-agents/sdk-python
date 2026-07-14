@@ -2,10 +2,13 @@ import logging
 import unittest.mock
 from typing import Any
 
+import pydantic
 import pytest
+import writerai
 
 import strands
 from strands.models.writer import WriterModel
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -49,6 +52,14 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "System prompt"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+
+    return TestOutputModel
 
 
 def test__init__(writer_client_cls, model_id, stream_options, client_args):
@@ -566,3 +577,61 @@ def test_format_request_filters_location_source_document(model, caplog):
     assert len(user_content) == 1
     assert user_content[0]["type"] == "text"
     assert "Location sources are not supported by Writer" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "overflow_message",
+    [
+        "This model's maximum context length is 32768 tokens",
+        "prompt is too long",
+        "too many tokens in request",
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_context_overflow_error(overflow_message, writer_client, model, alist):
+    error = writerai.BadRequestError(overflow_message, response=unittest.mock.Mock(), body=None)
+    writer_client.chat.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.stream(messages))
+
+    assert overflow_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_stream_non_overflow_bad_request_propagates(writer_client, model, alist):
+    error = writerai.BadRequestError("invalid 'model' parameter", response=unittest.mock.Mock(), body=None)
+    writer_client.chat.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(writerai.BadRequestError, match="invalid 'model' parameter"):
+        await alist(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_error(writer_client, model, test_output_model_cls, alist):
+    error = writerai.BadRequestError(
+        "This model's maximum context length is 32768 tokens", response=unittest.mock.Mock(), body=None
+    )
+    writer_client.chat.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.structured_output(test_output_model_cls, messages))
+
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_non_overflow_bad_request_propagates(
+    writer_client, model, test_output_model_cls, alist
+):
+    error = writerai.BadRequestError("invalid 'model' parameter", response=unittest.mock.Mock(), body=None)
+    writer_client.chat.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(writerai.BadRequestError, match="invalid 'model' parameter"):
+        await alist(model.structured_output(test_output_model_cls, messages))

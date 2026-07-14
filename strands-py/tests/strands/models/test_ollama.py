@@ -3,12 +3,14 @@ import logging
 import re
 import unittest.mock
 
+import ollama
 import pydantic
 import pytest
 
 import strands
 from strands.models.ollama import OllamaModel
 from strands.types.content import Messages
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -741,3 +743,69 @@ def test_format_request_uses_tool_name_not_tool_use_id(model, model_id):
     # The function name in the request must come from "name", not "toolUseId"
     assert tool_call["function"]["name"] == "calculator"
     assert tool_call["function"]["name"] != "unique-id-abc-123"
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_error_on_request(ollama_client, model, alist):
+    error = ollama.ResponseError("request exceeds the available context size (2048 tokens), try increasing it")
+    ollama_client.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.stream(messages))
+
+    assert "exceeds the available context size" in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_error_during_iteration(ollama_client, model, alist):
+    error = ollama.ResponseError("the prompt is longer than the context length currently available to the model")
+
+    async def overflowing_stream():
+        raise error
+        yield  # pragma: no cover - generator never yields
+
+    ollama_client.chat = unittest.mock.AsyncMock(return_value=overflowing_stream())
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.stream(messages))
+
+    assert "the prompt is longer than the context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_stream_non_overflow_response_error_propagates(ollama_client, model, alist):
+    error = ollama.ResponseError("model 'm1' not found")
+    ollama_client.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ollama.ResponseError, match="not found"):
+        await alist(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_error(ollama_client, model, test_output_model_cls, alist):
+    error = ollama.ResponseError("request exceeds the available context size (2048 tokens), try increasing it")
+    ollama_client.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        await alist(model.structured_output(test_output_model_cls, messages))
+
+    assert "exceeds the available context size" in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_non_overflow_response_error_propagates(
+    ollama_client, model, test_output_model_cls, alist
+):
+    error = ollama.ResponseError("model 'm1' not found")
+    ollama_client.chat = unittest.mock.AsyncMock(side_effect=error)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    with pytest.raises(ollama.ResponseError, match="not found"):
+        await alist(model.structured_output(test_output_model_cls, messages))

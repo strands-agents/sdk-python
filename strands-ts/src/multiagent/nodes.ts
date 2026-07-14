@@ -1,4 +1,5 @@
 import { Agent } from '../agent/agent.js'
+import { AgentPrinter, type Printer } from '../agent/printer.js'
 import type { InvocationState, InvokeOptions, InvokableAgent, AgentStreamEvent } from '../types/agent.js'
 import type { MultiAgentInput } from './multiagent.js'
 import { dropStaleInterruptedResult } from './multiagent.js'
@@ -48,6 +49,12 @@ export interface NodeInputOptions {
    * orchestrators to enforce per-node timeouts or propagate external cancellation.
    */
   cancelSignal?: AbortSignal
+
+  /**
+   * Buffer the agent's printer output and flush it on completion so concurrent siblings
+   * don't interleave on stdout.
+   */
+  bufferOutput?: boolean
 }
 
 /**
@@ -271,6 +278,17 @@ export class AgentNode extends Node {
       this._agent.loadSnapshot(nodeState.interruptedSnapshot)
     }
 
+    // Swap the agent's printer for a buffer so concurrent siblings don't interleave on stdout.
+    const agentInternals =
+      options?.bufferOutput && isAgent ? (this._agent as unknown as { _printer?: Printer }) : undefined
+    const originalPrinter = agentInternals?._printer
+    let buffered = ''
+    if (agentInternals && originalPrinter) {
+      agentInternals._printer = new AgentPrinter((text) => {
+        buffered += text
+      })
+    }
+
     try {
       const invokeOptions: InvokeOptions = {
         ...(options?.structuredOutputSchema && { structuredOutputSchema: options.structuredOutputSchema }),
@@ -313,6 +331,10 @@ export class AgentNode extends Node {
       // Restore pre-run state — keeps the agent observably unchanged across runs.
       if (preRunSnapshot) {
         ;(this._agent as Agent).loadSnapshot(preRunSnapshot)
+      }
+      if (agentInternals && originalPrinter) {
+        agentInternals._printer = originalPrinter
+        if (buffered.length > 0) originalPrinter.write(buffered)
       }
     }
   }

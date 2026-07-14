@@ -252,7 +252,9 @@ Sometimes more than one request targets the same agent instance at once: a retri
 <Tabs>
   <Tab label="Python">
 
-  An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. Invoking an agent that is already running raises `ConcurrencyException`:
+  An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. The <Syntax py="concurrent_invocation_mode" /> constructor parameter controls this behavior. It accepts a `ConcurrentInvocationMode` enum — either `THROW` (the default) or `UNSAFE_REENTRANT`.
+
+  In the default `THROW` mode, invoking an agent that is already running raises `ConcurrencyException`:
 
   ```python
   from strands import Agent
@@ -271,9 +273,11 @@ Sometimes more than one request targets the same agent instance at once: a retri
 
   #### Deduplicating retried requests
 
-  When a retry arrives for a request that is still running, returning the original's result beats both erroring and starting the work twice. Pass an idempotency token that identifies the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
+  When a retry arrives for a request that is still running, returning the original's result beats both erroring and starting the work twice. Pass <Syntax py="idempotency_token" /> to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
 
-  If a call with the same token is already in flight, this call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+  If a call with the same token is already in flight, the new call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+
+  If the tokens differ while an invocation is in flight, the new call raises `ConcurrencyException` — deduplication only applies to matching tokens.
 
   A deduplicated call gets the final result only, not the original's streamed events. Its `callback_handler` still fires once with that result, so output consumers are not left empty-handed.
 
@@ -291,8 +295,6 @@ Sometimes more than one request targets the same agent instance at once: a retri
       # The original was aborted before producing a result
       ...
   ```
-
-  The idempotency token works the same way on `invoke_async` and `stream_async`.
 
   #### Allowing concurrent invocations
 

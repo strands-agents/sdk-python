@@ -692,6 +692,14 @@ def test_helper_methods(model):
     assert model._create_voice_activity_event("speech_stopped") is None
 
 
+@pytest.mark.parametrize("raw_role,expected", [("USER", "user"), ("Assistant", "assistant"), ("system", "user")])
+def test_create_text_event_normalizes_role(model, raw_role, expected):
+    """The raw provider role passes through; the event constructor is the single normalization point."""
+    text_event = model._create_text_event("Hello", raw_role)
+
+    assert text_event.role == expected
+
+
 @pytest.mark.asyncio
 async def test_send_event_helper(mock_websockets_connect, model):
     """Test _send_event helper method."""

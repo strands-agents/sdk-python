@@ -155,6 +155,22 @@ npm run lint        # lint
 npm run type-check  # type checking
 ```
 
+#### Running Selective Integration Tests Locally
+
+From the repository root, run only the integration tests relevant to your
+changes (computed relative to `main`, including uncommitted edits):
+
+```bash
+npm run test:integ:selective
+```
+
+This uses Vitest's module graph to run only the `integ-node` and
+`integ-browser` specs that depend on the source files you changed. If you
+alter a structural file (`package.json`, `package-lock.json`, a `strands-ts`
+`tsconfig`, `vitest.config.ts`, a shared integration fixture under
+`test/integ/__fixtures__/`, or a TypeScript CI workflow), the full
+integration suite runs automatically.
+
 ### Documentation Site
 
 The documentation site uses Astro with the Starlight theme.

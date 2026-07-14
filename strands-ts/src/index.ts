@@ -38,12 +38,15 @@ export {
   StructuredOutputError,
   ToolNotFoundError,
   DefaultNotConfiguredError,
+  StorageError,
 } from './errors.js'
 
 // Interrupt system
 export type { Interrupt, InterruptSource } from './interrupt.js'
 export type { InterruptParams, InterruptResponse, InterruptResponseContentData } from './types/interrupt.js'
 export { InterruptResponseContent } from './types/interrupt.js'
+
+// Checkpoint APIs are experimental; see '@strands-agents/sdk/experimental'.
 
 // JSON types
 export type { JSONSchema, JSONValue } from './types/json.js'
@@ -282,8 +285,9 @@ export {
   type McpCallToolOptions,
   type TasksConfig,
   type McpConnectionState,
+  type McpServerConfig,
   McpClient,
-} from './mcp.js'
+} from './mcp/index.js'
 export type { ElicitationCallback, ElicitationContext } from './types/elicitation.js'
 
 // Session management
@@ -302,6 +306,9 @@ export { AgentTrace } from './telemetry/tracer.js'
 
 // Local Metrics
 export { AgentMetrics } from './telemetry/meter.js'
+
+// Storage
+export type { Storage } from './storage/storage.js'
 
 // Sandbox
 export { Sandbox, type ExecuteOptions } from './sandbox/base.js'

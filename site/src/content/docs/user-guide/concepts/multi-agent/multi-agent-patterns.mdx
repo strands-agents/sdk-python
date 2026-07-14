@@ -89,7 +89,7 @@ Some Examples:
 
 Both Graph and Swarm patterns support passing shared state to all agents through the `invocation_state` parameter. This enables sharing context and configuration across agents without exposing it to the LLM.
 
-### How Shared State Works
+**How Shared State Works**
 
 The `invocation_state` is automatically propagated to:
 
@@ -97,7 +97,7 @@ The `invocation_state` is automatically propagated to:
 - Tools via `ToolContext` when using `@tool(context=True)` - see [Python Tools](../tools/custom-tools.md#accessing-state-in-tools)
 - Tool-related hooks (BeforeToolCallEvent, AfterToolCallEvent) - see [Hooks](../agents/hooks.md#accessing-invocation-state-in-hooks)
 
-### Example Usage
+**Example Usage**
 
 ```python
 # Same invocation_state works for both patterns
@@ -121,7 +121,7 @@ result = swarm(
 )
 ```
 
-### Accessing Shared State in Tools
+**Accessing Shared State in Tools**
 
 ```python
 from strands import tool, ToolContext
@@ -137,7 +137,7 @@ def query_data(query: str, tool_context: ToolContext) -> str:
 
 Both Graph and Swarm support passing per-invocation state to all nodes through the `invocationState` option. This is a mutable `Record<string, unknown>` shared by reference — one node's hooks/tools can read state written by a previous node.
 
-### How Invocation State Works
+**How Invocation State Works**
 
 Pass `invocationState` as the second argument to `invoke()` or `stream()`:
 
@@ -151,13 +151,13 @@ The `invocationState` is automatically forwarded to:
 - Tools via `context.invocationState` in the tool callback
 - All hook events on both the orchestrator and individual agents
 
-### Accessing Invocation State in Tools
+**Accessing Invocation State in Tools**
 
 ```typescript
 --8<-- "user-guide/concepts/multi-agent/multi-agent-patterns.ts:invocation_state_tool"
 ```
 
-### MultiAgentState
+**MultiAgentState**
 
 In addition to `invocationState`, the orchestrator's `MultiAgentState` is shared across all nodes and provides access to execution progress, node results, and custom application state:
 

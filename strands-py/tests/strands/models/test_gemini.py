@@ -117,7 +117,7 @@ async def test_stream_request_default(gemini_client, model, messages, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {"tools": [{"function_declarations": []}]},
+        "config": {},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -131,10 +131,7 @@ async def test_stream_request_with_params(gemini_client, model, messages, model_
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-            "temperature": 1,
-        },
+        "config": {"temperature": 1},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -146,7 +143,7 @@ async def test_stream_request_with_system_prompt(gemini_client, model, messages,
     await anext(model.stream(messages, system_prompt=system_prompt))
 
     exp_request = {
-        "config": {"system_instruction": system_prompt, "tools": [{"function_declarations": []}]},
+        "config": {"system_instruction": system_prompt},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -179,9 +176,7 @@ async def test_stream_request_with_document(content, formatted_part, gemini_clie
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [{"parts": [formatted_part], "role": "user"}],
         "model": model_id,
     }
@@ -206,9 +201,7 @@ async def test_stream_request_with_image(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -247,9 +240,7 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -312,9 +303,7 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -355,9 +344,7 @@ async def test_stream_request_with_tool_use_no_reasoning_signature(gemini_client
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -405,9 +392,7 @@ async def test_stream_request_with_tool_results(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -469,9 +454,7 @@ async def test_stream_request_with_tool_results_preserving_name(gemini_client, m
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -514,9 +497,7 @@ async def test_stream_request_with_empty_content(gemini_client, model, model_id)
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [{"parts": [], "role": "user"}],
         "model": model_id,
     }
@@ -986,7 +967,6 @@ async def test_structured_output(gemini_client, model, messages, model_id, weath
 
     exp_request = {
         "config": {
-            "tools": [{"function_declarations": []}],
             "response_mime_type": "application/json",
             "response_schema": weather_output.model_json_schema(),
         },

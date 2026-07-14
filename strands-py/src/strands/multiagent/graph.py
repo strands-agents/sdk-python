@@ -240,7 +240,7 @@ class GraphNode:
         if hasattr(self.executor, "messages"):
             self._initial_messages = copy.deepcopy(self.executor.messages)
 
-        if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
+        if hasattr(self.executor, "state") and isinstance(self.executor.state, AgentState):
             self._initial_state = AgentState(self.executor.state.get())
 
         if hasattr(self.executor, "_model_state"):
@@ -255,7 +255,7 @@ class GraphNode:
         if hasattr(self.executor, "messages"):
             self.executor.messages = copy.deepcopy(self._initial_messages)
 
-        if hasattr(self.executor, "state"):
+        if hasattr(self.executor, "state") and isinstance(self.executor.state, AgentState):
             self.executor.state = AgentState(self._initial_state.get())
 
         if hasattr(self.executor, "_model_state"):
@@ -1079,9 +1079,12 @@ class Graph(MultiAgentBase):
                 yield self._activate_interrupt(node, node_result.interrupts)
                 return
 
-            # Mark as completed
-            node.execution_status = Status.COMPLETED
-            self.state.completed_nodes.add(node)
+            if node_result.status == Status.FAILED:
+                node.execution_status = Status.FAILED
+                self.state.failed_nodes.add(node)
+            else:
+                node.execution_status = Status.COMPLETED
+                self.state.completed_nodes.add(node)
             self.state.results[node.node_id] = node_result
             self.state.execution_order.append(node)
 
@@ -1330,9 +1333,11 @@ class Graph(MultiAgentBase):
     ) -> bool:
         """Check if a node is ready for resume, accounting for conditional edges.
 
-        A node is ready if all TRAVERSABLE incoming edges have their source completed.
-        Edges whose condition evaluates to False are excluded from the check — they
-        represent paths that were intentionally skipped.
+        A node is ready if all TRAVERSABLE incoming edges from *touched* nodes
+        have their source completed. Edges whose condition evaluates to False are
+        excluded (paths intentionally not taken). Edges whose source was *bypassed*
+        (never scheduled — not in completed, interrupted, or failed sets) are also
+        excluded, as they represent dead branches that will never fire.
 
         Note: this method is called at serialize time (before persisting) using the
         invocation_state that is in memory at that moment. The resulting node IDs are
@@ -1341,10 +1346,10 @@ class Graph(MultiAgentBase):
         (after those initial nodes complete) re-evaluate conditions with whatever
         invocation_state the caller passes on the resume invocation.
 
-        Uses AND-join semantics (all traversable edges must have completed sources),
-        unlike live execution which uses OR-join (any satisfied edge is sufficient).
-        This is intentional: on resume we know the full set of completed work, so we
-        wait for all expected inputs rather than eagerly firing on partial results.
+        Uses AND-join semantics for edges from touched nodes (all must have completed
+        sources), preserving the original behavior for parallel fan-in patterns.
+        Edges from bypassed nodes are excluded from the join so that conditional
+        edge patterns (node skipping) work correctly with resume.
         """
         traversable_edges = [
             e
@@ -1356,7 +1361,19 @@ class Graph(MultiAgentBase):
         if not traversable_edges:
             return False
 
-        return all(e.from_node in completed_nodes for e in traversable_edges)
+        # Exclude edges from bypassed nodes — nodes that were never touched
+        # during execution (not completed, not interrupted, not failed).
+        # These represent dead branches from conditional routing where the
+        # source node was intentionally skipped.
+        all_touched = completed_nodes | self.state.interrupted_nodes | self.state.failed_nodes
+        relevant_edges = [e for e in traversable_edges if e.from_node in all_touched]
+
+        # If no relevant edges remain (all sources are bypassed), the node
+        # is not ready — it has no valid path from executed nodes.
+        if not relevant_edges:
+            return False
+
+        return all(e.from_node in completed_nodes for e in relevant_edges)
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         self.state.status = Status(payload["status"])

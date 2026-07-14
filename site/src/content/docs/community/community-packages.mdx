@@ -14,8 +14,10 @@ export const communityIntegrations = getIntegrationEntries(allDocs, 'integration
 export const communityPlugins = getIntegrationEntries(allDocs, 'plugin', true)
 export const communityModelProviders = getIntegrationEntries(allDocs, 'model-provider', true)
 export const communitySessionManagers = getIntegrationEntries(allDocs, 'session-manager', true)
+export const communityMemoryStores = getIntegrationEntries(allDocs, 'memory-store', true)
 export const communityTools = getIntegrationEntries(allDocs, 'tool', true)
 export const communityAgentExtensions = getIntegrationEntries(allDocs, 'agent-extension', true)
+export const communityInterventions = getIntegrationEntries(allDocs, 'intervention', true)
 
 export const packageColumns = [
   { header: "Package" },
@@ -71,6 +73,14 @@ Session managers provide alternative storage backends for conversation history. 
   {renderCell}
 </SimpleTable>
 
+## Memory stores
+
+Memory stores are backends that give agents long-term memory across sessions. Each implements the `MemoryStore` interface and plugs into an agent through a `MemoryManager`. See the [Memory Stores overview](./memory-stores/overview.md) for how they fit together.
+
+<SimpleTable data={communityMemoryStores} columns={packageColumns}>
+  {renderCell}
+</SimpleTable>
+
 ## Tools
 
 Tools extend your agents with capabilities for specific services and platforms. Each package provides one or more tools you can add to your agents.
@@ -84,6 +94,14 @@ Tools extend your agents with capabilities for specific services and platforms. 
 Agent extensions provide specialized agent subclasses that change how Strands agents reason and act. Use these when you need an alternative action paradigm beyond the default tool-calling approach.
 
 <SimpleTable data={communityAgentExtensions} columns={packageColumns}>
+  {renderCell}
+</SimpleTable>
+
+## Interventions
+
+Interventions provide composable control handlers for authorization, guardrails, and steering. Use these to add typed decision-making to your agents without modifying core logic.
+
+<SimpleTable data={communityInterventions} columns={packageColumns}>
   {renderCell}
 </SimpleTable>
 

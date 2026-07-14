@@ -16,6 +16,7 @@ import { defaultSandbox } from '../sandbox/default.js'
 import type { Sandbox } from '../sandbox/base.js'
 import type { HookableEvent, StreamEvent } from '../hooks/events.js'
 import type { HookableEventConstructor, HookCallback } from '../hooks/types.js'
+import { AgentMetrics } from '../telemetry/meter.js'
 import { expectLoopMetrics, type LoopMetricsMatcher } from './metrics-helpers.js'
 
 /**
@@ -69,6 +70,7 @@ export function createMockAgent(data?: MockAgentData): MockAgent {
     modelState: new StateStore(),
     toolRegistry: data?.toolRegistry ?? new ToolRegistry(),
     cancelSignal: new AbortController().signal,
+    metrics: data?.extra?.metrics ?? new AgentMetrics(),
     // Mirror the real Agent.sandbox getter: resolve the environment default lazily.
     // An explicit `extra.sandbox` below overrides this accessor.
     get sandbox(): Sandbox {

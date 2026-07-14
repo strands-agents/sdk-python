@@ -137,6 +137,8 @@ export function foldIntoLastUserMessage(messages: Message[], text: string): Mess
   const folded = new Message({
     role: target.role,
     content,
+    // Folding injects content into the same logical message, so keep its tracking id.
+    trackingId: target.trackingId,
     ...(target.metadata !== undefined && { metadata: target.metadata }),
   })
 

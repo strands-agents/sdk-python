@@ -77,7 +77,14 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, split_system_prompt
+from ..types.content import (
+    ContentBlock,
+    Message,
+    Messages,
+    SystemContentBlock,
+    _ensure_tracking_id,
+    split_system_prompt,
+)
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
@@ -1214,7 +1221,8 @@ class Agent(AgentBase):
             self._cancel_signal.clear()
 
             self._concurrency.complete(begin.registered_token, result=result)
-            self._concurrency.release_lock()
+            if self._concurrency.mode == ConcurrentInvocationMode.THROW:
+                self._concurrency.release_lock()
 
     async def _run_loop(
         self,
@@ -1266,6 +1274,12 @@ class Agent(AgentBase):
             agent_result: AgentResult | None = None
             try:
                 yield InitEventLoopEvent()
+
+                # Backfill ids for any messages that entered history outside the append chokepoint
+                # (e.g. a caller doing agent.messages.append(...) directly, or a legacy session
+                # restored without ids), so every message carries one before the model is called.
+                for message in self.messages:
+                    _ensure_tracking_id(message)
 
                 await self._append_messages(*current_messages)
 
@@ -1432,6 +1446,14 @@ class Agent(AgentBase):
                         # Treat as List[ContentBlock] input - convert to user message
                         # This allows invalid structures to be passed through to the model
                         messages = [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
+
+                    # Check if all items are interrupt responses
+                    elif all("interruptResponse" in item for item in prompt):
+                        raise ValueError(
+                            "Received interrupt responses but agent is not in interrupt state. "
+                            "Ensure the agent instance is preserved between calls, or use session "
+                            "management to persist interrupt state across requests."
+                        )
         else:
             messages = []
         if messages is None:
@@ -1504,8 +1526,12 @@ class Agent(AgentBase):
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
 
     async def _append_messages(self, *messages: Message) -> None:
-        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
+
+        Assigns a durable tracking id to any message that does not already have one.
+        """
         for message in messages:
+            _ensure_tracking_id(message)
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 
