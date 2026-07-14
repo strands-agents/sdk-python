@@ -71,12 +71,11 @@ class TestInMemoryStorage:
         with pytest.raises(StorageError):
             await storage.write("../etc/passwd", b"data")
 
-    def test_clear(self, storage):
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(storage.write("key", b"data"))
+    @pytest.mark.asyncio
+    async def test_clear(self, storage):
+        await storage.write("key", b"data")
         storage.clear()
-        result = asyncio.get_event_loop().run_until_complete(storage.read("key"))
+        result = await storage.read("key")
         assert result is None
 
     @pytest.mark.asyncio
