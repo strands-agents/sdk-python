@@ -189,17 +189,17 @@ class TestLocalFileStorage:
         assert "sub/nested.txt" in keys
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(os.name == "nt", reason="Windows allows writing to arbitrary paths differently")
     async def test_write_error_raises_storage_error(self, tmp_path):
         storage = LocalFileStorage("/nonexistent/readonly/path/")
         with pytest.raises(StorageError):
             await storage.write("key", b"data")
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(os.name == "nt", reason="Windows does not enforce chmod restrictions")
     async def test_read_error_raises_storage_error(self, tmp_path):
         storage = LocalFileStorage(str(tmp_path) + "/")
         await storage.write("key", b"data")
-        import os
-
         os.chmod(os.path.join(str(tmp_path), "key"), 0o000)
         try:
             with pytest.raises(StorageError):
