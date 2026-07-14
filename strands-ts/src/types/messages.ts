@@ -44,9 +44,23 @@ export interface MessageData {
   content: ContentBlockData[]
 
   /**
+   * Durable, stable UUID for the message. Optional here because serialized/legacy data may omit it;
+   * the Message constructor backfills a fresh UUID when absent, so a live Message always has one.
+   */
+  trackingId?: string
+
+  /**
    * Optional metadata, not sent to model providers.
    */
   metadata?: MessageMetadata
+}
+
+/**
+ * Generate a durable tracking identifier for a message.
+ * @internal
+ */
+export function generateTrackingId(): string {
+  return globalThis.crypto.randomUUID()
 }
 
 /**
@@ -70,13 +84,26 @@ export class Message implements JSONSerializable<MessageData> {
   readonly content: ContentBlock[]
 
   /**
+   * Durable, stable UUID for the message, assigned at construction. Every Message has one — a
+   * caller-supplied id is preserved, otherwise a fresh UUID is minted (so callers do not normally
+   * set it; a caller supplying its own should use a UUID v4, e.g. `crypto.randomUUID()`). Survives
+   * session save/restore, and is stripped before model calls. Preserved when a message is copied or
+   * restored, so ids are unique within a conversation, but the same message carries the same id
+   * across sessions (copying another agent's messages does not re-key them).
+   */
+  readonly trackingId: string
+
+  /**
    * Optional metadata, not sent to model providers.
    */
   metadata?: MessageMetadata
 
-  constructor(data: { role: Role; content: ContentBlock[]; metadata?: MessageMetadata }) {
+  constructor(data: { role: Role; content: ContentBlock[]; trackingId?: string; metadata?: MessageMetadata }) {
     this.role = data.role
     this.content = data.content
+    // Mint a durable id when the caller did not supply a usable one, so every Message has one from
+    // the moment it exists — including messages added ad-hoc to agent.messages.
+    this.trackingId = data.trackingId || generateTrackingId()
     if (data.metadata !== undefined) {
       this.metadata = data.metadata
     }
@@ -91,6 +118,8 @@ export class Message implements JSONSerializable<MessageData> {
     return new Message({
       role: data.role,
       content: contentBlocks,
+      // A missing trackingId (e.g. legacy serialized data) is backfilled by the constructor.
+      ...(data.trackingId !== undefined && { trackingId: data.trackingId }),
       ...(data.metadata !== undefined && { metadata: data.metadata }),
     })
   }
@@ -103,6 +132,7 @@ export class Message implements JSONSerializable<MessageData> {
     return {
       role: this.role,
       content: this.content.map((block) => block.toJSON() as ContentBlockData),
+      ...(this.trackingId !== undefined && { trackingId: this.trackingId }),
       ...(this.metadata !== undefined && { metadata: this.metadata }),
     }
   }
@@ -663,6 +693,7 @@ export class JsonBlock implements JsonBlockData, JSONSerializable<JsonBlockData>
  * - `contentFiltered` - Content was filtered by safety mechanisms
  * - `endTurn` - Natural end of the model's turn
  * - `guardrailIntervened` - A guardrail policy stopped generation
+ * - `checkpoint` - Agent paused at a cycle boundary for durable execution (experimental; see experimental checkpoint module)
  * - `interrupt` - Agent execution was interrupted for human input
  * - `maxTokens` - The model provider's per-call token cap was reached
  * - `limitOutputTokens` - Agent loop stopped because `InvokeOptions.limits.outputTokens` was reached
@@ -676,6 +707,7 @@ export class JsonBlock implements JsonBlockData, JSONSerializable<JsonBlockData>
  */
 export type StopReason =
   | 'cancelled'
+  | 'checkpoint'
   | 'contentFiltered'
   | 'endTurn'
   | 'guardrailIntervened'
@@ -774,9 +806,7 @@ export function cloneSystemPrompt(prompt: SystemPrompt): SystemPrompt {
  * This is a discriminated union where the object key determines the block format.
  */
 export type SystemContentBlockData =
-  | TextBlockData
-  | { cachePoint: CachePointBlockData }
-  | { guardContent: GuardContentBlockData }
+  TextBlockData | { cachePoint: CachePointBlockData } | { guardContent: GuardContentBlockData }
 
 export type SystemContentBlock = TextBlock | CachePointBlock | GuardContentBlock
 

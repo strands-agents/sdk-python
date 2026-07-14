@@ -27,7 +27,7 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.tool_provider import ToolProvider
 from ....tools.watcher import ToolWatcher
-from ....types.content import Message, Messages
+from ....types.content import Message, Messages, _ensure_tracking_id
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from .._async import _TaskGroup, stop_all
@@ -410,5 +410,6 @@ class BidiAgent:
         """
         async with self._message_lock:
             for message in messages:
+                _ensure_tracking_id(message)
                 self.messages.append(message)
                 await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))

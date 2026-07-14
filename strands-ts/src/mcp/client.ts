@@ -332,6 +332,7 @@ export class McpClient {
               name: toolSpec.name,
               description: toolSpec.description || `Tool which performs ${toolSpec.name}`,
               inputSchema: toolSpec.inputSchema as JSONSchema,
+              ...(toolSpec.outputSchema !== undefined && { outputSchema: toolSpec.outputSchema as JSONSchema }),
               client: this,
             })
         )

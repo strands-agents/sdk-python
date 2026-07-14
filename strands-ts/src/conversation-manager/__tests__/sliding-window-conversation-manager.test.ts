@@ -195,6 +195,26 @@ describe('SlidingWindowConversationManager', () => {
       )
     })
 
+    it('preserves the durable message id when truncating tool results', () => {
+      const manager = new SlidingWindowConversationManager({ shouldTruncateResults: true })
+      const original = 'A'.repeat(200) + 'MIDDLE_CONTENT_TO_REMOVE'.repeat(10) + 'B'.repeat(200)
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({ toolUseId: 'tool-1', status: 'success', content: [new TextBlock(original)] }),
+          ],
+          trackingId: 'durable-1',
+        }),
+      ]
+
+      const changed = (manager as any)._truncateToolResults(messages, 0)
+
+      expect(changed).toBe(true)
+      // The message stays in history with its content truncated, so its tracking id must survive.
+      expect(messages[0]!.trackingId).toBe('durable-1')
+    })
+
     it('leaves small tool results unchanged', () => {
       const manager = new SlidingWindowConversationManager({ shouldTruncateResults: true })
       const messages = [

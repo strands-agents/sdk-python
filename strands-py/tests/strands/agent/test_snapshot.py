@@ -172,6 +172,17 @@ def test_agent_state_round_trip(messages, state_dict):
     assert fresh_agent._interrupt_state.to_dict() == agent._interrupt_state.to_dict()
 
 
+def test_durable_tracking_id_survives_snapshot_round_trip():
+    messages = [{"role": "user", "content": [{"text": "hi"}], "tracking_id": "durable-1"}]
+    agent = _make_agent(messages=messages)
+    snapshot = agent.take_snapshot(preset="session")
+
+    fresh_agent = _make_agent()
+    fresh_agent.load_snapshot(snapshot)
+
+    assert fresh_agent.messages[0]["tracking_id"] == "durable-1"
+
+
 @pytest.mark.parametrize("omitted_field", list(ALL_SNAPSHOT_FIELDS))
 def test_missing_fields_leave_agent_unchanged(omitted_field):
     agent = _make_agent(

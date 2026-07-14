@@ -84,6 +84,16 @@ class TestSummarizeContext:
         assert len(messages) < 20
         assert messages[0]["role"] == "user"
 
+    async def test_assigns_a_durable_tracking_id_to_the_generated_summary(self, alist):
+        # The summary message is spliced straight into agent.messages, bypassing the append
+        # chokepoint, so summarize_context must assign it a durable tracking id itself.
+        messages = make_messages(20)
+        agent = make_agent(messages, mock_model("Summary"))
+        await invoke_tool(summarize_context, agent, alist, keep_recent=10, summary_ratio=0.5)
+        summary_message = next(msg for msg in messages if msg["content"][0].get("text") == "Summary")
+        assert isinstance(summary_message.get("tracking_id"), str)
+        assert summary_message["tracking_id"]
+
     async def test_preserves_pinned_messages_during_summarization(self, alist):
         messages = make_messages(20)
         pin_message(messages, 1)

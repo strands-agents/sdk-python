@@ -84,7 +84,7 @@ async function summarizingCustom() {
   // --8<-- [start:summarizing_conversation_manager_custom]
   // Optionally use a different model for summarization
   const summarizationModel = new BedrockModel({
-    modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
   })
 
   const conversationManager = new SummarizingConversationManager({

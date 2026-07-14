@@ -204,6 +204,8 @@ const { code, lang = 'python', filename, badge } = Astro.props
 </style>
 
 <script>
+  import { copyToClipboard } from '../../util/language-preference'
+
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll<HTMLElement>('.code-block').forEach((block) => {
       const btn = block.querySelector<HTMLButtonElement>('.copy-button')
@@ -211,7 +213,7 @@ const { code, lang = 'python', filename, badge } = Astro.props
       if (!btn || !code) return
 
       btn.addEventListener('click', async () => {
-        await navigator.clipboard.writeText(code)
+        if (!(await copyToClipboard(code))) return
         btn.classList.add('copied')
         setTimeout(() => btn.classList.remove('copied'), 2000)
       })

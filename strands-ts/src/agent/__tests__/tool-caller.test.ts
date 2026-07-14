@@ -6,6 +6,7 @@ import { Message, ToolResultBlock, TextBlock, ToolUseBlock } from '../../types/m
 import { ConcurrentInvocationError, ToolNotFoundError } from '../../errors.js'
 import { ToolStreamEvent } from '../../tools/tool.js'
 import type { ToolContext } from '../../tools/tool.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 describe('ToolCaller', () => {
   describe('basic tool calling via .invoke()', () => {
@@ -177,6 +178,7 @@ describe('ToolCaller', () => {
       // toolUseId is non-deterministic (UUID), so use expect.stringMatching.
       expect(agent.messages).toEqual([
         new Message({
+          trackingId: anyTrackingId,
           role: 'assistant',
           content: [
             new ToolUseBlock({
@@ -187,6 +189,7 @@ describe('ToolCaller', () => {
           ],
         }),
         new Message({
+          trackingId: anyTrackingId,
           role: 'user',
           content: [
             new ToolResultBlock({
@@ -197,6 +200,7 @@ describe('ToolCaller', () => {
           ],
         }),
         new Message({
+          trackingId: anyTrackingId,
           role: 'assistant',
           content: [new TextBlock('agent.tool.calculator was called.')],
         }),
@@ -568,6 +572,7 @@ describe('MessageAddedEvent hooks', () => {
     expect(firedEvents).toHaveLength(3)
     expect(firedEvents[0]!.message).toEqual(
       new Message({
+        trackingId: anyTrackingId,
         role: 'assistant',
         content: [
           new ToolUseBlock({
@@ -580,6 +585,7 @@ describe('MessageAddedEvent hooks', () => {
     )
     expect(firedEvents[1]!.message).toEqual(
       new Message({
+        trackingId: anyTrackingId,
         role: 'user',
         content: [
           new ToolResultBlock({
@@ -592,6 +598,7 @@ describe('MessageAddedEvent hooks', () => {
     )
     expect(firedEvents[2]!.message).toEqual(
       new Message({
+        trackingId: anyTrackingId,
         role: 'assistant',
         content: [new TextBlock('agent.tool.calculator was called.')],
       })

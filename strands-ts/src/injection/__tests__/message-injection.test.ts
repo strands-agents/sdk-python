@@ -6,6 +6,7 @@ import type { InvokeModelContext } from '../../middleware/index.js'
 import type { InjectionContext } from '../types.js'
 import { createMockAgent } from '../../__fixtures__/agent-helpers.js'
 import { logger } from '../../logging/logger.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 const user = (text: string) => new Message({ role: 'user', content: [new TextBlock(text)] })
 const assistant = (text: string) => new Message({ role: 'assistant', content: [new TextBlock(text)] })
@@ -25,10 +26,22 @@ describe('foldIntoLastUserMessage', () => {
     // The earlier user/assistant turns are untouched; the last user message gains a leading INJECTED
     // block ahead of its own content, keeping the user's ask in the recency slot.
     expect(result.map((m) => m.toJSON())).toStrictEqual([
-      { role: 'user', content: [{ text: 'original task' }] },
-      { role: 'assistant', content: [{ text: 'prior step' }] },
-      { role: 'user', content: [{ text: 'INJECTED' }, { text: 'next ask' }] },
+      { role: 'user', content: [{ text: 'original task' }], trackingId: anyTrackingId },
+      { role: 'assistant', content: [{ text: 'prior step' }], trackingId: anyTrackingId },
+      {
+        role: 'user',
+        content: [{ text: 'INJECTED' }, { text: 'next ask' }],
+        trackingId: anyTrackingId,
+      },
     ])
+  })
+
+  it('preserves the folded-into message tracking id (same logical message)', () => {
+    const target = new Message({ role: 'user', content: [new TextBlock('ask')], trackingId: 'durable-1' })
+    const result = foldIntoLastUserMessage([assistant('prior'), target], 'INJECTED')
+
+    // Folding rewrites content but it is the same message, so its tracking id must survive.
+    expect(result[1]!.trackingId).toBe('durable-1')
   })
 
   it('returns a new array and does not mutate the input or its messages', () => {
@@ -49,9 +62,13 @@ describe('foldIntoLastUserMessage', () => {
     // Providers require the tool result to be the first block in the turn, so the injected text is
     // appended rather than prepended here.
     expect(result.map((m) => m.toJSON())).toStrictEqual([
-      { role: 'user', content: [{ text: 'task' }] },
-      { role: 'assistant', content: [{ text: 'thinking' }] },
-      { role: 'user', content: [tr.toJSON().content[0], { text: 'INJECTED' }] },
+      { role: 'user', content: [{ text: 'task' }], trackingId: anyTrackingId },
+      { role: 'assistant', content: [{ text: 'thinking' }], trackingId: anyTrackingId },
+      {
+        role: 'user',
+        content: [tr.toJSON().content[0], { text: 'INJECTED' }],
+        trackingId: anyTrackingId,
+      },
     ])
   })
 
@@ -60,9 +77,13 @@ describe('foldIntoLastUserMessage', () => {
     const result = foldIntoLastUserMessage(messages, 'INJECTED')
 
     expect(result.map((m) => m.toJSON())).toStrictEqual([
-      { role: 'user', content: [{ text: 'first' }] }, // earlier user untouched
-      { role: 'assistant', content: [{ text: 'a' }] },
-      { role: 'user', content: [{ text: 'INJECTED' }, { text: 'second' }] },
+      { role: 'user', content: [{ text: 'first' }], trackingId: anyTrackingId }, // earlier user untouched
+      { role: 'assistant', content: [{ text: 'a' }], trackingId: anyTrackingId },
+      {
+        role: 'user',
+        content: [{ text: 'INJECTED' }, { text: 'second' }],
+        trackingId: anyTrackingId,
+      },
     ])
   })
 
@@ -148,8 +169,12 @@ describe('createInjectionMiddleware', () => {
     const result = await handler(ctx([assistant('prior'), user('ask')]))
 
     expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
-      { role: 'assistant', content: [{ text: 'prior' }] },
-      { role: 'user', content: [{ text: 'INJECTED' }, { text: 'ask' }] },
+      { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
+      {
+        role: 'user',
+        content: [{ text: 'INJECTED' }, { text: 'ask' }],
+        trackingId: anyTrackingId,
+      },
     ])
   })
 
@@ -200,9 +225,13 @@ describe('createInjectionMiddleware', () => {
     // The most recent user message on a tool-result turn carries the tool result, which must stay the
     // first block, so the injected text is appended after it.
     expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
-      { role: 'user', content: [{ text: 'task' }] },
-      { role: 'assistant', content: [{ text: 'a' }] },
-      { role: 'user', content: [tr.toJSON().content[0], { text: 'INJECTED' }] },
+      { role: 'user', content: [{ text: 'task' }], trackingId: anyTrackingId },
+      { role: 'assistant', content: [{ text: 'a' }], trackingId: anyTrackingId },
+      {
+        role: 'user',
+        content: [tr.toJSON().content[0], { text: 'INJECTED' }],
+        trackingId: anyTrackingId,
+      },
     ])
   })
 

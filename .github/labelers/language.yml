@@ -10,8 +10,14 @@ instructions: |
   If the issue is language-agnostic or unclear, do not assign a label.
   Issues about general agent behavior, documentation content, or feature requests without language-specific file paths or package managers should not receive a language label.
 
+# On issue events, each label also sets the native "Language" issue field via `option:`.
+field:
+  name: Language
+
 labels:
   python:
     description: "Issue relates to the Python SDK (strands-py/, .py files, pip, pyproject.toml)"
+    option: Python
   typescript:
     description: "Issue relates to the TypeScript SDK (strands-ts/, .ts files, npm, package.json)"
+    option: TypeScript

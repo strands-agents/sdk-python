@@ -18,7 +18,7 @@
     "commander": "^15"
   },
   "devDependencies": {
-    "@types/node": "^25",
+    "@types/node": "^25.9.4",
     "typescript": "^6.0.3"
   }
 }
