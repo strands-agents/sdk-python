@@ -159,3 +159,14 @@ class AggregateMemoryError(Exception):
         """
         super().__init__(message)
         self.errors = errors
+
+
+class StorageError(Exception):
+    """Exception raised when a unified :class:`~strands.storage.Storage` operation fails.
+
+    Raised for invalid keys (empty or containing ``..`` segments) and for backend
+    failures (filesystem, S3, etc.). Backend failures chain the underlying error via
+    ``raise ... from`` so the original cause is preserved.
+    """
+
+    pass
