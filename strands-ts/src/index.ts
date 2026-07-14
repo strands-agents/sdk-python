@@ -38,7 +38,7 @@ export {
   StructuredOutputError,
   ToolNotFoundError,
   DefaultNotConfiguredError,
-  CheckpointError,
+  StorageError,
 } from './errors.js'
 
 // Interrupt system
@@ -46,9 +46,7 @@ export type { Interrupt, InterruptSource } from './interrupt.js'
 export type { InterruptParams, InterruptResponse, InterruptResponseContentData } from './types/interrupt.js'
 export { InterruptResponseContent } from './types/interrupt.js'
 
-// Experimental: durable-execution checkpoints
-export { Checkpoint, CHECKPOINT_SCHEMA_VERSION } from './experimental/index.js'
-export type { CheckpointPosition, CheckpointData, CheckpointResumeContent } from './experimental/index.js'
+// Checkpoint APIs are experimental; see '@strands-agents/sdk/experimental'.
 
 // JSON types
 export type { JSONSchema, JSONValue } from './types/json.js'
@@ -308,6 +306,9 @@ export { AgentTrace } from './telemetry/tracer.js'
 
 // Local Metrics
 export { AgentMetrics } from './telemetry/meter.js'
+
+// Storage
+export type { Storage } from './storage/storage.js'
 
 // Sandbox
 export { Sandbox, type ExecuteOptions } from './sandbox/base.js'

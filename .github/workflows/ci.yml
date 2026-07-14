@@ -87,7 +87,7 @@ jobs:
   docs:
     name: Docs
     needs: detect-changes
-    if: needs.detect-changes.outputs.docs == 'true'
+    if: needs.detect-changes.outputs.docs == 'true' || needs.detect-changes.outputs.python == 'true' || needs.detect-changes.outputs.typescript == 'true'
     uses: ./.github/workflows/docs-ci.yml
     permissions:
       contents: read

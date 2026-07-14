@@ -56,6 +56,12 @@ The conversation history is automatically persisted and will be restored on the 
 
 ## Provider-Specific Considerations
 
+### Nova Sonic
+
+:::caution[Conversation History Limits]
+When restoring a session, Nova Sonic caps the conversation history sent at connection start to 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated, and if the total exceeds 200KB, the oldest messages are dropped until it fits. Long-running or transcript-heavy sessions restored after this limit is hit will silently lose earlier context.
+:::
+
 ### Gemini Live
 
 :::caution[Limited Session Management Support]

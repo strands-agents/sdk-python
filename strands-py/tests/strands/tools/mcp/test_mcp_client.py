@@ -1239,3 +1239,56 @@ def test_map_mcp_content_subclass_override(mock_transport, mock_session):
         result = client.call_tool_sync(tool_use_id="override-test", name="test_tool", arguments={})
 
     assert result["content"][0]["text"] == "[intercepted]"
+
+
+@pytest.mark.parametrize(
+    "application_name,application_version,expected_name,expected_version_check",
+    [
+        ("my-fraud-agent", None, "my-fraud-agent", lambda v: v and v != "0.1.0"),
+        ("my-agent/v2.1.0 (prod)", None, "my-agent/v2.1.0 (prod)", lambda v: v and v != "0.1.0"),
+        ("my-agent", "2.3.1", "my-agent", lambda v: v == "2.3.1"),
+    ],
+    ids=["name-only-uses-sdk-version", "special-characters", "explicit-version"],
+)
+def test_mcp_client_client_info_passed(
+    mock_transport, mock_session, application_name, application_version, expected_name, expected_version_check
+):
+    """Test that application_name and application_version are passed through to ClientSession as client_info."""
+    with patch("strands.tools.mcp.mcp_client.ClientSession") as mock_client_session:
+        mock_session_cm = AsyncMock()
+        mock_session_instance = AsyncMock()
+        mock_session_instance.initialize = AsyncMock(return_value=MagicMock(instructions=None))
+        mock_session_instance.get_server_capabilities = MagicMock(return_value=None)
+        mock_session_cm.__aenter__.return_value = mock_session_instance
+        mock_client_session.return_value = mock_session_cm
+
+        kwargs = {"application_name": application_name}
+        if application_version is not None:
+            kwargs["application_version"] = application_version
+
+        with MCPClient(mock_transport["transport_callable"], **kwargs) as _client:
+            call_kwargs = mock_client_session.call_args[1]
+            assert call_kwargs["client_info"].name == expected_name
+            assert expected_version_check(call_kwargs["client_info"].version)
+
+
+@pytest.mark.parametrize(
+    "application_name",
+    [None, ""],
+    ids=["none", "empty-string"],
+)
+def test_mcp_client_client_info_none_when_no_name(mock_transport, mock_session, application_name):
+    """Test that client_info is None when application_name is not provided or empty."""
+    with patch("strands.tools.mcp.mcp_client.ClientSession") as mock_client_session:
+        mock_session_cm = AsyncMock()
+        mock_session_instance = AsyncMock()
+        mock_session_instance.initialize = AsyncMock(return_value=MagicMock(instructions=None))
+        mock_session_instance.get_server_capabilities = MagicMock(return_value=None)
+        mock_session_cm.__aenter__.return_value = mock_session_instance
+        mock_client_session.return_value = mock_session_cm
+
+        kwargs = {"application_name": application_name} if application_name is not None else {}
+
+        with MCPClient(mock_transport["transport_callable"], **kwargs) as _client:
+            call_kwargs = mock_client_session.call_args[1]
+            assert call_kwargs["client_info"] is None
