@@ -127,6 +127,11 @@ class BedrockModel(Model):
             strict_tools: Flag to enable structured output enforcement on tool definitions.
                 When True, adds strict: true to each tool spec and automatically injects
                 "additionalProperties": false into all object types in tool input schemas.
+                Bedrock's strict mode compiles tool schemas into a constrained-decoding grammar and
+                restricts which JSON Schema features tool input schemas may use (for example, "oneOf"
+                is unsupported and optional parameters are capped across all tools in the request).
+                A schema that uses an unsupported feature fails at request time with a
+                ValidationException.
                 See https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
