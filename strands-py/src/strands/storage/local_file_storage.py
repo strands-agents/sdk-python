@@ -114,7 +114,7 @@ class LocalFileStorage:
         if self._sandbox is not None:
             try:
                 return await self._sandbox.read_file(path)
-            except FileNotFoundError:
+            except (FileNotFoundError, NotADirectoryError):
                 return None
             except Exception as error:
                 raise StorageError(f"Failed to read '{normalized}' from sandbox storage") from error
@@ -141,7 +141,7 @@ class LocalFileStorage:
         if self._sandbox is not None:
             try:
                 await self._sandbox.remove_file(path)
-            except FileNotFoundError:
+            except (FileNotFoundError, NotADirectoryError):
                 return
             except Exception as error:
                 raise StorageError(f"Failed to delete '{normalized}' from sandbox storage") from error
@@ -211,7 +211,7 @@ async def _list_keys_sandbox(sandbox: Sandbox, dir_path: str, key_prefix: str) -
     """Recursively collect file keys under ``dir_path`` through a sandbox."""
     try:
         entries = await sandbox.list_files(dir_path)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return []
     except Exception as error:
         raise StorageError(f"Failed to list sandbox storage under '{key_prefix}'") from error

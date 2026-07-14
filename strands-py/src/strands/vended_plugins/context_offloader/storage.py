@@ -1,4 +1,10 @@
-"""Storage backends for offloaded tool result content.
+"""Legacy storage backends for offloaded tool result content.
+
+.. deprecated::
+    Use the unified :mod:`strands.storage` interface instead (its ``InMemoryStorage``,
+    ``LocalFileStorage``, and ``S3Storage``). Pass one directly to ``ContextOffloader``;
+    the plugin adapts it internally. This module's ``Storage`` protocol and its
+    implementations are retained for backwards compatibility only.
 
 This module defines the Storage protocol and provides three built-in
 implementations: file-based, in-memory, and S3 storage. Each content block
@@ -43,6 +49,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _Unset:
+    """Sentinel type distinguishing "argument not provided" from an explicit ``None``."""
+
+
+_UNSET = _Unset()
+
+
 def _sanitize_id(raw_id: str) -> str:
     """Sanitize an ID for safe use in filenames and object keys.
 
@@ -63,6 +76,10 @@ def _sanitize_id(raw_id: str) -> str:
 @runtime_checkable
 class Storage(Protocol):
     """Backend for storing and retrieving offloaded content blocks.
+
+    .. deprecated::
+        Use the unified :class:`strands.storage.Storage` instead and pass it directly
+        to ``ContextOffloader`` — the plugin adapts it internally.
 
     Each content block from a tool result is stored individually with its
     content type preserved. The SDK ships three built-in implementations:
@@ -107,6 +124,9 @@ class Storage(Protocol):
 
 class FileStorage:
     """Store offloaded content as files, on the host filesystem or through a sandbox.
+
+    .. deprecated::
+        Use :class:`strands.storage.LocalFileStorage` instead.
 
     Files are written to the configured artifact directory with unique names.
     File extensions are derived from the content type. A ``.metadata.json``
@@ -287,6 +307,9 @@ class FileStorage:
 class InMemoryStorage:
     """Store offloaded content in memory.
 
+    .. deprecated::
+        Use :class:`strands.storage.InMemoryStorage` instead.
+
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
 
@@ -372,8 +395,17 @@ class InMemoryStorage:
             self._store[reference] = (content, content_type, self._current_cycle)
             return content, content_type
 
-    def _bind(self, agent_id: int) -> None:
+    def _bind(self, agent_id: int, evict_after_cycles: "int | None | _Unset" = _UNSET) -> None:
         """Claim this storage for a single agent.
+
+        Optionally overrides the eviction window with the ``ContextOffloader``'s
+        ``evict_after_cycles``, but only when this storage still has the default
+        window (i.e. the user did not set one explicitly at construction time).
+
+        Args:
+            agent_id: Identity of the agent claiming this storage.
+            evict_after_cycles: Eviction window forwarded by the plugin. Left unset
+                when ``_bind`` is called directly.
 
         Raises:
             ValueError: If already bound to a different agent.
@@ -386,6 +418,9 @@ class InMemoryStorage:
                     "InMemoryStorage cannot be shared across multiple agents. "
                     "Use a separate InMemoryStorage instance per agent."
                 )
+            at_default_window = self._evict_after_turns == self._DEFAULT_EVICT_AFTER_TURNS
+            if not isinstance(evict_after_cycles, _Unset) and at_default_window:
+                self._evict_after_turns = evict_after_cycles
 
     def _evict(self, cycle: int) -> None:
         """Update current cycle and evict stale entries.
@@ -420,6 +455,9 @@ class InMemoryStorage:
 
 class S3Storage:
     """Store offloaded content in Amazon S3.
+
+    .. deprecated::
+        Use :class:`strands.storage.S3Storage` instead.
 
     Objects are stored with unique keys under the configured prefix.
     Content type is preserved as S3 object metadata.

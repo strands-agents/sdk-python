@@ -827,19 +827,21 @@ class TestBeforeModelCallHook:
         agent.event_loop_metrics.cycle_count = cycle_count
         return BeforeModelCallEvent(agent=agent, invocation_state={})
 
-    def test_calls_evict_with_cycle_count(self):
+    @pytest.mark.asyncio
+    async def test_calls_evict_with_cycle_count(self):
         storage = InMemoryStorage(evict_after_turns=5)
         plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
 
-        plugin._on_before_model_call(self._make_event(7))
+        await plugin._on_before_model_call(self._make_event(7))
 
         assert storage._current_cycle == 7
 
-    def test_does_not_crash_on_storage_without_evict(self):
+    @pytest.mark.asyncio
+    async def test_does_not_crash_on_storage_without_evict(self):
         storage = MagicMock(spec=["store", "retrieve"])
         plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
 
-        plugin._on_before_model_call(self._make_event(1))
+        await plugin._on_before_model_call(self._make_event(1))
 
     @pytest.mark.asyncio
     async def test_eviction_triggered_via_hook(self):
@@ -849,6 +851,6 @@ class TestBeforeModelCallHook:
         ref = await storage.store("key_1", b"content")
 
         # stored at cycle 0, evict at cycle 3: threshold = 3 - 2 = 1, 0 < 1 → evicted
-        plugin._on_before_model_call(self._make_event(3))
+        await plugin._on_before_model_call(self._make_event(3))
         with pytest.raises(KeyError):
             await storage.retrieve(ref)

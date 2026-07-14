@@ -2,7 +2,7 @@
 
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -132,3 +132,50 @@ class TestList:
         await storage.write("a", bytes([1]))
         await storage.write("b", bytes([2]))
         assert await storage.list("") == ["a", "b", "c"]
+
+
+class TestSandboxNotFoundParity:
+    """Sandbox-mode read/delete/list treat a non-directory parent (``NotADirectoryError``)
+    as 'not found', exactly like a missing path — parity with the host paths and with
+    strands-ts ``isNotFoundError`` (which lumps ``ENOENT`` and ``ENOTDIR``)."""
+
+    @staticmethod
+    def _sandbox():
+        sandbox = MagicMock()
+        sandbox.read_file = AsyncMock()
+        sandbox.remove_file = AsyncMock()
+        sandbox.list_files = AsyncMock()
+        sandbox.write_file = AsyncMock()
+        return sandbox
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exc", [FileNotFoundError, NotADirectoryError])
+    async def test_read_returns_none(self, base_dir, exc):
+        sandbox = self._sandbox()
+        sandbox.read_file.side_effect = exc("not found")
+        storage = LocalFileStorage(base_dir, sandbox=sandbox)
+        assert await storage.read("a/b") is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exc", [FileNotFoundError, NotADirectoryError])
+    async def test_delete_is_a_no_op(self, base_dir, exc):
+        sandbox = self._sandbox()
+        sandbox.remove_file.side_effect = exc("not found")
+        storage = LocalFileStorage(base_dir, sandbox=sandbox)
+        await storage.delete("a/b")  # must not raise
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("exc", [FileNotFoundError, NotADirectoryError])
+    async def test_list_returns_empty(self, base_dir, exc):
+        sandbox = self._sandbox()
+        sandbox.list_files.side_effect = exc("not found")
+        storage = LocalFileStorage(base_dir, sandbox=sandbox)
+        assert await storage.list("a/b") == []
+
+    @pytest.mark.asyncio
+    async def test_read_still_wraps_other_sandbox_errors(self, base_dir):
+        sandbox = self._sandbox()
+        sandbox.read_file.side_effect = RuntimeError("boom")
+        storage = LocalFileStorage(base_dir, sandbox=sandbox)
+        with pytest.raises(StorageError):
+            await storage.read("a/b")
