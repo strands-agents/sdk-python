@@ -145,6 +145,50 @@ def test_wrap_tool_error_surfaces_as_error_result():
     assert observed_results[0].tool_result["status"] == "error"
 
 
+def test_raw_tool_exception_reaches_middleware_as_result_not_exception(calculator_tool):
+    """A tool whose stream() raises directly is seen by middleware as an error result.
+
+    Unlike decorated @tool tools (which self-convert), a raw AgentTool.stream() can raise.
+    The terminal converts it to an error ToolResultEvent so middleware observes a result, not
+    a thrown exception — a middleware wrapping next_fn in try/except must NOT catch it.
+    """
+    caught_in_middleware = False
+    observed_results: list[ToolResultEvent] = []
+
+    async def raising_stream(_tool_use, _invocation_state, **_kwargs):
+        raise RuntimeError("kaboom")
+        yield  # pragma: no cover - makes this an async generator
+
+    calculator_tool.stream = raising_stream
+
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "calculator", "input": {"expression": "2+2"}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[calculator_tool], callback_handler=None)
+
+    async def error_observer(context, next_fn):
+        nonlocal caught_in_middleware
+        try:
+            async for event in next_fn(context):
+                if isinstance(event, ToolResultEvent):
+                    observed_results.append(event)
+                yield event
+        except Exception:
+            caught_in_middleware = True
+            raise
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, error_observer)
+    agent("go")
+
+    assert not caught_in_middleware
+    assert len(observed_results) == 1
+    assert observed_results[0].tool_result["status"] == "error"
+    assert observed_results[0].exception is not None
+
+
 # --- input phase ---
 
 

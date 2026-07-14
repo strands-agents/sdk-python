@@ -93,7 +93,12 @@ class ExecuteToolContext:
         the TypeScript SDK where middleware interrupts never write to interrupt state.
 
         Args:
-            name: User-defined name for the interrupt. Must be unique within this middleware.
+            name: User-defined name for the interrupt. The interrupt id is scoped to the tool
+                call (``v1:middleware_execute_tool:<toolUseId>:<uuid5(name)>``) but not to the
+                individual middleware, so the name must be unique across all middleware that
+                interrupt this tool call — two middleware using the same name on the same tool
+                call collide and share one response. (This matches the hook/tool interrupt
+                contract, which is likewise unique per tool call, not per callback.)
             reason: Optional reason for the interrupt (surfaced to the user).
             response: Optional preemptive response — when set, no interrupt is raised.
 

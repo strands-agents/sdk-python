@@ -96,6 +96,14 @@ Either way `_stream` surfaces a single `ToolInterruptEvent` to the event loop. O
 `ExecuteToolStage` supports interrupts — `InvokeModelStage` does not, matching TS (only
 `ExecuteToolContext` and `AgentStreamContext` are `MiddlewareInterruptible`).
 
+**Hazard: `except Exception` swallows interrupts.** `InterruptException` subclasses `Exception`
+(not `BaseException`). A middleware that wraps `next_fn` or `interrupt()` in a broad
+`try/except Exception` — common in error-transforming or retry middleware — will silently
+catch the interrupt and turn a human-in-the-loop pause into a caught error, with no diagnostic.
+This is inherent to the SDK-wide interrupt design (the same is true for hooks/tools). Middleware
+that must catch tool errors should re-raise `InterruptException` (and `CancelledError`, a
+`BaseException` that a bare `except Exception` already lets through).
+
 Interrupt IDs are `v1:middleware_execute_tool:<toolUseId>:<uuid5(name)>` — deterministic across
 resumes so a resumed response resolves the same interrupt. This follows Python's `v1:`
 interrupt-id scheme (`v1:tool_call:...`, `v1:before_tool_call:...`) and its convention of
@@ -112,6 +120,16 @@ choice; adding it means changing the core `Interrupt` type and every hook/tool c
 is out of scope here. Consumers currently disambiguate by the interrupt id prefix
 (`v1:middleware_execute_tool:...`) instead.
 
+## Hook-initiated retries re-run the middleware chain
+
+The ExecuteToolStage chain is invoked *inside* the tool-execution retry loop. If an
+`AfterToolCallEvent` sets `retry = True`, the whole chain is rebuilt and re-invoked — so a
+stateful middleware (cache, rate-limiter, telemetry counter) runs once per attempt, not once per
+logical tool call. This is the reverse of the "middleware retries are invisible to hooks"
+property (a middleware calling `next_fn` N times is still one hook pair): here, N hook-driven
+retries are N middleware runs. Middleware that must be idempotent across hook retries has to
+guard for it explicitly.
+
 ## No removal / cleanup
 
 Once registered, middleware cannot be removed. This matches the Python hook system which also does not support removal.
@@ -119,6 +137,22 @@ Once registered, middleware cannot be removed. This matches the Python hook syst
 ## Private module
 
 The `_middleware/` package is not part of the public API. Internal consumers access it via `agent._middleware_registry.add_middleware(...)`.
+
+**When this goes public**, `add_middleware` and the handler type aliases should be typed so an
+IDE helps the author: `add_middleware` takes `handler: Any` and every adapter types the context
+as `Any`, so the `MiddlewareStage[TContext, TResult, TEvent]` generics do not currently flow to
+handlers (unlike the TS SDK, whose per-phase overloads give full inference on `context`/result).
+The public surface should add `@overload`s per phase token and bind real generics through the
+phase sub-tokens so context fields, the result type, and the `next_fn` signature are checked
+statically rather than only at runtime.
+
+## Tool exceptions are caught in the terminal
+
+A raw exception from `tool.stream()` is converted to an error `ToolResultEvent` inside the
+ExecuteToolStage terminal, so middleware always observes a *result*, not a thrown exception
+(matching the TS SDK, which catches in `_executeToolCore`). `InterruptException` is re-raised so
+a tool-raised interrupt still halts. In practice decorated `@tool` tools already self-convert
+their exceptions; this only affects custom `AgentTool`s whose `stream()` raises directly.
 
 ## System prompt as a union type
 

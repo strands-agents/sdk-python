@@ -424,6 +424,11 @@ def _make_execute_tool_terminal(
     ``ToolInterruptEvent`` flows through as a normal event; the Output-phase adapter and
     the executor both recognize it as a control-flow signal rather than a result.
 
+    A raw exception from ``tool.stream()`` is converted to an error ``ToolResultEvent`` here,
+    inside the terminal, so ExecuteToolStage middleware always observes a result rather than a
+    thrown exception (matching the TypeScript SDK). ``InterruptException`` is re-raised so a
+    tool-raised interrupt still halts the agent instead of becoming an error result.
+
     Args:
         tool_use: The (executor-owned) tool use, used to wrap non-SDK stream events.
         extra_kwargs: Extra keyword arguments forwarded to ``tool.stream()``.
@@ -442,22 +447,41 @@ def _make_execute_tool_terminal(
         # we wrap in ToolStreamEvent, and their last raw value is the result.
         yielded_any = False
         last_raw_event: Any = None
-        async for event in ctx.tool.stream(ctx.tool_use, ctx.invocation_state, **extra_kwargs):
-            if isinstance(event, ToolInterruptEvent):
-                yield event
-                return
+        try:
+            async for event in ctx.tool.stream(ctx.tool_use, ctx.invocation_state, **extra_kwargs):
+                if isinstance(event, ToolInterruptEvent):
+                    yield event
+                    return
 
-            if isinstance(event, ToolResultEvent):
-                # Re-emit so the exception decorated tools attach rides along as the result.
-                yield ToolResultEvent(event.tool_result, exception=event.exception)
-                return
+                if isinstance(event, ToolResultEvent):
+                    # Re-emit so the exception decorated tools attach rides along as the result.
+                    yield ToolResultEvent(event.tool_result, exception=event.exception)
+                    return
 
-            if isinstance(event, ToolStreamEvent):
-                yield event
-            else:
-                yield ToolStreamEvent(tool_use, event)
-            yielded_any = True
-            last_raw_event = event
+                if isinstance(event, ToolStreamEvent):
+                    yield event
+                else:
+                    yield ToolStreamEvent(tool_use, event)
+                yielded_any = True
+                last_raw_event = event
+        except InterruptException:
+            # A tool-raised interrupt must halt the agent — let it unwind rather than
+            # becoming an error result (matches TS re-throwing InterruptError).
+            raise
+        except Exception as error:
+            # Convert a raw tool failure to an error result inside the terminal so middleware
+            # sees a result, not an exception. The executor's after-hook still receives the
+            # exception via the ToolResultEvent below.
+            logger.exception("tool_name=<%s> | tool execution failed", tool_use["name"])
+            yield ToolResultEvent(
+                {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": f"Error: {error}"}],
+                },
+                exception=error,
+            )
+            return
 
         # Non-SDK tool: no ToolResultEvent was emitted, so the last raw value is the result.
         # A tool that streamed nothing at all has no result — surface an error result rather
