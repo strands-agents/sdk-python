@@ -2,6 +2,7 @@
 
 import os
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -65,6 +66,17 @@ class TestWriteAndRead:
             assert leftovers == []
         finally:
             os.chmod(read_only_dir, 0o755)
+
+    @pytest.mark.asyncio
+    async def test_removes_scratch_file_when_rename_fails(self, storage, base_dir):
+        # Force the atomic rename to fail *after* the scratch file is written, so the
+        # cleanup branch (which removes the leftover scratch file) is exercised.
+        with patch("strands.storage.local_file_storage.os.replace", side_effect=OSError("boom")):
+            with pytest.raises(StorageError):
+                await storage.write("dir/key", bytes([1]))
+
+        scratch = [name for _, _, files in os.walk(base_dir) for name in files if ".__strands_tmp" in name]
+        assert scratch == []
 
 
 class TestDelete:

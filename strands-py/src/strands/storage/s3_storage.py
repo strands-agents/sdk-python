@@ -159,9 +159,11 @@ class S3Storage:
                     if obj_key is None:
                         continue
                     keys.append(obj_key[len(self._prefix) :] if self._prefix else obj_key)
-                if not response.get("IsTruncated"):
+                # Continue only while the response is truncated AND hands back a token;
+                # a truncated response with no token terminates (matches strands-ts).
+                continuation_token = response.get("NextContinuationToken") if response.get("IsTruncated") else None
+                if not continuation_token:
                     break
-                continuation_token = response.get("NextContinuationToken")
         except Exception as error:
             raise StorageError(f"Failed to list S3 bucket '{self._bucket}' under '{normalized}'") from error
         return sorted(keys)

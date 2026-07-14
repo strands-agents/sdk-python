@@ -121,6 +121,15 @@ class TestList:
         assert mock_client.list_objects_v2.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_terminates_when_truncated_without_a_continuation_token(self, mock_client):
+        # A truncated page that omits NextContinuationToken must not loop forever.
+        mock_client.list_objects_v2.return_value = {"Contents": [{"Key": "a"}], "IsTruncated": True}
+        storage = S3Storage("my-bucket")
+
+        assert await storage.list("") == ["a"]
+        assert mock_client.list_objects_v2.call_count == 1
+
+    @pytest.mark.asyncio
     async def test_wraps_errors_in_storage_error(self, mock_client):
         mock_client.list_objects_v2.side_effect = _client_error("BucketNotFound")
         storage = S3Storage("my-bucket")
