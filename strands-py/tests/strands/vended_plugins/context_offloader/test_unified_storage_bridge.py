@@ -219,6 +219,11 @@ class TestEvictAfterCyclesValidation:
         ContextOffloader(storage=UnifiedInMemoryStorage(), evict_after_cycles=None)
         ContextOffloader(storage=UnifiedInMemoryStorage(), evict_after_cycles=1)
 
+    def test_rejects_bool(self):
+        # bool is an int subclass; True must not be silently accepted as 1.
+        with pytest.raises(ValueError, match="evict_after_cycles"):
+            ContextOffloader(storage=UnifiedInMemoryStorage(), evict_after_cycles=True)
+
 
 class TestLegacyWindowForwarding:
     def test_forwards_window_when_legacy_storage_at_default(self):

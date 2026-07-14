@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # A storage backend accepted by ContextOffloader: either the SDK's unified
 # ``strands.storage.Storage`` (write/read/delete/list) or a legacy offloader
 # ``Storage`` (store/retrieve, deprecated).
-StorageBackend: TypeAlias = UnifiedStorage | OffloaderStorage
+_StorageBackend: TypeAlias = UnifiedStorage | OffloaderStorage
 
 # Framed byte layout for a unified-Storage value: a 2-byte big-endian content-type
 # length, the UTF-8 content-type, then the content bytes. This keeps the content-type
@@ -65,7 +65,7 @@ StorageBackend: TypeAlias = UnifiedStorage | OffloaderStorage
 _CONTENT_TYPE_LENGTH_BYTES = 2
 
 
-def _is_offloader_storage(storage: StorageBackend) -> TypeGuard[OffloaderStorage]:
+def _is_offloader_storage(storage: _StorageBackend) -> TypeGuard[OffloaderStorage]:
     """Return whether ``storage`` is a legacy offloader backend (has store/retrieve)."""
     return hasattr(storage, "store") and hasattr(storage, "retrieve")
 
@@ -85,7 +85,7 @@ def _unframe_content(frame: bytes) -> tuple[bytes, str]:
     return content, content_type
 
 
-async def _store_content(storage: StorageBackend, key: str, content: bytes, content_type: str) -> str:
+async def _store_content(storage: _StorageBackend, key: str, content: bytes, content_type: str) -> str:
     """Store one content block and return its retrieval reference.
 
     Legacy backends persist the content-type natively via ``store()``; unified
@@ -98,7 +98,7 @@ async def _store_content(storage: StorageBackend, key: str, content: bytes, cont
     return key
 
 
-async def _retrieve_content(storage: StorageBackend, reference: str) -> tuple[bytes, str]:
+async def _retrieve_content(storage: _StorageBackend, reference: str) -> tuple[bytes, str]:
     """Retrieve one content block as ``(content, content_type)``.
 
     Raises:
@@ -157,16 +157,21 @@ class ContextOffloader(Plugin):
     which truncates reactively after context overflow.
 
     Args:
-        storage: Backend for storing offloaded content (required).
+        storage: Backend for storing offloaded content (required). Accepts either a unified
+            :class:`strands.storage.Storage` (``write``/``read``/``delete``/``list``; preferred)
+            or a legacy offloader ``Storage`` (``store``/``retrieve``; deprecated) from this module.
         max_result_tokens: Offload results whose estimated token count exceeds this threshold.
         preview_tokens: Number of tokens to keep as a text preview in context.
         include_retrieval_tool: Whether to register the ``retrieve_offloaded_content`` tool.
             Defaults to True.
+        evict_after_cycles: Agent loop cycles after which an offloaded entry is evicted. Applies
+            to unified ``Storage`` backends (which have no built-in eviction). Defaults to 20;
+            ``None`` disables eviction.
 
     Example:
         ```python
         from strands import Agent
-        from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+        from strands.storage import InMemoryStorage
 
         agent = Agent(plugins=[
             ContextOffloader(storage=InMemoryStorage())
@@ -178,7 +183,7 @@ class ContextOffloader(Plugin):
 
     def __init__(
         self,
-        storage: StorageBackend,
+        storage: _StorageBackend,
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
@@ -200,6 +205,8 @@ class ContextOffloader(Plugin):
                 is evicted. Applies to unified ``Storage`` backends (which have no built-in
                 eviction) and, when the backend is a legacy ``InMemoryStorage`` left at its
                 default window, is forwarded to it. Defaults to 20. ``None`` disables eviction.
+                For unified backends the window is measured from when an entry was *stored*
+                (not last accessed), so a still-referenced entry is evicted once it ages out.
 
         Raises:
             ValueError: If max_result_tokens is not positive, preview_tokens is negative,
@@ -212,12 +219,14 @@ class ContextOffloader(Plugin):
             raise ValueError("preview_tokens must be non-negative")
         if preview_tokens >= max_result_tokens:
             raise ValueError("preview_tokens must be less than max_result_tokens")
-        if evict_after_cycles is not None and (not isinstance(evict_after_cycles, int) or evict_after_cycles < 1):
+        if evict_after_cycles is not None and (
+            not isinstance(evict_after_cycles, int) or isinstance(evict_after_cycles, bool) or evict_after_cycles < 1
+        ):
             raise ValueError("evict_after_cycles must be a positive integer or None")
 
-        self._storage: StorageBackend = storage
+        self._storage: _StorageBackend = storage
         # Per-agent FileStorage bound to that agent's sandbox; other backends are shared as-is.
-        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, StorageBackend] = weakref.WeakKeyDictionary()
+        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, _StorageBackend] = weakref.WeakKeyDictionary()
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
@@ -227,7 +236,7 @@ class ContextOffloader(Plugin):
         self._key_stored_at: dict[str, int] = {}
         super().__init__()
 
-    def _storage_for_agent(self, agent: Agent) -> StorageBackend:
+    def _storage_for_agent(self, agent: Agent) -> _StorageBackend:
         """Return the storage for an agent, binding FileStorage to its sandbox.
 
         Non-FileStorage backends are shared across agents unchanged. A FileStorage
