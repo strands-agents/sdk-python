@@ -41,16 +41,78 @@ from typing_extensions import TypedDict
 
 from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
+from ...storage import LocalFileStorage
+from ...storage import Storage as UnifiedStorage
+from ...storage.storage import _NAMESPACED, _NamespacedStorage
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
 from .search import _is_searchable_content, _search_content
-from .storage import FileStorage, InMemoryStorage, Storage
+from .storage import FileStorage, InMemoryStorage
+from .storage import Storage as OffloaderStorage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+
+def _is_offloader_storage(storage: UnifiedStorage | OffloaderStorage) -> bool:
+    """Detect legacy offloader storage by presence of store/retrieve methods."""
+    return hasattr(storage, "store") and hasattr(storage, "retrieve")
+
+
+def _frame_content(data: bytes, content_type: str) -> bytes:
+    """Frame content with its content-type for unified Storage.
+
+    Format: [2-byte BE content-type length][content-type UTF-8][content bytes]
+    """
+    ct_bytes = content_type.encode("utf-8")
+    ct_len = len(ct_bytes)
+    frame = bytearray(2 + ct_len + len(data))
+    frame[0] = (ct_len >> 8) & 0xFF
+    frame[1] = ct_len & 0xFF
+    frame[2 : 2 + ct_len] = ct_bytes
+    frame[2 + ct_len :] = data
+    return bytes(frame)
+
+
+def _unframe_content(frame: bytes) -> tuple[bytes, str]:
+    """Unframe content stored via unified Storage.
+
+    Returns:
+        Tuple of (content bytes, content type).
+    """
+    ct_len = (frame[0] << 8) | frame[1]
+    content_type = frame[2 : 2 + ct_len].decode("utf-8")
+    content = frame[2 + ct_len :]
+    return content, content_type
+
+
+async def _store_content(
+    storage: UnifiedStorage | OffloaderStorage,
+    key: str,
+    content: bytes,
+    content_type: str,
+) -> str:
+    """Store content via either unified or legacy storage."""
+    if _is_offloader_storage(storage):
+        return await storage.store(key, content, content_type)  # type: ignore[union-attr]
+    await storage.write(key, _frame_content(content, content_type))  # type: ignore[union-attr]
+    return key
+
+
+async def _retrieve_content(
+    storage: UnifiedStorage | OffloaderStorage,
+    reference: str,
+) -> tuple[bytes, str]:
+    """Retrieve content from either unified or legacy storage."""
+    if _is_offloader_storage(storage):
+        return await storage.retrieve(reference)  # type: ignore[union-attr]
+    data = await storage.read(reference)  # type: ignore[union-attr]
+    if data is None:
+        raise KeyError(f"Reference not found: {reference}")
+    return _unframe_content(data)
 
 
 class LineRange(TypedDict):
@@ -116,16 +178,19 @@ class ContextOffloader(Plugin):
 
     def __init__(
         self,
-        storage: Storage,
+        storage: UnifiedStorage | OffloaderStorage,
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
         include_retrieval_tool: bool = True,
+        evict_after_cycles: int | None = 20,
     ) -> None:
         """Initialize the ContextOffloader plugin.
 
         Args:
-            storage: Backend for storing offloaded content.
+            storage: Backend for storing offloaded content. Accepts either a unified
+                ``Storage`` (from ``strands.storage``) or a legacy offloader ``Storage``
+                (from this module).
             max_result_tokens: Offload results whose estimated token count exceeds this
                 threshold. Defaults to ``_DEFAULT_MAX_RESULT_TOKENS`` (2,500).
             preview_tokens: Number of tokens to keep as a text preview in context.
@@ -133,10 +198,13 @@ class ContextOffloader(Plugin):
                 chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
             include_retrieval_tool: Whether to register the ``retrieve_offloaded_content``
                 tool so the agent can fetch offloaded content. Defaults to True.
+            evict_after_cycles: Number of agent loop cycles before an offloaded entry is
+                evicted (unified Storage only). Entries stored more than this many cycles
+                ago are deleted. Defaults to 20. Set to None to disable eviction.
 
         Raises:
             ValueError: If max_result_tokens is not positive, preview_tokens is negative,
-                or preview_tokens >= max_result_tokens.
+                preview_tokens >= max_result_tokens, or evict_after_cycles is invalid.
         """
         if max_result_tokens <= 0:
             raise ValueError("max_result_tokens must be positive")
@@ -144,22 +212,36 @@ class ContextOffloader(Plugin):
             raise ValueError("preview_tokens must be non-negative")
         if preview_tokens >= max_result_tokens:
             raise ValueError("preview_tokens must be less than max_result_tokens")
+        if evict_after_cycles is not None and (not isinstance(evict_after_cycles, int) or evict_after_cycles < 1):
+            raise ValueError("evict_after_cycles must be a positive integer or None")
 
-        self._storage = storage
-        # Per-agent FileStorage bound to that agent's sandbox; other backends are shared as-is.
-        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage] = weakref.WeakKeyDictionary()
+        self._raw_storage: UnifiedStorage | OffloaderStorage = storage
+        self._storage: UnifiedStorage | OffloaderStorage = self._resolve_storage(storage)
+        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, UnifiedStorage | OffloaderStorage] = (
+            weakref.WeakKeyDictionary()
+        )
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
+        self._evict_after_cycles = evict_after_cycles
+        self._stored_cycles: dict[str, int] = {}
         super().__init__()
 
-    def _storage_for_agent(self, agent: Agent) -> Storage:
-        """Return the storage for an agent, binding FileStorage to its sandbox.
+    @staticmethod
+    def _resolve_storage(storage: UnifiedStorage | OffloaderStorage) -> UnifiedStorage | OffloaderStorage:
+        """Auto-namespace unified storage with 'offloader' if not already scoped."""
+        if _is_offloader_storage(storage):
+            return storage
+        if getattr(storage, "_namespaced", None) is _NAMESPACED:
+            return storage
+        return _NamespacedStorage(storage, "offloader")
 
-        Non-FileStorage backends are shared across agents unchanged. A FileStorage
-        is bound once per agent to that agent's sandbox via
-        :meth:`FileStorage.for_sandbox`, so a shared plugin isolates artifacts per
-        agent sandbox.
+    def _storage_for_agent(self, agent: Agent) -> UnifiedStorage | OffloaderStorage:
+        """Return the storage for an agent, binding file-based storage to its sandbox.
+
+        FileStorage (legacy) and LocalFileStorage (unified) are bound once per
+        agent to that agent's sandbox via ``for_sandbox()``, then re-wrapped with
+        the namespace if applicable. All other backends are shared as-is.
 
         Args:
             agent: The agent whose storage to resolve.
@@ -167,11 +249,12 @@ class ContextOffloader(Plugin):
         Returns:
             The storage instance for this agent.
         """
-        if not isinstance(self._storage, FileStorage):
+        if not isinstance(self._raw_storage, (FileStorage, LocalFileStorage)):
             return self._storage
         storage = self._storage_by_agent.get(agent)
         if storage is None:
-            storage = self._storage.for_sandbox(agent.sandbox)
+            bound = self._raw_storage.for_sandbox(agent.sandbox)
+            storage = self._resolve_storage(bound)
             self._storage_by_agent[agent] = storage
         return storage
 
@@ -179,17 +262,34 @@ class ContextOffloader(Plugin):
         """Conditionally register the retrieval tool and bind storage."""
         if isinstance(self._storage, InMemoryStorage):
             self._storage._bind(id(agent))
-        # Bind FileStorage to this agent's sandbox up front (no-op for other backends).
+        # Bind file-based storage to this agent's sandbox up front (no-op for other backends).
         self._storage_for_agent(agent)
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool
             self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
 
     @hook
-    def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
+    async def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
         """Trigger eviction of stale entries based on the agent's cycle count."""
+        cycle = event.agent.event_loop_metrics.cycle_count
         if isinstance(self._storage, InMemoryStorage):
-            self._storage._evict(event.agent.event_loop_metrics.cycle_count)
+            self._storage._evict(cycle)
+            return
+
+        if _is_offloader_storage(self._storage) or self._evict_after_cycles is None:
+            return
+
+        # Cycle-based eviction for unified Storage
+        threshold = cycle - self._evict_after_cycles
+        stale_keys = [key for key, stored_cycle in self._stored_cycles.items() if stored_cycle < threshold]
+        if stale_keys:
+            for key in stale_keys:
+                try:
+                    await self._storage.delete(key)  # type: ignore[union-attr]
+                except Exception:
+                    pass
+                del self._stored_cycles[key]
+            logger.debug("evicted=<%d>, cycle=<%d> | stale entries removed", len(stale_keys), cycle)
 
     @tool(context=True)
     async def retrieve_offloaded_content(
@@ -231,7 +331,7 @@ class ContextOffloader(Plugin):
         """
         storage = self._storage_for_agent(tool_context.agent)
         try:
-            content_bytes, content_type = await storage.retrieve(reference)
+            content_bytes, content_type = await _retrieve_content(storage, reference)
         except KeyError:
             return f"Error: reference not found: {reference}"
 
@@ -312,24 +412,28 @@ class ContextOffloader(Plugin):
 
         # Store each content block individually
         storage = self._storage_for_agent(event.agent)
+        cycle = event.agent.event_loop_metrics.cycle_count
         references: list[tuple[str, str, str]] = []  # (ref, content_type, description)
         try:
             for i, block in enumerate(content):
                 key = f"{tool_use_id}_{i}"
                 if block.get("text"):
-                    ref = await storage.store(key, block["text"].encode("utf-8"), "text/plain")
+                    ref = await _store_content(storage, key, block["text"].encode("utf-8"), "text/plain")
                     references.append((ref, "text/plain", f"text, {len(block['text']):,} chars"))
+                    self._track_stored_cycle(ref, cycle)
                 elif "json" in block:
                     json_bytes = json.dumps(block["json"], indent=2).encode("utf-8")
-                    ref = await storage.store(key, json_bytes, "application/json")
+                    ref = await _store_content(storage, key, json_bytes, "application/json")
                     references.append((ref, "application/json", f"json, {len(json_bytes):,} bytes"))
+                    self._track_stored_cycle(ref, cycle)
                 elif "image" in block:
                     image = block["image"]
                     img_format = image.get("format", "unknown")
                     img_bytes = image.get("source", {}).get("bytes", b"")
                     if img_bytes:
-                        ref = await storage.store(key, img_bytes, f"image/{img_format}")
+                        ref = await _store_content(storage, key, img_bytes, f"image/{img_format}")
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
+                        self._track_stored_cycle(ref, cycle)
                     else:
                         references.append(("", f"image/{img_format}", f"image/{img_format}, 0 bytes"))
                 elif "document" in block:
@@ -338,8 +442,9 @@ class ContextOffloader(Plugin):
                     doc_name = doc.get("name", "unknown")
                     doc_bytes = doc.get("source", {}).get("bytes", b"")
                     if doc_bytes:
-                        ref = await storage.store(key, doc_bytes, f"application/{doc_format}")
+                        ref = await _store_content(storage, key, doc_bytes, f"application/{doc_format}")
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
+                        self._track_stored_cycle(ref, cycle)
                     else:
                         references.append(("", f"application/{doc_format}", f"{doc_name}, 0 bytes"))
         except Exception:
@@ -415,6 +520,11 @@ class ContextOffloader(Plugin):
             status=result["status"],
             content=new_content,
         )
+
+    def _track_stored_cycle(self, ref: str, cycle: int) -> None:
+        """Record the cycle at which a key was stored (unified Storage eviction)."""
+        if not _is_offloader_storage(self._storage):
+            self._stored_cycles[ref] = cycle
 
     def _slice_preview(self, text: str) -> str:
         """Slice text to approximately preview_tokens using character-based estimation.
