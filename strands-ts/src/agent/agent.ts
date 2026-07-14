@@ -48,7 +48,7 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
-import { InMemoryStorage } from '../vended-plugins/context-offloader/storage.js'
+import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { MiddlewareRegistry, InvokeModelStage, ExecuteToolStage, AgentStreamStage } from '../middleware/index.js'
 import type {
