@@ -230,7 +230,11 @@ export class LocalFileStorage implements Storage {
   }
 
   /** Returns a prefixed view of this storage without mutating the original. */
-  namespace(prefix: string): Storage {
-    return namespace(this, prefix)
+  namespace(prefix: string): Storage & { forSandbox(sandbox: Sandbox): Storage } {
+    const view = namespace(this, prefix)
+    return {
+      ...view,
+      forSandbox: (sandbox: Sandbox): Storage => namespace(this.forSandbox(sandbox), prefix),
+    }
   }
 }
