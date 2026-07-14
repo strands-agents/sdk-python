@@ -231,16 +231,24 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
     }
 
     /*
-     * Logo wrapper - fixed width prevents layout shift during page load
-     * The fixed width (180px) accommodates the logo and prevents the search bar
-     * from jumping around as the logo image loads.
+     * Logo wrapper.
+     * Mobile: natural logo width, so the row (logo | search | nav dropdown)
+     * fits narrow viewports without the dropdown overflowing under the
+     * fixed-position sidebar menu button.
+     * Desktop: fixed 180px prevents the search bar from jumping around as
+     * the logo image loads (see grid layout below).
      */
     .title-wrapper {
       overflow: clip;
       padding: 0.25rem;
       margin: -0.25rem;
-      min-width: 180px;
-      width: 180px;
+    }
+
+    @media (min-width: 50rem) {
+      .title-wrapper {
+        min-width: 180px;
+        width: 180px;
+      }
     }
 
     /*
@@ -378,9 +386,14 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
      * ==========================================================================
      * Replaces nav-tabs on mobile with a compact dropdown menu
      * Uses native <details>/<summary> for accessibility and no-JS fallback
+     *
+     * min-width: 0 lets the dropdown shrink below its content width inside
+     * the flex row; the current-section label truncates with an ellipsis
+     * instead of pushing the pill under the fixed sidebar menu button.
      */
     .mobile-nav {
       position: relative;
+      min-width: 0;
     }
 
     .mobile-nav-dropdown {
@@ -400,6 +413,14 @@ const { siteTitleHref } = Astro.locals.starlightRoute;
       cursor: pointer;
       list-style: none;
       white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .mobile-nav-current {
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     /* Hide default details marker across browsers */
