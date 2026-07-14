@@ -46,7 +46,7 @@ export class S3Storage implements Storage {
       throw new StorageError('Cannot specify both s3Client and region. Configure the region on the S3Client instead.')
     }
     this._bucket = bucket
-    this._prefix = config?.prefix ? config.prefix.replace(/\/+$/, '') + '/' : ''
+    this._prefix = config?.prefix ? config.prefix.split('/').filter(Boolean).join('/') + '/' : ''
     this._region = config?.region
     this._client = config?.s3Client
   }

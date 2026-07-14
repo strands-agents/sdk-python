@@ -159,7 +159,7 @@ export class LocalFileStorage implements Storage {
    */
   async list(prefix: string): Promise<string[]> {
     const normalized = normalizePrefix(prefix)
-    const base = this._baseDir.replace(/\/+$/, '')
+    const base = this._baseDir.replace(/\/$/, '')
     // Narrow the walk to the deepest directory the prefix fully specifies
     const lastSlash = normalized.lastIndexOf('/')
     const dirPortion = lastSlash >= 0 ? normalized.slice(0, lastSlash) : ''
@@ -171,7 +171,7 @@ export class LocalFileStorage implements Storage {
   }
 
   private _pathFor(key: string): string {
-    const base = this._baseDir.replace(/\/+$/, '')
+    const base = this._baseDir.replace(/\/$/, '')
     return `${base}/${key}`
   }
 
