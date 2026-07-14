@@ -73,7 +73,7 @@ class LocalFileStorage:
 
         try:
             if self._sandbox is not None:
-                await self._sandbox.write_file(path, data.decode("utf-8") if isinstance(data, bytes) else data)
+                await self._sandbox.write_file(path, data)
                 return
 
             parent = os.path.dirname(path)
@@ -112,8 +112,7 @@ class LocalFileStorage:
 
         try:
             if self._sandbox is not None:
-                content = await self._sandbox.read_file(path)
-                return content.encode("utf-8") if isinstance(content, str) else content
+                return await self._sandbox.read_file(path)
 
             with open(path, "rb") as f:
                 return f.read()

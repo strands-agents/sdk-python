@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from ..types.exceptions import StorageError
@@ -72,7 +73,7 @@ class S3Storage:
         object_key = f"{self._prefix}{normalized}"
 
         try:
-            client.put_object(Bucket=self._bucket, Key=object_key, Body=data)
+            await asyncio.to_thread(client.put_object, Bucket=self._bucket, Key=object_key, Body=data)
         except Exception as error:
             raise StorageError(f"Failed to write '{key}' to S3") from error
 
@@ -93,16 +94,14 @@ class S3Storage:
         object_key = f"{self._prefix}{normalized}"
 
         try:
-            response = client.get_object(Bucket=self._bucket, Key=object_key)
-            return response["Body"].read()
+            response = await asyncio.to_thread(client.get_object, Bucket=self._bucket, Key=object_key)
+            return await asyncio.to_thread(response["Body"].read)
         except client.exceptions.NoSuchKey:
             return None
         except Exception as error:
-            error_code = getattr(getattr(error, "response", None), "get", lambda *_: None)
-            if callable(error_code):
-                resp = getattr(error, "response", None)
-                if resp and resp.get("Error", {}).get("Code") == "NoSuchKey":
-                    return None
+            resp = getattr(error, "response", None)
+            if resp and resp.get("Error", {}).get("Code") == "NoSuchKey":
+                return None
             raise StorageError(f"Failed to read '{key}' from S3") from error
 
     async def delete(self, key: str) -> None:
@@ -119,7 +118,7 @@ class S3Storage:
         object_key = f"{self._prefix}{normalized}"
 
         try:
-            client.delete_object(Bucket=self._bucket, Key=object_key)
+            await asyncio.to_thread(client.delete_object, Bucket=self._bucket, Key=object_key)
         except Exception as error:
             raise StorageError(f"Failed to delete '{key}' from S3") from error
 
@@ -142,33 +141,37 @@ class S3Storage:
         s3_prefix = f"{self._prefix}{prefix}"
 
         try:
-            keys: list[str] = []
-            continuation_token: str | None = None
-
-            while True:
-                kwargs: dict[str, Any] = {
-                    "Bucket": self._bucket,
-                    "Prefix": s3_prefix,
-                    "MaxKeys": _S3_PAGE_SIZE,
-                }
-                if continuation_token:
-                    kwargs["ContinuationToken"] = continuation_token
-
-                response = client.list_objects_v2(**kwargs)
-
-                for obj in response.get("Contents", []):
-                    key = obj["Key"]
-                    if self._prefix and key.startswith(self._prefix):
-                        key = key[len(self._prefix) :]
-                    keys.append(key)
-
-                if not response.get("IsTruncated"):
-                    break
-                continuation_token = response.get("NextContinuationToken")
-
-            return sorted(keys)
+            return await asyncio.to_thread(self._list_sync, client, s3_prefix)
         except Exception as error:
             raise StorageError(f"Failed to list keys with prefix '{query}' from S3") from error
+
+    def _list_sync(self, client: Any, s3_prefix: str) -> list[str]:
+        """Paginate list_objects_v2 synchronously (called via to_thread)."""
+        keys: list[str] = []
+        continuation_token: str | None = None
+
+        while True:
+            kwargs: dict[str, Any] = {
+                "Bucket": self._bucket,
+                "Prefix": s3_prefix,
+                "MaxKeys": _S3_PAGE_SIZE,
+            }
+            if continuation_token:
+                kwargs["ContinuationToken"] = continuation_token
+
+            response = client.list_objects_v2(**kwargs)
+
+            for obj in response.get("Contents", []):
+                key = obj["Key"]
+                if self._prefix and key.startswith(self._prefix):
+                    key = key[len(self._prefix) :]
+                keys.append(key)
+
+            if not response.get("IsTruncated"):
+                break
+            continuation_token = response.get("NextContinuationToken")
+
+        return sorted(keys)
 
     def namespace(self, prefix: str) -> _NamespacedStorage:
         """Return a view of this storage with all keys prefixed.

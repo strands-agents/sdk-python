@@ -101,6 +101,12 @@ class TestLocalFileStorage:
         await storage.write("//foo///bar//", b"data")
         assert await storage.read("foo/bar") == b"data"
 
+    @pytest.mark.asyncio
+    async def test_binary_round_trip(self, storage):
+        binary_data = bytes(range(256))
+        await storage.write("binary.bin", binary_data)
+        assert await storage.read("binary.bin") == binary_data
+
     def test_for_sandbox_returns_self_if_same(self, tmp_path):
         from unittest.mock import MagicMock
 
@@ -116,3 +122,30 @@ class TestLocalFileStorage:
         storage = LocalFileStorage(str(tmp_path), sandbox=sandbox1)
         new_storage = storage.for_sandbox(sandbox2)
         assert new_storage is not storage
+
+    @pytest.mark.asyncio
+    async def test_sandbox_binary_round_trip(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock
+
+        binary_data = bytes(range(256))
+        sandbox = MagicMock()
+        sandbox.write_file = AsyncMock()
+        sandbox.read_file = AsyncMock(return_value=binary_data)
+
+        storage = LocalFileStorage(str(tmp_path), sandbox=sandbox)
+        await storage.write("img.png", binary_data)
+        sandbox.write_file.assert_called_once()
+        assert sandbox.write_file.call_args[0][1] == binary_data
+
+        result = await storage.read("img.png")
+        assert result == binary_data
+
+    def test_namespace_preserves_for_sandbox(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        sandbox = MagicMock()
+        storage = LocalFileStorage(str(tmp_path))
+        ns = storage.namespace("scope")
+        assert hasattr(ns, "for_sandbox")
+        bound = ns.for_sandbox(sandbox)
+        assert bound is not ns
