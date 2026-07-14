@@ -110,7 +110,7 @@ async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id,
 
         assert mock_cls.call_count == 1
         config = mock_cls.call_args.kwargs["config"]
-        assert config.user_agent_extra.startswith("lib/strands-agents")
+        assert config.user_agent_extra == "strands-agents"
 
 
 @pytest.mark.asyncio
