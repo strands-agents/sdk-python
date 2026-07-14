@@ -241,33 +241,32 @@ class ToolExecutor(abc.ABC):
                 )
 
                 result_event: ToolResultEvent | None = None
-                interrupt_event: ToolInterruptEvent | None = None
                 async for event in agent._middleware_registry.invoke(
                     ExecuteToolStage,
                     middleware_context,
                     _make_execute_tool_terminal(tool_use, kwargs),
                 ):
-                    # A tool-originated interrupt (from tool.stream(), including sub-agent
-                    # interrupts via _AgentAsTool) flows through as a normal event. Register
-                    # its interrupts so _interrupt_state.resume() can locate them by id, then
-                    # surface it and short-circuit — a partial tool call has no result.
+                    # Tool-originated interrupt: a ToolInterruptEvent yielded from tool.stream()
+                    # (including sub-agent interrupts propagated via _AgentAsTool). Distinct from
+                    # the middleware-initiated InterruptException handled below — this one rides
+                    # the event stream rather than unwinding it. Register its interrupts so
+                    # _interrupt_state.resume() can locate them by id, surface the event, and
+                    # short-circuit here: a halted tool has no result, so the after-hook and the
+                    # result handling below are intentionally skipped.
                     if isinstance(event, ToolInterruptEvent):
                         for interrupt in event.interrupts:
                             agent._interrupt_state.interrupts.setdefault(interrupt.id, interrupt)
-                        interrupt_event = event
                         yield event
-                        break
+                        return
 
-                    # The last ToolResultEvent from the chain is the result. Capture it and
-                    # re-emit only after AfterToolCallEvent runs (hooks may rewrite it),
-                    # matching the pre-middleware behavior. Other events flow through.
+                    # Capture the result but keep draining: middleware may yield trailing
+                    # events after it, and the last ToolResultEvent wins (matching the model
+                    # stage). It is re-emitted only after AfterToolCallEvent runs, since hooks
+                    # may rewrite it. All non-result events flow through as they arrive.
                     if isinstance(event, ToolResultEvent):
                         result_event = event
                     else:
                         yield event
-
-                if interrupt_event is not None:
-                    return
 
                 if result_event is None:
                     raise RuntimeError(

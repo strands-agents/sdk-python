@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .types import (
+    InterruptControlEvent,
     MiddlewareHandler,
     MiddlewareInputHandler,
     MiddlewareInputPhase,
@@ -81,13 +82,13 @@ class MiddlewareRegistry:
         # returned wrapper back into the event stream, so the rest of the chain (and the
         # event-loop integration) continues to see a plain result event.
         #
-        # Control-flow events (those exposing a truthy ``is_interrupt``) are never a stage
+        # Control-flow events (those matching InterruptControlEvent) are never a stage
         # result — a stage that halts mid-stream has no result to transform — so they pass
         # straight through and are excluded from the positional "last event" tracking.
         async def adapted(context: Any, next_fn: MiddlewareNext) -> AsyncGenerator[Any, None]:
             last_event = None
             async for event in next_fn(context):
-                if getattr(event, "is_interrupt", False):
+                if isinstance(event, InterruptControlEvent) and event.is_interrupt:
                     yield event
                     continue
                 if last_event is not None:

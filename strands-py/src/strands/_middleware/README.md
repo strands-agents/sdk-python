@@ -87,8 +87,10 @@ the stage result:
   interrupt.
 - **Tool-originated** (a `ToolInterruptEvent` from `tool.stream()`, including sub-agent
   interrupts via `_AgentAsTool`) flows through the chain as a normal event. The Output adapter
-  skips any event exposing a truthy `is_interrupt` when picking the positional result, so it is
-  never mistaken for the result; `_stream` registers its interrupts and short-circuits.
+  skips any event matching the `InterruptControlEvent` protocol (a truthy `is_interrupt`) when
+  picking the positional result, so it is never mistaken for the result; `_stream` registers
+  its interrupts and short-circuits. The protocol keeps the stage-agnostic registry from
+  importing tool-specific event types.
 
 Either way `_stream` surfaces a single `ToolInterruptEvent` to the event loop. Only
 `ExecuteToolStage` supports interrupts — `InvokeModelStage` does not, matching TS (only
