@@ -256,11 +256,6 @@ export interface LocalAgent {
   readonly id: string
 
   /**
-   * Read-only snapshot of accumulated agent metrics (cycles, token usage, tool stats).
-   */
-  readonly metrics: AgentMetrics
-
-  /**
    * App state storage accessible to tools and application logic.
    */
   appState: StateStore
@@ -289,6 +284,12 @@ export interface LocalAgent {
    * environment (e.g. browsers, where no host default is registered).
    */
   readonly sandbox: Sandbox
+
+  /**
+   * Aggregated metrics for the agent's loop execution.
+   * Tracks cycle counts, token usage, tool execution stats, and model latency.
+   */
+  readonly metrics: AgentMetrics
 
   /**
    * The model provider used by the agent for inference.
