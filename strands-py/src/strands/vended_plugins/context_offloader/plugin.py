@@ -41,7 +41,7 @@ from typing_extensions import TypedDict
 
 from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
-from ...storage import LocalFileStorage, Storage
+from ...storage import Storage
 from ...storage.storage import _NAMESPACED, _NamespacedStorage
 from ...tools.decorator import tool
 from ...types.content import Message
@@ -238,9 +238,9 @@ class ContextOffloader(Plugin):
     def _storage_for_agent(self, agent: Agent) -> Storage | _LegacyStorage:
         """Return the storage for an agent, binding file-based storage to its sandbox.
 
-        FileStorage (legacy) and LocalFileStorage (unified) are bound once per
-        agent to that agent's sandbox via ``for_sandbox()``, then re-wrapped with
-        the namespace if applicable. All other backends are shared as-is.
+        Any storage (or namespaced view) exposing ``for_sandbox()`` is bound once
+        per agent to that agent's sandbox. Legacy FileStorage is handled the same
+        way. All other backends are shared as-is.
 
         Args:
             agent: The agent whose storage to resolve.
@@ -248,12 +248,15 @@ class ContextOffloader(Plugin):
         Returns:
             The storage instance for this agent.
         """
-        if not isinstance(self._raw_storage, (FileStorage, LocalFileStorage)):
+        sandboxable = self._storage if hasattr(self._storage, "for_sandbox") else None
+        if sandboxable is None and not isinstance(self._storage, FileStorage):
             return self._storage
         storage = self._storage_by_agent.get(agent)
         if storage is None:
-            bound = self._raw_storage.for_sandbox(agent.sandbox)
-            storage = self._resolve_storage(bound)
+            if sandboxable is not None:
+                storage = sandboxable.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
+            else:
+                storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
             self._storage_by_agent[agent] = storage
         return storage
 
@@ -279,12 +282,13 @@ class ContextOffloader(Plugin):
             return
 
         # Cycle-based eviction for unified Storage
+        storage = self._storage_for_agent(event.agent)
         threshold = cycle - self._evict_after_cycles
         stale_keys = [key for key, stored_cycle in self._stored_cycles.items() if stored_cycle < threshold]
         if stale_keys:
             for key in stale_keys:
                 try:
-                    await self._storage.delete(key)  # type: ignore[union-attr]
+                    await storage.delete(key)  # type: ignore[union-attr]
                 except Exception:
                     pass
                 del self._stored_cycles[key]

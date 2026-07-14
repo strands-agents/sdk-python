@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..types.exceptions import StorageError
-from .storage import _NamespacedStorage, _normalize_key, _normalize_prefix
+from .storage import _NAMESPACED, _NamespacedStorage, _normalize_key, _normalize_prefix
 
 if TYPE_CHECKING:
     from ..sandbox.base import Sandbox
@@ -178,16 +178,19 @@ class LocalFileStorage:
         except Exception as error:
             raise StorageError(f"Failed to list keys with prefix '{query}'") from error
 
-    def namespace(self, prefix: str) -> _NamespacedStorage:
+    def namespace(self, prefix: str) -> _NamespacedLocalFileStorage:
         """Return a view of this storage with all keys prefixed.
+
+        The returned view preserves ``for_sandbox`` so sandbox routing works
+        even when storage is pre-namespaced before being passed to a plugin.
 
         Args:
             prefix: Prefix to prepend to all keys.
 
         Returns:
-            A namespaced storage view.
+            A namespaced storage view that also supports ``for_sandbox``.
         """
-        return _NamespacedStorage(self, prefix)
+        return _NamespacedLocalFileStorage(self, prefix)
 
     def _path_for(self, key: str) -> str:
         """Map a normalized key to a filesystem path."""
@@ -246,3 +249,29 @@ class LocalFileStorage:
             else:
                 rel = os.path.relpath(str(full_path), self._base_dir)
                 keys.append(rel.replace(os.sep, "/"))
+
+
+class _NamespacedLocalFileStorage(_NamespacedStorage):
+    """A namespaced view of LocalFileStorage that preserves sandbox routing.
+
+    When ``for_sandbox`` is called, it binds the underlying LocalFileStorage
+    to the sandbox and re-wraps with the same prefix.
+    """
+
+    _namespaced = _NAMESPACED
+
+    def __init__(self, storage: LocalFileStorage, prefix: str) -> None:
+        super().__init__(storage, prefix)
+        self._local_storage = storage
+
+    def for_sandbox(self, sandbox: Sandbox) -> _NamespacedStorage:
+        """Return a namespaced view bound to the given sandbox.
+
+        Args:
+            sandbox: Sandbox to bind to.
+
+        Returns:
+            A namespaced storage view routed through the sandbox.
+        """
+        bound = self._local_storage.for_sandbox(sandbox)
+        return _NamespacedStorage(bound, self._prefix.rstrip("/"))
