@@ -41,15 +41,14 @@ from typing_extensions import TypedDict
 
 from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
-from ...storage import LocalFileStorage
-from ...storage import Storage as UnifiedStorage
+from ...storage import LocalFileStorage, Storage
 from ...storage.storage import _NAMESPACED, _NamespacedStorage
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
 from .search import _is_searchable_content, _search_content
 from .storage import FileStorage, InMemoryStorage
-from .storage import Storage as OffloaderStorage
+from .storage import Storage as _LegacyStorage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -57,7 +56,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _is_offloader_storage(storage: UnifiedStorage | OffloaderStorage) -> bool:
+def _is_offloader_storage(storage: Storage | _LegacyStorage) -> bool:
     """Detect legacy offloader storage by presence of store/retrieve methods."""
     return hasattr(storage, "store") and hasattr(storage, "retrieve")
 
@@ -90,7 +89,7 @@ def _unframe_content(frame: bytes) -> tuple[bytes, str]:
 
 
 async def _store_content(
-    storage: UnifiedStorage | OffloaderStorage,
+    storage: Storage | _LegacyStorage,
     key: str,
     content: bytes,
     content_type: str,
@@ -103,7 +102,7 @@ async def _store_content(
 
 
 async def _retrieve_content(
-    storage: UnifiedStorage | OffloaderStorage,
+    storage: Storage | _LegacyStorage,
     reference: str,
 ) -> tuple[bytes, str]:
     """Retrieve content from either unified or legacy storage."""
@@ -178,7 +177,7 @@ class ContextOffloader(Plugin):
 
     def __init__(
         self,
-        storage: UnifiedStorage | OffloaderStorage,
+        storage: Storage | _LegacyStorage,
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
@@ -215,9 +214,9 @@ class ContextOffloader(Plugin):
         if evict_after_cycles is not None and (not isinstance(evict_after_cycles, int) or evict_after_cycles < 1):
             raise ValueError("evict_after_cycles must be a positive integer or None")
 
-        self._raw_storage: UnifiedStorage | OffloaderStorage = storage
-        self._storage: UnifiedStorage | OffloaderStorage = self._resolve_storage(storage)
-        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, UnifiedStorage | OffloaderStorage] = (
+        self._raw_storage: Storage | _LegacyStorage = storage
+        self._storage: Storage | _LegacyStorage = self._resolve_storage(storage)
+        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage | _LegacyStorage] = (
             weakref.WeakKeyDictionary()
         )
         self._max_result_tokens = max_result_tokens
@@ -228,7 +227,7 @@ class ContextOffloader(Plugin):
         super().__init__()
 
     @staticmethod
-    def _resolve_storage(storage: UnifiedStorage | OffloaderStorage) -> UnifiedStorage | OffloaderStorage:
+    def _resolve_storage(storage: Storage | _LegacyStorage) -> Storage | _LegacyStorage:
         """Auto-namespace unified storage with 'offloader' if not already scoped."""
         if _is_offloader_storage(storage):
             return storage
@@ -236,7 +235,7 @@ class ContextOffloader(Plugin):
             return storage
         return _NamespacedStorage(storage, "offloader")
 
-    def _storage_for_agent(self, agent: Agent) -> UnifiedStorage | OffloaderStorage:
+    def _storage_for_agent(self, agent: Agent) -> Storage | _LegacyStorage:
         """Return the storage for an agent, binding file-based storage to its sandbox.
 
         FileStorage (legacy) and LocalFileStorage (unified) are bound once per
