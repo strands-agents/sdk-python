@@ -40,11 +40,11 @@ The table summarizes the main routing mechanisms these frameworks use.
 | [Portkey Gateway](https://portkey.ai/docs/product/ai-gateway-streamline-llm-integrations/fallbacks) | Gateway/proxy | Nestable strategies: conditional, load-balance, fallback; triggers on status codes | Strategies should be **composable/nestable** |
 | [RouteLLM](https://arxiv.org/html/2406.18665v2) | Client (research/OSS) | Learned classifier / matrix factorization on predicted query complexity | Reference point for classifier-based cost/quality routing |
 | [Aurelio semantic-router](https://github.com/aurelio-labs/semantic-router) / [vLLM semantic-router](https://github.com/vllm-project/semantic-router) | Client decision layer | Embedding/semantic vector match, no LLM call to decide | Fast classifier alternative that avoids an extra model call |
-| [Pydantic-AI `FallbackModel`](https://ai.pydantic.dev/api/models/fallback/) | Model wrapper in a typed SDK | Wraps an ordered model list; falls through on failure | A router that **is-a Model** is the ergonomic fit for a typed SDK |
+| [Pydantic-AI `FallbackModel`](https://ai.pydantic.dev/api/models/fallback/) | Model wrapper in a typed SDK | Wraps an ordered model list; falls through on failure | Model-wrapper routing is one option; we weigh it against a first-class type below |
 | [AWS Bedrock Intelligent Prompt Routing](https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-routing.html) | Server-side, single serverless endpoint | Predicted per-request quality across a model family | Some routing can be **delegated server-side** rather than built client-side |
 
 
-The intersection worth taking for Strands is small: client-side, model-target, fallback plus proactive selection. Two non-obvious points stand out: fallback is the one mechanism everyone ships, and a router that is-a `Model` needs no new plumbing in a typed SDK.
+The intersection worth taking for Strands is small: client-side, model-target, fallback plus proactive selection. Two non-obvious points stand out: fallback is the one mechanism everyone ships, and modeling the router as a `Model` wrapper is the tempting shortcut in a typed SDK, though we end up choosing a first-class type instead (see Integration).
 
 ### Design Axes & Trade-offs
 
@@ -133,22 +133,26 @@ So there are two ways to make a hook or middleware route, each with a cost:
 | Per-call model override (option C) | add a writable `model` field to the event or context, and change the terminal to honor it | modifies the SDK's hottest, most-tested code path and introduces a new permanent public contract |
 | Router is-a `Model` (option E) | nothing, the router is already the call target | the decision is a local inside `stream()`, so it is call-scoped by construction: no shared state, no restore, no core-loop change |
 
+The A to E walkthrough above first landed on Option E, a `ModelRouter` that is-a `Model` passed through `model=` but this can be very confuse to users.
 
-**Decision: Option E.** One `ModelRouter` that behaves as a model, slots into the existing `model=`, forwards each call, and can wrap other routers. It is also a plugin, so it can react to the after-a-call event that fallback needs without editing shared state. The `model=` argument itself does not change, and single-model usage is untouched. A separate `model_router=` argument (option D) is a discoverability affordance we can add later. The one downside is that `model=` now also accepts a routing policy, not just a model; if we want an explicit separation, `model_router=` can layer on top while keeping the model-shaped core.
+**Decision: a first-class `ModelRouter`, attached through a dedicated `model_router=` argument.** the agent holds it in a new `model_router=` slot beside the existing `model=`. This parallels `tool_executor=`, a first-class component the agent holds and the event loop consults. When `model_router` is set, the loop consults it to pick a candidate before invoking; when it is not, the loop calls `agent.model` exactly as today. `agent.model` stays a real `Model`, so tracing, `count_tokens`, `stateful`, and `structured_output` keep reading it with no re-implementation.
+
+When both arguments are present, `model_router` wins. It owns the per-call decision and its `models` is the authoritative candidate pool. `model=` is the default used when no router is set, and it stays optional otherwise, serving only as the router's fallback of last resort. The two never overlap, because `model=` answers "what is the default model" and `model_router=` answers "how is the model chosen per call." A candidate is only in the routing pool if it appears in `models`, so a model never lands in a group implicitly.
 
 
 ## Proposed Architecture & Workflow
 
-Routing inserts a decision step in front of the model call. The agent still holds a model; that model is a router that asks a strategy which candidate should serve the call and delegates to it. Everything upstream (hooks, middleware, retry) runs unchanged.
+Routing inserts a decision step in front of the model call. The agent holds its default `model` as today and, when routing is on, a `model_router`. The event loop consults the router, which asks a strategy which candidate should serve the call, then invokes that candidate. Everything upstream (hooks, middleware, retry) runs unchanged.
 
 ```mermaid
 graph TD
-    EL[Event loop terminal] -->|agent.model.stream| R[ModelRouter is-a Model and Plugin]
+    EL[Event loop terminal] -->|consults model_router| R[ModelRouter: first-class type, also a Plugin]
     R --> ST{RoutingStrategy.select}
     ST -->|RoutingDecision| R
-    R -->|delegate stream / structured_output| C1[Candidate: frontier]
-    R -->|delegate| C2[Candidate: cheap]
-    R -->|delegate| C3[Candidate: fallback]
+    R -->|returns chosen candidate| EL
+    EL -->|invoke| C1[Candidate: frontier]
+    EL -->|invoke| C2[Candidate: cheap]
+    EL -->|invoke| C3[Candidate: fallback / default model]
 
     subgraph SIG[Decision signals available today]
         S1[messages]
@@ -167,37 +171,34 @@ A single model call passes four points. A routing decision attaches at one of th
 ```mermaid
 graph LR
     A[1 · BeforeModelCallEvent<br/>hook, pre-call] --> B[2 · InvokeModelStage<br/>middleware, pre-call]
-    B --> C[3 · agent.model.stream<br/>the invoke]
+    B --> C[3 · loop consults model_router, then invokes]
     C --> D[4 · AfterModelCallEvent<br/>post-attempt]
     D -->|retry re-runs the whole step| A
 
-    P[Proactive select, Option E decides at point 3] -.-> C
+    P[Proactive select, router decides at point 3] -.-> C
     Rx[Reactive fallback, after a failed attempt] -.-> D
 ```
 
-Points 1, 2 and 3 all resolve *which model* before the provider request is sent; they differ only in mechanism, and the chosen Option E decides at point 3 (the router's own `stream`). Point 4 is the only place a reactive decision can be made, because it is the only point that knows an attempt failed, which is why fallback is a `Plugin`-registered hook rather than part of `select`. A retry does not resume at the invoke; it re-runs the whole step from point 1 (`BeforeModelCallEvent` fires again), because the event loop retries by re-entering its `while` loop.
+Points 1, 2 and 3 all resolve *which model* before the provider request is sent; they differ only in mechanism, and the recommended design decides at point 3, where the loop consults `model_router` before invoking the chosen candidate. Point 4 is the only place a reactive decision can be made, because it is the only point that knows an attempt failed, which is why fallback is a `Plugin`-registered hook rather than part of `select`. A retry does not resume at the invoke; it re-runs the whole step from point 1 (`BeforeModelCallEvent` fires again), because the event loop retries by re-entering its `while` loop.
 
 ### Per-call workflow
 
 ```mermaid
 sequenceDiagram
     participant EL as Event loop
-    participant MW as InvokeModelStage middleware
-    participant R as ModelRouter (agent.model)
+    participant R as ModelRouter (agent.model_router)
     participant S as RoutingStrategy
     participant M as Selected model
     participant H as Hooks
 
     EL->>EL: BeforeModelCallEvent (may cancel)
-    EL->>MW: run middleware chain
-    Note over MW,R: terminal calls agent.model
-    MW->>R: stream(...)
-    R->>S: select(RoutingContext)
-    S-->>R: chosen model
-    R->>M: stream(...)
-    M-->>R: StreamEvent*
-    R-->>MW: StreamEvent*
-    MW-->>EL: StreamEvent*
+    EL->>R: select(RoutingContext)
+    R->>S: select(...)
+    S-->>R: chosen candidate
+    R-->>EL: chosen candidate
+    Note over EL,M: loop invokes the candidate (default: agent.model)
+    EL->>M: stream(...)
+    M-->>EL: StreamEvent*
     EL->>H: AfterModelCallEvent (result or exception)
     Note over EL,H: on retry, re-enter from BeforeModelCallEvent
 ```
@@ -207,48 +208,60 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant EL as Event loop
-    participant R as ModelRouter (Model + fallback hook)
+    participant R as ModelRouter (model_router + fallback hook)
     participant P as Primary
     participant F as Next candidate
     participant RS as ModelRetryStrategy
 
     Note over EL,R: active = Primary
     EL->>EL: BeforeModelCallEvent
-    EL->>R: stream(...)
-    R->>P: stream(...)
-    P-->>R: ModelThrottledException
-    R-->>EL: exception
+    EL->>R: select -> Primary
+    EL->>P: stream(...)
+    P-->>EL: ModelThrottledException
     EL->>RS: AfterModelCallEvent (exception)
     RS-->>EL: backoff + retry SAME model
     Note over EL,RS: loops (re-firing BeforeModelCallEvent) until max attempts
     EL->>R: AfterModelCallEvent (attempts exhausted)
     R-->>EL: fallback hook sets active = Next, requests retry
     EL->>EL: BeforeModelCallEvent (re-entry)
-    EL->>R: stream(...)
-    R->>F: stream(...)
-    F-->>R: StreamEvent*
-    R-->>EL: success (no retry)
+    EL->>R: select -> Next
+    EL->>F: stream(...)
+    F-->>EL: StreamEvent*
+    EL->>EL: success (no retry)
 ```
 
 `ModelRetryStrategy` handles backoff and retrying the *same* model, while the router's own fallback hook advances to the *next* model. The ordering between them (retry first, then fall back) is still open.
 
 ## DevX
 
-Routing is an optional capability passed to `Agent`, with a small config, sensible defaults, and single-model usage unchanged. A one-line fallback is trivial, and advanced strategies opt in.
+Routing is an optional capability passed to `Agent` through `model_router=`, beside the existing `model=`, with sensible defaults and single-model usage unchanged. A one-line fallback is trivial, and advanced strategies opt in.
 
-Candidate models are supplied as a list, and the shape follows the strategy. Fallback takes an ordered list where order is the priority, and a selection strategy ranks over whatever candidates it is given.
+Candidate models live in the router's `models`, and the shape follows the strategy. Fallback takes an ordered list where order is the priority, and a selection strategy ranks over whatever candidates it is given. A model is only in the routing pool if it appears in `models`, so nothing lands in a group implicitly. `model=` stays the default for the no-router case and is optional once a router is set. `strategy` is a `RoutingStrategy` object, not a string, because strategies carry their own configuration and are the user extension point; a string shorthand for the zero-config built-ins may be offered as sugar, the same way `model=` accepts a `Model` or an id string.
+
+The common case is a single strategy over a flat list:
 
 ```python
 haiku  = BedrockModel(model_id="anthropic.claude-3-5-haiku-20241022-v1:0")
 sonnet = BedrockModel(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
 opus   = AnthropicModel(model_id="claude-opus-4-1", temperature=0.2)
 
-# An "escalating" group: try haiku, fall back to sonnet on failure.
+# Fallback: try in order, advance only on failure. Order is the priority.
+agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=FallbackStrategy()))
+
+# Intelligent: rank all candidates by context fit and cost. Any number, no tier names.
+agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=ContextCostStrategy()))
+```
+
+Nesting is only for composing different strategies at different levels; a single strategy always uses a flat list. For example, route by context between a small-model failover group and a large-context model:
+
+```python
 escalating = ModelRouter(models=[haiku, sonnet], strategy=FallbackStrategy())
-# Route by context between that group and a large-context model.
-agent = Agent(model=ModelRouter(models=[escalating, opus], strategy=ContextCostStrategy()))
+agent = Agent(model_router=ModelRouter(models=[escalating, opus], strategy=ContextCostStrategy()))
+```
 
+Ranking a nested group with a metric strategy needs the group to report an aggregate context window and cost, which is an open question.
 
+```python
 class ContextCostStrategy:
     """Pick the cheapest candidate whose context window fits the request."""
 
@@ -272,19 +285,25 @@ class RoutingStrategy(Protocol):
     async def on_result(self, context: RoutingResultContext) -> RoutingDecision | None: ...  # reactive (optional)
 
 
-class ModelRouter(Model, Plugin):   # a Model (delegates) and a Plugin (registers the fallback hook)
-    def __init__(self, models: list[Model | str] | dict[str, Model | str],
+Candidate = Union[Model, str, "ModelRouter"]
+
+class ModelRouter(Plugin):   # its own type, and a Plugin so it can register the fallback hook
+    def __init__(self, models: list[Candidate] | dict[str, Candidate],
                  strategy: RoutingStrategy, *, default: str | None = None): ...
+
+# Agent gains an optional model_router= slot; model= stays the default and becomes optional when a router is set.
+Agent(model=..., model_router: ModelRouter | None = None)
 ```
 
 - `RoutingContext` carries what the SDK already exposes: `messages`, `tool_specs`, and per-candidate `count_tokens` and `context_window_limit`.
-- As a `Model`, the router implements the full surface (`stream`, `structured_output`, `count_tokens`, `context_window_limit`, `stateful`) by delegating to the selected candidate.
+- The router is **not** a `Model`. The event loop consults it: `select` (and the fallback hook) picks a candidate, and the loop then invokes that candidate directly. When `model_router` is unset, the loop calls `agent.model` as it does today.
+- A candidate may itself be a `ModelRouter`, so groups nest. A model is a routing candidate only when it appears in some `models` list; `model=` is not folded in implicitly.
 - As a `Plugin`, `init_agent` registers the `AfterModelCallEvent` hook so fallback composes with `ModelRetryStrategy` (retry first, then advance) rather than reimplementing backoff.
 
 
 ## Work Plan
 
-**P0: Router core + fallback.** `ModelRouter` (a delegating `Model` and `Plugin`), `RoutingStrategy` (`select` plus optional `on_result`), a candidate registry (ordered list and named mapping, taking a `Model` or a model-id string), `FallbackRouter` composing with `ModelRetryStrategy`, a `stateful` guard, and the default scope.
+**P0: Router core + fallback.** `ModelRouter` (a first-class type and `Plugin`), the `Agent(model_router=...)` argument and the event-loop consult (default to `agent.model` when unset), `RoutingStrategy` (`select` plus optional `on_result`), a candidate registry (ordered list and named mapping, taking a `Model`, a model-id string, or a nested `ModelRouter`), fallback composing with `ModelRetryStrategy`, a `stateful` guard, and the default scope.
 
 **P0: Intelligent routing.** A signals-based `select()` on `count_tokens` and `context_window_limit`, with the routing decision emitted on the model-invoke span.
 
@@ -297,4 +316,4 @@ class ModelRouter(Model, Plugin):   # a Model (delegates) and a Plugin (register
 - **Cost source of truth.** Cost-aware routing needs per-model pricing, which the SDK does not carry today. Where should it live: price columns added to the existing defaults table (`_defaults.py`), a new property on `Model`, or a separate provider registry? This gates all cost-based routing.
 - **Stateful models.** A `stateful` model keeps conversation state on the server side, so switching away from it mid-conversation would lose that state. Should the router forbid routing among `stateful` candidates entirely, or allow it only at a per-invocation (not per-call) scope?
 - **`structured_output` routing.** An agent calls the model two ways: `stream` (normal generation) and `structured_output` (return a typed object). Should the router run its strategy separately for a `structured_output` call, or should that call reuse whatever model the last `stream` decision picked? A task may warrant a different model for a structured result than for free-form text.
-- **`model_router=` argument.** A router already works via `Agent(model=router)` since a router is a `Model`. Should we also add a dedicated `Agent(model_router=...)` argument for discoverability, or is reusing `model=` clear enough that the extra argument is not worth it?
+- **`structured_output` and `stateful` interaction.** If the router picks a different candidate for a `structured_output` call than the last `stream` call picked, and either is `stateful`, the two calls may land on different server-side sessions. Does the `stateful` guard need to span both entry points, not just `stream`?
