@@ -148,8 +148,8 @@ When the model calls a handoff tool and other tools in the same turn despite the
 - If there are multiple handoff tools, the first successful result in tool use order is returned. This can be achieved by iterating on the `ToolUseBlock`s in the assistant message and checking the corresponding `ToolResultBlock`. 
 
 Other potential ways to handle multiple tool calls include:
-- Continuing the agent loop if multiple handoff tool calls are detected. This ensures the model only intends to output one tool result, but consumes additional model calls and may cause infinite reasoning loops if the model tries the same thing on subsequent turns.
-- Concatenating the handoff tool results together. Langchain uses a similar approach where they append each ToolMessage response to a list and return the entire list.
+- Continuing the agent loop if multiple handoff tool calls are detected. This forces the model to choose a single handoff target, but adds a model call and risks an infinite loop if the model uses the same set of tools on subsequent turns.
+- Concatenating the handoff tool results together. Langchain uses a similar approach where they append each ToolMessage response to a list and return the entire list. However, `AgentResult.lastMessage` is currently a `Message`, not a `Message` array. If sub-agent responses are concatenated into the same message object, any structured data they produce breaks.
 
 ## Developer Experience
 
