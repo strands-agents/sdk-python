@@ -17,6 +17,7 @@ export const communitySessionManagers = getIntegrationEntries(allDocs, 'session-
 export const communityMemoryStores = getIntegrationEntries(allDocs, 'memory-store', true)
 export const communityTools = getIntegrationEntries(allDocs, 'tool', true)
 export const communityAgentExtensions = getIntegrationEntries(allDocs, 'agent-extension', true)
+export const communityInterventions = getIntegrationEntries(allDocs, 'intervention', true)
 
 export const packageColumns = [
   { header: "Package" },
@@ -93,6 +94,14 @@ Tools extend your agents with capabilities for specific services and platforms. 
 Agent extensions provide specialized agent subclasses that change how Strands agents reason and act. Use these when you need an alternative action paradigm beyond the default tool-calling approach.
 
 <SimpleTable data={communityAgentExtensions} columns={packageColumns}>
+  {renderCell}
+</SimpleTable>
+
+## Interventions
+
+Interventions provide composable control handlers for authorization, guardrails, and steering. Use these to add typed decision-making to your agents without modifying core logic.
+
+<SimpleTable data={communityInterventions} columns={packageColumns}>
   {renderCell}
 </SimpleTable>
 
