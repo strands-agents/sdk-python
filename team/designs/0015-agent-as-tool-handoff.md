@@ -8,15 +8,15 @@
 
 ## Problem
 
-Builders want a way to delegate tasks from orchestrator agents to sub-agents without the orchestrator post-processing sub-agent responses. This minimizes unnecessary model calls, latency, and token usage when the sub-agent response is ready for the user as-is. However, there is currently no way to both enable delegation and disable orchestrator post-processing in the SDK.
+Builders want a way to delegate tasks from orchestrator agents to sub-agents without the orchestrator post-processing sub-agent responses. This minimizes extraneous model calls, latency, and token usage when the sub-agent response is ready to be served to the user as-is. However, there is currently no way to both enable delegation and disable orchestrator post-processing in the SDK.
 
 ### Desired Use Cases
 
 The following summarizes desired use cases discussed in the linked issue thread.
 
-**Domain routing without post-processing.** A help-desk orchestrator analyzes incoming requests and delegates to a specialist: billing questions to a CustomerService agent, technical issues to a TechnicalSupport agent, etc. The specialist's response is the final response. The orchestrator does not re-process it or else it would add cost without value. This last point is reinforced in hierarchical routing scenarios (a natural extension of domain routing), where a manager agent delegates to senior agents which delegate to junior agents.
+**Domain routing without post-processing.** A help-desk orchestrator analyzes incoming requests and delegates to a specialist: billing questions to a CustomerService agent, technical issues to a TechnicalSupport agent, etc. The specialist's response is the final response. The orchestrator does not re-process it to avoid adding cost without value. This last point is reinforced in hierarchical routing scenarios, a natural extension of domain routing, where a manager agent delegates to senior agents which delegate to junior agents.
 
-**Structured output preservation.** A supervisor agent delegates to a sub-agent that generates a JSON schema to render a report. The JSON must reach the user verbatim and cannot be paraphrased by the orchestrator agent.ß
+**Structured output preservation.** A supervisor agent delegates to a sub-agent that generates a JSON schema (or other structured data). The JSON must reach the user verbatim and cannot be paraphrased by the orchestrator agent.
 
 ### Current State
 
@@ -32,16 +32,16 @@ const orchestrator = new Agent({
 })
 ```
 
-However, there is currently no way to stop the orchestrator model from processing sub-agent responses before passing it to the user. This adds unnecessary latency and token usage for simple routing scenarios, like domain routing and hierarchical delegation. Furthermore, the orchestrator may paraphrase or reformat structured output (JSON, code, formatted data) from the sub-agent, breaking an otherwise valid response.
+However, there is currently no way to stop the orchestrator model from processing sub-agent responses before passing it to the user. This adds unnecessary latency and token usage for simple routing scenarios. Furthermore, the orchestrator may paraphrase or reformat structured output (JSON, code, formatted data) from the sub-agent, breaking otherwise valid responses.
 
 ## Goals and Non-Goals
 
 **Goals:**
 
 - Intuitive API surface for telling agents to directly return an agent-as-tool response
-- Stream sub-agent results directly to the user without additional orchestrator reasoning
-- Handle multiple agent-as-tool delegations in the same turn
-- Can be extended to directly returning non-agent tool results in the future
+- Mechanism for streaming sub-agent results directly to the user without additional orchestrator reasoning
+- Handle edge case where multiple agent-as-tools are handed off to in the same turn
+- Can be extended in the future to directly return non-agent tool results
 - Compatible with both TypeScript and Python SDKs
 
 **Non-goals:**
@@ -135,7 +135,7 @@ Regardless of which API surface is chosen, the handoff behavior works inside the
 
 > "Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn."
 
-This nudges the model to treat the tool call as a terminal action, avoiding wasted tokens on preamble text, parallel tool calls, or post-processing plans. By appending the suffix at read time, the tool's description remains clean (reflecting only what the builder wrote or what was derived from the agent's description) and the handoff instruction remains the model-calling boundary. This approach also extends naturally to non-agent tool handoffs in the future.
+This nudges the model to treat the tool call as a terminal action, avoiding wasted tokens on preamble text, parallel tool calls, or post-processing plans. By appending the suffix at read time, the tool's description remains clean (reflecting only what the builder wrote or what was derived from the agent's description) and the handoff instruction remains at the model-calling boundary. This approach also extends naturally to non-agent tool handoffs in the future.
 
 After `executeTools()` completes and the assistant message + tool-result message are appended to history, the loop checks for a successful handoff result:
 - If the handoff tool's result has `status: 'error'`, skip it and continue the normal loop so the model can recover or try a different tool.
@@ -144,10 +144,10 @@ After `executeTools()` completes and the assistant message + tool-result message
 #### Multiple Tool Calls in a Single Turn
 
 When the model calls a handoff tool and other tools in the same turn despite the handoff tool description suffix, all tools execute to completion. Afterwards, all tool use and tool result blocks are appended to history.
-- If there are non-handoff tools, they are not passed back to the orchestrator model
+- If there are non-handoff tools, they are not passed back to thea orchestrator model
 - If there are multiple handoff tools, the first successful result in tool use order is returned. This can be achieved by iterating on the `ToolUseBlock`s in the assistant message and checking the corresponding `ToolResultBlock`. 
 
-Other ways to handle multiple tool calls include:
+Other potential ways to handle multiple tool calls include:
 - Continuing the agent loop if multiple handoff tool calls are detected. This ensures the model only intends to output one tool result, but consumes additional model calls and may cause infinite reasoning loops if the model tries the same thing on subsequent turns.
 - Concatenating the handoff tool results together. Langchain uses a similar approach where they append each ToolMessage response to a list and return the entire list.
 
