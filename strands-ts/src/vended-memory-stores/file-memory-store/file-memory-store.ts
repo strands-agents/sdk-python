@@ -25,8 +25,30 @@ function parseFrontmatter(content: string): { description: string; body: string 
   const frontmatter = match[1] ?? ''
   const body = match[2] ?? ''
 
-  const descMatch = frontmatter.match(/^description:\s*["']?(.+?)["']?\s*$/m)
-  return { description: descMatch?.[1] ?? '', body }
+  const descMatch = frontmatter.match(/^description:\s*(".*")\s*$/m)
+  if (!descMatch) return { description: '', body }
+
+  let description: string
+  try {
+    description = JSON.parse(descMatch[1]!) as string
+  } catch {
+    description = descMatch[1]!.slice(1, -1)
+  }
+  return { description, body }
+}
+
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}_]+/u)
+      .filter(Boolean)
+  )
+}
+
+function basename(key: string): string {
+  const filename = key.split('/').pop() ?? key
+  return filename.replace(/\.md$/, '')
 }
 
 function slugify(text: string): string {
@@ -79,35 +101,39 @@ export class FileMemoryStore implements MemoryStore {
   /**
    * Search knowledge files by keyword matching against filenames, descriptions, and content.
    *
-   * Returns the top matches ranked by term frequency.
+   * Returns the top matches ranked by distinct token overlap. Each result's `metadata.path`
+   * reflects the entry's current storage location and may change after consolidation.
    */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
     const maxResults = options?.maxSearchResults ?? this.maxSearchResults ?? 5
-    const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
-    if (terms.length === 0) return []
+    const queryTokens = tokenize(query)
+    if (queryTokens.size === 0) return []
 
     const allKeys = await this._storage.list(KNOWLEDGE_PREFIX)
     const scored: Array<{ entry: MemoryEntry; score: number }> = []
 
     for (const key of allKeys) {
-      const bytes = await this._storage.read(key)
-      if (!bytes) continue
+      try {
+        const bytes = await this._storage.read(key)
+        if (!bytes) continue
 
-      const content = decoder.decode(bytes)
-      const { description, body } = parseFrontmatter(content)
-      const searchable = `${key} ${description} ${body}`.toLowerCase()
+        const content = decoder.decode(bytes)
+        const { description, body } = parseFrontmatter(content)
+        const searchable = `${basename(key)} ${description} ${body}`
 
-      let score = 0
-      for (const term of terms) {
-        const matches = searchable.split(term).length - 1
-        score += matches
-      }
+        let score = 0
+        for (const token of tokenize(searchable)) {
+          if (queryTokens.has(token)) score++
+        }
 
-      if (score > 0) {
-        scored.push({
-          entry: { content: body.trim(), metadata: { path: key, description } },
-          score,
-        })
+        if (score > 0) {
+          scored.push({
+            entry: { content: body.trim(), metadata: { path: key, description, _relevanceScore: score } },
+            score,
+          })
+        }
+      } catch {
+        continue
       }
     }
 
@@ -136,9 +162,15 @@ export class FileMemoryStore implements MemoryStore {
     } else {
       const slug = slugify(title) || `entry-${Date.now()}`
       key = `${FACTS_PREFIX}${slug}.md`
+
+      let suffix = 1
+      while (await this._storage.read(key)) {
+        key = `${FACTS_PREFIX}${slug}-${suffix}.md`
+        suffix++
+      }
     }
 
-    const fileContent = `---\ndescription: "${description.replace(/"/g, '\\"')}"\n---\n\n${content}\n`
+    const fileContent = `---\ndescription: ${JSON.stringify(description)}\n---\n\n${content}\n`
     await this._storage.write(key, encoder.encode(fileContent))
   }
 }

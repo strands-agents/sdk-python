@@ -120,6 +120,28 @@ describe('FileMemoryStore', () => {
       expect(content).toContain('description: "Prefers \\"strict\\" mode"')
     })
 
+    it('round-trips description containing double quotes', async () => {
+      await store.add('Use strict mode', { title: 'quotes-rt', description: 'Prefers "strict" mode' })
+      const results = await store.search('strict mode')
+      const entry = results.find((r) => (r.metadata?.['path'] as string).includes('quotes-rt'))
+      expect(entry!.metadata?.['description']).toBe('Prefers "strict" mode')
+    })
+
+    it('round-trips description containing newlines', async () => {
+      await store.add('multi-line desc content', { title: 'newline-rt', description: 'line one\nline two' })
+      const results = await store.search('multi-line desc')
+      const entry = results.find((r) => (r.metadata?.['path'] as string).includes('newline-rt'))
+      expect(entry!.metadata?.['description']).toBe('line one\nline two')
+    })
+
+    it('does not allow YAML frontmatter injection via description', async () => {
+      await store.add('real body', { title: 'inject-rt', description: 'intro\n---\nsecret: injected' })
+      const results = await store.search('real body')
+      const entry = results.find((r) => (r.metadata?.['path'] as string).includes('inject-rt'))
+      expect(entry!.content).toBe('real body')
+      expect(entry!.metadata?.['description']).toBe('intro\n---\nsecret: injected')
+    })
+
     it('writes to custom path when metadata.path is provided', async () => {
       await store.add('Check CloudWatch logs first', { path: 'operations/debugging', description: 'Debugging runbook' })
       const bytes = await storage.read('knowledge/operations/debugging.md')
@@ -147,6 +169,18 @@ describe('FileMemoryStore', () => {
       const keys = await storage.list('knowledge/')
       expect(keys).not.toContain('knowledge/operations/deploy.md.md')
       expect(keys).toContain('knowledge/operations/deploy.md')
+    })
+
+    it('does not overwrite an existing entry when slugs collide', async () => {
+      await store.add('Python is great')
+      await store.add('Python is great. But has a GIL.')
+      const keys = await storage.list('knowledge/facts/')
+      expect(keys).toHaveLength(2)
+      expect(keys).toContain('knowledge/facts/python-is-great.md')
+      expect(keys).toContain('knowledge/facts/python-is-great-1.md')
+      const first = decoder.decode((await storage.read('knowledge/facts/python-is-great.md'))!)
+      expect(first).toContain('Python is great')
+      expect(first).not.toContain('GIL')
     })
 
     it('uses Date.now fallback when content produces empty slug', async () => {
@@ -223,13 +257,13 @@ describe('FileMemoryStore', () => {
       expect(results).toHaveLength(1)
     })
 
-    it('ranks results by term frequency', async () => {
-      await store.add('dark mode dark mode dark mode repeated many times', {
-        title: 'dark-repeated',
-        description: 'Repeated dark mode mentions',
+    it('ranks results by number of distinct matching tokens', async () => {
+      await store.add('covers deploy, testing, and integration boundaries', {
+        title: 'broad-match',
+        description: 'Broad topic coverage',
       })
-      const results = await store.search('dark mode')
-      expect(results[0]!.metadata?.['path']).toContain('dark-repeated')
+      const results = await store.search('deploy testing integration')
+      expect(results[0]!.metadata?.['path']).toContain('broad-match')
     })
 
     it('includes knowledge/system/ files in results', async () => {
@@ -289,6 +323,24 @@ describe('FileMemoryStore', () => {
       const nullStore = new FileMemoryStore({ name: 'null-store', storage: nullStorage })
       const results = await nullStore.search('anything')
       expect(results).toEqual([])
+    })
+
+    it('skips keys where storage.read throws and still returns other matches', async () => {
+      const throwingStorage: Storage = {
+        async write(): Promise<void> {},
+        async read(key: string): Promise<Uint8Array | null> {
+          if (key.includes('broken')) throw new Error('EACCES: permission denied')
+          return encoder.encode('---\ndescription: "A good entry"\n---\n\nvalid content about deploy')
+        },
+        async delete(): Promise<void> {},
+        async list(): Promise<string[]> {
+          return ['knowledge/facts/broken.md', 'knowledge/facts/good.md']
+        },
+      }
+      const throwingStore = new FileMemoryStore({ name: 'throwing-store', storage: throwingStorage })
+      const results = await throwingStore.search('deploy')
+      expect(results).toHaveLength(1)
+      expect(results[0]!.content).toContain('valid content about deploy')
     })
   })
 })
