@@ -8,6 +8,9 @@ import logging
 import warnings
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
+from opentelemetry.trace import Span
+
+from ....telemetry.tracer import get_tracer
 from ....types._events import ToolInterruptEvent, ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
@@ -28,9 +31,13 @@ from ..types.events import (
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
+    BidiUsageEvent,
 )
+from . import _telemetry
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -69,6 +76,11 @@ class _BidiAgentLoop:
 
         self._send_gate = asyncio.Event()
 
+        self._tracer = get_tracer()
+        self._session_span: Span | None = None
+        self._accumulated_input_tokens = 0
+        self._accumulated_output_tokens = 0
+
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start the agent loop.
 
@@ -88,11 +100,31 @@ class _BidiAgentLoop:
         logger.debug("agent loop starting")
         await self._agent.hooks.invoke_callbacks_async(BidiBeforeInvocationEvent(agent=self._agent))
 
-        await self._agent.model.start(
+        self._session_span = _telemetry.start_session_span(
+            self._tracer,
+            agent_name=self._agent.name,
+            model_id=getattr(self._agent.model, "model_id", None),
+            tools=self._agent.tool_names,
             system_prompt=self._agent.system_prompt,
-            tools=self._agent.tool_registry.get_all_tool_specs(),
-            messages=self._agent.messages,
         )
+
+        connection_span = _telemetry.start_connection_span(
+            self._tracer, parent_span=self._session_span, model_id=getattr(self._agent.model, "model_id", None)
+        )
+        try:
+            await self._agent.model.start(
+                system_prompt=self._agent.system_prompt,
+                tools=self._agent.tool_registry.get_all_tool_specs(),
+                messages=self._agent.messages,
+            )
+        except Exception as error:
+            _telemetry.end_connection_span(self._tracer, connection_span, error=error)
+            _telemetry.end_session_span(self._tracer, self._session_span, error=error)
+            self._session_span = None
+            raise
+        _telemetry.end_connection_span(self._tracer, connection_span)
+        self._accumulated_input_tokens = 0
+        self._accumulated_output_tokens = 0
 
         self._event_queue = asyncio.Queue(maxsize=1)
 
@@ -120,6 +152,15 @@ class _BidiAgentLoop:
         try:
             await stop_all(stop_tasks, stop_model)
         finally:
+            if self._session_span:
+                _telemetry.end_session_span(
+                    self._tracer,
+                    self._session_span,
+                    input_tokens=self._accumulated_input_tokens,
+                    output_tokens=self._accumulated_output_tokens,
+                )
+                self._session_span = None
+
             await self._agent.hooks.invoke_callbacks_async(BidiAfterInvocationEvent(agent=self._agent))
 
     async def send(self, event: BidiInputEvent | ToolResultEvent) -> None:
@@ -186,6 +227,10 @@ class _BidiAgentLoop:
 
         self._send_gate.clear()
 
+        restart_span = _telemetry.start_restart_span(
+            self._tracer, parent_span=self._session_span, error_message=str(timeout_error)
+        )
+
         await self._agent.hooks.invoke_callbacks_async(BidiBeforeConnectionRestartEvent(self._agent, timeout_error))
 
         restart_exception = None
@@ -201,6 +246,8 @@ class _BidiAgentLoop:
         except Exception as exception:
             restart_exception = exception
         finally:
+            _telemetry.end_restart_span(self._tracer, restart_span, error=restart_exception)
+
             await self._agent.hooks.invoke_callbacks_async(
                 BidiAfterConnectionRestartEvent(self._agent, restart_exception)
             )
@@ -214,11 +261,23 @@ class _BidiAgentLoop:
         """
         logger.debug("model task starting")
 
+        response_span: Span | None = None
+
         try:
             async for event in self._agent.model.receive():
                 await self._event_queue.put(event)
 
-                if isinstance(event, BidiTranscriptStreamEvent):
+                if isinstance(event, BidiResponseStartEvent):
+                    response_span = _telemetry.start_response_span(
+                        self._tracer, event.response_id, parent_span=self._session_span
+                    )
+
+                elif isinstance(event, BidiResponseCompleteEvent):
+                    if response_span:
+                        _telemetry.end_response_span(self._tracer, response_span, stop_reason=event.stop_reason)
+                        response_span = None
+
+                elif isinstance(event, BidiTranscriptStreamEvent):
                     if event["is_final"]:
                         message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
                         await self._agent._append_messages(message)
@@ -228,6 +287,9 @@ class _BidiAgentLoop:
                     self._task_pool.create(self._run_tool(tool_use))
 
                 elif isinstance(event, BidiInterruptionEvent):
+                    if self._session_span:
+                        _telemetry.add_interruption_event(self._session_span, event["reason"])
+
                     await self._agent.hooks.invoke_callbacks_async(
                         BidiInterruptionHookEvent(
                             agent=self._agent,
@@ -236,8 +298,16 @@ class _BidiAgentLoop:
                         )
                     )
 
+                elif isinstance(event, BidiUsageEvent):
+                    self._accumulated_input_tokens += event.input_tokens
+                    self._accumulated_output_tokens += event.output_tokens
+
         except Exception as error:
             await self._event_queue.put(error)
+        finally:
+            if response_span:
+                _telemetry.end_response_span(self._tracer, response_span, stop_reason="error")
+                response_span = None
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model using the tool executor.
@@ -260,6 +330,8 @@ class _BidiAgentLoop:
             "messages": self._agent.messages,
             "system_prompt": self._agent.system_prompt,
         }
+
+        tool_call_span = self._tracer.start_tool_call_span(tool_use, parent_span=self._session_span)
 
         try:
             tool_events = self._agent.tool_executor._stream(
@@ -287,6 +359,8 @@ class _BidiAgentLoop:
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
 
+            self._tracer.end_tool_call_span(tool_call_span, tool_result_event.tool_result)
+
             # Check for stop_event_loop flag (set by strands_tools.stop, stop_conversation, or any custom tool)
             request_state = invocation_state.get("request_state", {})
             should_stop = request_state.get("stop_event_loop", False)
@@ -313,4 +387,5 @@ class _BidiAgentLoop:
             await self.send(tool_result_event)
 
         except Exception as error:
+            self._tracer.end_tool_call_span(tool_call_span, tool_result=None, error=error)
             await self._event_queue.put(error)
