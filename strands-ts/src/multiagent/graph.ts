@@ -39,10 +39,18 @@ import {
 } from './events.js'
 import type { EdgeDefinition } from './edge.js'
 import { Edge } from './edge.js'
-import { Queue } from './queue.js'
+import { Queue } from '../queue.js'
 import { Tracer } from '../telemetry/tracer.js'
 import type { Span } from '@opentelemetry/api'
 import { normalizeError } from '../errors.js'
+
+/**
+ * Data produced by a running node: a streaming event, a completion signal, or an error.
+ */
+type NodeExecutionOutput =
+  | { type: 'event'; node: Node; event: MultiAgentStreamEvent }
+  | { type: 'result'; node: Node; result: NodeResult }
+  | { type: 'error'; node: Node; error: Error }
 
 /**
  * Runtime configuration for graph execution.
@@ -268,7 +276,7 @@ export class Graph implements MultiAgent {
     const state = this._pendingInterruptState ?? new MultiAgentState({ nodeIds: [...this.nodes.keys()] })
     delete this._pendingInterruptState
 
-    const queue = new Queue()
+    const queue = new Queue<NodeExecutionOutput>()
     const streams = new Map<string, Promise<void>>()
 
     const multiAgentSpan = this._tracer.startMultiAgentSpan({
@@ -511,7 +519,7 @@ export class Graph implements MultiAgent {
     node: Node,
     input: MultiAgentInput,
     state: MultiAgentState,
-    queue: Queue,
+    queue: Queue<NodeExecutionOutput>,
     nodeSpan: Span | null,
     invocationState: InvocationState,
     executionSignal?: AbortSignal
