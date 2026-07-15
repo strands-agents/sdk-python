@@ -47,7 +47,8 @@ def _normalize_prefix(prefix: str) -> str:
     """Normalize a list prefix.
 
     Collapses slash runs, strips leading slashes. Unlike a key, an empty
-    prefix is valid and matches everything.
+    prefix is valid and matches everything. A trailing slash is preserved
+    because it is semantically significant for prefix matching.
 
     Args:
         prefix: The raw prefix to normalize.
@@ -145,7 +146,7 @@ class _NamespacedStorage:
     _namespaced = _NAMESPACED
 
     def __init__(self, storage: Storage, prefix: str) -> None:
-        normalized = _normalize_prefix(prefix)
+        normalized = _normalize_prefix(prefix).rstrip("/")
         self._storage = storage
         self._prefix = f"{normalized}/" if normalized else ""
 
@@ -169,3 +170,11 @@ class _NamespacedStorage:
     def namespace(self, prefix: str) -> _NamespacedStorage:
         """Return a further-scoped view by nesting prefixes."""
         return _NamespacedStorage(self._storage, f"{self._prefix}{prefix}")
+
+    def for_sandbox(self, sandbox: object) -> _NamespacedStorage:
+        """Delegate sandbox binding to the underlying storage and re-wrap."""
+        inner = self._storage
+        if not hasattr(inner, "for_sandbox"):
+            return self
+        bound = inner.for_sandbox(sandbox)  # type: ignore[union-attr]
+        return _NamespacedStorage(bound, self._prefix.rstrip("/"))

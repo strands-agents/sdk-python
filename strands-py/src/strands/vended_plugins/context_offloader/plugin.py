@@ -47,7 +47,7 @@ from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
 from .search import _is_searchable_content, _search_content
-from .storage import FileStorage, InMemoryStorage
+from .storage import InMemoryStorage
 from .storage import Storage as _LegacyStorage
 
 if TYPE_CHECKING:
@@ -248,8 +248,7 @@ class ContextOffloader(Plugin):
         """Return the storage for an agent, binding file-based storage to its sandbox.
 
         Any storage (or namespaced view) exposing ``for_sandbox()`` is bound once
-        per agent to that agent's sandbox. Legacy FileStorage is handled the same
-        way. All other backends are shared as-is.
+        per agent to that agent's sandbox. All other backends are shared as-is.
 
         Args:
             agent: The agent whose storage to resolve.
@@ -257,15 +256,11 @@ class ContextOffloader(Plugin):
         Returns:
             The storage instance for this agent.
         """
-        sandboxable = self._storage if hasattr(self._storage, "for_sandbox") else None
-        if sandboxable is None and not isinstance(self._storage, FileStorage):
+        if not hasattr(self._storage, "for_sandbox"):
             return self._storage
         storage = self._storage_by_agent.get(agent)
         if storage is None:
-            if sandboxable is not None:
-                storage = sandboxable.for_sandbox(agent.sandbox)
-            else:
-                storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
+            storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
             self._storage_by_agent[agent] = storage
         return storage
 
@@ -298,13 +293,17 @@ class ContextOffloader(Plugin):
         threshold = cycle - self._evict_after_cycles
         stale_keys = [key for key, stored_cycle in agent_cycles.items() if stored_cycle < threshold]
         if stale_keys:
+            evicted = 0
             for key in stale_keys:
                 try:
                     await storage.delete(key)  # type: ignore[union-attr]
                 except Exception:
                     logger.debug("key=<%s> | failed to evict stale entry", key)
+                    continue
                 del agent_cycles[key]
-            logger.debug("evicted=<%d>, cycle=<%d> | stale entries removed", len(stale_keys), cycle)
+                evicted += 1
+            if evicted:
+                logger.debug("evicted=<%d>, cycle=<%d> | stale entries removed", evicted, cycle)
 
     @tool(context=True)
     async def retrieve_offloaded_content(

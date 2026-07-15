@@ -118,6 +118,13 @@ class TestNamespacedStorage:
         await ns.write("key", b"data")
         assert await storage.read("key") == b"data"
 
+    @pytest.mark.asyncio
+    async def test_trailing_slash_prefix_does_not_corrupt_keys(self, storage):
+        ns = _NamespacedStorage(storage, "sessions/")
+        await ns.write("key1", b"hello")
+        keys = await ns.list("")
+        assert keys == ["key1"]
+
 
 class TestStorageProtocol:
     def test_isinstance_check(self):
