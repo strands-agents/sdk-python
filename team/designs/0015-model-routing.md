@@ -236,9 +236,8 @@ sequenceDiagram
 
 Routing is an optional capability passed to `Agent` through `model_router=`, beside the existing `model=`, with sensible defaults and single-model usage unchanged. A one-line fallback is trivial, and advanced strategies opt in.
 
-Candidate models live in the router's `models`, and the shape follows the strategy. Fallback takes an ordered list where order is the priority, and a selection strategy ranks over whatever candidates it is given. A model is only in the routing pool if it appears in `models`, so nothing lands in a group implicitly. `model=` stays the default for the no-router case and is optional once a router is set. `strategy` is a `RoutingStrategy` object, not a string, because strategies carry their own configuration and are the user extension point; a string shorthand for the zero-config built-ins may be offered as sugar, the same way `model=` accepts a `Model` or an id string.
+Candidate models live in the router's `models`, and the shape follows the strategy. Fallback takes an ordered list where order is the priority, and a selection strategy ranks over whatever candidates it is given. A model is only in the routing pool if it appears in `models`, so nothing lands in a group implicitly. `model=` stays the default for the no-router case and is optional once a router is set. `strategy` is a `RoutingStrategy` object, not a string, because strategies carry their own configuration and are the user extension point.
 
-The common case is a single strategy over a flat list:
 
 ```python
 haiku  = BedrockModel(model_id="anthropic.claude-3-5-haiku-20241022-v1:0")
@@ -249,20 +248,20 @@ opus   = AnthropicModel(model_id="claude-opus-4-1", temperature=0.2)
 agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=FallbackStrategy()))
 
 # Intelligent: rank all candidates by context fit and cost. Any number, no tier names.
-agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=ContextCostStrategy()))
+agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=ContextFitStrategy()))
 ```
 
 Nesting is only for composing different strategies at different levels; a single strategy always uses a flat list. For example, route by context between a small-model failover group and a large-context model:
 
 ```python
 escalating = ModelRouter(models=[haiku, sonnet], strategy=FallbackStrategy())
-agent = Agent(model_router=ModelRouter(models=[escalating, opus], strategy=ContextCostStrategy()))
+agent = Agent(model_router=ModelRouter(models=[escalating, opus], strategy=ContextFitStrategy()))
 ```
 
 Ranking a nested group with a metric strategy needs the group to report an aggregate context window and cost, which is an open question.
 
 ```python
-class ContextCostStrategy:
+class ContextFitStrategy:
     """Pick the cheapest candidate whose context window fits the request."""
 
     def select(self, ctx: RoutingContext) -> str:
@@ -310,6 +309,18 @@ Agent(model=..., model_router: ModelRouter | None = None)
 **P1: Cost-aware routing (follow-up).** Add price columns to the defaults table (`_defaults.py`), then a cost/latency objective.
 
 **P1: LLM-based routing (follow-up).** Agentic handoff, a classifier or semantic `select()`, a quality-driven cascade, and an evaluation harness. Routing with a classifier model, or letting the agent pick, is deferred rather than designed out. It adds a model call to the decision path (latency and cost on every route), and trustworthy use needs a decision model, a label or prompt scheme, and an evaluation harness. The quality-driven variant (cascade) additionally needs a verification or confidence signal the SDK does not expose yet. It fits the same abstraction, since an LLM router is just a `RoutingStrategy.select()` that calls a model internally, and it layers on top of the v1 router as its own workstream.
+
+## Extension path for advanced strategies
+
+The interface is built so advanced routing is added later without touching the event loop or the `Agent`. A proactive strategy implements `select()`, a reactive one implements `on_result()`, and both plug into the same `ModelRouter`. The strategies below are out of v1, but each has a clear path onto that interface. This is also where the capabilities in issue #364 (Bedrock-style intelligent prompt routing) land.
+
+**LLM, classifier, and semantic routing (complexity-based).** The heart of "intelligent prompt routing": send simple turns to a small, fast model and hard turns to a frontier model based on the *content* of the request rather than its token count. This is a `select()` that runs a classifier model, an embedding match, or a learned heuristic over the messages. It is deferred because it adds a model call to the decision path (latency and cost on every route) and needs a decision model, a label scheme, and an evaluation harness to trust. It changes nothing in the router; it is one more `RoutingStrategy`. This is the direct answer to #364's complex-query detection, and it is scoped as P1 above.
+
+**Quality-driven cascade.** Try a cheap model, inspect the result, and escalate to a stronger model when the answer is low-confidence. This is reactive, so it lives in `on_result()`, and it needs a confidence or verification signal the SDK does not expose yet.
+
+**Usage-aware routing and load balancing.** Spreading calls across models or deployments by load, rate limits, or cooldowns is expressible as a `select()` that reads live traffic state, but the state is the hard part. Within one process it is trivial (round-robin or a weighted pick). Truly global balancing needs state shared across every process and host, which a library cannot see on its own; it would require injecting an external store such as Redis or DynamoDB as the strategy's backend. When a global view is required a gateway is usually the better tool, so v1 delegates this, and the interface leaves the door open for a shared-state strategy if we later choose to own it.
+
+**Not routing: response caching.** Returning a stored answer for a common request is a *pre-routing short-circuit*, not a model choice, because a cache hit avoids the model call entirely. It composes with routing but sits in front of it, as a hook that cancels the call with a cached result (`BeforeModelCallEvent` already supports cancel) or as a dedicated caching layer. It is listed here because #364 asks for it, but it belongs to a separate caching feature rather than to model routing.
 
 ## Open Questions
 
