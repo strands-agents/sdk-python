@@ -14,6 +14,9 @@ const SCHEMA_VERSION = '1.0'
  * File-based implementation of SnapshotStorage.
  * Persists session snapshots to the local filesystem under a configurable base directory.
  *
+ * @deprecated Pass a unified `Storage` (e.g. `LocalFileStorage` from `@strands-agents/sdk/storage`)
+ * to `SessionManagerConfig.storage` instead. The session manager wraps it internally.
+ *
  * Directory layout:
  * ```
  * <baseDir>/<sessionId>/scopes/<scope>/<scopeId>/snapshots/
