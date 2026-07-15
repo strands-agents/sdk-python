@@ -14,6 +14,10 @@ Today a Strands `Agent` holds exactly one `Model`. It is resolved once in the co
 
 Model routing is a proposed feature that lets an agent decide *which model handles a call* at runtime instead of at construction. The model that serves a given call is chosen from the request, the conversation, cost, availability, or the phase of work, rather than binding one model for the life of the agent. The industry has been moving this way, and it matters more now that advanced models cost roughly 5x to 10x what smaller ones do, so sending cheap turns to cheap models is a real saving.
 
+### Related Issue/ Customer Request
+
+https://github.com/strands-agents/harness-sdk/issues/364
+
 ## Goals & Non-Goals
 
 Goals:
@@ -148,7 +152,7 @@ Routing inserts a decision step in front of the model call. The agent holds its 
 graph TD
     EL[Event loop terminal] -->|consults model_router| R[ModelRouter: first-class type, also a Plugin]
     R --> ST{RoutingStrategy.select}
-    ST -->|RoutingDecision| R
+    ST -->|selected candidate| R
     R -->|returns chosen candidate| EL
     EL -->|invoke| C1[Candidate: frontier]
     EL -->|invoke| C2[Candidate: cheap]
@@ -247,7 +251,7 @@ opus   = AnthropicModel(model_id="claude-opus-4-1", temperature=0.2)
 # Fallback: try in order, advance only on failure. Order is the priority.
 agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=FallbackStrategy()))
 
-# Intelligent: rank all candidates by context fit and cost. Any number, no tier names.
+# Intelligent: pick the smallest-context model that fits the request. Any number, no tier names.
 agent = Agent(model_router=ModelRouter(models=[haiku, sonnet, opus], strategy=ContextFitStrategy()))
 ```
 
@@ -262,14 +266,20 @@ Ranking a nested group with a metric strategy needs the group to report an aggre
 
 ```python
 class ContextFitStrategy:
-    """Pick the cheapest candidate whose context window fits the request."""
+    """Pick the smallest-context model that still fits the request.
 
-    def select(self, ctx: RoutingContext) -> str:
+    Uses only context_window_limit, so it ships in v1 with no cost data.
+    Smaller-window models are usually the cheaper, faster ones, so easy
+    turns stay on small models and only large prompts escalate.
+    """
+
+    async def select(self, ctx: RoutingContext) -> str:
         need = ctx.projected_input_tokens        # from the routing context
         fits = {name: m for name, m in ctx.candidates.items()
                 if m.context_window_limit is None or m.context_window_limit >= need}
         pool = fits or ctx.candidates            # nothing fits, consider all
-        return min(pool, key=lambda name: pool[name].cost)
+        # smallest sufficient window; unknown limits sort last
+        return min(pool, key=lambda name: pool[name].context_window_limit or float("inf"))
 ```
 
 Single-model usage is untouched: `Agent(model=BedrockModel())` and `Agent(model="claude-...")` behave exactly as today.
@@ -280,8 +290,8 @@ Single-model usage is untouched: `Agent(model=BedrockModel())` and `Agent(model=
 ```python
 class RoutingStrategy(Protocol):
     name: str
-    async def select(self, context: RoutingContext) -> RoutingDecision: ...          # proactive
-    async def on_result(self, context: RoutingResultContext) -> RoutingDecision | None: ...  # reactive (optional)
+    async def select(self, context: RoutingContext) -> str: ...          # proactive: returns the chosen candidate name
+    async def on_result(self, context: RoutingResultContext) -> str | None: ...  # reactive (optional): next candidate, or None
 
 
 Candidate = Union[Model, str, "ModelRouter"]
@@ -306,19 +316,19 @@ Agent(model=..., model_router: ModelRouter | None = None)
 
 **P0: Intelligent routing.** A signals-based `select()` on `count_tokens` and `context_window_limit`, with the routing decision emitted on the model-invoke span.
 
-**P1: Cost-aware routing (follow-up).** Add price columns to the defaults table (`_defaults.py`), then a cost/latency objective.
+**P1: Cost-aware routing (follow-up).** Add price columns to the defaults table (`_defaults.py`), then a cost/latency objective. With pricing available, `ContextFitStrategy` gains a cost-aware sibling that keeps the context-fit filter but ranks the survivors by price instead of window size, `min(fits, key=lambda name: fits[name].cost)`.
 
 **P1: LLM-based routing (follow-up).** Agentic handoff, a classifier or semantic `select()`, a quality-driven cascade, and an evaluation harness. Routing with a classifier model, or letting the agent pick, is deferred rather than designed out. It adds a model call to the decision path (latency and cost on every route), and trustworthy use needs a decision model, a label or prompt scheme, and an evaluation harness. The quality-driven variant (cascade) additionally needs a verification or confidence signal the SDK does not expose yet. It fits the same abstraction, since an LLM router is just a `RoutingStrategy.select()` that calls a model internally, and it layers on top of the v1 router as its own workstream.
 
 ## Extension path for advanced strategies
 
-The interface is built so advanced routing is added later without touching the event loop or the `Agent`. A proactive strategy implements `select()`, a reactive one implements `on_result()`, and both plug into the same `ModelRouter`. The strategies below are out of v1, but each has a clear path onto that interface. This is also where the capabilities in issue #364 (Bedrock-style intelligent prompt routing) land.
+The interface is built so advanced routing is added later without touching the event loop or the `Agent`. A proactive strategy implements `select()`, a reactive one implements `on_result()`, and both plug into the same `ModelRouter`. The strategies below can be follow up based on needs, and each has a clear path onto that interface. 
 
-**LLM, classifier, and semantic routing (complexity-based).** The heart of "intelligent prompt routing": send simple turns to a small, fast model and hard turns to a frontier model based on the *content* of the request rather than its token count. This is a `select()` that runs a classifier model, an embedding match, or a learned heuristic over the messages. It is deferred because it adds a model call to the decision path (latency and cost on every route) and needs a decision model, a label scheme, and an evaluation harness to trust. It changes nothing in the router; it is one more `RoutingStrategy`. This is the direct answer to #364's complex-query detection, and it is scoped as P1 above.
+**LLM, classifier, and semantic routing (complexity-based).** send simple turns to a small, fast model and hard turns to a frontier model based on the *content*, this is similar to `intention based routing in Maestro` This is a `select()` that runs a classifier model, an embedding match, or a learned heuristic over the messages. It is deferred because it adds a model call to the decision path (latency and cost on every route) and needs a decision model, a label scheme, and an evaluation harness to trust. It changes nothing in the router; it is one more `RoutingStrategy`. This is the direct answer to #364's complex-query detection, and it is scoped as P1 above.
 
-**Quality-driven cascade.** Try a cheap model, inspect the result, and escalate to a stronger model when the answer is low-confidence. This is reactive, so it lives in `on_result()`, and it needs a confidence or verification signal the SDK does not expose yet.
+**Quality-driven cascade.** Try a cheap model, inspect the result, and escalate to a stronger model when the answer is low-confidence. This is reactive, so it lives in `on_result()`, and it needs a confidence or verification signal the SDK does not expose yet, maybe some overlap with Eval.
 
-**Usage-aware routing and load balancing.** Spreading calls across models or deployments by load, rate limits, or cooldowns is expressible as a `select()` that reads live traffic state, but the state is the hard part. Within one process it is trivial (round-robin or a weighted pick). Truly global balancing needs state shared across every process and host, which a library cannot see on its own; it would require injecting an external store such as Redis or DynamoDB as the strategy's backend. When a global view is required a gateway is usually the better tool, so v1 delegates this, and the interface leaves the door open for a shared-state strategy if we later choose to own it.
+**Usage-aware routing and load balancing.** Spreading calls across models or deployments by load, rate limits, or cooldowns is expressible as a `select()` that reads live traffic state, but the state is the hard part. Within one process it is trivial (round-robin or a weighted pick). Truly global balancing needs state shared across every process and host; it would require injecting an external store such as Redis or DynamoDB as the strategy's backend. When a global view is required a gateway is usually the better tool, so v1 delegates this, and the interface leaves the door open for a shared-state strategy if we later choose to own it.
 
 **Not routing: response caching.** Returning a stored answer for a common request is a *pre-routing short-circuit*, not a model choice, because a cache hit avoids the model call entirely. It composes with routing but sits in front of it, as a hook that cancels the call with a cached result (`BeforeModelCallEvent` already supports cancel) or as a dedicated caching layer. It is listed here because #364 asks for it, but it belongs to a separate caching feature rather than to model routing.
 
