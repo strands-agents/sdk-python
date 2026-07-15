@@ -13,6 +13,7 @@
  */
 
 import type { AwsCredentialIdentity, AwsCredentialIdentityProvider } from '@smithy/types'
+import type { OpenAIApi } from './types.js'
 
 const MANTLE_DOCS_URL = 'https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html'
 
@@ -83,12 +84,20 @@ export function resolveMantleRegion(config: BedrockMantleConfig): string {
 }
 
 /**
- * Builds the Mantle base URL for a region.
+ * Builds the Mantle base URL for a region and API surface.
+ *
+ * Bedrock Mantle exposes two path prefixes:
+ *   - Responses API        → `/openai/v1` (hosted OpenAI models, e.g. `gpt-5.x`)
+ *   - Chat Completions API → `/v1`        (OSS models, e.g. `gpt-oss-*`)
+ *
+ * This mirrors the official `openai` SDK's Bedrock provider, which derives
+ * `.../openai/v1` for its Responses-based client.
  *
  * @internal
  */
-export function bedrockMantleBaseUrl(region: string): string {
-  return `https://bedrock-mantle.${region}.api.aws/v1`
+export function bedrockMantleBaseUrl(region: string, api: OpenAIApi): string {
+  const suffix = api === 'responses' ? '/openai/v1' : '/v1'
+  return `https://bedrock-mantle.${region}.api.aws${suffix}`
 }
 
 /**

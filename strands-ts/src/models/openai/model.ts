@@ -100,7 +100,7 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
     if (client) {
       this._client = client
     } else if (bedrockMantleConfig) {
-      this._client = buildMantleClient(bedrockMantleConfig, apiKey, clientConfig)
+      this._client = buildMantleClient(bedrockMantleConfig, apiKey, clientConfig, this._api)
     } else {
       const hasEnvKey =
         typeof process !== 'undefined' && typeof process.env !== 'undefined' && process.env.OPENAI_API_KEY
@@ -269,7 +269,8 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
 function buildMantleClient(
   bedrockMantleConfig: NonNullable<OpenAIModelOptions['bedrockMantleConfig']>,
   apiKey: OpenAIModelOptions['apiKey'],
-  clientConfig: OpenAIModelOptions['clientConfig']
+  clientConfig: OpenAIModelOptions['clientConfig'],
+  api: OpenAIApi
 ): OpenAI {
   if (apiKey !== undefined) {
     throw new Error(
@@ -292,7 +293,7 @@ function buildMantleClient(
 
   return new OpenAI({
     ...clientConfig,
-    baseURL: bedrockMantleBaseUrl(region),
+    baseURL: bedrockMantleBaseUrl(region, api),
     apiKey: createMantleApiKeySetter(bedrockMantleConfig, region),
   })
 }
