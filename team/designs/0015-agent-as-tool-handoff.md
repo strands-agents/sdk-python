@@ -51,9 +51,11 @@ However, there is currently no way to stop the orchestrator model from processin
 
 ## Proposal
 
+### API Surface
+
 The following API surfaces configure agent-as-tools to stream directly to the user without an additional orchestrator model call.
 
-### Recommended: `handoff` flag on `asTool()`
+#### Recommended: `handoff` flag on `asTool()`
 
 `Agent.asTool()` gains an optional `handoff` boolean. When `true`, the orchestrator loop treats the agent tool result as the final response and exits (not to be confused with multi-turn handoffs). It is orthogonal to existing options like `preserveContext`.
 
@@ -77,7 +79,7 @@ const orchestrator = new Agent({
 **Cons:**
 - Forces builders to call `.asTool()`, which is verbose especially when creating many handoff agent tools
 
-### Alternative: `handoffTarget` flag on sub-agents
+#### Alternative: `handoffTarget` flag on sub-agents
 
 Sub-agents declare themselves as handoff targets via a constructor option. The orchestrator passes raw `Agent` instances (not wrapped tools) to its `tools` array. The SDK auto-wraps them as tools and passes the `handoffTarget` into the tool constructor.
 
@@ -105,7 +107,7 @@ const orchestrator = new Agent({
 - Cannot express cases where an agent is both a handoff target in one orchestrator and a regular tool in another.
 - Adds a new config field to `Agent` that only has meaning when the agent is used as a tool, which leaks concerns.
 
-### Alternative: Dedicated `handoffAgentTools` field on orchestrator
+#### Alternative: Dedicated `handoffAgentTools` field on orchestrator
 
 `AgentConfig` gains a separate `handoffAgentTools` array alongside `tools`. Agents placed in `handoffAgentTools` are treated with handoff logic. Regular `tools` continue to work as before.
 
@@ -129,27 +131,117 @@ const orchestrator = new Agent({
 - Introduces a new top-level config field, expanding the `AgentConfig` surface area.
 - If non-agent tool handoffs are supported in the future, `handoffAgentTools` would need to be renamed and accept arbitrary `Tool` instances. This creates a deprecation path: either broaden the field's type (breaking the original contract) or introduce a replacement field and deprecate `handoffAgentTools`.
 
-### Agent Loop Changes
+### Handoff Mechanism
 
-Regardless of which API surface is chosen, the handoff behavior works inside the agent loop. When the agent loop builds the `toolSpecs` array for a model call, it appends a suffix to the description of any tool marked as a handoff target. The suffix resembles the following:
+Regardless of which API surface is chosen, a description suffix applied to the agent-as-tool during construction time if `handoff: true`. The suffix resembles the following:
 
 > "Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn."
 
-This nudges the model to treat the tool call as a terminal action, avoiding wasted tokens on preamble text, parallel tool calls, or post-processing plans. By appending the suffix at read time, the tool's description remains clean (reflecting only what the builder wrote or what was derived from the agent's description) and the handoff instruction remains at the model-calling boundary. This approach also extends naturally to non-agent tool handoffs in the future.
+This nudges the model to treat the tool call as a terminal action, avoiding wasted tokens on preamble text, parallel tool calls, or post-processing plans. The builder-provided description (or the agent's description) forms the first part, and the handoff instruction is appended as a trailing sentence.
+
+The potential handoff implementations are described in the proposals below. In both cases, the final AgentResult is passed a new `stopReason` of `handoff` for observability.
+
+### Recommended: Handoff Plugin
+
+This implements the handoff mechanism using a vended plugin that combines hooks (for control flow) with middleware (for result transformation). The SDK vends a `HandoffPlugin` that is auto-registered when any tool in the agent's tool list has `handoff: true`.
+
+The plugin subscribes to `BeforeToolsEvent` (TS) or the per-tool `BeforeToolCallEvent` (Python). When the model emits a handoff tool call alongside other tool calls in the same assistant message, the hook cancels all tool execution:
+
+```typescript
+agent.addHook(BeforeToolsEvent, (event) => {
+  const toolUseBlocks = event.message.content.filter(
+    (b): b is ToolUseBlock => b.type === 'toolUseBlock'
+  )
+  const hasHandoff = toolUseBlocks.some(b => isHandoffTool(agent, b.name))
+
+  if (hasHandoff && toolUseBlocks.length > 1) {
+    event.cancel =
+      'This tool call was not executed. A handoff tool must be the only ' +
+      'tool called in a turn. Retry with a single handoff tool call or ' +
+      'use only non-handoff tools.'
+  }
+})
+```
+
+`BeforeToolsEvent.cancel` (TS) produces error results for all tool-use blocks in the batch. In Python, per-tool `BeforeToolCallEvent.cancel` cancels each tool individually, achieving the same outcome. The model sees the error results and retries on the next turn. The retry counts against `limits.turns` as normal.
+
+After the single handoff tool executes successfully, the plugin ends the turn using the existing `endTurn: string` field. It extracts the text representation of the handoff result and stops the loop.
+
+```typescript
+agent.addHook(AfterToolsEvent, (event) => {
+  const handoffResult = findSuccessfulHandoff(agent, event.message)
+  if (handoffResult) {
+    this._handoffTriggered = true
+    // endTurn accepts a string — stops the loop with a text representation
+    event.endTurn = extractText(handoffResult)
+  }
+})
+```
+
+The plugin registers middleware on `AgentStreamStage` that wraps the entire agent stream. When a handoff was triggered, the middleware walks `agent.messages` to find the tool-result message containing the handoff `ToolResultBlock`, extracts its rich content, and replaces `AgentResult.lastMessage`:
+
+```typescript
+agent.addMiddleware(AgentStreamStage, async function* (context, next) {
+  const streamResult = yield* next(context)
+
+  if (!this._handoffTriggered) return streamResult
+  this._handoffTriggered = false
+
+  // The tool-result message is in history — find the handoff tool's result block
+  const toolResultMsg = context.agent.messages.findLast(
+    msg => msg.role === 'user' && msg.content.some(b => b.type === 'toolResultBlock')
+  )
+  const handoffBlock = toolResultMsg?.content.find(
+    (b): b is ToolResultBlock =>
+      b.type === 'toolResultBlock' && isHandoffToolId(context.agent, b.toolUseId)
+  )
+
+  if (handoffBlock?.status === 'success') {
+    return {
+      result: new AgentResult({
+        ...streamResult.result,
+        stopReason: 'handoff',
+        lastMessage: new Message({ role: 'assistant', content: handoffBlock.content }),
+      }),
+    }
+  }
+  return streamResult
+})
+```
+
+The middleware's sole responsibility is output transformation. It sets the AgentResult message to the rich content from the `ToolResultBlock` in the conversation history. The hook and middleware communicate only through a boolean flag (`_handoffTriggered`) on the plugin instance.
+
+**Pros:**
+- No handoff-specific branches in the agent loop. The loop stays general-purpose.
+- Reuses existing hook primitives (`BeforeToolsEvent.cancel`, `AfterToolsEvent.endTurn`) and middleware (`AgentStreamStage`) — validates that the existing extension points are expressive enough for complex control flow.
+
+**Cons:**
+- History divergence. For structured output (JSON, multi-block content), `AgentResult.lastMessage` and `agent.messages[-1]` point to different messages. The caller gets the rich content; history retains a text approximation. This breaks the invariant that `lastMessage` is the same object as the last history entry.
+
+### Alternative: Agent Loop Changes
+
+This approach modifies the agent loop directly.
 
 After `executeTools()` completes and the assistant message + tool-result message are appended to history, the loop checks for a successful handoff result:
 - If the handoff tool's result has `status: 'error'`, skip it and continue the normal loop so the model can recover or try a different tool.
-- If the `ToolResultBlock` has `status: 'success'`, return it as `AgentResult.lastMessage` with `stopReason: 'endTurn'`. The tool-result message (role: `assistant`) is the `lastMessage`.
+- If the `ToolResultBlock` has `status: 'success'`, return it as `AgentResult.lastMessage` with `stopReason: 'handoff'`. The tool-result message (role: `assistant`) is the `lastMessage`.
 
-#### Multiple Tool Calls in a Single Turn
+Despite the description suffix nudging the model to treat a handoff tool call as a terminal action, some models may still emit a handoff tool call alongside other tool calls in the same assistant message. When this happens, the agent loop rejects the turn **before executing any tools** and forces the model to retry with a single handoff call.
 
-When the model calls a handoff tool and other tools in the same turn despite the handoff tool description suffix, all tools execute to completion. Afterwards, all tool use and tool result blocks are appended to history.
-- If there are non-handoff tools, they are not passed back to the orchestrator model
-- If there are multiple handoff tools, the first successful result in tool use order is returned to respect model intent. This can be achieved by iterating on the `ToolUseBlock`s in the assistant message and checking the corresponding `ToolResultBlock`. 
+**Detection.** After the model returns a `toolUse` stop reason, the loop inspects the assistant message's `ToolUseBlock`s. If the message contains a handoff tool call *and* one or more other tool calls (handoff or non-handoff), the turn is invalid.
 
-Other potential ways to handle multiple tool calls include:
-- Continuing the agent loop if multiple handoff tool calls are detected. This forces the model to choose a single handoff target, but adds a model call and risks an infinite loop if the model uses the same set of tools on subsequent turns.
-- Concatenating the handoff tool results together. Langchain uses a similar approach where they append each ToolMessage response to a list and return the entire list. However, `AgentResult.lastMessage` is currently a `Message`, not a `Message` array. If sub-agent responses are concatenated into the same message object, any structured data they produce breaks.
+**Recovery.** The loop appends the assistant message to history along with a synthetic tool-result message containing error results for every tool use in the turn. Each error result carries a message explaining the constraint:
+
+> "This tool call was not executed. A handoff tool must be the only tool called in a turn. Retry with a single handoff tool call or use only non-handoff tools."
+
+The loop then continues to the next model call. The model sees the error results in context and can correct its behavior, either calling the handoff tool alone or falling back to non-handoff tools.
+
+**Pros:**
+- Full control over `AgentResult` construction. The loop can set any `stopReason`, attach arbitrary metadata, and shape the `lastMessage` directly without being constrained by the hook API surface.
+
+**Cons:**
+- Adds handoff-specific branches to the agent loop, increasing loop complexity and coupling it to a feature that not all agents use.
+- Sets a precedent for future features to add their own loop branches rather than composing via hooks.
 
 ## Developer Experience
 
@@ -310,25 +402,6 @@ orchestrator = Agent(
 
 result = orchestrator("I need a schema for a User with name, email, and an array of roles")
 # result contains raw JSON Schema — no orchestrator paraphrasing
-parsed = json.loads(result.message["content"][0]["text"])
-```
-
-### Edge Cases
-
-**Handoff tool returns an error.** The loop continues normally. The model receives the error in the tool result and can retry or choose a different tool.
-
-**Model calls handoff tool alongside other tools.** All tools execute. The handoff result is returned; non-handoff results remain in history but are not fed back to the model.
-
-**Same agent used as handoff in one orchestrator and regular tool in another.** Each `.asTool()` call creates an independent instance:
-
-```typescript
-const researcher = new Agent({ name: 'Researcher', description: '...' })
-
-// Orchestrator A: researcher is a handoff target
-const orchestratorA = new Agent({ tools: [researcher.asTool({ handoff: true })] })
-
-// Orchestrator B: researcher is a regular tool (results feed back for synthesis)
-const orchestratorB = new Agent({ tools: [researcher.asTool()] })
 ```
 
 ## Consequences
@@ -340,7 +413,6 @@ const orchestratorB = new Agent({ tools: [researcher.asTool()] })
 
 **What becomes more difficult:**
 
-- Understanding parallel tool-call behavior. If the model calls a handoff agent tool alongside other tools, the non-handoff results are "lost" from the model's perspective (they exist in history but are never reasoned over). Builders need to understand that the description suffix discourages this, but doesn't prevent it.
 - Understanding the difference between handoff agent tools and regular tools. When used incorrectly, users may encounter unexpected handoffs. The builder must ensure their system prompt and tool descriptions guide routing correctly.
 
 ## Willingness to Implement
