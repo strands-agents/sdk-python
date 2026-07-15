@@ -1,0 +1,209 @@
+---
+title: Chat with your Strands agent from Slack using Welt
+community: true
+description: Slack front end for Strands agents on Amazon Bedrock AgentCore — streaming replies, file exchange, and human-in-the-loop approvals in Slack threads
+integrationType: integration
+sidebar:
+  label: "Welt"
+project:
+  pypi: https://pypi.org/project/welt-io-strands/
+  npm: https://www.npmjs.com/package/@welt-io/strands
+  github: https://github.com/iwamot/welt
+  maintainer: iwamot
+service:
+  name: Slack
+  link: https://slack.com/
+---
+
+[Welt](https://github.com/iwamot/welt) is a self-hosted Slack front end for agents running on Amazon Bedrock AgentCore Runtime. Mention the agent in a channel or DM and it streams the reply into the thread; Slack uploads reach the agent as Converse file blocks, generated files come back as thread uploads, and a run that pauses for human input renders as Slack buttons and text fields — Strands interrupts become approval UIs your whole team can see and answer.
+
+Welt drives the agent through a small JSON wire contract, and each Strands SDK has an adapter for it: [`welt-io-strands`](https://github.com/iwamot/welt-io-strands) for Python, [`@welt-io/strands`](https://github.com/iwamot/welt-io-strands-ts) for TypeScript. Either way it is the same five functions, translating between the wire's JSON and Strands values in both directions.
+
+## Installation
+
+<Tabs>
+<Tab label="Python">
+
+```bash
+pip install welt-io-strands
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```bash
+npm install @welt-io/strands
+```
+
+</Tab>
+</Tabs>
+
+## Usage
+
+A complete AgentCore entrypoint with a human-approval tool:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from bedrock_agentcore.runtime import BedrockAgentCoreApp
+from strands import Agent, ToolContext, tool
+from welt_io_strands import (
+    decode_interrupt_responses,
+    decode_messages,
+    interrupt_reason,
+    renderable_events,
+)
+
+app = BedrockAgentCoreApp()
+
+# Where an interrupted Agent waits for its answers. One slot is enough:
+# AgentCore Runtime runs each session in its own microVM.
+_interrupted_agent: Agent | None = None
+
+
+@tool(context=True)
+def deploy(tool_context: ToolContext, target: str) -> str:
+    """Deploy after a human approves in the Slack thread."""
+    answer = tool_context.interrupt(
+        "deploy-approval",
+        reason=interrupt_reason(
+            f"Deploy {target} to production?",
+            [
+                {"value": "y", "label": "Deploy", "style": "primary"},
+                {"value": "n", "label": "Cancel"},
+            ],
+        ),
+    )
+    return f"Deployed {target}." if answer == "y" else "Deployment cancelled."
+
+
+@app.entrypoint
+async def invoke(payload: dict):
+    global _interrupted_agent
+
+    if "interrupt_responses" in payload:  # a human answered the buttons
+        agent = _interrupted_agent
+        _interrupted_agent = None
+        if agent is None:  # the microVM was recycled while the buttons waited
+            raise RuntimeError("No interrupted agent to resume in this session.")
+        stream = agent.stream_async(
+            decode_interrupt_responses(payload["interrupt_responses"])
+        )
+    else:  # a conversation turn, as Converse-shaped messages
+        agent = Agent(tools=[deploy], callback_handler=None)
+        stream = agent.stream_async(decode_messages(payload["messages"]))
+
+    interrupted = False
+    async for event in renderable_events(stream):
+        if "interrupt" in event:
+            interrupted = True
+        yield event
+    if interrupted:
+        _interrupted_agent = agent
+
+
+app.run()
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```ts
+import { Agent, tool } from "@strands-agents/sdk";
+import type { RenderableEvent } from "@welt-io/strands";
+import {
+  decodeInterruptResponses,
+  decodeMessages,
+  interruptReason,
+  renderableEvents,
+} from "@welt-io/strands";
+import { BedrockAgentCoreApp } from "bedrock-agentcore/runtime";
+import { z } from "zod";
+
+// Where an interrupted Agent waits for its answers. One slot is enough:
+// AgentCore Runtime runs each session in its own microVM.
+let interruptedAgent: Agent | null = null;
+
+const deploy = tool({
+  name: "deploy",
+  description: "Deploy after a human approves in the Slack thread.",
+  inputSchema: z.object({ target: z.string() }),
+  callback: ({ target }, context) => {
+    if (context === undefined) {
+      throw new Error("This tool needs its execution context to interrupt.");
+    }
+    const answer = context.interrupt<string>({
+      name: "deploy-approval",
+      reason: interruptReason(`Deploy ${target} to production?`, [
+        { value: "y", label: "Deploy", style: "primary" },
+        { value: "n", label: "Cancel" },
+      ]),
+    });
+    return answer === "y" ? `Deployed ${target}.` : "Deployment cancelled.";
+  },
+});
+
+// Each event is wrapped as `{data: event}`: the AgentCore SDK reads the
+// SSE payload from a yielded object's `data` field.
+async function* replies(
+  agent: Agent,
+  stream: AsyncIterable<unknown>,
+): AsyncGenerator<{ data: RenderableEvent }> {
+  let interrupted = false;
+  for await (const event of renderableEvents(stream)) {
+    if ("interrupt" in event) {
+      interrupted = true;
+    }
+    yield { data: event };
+  }
+  if (interrupted) {
+    interruptedAgent = agent;
+  }
+}
+
+const app = new BedrockAgentCoreApp({
+  invocationHandler: {
+    process: async function* (payload: unknown) {
+      const record = payload as Record<string, unknown>;
+
+      if ("interrupt_responses" in record) {
+        // A human answered the buttons.
+        const agent = interruptedAgent;
+        interruptedAgent = null;
+        if (agent === null) {
+          // The microVM was recycled while the buttons waited.
+          throw new Error("No interrupted agent to resume in this session.");
+        }
+        const responses = decodeInterruptResponses(record.interrupt_responses);
+        yield* replies(agent, agent.stream(responses));
+        return;
+      }
+
+      // A conversation turn, as Converse-shaped messages.
+      const agent = new Agent({ tools: [deploy], printer: false });
+      yield* replies(agent, agent.stream(decodeMessages(record.messages)));
+    },
+  },
+});
+
+app.run();
+```
+
+</Tab>
+</Tabs>
+
+Deploy this to AgentCore Runtime, point Welt at its agent ARN, and mention the bot in Slack. Strands' ready-made [`HumanInTheLoop`](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/human-in-the-loop/) intervention also works over Welt as-is.
+
+## Configuration
+
+The adapters themselves have nothing to configure — all configuration lives on the Welt side (Slack tokens, the agent ARN, feature toggles), covered by [Welt's README](https://github.com/iwamot/welt#readme). For local development, Welt runs against the AgentCore SDK's local server without any deployment.
+
+## References
+
+- [Welt](https://github.com/iwamot/welt) — the Slack front end (Quick Start, feature docs)
+- [welt-io-strands](https://github.com/iwamot/welt-io-strands) — the Python adapter's repo and API docs
+- [welt-io-strands-ts](https://github.com/iwamot/welt-io-strands-ts) — the TypeScript adapter's repo and API docs
+- Example agents ([Python](https://github.com/iwamot/welt-io-strands/tree/main/examples/agent), [TypeScript](https://github.com/iwamot/welt-io-strands-ts/tree/main/examples/agent)) — the snippets above, complete and deployable
+- [Wire contract](https://github.com/iwamot/welt/blob/main/docs/wire.md) — the JSON protocol the adapters implement
+- [Interrupts over Slack](https://github.com/iwamot/welt/blob/main/docs/interrupts.md) — how each reason shape renders
