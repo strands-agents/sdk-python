@@ -264,6 +264,7 @@ Common configuration parameters include:
 - `cache_prompt` - Cache point type for the system prompt (deprecated, use `cache_config`)
 - `cache_config` - Configuration for prompt caching (e.g., `CacheConfig(strategy="auto")`)
 - `cache_tools` - Enable tool caching
+- `strict_tools` - Enforce structured output on tool definitions. Bedrock's strict mode restricts which JSON Schema features tool input schemas may use (for example, `oneOf` is unsupported), so a schema that uses an unsupported feature fails at request time. See the [Bedrock structured output documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html)
 - `boto_session` - Custom boto3 session for AWS credentials
 - `additional_request_fields` - Additional model-specific parameters
 </Tab>

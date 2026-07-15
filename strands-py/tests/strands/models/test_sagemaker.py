@@ -682,3 +682,186 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+class TestSageMakerReasoningContent:
+    """Tests for vLLM reasoning field support in streaming and non-streaming paths."""
+
+    @pytest.mark.asyncio
+    async def test_stream_reasoning_with_reasoning_field(self, sagemaker_client, model, messages):
+        """vLLM v0.16.0+ sends reasoning in 'reasoning' field instead of 'reasoning_content'."""
+        mock_response = {
+            "Body": [
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
+                            {"choices": [{"delta": {"reasoning": "Let me think..."}, "finish_reason": None}]}
+                        ).encode("utf-8")
+                    }
+                },
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
+                            {"choices": [{"delta": {"content": "Paris."}, "finish_reason": "stop"}]}
+                        ).encode("utf-8")
+                    }
+                },
+            ]
+        }
+        sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        reasoning_deltas = [
+            e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        ]
+        assert len(reasoning_deltas) == 1
+        assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "Let me think..."
+
+    @pytest.mark.asyncio
+    async def test_stream_reasoning_with_reasoning_content_field(self, sagemaker_client, model, messages):
+        """Old vLLM versions send reasoning in 'reasoning_content' field."""
+        mock_response = {
+            "Body": [
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
+                            {"choices": [{"delta": {"reasoning_content": "Thinking..."}, "finish_reason": None}]}
+                        ).encode("utf-8")
+                    }
+                },
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
+                            {"choices": [{"delta": {"content": "Paris."}, "finish_reason": "stop"}]}
+                        ).encode("utf-8")
+                    }
+                },
+            ]
+        }
+        sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        reasoning_deltas = [
+            e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        ]
+        assert len(reasoning_deltas) == 1
+        assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "Thinking..."
+
+    @pytest.mark.asyncio
+    async def test_stream_reasoning_prefers_reasoning_content_over_reasoning(self, sagemaker_client, model, messages):
+        """When both fields are present, reasoning_content takes precedence."""
+        mock_response = {
+            "Body": [
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
+                            {
+                                "choices": [
+                                    {
+                                        "delta": {"reasoning_content": "From old field", "reasoning": "From new field"},
+                                        "finish_reason": "stop",
+                                    }
+                                ]
+                            }
+                        ).encode("utf-8")
+                    }
+                },
+            ]
+        }
+        sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        reasoning_deltas = [
+            e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        ]
+        assert len(reasoning_deltas) == 1
+        assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "From old field"
+
+    @pytest.mark.asyncio
+    async def test_stream_reasoning_skips_none_values(self, sagemaker_client, model, messages):
+        """Reasoning fields with None values should not emit reasoning content."""
+        mock_response = {
+            "Body": [
+                {
+                    "PayloadPart": {
+                        "Bytes": json.dumps(
+                            {
+                                "choices": [
+                                    {
+                                        "delta": {"reasoning_content": None, "reasoning": None, "content": "Hello"},
+                                        "finish_reason": "stop",
+                                    }
+                                ]
+                            }
+                        ).encode("utf-8")
+                    }
+                },
+            ]
+        }
+        sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        reasoning_deltas = [
+            e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        ]
+        assert len(reasoning_deltas) == 0
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_reasoning_with_reasoning_field(self, sagemaker_client, model, messages):
+        """Non-streaming path: vLLM v0.16.0+ sends reasoning in 'reasoning' field."""
+        model.payload_config["stream"] = False
+
+        mock_response = {"Body": unittest.mock.MagicMock()}
+        mock_response["Body"].read.return_value = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {"content": "Paris.", "reasoning": "Let me think...", "tool_calls": None},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "prompt_tokens_details": 0},
+            }
+        ).encode("utf-8")
+
+        sagemaker_client.invoke_endpoint.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        reasoning_deltas = [
+            e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        ]
+        assert len(reasoning_deltas) == 1
+        assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "Let me think..."
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_reasoning_with_reasoning_content_field(self, sagemaker_client, model, messages):
+        """Non-streaming path: old vLLM versions send reasoning in 'reasoning_content' field."""
+        model.payload_config["stream"] = False
+
+        mock_response = {"Body": unittest.mock.MagicMock()}
+        mock_response["Body"].read.return_value = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {"content": "Paris.", "reasoning_content": "Thinking...", "tool_calls": None},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30, "prompt_tokens_details": 0},
+            }
+        ).encode("utf-8")
+
+        sagemaker_client.invoke_endpoint.return_value = mock_response
+
+        response = [chunk async for chunk in model.stream(messages)]
+
+        reasoning_deltas = [
+            e for e in response if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        ]
+        assert len(reasoning_deltas) == 1
+        assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "Thinking..."

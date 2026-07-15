@@ -219,6 +219,8 @@ pip install strands-agents[bidi]
 pip install strands-agents[bidi,bidi-io]
 ```
 
+> **Note**: Amazon Nova Sonic requires Python 3.12+ due to its experimental AWS SDK dependency.
+
 **Quick Example:**
 
 ```python
@@ -226,20 +228,19 @@ import asyncio
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.tools import stop_conversation
-from strands_tools import calculator
+from strands_tools import calculator, stop
 
 async def main():
     # Create bidirectional agent with Nova Sonic v2
     model = BidiNovaSonicModel()
-    agent = BidiAgent(model=model, tools=[calculator, stop_conversation])
+    agent = BidiAgent(model=model, tools=[calculator, stop])
 
     # Setup audio and text I/O (requires bidi-io extra)
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
 
     # Run with real-time audio streaming
-    # Say "stop conversation" to gracefully end the conversation
+    # stop tool allows user to verbally stop agent execution
     await agent.run(
         inputs=[audio_io.input()],
         outputs=[audio_io.output(), text_io.output()]

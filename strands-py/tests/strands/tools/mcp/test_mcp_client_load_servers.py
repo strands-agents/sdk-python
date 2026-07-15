@@ -139,7 +139,14 @@ def test_expands_tilde_in_command_and_cwd(mock_client, transports):
 def test_prefix_and_startup_timeout_passed(mock_client, transports):
     MCPClient.load_servers({"srv": {"command": "node", "prefix": "p", "startup_timeout": 5}})
     _, kwargs = mock_client[0]
-    assert kwargs == {"startup_timeout": 5, "tool_filters": None, "prefix": "p", "continue_on_error": False}
+    assert kwargs == {
+        "startup_timeout": 5,
+        "tool_filters": None,
+        "prefix": "p",
+        "continue_on_error": False,
+        "application_name": "srv",
+        "application_version": None,
+    }
 
 
 def test_default_startup_timeout(mock_client, transports):
@@ -149,6 +156,8 @@ def test_default_startup_timeout(mock_client, transports):
         "tool_filters": None,
         "prefix": None,
         "continue_on_error": False,
+        "application_name": "srv",
+        "application_version": None,
     }
 
 
