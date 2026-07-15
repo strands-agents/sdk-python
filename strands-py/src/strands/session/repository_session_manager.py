@@ -2,6 +2,7 @@
 
 import copy
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from ..agent.state import AgentState
@@ -46,6 +47,15 @@ class RepositorySessionManager(SessionManager):
             **kwargs: Additional keyword arguments for future extensibility.
 
         """
+        # Subclasses (FileSessionManager, S3SessionManager) emit their own, more specific
+        # deprecation warning; only warn when RepositorySessionManager is used directly.
+        if type(self) is RepositorySessionManager:
+            warnings.warn(
+                "RepositorySessionManager is deprecated and will be removed in Strands SDK 2.0. "
+                "Use SnapshotSessionManager with a Storage backend instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.session_repository = session_repository
         self.session_id = session_id
         session = session_repository.read_session(session_id)
@@ -279,9 +289,7 @@ class RepositorySessionManager(SessionManager):
 
         for index in reversed(tool_use_indices):
             message = messages[index]
-            tool_use_ids = [
-                content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
-            ]
+            tool_use_ids = [content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content]
 
             next_message = messages[index + 1]
             next_content = next_message["content"]

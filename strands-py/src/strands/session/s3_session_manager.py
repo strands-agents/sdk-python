@@ -2,6 +2,7 @@
 
 import json
 import logging
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any, cast
 
@@ -70,6 +71,12 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 or VPC endpoints (PrivateLink)
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        warnings.warn(
+            "S3SessionManager is deprecated and will be removed in Strands SDK 2.0. "
+            "Use SnapshotSessionManager with an S3Storage instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.bucket = bucket
         self.prefix = prefix
 

@@ -5,6 +5,7 @@ import logging
 import os
 import shutil
 import tempfile
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 from .. import _identifier
@@ -55,6 +56,12 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             storage_dir: Directory for local filesystem storage (defaults to temp dir).
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        warnings.warn(
+            "FileSessionManager is deprecated and will be removed in Strands SDK 2.0. "
+            "Use SnapshotSessionManager with a LocalFileStorage instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
         os.makedirs(self.storage_dir, exist_ok=True)
 
