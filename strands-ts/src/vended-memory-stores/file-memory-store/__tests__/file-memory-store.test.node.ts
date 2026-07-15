@@ -215,26 +215,50 @@ describe('FileMemoryStore', () => {
 
     it('returns matching entries by keyword in content', async () => {
       const results = await store.search('dark mode')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.content).toContain('dark mode')
+      expect(results[0]).toEqual({
+        content: 'User prefers dark mode for all editors',
+        metadata: {
+          path: 'knowledge/facts/dark-mode.md',
+          description: 'Theme preference: dark mode',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('matches against filenames', async () => {
       const results = await store.search('deploy')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.metadata?.['path']).toContain('deploy')
+      expect(results[0]).toEqual({
+        content: 'Deploy process uses blue-green strategy',
+        metadata: {
+          path: 'knowledge/facts/deploy.md',
+          description: 'Deployment pipeline details',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('matches against description frontmatter', async () => {
       const results = await store.search('integration-first')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.metadata?.['description']).toContain('Integration-first')
+      expect(results[0]).toEqual({
+        content: 'Testing philosophy: integration first, mock at boundaries',
+        metadata: {
+          path: 'knowledge/facts/testing.md',
+          description: 'Integration-first testing approach',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('is case-insensitive', async () => {
       const results = await store.search('DARK MODE')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.content).toContain('dark mode')
+      expect(results[0]).toEqual({
+        content: 'User prefers dark mode for all editors',
+        metadata: {
+          path: 'knowledge/facts/dark-mode.md',
+          description: 'Theme preference: dark mode',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('returns empty array for no matches', async () => {
@@ -263,7 +287,14 @@ describe('FileMemoryStore', () => {
         description: 'Broad topic coverage',
       })
       const results = await store.search('deploy testing integration')
-      expect(results[0]!.metadata?.['path']).toContain('broad-match')
+      expect(results[0]).toEqual({
+        content: 'covers deploy, testing, and integration boundaries',
+        metadata: {
+          path: 'knowledge/facts/broad-match.md',
+          description: 'Broad topic coverage',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('includes knowledge/system/ files in results', async () => {
@@ -278,35 +309,60 @@ describe('FileMemoryStore', () => {
 
     it('returns entries with path and description in metadata', async () => {
       const results = await store.search('deploy')
-      expect(results[0]!.metadata?.['path']).toBe('knowledge/facts/deploy.md')
-      expect(results[0]!.metadata?.['description']).toBe('Deployment pipeline details')
+      expect(results[0]).toEqual({
+        content: 'Deploy process uses blue-green strategy',
+        metadata: {
+          path: 'knowledge/facts/deploy.md',
+          description: 'Deployment pipeline details',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('returns body content without frontmatter', async () => {
       const results = await store.search('blue-green')
-      expect(results[0]!.content).not.toContain('---')
-      expect(results[0]!.content).not.toContain('description:')
-      expect(results[0]!.content).toContain('blue-green strategy')
+      expect(results[0]).toEqual({
+        content: 'Deploy process uses blue-green strategy',
+        metadata: {
+          path: 'knowledge/facts/deploy.md',
+          description: 'Deployment pipeline details',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('handles multi-word queries by scoring each term independently', async () => {
       const results = await store.search('integration boundaries')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.metadata?.['path']).toContain('testing')
+      expect(results[0]).toEqual({
+        content: 'Testing philosophy: integration first, mock at boundaries',
+        metadata: {
+          path: 'knowledge/facts/testing.md',
+          description: 'Integration-first testing approach',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('searches across subdirectories', async () => {
       await store.add('Check CloudWatch logs first', { path: 'operations/debugging', description: 'Debugging runbook' })
       const results = await store.search('CloudWatch')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.metadata?.['path']).toBe('knowledge/operations/debugging.md')
+      expect(results[0]).toEqual({
+        content: 'Check CloudWatch logs first',
+        metadata: {
+          path: 'knowledge/operations/debugging.md',
+          description: 'Debugging runbook',
+          _relevanceScore: expect.any(Number),
+        },
+      })
     })
 
     it('searches files without frontmatter', async () => {
       await storage.write('knowledge/facts/plain.md', encoder.encode('Retry with exponential backoff'))
       const results = await store.search('exponential backoff')
-      expect(results.length).toBeGreaterThanOrEqual(1)
-      expect(results[0]!.content).toContain('exponential backoff')
+      expect(results[0]).toEqual({
+        content: 'Retry with exponential backoff',
+        metadata: { path: 'knowledge/facts/plain.md', description: '', _relevanceScore: expect.any(Number) },
+      })
     })
 
     it('skips keys where storage returns null', async () => {
@@ -339,8 +395,16 @@ describe('FileMemoryStore', () => {
       }
       const throwingStore = new FileMemoryStore({ name: 'throwing-store', storage: throwingStorage })
       const results = await throwingStore.search('deploy')
-      expect(results).toHaveLength(1)
-      expect(results[0]!.content).toContain('valid content about deploy')
+      expect(results).toEqual([
+        {
+          content: 'valid content about deploy',
+          metadata: {
+            path: 'knowledge/facts/good.md',
+            description: 'A good entry',
+            _relevanceScore: expect.any(Number),
+          },
+        },
+      ])
     })
   })
 })

@@ -110,32 +110,37 @@ export class FileMemoryStore implements MemoryStore {
     if (queryTokens.size === 0) return []
 
     const allKeys = await this._storage.list(KNOWLEDGE_PREFIX)
-    const scored: Array<{ entry: MemoryEntry; score: number }> = []
 
-    for (const key of allKeys) {
-      try {
-        const bytes = await this._storage.read(key)
-        if (!bytes) continue
+    const scored = (
+      await Promise.all(
+        allKeys.map(async (key) => {
+          try {
+            const bytes = await this._storage.read(key)
+            if (!bytes) return null
 
-        const content = decoder.decode(bytes)
-        const { description, body } = parseFrontmatter(content)
-        const searchable = `${basename(key)} ${description} ${body}`
+            const content = decoder.decode(bytes)
+            const { description, body } = parseFrontmatter(content)
+            const searchable = `${basename(key)} ${description} ${body}`
 
-        let score = 0
-        for (const token of tokenize(searchable)) {
-          if (queryTokens.has(token)) score++
-        }
+            let score = 0
+            for (const token of tokenize(searchable)) {
+              if (queryTokens.has(token)) score++
+            }
 
-        if (score > 0) {
-          scored.push({
-            entry: { content: body.trim(), metadata: { path: key, description, _relevanceScore: score } },
-            score,
-          })
-        }
-      } catch {
-        continue
-      }
-    }
+            if (score === 0) return null
+            return {
+              entry: {
+                content: body.trim(),
+                metadata: { path: key, description, _relevanceScore: score },
+              } as MemoryEntry,
+              score,
+            }
+          } catch {
+            return null
+          }
+        })
+      )
+    ).filter((s): s is { entry: MemoryEntry; score: number } => s !== null)
 
     scored.sort((a, b) => b.score - a.score)
     return scored.slice(0, maxResults).map((s) => s.entry)
@@ -150,7 +155,7 @@ export class FileMemoryStore implements MemoryStore {
    * @param content - The knowledge content to store
    * @param metadata - Optional metadata: `title`, `description`, and `path` (custom target path)
    */
-  async add(content: string, metadata?: Record<string, JSONValue>): Promise<void> {
+  async add(content: string, metadata?: Record<string, JSONValue>): Promise<string> {
     const customPath = metadata?.['path'] as string | undefined
     const title = (metadata?.['title'] as string | undefined) ?? slugify(content.split(/[.\n]/)[0]!.slice(0, 60))
     const description = (metadata?.['description'] as string | undefined) ?? content.split(/[.\n]/)[0]!.slice(0, 120)
@@ -163,8 +168,10 @@ export class FileMemoryStore implements MemoryStore {
       const slug = slugify(title) || `entry-${Date.now()}`
       key = `${FACTS_PREFIX}${slug}.md`
 
+      // Best-effort collision avoidance for a single-writer local store (TOCTOU is acceptable).
+      const existingKeys = new Set(await this._storage.list(FACTS_PREFIX))
       let suffix = 1
-      while (await this._storage.read(key)) {
+      while (existingKeys.has(key)) {
         key = `${FACTS_PREFIX}${slug}-${suffix}.md`
         suffix++
       }
@@ -172,5 +179,6 @@ export class FileMemoryStore implements MemoryStore {
 
     const fileContent = `---\ndescription: ${JSON.stringify(description)}\n---\n\n${content}\n`
     await this._storage.write(key, encoder.encode(fileContent))
+    return key
   }
 }
