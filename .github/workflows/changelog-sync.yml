@@ -55,11 +55,8 @@ jobs:
       # Keep the bot fork's default branch current with upstream before opening
       # PRs from it. create-pull-request cuts the PR branch from the fork's base;
       # if the fork is behind, the branch diff picks up files that changed
-      # upstream since. NOTE: whenever upstream changed anything under
-      # .github/workflows/, both this sync and the branch push below require the
-      # PAT to carry the `workflow` scope (in addition to public_repo) -- without
-      # it GitHub rejects the operation with HTTP 422 / "refusing to allow a
-      # Personal Access Token to ... update workflow ... without workflow scope".
+      # upstream since. Requires the PAT to carry the `workflow` scope --
+      # see CHANGELOG-SYNC.md (token scopes + recovery runbook).
       # continue-on-error: a failed/flaky sync (409 divergence, transient API
       # hiccup) must not abort a run that would otherwise succeed -- if the sync
       # was actually needed, the create-pull-request push below fails anyway with
