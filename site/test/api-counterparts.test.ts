@@ -64,6 +64,21 @@ describe('buildApiCounterpartMap', () => {
     expect(map.has('docs/api/python/strands.agent.a2a_agent')).toBe(false)
   })
 
+  it('treats regex metacharacters in module ids literally', () => {
+    // A module id containing regex metacharacters must not let "x" match the
+    // "x+y" wildcard position, and must still match its own anchors exactly.
+    const metaEntries: ApiDocEntry[] = [
+      {
+        id: 'docs/api/python/strands.x+y',
+        body: '<a id="strands.x+y.Widget"></a>\n<a id="strands.xxy.Impostor"></a>',
+      },
+      { id: 'docs/api/typescript/Widget', body: '' },
+      { id: 'docs/api/typescript/Impostor', body: '' },
+    ]
+    const metaMap = buildApiCounterpartMap(metaEntries)
+    expect(metaMap.get('docs/api/python/strands.x+y')).toBe('/docs/api/typescript/Widget/')
+  })
+
   it('does not pair the section index pages', () => {
     expect(map.has('docs/api/typescript')).toBe(false)
     expect(map.has('docs/api/python')).toBe(false)

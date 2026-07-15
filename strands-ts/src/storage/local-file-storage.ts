@@ -159,7 +159,7 @@ export class LocalFileStorage implements Storage {
    */
   async list(prefix: string): Promise<string[]> {
     const normalized = normalizePrefix(prefix)
-    const base = this._baseDir.replace(/\/+$/, '')
+    const base = this._baseDir.replace(/\/$/, '')
     // Narrow the walk to the deepest directory the prefix fully specifies
     const lastSlash = normalized.lastIndexOf('/')
     const dirPortion = lastSlash >= 0 ? normalized.slice(0, lastSlash) : ''
@@ -171,7 +171,7 @@ export class LocalFileStorage implements Storage {
   }
 
   private _pathFor(key: string): string {
-    const base = this._baseDir.replace(/\/+$/, '')
+    const base = this._baseDir.replace(/\/$/, '')
     return `${base}/${key}`
   }
 
@@ -229,8 +229,16 @@ export class LocalFileStorage implements Storage {
     return walk(dir, keyPrefix)
   }
 
-  /** Returns a prefixed view of this storage without mutating the original. */
-  namespace(prefix: string): Storage {
-    return namespace(this, prefix)
+  /**
+   * Returns a prefixed view of this storage without mutating the original.
+   * The returned view preserves `forSandbox` for single-level namespacing;
+   * nested `.namespace()` calls on the view do not carry sandbox routing.
+   */
+  namespace(prefix: string): Storage & { forSandbox(sandbox: Sandbox): Storage } {
+    const view = namespace(this, prefix)
+    return {
+      ...view,
+      forSandbox: (sandbox: Sandbox): Storage => namespace(this.forSandbox(sandbox), prefix),
+    }
   }
 }
