@@ -89,9 +89,7 @@ def _unframe_content(frame: bytes) -> tuple[bytes, str]:
         raise ValueError(f"Corrupt storage frame: expected at least 2 bytes, got {len(frame)}")
     ct_len = (frame[0] << 8) | frame[1]
     if len(frame) < 2 + ct_len:
-        raise ValueError(
-            f"Corrupt storage frame: content-type length {ct_len} exceeds frame size {len(frame)}"
-        )
+        raise ValueError(f"Corrupt storage frame: content-type length {ct_len} exceeds frame size {len(frame)}")
     content_type = frame[2 : 2 + ct_len].decode("utf-8")
     content = frame[2 + ct_len :]
     return content, content_type
@@ -225,9 +223,7 @@ class ContextOffloader(Plugin):
 
         self._raw_storage: Storage | _LegacyStorage = storage
         self._storage: Storage | _LegacyStorage = self._resolve_storage(storage)
-        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage | _LegacyStorage] = (
-            weakref.WeakKeyDictionary()
-        )
+        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage | _LegacyStorage] = weakref.WeakKeyDictionary()
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
@@ -260,7 +256,7 @@ class ContextOffloader(Plugin):
             return self._storage
         storage = self._storage_by_agent.get(agent)
         if storage is None:
-            storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
+            storage = self._storage.for_sandbox(agent.sandbox)
             self._storage_by_agent[agent] = storage
         return storage
 

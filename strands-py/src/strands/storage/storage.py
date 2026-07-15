@@ -176,5 +176,5 @@ class _NamespacedStorage:
         inner = self._storage
         if not hasattr(inner, "for_sandbox"):
             return self
-        bound = inner.for_sandbox(sandbox)  # type: ignore[union-attr]
+        bound = inner.for_sandbox(sandbox)
         return _NamespacedStorage(bound, self._prefix.rstrip("/"))
