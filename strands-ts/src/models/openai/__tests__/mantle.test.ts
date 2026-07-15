@@ -60,7 +60,7 @@ describe('OpenAIModel bedrockMantleConfig', () => {
 
       expect(OpenAI).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseURL: 'https://bedrock-mantle.us-east-1.api.aws/openai/v1',
+          baseURL: 'https://bedrock-mantle.us-east-1.api.aws/v1',
           apiKey: expect.any(Function),
         })
       )
@@ -120,7 +120,7 @@ describe('OpenAIModel bedrockMantleConfig', () => {
 
       expect(OpenAI).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseURL: 'https://bedrock-mantle.us-east-1.api.aws/openai/v1',
+          baseURL: 'https://bedrock-mantle.us-east-1.api.aws/v1',
           apiKey: expect.any(Function),
           timeout: 42,
           fetch: http,
@@ -137,27 +137,55 @@ describe('OpenAIModel bedrockMantleConfig', () => {
       ).not.toThrow()
     })
 
-    it('derives the /openai/v1 base URL for the default (responses) api', () => {
-      new OpenAIModel({
-        modelId: 'openai.gpt-5.6-luna',
-        bedrockMantleConfig: { region: 'us-west-2' },
-      })
-      expect(OpenAI).toHaveBeenCalledWith(
-        expect.objectContaining({ baseURL: 'https://bedrock-mantle.us-west-2.api.aws/openai/v1' })
-      )
-    })
-
-    it('derives the /v1 base URL for api: "chat" and mints a bearer token', async () => {
+    it('mints a bearer token regardless of api mode', async () => {
       new OpenAIModel({
         api: 'chat',
         modelId: TEST_MODEL_ID,
         bedrockMantleConfig: { region: 'us-east-1' },
       })
-      expect(OpenAI).toHaveBeenCalledWith(
-        expect.objectContaining({ baseURL: 'https://bedrock-mantle.us-east-1.api.aws/v1' })
-      )
       const apiKey = await lastApiKeySetter()()
       expect(apiKey).toBe(TEST_TOKEN)
+    })
+  })
+
+  // The Mantle base path is keyed by model family, not API surface:
+  // `openai.gpt-5.*` is served from `/openai/v1`, everything else from `/v1`,
+  // on both the responses and chat/completions endpoints.
+  describe('base path resolution by model family', () => {
+    const baseURLFor = (options: ConstructorParameters<typeof OpenAIModel>[0]): string => {
+      new OpenAIModel(options)
+      const calls = (OpenAI as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      return (calls[calls.length - 1]![0] as { baseURL: string }).baseURL
+    }
+
+    it('uses /openai/v1 for gpt-5.* on the responses api', () => {
+      expect(baseURLFor({ modelId: 'openai.gpt-5.6-luna', bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
+        'https://bedrock-mantle.us-west-2.api.aws/openai/v1'
+      )
+    })
+
+    it('uses /openai/v1 for gpt-5.* on the chat api', () => {
+      expect(
+        baseURLFor({ api: 'chat', modelId: 'openai.gpt-5.6-luna', bedrockMantleConfig: { region: 'us-west-2' } })
+      ).toBe('https://bedrock-mantle.us-west-2.api.aws/openai/v1')
+    })
+
+    it('uses /v1 for gpt-oss-* on the responses api', () => {
+      expect(baseURLFor({ modelId: 'openai.gpt-oss-120b', bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
+        'https://bedrock-mantle.us-west-2.api.aws/v1'
+      )
+    })
+
+    it('uses /v1 for gpt-oss-* on the chat api', () => {
+      expect(
+        baseURLFor({ api: 'chat', modelId: 'openai.gpt-oss-120b', bedrockMantleConfig: { region: 'us-west-2' } })
+      ).toBe('https://bedrock-mantle.us-west-2.api.aws/v1')
+    })
+
+    it('matches only Bedrock-style ids: openai.gpt-5.* → /openai/v1, bare gpt-5.* → /v1', () => {
+      expect(baseURLFor({ modelId: 'gpt-5.4', bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
+        'https://bedrock-mantle.us-west-2.api.aws/v1'
+      )
     })
   })
 
@@ -221,7 +249,7 @@ describe('OpenAIModel bedrockMantleConfig', () => {
         new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: {} })
         await lastApiKeySetter()()
         expect(OpenAI).toHaveBeenCalledWith(
-          expect.objectContaining({ baseURL: 'https://bedrock-mantle.eu-west-1.api.aws/openai/v1' })
+          expect.objectContaining({ baseURL: 'https://bedrock-mantle.eu-west-1.api.aws/v1' })
         )
         expect(getTokenProviderMock).toHaveBeenCalledWith({ region: 'eu-west-1' })
       })
