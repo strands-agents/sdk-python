@@ -1,26 +1,17 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Queue } from '../queue.js'
-import type { QueueData } from '../queue.js'
-import type { Node } from '../nodes.js'
-import { NodeResult, Status } from '../state.js'
 
 describe('Queue', () => {
-  let queue: Queue
-  let mockNode: Node
+  let queue: Queue<{ value: string }>
 
   beforeEach(() => {
-    mockNode = { id: 'node-1' } as Node
-    queue = new Queue()
+    queue = new Queue<{ value: string }>()
   })
 
   describe('push and shift', () => {
     it('dequeues in FIFO order', () => {
-      const data1: QueueData = {
-        type: 'result',
-        node: mockNode,
-        result: new NodeResult({ nodeId: 'node-1', status: Status.COMPLETED, duration: 10 }),
-      }
-      const data2: QueueData = { type: 'error', node: mockNode, error: new Error('fail') }
+      const data1 = { value: 'first' }
+      const data2 = { value: 'second' }
 
       queue.push(data1)
       queue.push(data2)
@@ -34,7 +25,7 @@ describe('Queue', () => {
     })
 
     it('provides a no-op ack for fire-and-forget pushes', () => {
-      queue.push({ type: 'error', node: mockNode, error: new Error('a') })
+      queue.push({ value: 'a' })
       const entry = queue.shift()!
       expect(() => entry.ack()).not.toThrow()
     })
@@ -42,7 +33,7 @@ describe('Queue', () => {
 
   describe('send', () => {
     it('resolves when consumer calls ack', async () => {
-      const data: QueueData = { type: 'error', node: mockNode, error: new Error('a') }
+      const data = { value: 'a' }
       let resolved = false
 
       const waiting = queue.send(data).then(() => {
@@ -68,8 +59,8 @@ describe('Queue', () => {
     it('reflects the current number of entries', () => {
       expect(queue.size).toBe(0)
 
-      queue.push({ type: 'error', node: mockNode, error: new Error('a') })
-      queue.push({ type: 'error', node: mockNode, error: new Error('b') })
+      queue.push({ value: 'a' })
+      queue.push({ value: 'b' })
       expect(queue.size).toBe(2)
 
       queue.shift()
@@ -79,7 +70,7 @@ describe('Queue', () => {
 
   describe('wait', () => {
     it('resolves immediately when entries are available', async () => {
-      queue.push({ type: 'error', node: mockNode, error: new Error('a') })
+      queue.push({ value: 'a' })
 
       await queue.wait()
 
@@ -96,7 +87,7 @@ describe('Queue', () => {
       await Promise.resolve()
       expect(resolved).toBe(false)
 
-      queue.push({ type: 'error', node: mockNode, error: new Error('a') })
+      queue.push({ value: 'a' })
 
       await waiting
       expect(resolved).toBe(true)
@@ -112,9 +103,8 @@ describe('Queue', () => {
       await Promise.resolve()
       expect(resolved).toBe(false)
 
-      const data: QueueData = { type: 'error', node: mockNode, error: new Error('a') }
       // Don't await send — it won't resolve until ack
-      const sending = queue.send(data)
+      const sending = queue.send({ value: 'a' })
 
       await waiting
       expect(resolved).toBe(true)
@@ -128,8 +118,7 @@ describe('Queue', () => {
   describe('dispose', () => {
     it('resolves pending send acks and drains entries', async () => {
       let resolved = false
-      const data: QueueData = { type: 'error', node: mockNode, error: new Error('a') }
-      const sending = queue.send(data).then(() => {
+      const sending = queue.send({ value: 'a' }).then(() => {
         resolved = true
       })
 
@@ -147,8 +136,7 @@ describe('Queue', () => {
     it('causes future send calls to resolve immediately', async () => {
       queue.dispose()
 
-      const data: QueueData = { type: 'error', node: mockNode, error: new Error('a') }
-      await queue.send(data)
+      await queue.send({ value: 'a' })
 
       expect(queue.size).toBe(0)
     })
