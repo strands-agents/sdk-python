@@ -1,16 +1,14 @@
 """Telemetry helpers for bidirectional streaming agent.
 
 Wraps the shared Tracer primitives with bidi-specific span creation and attribute names.
+Uses Tracer._start_span/_end_span directly rather than adding bidi-specific public methods
+to the shared Tracer class, keeping experimental bidi telemetry self-contained.
 """
-
-import logging
 
 from opentelemetry.trace import Span
 
 from ....telemetry.tracer import Tracer, serialize
 from ....types.traces import AttributeValue
-
-logger = logging.getLogger(__name__)
 
 
 def start_session_span(

@@ -17,6 +17,18 @@ import pytest_asyncio
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
 
+from strands import tool
+from strands.experimental.bidi import BidiAgent
+from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
+from strands.experimental.bidi.types.events import (
+    BidiInterruptionEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiUsageEvent,
+)
+from strands.types._events import ToolUseStreamEvent
+
 
 class _InMemoryExporter(SpanExporter):
     """Collects finished spans in a list for test assertions."""
@@ -33,19 +45,6 @@ class _InMemoryExporter(SpanExporter):
 
     def get_finished_spans(self):
         return list(self.spans)
-
-
-from strands import tool
-from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
-from strands.experimental.bidi.types.events import (
-    BidiInterruptionEvent,
-    BidiResponseCompleteEvent,
-    BidiResponseStartEvent,
-    BidiTextInputEvent,
-    BidiUsageEvent,
-)
-from strands.types._events import ToolUseStreamEvent
 
 
 @tool(name="mock_tool")
@@ -184,7 +183,7 @@ async def test_response_span_records_stop_reason(loop, agent, agenerator, otel_s
 
     spans = otel_setup.get_finished_spans()
     response_spans = [s for s in spans if "bidi_response" in s.name]
-    assert len(response_spans) >= 1
+    assert len(response_spans) == 1
     assert response_spans[0].attributes["gen_ai.response.finish_reason"] == "interrupted"
 
 
