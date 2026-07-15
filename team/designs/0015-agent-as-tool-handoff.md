@@ -39,7 +39,7 @@ However, there is currently no way to stop the orchestrator model from processin
 **Goals:**
 
 - Intuitive API surface for telling agents to directly return an agent-as-tool response
-- Mechanism for streaming sub-agent results directly to the user without additional orchestrator reasoning
+- Mechanism for returning sub-agent results directly to the user without additional orchestrator reasoning
 - Handle edge case where multiple agent-as-tools are handed off to in the same turn
 - Can be extended in the future to directly return non-agent tool results
 - Compatible with both TypeScript and Python SDKs
@@ -55,7 +55,7 @@ The following API surfaces configure agent-as-tools to stream directly to the us
 
 ### Recommended: `handoff` flag on `asTool()`
 
-`Agent.asTool()` gains an optional `handoff` boolean. When `true`, the orchestrator loop treats the agent tool result as the final response and exits.
+`Agent.asTool()` gains an optional `handoff` boolean. When `true`, the orchestrator loop treats the agent tool result as the final response and exits (not to be confused with multi-turn handoffs). It is orthogonal to existing options like `preserveContext`.
 
 ```typescript
 const customerService = new Agent({...})
@@ -139,13 +139,13 @@ This nudges the model to treat the tool call as a terminal action, avoiding wast
 
 After `executeTools()` completes and the assistant message + tool-result message are appended to history, the loop checks for a successful handoff result:
 - If the handoff tool's result has `status: 'error'`, skip it and continue the normal loop so the model can recover or try a different tool.
-- If the `ToolResultBlock` has `status: 'success'`, return it as `AgentResult.lastMessage` with `stopReason: 'endTurn'`. The tool-result message (role: `user`) is the `lastMessage` — no synthetic assistant message is created.
+- If the `ToolResultBlock` has `status: 'success'`, return it as `AgentResult.lastMessage` with `stopReason: 'endTurn'`. The tool-result message (role: `assistant`) is the `lastMessage`.
 
 #### Multiple Tool Calls in a Single Turn
 
 When the model calls a handoff tool and other tools in the same turn despite the handoff tool description suffix, all tools execute to completion. Afterwards, all tool use and tool result blocks are appended to history.
-- If there are non-handoff tools, they are not passed back to thea orchestrator model
-- If there are multiple handoff tools, the first successful result in tool use order is returned. This can be achieved by iterating on the `ToolUseBlock`s in the assistant message and checking the corresponding `ToolResultBlock`. 
+- If there are non-handoff tools, they are not passed back to the orchestrator model
+- If there are multiple handoff tools, the first successful result in tool use order is returned to respect model intent. This can be achieved by iterating on the `ToolUseBlock`s in the assistant message and checking the corresponding `ToolResultBlock`. 
 
 Other potential ways to handle multiple tool calls include:
 - Continuing the agent loop if multiple handoff tool calls are detected. This forces the model to choose a single handoff target, but adds a model call and risks an infinite loop if the model uses the same set of tools on subsequent turns.
@@ -265,6 +265,52 @@ const orchestrator = new Agent({
 
 // orchestrator → CustomerService → Billing (two handoffs, zero post-processing calls)
 await orchestrator.invoke("Where's my refund for order #12345?")
+```
+
+### Structured Output Preservation
+
+A sub-agent produces JSON that must reach the caller verbatim. The handoff flag ensures the orchestrator never paraphrases or reformats the response.
+
+```typescript
+const schemaGenerator = new Agent({
+  name: 'SchemaGenerator',
+  description: 'Generates a JSON Schema from a natural-language description of a data model',
+  systemPrompt: `You are a JSON Schema expert. Return ONLY valid JSON Schema (no markdown fences, no commentary).`,
+})
+
+const orchestrator = new Agent({
+  name: 'APIDesigner',
+  systemPrompt: 'You help users design APIs. When the user describes a data model, delegate to the schema generator.',
+  tools: [
+    schemaGenerator.asTool({ handoff: true }),
+  ],
+})
+
+const result = await orchestrator.invoke('I need a schema for a User with name, email, and an array of roles')
+// result.lastMessage contains raw JSON Schema — no orchestrator paraphrasing
+```
+
+```python
+from strands import Agent
+import json
+
+schema_generator = Agent(
+    name="SchemaGenerator",
+    description="Generates a JSON Schema from a natural-language description of a data model",
+    system_prompt="You are a JSON Schema expert. Return ONLY valid JSON Schema (no markdown fences, no commentary).",
+)
+
+orchestrator = Agent(
+    name="APIDesigner",
+    system_prompt="You help users design APIs. When the user describes a data model, delegate to the schema generator.",
+    tools=[
+        schema_generator.as_tool(handoff=True),
+    ],
+)
+
+result = orchestrator("I need a schema for a User with name, email, and an array of roles")
+# result contains raw JSON Schema — no orchestrator paraphrasing
+parsed = json.loads(result.message["content"][0]["text"])
 ```
 
 ### Edge Cases
