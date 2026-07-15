@@ -71,7 +71,9 @@ def _normalize_dynamic_path(path: str | Path) -> str:
     """Normalize a dynamic skill path for use as a stable origin key.
 
     Strips surrounding whitespace and trailing slashes so that ``./repo/skills`` and
-    ``./repo/skills/`` refer to the same loaded path.
+    ``./repo/skills/`` refer to the same loaded path. The filesystem root (``"/"``)
+    is preserved rather than stripped to the empty string. Paths use the sandbox
+    convention of ``/`` separators (as everywhere else in this plugin).
 
     Args:
         path: The raw path provided by the agent or caller.
@@ -79,7 +81,11 @@ def _normalize_dynamic_path(path: str | Path) -> str:
     Returns:
         The normalized path string (may be empty if the input was blank).
     """
-    return str(path).strip().rstrip("/")
+    text = str(path).strip()
+    if not text:
+        return ""
+    stripped = text.rstrip("/")
+    return stripped if stripped else "/"
 
 
 def _find_skill_md_name(entries: list[FileInfo]) -> str | None:
@@ -122,7 +128,9 @@ class AgentSkills(Plugin):
     it is re-loaded). Dynamic skills can never shadow the skills configured on the
     plugin. The matching programmatic methods (``load_skills_for`` /
     ``unload_skills_for``) are available regardless of the flag, which only controls
-    the tool surface exposed to the model.
+    the tool surface exposed to the model. Note that dynamically loaded SKILL.md
+    content reaches the system prompt, so only enable the flag when sandbox contents
+    are trusted (see ``dynamic_loading`` in ``__init__``).
 
     Filesystem paths are read through the agent's sandbox at ``init_agent`` time,
     so each agent loads the skills present on its own filesystem (host or
@@ -177,6 +185,15 @@ class AgentSkills(Plugin):
                 from directories in its sandbox at runtime and remove them again. Defaults to
                 False, which keeps the tool surface and system prompt output identical to
                 previous releases.
+
+                .. warning::
+                    Skill content is injected into the system prompt (descriptions) and
+                    returned verbatim on activation (instructions). ``dynamic_loading`` lets
+                    the *model* pull SKILL.md content from anywhere in its sandbox - including
+                    repositories it cloned - so untrusted skill content becomes a prompt
+                    injection vector. Only enable it when the sandbox contents are trusted, or
+                    pair it with instructions/guardrails for treating loaded skills as
+                    untrusted input.
         """
         self._strict = strict
         self._state_key = state_key
@@ -199,9 +216,11 @@ class AgentSkills(Plugin):
         # ``skills`` method); ``dynamic_loading`` uses the action-based variant with load/unload
         # actions (the ``dynamic_skills`` method, published under the ``skills`` tool name). The
         # variants share a tool name, so filtering is by the defining method's name.
-        wanted_method = "dynamic_skills" if dynamic_loading else "skills"
-        # getattr: functools.update_wrapper copies __name__ onto DecoratedFunctionTool at runtime.
-        self._tools = [t for t in self._tools if getattr(t, "__name__", None) == wanted_method]
+        # Remove only the non-matching variant (rather than keeping the matching one) so
+        # additional @tool methods defined by subclasses are preserved. getattr:
+        # functools.update_wrapper copies __name__ onto DecoratedFunctionTool at runtime.
+        unwanted_method = "skills" if dynamic_loading else "dynamic_skills"
+        self._tools = [t for t in self._tools if getattr(t, "__name__", None) != unwanted_method]
 
     async def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
@@ -250,7 +269,8 @@ class AgentSkills(Plugin):
         - for example a ``skills/`` folder inside a repository you just cloned. Loaded
         skills appear in available_skills and are activated the same way; loading the same
         path again refreshes it (picking up edits and removals), and ``unload`` removes the
-        skills a path contributed.
+        skills a path contributed (if one of them had overridden a skill from another loaded
+        path, re-load that path to restore its version).
 
         Args:
             action: ``"activate"`` to receive a skill's full instructions, ``"load"`` to
@@ -328,11 +348,15 @@ class AgentSkills(Plugin):
         """
         agent = event.agent
 
-        # Lazily load filesystem skills if this agent has not been initialized yet
-        # Keeps skills correct
-        # after set_available_skills, which clears the per-agent cache.
+        # Lazily load filesystem skills if this agent has not been initialized yet,
+        # or after set_available_skills cleared the per-agent cache.
         if agent not in self._agent_skills:
             await self._load_skill_paths(agent)
+
+        # Session managers replace agent.state wholesale AFTER init_agent ran (on
+        # AgentInitializedEvent), so dynamic paths restored from a persisted session are
+        # only visible now. Load any recorded path that is not contributing skills yet.
+        await self._reconcile_dynamic_paths(agent)
 
         self._inject_skills(agent)
 
@@ -353,6 +377,7 @@ class AgentSkills(Plugin):
             return
         if event.agent not in self._agent_skills:
             await self._load_skill_paths(event.agent)
+        await self._reconcile_dynamic_paths(event.agent)
         self._inject_skills(event.agent)
 
     def _inject_skills(self, agent: Agent) -> None:
@@ -574,14 +599,34 @@ class AgentSkills(Plugin):
                     len(skipped),
                 )
 
+    async def _reconcile_dynamic_paths(self, agent: Agent) -> None:
+        """Load any dynamic path recorded in agent state that is not contributing skills yet.
+
+        Complements :meth:`_restore_dynamic_paths` for the session-manager case: session
+        managers replace ``agent.state`` wholesale after ``init_agent`` already ran, so
+        paths recorded in a persisted session only become visible at hook time. Paths that
+        already contributed at least one skill are left untouched (a live ``load`` refresh
+        stays an explicit action). Fail-soft like restore: a recorded path that cannot be
+        loaded (e.g. the clone does not exist in this sandbox yet) contributes nothing and
+        is retried on the next hook, so it starts working the moment the path appears.
+
+        Args:
+            agent: The agent whose recorded paths to reconcile.
+        """
+        contributing = set(self._dynamic_origins.get(agent, {}).values())
+        for dyn_path in self._dynamic_paths(agent):
+            if dyn_path not in contributing:
+                await self._load_dynamic_path(agent, dyn_path, persist=False)
+
     async def _load_dynamic_path(
         self, agent: Agent, path: str, *, persist: bool
     ) -> tuple[list[str], list[str], list[str]]:
         """Load (or re-load) skills from a dynamic path into an agent's skill set.
 
         Re-loading has refresh semantics: the skills this path contributed before are
-        dropped first, then the current disk state is loaded, so edits are picked up and
-        skills deleted on disk disappear. A dynamic skill may never shadow a skill
+        dropped first, then the current disk state is loaded (across an ``await``, so
+        concurrent loads of the same path may interleave; last write wins), so edits are
+        picked up and skills deleted on disk disappear. A dynamic skill may never shadow a skill
         configured on the plugin (skipped with a warning); a collision between two dynamic
         paths keeps the most recent load.
 
@@ -652,6 +697,9 @@ class AgentSkills(Plugin):
         """
         state_data = agent.state.get(self._state_key)
         paths = state_data.get("dynamic_paths", []) if isinstance(state_data, dict) else []
+        if not isinstance(paths, list):
+            # Fail-soft on corrupted state (it is externally persisted JSON).
+            return []
         return [str(p) for p in paths]
 
     def _render_load_result(self, path: str, added: list[str], skipped: list[str], removed: list[str]) -> str:
@@ -711,7 +759,9 @@ class AgentSkills(Plugin):
         Programmatic counterpart to the ``skills`` tool's ``unload`` action, available
         regardless of the ``dynamic_loading`` flag. The path is also removed from the
         recorded state, so it is not restored on the next run. Unloading a path that
-        contributed nothing is a no-op.
+        contributed nothing is a no-op. Skills are removed outright: if one of them had
+        overridden a same-named skill from another dynamic path, the earlier version is
+        not resurrected automatically - re-load that path to restore it.
 
         Args:
             agent: The agent to unload the skills from.
