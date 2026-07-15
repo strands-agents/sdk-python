@@ -16,6 +16,7 @@ import pytest
 import pytest_asyncio
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult
+from opentelemetry.trace import StatusCode
 
 from strands import tool
 from strands.experimental.bidi import BidiAgent
@@ -27,7 +28,7 @@ from strands.experimental.bidi.types.events import (
     BidiTextInputEvent,
     BidiUsageEvent,
 )
-from strands.types._events import ToolUseStreamEvent
+from strands.types._events import ToolResultMessageEvent, ToolUseStreamEvent
 
 
 class _InMemoryExporter(SpanExporter):
@@ -118,7 +119,7 @@ async def test_session_span_closed_on_stop(loop, agent, agenerator):
 
 
 @pytest.mark.asyncio
-async def test_session_span_records_error_on_start_failure(loop, agent):
+async def test_session_span_records_error_on_start_failure(loop, agent, otel_setup):
     """Session and connection spans record error when model.start() fails."""
     agent.model.start = unittest.mock.AsyncMock(side_effect=ConnectionError("bad credentials"))
 
@@ -126,6 +127,16 @@ async def test_session_span_records_error_on_start_failure(loop, agent):
         await loop.start()
 
     assert loop._session_span is None
+
+    spans = otel_setup.get_finished_spans()
+    session_spans = [s for s in spans if "bidi_session" in s.name]
+    connect_spans = [s for s in spans if "bidi_connect" in s.name]
+
+    assert len(session_spans) == 1
+    assert session_spans[0].status.status_code == StatusCode.ERROR
+
+    assert len(connect_spans) == 1
+    assert connect_spans[0].status.status_code == StatusCode.ERROR
 
 
 @pytest.mark.asyncio
@@ -196,10 +207,8 @@ async def test_tool_call_span_created(loop, agent, agenerator, otel_setup):
 
     await loop.start()
 
-    received = []
     async for event in loop.receive():
-        received.append(event)
-        if len(received) >= 3:
+        if isinstance(event, ToolResultMessageEvent):
             break
 
     await loop.stop()
@@ -208,6 +217,7 @@ async def test_tool_call_span_created(loop, agent, agenerator, otel_setup):
     tool_spans = [s for s in spans if "execute_tool" in s.name]
     assert len(tool_spans) == 1
     assert tool_spans[0].attributes["gen_ai.tool.name"] == "mock_tool"
+    assert tool_spans[0].status.status_code == StatusCode.OK
 
 
 @pytest.mark.asyncio
@@ -260,8 +270,8 @@ async def test_interruption_event_recorded_on_session_span(loop, agent, agenerat
 
 
 @pytest.mark.asyncio
-async def test_usage_accumulation(loop, agent, agenerator):
-    """Usage events accumulate tokens on the loop."""
+async def test_usage_accumulation(loop, agent, agenerator, otel_setup):
+    """Usage events accumulate tokens on the loop and session span."""
     events = [
         BidiUsageEvent(input_tokens=100, output_tokens=50, total_tokens=150),
         BidiUsageEvent(input_tokens=200, output_tokens=75, total_tokens=275),
@@ -278,12 +288,19 @@ async def test_usage_accumulation(loop, agent, agenerator):
 
     assert loop._accumulated_input_tokens == 300
     assert loop._accumulated_output_tokens == 125
+    assert loop._accumulated_total_tokens == 425
 
     await loop.stop()
 
+    spans = otel_setup.get_finished_spans()
+    session_spans = [s for s in spans if "bidi_session" in s.name]
+    assert session_spans[0].attributes["gen_ai.usage.input_tokens"] == 300
+    assert session_spans[0].attributes["gen_ai.usage.output_tokens"] == 125
+    assert session_spans[0].attributes["gen_ai.usage.total_tokens"] == 425
+
 
 @pytest.mark.asyncio
-async def test_response_span_closed_on_model_error(loop, agent):
+async def test_response_span_closed_on_model_error(loop, agent, otel_setup):
     """Open response spans close with error status when model raises."""
 
     async def failing_receive():
@@ -299,6 +316,12 @@ async def test_response_span_closed_on_model_error(loop, agent):
             pass
 
     await loop.stop()
+
+    spans = otel_setup.get_finished_spans()
+    response_spans = [s for s in spans if "bidi_response" in s.name]
+    assert len(response_spans) == 1
+    assert response_spans[0].status.status_code == StatusCode.ERROR
+    assert response_spans[0].attributes["gen_ai.response.finish_reason"] == "error"
 
 
 @pytest.mark.asyncio

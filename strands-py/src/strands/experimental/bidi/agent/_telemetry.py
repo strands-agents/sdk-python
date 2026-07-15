@@ -30,10 +30,8 @@ def start_session_span(
     Returns:
         The session span.
     """
-    attributes: dict[str, AttributeValue] = {
-        "gen_ai.operation.name": "bidi_session",
-        "gen_ai.agent.name": agent_name,
-    }
+    attributes: dict[str, AttributeValue] = tracer._get_common_attributes(operation_name="bidi_session")
+    attributes["gen_ai.agent.name"] = agent_name
 
     if model_id:
         attributes["gen_ai.request.model"] = model_id
@@ -42,7 +40,7 @@ def start_session_span(
         attributes["gen_ai.agent.tools"] = serialize(tools)
 
     if system_prompt:
-        attributes["gen_ai.system_instructions"] = system_prompt
+        attributes["gen_ai.system_instructions"] = tracer._redact("gen_ai.system_instructions", system_prompt)
 
     return tracer._start_span(f"bidi_session {agent_name}", attributes=attributes)
 
@@ -52,6 +50,7 @@ def end_session_span(
     span: Span,
     input_tokens: int = 0,
     output_tokens: int = 0,
+    total_tokens: int = 0,
     error: Exception | None = None,
 ) -> None:
     """End the bidi session span.
@@ -61,6 +60,7 @@ def end_session_span(
         span: The session span to end.
         input_tokens: Accumulated input tokens for the session.
         output_tokens: Accumulated output tokens for the session.
+        total_tokens: Accumulated total tokens for the session.
         error: Exception if the session ended with an error.
     """
     attributes: dict[str, AttributeValue] = {}
@@ -69,6 +69,8 @@ def end_session_span(
         attributes["gen_ai.usage.input_tokens"] = input_tokens
     if output_tokens > 0:
         attributes["gen_ai.usage.output_tokens"] = output_tokens
+    if total_tokens > 0:
+        attributes["gen_ai.usage.total_tokens"] = total_tokens
 
     tracer._end_span(span, attributes=attributes, error=error)
 
@@ -84,10 +86,8 @@ def start_response_span(tracer: Tracer, response_id: str, parent_span: Span | No
     Returns:
         The response span.
     """
-    attributes: dict[str, AttributeValue] = {
-        "gen_ai.operation.name": "bidi_response",
-        "gen_ai.response.id": response_id,
-    }
+    attributes: dict[str, AttributeValue] = tracer._get_common_attributes(operation_name="bidi_response")
+    attributes["gen_ai.response.id"] = response_id
 
     return tracer._start_span(f"bidi_response {response_id}", parent_span, attributes=attributes)
 
@@ -122,9 +122,7 @@ def start_restart_span(tracer: Tracer, parent_span: Span | None = None, error_me
     Returns:
         The restart span.
     """
-    attributes: dict[str, AttributeValue] = {
-        "gen_ai.operation.name": "bidi_connection_restart",
-    }
+    attributes: dict[str, AttributeValue] = tracer._get_common_attributes(operation_name="bidi_connection_restart")
 
     if error_message:
         attributes["gen_ai.error.message"] = error_message
@@ -154,9 +152,7 @@ def start_connection_span(tracer: Tracer, parent_span: Span | None = None, model
     Returns:
         The connection span.
     """
-    attributes: dict[str, AttributeValue] = {
-        "gen_ai.operation.name": "bidi_connect",
-    }
+    attributes: dict[str, AttributeValue] = tracer._get_common_attributes(operation_name="bidi_connect")
 
     if model_id:
         attributes["gen_ai.request.model"] = model_id

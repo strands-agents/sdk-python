@@ -80,6 +80,7 @@ class _BidiAgentLoop:
         self._session_span: Span | None = None
         self._accumulated_input_tokens = 0
         self._accumulated_output_tokens = 0
+        self._accumulated_total_tokens = 0
 
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start the agent loop.
@@ -127,6 +128,7 @@ class _BidiAgentLoop:
         _telemetry.end_connection_span(self._tracer, connection_span)
         self._accumulated_input_tokens = 0
         self._accumulated_output_tokens = 0
+        self._accumulated_total_tokens = 0
 
         self._event_queue = asyncio.Queue(maxsize=1)
 
@@ -160,6 +162,7 @@ class _BidiAgentLoop:
                     self._session_span,
                     input_tokens=self._accumulated_input_tokens,
                     output_tokens=self._accumulated_output_tokens,
+                    total_tokens=self._accumulated_total_tokens,
                 )
                 self._session_span = None
 
@@ -306,6 +309,7 @@ class _BidiAgentLoop:
                 elif isinstance(event, BidiUsageEvent):
                     self._accumulated_input_tokens += event.input_tokens
                     self._accumulated_output_tokens += event.output_tokens
+                    self._accumulated_total_tokens += event.total_tokens
 
         except Exception as error:
             model_error = error
