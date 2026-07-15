@@ -114,6 +114,9 @@ sidebar:
               - docs/user-guide/concepts/plugins/context-injector
               - docs/user-guide/concepts/plugins/goal-loop
           - label: Interventions
+            badge:
+              text: New
+              variant: tip
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
@@ -315,6 +318,10 @@ sidebar:
       - label: Agent Extensions
         items:
           - docs/community/agent-extensions/strands-code-agent
+      - label: Interventions
+        items:
+          - docs/community/interventions/overview
+          - docs/community/interventions/strands-agt
       - label: Plugins
         items:
           - docs/community/plugins/agent-control
@@ -334,6 +341,9 @@ sidebar:
           - docs/community/model-providers/mlx
           - docs/community/model-providers/ovhcloud-ai-endpoints
           - docs/community/model-providers/xai
+      - label: Memory Stores
+        items:
+          - docs/community/memory-stores/overview
       - label: Session Managers
         items:
           - docs/community/session-managers/agentcore-memory
@@ -343,6 +353,7 @@ sidebar:
           - docs/community/tools/utcp
       - label: Tools
         items:
+          - docs/community/tools/strands-apify
           - docs/community/tools/strands-deepgram
           - docs/community/tools/strands-hubspot
           - docs/community/tools/strands-spraay

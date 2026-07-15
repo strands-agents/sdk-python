@@ -65,11 +65,9 @@ function mockBedrockClientImplementation(options?: {
  */
 function setupMockSend(streamGenerator: () => AsyncGenerator<unknown>): void {
   vi.clearAllMocks()
-  const mockSend = vi.fn(
-    async (): Promise<{ stream: AsyncIterable<unknown> }> => ({
-      stream: streamGenerator(),
-    })
-  )
+  const mockSend = vi.fn(async (): Promise<{ stream: AsyncIterable<unknown> }> => ({
+    stream: streamGenerator(),
+  }))
   mockBedrockClientImplementation({ send: mockSend })
 }
 
@@ -666,6 +664,37 @@ describe('BedrockModel', () => {
       const toolConfig = call.toolConfig as { tools: Array<{ toolSpec?: { name: string } }> }
       expect(toolConfig.tools[0]!.toolSpec!.name).toBe('calc')
       expect(toolConfig.tools.length).toBe(1)
+    })
+
+    it('formats tool specs without outputSchema in Bedrock requests', async () => {
+      const provider = new BedrockModel()
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = {
+        toolSpecs: [
+          {
+            name: 'calculator',
+            description: 'Calculate',
+            inputSchema: { type: 'object' },
+            outputSchema: {
+              type: 'object',
+              properties: { result: { type: 'number' } },
+            },
+          },
+        ],
+      }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.toolConfig?.tools).toStrictEqual([
+        {
+          toolSpec: {
+            name: 'calculator',
+            description: 'Calculate',
+            inputSchema: { json: { type: 'object' } },
+          },
+        },
+      ])
     })
 
     it('formats reasoning messages properly', async () => {
@@ -1772,6 +1801,95 @@ describe('BedrockModel', () => {
       const userMsg = call?.messages?.[0]
       const lastBlock = userMsg?.content?.[userMsg.content.length - 1]
       expect(lastBlock).toStrictEqual({ cachePoint: { type: 'default' } })
+    })
+
+    it('inserts cache point before a non-PDF document block', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('Analyze this file'),
+            new DocumentBlock({ name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'Analyze this file' },
+        { cachePoint: { type: 'default' } },
+        { document: { name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+      ])
+    })
+
+    it('appends cache point at the end when only PDF documents are present', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('Analyze this PDF'),
+            new DocumentBlock({ name: 'report', format: 'pdf', source: { bytes: new Uint8Array([1]) } }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'Analyze this PDF' },
+        { document: { name: 'report', format: 'pdf', source: { bytes: new Uint8Array([1]) } } },
+        { cachePoint: { type: 'default' } },
+      ])
+    })
+
+    it('inserts cache point before the first non-PDF document in mixed content', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('Analyze these files'),
+            new DocumentBlock({ name: 'report', format: 'pdf', source: { bytes: new Uint8Array([1]) } }),
+            new DocumentBlock({ name: 'data', format: 'csv', source: { bytes: new Uint8Array([2]) } }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'Analyze these files' },
+        { document: { name: 'report', format: 'pdf', source: { bytes: new Uint8Array([1]) } } },
+        { cachePoint: { type: 'default' } },
+        { document: { name: 'data', format: 'csv', source: { bytes: new Uint8Array([2]) } } },
+      ])
+    })
+
+    it('skips cache point when a non-PDF document is the first block', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new DocumentBlock({ name: 'data', format: 'csv', source: { bytes: new Uint8Array([1]) } }),
+            new TextBlock('Analyze this file'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { document: { name: 'data', format: 'csv', source: { bytes: new Uint8Array([1]) } } },
+        { text: 'Analyze this file' },
+      ])
     })
 
     it('does not mutate the original messages array', async () => {

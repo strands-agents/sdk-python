@@ -1980,6 +1980,30 @@ def test_format_request_message_content_preserves_nonempty_tool_result_content(m
     assert tool_result["content"] == [{"text": "some result"}]
 
 
+def test_format_request_message_content_guard_content_without_qualifiers(model, model_id):
+    """Test that _format_request_message_content accepts guardContent text blocks without qualifiers.
+
+    The Bedrock GuardrailConverseTextBlock treats qualifiers as optional, so omitting it
+    should not raise a KeyError.
+
+    See: https://github.com/strands-agents/harness-sdk/issues/959
+    """
+    content = {"guardContent": {"text": {"text": "evaluate me"}}}
+
+    formatted = model._format_request_message_content(content)
+
+    assert formatted == {"guardContent": {"text": {"text": "evaluate me"}}}
+
+
+def test_format_request_message_content_guard_content_with_qualifiers(model, model_id):
+    """Test that _format_request_message_content forwards qualifiers when supplied."""
+    content = {"guardContent": {"text": {"text": "evaluate me", "qualifiers": ["guard_content"]}}}
+
+    formatted = model._format_request_message_content(content)
+
+    assert formatted == {"guardContent": {"text": {"text": "evaluate me", "qualifiers": ["guard_content"]}}}
+
+
 def test_format_request_removes_status_field_when_configured(model, model_id):
     model.update_config(include_tool_result_status=False)
 
@@ -3145,6 +3169,111 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     # New cache point should be at end of last user message
     assert len(cleaned_messages[2]["content"]) == 2
     assert "cachePoint" in cleaned_messages[2]["content"][-1]
+
+
+def test_inject_cache_point_before_non_pdf_document(bedrock_client):
+    """Test that cache point is inserted before non-PDF document blocks."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this file"},
+                {"document": {"format": "md", "name": "readme", "source": {"bytes": b"# Hello"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze this file"},
+        {"cachePoint": {"type": "default"}},
+        {"document": {"format": "md", "name": "readme", "source": {"bytes": b"# Hello"}}},
+    ]
+
+
+def test_inject_cache_point_after_pdf_document(bedrock_client):
+    """Test that cache point is appended at end when only PDF documents are present."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this PDF"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze this PDF"},
+        {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+
+def test_inject_cache_point_mixed_pdf_and_non_pdf_documents(bedrock_client):
+    """Test that cache point is inserted before the first non-PDF document in mixed content."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze these files"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+                {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze these files"},
+        {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+        {"cachePoint": {"type": "default"}},
+        {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+    ]
+
+
+def test_inject_cache_point_skipped_when_leading_non_pdf_document(bedrock_client):
+    """Test that no cache point is injected when a non-PDF document is the first block.
+
+    A leading cache point has no prefix to cache and Bedrock rejects it with a ValidationException,
+    so injection is skipped for that message.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+                {"text": "Analyze this file"},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+        {"text": "Analyze this file"},
+    ]
 
 
 def test_inject_cache_point_anthropic_strategy_skips_model_check(bedrock_client):

@@ -12,15 +12,17 @@ We feature **reusable packages** that extend Strands Agents capabilities:
 
 - **Model Providers** — integrations with LLM services (OpenAI-compatible endpoints, custom APIs, etc.)
 - **Tools** — packaged tools that solve common problems (API integrations, utilities, etc.)
-- **Session Managers** — custom session/memory implementations
+- **Session Managers** — custom storage backends for conversation history
+- **Memory Stores** — `MemoryStore` implementations giving agents long-term knowledge across sessions
 - **Plugins** — extend or modify agent behavior during lifecycle events
 - **Integrations** — protocol implementations, framework bridges, etc.
 - **Agent Extensions** — specialized agent subclasses that change how agents reason and act
+- **Interventions** — composable control handlers for authorization, guardrails, and steering
 
 We're not looking for example agents or one-off projects — the focus is on packages published to PyPI that others can `pip install` or `npm install` and use in their own agents. See [Community Packages](./community-packages.md) for guidance on creating and publishing your package.
 
 :::tip[Starting from scratch?]
-The [extension template](https://github.com/strands-agents/extension-template-python) gives you a ready-made project structure with testing, linting, and PyPI publishing already set up.
+The [extension template](https://github.com/strands-agents/extension-template) gives you a ready-made project structure with testing, linting, and publishing already set up.
 :::
 
 ## Quick Steps
@@ -39,9 +41,11 @@ Place your documentation in the right spot:
 | Model Providers | `community/model-providers/` | `cohere.mdx` |
 | Tools | `community/tools/` | `strands-deepgram.mdx` |
 | Session Managers | `community/session-managers/` | `agentcore-memory.mdx` |
+| Memory Stores | `community/memory-stores/` | `my-store.mdx` |
 | Plugins | `community/plugins/` | `my-plugin.mdx` |
 | Integrations | `community/integrations/` | `ag-ui.mdx` |
 | Agent Extensions | `community/agent-extensions/` | `strands-code-agent.mdx` |
+| Interventions | `community/interventions/` | `my-intervention.mdx` |
 
 ## Document Layout
 
@@ -79,7 +83,7 @@ Links to your repo, PyPI, official docs, etc.
 
 Every community page needs frontmatter with catalog fields so it appears in the [community catalog](./community-packages.md). Without `community: true`, `integrationType`, `description`, and `languages`, your page won't show up in the catalog tables.
 
-Here's the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `plugin`, `integration`, or `agent-extension`):
+Here's the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention`):
 
 ```yaml
 ---
@@ -103,7 +107,7 @@ service:
 | Field | Required | Notes |
 |-------|----------|-------|
 | `community` | ✅ | Must be `true` |
-| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `plugin`, or `integration` |
+| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention` |
 | `description` | ✅ | Shown in the catalog table |
 | `languages` | ✅ | `Python`, `TypeScript`, or omit for both |
 | `project` | Recommended | PyPI/npm link, GitHub repo, maintainer |

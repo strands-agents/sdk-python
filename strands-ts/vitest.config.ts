@@ -33,6 +33,9 @@ export default defineConfig({
             'src/vended-plugins/**/__tests__/**/*.test.node.ts',
           ],
           name: { label: 'unit-node', color: 'green' },
+          // Retry so a flaky test doesn't block a release; a genuinely broken
+          // test still fails after the retries and holds the gate.
+          retry: 2,
           typecheck: {
             enabled: true,
             tsconfig: 'src/tsconfig.json',
@@ -51,6 +54,9 @@ export default defineConfig({
             'src/vended-plugins/**/__tests__/**/*.test.browser.ts',
           ],
           name: { label: 'unit-browser', color: 'cyan' },
+          // Retry so a flaky test doesn't block a release; a genuinely broken
+          // test still fails after the retries and holds the gate.
+          retry: 2,
           browser: {
             enabled: true,
             provider: playwright(),

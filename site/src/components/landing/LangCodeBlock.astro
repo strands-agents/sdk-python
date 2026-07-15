@@ -89,6 +89,8 @@ const hasTs = !!tsCode
 </style>
 
 <script>
+  import { LANGUAGE_STORAGE_KEY } from '../../util/language-preference'
+
   // All landing code blocks show one language at a time, driven by a
   // data-active-lang attribute on <html>. Astro dedupes this script, so it
   // runs once per page regardless of how many LangCodeBlock instances render.
@@ -99,8 +101,6 @@ const hasTs = !!tsCode
   // clicking the header language toggle) cross-fade smoothly. There is no
   // auto-cycle, and no storage-event listener: the homepage reflects the
   // stored preference on load and in-page choices only.
-  const STORAGE_KEY = 'starlight-synced-tabs__jarkqt'
-
   type Lang = 'Python' | 'TypeScript'
 
   const setLang = (lang: Lang) => {
@@ -109,7 +109,7 @@ const hasTs = !!tsCode
 
   const storedLang = (): Lang => {
     try {
-      return localStorage.getItem(STORAGE_KEY) === 'Python' ? 'Python' : 'TypeScript'
+      return localStorage.getItem(LANGUAGE_STORAGE_KEY) === 'Python' ? 'Python' : 'TypeScript'
     } catch {
       return 'TypeScript'
     }
