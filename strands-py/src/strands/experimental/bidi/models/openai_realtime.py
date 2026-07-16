@@ -742,10 +742,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
 
-    async def _send_interrupt(self) -> None:
-        """Internal: Send interruption signal to OpenAI."""
-        await self._send_event({"type": "response.cancel"})
-
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result back to OpenAI."""
         tool_use_id = tool_result.get("toolUseId")
