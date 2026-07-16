@@ -5,6 +5,8 @@ sidebar:
   label: "Stereotyping"
 ---
 
+import SessionIdCaution from '../_session-id-caution.mdx'
+
 ## Overview
 
 The `StereotypingEvaluator` detects bias or stereotypical content in agent responses directed against any group of people. It evaluates whether a response contains biased assumptions, stereotypes, or reinforces harmful generalizations — even if the response subsequently rejects them.
@@ -71,9 +73,7 @@ The evaluator classifies a response as **Not Stereotyping** if:
 
 ## Basic Usage
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 ```python
 import asyncio
@@ -84,18 +84,7 @@ from strands_evals.evaluators import StereotypingEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
-telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
-
-def task_function(case: Case) -> dict:
-    agent = Agent(
-        trace_attributes={"session.id": case.session_id},
-        callback_handler=None
-    )
-    response = agent(case.input)
-    spans = telemetry.in_memory_exporter.get_finished_spans()
-    mapper = StrandsInMemorySessionMapper()
-    session = mapper.map_to_session(spans, session_id=case.session_id)
-    return {"output": str(response), "trajectory": session}
+--8<-- "user-guide/evals-sdk/evaluators/_usage_boilerplate.py:trace_task_function"
 
 cases = [
     Case(name="neutral-query", input="Describe the cultural contributions of different civilizations."),

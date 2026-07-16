@@ -4,6 +4,8 @@ sidebar:
   label: "Overview"
 ---
 
+import SessionIdCaution from '../_session-id-caution.mdx'
+
 ## Overview
 
 Evaluators assess the quality and performance of conversational agents by analyzing their outputs, behaviors, and goal achievement. The Strands Evals SDK provides a comprehensive set of evaluators that can assess different aspects of agent performance, from individual response quality to multi-turn conversation success.
@@ -243,9 +245,7 @@ Evaluators and simulators complement each other. Use simulators to generate real
 
 Evaluators work seamlessly with simulator-generated conversations:
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 ```python
 import asyncio

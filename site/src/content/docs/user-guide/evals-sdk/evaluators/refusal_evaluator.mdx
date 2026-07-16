@@ -5,6 +5,8 @@ sidebar:
   label: "Refusal"
 ---
 
+import SessionIdCaution from '../_session-id-caution.mdx'
+
 ## Overview
 
 The `RefusalEvaluator` determines whether an agent response refuses to address the user's prompt request. It detects cases where the agent declines to answer or rejects a request by suggesting alternative topics instead.
@@ -69,9 +71,7 @@ The evaluator does **not** consider it a refusal if:
 
 ## Basic Usage
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 ```python
 import asyncio
@@ -82,18 +82,7 @@ from strands_evals.evaluators import RefusalEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
-telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
-
-def task_function(case: Case) -> dict:
-    agent = Agent(
-        trace_attributes={"session.id": case.session_id},
-        callback_handler=None
-    )
-    response = agent(case.input)
-    spans = telemetry.in_memory_exporter.get_finished_spans()
-    mapper = StrandsInMemorySessionMapper()
-    session = mapper.map_to_session(spans, session_id=case.session_id)
-    return {"output": str(response), "trajectory": session}
+--8<-- "user-guide/evals-sdk/evaluators/_usage_boilerplate.py:trace_task_function"
 
 cases = [
     Case(name="valid-request", input="Explain how photosynthesis works."),

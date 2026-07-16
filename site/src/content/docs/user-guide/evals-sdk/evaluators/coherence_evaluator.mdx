@@ -5,6 +5,8 @@ sidebar:
   label: "Coherence"
 ---
 
+import SessionIdCaution from '../_session-id-caution.mdx'
+
 ## Overview
 
 The `CoherenceEvaluator` assesses whether an agent's response maintains logical consistency, flows naturally, and presents ideas in a well-organized manner. It uses an LLM-as-judge approach with a five-level scoring rubric.
@@ -65,9 +67,7 @@ A response passes the evaluation if the score is >= 0.5.
 
 ## Basic Usage
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 ```python
 import asyncio
@@ -78,18 +78,7 @@ from strands_evals.evaluators import CoherenceEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
-telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
-
-def task_function(case: Case) -> dict:
-    agent = Agent(
-        trace_attributes={"session.id": case.session_id},
-        callback_handler=None
-    )
-    response = agent(case.input)
-    spans = telemetry.in_memory_exporter.get_finished_spans()
-    mapper = StrandsInMemorySessionMapper()
-    session = mapper.map_to_session(spans, session_id=case.session_id)
-    return {"output": str(response), "trajectory": session}
+--8<-- "user-guide/evals-sdk/evaluators/_usage_boilerplate.py:trace_task_function"
 
 cases = [
     Case(name="reasoning", input="Explain why the sky is blue in simple terms.")

@@ -7,6 +7,8 @@ redirectFrom:
   - docs/user-guide/observability-evaluation/evaluation
 ---
 
+import SessionIdCaution from './_session-id-caution.mdx'
+
 Strands Evaluation is a framework for evaluating AI agents and LLM applications. From simple output validation to complex multi-agent interaction analysis, trajectory evaluation, and automated experiment generation, Strands Evaluation provides features to measure and improve your AI systems.
 
 ## What Strands Evaluation Provides
@@ -253,9 +255,7 @@ print("\nExperiment saved to ./trajectory_evaluation.json")
 
 For more advanced evaluation, let's assess agent helpfulness using execution traces:
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 The `TracedHandler` handles all of this automatically:
 

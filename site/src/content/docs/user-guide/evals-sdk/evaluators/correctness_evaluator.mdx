@@ -4,6 +4,8 @@ sidebar:
   label: "Correctness"
 ---
 
+import SessionIdCaution from '../_session-id-caution.mdx'
+
 ## Overview
 
 The `CorrectnessEvaluator` assesses whether an agent's response is factually correct. It supports two modes: a basic mode that evaluates correctness from conversation context alone, and a reference mode that compares the response against an expected answer.
@@ -67,9 +69,7 @@ A response passes if the score is `1.0`.
 
 ## Basic Usage
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 ### Without Reference (3-level scoring)
 
@@ -82,18 +82,7 @@ from strands_evals.evaluators import CorrectnessEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
-telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
-
-def task_function(case: Case) -> dict:
-    agent = Agent(
-        trace_attributes={"session.id": case.session_id},
-        callback_handler=None
-    )
-    response = agent(case.input)
-    spans = telemetry.in_memory_exporter.get_finished_spans()
-    mapper = StrandsInMemorySessionMapper()
-    session = mapper.map_to_session(spans, session_id=case.session_id)
-    return {"output": str(response), "trajectory": session}
+--8<-- "user-guide/evals-sdk/evaluators/_usage_boilerplate.py:trace_task_function"
 
 cases = [
     Case(name="capital", input="What is the capital of France?")

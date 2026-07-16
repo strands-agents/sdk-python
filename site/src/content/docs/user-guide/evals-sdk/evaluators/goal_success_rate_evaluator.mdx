@@ -5,6 +5,8 @@ sidebar:
   label: "Goal Success Rate"
 ---
 
+import SessionIdCaution from '../_session-id-caution.mdx'
+
 ## Overview
 
 The `GoalSuccessRateEvaluator` evaluates whether all user goals were successfully achieved in a conversation. It provides a holistic assessment of whether the agent accomplished what the user set out to do, considering the entire conversation session. A complete example can be found [here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/goal_success_rate_evaluator.py).
@@ -91,9 +93,7 @@ Assertions are human-authored statements describing expected agent actions, resp
 
 ## Basic Usage
 
-:::caution[Required: Session ID Trace Attributes]
-When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
-:::
+<SessionIdCaution />
 
 ```python
 import asyncio
@@ -104,27 +104,7 @@ from strands_evals.evaluators import GoalSuccessRateEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
-# Setup telemetry
-telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
-memory_exporter = telemetry.in_memory_exporter
-
-# Define task function
-def user_task_function(case: Case) -> dict:
-    agent = Agent(
-        trace_attributes={
-            "gen_ai.conversation.id": case.session_id,
-            "session.id": case.session_id
-        },
-        callback_handler=None
-    )
-    agent_response = agent(case.input)
-    
-    # Map spans to session
-    finished_spans = memory_exporter.get_finished_spans()
-    mapper = StrandsInMemorySessionMapper()
-    session = mapper.map_to_session(finished_spans, session_id=case.session_id)
-    
-    return {"output": str(agent_response), "trajectory": session}
+--8<-- "user-guide/evals-sdk/evaluators/_usage_boilerplate.py:user_task_function"
 
 # Create test cases
 test_cases = [

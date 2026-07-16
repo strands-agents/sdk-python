@@ -1,0 +1,9 @@
+{/*
+  Shared caution about session ID trace attributes, used by the evaluator
+  pages, the evaluators index, and the quickstart. Underscore prefix keeps
+  this file out of the docs collection.
+*/}
+
+:::caution[Required: Session ID Trace Attributes]
+When using `StrandsInMemorySessionMapper`, you **must** include session ID trace attributes in your agent configuration. This prevents spans from different test cases from being mixed together in the memory exporter.
+:::

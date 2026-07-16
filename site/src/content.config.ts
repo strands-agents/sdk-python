@@ -128,7 +128,9 @@ export const collections = {
         "404.mdx",
         "docs/README.mdx",
 
-        "docs/user-guide/**/*.mdx",
+        // [^_] excludes underscore-prefixed partials (same convention as
+        // Starlight's docsLoader) so shared fragments are not built as pages.
+        "docs/user-guide/**/[^_]*.mdx",
         "docs/community/**/*.mdx",
         "docs/contribute/**/*.mdx",
         "docs/examples/**/[!index]*.mdx",
