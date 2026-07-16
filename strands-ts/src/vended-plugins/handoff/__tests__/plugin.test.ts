@@ -176,6 +176,42 @@ describe('HandoffPlugin integration', () => {
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Specialist answer')
     })
+
+    it('cancels all tools when two handoff tools are called simultaneously, then retries', async () => {
+      const billingModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Billing response' })
+      const techModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Tech response' })
+
+      const billingAgent = new Agent({ model: billingModel, name: 'Billing', printer: false })
+      const techAgent = new Agent({ model: techModel, name: 'TechSupport', printer: false })
+
+      // Turn 1: model calls BOTH handoff tools simultaneously (invalid)
+      // Turn 2: model retries with just one handoff tool (valid)
+      const orchestratorModel = new MockMessageModel()
+        .addTurn([
+          { type: 'toolUseBlock', name: 'Billing', toolUseId: 'bill-1', input: { input: 'refund' } },
+          { type: 'toolUseBlock', name: 'TechSupport', toolUseId: 'tech-1', input: { input: 'wifi' } },
+        ])
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'TechSupport',
+          toolUseId: 'tech-2',
+          input: { input: 'wifi' },
+        })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [billingAgent.asTool({ handoff: true }), techAgent.asTool({ handoff: true })],
+        printer: false,
+      })
+
+      const result = await orchestrator.invoke('Handle both billing and tech')
+
+      // After the retry, the handoff succeeds with the single tool
+      expect(result.stopReason).toBe('handoff')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('Tech response')
+    })
   })
 
   describe('error resilience', () => {

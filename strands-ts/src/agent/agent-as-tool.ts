@@ -16,6 +16,7 @@ import type { ToolSpec } from '../tools/types.js'
 
 /**
  * Description suffix appended to handoff tools to guide the model.
+ * @internal
  */
 export const HANDOFF_DESCRIPTION_SUFFIX =
   ' Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn.'

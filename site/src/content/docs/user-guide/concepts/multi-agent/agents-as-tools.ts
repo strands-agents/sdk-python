@@ -158,3 +158,61 @@ Always select the most appropriate tool based on the user's query.`,
 }
 
 void orchestratorExample
+
+// --8<-- [start:handoff_basic]
+{
+  const customerService = new Agent({
+    name: 'CustomerService',
+    description: 'Handles billing questions and account issues',
+    systemPrompt: 'You are a customer service specialist.',
+    printer: false,
+  })
+
+  const technicalSupport = new Agent({
+    name: 'TechnicalSupport',
+    description: 'Provides technical support and troubleshooting',
+    systemPrompt: 'You are a technical support specialist.',
+    printer: false,
+  })
+
+  const orchestrator = new Agent({
+    name: 'HelpDesk',
+    systemPrompt: 'Route requests to the appropriate specialist.',
+    tools: [
+      customerService.asTool({ handoff: true }),
+      technicalSupport.asTool({ handoff: true }),
+    ],
+  })
+
+  const result = await orchestrator.invoke('My wifi does not work')
+  // result.stopReason === 'handoff'
+  // The TechnicalSupport agent's response is returned directly
+  void result
+}
+// --8<-- [end:handoff_basic]
+
+// --8<-- [start:handoff_mixed]
+{
+  const researcher = new Agent({
+    name: 'Researcher',
+    description: 'Performs deep research on a topic',
+    printer: false,
+  })
+
+  const calculatorTool = tool({
+    name: 'calculator',
+    description: 'Evaluate a math expression.',
+    inputSchema: z.object({ expression: z.string() }),
+    callback: async (input) => String(eval(input.expression)),
+  })
+
+  const orchestrator = new Agent({
+    tools: [
+      calculatorTool, // regular tool — results feed back to orchestrator
+      researcher.asTool({ handoff: true }), // handoff — response goes directly to user
+    ],
+  })
+  void orchestrator
+}
+// --8<-- [end:handoff_mixed]
+
