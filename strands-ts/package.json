@@ -84,6 +84,10 @@
       "types": "./dist/src/experimental/vended-tools/stop/index.d.ts",
       "default": "./dist/src/experimental/vended-tools/stop/index.js"
     },
+    "./vended-tools/web-fetch": {
+      "types": "./dist/src/vended-tools/web-fetch/index.d.ts",
+      "default": "./dist/src/vended-tools/web-fetch/index.js"
+    },
     "./a2a": {
       "types": "./dist/src/a2a/index.d.ts",
       "default": "./dist/src/a2a/index.js"
