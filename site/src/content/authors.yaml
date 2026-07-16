@@ -162,3 +162,28 @@
   name: Ed Fraga
   role: "Sr. Specialist SA, Bedrock, AWS"
   bio: Ed Fraga is a Sr. Specialist Solutions Architect for Amazon Bedrock at AWS, helping customers design and build generative AI solutions with foundation models.
+
+- id: guande-wu
+  name: Guande Wu
+  role: "Applied Scientist, AWS"
+  bio: Guande Wu is an Applied Scientist at AWS Agentic AI working on agent optimization and harness tuning.
+
+- id: han-ding
+  name: Han Ding
+  role: "Applied Scientist, AWS"
+  bio: Han Ding is an Applied Scientist at AWS Agentic AI working on agent optimization.
+
+- id: linbo-liu
+  name: Linbo Liu
+  role: "Applied Scientist, AWS"
+  bio: Linbo Liu is an Applied Scientist at AWS Agentic AI working on agent optimization.
+
+- id: yawei-wang
+  name: Yawei Wang
+  role: "Applied Scientist, AWS"
+  bio: Yawei Wang is an Applied Scientist at AWS Agentic AI working on agent optimization.
+
+- id: panpan-xu
+  name: Panpan Xu
+  role: "Principal Applied Scientist, AWS"
+  bio: Panpan Xu is a Principal Applied Scientist at AWS Agentic AI working on agent optimization.

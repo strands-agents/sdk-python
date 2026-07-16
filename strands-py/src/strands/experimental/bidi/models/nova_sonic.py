@@ -100,6 +100,8 @@ NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
 _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
+_STRANDS_USER_AGENT_EXTRA = "strands-agents"
+
 # Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
 _VALID_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-\d+")
 
@@ -272,6 +274,7 @@ class BidiNovaSonicModel(BidiModel):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
+            user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
         self._client = BedrockRuntimeClient(config=config)
@@ -280,6 +283,7 @@ class BidiNovaSonicModel(BidiModel):
         self._stream = await self._client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
         )
+        logger.debug("region=<%s> | nova sonic bidirectional stream established", self.region)
 
         init_events = self._build_initialization_events(system_prompt, tools, messages)
         logger.debug("event_count=<%d> | sending nova sonic initialization events", len(init_events))

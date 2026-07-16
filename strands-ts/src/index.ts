@@ -38,6 +38,7 @@ export {
   StructuredOutputError,
   ToolNotFoundError,
   DefaultNotConfiguredError,
+  StorageError,
 } from './errors.js'
 
 // Interrupt system
@@ -305,6 +306,9 @@ export { AgentTrace } from './telemetry/tracer.js'
 
 // Local Metrics
 export { AgentMetrics } from './telemetry/meter.js'
+
+// Storage
+export type { Storage } from './storage/storage.js'
 
 // Sandbox
 export { Sandbox, type ExecuteOptions } from './sandbox/base.js'

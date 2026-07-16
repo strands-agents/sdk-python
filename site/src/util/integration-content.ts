@@ -18,6 +18,7 @@ export type IntegrationType =
   | 'integration'
   | 'plugin'
   | 'agent-extension'
+  | 'intervention'
 
 /**
  * Represents language support for an integration.

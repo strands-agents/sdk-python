@@ -126,7 +126,6 @@ export const collections = {
       // Long-term we'll be moving examples into the sdk-python repository instead, solving this problem.
       pattern: [
         "404.mdx",
-        "docs/README.mdx",
 
         "docs/user-guide/**/*.mdx",
         "docs/community/**/*.mdx",
@@ -148,7 +147,7 @@ export const collections = {
         // Category for TypeScript API docs (classes, interfaces, type-aliases, functions)
         category: z.string().optional(),
         // Integration type for filtering (e.g., 'model-provider' for model providers)
-        integrationType: z.enum(['model-provider', 'tool', 'session-manager', 'memory-store', 'integration', 'plugin', 'agent-extension']).optional(),
+        integrationType: z.enum(['model-provider', 'tool', 'session-manager', 'memory-store', 'integration', 'plugin', 'agent-extension', 'intervention']).optional(),
         // Short description for catalog listings
         description: z.string().optional(),
         // Array of slugs that should redirect to this page (e.g., old URLs)
