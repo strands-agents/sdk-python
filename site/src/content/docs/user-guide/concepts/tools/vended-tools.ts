@@ -131,3 +131,31 @@ async function combinedToolsExample() {
   )
   // --8<-- [end:combined_tools_example]
 }
+
+import { codeExecution, makeCodeExecution } from '@strands-agents/sdk/vended-tools/code-execution'
+import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
+
+// Code execution example
+async function codeExecutionExample() {
+  // --8<-- [start:code_execution_example]
+  const agent = new Agent({
+    sandbox: new DockerSandbox({ container: 'my-node-container' }),
+    tools: [codeExecution],
+  })
+  await agent.invoke('Compute the sum of primes below one hundred and print the result.')
+  // --8<-- [end:code_execution_example]
+}
+
+// Code execution custom factory example
+async function codeExecutionCustomExample() {
+  // --8<-- [start:code_execution_custom_example]
+  const sandbox = new DockerSandbox({ container: 'my-node-container' })
+  const tool = makeCodeExecution(sandbox, {
+    name: 'sandbox_code',
+    maxCodeBytes: 50_000,
+    maxOutputBytes: 200_000,
+    defaultTimeout: 30,
+  })
+  const agent = new Agent({ sandbox, tools: [tool] })
+  // --8<-- [end:code_execution_custom_example]
+}

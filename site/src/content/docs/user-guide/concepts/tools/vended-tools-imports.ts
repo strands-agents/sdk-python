@@ -35,3 +35,15 @@ import { bash } from '@strands-agents/sdk/vended-tools/bash'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:combined_import]
+
+// --8<-- [start:code_execution_import]
+import { Agent } from '@strands-agents/sdk'
+import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
+import { codeExecution } from '@strands-agents/sdk/vended-tools/code-execution'
+// --8<-- [end:code_execution_import]
+
+// --8<-- [start:code_execution_custom_import]
+import { Agent } from '@strands-agents/sdk'
+import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
+import { makeCodeExecution } from '@strands-agents/sdk/vended-tools/code-execution'
+// --8<-- [end:code_execution_custom_import]
