@@ -10,6 +10,8 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/a2a-client/a2a-client.ts
+  - path: strands-py/src/strands/vended_tools/a2a_client/a2a_client.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -34,6 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [A2A Client](#a2a-client) | Invoke a remote A2A (Agent-to-Agent) agent by URL | Python, TypeScript (Node.js) |
 
 ### File Editor
 
@@ -160,6 +163,71 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### A2A Client
+
+Invokes a remote A2A (Agent-to-Agent) agent by URL. The tool resolves the remote agent card and sends a single message, returning the response text. Only http and https URLs to public hosts are permitted; private, loopback, link-local, and cloud metadata addresses are rejected. In the TypeScript SDK the tool wraps its fetch to walk 3xx responses manually and re-validate every hop against the same policy (developer allowlist included), so a public origin cannot 302 the client onto a private or off-list address. The Python SDK relies on the underlying httpx client, which defaults follow_redirects to false, so 3xx responses are not walked unless a developer supplies their own httpx client with redirect following enabled. Either way, the resolved agent card's advertised url is re-validated before the message is sent.
+
+_Supported in: Node.js (TypeScript); all platforms (Python)._
+
+The message input is capped at sixty-four kibibytes, the resolved agent card at two hundred fifty-six kibibytes, and the returned response text at two hundred fifty-six kibibytes. The entire call is bounded by a configurable timeout (default: sixty seconds). Developer-supplied URL prefixes and auth (via a custom A2A client factory) are bound at construction time and cannot be overridden by the model.
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:a2a_client_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:a2a_client_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import a2a_client
+
+agent = Agent(tools=[a2a_client])
+agent("Ask the remote agent at https://agents.example.com to summarize the latest release notes.")
+```
+
+</Tab>
+</Tabs>
+
+**Restricted allowlist and shorter timeout:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:a2a_client_bounded_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:a2a_client_bounded_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import make_a2a_client
+
+bounded_client = make_a2a_client(
+    allowed_url_prefixes=("https://agents.example.com/",),
+    timeout_seconds=30,
+)
+agent = Agent(tools=[bounded_client])
+```
+
+</Tab>
+</Tabs>
+
+[Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/a2a-client/README.md)
 
 ---
 

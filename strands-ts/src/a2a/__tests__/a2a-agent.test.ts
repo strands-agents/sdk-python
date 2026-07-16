@@ -27,6 +27,11 @@ vi.mock('@a2a-js/sdk/client', () => ({
       }
     }
   },
+  // `A2AAgent` imports these to construct the default factory when a
+  // `fetchImpl` is supplied; tests here don't set one, but the mock must
+  // export the names to satisfy the module's static imports.
+  DefaultAgentCardResolver: class MockDefaultAgentCardResolver {},
+  JsonRpcTransportFactory: class MockJsonRpcTransportFactory {},
 }))
 
 const mockAgentCard: AgentCard = {

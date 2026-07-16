@@ -6,6 +6,7 @@ import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
 import { SessionManager, FileStorage } from '@strands-agents/sdk'
+import { a2aClient, makeA2AClient } from '@strands-agents/sdk/vended-tools/a2a-client'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {
@@ -108,6 +109,33 @@ async function notebookStatePersistenceExample() {
   const restoredAgent = new Agent({ tools: [notebook], sessionManager: session })
   await restoredAgent.invoke('Read the ideas notebook')
   // --8<-- [end:notebook_state_persistence]
+}
+
+// A2A client example - invoke a remote A2A agent by URL
+async function a2aClientExample() {
+  // --8<-- [start:a2a_client_example]
+  const agent = new Agent({
+    tools: [a2aClient],
+  })
+
+  await agent.invoke('Ask the remote agent at https://agents.example.com to summarize the latest release.')
+  // --8<-- [end:a2a_client_example]
+}
+
+// A2A client example - pin the tool to one remote and shorten the timeout
+async function a2aClientBoundedExample() {
+  // --8<-- [start:a2a_client_bounded_example]
+  const boundedClient = makeA2AClient({
+    allowedUrlPrefixes: ['https://agents.example.com/'],
+    timeoutSeconds: 30,
+  })
+
+  const agent = new Agent({
+    tools: [boundedClient],
+  })
+
+  await agent.invoke('Ask the pinned agent to summarize the latest release.')
+  // --8<-- [end:a2a_client_bounded_example]
 }
 
 // Combined tools example - development workflow
