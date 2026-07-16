@@ -110,6 +110,18 @@ async function notebookStatePersistenceExample() {
   // --8<-- [end:notebook_state_persistence]
 }
 
+import { fileRead } from '@strands-agents/sdk/vended-tools/file-read'
+
+// File read example
+async function fileReadExample() {
+  // --8<-- [start:file_read_example]
+  const agent = new Agent({
+    tools: [fileRead],
+  })
+  await agent.invoke('Read the first twenty lines of /tmp/config.json')
+  // --8<-- [end:file_read_example]
+}
+
 // Combined tools example - development workflow
 async function combinedToolsExample() {
   // --8<-- [start:combined_tools_example]
