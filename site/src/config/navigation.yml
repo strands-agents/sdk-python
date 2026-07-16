@@ -44,7 +44,6 @@ navbar:
 sidebar:
   - label: Docs
     items:
-      - docs/index
       - label: Get Started
         items:
           - docs/user-guide/quickstart/overview
@@ -266,6 +265,7 @@ sidebar:
               - docs/user-guide/evals-sdk/how-to/result_caching
               - docs/user-guide/evals-sdk/how-to/experiment_management
               - docs/user-guide/evals-sdk/how-to/serialization
+              - docs/user-guide/evals-sdk/how-to/agentcore_evaluation_dashboard
       - label: Strands Shell
         items:
           - docs/user-guide/shell
