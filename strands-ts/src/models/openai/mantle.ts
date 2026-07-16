@@ -23,7 +23,7 @@ const MANTLE_DOCS_URL = 'https://docs.aws.amazon.com/bedrock/latest/userguide/in
  *
  * @internal
  */
-export type TokenProvider = () => Promise<string>
+type TokenProvider = () => Promise<string>
 
 /**
  * Config for routing an OpenAI-compatible client through Amazon Bedrock's

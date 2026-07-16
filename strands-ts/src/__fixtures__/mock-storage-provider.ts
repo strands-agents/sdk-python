@@ -1,5 +1,5 @@
 import type { Scope, Snapshot, SnapshotManifest } from '../session/types.js'
-import type { SnapshotStorage, SnapshotLocation } from '../session/index.js'
+import type { SnapshotStorage, SnapshotLocation } from '../session/storage.js'
 
 export function createTestSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
   return {

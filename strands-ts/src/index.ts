@@ -122,6 +122,7 @@ export type {
   DocumentBlockData,
   DocumentContentBlock,
   DocumentContentBlockData,
+  MediaFormat,
 } from './types/media.js'
 
 // Tool types
@@ -306,6 +307,7 @@ export { AgentTrace } from './telemetry/tracer.js'
 
 // Local Metrics
 export { AgentMetrics } from './telemetry/meter.js'
+export type { AgentLoopMetricsData } from './telemetry/meter.js'
 
 // Storage
 export type { Storage } from './storage/storage.js'

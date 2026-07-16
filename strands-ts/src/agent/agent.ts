@@ -155,8 +155,8 @@ export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 /**
  * Supported values for the `contextManager` parameter.
  */
-export const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
-export type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
+type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
