@@ -396,15 +396,17 @@ class GeminiModel(Model):
                                 "delta": {
                                     "reasoningContent": {
                                         "text": event["data"].text,
-                                        **(
-                                            {
-                                                "signature": base64.b64encode(event["data"].thought_signature).decode(
-                                                    "ascii"
-                                                )
-                                            }
-                                            if event["data"].thought_signature
-                                            else {}
-                                        ),
+                                    },
+                                },
+                            },
+                        }
+
+                    case "reasoning_signature":
+                        return {
+                            "contentBlockDelta": {
+                                "delta": {
+                                    "reasoningContent": {
+                                        "signature": base64.b64encode(event["data"].thought_signature).decode("ascii"),
                                     },
                                 },
                             },
@@ -581,6 +583,15 @@ class GeminiModel(Model):
                                 "data": part,
                             },
                         )
+
+                        if data_type == "reasoning_content" and part.thought_signature:
+                            yield self._format_chunk(
+                                {
+                                    "chunk_type": "content_delta",
+                                    "data_type": "reasoning_signature",
+                                    "data": part,
+                                },
+                            )
 
             if data_type is not None:
                 yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})

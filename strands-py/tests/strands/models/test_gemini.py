@@ -744,12 +744,65 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj", "text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj"}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reasoning_signature_survives_aggregation(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that a thought signature round-trips from the stream back into a request part.
+
+    Guarantees that a signed thought part keeps its signature through stream aggregation, so the
+    signature Gemini requires on a subsequent turn is the one it originally issued.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    text="test reason",
+                                    thought=True,
+                                    thought_signature=b"abc",
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    stream = strands.event_loop.streaming.process_stream(model.stream(messages))
+    events = await alist(stream)
+    message = events[-1]["stop"][1]
+
+    tru_reasoning = message["content"][0]["reasoningContent"]["reasoningText"]
+    exp_reasoning = {"text": "test reason", "signature": "YWJj"}
+    assert tru_reasoning == exp_reasoning
+
+    # The reasoning text must still reach consumers as its own stream event.
+    tru_reasoning_text = [event["reasoningText"] for event in events if "reasoningText" in event]
+    exp_reasoning_text = ["test reason"]
+    assert tru_reasoning_text == exp_reasoning_text
+
+    # Feeding the aggregated message back must reproduce the original signature bytes.
+    tru_part = model._format_request_content_part(message["content"][0], {})
+    assert tru_part.thought_signature == b"abc"
 
 
 @pytest.mark.asyncio
@@ -803,11 +856,8 @@ async def test_stream_response_reasoning_and_text(gemini_client, model, messages
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {
-            "contentBlockDelta": {
-                "delta": {"reasoningContent": {"signature": "c2lnMQ==", "text": "thinking about math"}}
-            }
-        },
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "thinking about math"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "c2lnMQ=="}}}},
         {"contentBlockStop": {}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "2 + 2 = 4"}}},
