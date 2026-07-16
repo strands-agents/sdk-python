@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@strands-agents/sdk": "file:../../strands-ts",
+    "@aws-sdk/client-s3": "^3.943.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
     "@opentelemetry/sdk-trace-node": "^2.6.1",
     "express": "^5.1.0"
   },
