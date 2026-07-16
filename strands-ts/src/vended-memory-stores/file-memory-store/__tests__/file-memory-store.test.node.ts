@@ -35,11 +35,11 @@ describe('FileMemoryStore', () => {
     })
 
     it('uses default maxSearchResults when not configured', async () => {
-      for (let index = 0; index < 10; index++) {
+      for (let index = 0; index < 15; index++) {
         await store.add(`Fact number ${index}`, { title: `fact-${index}`, description: `Fact ${index}` })
       }
       const results = await store.search('fact')
-      expect(results).toHaveLength(5)
+      expect(results).toHaveLength(10)
     })
 
     it('respects maxSearchResults from config', async () => {

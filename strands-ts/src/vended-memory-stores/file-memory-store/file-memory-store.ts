@@ -11,6 +11,7 @@ import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { Storage } from '../../storage/storage.js'
 import type { FileMemoryStoreConfig } from './types.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
+import { DEFAULT_MAX_SEARCH_RESULTS, tokenize } from '../../memory/search/keyword.js'
 
 const KNOWLEDGE_PREFIX = 'knowledge/'
 const FACTS_PREFIX = `${KNOWLEDGE_PREFIX}facts/`
@@ -18,6 +19,7 @@ const FACTS_PREFIX = `${KNOWLEDGE_PREFIX}facts/`
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
+/** Extract description from YAML frontmatter and return the remaining body. */
 function parseFrontmatter(content: string): { description: string; body: string } {
   const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
   if (!match) return { description: '', body: content }
@@ -37,20 +39,13 @@ function parseFrontmatter(content: string): { description: string; body: string 
   return { description, body }
 }
 
-function tokenize(text: string): Set<string> {
-  return new Set(
-    text
-      .toLowerCase()
-      .split(/[^\p{L}\p{N}_]+/u)
-      .filter(Boolean)
-  )
-}
-
+/** Extract the filename stem (without `.md` extension) from a storage key. */
 function basename(key: string): string {
   const filename = key.split('/').pop() ?? key
   return filename.replace(/\.md$/, '')
 }
 
+/** Convert text to a URL-safe kebab-case slug, truncated to 50 characters. */
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -61,11 +56,14 @@ function slugify(text: string): string {
 }
 
 /**
- * A zero-infrastructure memory store backed by a file hierarchy.
+ * A file-based memory store backed by the unified {@link Storage} interface.
  *
  * Implements {@link MemoryStore} for use with {@link MemoryManager}. Knowledge is stored as
  * markdown files with YAML frontmatter under `knowledge/`. Retrieval is via the `search_memory`
  * tool registered by {@link MemoryManager}, which calls {@link search} (keyword-based).
+ *
+ * The storage backend defaults to {@link LocalFileStorage} (writing to `./.strands/`) when no
+ * custom {@link Storage} implementation is provided.
  *
  * @example
  * ```typescript
@@ -82,8 +80,8 @@ function slugify(text: string): string {
  */
 export class FileMemoryStore implements MemoryStore {
   readonly name: string
-  readonly description?: string
   readonly writable: boolean
+  readonly description?: string
   readonly maxSearchResults?: number
   readonly extraction?: boolean | ExtractionConfig
 
@@ -105,7 +103,7 @@ export class FileMemoryStore implements MemoryStore {
    * reflects the entry's current storage location and may change after consolidation.
    */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
-    const maxResults = options?.maxSearchResults ?? this.maxSearchResults ?? 5
+    const maxResults = options?.maxSearchResults ?? this.maxSearchResults ?? DEFAULT_MAX_SEARCH_RESULTS
     const queryTokens = tokenize(query)
     if (queryTokens.size === 0) return []
 
@@ -122,27 +120,27 @@ export class FileMemoryStore implements MemoryStore {
             const { description, body } = parseFrontmatter(content)
             const searchable = `${basename(key)} ${description} ${body}`
 
-            let score = 0
+            let relevanceScore = 0
             for (const token of tokenize(searchable)) {
-              if (queryTokens.has(token)) score++
+              if (queryTokens.has(token)) relevanceScore++
             }
 
-            if (score === 0) return null
+            if (relevanceScore === 0) return null
             return {
               entry: {
                 content: body.trim(),
-                metadata: { path: key, description, _relevanceScore: score },
+                metadata: { path: key, description, _relevanceScore: relevanceScore },
               } as MemoryEntry,
-              score,
+              relevanceScore,
             }
           } catch {
             return null
           }
         })
       )
-    ).filter((s): s is { entry: MemoryEntry; score: number } => s !== null)
+    ).filter((s): s is { entry: MemoryEntry; relevanceScore: number } => s !== null)
 
-    scored.sort((a, b) => b.score - a.score)
+    scored.sort((a, b) => b.relevanceScore - a.relevanceScore)
     return scored.slice(0, maxResults).map((s) => s.entry)
   }
 
@@ -157,8 +155,9 @@ export class FileMemoryStore implements MemoryStore {
    */
   async add(content: string, metadata?: Record<string, JSONValue>): Promise<string> {
     const customPath = metadata?.['path'] as string | undefined
-    const title = (metadata?.['title'] as string | undefined) ?? slugify(content.split(/[.\n]/)[0]!.slice(0, 60))
-    const description = (metadata?.['description'] as string | undefined) ?? content.split(/[.\n]/)[0]!.slice(0, 120)
+    const firstSentence = content.split(/[.\n]/)[0]!
+    const title = (metadata?.['title'] as string | undefined) ?? firstSentence.slice(0, 60)
+    const description = (metadata?.['description'] as string | undefined) ?? firstSentence.slice(0, 120)
 
     let key: string
     if (customPath) {
