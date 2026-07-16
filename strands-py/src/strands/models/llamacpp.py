@@ -29,6 +29,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._openai_compat import format_common_chunk
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -456,61 +457,21 @@ class LlamaCppModel(Model):
         Raises:
             RuntimeError: If chunk_type is not recognized.
         """
-        match event["chunk_type"]:
-            case "message_start":
-                return {"messageStart": {"role": "assistant"}}
-
-            case "content_start":
-                if event["data_type"] == "tool":
-                    return {
-                        "contentBlockStart": {
-                            "start": {
-                                "toolUse": {
-                                    "name": event["data"].function.name,
-                                    "toolUseId": event["data"].id,
-                                }
-                            }
-                        }
-                    }
-                return {"contentBlockStart": {"start": {}}}
-
-            case "content_delta":
-                if event["data_type"] == "tool":
-                    return {
-                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
-                    }
-                if event["data_type"] == "reasoning_content":
-                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
-                return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
-
-            case "content_stop":
-                return {"contentBlockStop": {}}
-
-            case "message_stop":
-                match event["data"]:
-                    case "tool_calls":
-                        return {"messageStop": {"stopReason": "tool_use"}}
-                    case "length":
-                        return {"messageStop": {"stopReason": "max_tokens"}}
-                    case _:
-                        return {"messageStop": {"stopReason": "end_turn"}}
-
-            case "metadata":
-                return {
-                    "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
-                        },
-                        "metrics": {
-                            "latencyMs": event.get("latency_ms", 0),
-                        },
+        if event["chunk_type"] == "metadata":
+            return {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": event["data"].prompt_tokens,
+                        "outputTokens": event["data"].completion_tokens,
+                        "totalTokens": event["data"].total_tokens,
                     },
-                }
+                    "metrics": {
+                        "latencyMs": event.get("latency_ms", 0),
+                    },
+                },
+            }
 
-            case _:
-                raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
+        return format_common_chunk(event)
 
     @override
     async def count_tokens(

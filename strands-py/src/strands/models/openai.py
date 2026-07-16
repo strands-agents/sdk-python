@@ -23,6 +23,7 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
+from ._openai_compat import format_common_chunk
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -548,70 +549,27 @@ class OpenAIModel(Model):
             RuntimeError: If chunk_type is not recognized.
                 This error should never be encountered as chunk_type is controlled in the stream method.
         """
-        match event["chunk_type"]:
-            case "message_start":
-                return {"messageStart": {"role": "assistant"}}
+        if event["chunk_type"] == "metadata":
+            usage_data: Usage = {
+                "inputTokens": event["data"].prompt_tokens,
+                "outputTokens": event["data"].completion_tokens,
+                "totalTokens": event["data"].total_tokens,
+            }
 
-            case "content_start":
-                if event["data_type"] == "tool":
-                    return {
-                        "contentBlockStart": {
-                            "start": {
-                                "toolUse": {
-                                    "name": event["data"].function.name,
-                                    "toolUseId": event["data"].id,
-                                }
-                            }
-                        }
-                    }
+            if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
+                if cached := getattr(tokens_details, "cached_tokens", None):
+                    usage_data["cacheReadInputTokens"] = cached
 
-                return {"contentBlockStart": {"start": {}}}
-
-            case "content_delta":
-                if event["data_type"] == "tool":
-                    return {
-                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
-                    }
-
-                if event["data_type"] == "reasoning_content":
-                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
-
-                return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
-
-            case "content_stop":
-                return {"contentBlockStop": {}}
-
-            case "message_stop":
-                match event["data"]:
-                    case "tool_calls":
-                        return {"messageStop": {"stopReason": "tool_use"}}
-                    case "length":
-                        return {"messageStop": {"stopReason": "max_tokens"}}
-                    case _:
-                        return {"messageStop": {"stopReason": "end_turn"}}
-
-            case "metadata":
-                usage_data: Usage = {
-                    "inputTokens": event["data"].prompt_tokens,
-                    "outputTokens": event["data"].completion_tokens,
-                    "totalTokens": event["data"].total_tokens,
-                }
-
-                if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
-                    if cached := getattr(tokens_details, "cached_tokens", None):
-                        usage_data["cacheReadInputTokens"] = cached
-
-                return {
-                    "metadata": {
-                        "usage": usage_data,
-                        "metrics": {
-                            "latencyMs": 0,  # TODO
-                        },
+            return {
+                "metadata": {
+                    "usage": usage_data,
+                    "metrics": {
+                        "latencyMs": 0,  # TODO
                     },
-                }
+                },
+            }
 
-            case _:
-                raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+        return format_common_chunk(event)
 
     def _format_non_streaming_response(self, response: Any) -> list[StreamEvent]:
         """Convert a non-streaming OpenAI chat completion into Strands stream events."""

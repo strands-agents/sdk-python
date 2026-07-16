@@ -61,6 +61,7 @@ from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
+from ._openai_compat import format_common_chunk  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
 
@@ -787,82 +788,39 @@ class OpenAIResponsesModel(Model):
             RuntimeError: If chunk_type is not recognized.
                 This error should never be encountered as chunk_type is controlled in the stream method.
         """
-        match event["chunk_type"]:
-            case "message_start":
-                return {"messageStart": {"role": "assistant"}}
-
-            case "content_start":
-                if event["data_type"] == "tool":
-                    return {
-                        "contentBlockStart": {
-                            "start": {
-                                "toolUse": {
-                                    "name": event["data"].function.name,
-                                    "toolUseId": event["data"].id,
-                                }
-                            }
+        if event["chunk_type"] == "content_delta" and event["data_type"] == "citation":
+            web_location: WebLocationDict = {"web": {"url": event["data"].get("url", "")}}
+            return {
+                "contentBlockDelta": {
+                    "delta": {
+                        "citation": {
+                            "title": event["data"].get("title", ""),
+                            "location": web_location,
                         }
                     }
-
-                return {"contentBlockStart": {"start": {}}}
-
-            case "content_delta":
-                if event["data_type"] == "tool":
-                    return {
-                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
-                    }
-
-                if event["data_type"] == "reasoning_content":
-                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
-
-                if event["data_type"] == "citation":
-                    web_location: WebLocationDict = {"web": {"url": event["data"].get("url", "")}}
-                    return {
-                        "contentBlockDelta": {
-                            "delta": {
-                                "citation": {
-                                    "title": event["data"].get("title", ""),
-                                    "location": web_location,
-                                }
-                            }
-                        }
-                    }
-
-                return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
-
-            case "content_stop":
-                return {"contentBlockStop": {}}
-
-            case "message_stop":
-                match event["data"]:
-                    case "tool_calls":
-                        return {"messageStop": {"stopReason": "tool_use"}}
-                    case "length":
-                        return {"messageStop": {"stopReason": "max_tokens"}}
-                    case _:
-                        return {"messageStop": {"stopReason": "end_turn"}}
-
-            case "metadata":
-                # Responses API uses input_tokens/output_tokens naming convention
-                usage_data: Usage = {
-                    "inputTokens": getattr(event["data"], "input_tokens", 0),
-                    "outputTokens": getattr(event["data"], "output_tokens", 0),
-                    "totalTokens": getattr(event["data"], "total_tokens", 0),
                 }
+            }
 
-                if tokens_details := getattr(event["data"], "input_tokens_details", None):
-                    cached = getattr(tokens_details, "cached_tokens", None)
-                    if isinstance(cached, int) and cached:
-                        usage_data["cacheReadInputTokens"] = cached
+        if event["chunk_type"] == "metadata":
+            # Responses API uses input_tokens/output_tokens naming convention
+            usage_data: Usage = {
+                "inputTokens": getattr(event["data"], "input_tokens", 0),
+                "outputTokens": getattr(event["data"], "output_tokens", 0),
+                "totalTokens": getattr(event["data"], "total_tokens", 0),
+            }
 
-                return {
-                    "metadata": {
-                        "usage": usage_data,
-                        "metrics": {
-                            "latencyMs": 0,  # TODO
-                        },
+            if tokens_details := getattr(event["data"], "input_tokens_details", None):
+                cached = getattr(tokens_details, "cached_tokens", None)
+                if isinstance(cached, int) and cached:
+                    usage_data["cacheReadInputTokens"] = cached
+
+            return {
+                "metadata": {
+                    "usage": usage_data,
+                    "metrics": {
+                        "latencyMs": 0,  # TODO
                     },
-                }
+                },
+            }
 
-            case _:
-                raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
+        return format_common_chunk(event)
