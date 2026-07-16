@@ -33,7 +33,7 @@ npm run build      # generates static site
 - Relative file links (e.g. `../tools/index.md`) resolve automatically — no need to use slugs
 - Link to API reference pages with the `@api` shorthand: `[@api/python/strands.agent.agent](#Class)`
 
-For full details on the Astro setup, custom components, frontmatter fields, and API doc generation, see [Site Architecture](SITE-ARCHITECTURE.md).
+For full details on the Astro setup and custom components, see [Site Architecture](SITE-ARCHITECTURE.md). Frontmatter fields and MDX authoring patterns are documented in [mdx-authoring.md](../.agents/references/mdx-authoring.md), and API doc generation in [reference/python-api-generation.md](reference/python-api-generation.md) and [reference/typescript-api-generation.md](reference/typescript-api-generation.md).
 
 ### Quality Checks
 

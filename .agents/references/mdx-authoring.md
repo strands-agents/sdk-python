@@ -34,6 +34,7 @@ Renders as inline `<code>` by default. Pass `plain` for plain text. Reacts live 
 **When to use `<Syntax>` vs `<Tabs>`:**
 - `<Syntax>`: single identifier or short expression that differs by language, embedded in a prose sentence.
 - `<Tabs>`: code blocks, multi-line examples, or content that's structurally different between languages.
+- Neither fits conceptual differences between SDKs that aren't simple name swaps, or content that only applies to one language. Write those out in prose (or use the `languages` frontmatter field for single-language pages).
 
 Never spell out both language variants manually in prose. Use `<Syntax>` instead.
 
@@ -151,7 +152,26 @@ Optional fields (validated by Zod in `site/src/content.config.ts`):
 | `tags` | `Tag[]` | From `site/src/config/tags.yml`; drives the build-time "Related pages" block |
 | `sourceLinks` | `{repo, path}[]` | Pointers to SDK implementation; rendered on headless surfaces (index.md, llms-full.txt) |
 
-These render contextual banners automatically (experimental → community → languages). Anything not in this table is silently stripped by Zod at build time, so don't invent fields like `contentType` or `lastReviewed` — add them to the schema first if they'd be useful.
+These render contextual banners automatically (experimental → community → languages): `languages` renders a note aside ("This provider is only supported in {languages}."), `community` renders a tip aside explaining the package is community-maintained, and `experimental` renders a tip aside warning the feature may change in future versions. Anything not in this table is silently stripped by Zod at build time, so don't invent fields like `contentType` or `lastReviewed` — add them to the schema first if they'd be useful.
+
+### Sidebar Badges
+
+Pages can display badges in sidebar navigation via the standard Starlight `sidebar` frontmatter field:
+
+```yaml
+---
+title: My Page
+sidebar:
+  label: "AWS Lambda"
+  badge:
+    text: New
+    variant: note
+---
+```
+
+Available variants: `note`, `tip`, `caution`, `danger`, `success`, `default`
+
+Badges like "Experimental" or "Community" are determined from page frontmatter, not the navigation config, so page authors control badges directly.
 
 ## TypeScript Snippet Scoping
 
