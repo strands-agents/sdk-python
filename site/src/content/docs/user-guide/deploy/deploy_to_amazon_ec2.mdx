@@ -5,6 +5,8 @@ sidebar:
 tags: [deployment, aws]
 ---
 
+import CreatingYourAgentIntro from './_creating-your-agent-intro.mdx'
+
 Amazon EC2 (Elastic Compute Cloud) provides resizable compute capacity in the cloud, making it a flexible option for deploying Strands Agents SDK agents. This deployment approach gives you full control over the underlying infrastructure while maintaining the ability to scale as needed.
 
 If you're not familiar with the AWS CDK, check out the [official documentation](https://docs.aws.amazon.com/cdk/v2/guide/home.html).
@@ -13,16 +15,7 @@ This guide discusses EC2 integration at a high level - for a complete example pr
 
 ## Creating Your Agent in Python
 
-The core of your EC2 deployment is a FastAPI application that hosts your Strands Agents SDK agent. This Python application initializes your agent and processes incoming HTTP requests.
-
-The FastAPI application follows these steps:
-
-1. Define endpoints for agent interactions
-2. Create a Strands Agents SDK agent with the specified system prompt and tools
-3. Process incoming requests through the agent
-4. Return the response back to the client
-
-Here's an example of a weather forecasting agent application ([`app.py`][app_py]):
+<CreatingYourAgentIntro target="EC2" appPyUrl="https://github.com/strands-agents/harness-sdk/tree/main/site/docs/examples/cdk/deploy_to_ec2/app/app.py" />
 
 ```python
 app = FastAPI(title="Weather API")
@@ -284,5 +277,4 @@ For the complete example code, including all files and configurations, see the [
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
 
 [project_code]: https://github.com/strands-agents/harness-sdk/tree/main/site/docs/examples/cdk/deploy_to_ec2
-[app_py]: https://github.com/strands-agents/harness-sdk/tree/main/site/docs/examples/cdk/deploy_to_ec2/app/app.py
 [agent_ec2_stack]: https://github.com/strands-agents/harness-sdk/tree/main/site/docs/examples/cdk/deploy_to_ec2/lib/agent-ec2-stack.ts

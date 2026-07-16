@@ -1,0 +1,48 @@
+{/*
+  Shared "Streaming responses" section body used by the Fargate and EKS
+  deploy guides. Underscore prefix keeps this file out of the docs collection.
+*/}
+
+Streaming responses can significantly improve the user experience by providing real-time responses back to the customer. This is especially valuable for longer responses.
+
+Python web-servers commonly implement streaming through the use of iterators, and the Strands Agents SDK facilitates response streaming via the `stream_async(prompt)` function:
+
+```python
+async def run_weather_agent_and_stream_response(prompt: str):
+    is_summarizing = False
+
+    @tool
+    def ready_to_summarize():
+        nonlocal is_summarizing
+        is_summarizing = True
+        return "Ok - continue providing the summary!"
+
+    weather_agent = Agent(
+        system_prompt=WEATHER_SYSTEM_PROMPT,
+        tools=[http_request, ready_to_summarize],
+        callback_handler=None
+    )
+
+    async for item in weather_agent.stream_async(prompt):
+        if not is_summarizing:
+            continue
+        if "data" in item:
+            yield item['data']
+
+@app.route('/weather-streaming', methods=['POST'])
+async def get_weather_streaming(request: PromptRequest):
+    try:
+        prompt = request.prompt
+
+        if not prompt:
+            raise HTTPException(status_code=400, detail="No prompt provided")
+
+        return StreamingResponse(
+            run_weather_agent_and_stream_response(prompt),
+            media_type="text/plain"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+The implementation above employs a [custom tool](../concepts/tools/custom-tools.md#creating-custom-tools) to mark the boundary between information gathering and summary generation phases. This approach ensures that only the final, user-facing content is streamed to the client, maintaining consistency with the non-streaming endpoint while providing the benefits of incremental response delivery.

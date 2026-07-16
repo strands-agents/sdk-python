@@ -1,0 +1,54 @@
+{/*
+  Shared FastAPI weather-agent example used by the Fargate, App Runner, and
+  EKS deploy guides. Underscore prefix keeps this file out of the docs
+  collection.
+*/}
+
+```python
+app = FastAPI(title="Weather API")
+
+# Define a weather-focused system prompt
+WEATHER_SYSTEM_PROMPT = """You are a weather assistant with HTTP capabilities. You can:
+
+1. Make HTTP requests to the National Weather Service API
+2. Process and display weather forecast data
+3. Provide weather information for locations in the United States
+
+When retrieving weather information:
+1. First get the coordinates or grid information using https://api.weather.gov/points/{latitude},{longitude} or https://api.weather.gov/points/{zipcode}
+2. Then use the returned forecast URL to get the actual forecast
+
+When displaying responses:
+- Format weather data in a human-readable way
+- Highlight important information like temperature, precipitation, and alerts
+- Handle errors appropriately
+- Don't ask follow-up questions
+
+Always explain the weather conditions clearly and provide context for the forecast.
+
+At the point where tools are done being invoked and a summary can be presented to the user, invoke the ready_to_summarize
+tool and then continue with the summary.
+"""
+
+class PromptRequest(BaseModel):
+    prompt: str
+
+@app.post('/weather')
+async def get_weather(request: PromptRequest):
+    """Endpoint to get weather information."""
+    prompt = request.prompt
+    
+    if not prompt:
+        raise HTTPException(status_code=400, detail="No prompt provided")
+
+    try:
+        weather_agent = Agent(
+            system_prompt=WEATHER_SYSTEM_PROMPT,
+            tools=[http_request],
+        )
+        response = weather_agent(prompt)
+        content = str(response)
+        return PlainTextResponse(content=content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+```

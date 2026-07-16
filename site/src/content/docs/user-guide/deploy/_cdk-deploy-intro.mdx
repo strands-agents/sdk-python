@@ -1,0 +1,19 @@
+{/*
+  Shared CDK bootstrap-and-deploy steps used by the Fargate and App Runner
+  deploy guides. Underscore prefix keeps this file out of the docs collection.
+*/}
+
+Assuming that Python & Node dependencies are already installed, run the CDK and deploy which will also run the Docker file for deployment:
+
+```bash
+# Bootstrap your AWS environment (if not already done)
+npx cdk bootstrap
+
+# Ensure Docker or Podman is running
+podman machine start 
+
+# Deploy the stack
+CDK_DOCKER=podman npx cdk deploy  
+```
+
+Once deployed, you can test your agent using the Application Load Balancer URL:

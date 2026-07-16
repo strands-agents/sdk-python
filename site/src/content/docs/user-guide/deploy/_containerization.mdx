@@ -1,0 +1,40 @@
+{/*
+  Shared "Containerization" section body used by the Fargate, App Runner, and
+  EKS deploy guides. Underscore prefix keeps this file out of the docs
+  collection.
+
+  Props:
+  - target: deployment target name, e.g. "Fargate", "App Runner", "EKS"
+  - dockerfileUrl: absolute URL of the example Dockerfile for this guide
+*/}
+
+To deploy your agent to {props.target}, you need to containerize it using Podman or Docker. The Dockerfile defines how your application is packaged and run.  Below is an example Docker file that installs all needed dependencies, the application, and configures the FastAPI server to run via Uvicorn (<a href={props.dockerfileUrl}>Dockerfile</a>):
+
+```dockerfile
+FROM public.ecr.aws/docker/library/python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY app/ .
+
+# Create a non-root user to run the application
+RUN useradd -m appuser
+USER appuser
+
+# Expose the port the app runs on
+EXPOSE 8000
+
+# Command to run the application with Uvicorn
+# - port: 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+```

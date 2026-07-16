@@ -1,0 +1,20 @@
+{/*
+  Shared intro for the "Creating Your Agent in Python" section of the AWS
+  deploy guides. Underscore prefix keeps this file out of the docs collection.
+
+  Props:
+  - target: deployment target name, e.g. "Fargate", "EC2", "App Runner"
+  - containerized: set when the application is deployed as a container
+  - appPyUrl: absolute URL of the example app.py for this guide
+*/}
+
+The core of your {props.target} deployment is a {props.containerized ? 'containerized ' : ''}FastAPI application that hosts your Strands Agents SDK agent. This Python application initializes your agent and processes incoming HTTP requests.
+
+The FastAPI application follows these steps:
+
+1. Define endpoints for agent interactions
+2. Create a Strands Agents SDK agent with the specified system prompt and tools
+3. Process incoming requests through the agent
+4. Return the response back to the client
+
+Here's an example of a weather forecasting agent application (<a href={props.appPyUrl}><code>app.py</code></a>):
