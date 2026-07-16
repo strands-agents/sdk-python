@@ -13,6 +13,7 @@ sourceLinks:
   - path: strands-ts/src/experimental/vended-tools/stop/stop.ts
   - path: strands-py/src/strands/vended_tools/http_request/http_request.py
   - path: strands-py/src/strands/vended_tools/notebook/notebook.py
+  - path: strands-py/src/strands/vended_tools/mcp_client/mcp_client.py
   - path: strands-py/src/strands/vended_tools/shell/shell.py
   - path: strands-py/src/strands/vended_tools/sleep/sleep.py
   - path: strands-py/src/strands/vended_tools/web_fetch/web_fetch.py
@@ -41,6 +42,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 22+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | Python, TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [MCP Client](#mcp-client) | Connect to Model Context Protocol servers on a developer-set allowlist | Python |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
 | [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
 | [Web Fetch](#web-fetch) | Fetch a URL and return cleaned markdown for a model to read | Python |
@@ -462,6 +464,35 @@ tool = make_web_fetch(
     model=BedrockModel(model_id="us.amazon.nova-micro-v1:0"),
 )
 agent = Agent(tools=[tool])
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### MCP Client
+
+Lets your agent connect to Model Context Protocol servers at runtime, list the tools they expose, invoke one, and disconnect. The factory takes a developer-set allowlist of exact URLs; the model can only connect to servers on that list, never to an arbitrary URL of its choosing.
+
+_Supported in: all platforms (Python)._
+
+:::caution[Security Warning]
+An MCP server is arbitrary code behind a network endpoint. If the model can point the tool at any URL, a prompt-injection attacker can reach out to their own MCP server, run tools there, and route the result back through your agent. The allowlist is mandatory and must be non-empty. The tool also enforces an SSRF guard that rejects hosts resolving to private, loopback, link-local, cloud-metadata, and other non-public addresses, and refuses to follow HTTP redirects, but the allowlist is the primary control. Only allowlist URLs whose DNS you trust.
+:::
+
+**Example:**
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import make_mcp_client
+
+mcp_client = make_mcp_client(allowed_urls=["https://mcp.example.com/mcp"])
+agent = Agent(tools=[mcp_client])
+agent("Connect to the MCP server and list its tools.")
 ```
 
 </Tab>

@@ -34,6 +34,7 @@ from typing import Any
 
 from ._bash import _RENAME_RATIONALE, make_bash  # noqa: F401  deprecated tool, kept importable until v2.0.0
 from .file_editor import file_editor, make_file_editor
+from .mcp_client import make_mcp_client
 from .http_request import http_request, make_http_request
 from .notebook import make_notebook, notebook
 from .shell import make_shell, shell
@@ -69,6 +70,7 @@ __all__ = [
     "make_file_editor",
     "make_http_request",
     "make_notebook",
+    "make_mcp_client",
     "make_shell",
     "make_sleep",
     "notebook",
