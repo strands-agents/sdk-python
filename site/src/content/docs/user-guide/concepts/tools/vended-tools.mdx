@@ -1,8 +1,8 @@
 ---
 title: Vended Tools
-description: "Pre-built tools included in the SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes."
+description: 'Pre-built tools included in the SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes.'
 sidebar:
-  label: "Vended Tools"
+  label: 'Vended Tools'
 languages: [python, typescript]
 tags: [tool-authoring]
 sourceLinks:
@@ -10,9 +10,11 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/use-agent/use-agent.ts
+  - path: strands-py/src/strands/vended_tools/use_agent/use_agent.py
 ---
 
-Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
+Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes.
 
 They ship as part of the SDK package and are updated alongside it — see [Versioning & Maintenance](#versioning--maintenance) for details on how changes are communicated and what level of backwards compatibility they maintain.
 
@@ -28,12 +30,13 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 
 ## Available Tools
 
-| Tool | Description | Supported in |
-|------|-------------|--------------|
-| [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
-| [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
-| [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| Tool                          | Description                                     | Supported in                                   |
+| ----------------------------- | ----------------------------------------------- | ---------------------------------------------- |
+| [File Editor](#file-editor)   | View, create, and edit files                    | Python, TypeScript (Node.js)                   |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs             | TypeScript (Node.js 20+, browsers)             |
+| [Notebook](#notebook)         | Manage persistent text notebooks                | TypeScript (Node.js, browsers)                 |
+| [Bash](#bash)                 | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [Use Agent](#use-agent)       | Delegate a single task to a nested agent        | Python, TypeScript (Node.js, browsers)         |
 
 ### File Editor
 
@@ -83,6 +86,7 @@ This tool makes HTTP requests to arbitrary URLs without restrictions on destinat
 :::
 
 **Example:**
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:http_request_import"
 
@@ -100,6 +104,7 @@ A scratchpad the agent can read and write across invocations. The most effective
 _Supported in: Node.js, browsers._
 
 **Example - Task Management:**
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:notebook_import"
 
@@ -107,6 +112,7 @@ _Supported in: Node.js, browsers._
 ```
 
 **Example - State Persistence:**
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:notebook_persistence_import"
 
@@ -153,6 +159,7 @@ agent("List all Python files in the current directory and count them")
 </Tabs>
 
 **Example - Session Persistence (TypeScript):**
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:bash_import"
 
@@ -160,6 +167,45 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### Use Agent
+
+Delegates a single task to a freshly constructed nested agent. The calling agent supplies a system prompt, an explicit allowlist of parent-registered tool names to expose to the child, and the task itself. The child inherits the parent's model instance, runs with a fresh conversation, and returns its final assistant text.
+
+_Supported in: Node.js, modern browsers (TypeScript); all platforms (Python)._
+
+Delegation is a privilege-escalation surface. The model chooses the child's tools from the parent's registry (wildcards and multi-agent tool names are rejected) and spends inference tokens on the parent's account. The model cannot choose a different model provider or supply provider-specific settings; the child always inherits the parent's model instance. Nested delegation is capped at depth three, shared across the multi-agent vended tools, and cannot be raised by the model.
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:use_agent_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:use_agent_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import use_agent
+
+agent = Agent(tools=[use_agent])
+agent("Delegate a sub-task to a researcher agent.")
+```
+
+</Tab>
+</Tabs>
+
+The tool returns an object with a `status`, the child agent's final text as `output`, and the total wall-clock in `executionTimeMs` (TypeScript) or `execution_time_ms` (Python). `status` uses the shared multi-agent vocabulary of `completed`, `failed`, or `interrupted`. Only a child that finishes with `end_turn` maps to `completed`; any other non-cancelled stop reason maps to `failed` so the parent can distinguish a completed delegation from one that hit a limit or policy. On cancellation the TypeScript tool raises an `AbortError`, matching the sibling http-request tool; the Python tool returns `status: "cancelled"`.
+
+[Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/use-agent/README.md)
 
 ---
 
