@@ -126,7 +126,6 @@ export const collections = {
       // Long-term we'll be moving examples into the sdk-python repository instead, solving this problem.
       pattern: [
         "404.mdx",
-        "docs/README.mdx",
 
         "docs/user-guide/**/*.mdx",
         "docs/community/**/*.mdx",
