@@ -60,6 +60,7 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 ├── CODE_OF_CONDUCT.md
 ├── CONTRIBUTING.md
 ├── SITE-ARCHITECTURE.md          # Detailed Astro/Starlight customizations
+├── reference/                    # On-demand site-architecture deep-dives
 ├── src/                          # Astro source files
 │   ├── components/               # Custom Astro components
 │   │   ├── overrides/            # Starlight component overrides
@@ -203,6 +204,7 @@ import type { Options, Config } from '../types'
 - **CONTRIBUTING.md**: Contains testing/setup commands and human contribution guidelines
 - **README.md**: Public-facing documentation, links to strandsagents.com
 - **SITE-ARCHITECTURE.md**: Comprehensive documentation of Astro/Starlight customizations, components, and plugins
+- **reference/**: On-demand deep-dives split out of SITE-ARCHITECTURE.md (API doc generation, landing page, redirects, llms.txt)
 - **package.json**: Defines scripts for building, testing, and linting
 - **src/config/navigation.yml**: Defines the navigation structure (loaded by `src/sidebar.ts` for Astro)
 
@@ -382,7 +384,7 @@ async function example() {
 
 ### 5. Fallback for Unsupported Features
 
-For features not available in TypeScript, you can indicate this using custom frontmatter fields. See [SITE-ARCHITECTURE.md](SITE-ARCHITECTURE.md#custom-frontmatter-fields) for details on:
+For features not available in TypeScript, you can indicate this using custom frontmatter fields. See [mdx-authoring.md](../.agents/references/mdx-authoring.md#frontmatter-schema) for details on:
 - `languages` - Indicate a feature is only available in specific SDK languages
 - `community` - Mark pages as community-contributed
 - `experimental` - Mark features as experimental
