@@ -244,7 +244,7 @@ class ToolExecutor(abc.ABC):
                 async for event in agent._middleware_registry.invoke(
                     ExecuteToolStage,
                     middleware_context,
-                    _make_execute_tool_terminal(tool_use, kwargs),
+                    _make_execute_tool_terminal(kwargs),
                 ):
                     # Tool-originated interrupt: a ToolInterruptEvent yielded from tool.stream()
                     # (including sub-agent interrupts propagated via _AgentAsTool). Distinct from
@@ -413,7 +413,6 @@ class ToolExecutor(abc.ABC):
 
 
 def _make_execute_tool_terminal(
-    tool_use: ToolUse,
     extra_kwargs: dict[str, Any],
 ) -> "Any":
     """Build the terminal for the ExecuteToolStage middleware chain.
@@ -429,8 +428,11 @@ def _make_execute_tool_terminal(
     thrown exception (matching the TypeScript SDK). ``InterruptException`` is re-raised so a
     tool-raised interrupt still halts the agent instead of becoming an error result.
 
+    All events are derived from ``ctx.tool_use`` (the possibly Input-transformed value the tool
+    actually ran with), so the streamed, wrapped, and error events agree on identity fields
+    (e.g. ``toolUseId``) even when an Input handler rewrote them.
+
     Args:
-        tool_use: The (executor-owned) tool use, used to wrap non-SDK stream events.
         extra_kwargs: Extra keyword arguments forwarded to ``tool.stream()``.
 
     Returns:
@@ -441,6 +443,7 @@ def _make_execute_tool_terminal(
         # ctx.tool is always set here — the caller resolves the tool before invoking the
         # chain and handles the "unknown tool" case separately.
         assert ctx.tool is not None
+        tool_use = ctx.tool_use
 
         # Mirrors ToolExecutor._stream's original dispatch: built-in AgentTools yield
         # TypedEvents directly (ending in a ToolResultEvent); other tools yield raw values
@@ -448,7 +451,7 @@ def _make_execute_tool_terminal(
         yielded_any = False
         last_raw_event: Any = None
         try:
-            async for event in ctx.tool.stream(ctx.tool_use, ctx.invocation_state, **extra_kwargs):
+            async for event in ctx.tool.stream(tool_use, ctx.invocation_state, **extra_kwargs):
                 if isinstance(event, ToolInterruptEvent):
                     yield event
                     return

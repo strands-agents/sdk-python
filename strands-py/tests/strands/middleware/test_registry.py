@@ -470,6 +470,30 @@ async def test_output_handler_not_fed_buffered_event_when_halting_on_interrupt(r
     assert received == []
 
 
+@pytest.mark.asyncio
+async def test_output_forwards_trailing_event_after_interrupt_without_transforming(registry, stage, alist):
+    """An event trailing an interrupt is forwarded untransformed, never treated as the result."""
+    received: list[Any] = []
+
+    def output_handler(result):
+        received.append(result.value)
+        return result
+
+    interrupt = _FakeInterruptEvent()
+
+    async def terminal(context):
+        yield "before"  # buffered
+        yield interrupt  # halts; buffered "before" is flushed
+        yield "after"  # trailing event once already interrupted
+
+    registry.add_middleware(stage.Output, output_handler)
+    events = await alist(registry.invoke(stage, {}, terminal))
+
+    # All three flow through in order; the Output handler never runs (no result to transform).
+    assert events == ["before", interrupt, "after"]
+    assert received == []
+
+
 # --- error propagation ---
 
 

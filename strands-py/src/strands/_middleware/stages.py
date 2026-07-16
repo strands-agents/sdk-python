@@ -11,6 +11,7 @@ from .types import MiddlewareStage
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..experimental.bidi import BidiAgent
     from ..interrupt import _InterruptState
     from ..types._events import ModelStopReason, ToolResultEvent, TypedEvent
     from ..types.content import Messages, SystemPrompt
@@ -72,13 +73,14 @@ class ExecuteToolContext:
     approval flows.
     """
 
-    agent: Agent
+    agent: Agent | BidiAgent
     tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     # Interrupt state is threaded in from the agent so interrupt() can register/resolve
-    # interrupts. Excluded from repr to avoid dumping unrelated interrupt bookkeeping.
-    _interrupt_state: _InterruptState = field(repr=False, default=None)  # type: ignore[assignment]
+    # interrupts. Required (the executor is the sole constructor and always supplies it);
+    # excluded from repr to avoid dumping unrelated interrupt bookkeeping.
+    _interrupt_state: _InterruptState = field(repr=False)
 
     def interrupt(self, name: str, *, reason: Any = None, response: Any = None) -> MiddlewareInterruptResult:
         """Request a human-in-the-loop interrupt.

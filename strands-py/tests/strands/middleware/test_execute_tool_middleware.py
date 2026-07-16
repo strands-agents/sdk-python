@@ -9,7 +9,7 @@ from strands import Agent, Plugin
 from strands._middleware.stages import ExecuteToolContext, ExecuteToolStage
 from strands._middleware.types import MiddlewareResult
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
-from strands.types._events import ToolInterruptEvent, ToolResultEvent
+from strands.types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -211,6 +211,54 @@ def test_input_transforms_tool_context(agent):
     assert received_input == {"expression": "3+3"}
 
 
+def test_input_rewriting_tool_use_id_stays_consistent_across_events(calculator_tool):
+    """An Input handler that rewrites toolUseId is reflected consistently in all emitted events.
+
+    The terminal derives stream-wrapping and result events from ctx.tool_use (the transformed
+    value), so the ToolStreamEvent and the final ToolResultEvent agree on the new id rather
+    than one carrying the original.
+    """
+    stream_ids: list[str] = []
+    result_ids: list[str] = []
+
+    # A raw (non-SDK) tool stream: yields a bare value (wrapped into ToolStreamEvent by the
+    # terminal) then a ToolResult, exercising the terminal's own event construction.
+    async def raw_stream(tool_use, _invocation_state, **_kwargs):
+        yield "progress"
+        yield {"toolUseId": tool_use["toolUseId"], "status": "success", "content": [{"text": "42"}]}
+
+    calculator_tool.stream = raw_stream
+
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "original_id", "name": "calculator", "input": {"expression": "2+2"}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[calculator_tool], callback_handler=None)
+
+    def rewrite_id(context):
+        return replace(context, tool_use={**context.tool_use, "toolUseId": "rewritten_id"})
+
+    async def capture_ids(context, next_fn):
+        async for event in next_fn(context):
+            if isinstance(event, ToolStreamEvent):
+                stream_ids.append(event.tool_use_id)
+            elif isinstance(event, ToolResultEvent):
+                result_ids.append(event.tool_result["toolUseId"])
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage.Input, rewrite_id)
+    agent._middleware_registry.add_middleware(ExecuteToolStage, capture_ids)
+    agent("go")
+
+    # Every stream-wrapped and result event carries the rewritten id — none desync to the
+    # original. (The raw-value result also surfaces as a trailing stream event, so there may
+    # be more than one of each; what matters is that they all agree.)
+    assert stream_ids and all(stream_id == "rewritten_id" for stream_id in stream_ids)
+    assert result_ids == ["rewritten_id"]
+
+
 def test_context_transform_modified_input_reaches_tool():
     """When middleware transforms tool_use input, the tool receives modified arguments."""
     received_args: list[dict] = []
@@ -274,7 +322,12 @@ def test_output_transformed_result_reaches_conversation(agent):
         msg for msg in agent.messages if msg.get("role") == "user" and any("toolResult" in c for c in msg["content"])
     ]
     assert len(tool_result_messages) == 1
-    assert tool_result_messages[0]["content"][0]["toolResult"]["content"] == [{"text": "intercepted"}]
+    # Whole-object assertion: the Output handler rewrote content while preserving toolUseId/status.
+    assert tool_result_messages[0]["content"][0]["toolResult"] == {
+        "toolUseId": "tool_1",
+        "status": "success",
+        "content": [{"text": "intercepted"}],
+    }
 
 
 # --- hooks fire outside middleware ---
@@ -451,7 +504,12 @@ def test_short_circuit_result_appears_in_conversation(calculator_tool):
         msg for msg in agent.messages if msg.get("role") == "user" and any("toolResult" in c for c in msg["content"])
     ]
     assert len(tool_result_messages) == 1
-    assert tool_result_messages[0]["content"][0]["toolResult"]["content"] == [{"text": "mocked_result"}]
+    # Whole-object assertion also guards toolUseId/status against regressions.
+    assert tool_result_messages[0]["content"][0]["toolResult"] == {
+        "toolUseId": "t1",
+        "status": "success",
+        "content": [{"text": "mocked_result"}],
+    }
 
 
 def test_no_middleware_agent_with_tools_works_correctly(agent):
@@ -732,3 +790,47 @@ def test_in_place_input_mutation_leaks_to_tool():
     agent("go")
 
     assert received_values == ["mutated"]
+
+
+def test_wrap_yielding_no_result_surfaces_actionable_error(calculator_tool):
+    """A Wrap middleware that consumes next_fn but yields no result produces an actionable error.
+
+    Guards the most common middleware-authoring mistake: forwarding nothing from next(). The
+    RuntimeError is raised inside _stream, caught by its error handler, and surfaced as an
+    error ToolResult carrying the guidance message so the agent can continue rather than crash.
+    """
+    observed_results: list[ToolResultEvent] = []
+
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "calculator", "input": {"expression": "2+2"}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[calculator_tool], callback_handler=None)
+
+    async def swallow_result(context, next_fn):
+        # Drives the tool but forwards nothing, so the chain yields no ToolResultEvent.
+        async for _event in next_fn(context):
+            pass
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    async def observer(context, next_fn):
+        async for event in next_fn(context):
+            if isinstance(event, ToolResultEvent):
+                observed_results.append(event)
+            yield event
+
+    # Observer is outermost so it sees the error result the executor produces on the retry-less
+    # failure path; swallow_result is the inner handler that drops the result.
+    agent._middleware_registry.add_middleware(ExecuteToolStage, swallow_result)
+    agent("go")
+
+    tool_result_messages = [
+        msg for msg in agent.messages if msg.get("role") == "user" and any("toolResult" in c for c in msg["content"])
+    ]
+    assert len(tool_result_messages) == 1
+    result = tool_result_messages[0]["content"][0]["toolResult"]
+    assert result["status"] == "error"
+    assert "did not yield a ToolResultEvent" in result["content"][0]["text"]
