@@ -5,6 +5,7 @@
 
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
@@ -299,7 +300,7 @@ class LiteLLMModel(OpenAIModel):
             return StreamEvent(
                 metadata=MetadataEvent(
                     metrics={
-                        "latencyMs": 0,  # TODO
+                        "latencyMs": event.get("latency_ms", 0),
                     },
                     usage=usage_data,
                 )
@@ -542,6 +543,7 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Formatted message chunks from the model.
         """
+        start_time = time.perf_counter()
         response = await litellm.acompletion(**self.client_args, **litellm_request)
 
         logger.debug("got non-streaming response from model")
@@ -577,7 +579,8 @@ class LiteLLMModel(OpenAIModel):
 
         # Add usage information if available
         if hasattr(response, "usage"):
-            yield self.format_chunk({"chunk_type": "metadata", "data": response.usage})
+            latency_ms = round((time.perf_counter() - start_time) * 1000)
+            yield self.format_chunk({"chunk_type": "metadata", "data": response.usage, "latency_ms": latency_ms})
 
     async def _handle_streaming_response(self, litellm_request: dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
         """Handle streaming response from LiteLLM.
@@ -589,6 +592,7 @@ class LiteLLMModel(OpenAIModel):
             Formatted message chunks from the model.
         """
         # For streaming, use the streaming API
+        start_time = time.perf_counter()
         response = await litellm.acompletion(**self.client_args, **litellm_request)
 
         logger.debug("got response from model")
@@ -627,7 +631,8 @@ class LiteLLMModel(OpenAIModel):
         async for event in response:
             _ = event
             if usage := getattr(event, "usage", None):
-                yield self.format_chunk({"chunk_type": "metadata", "data": usage})
+                latency_ms = round((time.perf_counter() - start_time) * 1000)
+                yield self.format_chunk({"chunk_type": "metadata", "data": usage, "latency_ms": latency_ms})
 
         logger.debug("finished streaming response from model")
 

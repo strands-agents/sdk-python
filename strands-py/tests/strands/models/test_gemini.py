@@ -544,7 +544,12 @@ async def test_stream_response_text(gemini_client, model, messages, agenerator, 
         {"contentBlockDelta": {"delta": {"text": "test text"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -659,7 +664,12 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
         {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -708,7 +718,12 @@ async def test_stream_response_tool_use_with_thought_signature(gemini_client, mo
         {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -747,7 +762,12 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
         {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj", "text": "test reason"}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -813,7 +833,12 @@ async def test_stream_response_reasoning_and_text(gemini_client, model, messages
         {"contentBlockDelta": {"delta": {"text": "2 + 2 = 4"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 4, "totalTokens": 5}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 4, "totalTokens": 5},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -846,7 +871,12 @@ async def test_stream_response_max_tokens(gemini_client, model, messages, agener
         {"contentBlockDelta": {"delta": {"text": "test text"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "max_tokens"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -873,7 +903,12 @@ async def test_stream_response_safety_block_with_missing_counts(gemini_client, m
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"messageStop": {"stopReason": "guardrail_intervened"}},
-        {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 
@@ -896,7 +931,12 @@ async def test_stream_response_none_candidates(gemini_client, model, messages, a
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"messageStop": {"stopReason": "end_turn"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
     assert tru_chunks == exp_chunks
 

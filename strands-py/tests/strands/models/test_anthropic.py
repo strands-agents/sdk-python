@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import mimetypes
 import unittest.mock
@@ -879,7 +880,12 @@ async def test_stream(anthropic_client, model, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3},
+                "metrics": {"latencyMs": unittest.mock.ANY},
+            }
+        },
     ]
 
     assert tru_events == exp_events
@@ -892,6 +898,34 @@ async def test_stream(anthropic_client, model, alist):
         "tools": [],
     }
     anthropic_client.messages.stream.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_reports_measured_latency(anthropic_client, model, alist):
+    mock_event = unittest.mock.Mock(
+        type="message_start",
+        dict=lambda: {"type": "message_start"},
+        model_dump=lambda: {"type": "message_start"},
+    )
+
+    async def slow_aiter(self):
+        await asyncio.sleep(0.05)
+        yield mock_event
+
+    mock_stream = unittest.mock.AsyncMock()
+    mock_stream.__aiter__ = slow_aiter
+    mock_stream.get_final_message.return_value = unittest.mock.Mock(
+        usage=unittest.mock.Mock(model_dump=lambda: {"input_tokens": 1, "output_tokens": 2})
+    )
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = mock_stream
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    events = await alist(model.stream(messages, None, None))
+
+    metadata_event = events[-1]
+    assert metadata_event["metadata"]["metrics"]["latencyMs"] >= 50
 
 
 @pytest.mark.asyncio

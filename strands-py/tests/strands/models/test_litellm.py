@@ -260,7 +260,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
                     "outputTokens": mock_event_9.usage.completion_tokens,
                     "totalTokens": mock_event_9.usage.total_tokens,
                 },
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
             }
         },
     ]
@@ -541,7 +541,7 @@ async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alis
                     "outputTokens": 20,
                     "totalTokens": 30,
                 },
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
             }
         },
     ]

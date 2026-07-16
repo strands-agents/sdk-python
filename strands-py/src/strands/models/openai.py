@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Protocol, TypeVar, cast
@@ -605,7 +606,7 @@ class OpenAIModel(Model):
                     "metadata": {
                         "usage": usage_data,
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event.get("latency_ms", 0),
                         },
                     },
                 }
@@ -613,7 +614,7 @@ class OpenAIModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
-    def _format_non_streaming_response(self, response: Any) -> list[StreamEvent]:
+    def _format_non_streaming_response(self, response: Any, latency_ms: int) -> list[StreamEvent]:
         """Convert a non-streaming OpenAI chat completion into Strands stream events."""
         chunks = [self.format_chunk({"chunk_type": "message_start"})]
         choices = getattr(response, "choices", None) or []
@@ -647,7 +648,7 @@ class OpenAIModel(Model):
         )
 
         if usage := getattr(response, "usage", None):
-            chunks.append(self.format_chunk({"chunk_type": "metadata", "data": usage}))
+            chunks.append(self.format_chunk({"chunk_type": "metadata", "data": usage, "latency_ms": latency_ms}))
 
         return chunks
 
@@ -714,6 +715,7 @@ class OpenAIModel(Model):
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
         async with self._get_client() as client:
+            start_time = time.perf_counter()
             try:
                 response = await client.chat.completions.create(**request)
             except openai.BadRequestError as e:
@@ -738,7 +740,8 @@ class OpenAIModel(Model):
                 raise
 
             if not request["stream"]:
-                for chunk in self._format_non_streaming_response(response):
+                latency_ms = round((time.perf_counter() - start_time) * 1000)
+                for chunk in self._format_non_streaming_response(response, latency_ms):
                     yield chunk
                 return
 
@@ -803,7 +806,8 @@ class OpenAIModel(Model):
                 _ = event
 
             if event and hasattr(event, "usage") and event.usage:
-                yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+                latency_ms = round((time.perf_counter() - start_time) * 1000)
+                yield self.format_chunk({"chunk_type": "metadata", "data": event.usage, "latency_ms": latency_ms})
 
         logger.debug("finished streaming response from model")
 

@@ -22,6 +22,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from collections.abc import AsyncGenerator
 from importlib.metadata import version as get_package_version
 from types import SimpleNamespace
@@ -310,6 +311,7 @@ class OpenAIResponsesModel(Model):
         logger.debug("invoking OpenAI Responses API model")
 
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
+            start_time = time.perf_counter()
             try:
                 response = await client.responses.create(**request)
 
@@ -466,7 +468,8 @@ class OpenAIResponsesModel(Model):
             yield self._format_chunk({"chunk_type": "message_stop", "data": finish_reason})
 
             if final_usage:
-                yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
+                latency_ms = round((time.perf_counter() - start_time) * 1000)
+                yield self._format_chunk({"chunk_type": "metadata", "data": final_usage, "latency_ms": latency_ms})
 
         logger.debug("finished streaming response from OpenAI Responses API model")
 
@@ -859,7 +862,7 @@ class OpenAIResponsesModel(Model):
                     "metadata": {
                         "usage": usage_data,
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event.get("latency_ms", 0),
                         },
                     },
                 }

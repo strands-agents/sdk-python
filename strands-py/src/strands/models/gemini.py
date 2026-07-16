@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import secrets
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -443,7 +444,7 @@ class GeminiModel(Model):
                     "metadata": {
                         "usage": usage_data,
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event.get("latency_ms", 0),
                         },
                     },
                 }
@@ -541,6 +542,7 @@ class GeminiModel(Model):
 
         client = self._get_client().aio
 
+        start_time = time.perf_counter()
         try:
             response = await client.models.generate_content_stream(**request)
 
@@ -591,7 +593,10 @@ class GeminiModel(Model):
                 }
             )
             if event:
-                yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
+                latency_ms = round((time.perf_counter() - start_time) * 1000)
+                yield self._format_chunk(
+                    {"chunk_type": "metadata", "data": event.usage_metadata, "latency_ms": latency_ms}
+                )
 
         except genai.errors.ClientError as error:
             match error.status:

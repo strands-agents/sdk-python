@@ -624,9 +624,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -647,7 +645,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
         {
             "metadata": {
                 "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
             }
         },
     ]
@@ -737,9 +735,7 @@ async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -774,9 +770,7 @@ async def test_stream_with_tool_calls_done_event(openai_client, model, agenerato
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -835,9 +829,7 @@ async def test_stream_reasoning_content(openai_client, model, agenerator, alist,
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None)
         ),
     )
 
@@ -883,9 +875,7 @@ async def test_stream_citation_annotations(openai_client, model, agenerator, ali
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -923,9 +913,7 @@ async def test_stream_unsupported_annotation_type(openai_client, model, agenerat
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -1433,7 +1421,7 @@ async def test_stream_stateful(openai_client, model_id, agenerator, alist):
     assert len(metadata_events) == 1
     assert metadata_events[0]["metadata"] == {
         "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
-        "metrics": {"latencyMs": 0},
+        "metrics": {"latencyMs": unittest.mock.ANY},
     }
 
 

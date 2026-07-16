@@ -8,6 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -332,7 +333,7 @@ class LlamaAPIModel(Model):
                     "metadata": {
                         "usage": usage_type,
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event.get("latency_ms", 0),
                         },
                     },
                 }
@@ -374,6 +375,7 @@ class LlamaAPIModel(Model):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
+        start_time = time.perf_counter()
         try:
             response = self.client.chat.completions.create(**request)
         except llama_api_client.RateLimitError as e:
@@ -431,7 +433,8 @@ class LlamaAPIModel(Model):
 
         # we may have a metrics event here
         if metrics_event:
-            yield self.format_chunk({"chunk_type": "metadata", "data": metrics_event})
+            latency_ms = round((time.perf_counter() - start_time) * 1000)
+            yield self.format_chunk({"chunk_type": "metadata", "data": metrics_event, "latency_ms": latency_ms})
 
         logger.debug("finished streaming response from model")
 

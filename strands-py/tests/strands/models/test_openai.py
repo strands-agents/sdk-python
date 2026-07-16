@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import unittest.mock
@@ -1062,7 +1063,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
                     "outputTokens": mock_event_6.usage.completion_tokens,
                     "totalTokens": mock_event_6.usage.total_tokens,
                 },
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
             }
         },
     ]
@@ -1186,7 +1187,7 @@ async def test_stream_with_empty_choices(openai_client, model, agenerator, alist
         {
             "metadata": {
                 "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
             }
         },
     ]
@@ -1223,7 +1224,7 @@ async def test_stream_can_use_non_streaming_chat_completion(openai_client, model
         {
             "metadata": {
                 "usage": {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10},
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": unittest.mock.ANY},
             }
         },
     ]
@@ -1236,6 +1237,26 @@ async def test_stream_can_use_non_streaming_chat_completion(openai_client, model
         stream=False,
         tools=[],
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_reports_measured_latency(openai_client, model_id, messages, alist):
+    async def slow_create(**kwargs):
+        await asyncio.sleep(0.05)
+        mock_usage = unittest.mock.Mock(
+            prompt_tokens=7, completion_tokens=3, total_tokens=10, prompt_tokens_details=None
+        )
+        mock_message = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
+        mock_choice = unittest.mock.Mock(message=mock_message, finish_reason="stop")
+        return unittest.mock.Mock(choices=[mock_choice], usage=mock_usage)
+
+    openai_client.chat.completions.create = slow_create
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    events = await alist(model.stream(messages))
+
+    metadata_event = events[-1]
+    assert metadata_event["metadata"]["metrics"]["latencyMs"] >= 50
 
 
 @pytest.mark.asyncio

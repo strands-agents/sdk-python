@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -390,7 +391,7 @@ class AnthropicModel(Model):
                     "metadata": {
                         "usage": usage_chunk,
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event.get("latency_ms", 0),
                         },
                     }
                 }
@@ -480,6 +481,7 @@ class AnthropicModel(Model):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
+        start_time = time.perf_counter()
         try:
             async with self.client.messages.stream(**request) as stream:
                 logger.debug("got response from model")
@@ -504,7 +506,14 @@ class AnthropicModel(Model):
                 except AssertionError as e:
                     logger.warning("error=<%s> | failed to retrieve message snapshot, usage metadata unavailable", e)
                 else:
-                    yield self.format_chunk({"type": "metadata", "usage": message_snapshot.usage.model_dump()})
+                    latency_ms = round((time.perf_counter() - start_time) * 1000)
+                    yield self.format_chunk(
+                        {
+                            "type": "metadata",
+                            "usage": message_snapshot.usage.model_dump(),
+                            "latency_ms": latency_ms,
+                        }
+                    )
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
