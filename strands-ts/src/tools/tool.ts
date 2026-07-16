@@ -125,11 +125,11 @@ export abstract class Tool {
    * response and exits without an additional model call.
    *
    * @internal Not yet exposed to regular tool factories. Set by AgentAsTool
-   * when `handoff: true` (which sets `directReturn` on the base class).
+   * when `delegate: true`
    *
    * @defaultValue false
    */
-  readonly directReturn: boolean = false
+  readonly delegate: boolean = false
 
   /**
    * Executes the tool with streaming support.
@@ -229,8 +229,8 @@ export function isValidToolName(name: string): boolean {
 }
 
 /**
- * Description suffix appended to direct-return tools to guide the model.
+ * Description suffix appended to delegation tools to guide the model.
  * @internal
  */
-export const DIRECT_RETURN_DESCRIPTION_SUFFIX =
+export const DELEGATION_DESCRIPTION_SUFFIX =
   ' Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn.'

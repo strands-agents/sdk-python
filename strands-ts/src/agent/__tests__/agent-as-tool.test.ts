@@ -5,7 +5,7 @@ import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 import { createMockContext } from '../../__fixtures__/tool-helpers.js'
 import { ToolValidationError } from '../../errors.js'
-import { Tool, ToolStreamEvent, DIRECT_RETURN_DESCRIPTION_SUFFIX } from '../../tools/tool.js'
+import { Tool, ToolStreamEvent, DELEGATION_DESCRIPTION_SUFFIX } from '../../tools/tool.js'
 import { ToolResultBlock } from '../../types/messages.js'
 import { SessionManager } from '../../session/session-manager.js'
 import type { SnapshotStorage } from '../../session/storage.js'
@@ -407,26 +407,26 @@ describe('AgentAsTool', () => {
       expect(tool.description).toBe('Custom desc')
     })
 
-    it('sets directReturn and appends description suffix when handoff is true', () => {
+    it('sets delegate and appends description suffix when delegate is true', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
       const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
 
-      const tool = agent.asTool({ handoff: true })
+      const tool = agent.asTool({ delegate: true })
 
-      expect(tool.directReturn).toBe(true)
-      expect(tool.description).toBe('Handles billing' + DIRECT_RETURN_DESCRIPTION_SUFFIX)
-      expect(tool.toolSpec.description).toBe('Handles billing' + DIRECT_RETURN_DESCRIPTION_SUFFIX)
+      expect(tool.delegate).toBe(true)
+      expect(tool.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
+      expect(tool.toolSpec.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
     })
 
-    it('does not set directReturn or append description suffix when handoff is false', () => {
+    it('does not set delegate or append description suffix when delegate is false', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
       const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
 
-      const tool = agent.asTool({ handoff: false })
+      const tool = agent.asTool({ delegate: false })
 
-      expect(tool.directReturn).toBe(false)
+      expect(tool.delegate).toBe(false)
       expect(tool.description).toBe('Handles billing')
-      expect(tool.description).not.toContain(DIRECT_RETURN_DESCRIPTION_SUFFIX)
+      expect(tool.description).not.toContain(DELEGATION_DESCRIPTION_SUFFIX)
     })
   })
 

@@ -1,5 +1,5 @@
 /**
- * Direct-return plugin for Strands Agents — enforces direct-return semantics for
+ * Tool-delegation plugin for Strands Agents — enforces tool-delegation semantics for
  * tool routing scenarios where a tool's response should reach the user verbatim
  * without post-processing.
  *
@@ -9,13 +9,13 @@
  *
  * const specialist = new Agent({ name: 'Specialist' })
  * const orchestrator = new Agent({
- *   tools: [specialist.asTool({ handoff: true })],
- *   // DirectReturnPlugin is auto-registered — no manual setup needed
+ *   tools: [specialist.asTool({ delegate: true })],
+ *   // ToolDelegationPlugin is auto-registered — no manual setup needed
  * })
  *
  * const result = await orchestrator.invoke('Help me with billing')
- * console.log(result.stopReason) // 'handoff'
+ * console.log(result.stopReason) // 'delegated'
  * ```
  */
 
-export { DirectReturnPlugin } from './plugin.js'
+export { ToolDelegationPlugin } from './plugin.js'

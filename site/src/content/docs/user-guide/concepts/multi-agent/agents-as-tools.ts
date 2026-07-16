@@ -179,13 +179,13 @@ void orchestratorExample
     name: 'HelpDesk',
     systemPrompt: 'Route requests to the appropriate specialist.',
     tools: [
-      customerService.asTool({ handoff: true }),
-      technicalSupport.asTool({ handoff: true }),
+      customerService.asTool({ delegate: true }),
+      technicalSupport.asTool({ delegate: true }),
     ],
   })
 
   const result = await orchestrator.invoke('My wifi does not work')
-  // result.stopReason === 'directReturn'
+  // result.stopReason === 'delegated'
   // The TechnicalSupport agent's response is returned directly
   void result
 }
@@ -209,7 +209,7 @@ void orchestratorExample
   const orchestrator = new Agent({
     tools: [
       calculatorTool, // regular tool — results feed back to orchestrator
-      researcher.asTool({ handoff: true }), // handoff — response goes directly to user
+      researcher.asTool({ delegate: true }), // delegate — response goes directly to user
     ],
   })
   void orchestrator

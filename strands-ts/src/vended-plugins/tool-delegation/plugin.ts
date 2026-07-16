@@ -1,10 +1,10 @@
 /**
- * DirectReturnPlugin — enforces direct-return semantics for tool routing.
+ * ToolDelegationPlugin — enforces tool-delegation semantics for tool routing.
  *
- * When a tool is configured with `directReturn: true`, this plugin ensures:
- * 1. The direct-return tool is the only tool called in the turn (single-call constraint)
- * 2. The agent loop exits immediately after a successful direct return (early exit)
- * 3. The AgentResult is transformed with `stopReason: 'handoff'` and the tool's content
+ * When a tool is configured with `delegate: true`, this plugin ensures:
+ * 1. The delegation tool is the only tool called in the turn (single-call constraint)
+ * 2. The agent loop exits immediately after a successful delegation (early exit)
+ * 3. The AgentResult is transformed with `stopReason: 'delegated'` and the tool's content
  */
 
 import type { Plugin } from '../../plugins/plugin.js'
@@ -17,11 +17,11 @@ import type { AgentStreamContext, AgentStreamResult, MiddlewareNext } from '../.
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 
 /**
- * Checks whether a tool registered on the agent has directReturn enabled.
+ * Checks whether a tool registered on the agent has delegate enabled.
  */
-function isDirectReturnTool(agent: LocalAgent, toolName: string): boolean {
+function isDelegationTool(agent: LocalAgent, toolName: string): boolean {
   const tool = agent.toolRegistry.get(toolName)
-  return tool?.directReturn ?? false
+  return tool?.delegate ?? false
 }
 
 /**
@@ -66,23 +66,23 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
 }
 
 /**
- * Per-agent mutable state for the direct-return plugin.
+ * Per-agent mutable state for the tool-delegation plugin.
  *
  * Scoped via WeakMap so concurrent invocations on different agents don't interfere.
  */
-interface DirectReturnState {
-  /** Whether a successful direct return was detected in the current turn. */
+interface ToolDelegationState {
+  /** Whether a successful delegation was detected in the current turn. */
   triggered: boolean
-  /** The toolUseId of the pending direct-return tool, set in BeforeTools and consumed in AfterTools. */
+  /** The toolUseId of the pending delegation tool, set in BeforeTools and consumed in AfterTools. */
   toolUseId?: string
-  /** The resolved direct-return ToolResultBlock, captured in AfterTools and consumed by the middleware. */
+  /** The resolved delegation ToolResultBlock, captured in AfterTools and consumed by the middleware. */
   toolResult?: ToolResultBlock
 }
 
 /**
- * Plugin that enforces direct-return semantics for tool routing.
+ * Plugin that enforces tool-delegation semantics for tool routing.
  *
- * Automatically registered when any tool in the agent's tool list has `directReturn: true`.
+ * Automatically registered when any tool in the agent's tool list has `delegate: true`.
  * Implements single-call constraint, early loop exit, and result transformation.
  *
  * @example
@@ -91,18 +91,18 @@ interface DirectReturnState {
  *
  * const specialist = new Agent({ name: 'Specialist' })
  * const orchestrator = new Agent({
- *   tools: [specialist.asTool({ handoff: true })],
- *   // DirectReturnPlugin is auto-registered — no manual setup needed
+ *   tools: [specialist.asTool({ delegate: true })],
+ *   // ToolDelegationPlugin is auto-registered — no manual setup needed
  * })
  * ```
  */
-export class DirectReturnPlugin implements Plugin {
-  readonly name = 'strands:direct-return'
+export class ToolDelegationPlugin implements Plugin {
+  readonly name = 'strands:tool-delegation'
 
-  /** Per-agent direct-return state. Keyed by agent so one plugin instance can serve many. */
-  private readonly _state = new WeakMap<LocalAgent, DirectReturnState>()
+  /** Per-agent delegation state. Keyed by agent so one plugin instance can serve many. */
+  private readonly _state = new WeakMap<LocalAgent, ToolDelegationState>()
 
-  private _getState(agent: LocalAgent): DirectReturnState {
+  private _getState(agent: LocalAgent): ToolDelegationState {
     let state = this._state.get(agent)
     if (!state) {
       state = { triggered: false }
@@ -132,8 +132,8 @@ export class DirectReturnPlugin implements Plugin {
   /**
    * BeforeToolsEvent hook: enforces single-call constraint.
    *
-   * If a direct-return tool is present alongside other tools, cancel all.
-   * If a single direct-return tool is alone, record its toolUseId for later.
+   * If a delegation tool is present alongside other tools, cancel all.
+   * If a single delegation tool is alone, record its toolUseId for later.
    */
   private _onBeforeTools(event: BeforeToolsEvent): void {
     // Reset per-turn state to prevent stale values from a prior turn leaking
@@ -145,28 +145,28 @@ export class DirectReturnPlugin implements Plugin {
 
     const toolUseBlocks = event.message.content.filter((block): block is ToolUseBlock => block.type === 'toolUseBlock')
 
-    const directReturnBlocks = toolUseBlocks.filter((block) => isDirectReturnTool(event.agent, block.name))
+    const delegationBlocks = toolUseBlocks.filter((block) => isDelegationTool(event.agent, block.name))
 
-    // No direct-return tools in this batch — let normal execution proceed
-    if (directReturnBlocks.length === 0) return
+    // No delegation tools in this batch — let normal execution proceed
+    if (delegationBlocks.length === 0) return
 
-    // Direct-return tool(s) present alongside other tools — cancel all
+    // Delegation tool(s) present alongside other tools — cancel all
     if (toolUseBlocks.length > 1) {
       event.cancel =
-        'This tool call was not executed. A direct-return tool must be the only ' +
-        'tool called in a turn. Retry with a single direct-return tool call or ' +
-        'use only non-direct-return tools.'
+        'This tool call was not executed. A delegation tool must be the only ' +
+        'tool called in a turn. Retry with a single delegation tool call or ' +
+        'use only non-delegation tools.'
       return
     }
 
-    // Single direct-return tool — allow execution, record the toolUseId
-    state.toolUseId = directReturnBlocks[0]!.toolUseId
+    // Single delegation tool — allow execution, record the toolUseId
+    state.toolUseId = delegationBlocks[0]!.toolUseId
   }
 
   /**
-   * AfterToolsEvent hook: triggers early exit on successful direct return.
+   * AfterToolsEvent hook: triggers early exit on successful delegation.
    *
-   * If the recorded direct-return tool completed successfully, set endTurn.
+   * If the recorded delegation tool completed successfully, set endTurn.
    * If it errored, reset state and let the model recover.
    *
    * Note: `event.endTurn` accepts only `boolean | string`, so the agent loop
@@ -180,29 +180,29 @@ export class DirectReturnPlugin implements Plugin {
     const state = this._getState(event.agent)
     if (!state.toolUseId) return
 
-    // Find the tool result for the direct-return tool
-    const directReturnResult = event.message.content.find(
+    // Find the tool result for the delegation tool
+    const delegationResult = event.message.content.find(
       (block): block is ToolResultBlock => block.type === 'toolResultBlock' && block.toolUseId === state.toolUseId
     )
 
-    // If the direct-return tool errored or wasn't found, don't trigger — let the model recover
-    if (!directReturnResult || directReturnResult.status === 'error') {
+    // If the delegation tool errored or wasn't found, don't trigger — let the model recover
+    if (!delegationResult || delegationResult.status === 'error') {
       delete state.toolUseId
       return
     }
 
     // Extract text representation and end the turn
     state.triggered = true
-    state.toolResult = directReturnResult
-    event.endTurn = extractText(directReturnResult)
+    state.toolResult = delegationResult
+    event.endTurn = extractText(delegationResult)
     delete state.toolUseId
   }
 
   /**
-   * AgentStreamStage middleware: transforms the AgentResult on direct return.
+   * AgentStreamStage middleware: transforms the AgentResult on delegation.
    *
-   * When a direct return was triggered, replaces the result with a new AgentResult
-   * that has `stopReason: 'handoff'` and the tool's content blocks as
+   * When a delegation was triggered, replaces the result with a new AgentResult
+   * that has `stopReason: 'delegated'` and the tool's content blocks as
    * `lastMessage`. This `lastMessage` may differ from the text-only message
    * appended to `agent.messages` by the endTurn path. See the AfterToolsEvent
    * hook comment for details on why this divergence exists.
@@ -217,17 +217,17 @@ export class DirectReturnPlugin implements Plugin {
     if (!state.triggered) return streamResult
     state.triggered = false
 
-    const directReturnBlock = state.toolResult
+    const delegationBlock = state.toolResult
     delete state.toolResult
-    if (!directReturnBlock) return streamResult
+    if (!delegationBlock) return streamResult
 
-    // Replace AgentResult with rich content from the direct-return tool.
+    // Replace AgentResult with rich content from the delegation tool.
     return {
       result: new AgentResult({
-        stopReason: 'handoff',
+        stopReason: 'delegated',
         lastMessage: new Message({
           role: 'assistant',
-          content: toContentBlocks(directReturnBlock),
+          content: toContentBlocks(delegationBlock),
         }),
         invocationState: streamResult.result.invocationState,
         ...(streamResult.result.metrics !== undefined && { metrics: streamResult.result.metrics }),

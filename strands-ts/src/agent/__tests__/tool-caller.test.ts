@@ -416,7 +416,7 @@ describe('ToolCaller', () => {
       const streamingTool = {
         name: 'streamer',
         description: 'A tool that yields progress events',
-        directReturn: false,
+        delegate: false,
         toolSpec: {
           name: 'streamer',
           description: 'A tool that yields progress events',
@@ -461,7 +461,7 @@ describe('ToolCaller', () => {
       const streamingTool = {
         name: 'streamer',
         description: 'A tool that yields progress events',
-        directReturn: false,
+        delegate: false,
         toolSpec: {
           name: 'streamer',
           description: 'A tool that yields progress events',

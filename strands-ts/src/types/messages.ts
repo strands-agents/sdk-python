@@ -693,7 +693,7 @@ export class JsonBlock implements JsonBlockData, JSONSerializable<JsonBlockData>
  * - `contentFiltered` - Content was filtered by safety mechanisms
  * - `endTurn` - Natural end of the model's turn
  * - `guardrailIntervened` - A guardrail policy stopped generation
- * - `handoff` - A tool or sub-agent response is handed off directly to the caller without additional model processing
+ * - `delegated` - A tool or sub-agent directly responded to the caller without additional model processing
  * - `checkpoint` - Agent paused at a cycle boundary for durable execution (experimental; see experimental checkpoint module)
  * - `interrupt` - Agent execution was interrupted for human input
  * - `maxTokens` - The model provider's per-call token cap was reached
@@ -712,7 +712,7 @@ export type StopReason =
   | 'contentFiltered'
   | 'endTurn'
   | 'guardrailIntervened'
-  | 'handoff'
+  | 'delegated'
   | 'interrupt'
   | 'maxTokens'
   | 'limitOutputTokens'

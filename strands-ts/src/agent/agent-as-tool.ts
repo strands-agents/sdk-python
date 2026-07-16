@@ -10,7 +10,7 @@ import type { Agent } from './agent.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { JSONValue } from '../types/json.js'
 import { JsonBlock, TextBlock, ToolResultBlock } from '../types/messages.js'
-import { createErrorResult, DIRECT_RETURN_DESCRIPTION_SUFFIX, Tool, ToolStreamEvent } from '../tools/tool.js'
+import { createErrorResult, DELEGATION_DESCRIPTION_SUFFIX, Tool, ToolStreamEvent } from '../tools/tool.js'
 import type { ToolContext, ToolStreamGenerator } from '../tools/tool.js'
 import type { ToolSpec } from '../tools/types.js'
 
@@ -54,12 +54,12 @@ export interface AgentAsToolOptions {
    * When true, the orchestrator treats this tool's result as the final
    * response and exits without an additional model call.
    *
-   * A direct-return tool's description is automatically suffixed with an instruction
+   * A delegation tool's description is automatically suffixed with an instruction
    * telling the model that this tool should be the only tool called in the turn.
    *
    * @defaultValue false
    */
-  handoff?: boolean
+  delegate?: boolean
 }
 
 /**
@@ -101,7 +101,7 @@ export class AgentAsTool extends Tool {
   readonly name: string
   readonly description: string
   readonly toolSpec: ToolSpec
-  override readonly directReturn: boolean
+  override readonly delegate: boolean
 
   private readonly _agent: Agent
   private readonly _preserveContext: boolean
@@ -112,7 +112,7 @@ export class AgentAsTool extends Tool {
     super()
     this._agent = config.agent
     this._preserveContext = config.preserveContext ?? false
-    this.directReturn = config.handoff ?? false
+    this.delegate = config.delegate ?? false
 
     if (!this._preserveContext && this._agent.sessionManager != null) {
       throw new Error(
@@ -133,8 +133,8 @@ export class AgentAsTool extends Tool {
       config.agent.description ??
       `Use the ${this.name} agent by providing a natural language input`
 
-    if (this.directReturn) {
-      this.description += DIRECT_RETURN_DESCRIPTION_SUFFIX
+    if (this.delegate) {
+      this.description += DELEGATION_DESCRIPTION_SUFFIX
     }
 
     this.toolSpec = {
