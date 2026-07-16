@@ -1,22 +1,12 @@
-import type { Node } from './nodes.js'
-import type { MultiAgentStreamEvent } from './events.js'
-import type { NodeResult } from './state.js'
-
-/**
- * Data produced by a running node: a streaming event, a completion signal, or an error.
- */
-export type QueueData =
-  | { type: 'event'; node: Node; event: MultiAgentStreamEvent }
-  | { type: 'result'; node: Node; result: NodeResult }
-  | { type: 'error'; node: Node; error: Error }
-
 /**
  * Queue data paired with an acknowledgement callback.
  * The consumer must call {@link ack} after fully processing the data
  * to unblock any producer waiting via {@link Queue.send}.
+ *
+ * @internal
  */
-export interface QueueEntry {
-  data: QueueData
+export interface QueueEntry<T> {
+  data: T
   ack: () => void
 }
 
@@ -27,9 +17,11 @@ export interface QueueEntry {
  * block until the consumer has fully processed the data. The consumer calls
  * {@link shift} to dequeue, then {@link QueueEntry.ack} after
  * processing to unblock the producer.
+ *
+ * @internal
  */
-export class Queue {
-  private readonly _entries: QueueEntry[] = []
+export class Queue<T> {
+  private readonly _entries: QueueEntry<T>[] = []
   /** Resolve function for the pending wait() promise, if any. */
   private _notify?: (() => void) | undefined
   private _disposed = false
@@ -37,7 +29,7 @@ export class Queue {
   /**
    * Push data to the queue, waking any waiting consumer.
    */
-  push(data: QueueData): void {
+  push(data: T): void {
     this._entries.push({ data, ack: () => {} })
     this._notify?.()
     this._notify = undefined
@@ -45,13 +37,13 @@ export class Queue {
 
   /**
    * Push data and wait until the consumer has fully processed it.
-   * Provides back-pressure so the producer pauses until the event
-   * has been yielded and hook callbacks have been invoked.
+   * Provides back-pressure so the producer pauses until the consumer
+   * calls {@link QueueEntry.ack}.
    *
    * @param data - The queue data to push
    * @returns Promise that resolves when the consumer calls {@link QueueEntry.ack}
    */
-  send(data: QueueData): Promise<void> {
+  send(data: T): Promise<void> {
     if (this._disposed) return Promise.resolve()
 
     return new Promise((resolve) => {
@@ -74,7 +66,7 @@ export class Queue {
   /**
    * Remove and return the next entry, or undefined if empty.
    */
-  shift(): QueueEntry | undefined {
+  shift(): QueueEntry<T> | undefined {
     return this._entries.shift()
   }
 
