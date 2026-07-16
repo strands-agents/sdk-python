@@ -2,8 +2,9 @@
 
 import copy
 import logging
-import warnings
 from typing import TYPE_CHECKING, Any
+
+from typing_extensions import deprecated
 
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
@@ -26,6 +27,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@deprecated(
+    "RepositorySessionManager is deprecated and will be removed in Strands SDK 2.0. "
+    "Use SnapshotSessionManager with a Storage backend instead. "
+    "See migration guide: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
+)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
@@ -47,15 +53,6 @@ class RepositorySessionManager(SessionManager):
             **kwargs: Additional keyword arguments for future extensibility.
 
         """
-        # Subclasses (FileSessionManager, S3SessionManager) emit their own, more specific
-        # deprecation warning; only warn when RepositorySessionManager is used directly.
-        if type(self) is RepositorySessionManager:
-            warnings.warn(
-                "RepositorySessionManager is deprecated and will be removed in Strands SDK 2.0. "
-                "Use SnapshotSessionManager with a Storage backend instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         self.session_repository = session_repository
         self.session_id = session_id
         session = session_repository.read_session(session_id)

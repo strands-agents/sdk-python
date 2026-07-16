@@ -178,6 +178,32 @@ def test_snapshot_trigger_creates_immutable(storage):
     assert len(ids) == 1
 
 
+@pytest.mark.asyncio
+async def test_triggered_turn_captures_and_writes_latest_once(temp_dir):
+    """A triggered turn under ``invocation`` writes latest once (immutable + latest), not twice."""
+    storage = LocalFileStorage(temp_dir)
+    latest_writes = []
+    original = storage.write
+
+    async def _spy(key, data, **kwargs):
+        if key.endswith("snapshot_latest.json"):
+            latest_writes.append(key)
+        await original(key, data, **kwargs)
+
+    storage.write = _spy  # type: ignore[method-assign]
+
+    # Default save_latest_on="invocation" with a trigger that always fires.
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    agent = Agent(model=_model("reply"), session_manager=manager, agent_id="a1")
+    latest_writes.clear()
+    await agent.invoke_async("go")
+
+    # The immutable+latest write subsumes the invocation save: one latest write, not two.
+    assert len(latest_writes) == 1
+    ids = await manager.list_snapshot_ids(agent)
+    assert len(ids) == 1
+
+
 def test_time_travel_restore(storage):
     """restore_snapshot rewinds an agent to an earlier immutable checkpoint."""
     manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)

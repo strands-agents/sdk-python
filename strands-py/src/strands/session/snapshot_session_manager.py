@@ -64,6 +64,10 @@ _SNAPSHOT_LATEST = "snapshot_latest.json"
 _IMMUTABLE_HISTORY = "immutable_history"
 _SNAPSHOT_REGEX = re.compile(r"snapshot_([\w-]+)\.json\Z")
 
+# Cap concurrent deletes so a session with many immutable checkpoints does not spawn thousands
+# of simultaneous blocking storage calls (e.g. S3's per-object delete via asyncio.to_thread).
+_DELETE_CONCURRENCY = 100
+
 # Immutable snapshot ids are a zero-padded millisecond timestamp joined to a uuid4 hex.
 # The timestamp prefix makes lexicographic order equal creation order (so listing returns
 # oldest-first without a separate index); the uuid4 suffix keeps ids unique within a
@@ -318,7 +322,13 @@ class SnapshotSessionManager(SessionManager):
     async def delete_session(self) -> None:
         """Delete all snapshots for this session."""
         keys = await self._storage.list(_session_prefix(self.session_id))
-        await asyncio.gather(*(self._storage.delete(key) for key in keys))
+        semaphore = asyncio.Semaphore(_DELETE_CONCURRENCY)
+
+        async def _delete(key: str) -> None:
+            async with semaphore:
+                await self._storage.delete(key)
+
+        await asyncio.gather(*(_delete(key) for key in keys))
 
     # -- Async internals --
 
@@ -397,23 +407,30 @@ class SnapshotSessionManager(SessionManager):
         await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
 
     async def _save_immutable_and_latest(self, agent: "Agent") -> None:
-        """Capture once and write both an immutable snapshot and ``snapshot_latest``."""
+        """Capture once and write the immutable snapshot, then ``snapshot_latest``.
+
+        Ordered, not concurrent: writing the immutable checkpoint first means a partial failure
+        can leave an orphaned immutable snapshot (harmless — the next list simply includes it)
+        but never a ``snapshot_latest`` pointing at history that was never written.
+        """
         data = _serialize_snapshot(self._capture(agent))
-        await asyncio.gather(
-            self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=_new_snapshot_id()), data),
-            self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data),
-        )
+        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=_new_snapshot_id()), data)
+        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
 
     async def _on_message_added(self, event: MessageAddedEvent) -> None:
         """Save latest after each message under the ``"message"`` strategy."""
         await self._save_latest(event.agent)
 
     async def _on_after_invocation(self, event: AfterInvocationEvent) -> None:
-        """Save latest on invocation and fire the immutable-checkpoint trigger."""
-        if self._save_latest_on == "invocation":
-            await self._save_latest(event.agent)
+        """Save latest on invocation and fire the immutable-checkpoint trigger.
+
+        When the trigger fires, the immutable+latest write subsumes the invocation save, so the
+        agent is captured only once even under ``save_latest_on="invocation"``.
+        """
         if self._snapshot_trigger is not None and self._snapshot_trigger(agent=event.agent):
             await self._save_immutable_and_latest(event.agent)
+        elif self._save_latest_on == "invocation":
+            await self._save_latest(event.agent)
 
     def _capture(self, agent: "Agent") -> Snapshot:
         """Capture a full session snapshot including the system prompt.
