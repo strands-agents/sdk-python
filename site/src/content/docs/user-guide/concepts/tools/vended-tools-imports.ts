@@ -36,6 +36,16 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:combined_import]
 
+// --8<-- [start:sleep_import]
+import { Agent } from '@strands-agents/sdk'
+import { sleep } from '@strands-agents/sdk/vended-tools/sleep'
+// --8<-- [end:sleep_import]
+
+// --8<-- [start:sleep_custom_import]
+import { Agent } from '@strands-agents/sdk'
+import { makeSleep } from '@strands-agents/sdk/vended-tools/sleep'
+// --8<-- [end:sleep_custom_import]
+
 // --8<-- [start:stop_import]
 import { Agent } from '@strands-agents/sdk'
 import { stop } from '@strands-agents/sdk/vended-tools/stop'
