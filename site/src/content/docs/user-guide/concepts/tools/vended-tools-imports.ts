@@ -29,6 +29,11 @@ import { Agent, SessionManager, FileStorage } from '@strands-agents/sdk'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:notebook_persistence_import]
 
+// --8<-- [start:tool_registry_import]
+import { Agent, McpClient } from '@strands-agents/sdk'
+import { makeToolRegistry } from '@strands-agents/sdk/vended-tools/tool-registry'
+// --8<-- [end:tool_registry_import]
+
 // --8<-- [start:combined_import]
 import { Agent } from '@strands-agents/sdk'
 import { bash } from '@strands-agents/sdk/vended-tools/bash'
