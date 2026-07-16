@@ -10,13 +10,14 @@ calls. The :data:`sleep` tool pauses execution for a bounded, cancellable durati
 The :data:`http_request` tool makes raw HTTP calls; use
 :func:`make_http_request` to supply a pre-configured ``httpx.AsyncClient``
 with custom timeouts, redirects, authentication, or proxies.
+The :data:`web_fetch` tool fetches an HTTP(S) URL and returns clean markdown.
 
 Example Usage:
     ```python
     from strands import Agent
-    from strands.vended_tools import file_editor, http_request, shell, sleep
+    from strands.vended_tools import file_editor, http_request, shell, sleep, web_fetch
 
-    agent = Agent(tools=[file_editor, http_request, shell, sleep])
+    agent = Agent(tools=[file_editor, http_request, shell, sleep, web_fetch])
     ```
 """
 
@@ -28,6 +29,7 @@ from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .shell import make_shell, shell
 from .sleep import make_sleep, sleep
+from .web_fetch import make_web_fetch, web_fetch
 
 
 def __getattr__(name: str) -> Any:
@@ -52,6 +54,8 @@ __all__ = [
     "make_http_request",
     "make_shell",
     "make_sleep",
+    "make_web_fetch",
     "shell",
     "sleep",
+    "web_fetch",
 ]
