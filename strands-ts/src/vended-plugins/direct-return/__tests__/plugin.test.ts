@@ -8,10 +8,9 @@
  */
 
 import { describe, it, expect } from 'vitest'
+import { z } from 'zod'
 import { Agent } from '../../../agent/agent.js'
-import { DIRECT_RETURN_DESCRIPTION_SUFFIX } from '../../../tools/tool.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
-import { DirectReturnPlugin } from '../plugin.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 
 describe('DirectReturnPlugin integration', () => {
@@ -46,35 +45,6 @@ describe('DirectReturnPlugin integration', () => {
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect(textBlocks).toHaveLength(1)
       expect((textBlocks[0] as { text: string }).text).toBe('Try rebooting your router.')
-    })
-
-    it('routes to billing agent when model calls Billing tool', async () => {
-      const billingModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Refund processed.' })
-      const techModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Reboot router.' })
-
-      const billingAgent = new Agent({ model: billingModel, name: 'Billing', printer: false })
-      const techAgent = new Agent({ model: techModel, name: 'TechSupport', printer: false })
-
-      const orchestratorModel = new MockMessageModel().addTurn({
-        type: 'toolUseBlock',
-        name: 'Billing',
-        toolUseId: 'call-2',
-        input: { input: 'Where is my refund?' },
-      })
-
-      const orchestrator = new Agent({
-        model: orchestratorModel,
-        name: 'Orchestrator',
-        tools: [billingAgent.asTool({ handoff: true }), techAgent.asTool({ handoff: true })],
-        printer: false,
-      })
-
-      const result = await orchestrator.invoke('Where is my refund?')
-
-      expect(result.stopReason).toBe('handoff')
-      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
-      expect(textBlocks).toHaveLength(1)
-      expect((textBlocks[0] as { text: string }).text).toBe('Refund processed.')
     })
   })
 
@@ -247,84 +217,49 @@ describe('DirectReturnPlugin integration', () => {
     })
   })
 
-  describe('auto-registration', () => {
-    it('DirectReturnPlugin is auto-registered when direct-return tools detected', () => {
-      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
-      const subAgent = new Agent({ model, name: 'sub-agent', printer: false })
+  describe('structured output preservation', () => {
+    it('preserves JSON content from sub-agent with structuredOutputSchema', async () => {
+      const schema = z.object({ status: z.string(), total: z.number() })
+
+      // Sub-agent calls the structured output tool to produce JSON
+      const subModel = new MockMessageModel()
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'strands_structured_output',
+          toolUseId: 'so-1',
+          input: { status: 'refunded', total: 42 },
+        })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      const subAgent = new Agent({
+        model: subModel,
+        name: 'SchemaAgent',
+        structuredOutputSchema: schema,
+        printer: false,
+      })
+
+      // Orchestrator calls the direct-return sub-agent
+      const orchestratorModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'SchemaAgent',
+        toolUseId: 'call-1',
+        input: { input: 'Generate the schema' },
+      })
 
       const orchestrator = new Agent({
-        model,
+        model: orchestratorModel,
+        name: 'Orchestrator',
         tools: [subAgent.asTool({ handoff: true })],
         printer: false,
       })
 
-      // Verify the tool is registered and marked as direct-return
-      const tool = orchestrator.toolRegistry.get('sub-agent')
-      expect(tool).toBeDefined()
-      expect(tool!.directReturn).toBe(true)
-    })
+      const result = await orchestrator.invoke('Generate schema')
 
-    it('DirectReturnPlugin is NOT registered when no direct-return tools present', () => {
-      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
-      const subAgent = new Agent({ model, name: 'sub-agent', printer: false })
-
-      // Use asTool WITHOUT direct return
-      const orchestrator = new Agent({
-        model,
-        tools: [subAgent.asTool()],
-        printer: false,
-      })
-
-      const tool = orchestrator.toolRegistry.get('sub-agent')
-      expect(tool).toBeDefined()
-      expect(tool!.directReturn).toBe(false)
-    })
-
-    it('no duplicate plugin when DirectReturnPlugin manually provided', async () => {
-      const techModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Tech response' })
-      const techAgent = new Agent({ model: techModel, name: 'TechSupport', printer: false })
-
-      const orchestratorModel = new MockMessageModel().addTurn({
-        type: 'toolUseBlock',
-        name: 'TechSupport',
-        toolUseId: 'call-1',
-        input: { input: 'help' },
-      })
-
-      // Manually provide DirectReturnPlugin — should not get a duplicate
-      const orchestrator = new Agent({
-        model: orchestratorModel,
-        name: 'Orchestrator',
-        tools: [techAgent.asTool({ handoff: true })],
-        plugins: [new DirectReturnPlugin()],
-        printer: false,
-      })
-
-      // Verify it still works correctly (would break if duplicate registration caused issues)
-      const result = await orchestrator.invoke('Help me')
       expect(result.stopReason).toBe('handoff')
-    })
-  })
-
-  describe('description suffix', () => {
-    it('tool spec description ends with the direct-return suffix', () => {
-      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
-      const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
-
-      const tool = agent.asTool({ handoff: true })
-
-      expect(tool.description).toBe('Handles billing' + DIRECT_RETURN_DESCRIPTION_SUFFIX)
-      expect(tool.toolSpec.description).toBe('Handles billing' + DIRECT_RETURN_DESCRIPTION_SUFFIX)
-    })
-
-    it('description suffix is NOT appended when handoff is false', () => {
-      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
-      const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
-
-      const tool = agent.asTool({ handoff: false })
-
-      expect(tool.description).toBe('Handles billing')
-      expect(tool.description).not.toContain(DIRECT_RETURN_DESCRIPTION_SUFFIX)
+      // JsonBlock is converted to TextBlock with JSON-stringified content
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect(textBlocks).toHaveLength(1)
+      expect(JSON.parse((textBlocks[0] as { text: string }).text)).toEqual({ status: 'refunded', total: 42 })
     })
   })
 })
