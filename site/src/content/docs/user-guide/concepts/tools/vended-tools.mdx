@@ -10,6 +10,8 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/mcp-client/mcp-client.ts
+  - path: strands-py/src/strands/vended_tools/mcp_client/mcp_client.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -34,6 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [MCP Client](#mcp-client) | Connect to Model Context Protocol servers on a developer-set allowlist | Python, TypeScript (Node.js) |
 
 ### File Editor
 
@@ -160,6 +163,46 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### MCP Client
+
+Lets your agent connect to Model Context Protocol servers at runtime, list the tools they expose, invoke one, and disconnect. The factory takes a developer-set allowlist of exact URLs; the model can only connect to servers on that list, never to an arbitrary URL of its choosing.
+
+_Supported in: Node.js (TypeScript); all platforms (Python)._
+
+:::caution[Security Warning]
+An MCP server is arbitrary code behind a network endpoint. If the model can point the tool at any URL, a prompt-injection attacker can reach out to their own MCP server, run tools there, and route the result back through your agent. The allowlist is mandatory and must be non-empty. The tool also enforces an SSRF guard that rejects hosts resolving to private, loopback, link-local, cloud-metadata, and other non-public addresses, and refuses to follow HTTP redirects, but the allowlist is the primary control. Only allowlist URLs whose DNS you trust.
+:::
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:mcp_client_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:mcp_client_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import make_mcp_client
+
+mcp_client = make_mcp_client(allowed_urls=["https://mcp.example.com/mcp"])
+agent = Agent(tools=[mcp_client])
+agent("Connect to the MCP server and list its tools.")
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/mcp-client/README.md)
 
 ---
 

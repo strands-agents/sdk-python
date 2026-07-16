@@ -17,10 +17,12 @@ Example Usage:
 
 from .bash import bash, make_bash
 from .file_editor import file_editor, make_file_editor
+from .mcp_client import make_mcp_client
 
 __all__ = [
     "bash",
     "file_editor",
     "make_bash",
     "make_file_editor",
+    "make_mcp_client",
 ]
