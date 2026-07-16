@@ -70,6 +70,20 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/file-editor/README.md)
 
+Why there is no separate file-write tool: the create command on
+<Syntax py="file_editor" ts="fileEditor" /> already exposes `path` and `file_text`
+with the same sandbox routing and path validation a file-write shim would need,
+and it refuses to overwrite existing files by design. A sibling file-write that
+silently overwrote would undo that guard; one that only created would give the
+model two names for the same operation. Use <Syntax py="file_editor" ts="fileEditor" />
+with <Syntax py='command="create"' ts="command: 'create'" /> for new files, and
+<Syntax py='command="view"' ts="command: 'view'" /> followed by
+<Syntax py='command="str_replace"' ts="command: 'str_replace'" /> when you need
+to change something that already exists. See the
+[file-write recommendation README](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/file_write/README.md)
+for the full reasoning, including why this differs from the parallel file-read
+decision.
+
 ---
 
 ### HTTP Request
