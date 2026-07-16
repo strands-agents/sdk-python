@@ -107,7 +107,7 @@ pip install 'strands-agents-tools[use_computer]'
 - [`journal`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/journal.py): Create structured tasks and logs for agents to manage and work from
 - [`swarm`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/swarm.py): Coordinate multiple AI agents in a swarm / network of agents
 - [`stop`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/stop.py): Force stop the agent event loop
-- [`handoff_to_user`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/handoff_to_user.py): Enable human-in-the-loop workflows by pausing agent execution for user input or transferring control entirely to the user
+- [`handoff_to_user`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/handoff_to_user.py): Legacy — replaced by the vended [`handoff_to_user`](vended-tools.mdx#handoff-to-user), which is the recommended integration path
 - [`use_agent`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/use_agent.py): Run a new AI event loop with custom prompts and different model providers
 - [`think`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/think.py): Perform deep thinking by creating parallel branches of agentic reasoning
 - [`use_llm`](https://github.com/strands-agents/tools/blob/main/src/strands_tools/use_llm.py): Run a new AI event loop with custom prompts
@@ -145,7 +145,11 @@ When this variable is set to `true`, tools will execute without asking for confi
 
 ## Human-in-the-Loop with handoff_to_user
 
-The `handoff_to_user` tool enables human-in-the-loop workflows by allowing agents to pause execution for user input or transfer control entirely to a human operator. It offers two modes: Interactive Mode (`breakout_of_loop=False`) which collects input and continues, and Complete Handoff Mode (`breakout_of_loop=True`) which stops the event loop and transfers control to the user.
+:::note[Legacy]
+The community `handoff_to_user` shown below is a terminal-oriented example implementation from `strands-agents-tools`. New code should use the vended [`handoff_to_user`](vended-tools.mdx#handoff-to-user) tool bundled with the SDK — it raises a structured SDK interrupt with a validated payload rather than performing console I/O, and works with any UI (chat frontends, Slack, custom CLIs).
+:::
+
+The community `handoff_to_user` tool enables human-in-the-loop workflows by allowing agents to pause execution for user input or transfer control entirely to a human operator. It offers two modes: Interactive Mode (`breakout_of_loop=False`) which collects input and continues, and Complete Handoff Mode (`breakout_of_loop=True`) which stops the event loop and transfers control to the user.
 
 ```python
 from strands import Agent
