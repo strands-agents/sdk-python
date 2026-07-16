@@ -197,3 +197,24 @@ LLMs think in tokens — they consume tokens, produce tokens, and their context 
 Tokens are also a unified unit across modalities — text, images, JSON, video, and other content types all tokenize into the same currency. Characters only apply to text, forcing different heuristics for different content types. Token-based parameters provide a single, consistent metric regardless of what the model is processing.
 
 But the principle extends beyond size — wherever there is an LLM-native concept, our APIs should prefer it over a traditional developer abstraction.
+
+
+## Do Not Vend programmatic_tool_calling Yet
+
+**Date**: Jul 21, 2026
+
+### Decision
+
+The programmatic-tool-calling tool proposed in [#3251](https://github.com/strands-agents/harness-sdk/issues/3251) should not be vended in its currently spec'd form. The proposal lets the model write code that invokes the parent agent's registered tools from inside a sandbox: the model emits code via a code-execution tool, and that code calls into a client library that proxies tool invocations back to the parent agent, resolving each call against the agent's tool registry.
+
+Three preconditions must be met before this decision is revisited: (a) a code-execution vended tool exists in both SDKs, (b) a design one-pager in `team/designs/` covers the sandbox-to-registry bridge, serialization, and safety and has been reviewed, and (c) the SDK exposes a hook-preserving proxy entry point that this tool can shim onto. Until then, developers who want the pattern can register their own tool that closes over a specific `Agent` instance and calls its tools directly through the SDK's tool-caller accessor (`agent.tool.<name>(...)` in Python, `agent.tool.<name>(...)` in TypeScript). That is a per-application escape hatch and does not require the SDK to make sandbox-level security guarantees.
+
+### Rationale
+
+The dependency the tool names is not built. No code-execution vended tool exists in either `strands-py/src/strands/vended_tools/` or `strands-ts/src/vended-tools/`, so shipping a client without the runtime it plugs into would ship dead code.
+
+The sub-issue itself defers implementation pending design. It says the tool "needs its own design one-pager before implementation (sandbox-to-registry bridge, serialization, safety)." No such doc exists in `team/designs/`. Shipping ahead of that review would pre-empt an architecture decision the maintainers explicitly reserved.
+
+The security surface is the largest of any tool in the vended set, and the mitigation strategy is not settled. Because this tool composes with whatever other tools the developer has registered (vended or user-defined), its risk profile is a union of theirs plus new failure modes that only appear when tools are chained without the model in the loop. The bridge lets sandbox code trigger side effects on the host, so every proxied call must go through the same validation, hooks, and interventions the parent's tool loop applies. If a developer has registered network-capable tools like the TypeScript `http-request` vended tool or their own equivalent, the model can issue those calls in a tight loop from generated code, bypassing any per-turn budgeting the tool loop applies. Nothing prevents generated code from calling code-execution or programmatic-tool-calling itself recursively, so a depth cap is required and the counter has to live somewhere the sandbox cannot forge. And tool results returning to sandbox code are strings the model wrote code to parse, so a result containing attacker-controlled content is a prompt-injection surface one level deeper than the tool loop currently defends.
+
+The source READMEs at `strands-py/src/strands/vended_tools/programmatic_tool_calling/README.md` and `strands-ts/src/vended-tools/programmatic-tool-calling/README.md` link to this decision as the single source of truth so the rationale doesn't have to be duplicated across two files that must be kept in sync.
