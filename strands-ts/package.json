@@ -116,9 +116,9 @@
       "types": "./dist/src/vended-plugins/goal/index.d.ts",
       "default": "./dist/src/vended-plugins/goal/index.js"
     },
-    "./vended-plugins/handoff": {
-      "types": "./dist/src/vended-plugins/handoff/index.d.ts",
-      "default": "./dist/src/vended-plugins/handoff/index.js"
+    "./vended-plugins/direct-return": {
+      "types": "./dist/src/vended-plugins/direct-return/index.d.ts",
+      "default": "./dist/src/vended-plugins/direct-return/index.js"
     },
     "./vended-interventions/hitl": {
       "types": "./dist/src/vended-interventions/hitl/index.d.ts",

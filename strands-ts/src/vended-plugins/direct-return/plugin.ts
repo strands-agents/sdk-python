@@ -1,10 +1,10 @@
 /**
- * HandoffPlugin — enforces handoff semantics for agent-as-tool routing.
+ * DirectReturnPlugin — enforces direct-return semantics for tool routing.
  *
- * When a sub-agent is wrapped with `handoff: true`, this plugin ensures:
- * 1. The handoff tool is the only tool called in the turn (single-call constraint)
- * 2. The agent loop exits immediately after a successful handoff (early exit)
- * 3. The AgentResult is transformed with `stopReason: 'handoff'` and the sub-agent's content
+ * When a tool is configured with `directReturn: true`, this plugin ensures:
+ * 1. The direct-return tool is the only tool called in the turn (single-call constraint)
+ * 2. The agent loop exits immediately after a successful direct return (early exit)
+ * 3. The AgentResult is transformed with `stopReason: 'handoff'` and the tool's content
  */
 
 import type { Plugin } from '../../plugins/plugin.js'
@@ -14,17 +14,14 @@ import type { ContentBlock } from '../../types/messages.js'
 import { BeforeToolsEvent, AfterToolsEvent } from '../../hooks/events.js'
 import { AgentStreamStage } from '../../middleware/index.js'
 import type { AgentStreamContext, AgentStreamResult, MiddlewareNext } from '../../middleware/index.js'
-import { AgentAsTool } from '../../agent/agent-as-tool.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 
 /**
- * Checks whether a tool registered on the agent is a handoff tool.
- *
- * A handoff tool is an AgentAsTool instance with `handoff === true`.
+ * Checks whether a tool registered on the agent has directReturn enabled.
  */
-function isHandoffTool(agent: LocalAgent, toolName: string): boolean {
+function isDirectReturnTool(agent: LocalAgent, toolName: string): boolean {
   const tool = agent.toolRegistry.get(toolName)
-  return tool instanceof AgentAsTool && tool.handoff
+  return tool?.directReturn ?? false
 }
 
 /**
@@ -69,23 +66,23 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
 }
 
 /**
- * Per-agent mutable state for the handoff plugin.
+ * Per-agent mutable state for the direct-return plugin.
  *
  * Scoped via WeakMap so concurrent invocations on different agents don't interfere.
  */
-interface HandoffState {
-  /** Whether a successful handoff was detected in the current turn. */
+interface DirectReturnState {
+  /** Whether a successful direct return was detected in the current turn. */
   triggered: boolean
-  /** The toolUseId of the pending handoff tool, set in BeforeTools and consumed in AfterTools. */
+  /** The toolUseId of the pending direct-return tool, set in BeforeTools and consumed in AfterTools. */
   toolUseId?: string
-  /** The resolved handoff ToolResultBlock, captured in AfterTools and consumed by the middleware. */
+  /** The resolved direct-return ToolResultBlock, captured in AfterTools and consumed by the middleware. */
   toolResult?: ToolResultBlock
 }
 
 /**
- * Plugin that enforces handoff semantics for agent-as-tool routing.
+ * Plugin that enforces direct-return semantics for tool routing.
  *
- * Automatically registered when any tool in the agent's tool list has `handoff: true`.
+ * Automatically registered when any tool in the agent's tool list has `directReturn: true`.
  * Implements single-call constraint, early loop exit, and result transformation.
  *
  * @example
@@ -95,17 +92,17 @@ interface HandoffState {
  * const specialist = new Agent({ name: 'Specialist' })
  * const orchestrator = new Agent({
  *   tools: [specialist.asTool({ handoff: true })],
- *   // HandoffPlugin is auto-registered — no manual setup needed
+ *   // DirectReturnPlugin is auto-registered — no manual setup needed
  * })
  * ```
  */
-export class HandoffPlugin implements Plugin {
-  readonly name = 'strands:handoff'
+export class DirectReturnPlugin implements Plugin {
+  readonly name = 'strands:direct-return'
 
-  /** Per-agent handoff state. Keyed by agent so one plugin instance can serve many. */
-  private readonly _state = new WeakMap<LocalAgent, HandoffState>()
+  /** Per-agent direct-return state. Keyed by agent so one plugin instance can serve many. */
+  private readonly _state = new WeakMap<LocalAgent, DirectReturnState>()
 
-  private _getState(agent: LocalAgent): HandoffState {
+  private _getState(agent: LocalAgent): DirectReturnState {
     let state = this._state.get(agent)
     if (!state) {
       state = { triggered: false }
@@ -135,8 +132,8 @@ export class HandoffPlugin implements Plugin {
   /**
    * BeforeToolsEvent hook: enforces single-call constraint.
    *
-   * If a handoff tool is present alongside other tools, cancel all.
-   * If a single handoff tool is alone, record its toolUseId for later.
+   * If a direct-return tool is present alongside other tools, cancel all.
+   * If a single direct-return tool is alone, record its toolUseId for later.
    */
   private _onBeforeTools(event: BeforeToolsEvent): void {
     // Reset per-turn state to prevent stale values from a prior turn leaking
@@ -148,28 +145,28 @@ export class HandoffPlugin implements Plugin {
 
     const toolUseBlocks = event.message.content.filter((block): block is ToolUseBlock => block.type === 'toolUseBlock')
 
-    const handoffBlocks = toolUseBlocks.filter((block) => isHandoffTool(event.agent, block.name))
+    const directReturnBlocks = toolUseBlocks.filter((block) => isDirectReturnTool(event.agent, block.name))
 
-    // No handoff tools in this batch — let normal execution proceed
-    if (handoffBlocks.length === 0) return
+    // No direct-return tools in this batch — let normal execution proceed
+    if (directReturnBlocks.length === 0) return
 
-    // Handoff tool(s) present alongside other tools — cancel all
+    // Direct-return tool(s) present alongside other tools — cancel all
     if (toolUseBlocks.length > 1) {
       event.cancel =
-        'This tool call was not executed. A handoff tool must be the only ' +
-        'tool called in a turn. Retry with a single handoff tool call or ' +
-        'use only non-handoff tools.'
+        'This tool call was not executed. A direct-return tool must be the only ' +
+        'tool called in a turn. Retry with a single direct-return tool call or ' +
+        'use only non-direct-return tools.'
       return
     }
 
-    // Single handoff tool — allow execution, record the toolUseId
-    state.toolUseId = handoffBlocks[0]!.toolUseId
+    // Single direct-return tool — allow execution, record the toolUseId
+    state.toolUseId = directReturnBlocks[0]!.toolUseId
   }
 
   /**
-   * AfterToolsEvent hook: triggers early exit on successful handoff.
+   * AfterToolsEvent hook: triggers early exit on successful direct return.
    *
-   * If the recorded handoff tool completed successfully, set endTurn.
+   * If the recorded direct-return tool completed successfully, set endTurn.
    * If it errored, reset state and let the model recover.
    *
    * Note: `event.endTurn` accepts only `boolean | string`, so the agent loop
@@ -183,29 +180,29 @@ export class HandoffPlugin implements Plugin {
     const state = this._getState(event.agent)
     if (!state.toolUseId) return
 
-    // Find the tool result for the handoff tool
-    const handoffResult = event.message.content.find(
+    // Find the tool result for the direct-return tool
+    const directReturnResult = event.message.content.find(
       (block): block is ToolResultBlock => block.type === 'toolResultBlock' && block.toolUseId === state.toolUseId
     )
 
-    // If the handoff tool errored or wasn't found, don't trigger — let the model recover
-    if (!handoffResult || handoffResult.status === 'error') {
+    // If the direct-return tool errored or wasn't found, don't trigger — let the model recover
+    if (!directReturnResult || directReturnResult.status === 'error') {
       delete state.toolUseId
       return
     }
 
     // Extract text representation and end the turn
     state.triggered = true
-    state.toolResult = handoffResult
-    event.endTurn = extractText(handoffResult)
+    state.toolResult = directReturnResult
+    event.endTurn = extractText(directReturnResult)
     delete state.toolUseId
   }
 
   /**
-   * AgentStreamStage middleware: transforms the AgentResult on handoff.
+   * AgentStreamStage middleware: transforms the AgentResult on direct return.
    *
-   * When a handoff was triggered, replaces the result with a new AgentResult
-   * that has `stopReason: 'handoff'` and the sub-agent's content blocks as
+   * When a direct return was triggered, replaces the result with a new AgentResult
+   * that has `stopReason: 'handoff'` and the tool's content blocks as
    * `lastMessage`. This `lastMessage` may differ from the text-only message
    * appended to `agent.messages` by the endTurn path. See the AfterToolsEvent
    * hook comment for details on why this divergence exists.
@@ -220,17 +217,17 @@ export class HandoffPlugin implements Plugin {
     if (!state.triggered) return streamResult
     state.triggered = false
 
-    const handoffBlock = state.toolResult
+    const directReturnBlock = state.toolResult
     delete state.toolResult
-    if (!handoffBlock) return streamResult
+    if (!directReturnBlock) return streamResult
 
-    // Replace AgentResult with rich content from the handoff tool.
+    // Replace AgentResult with rich content from the direct-return tool.
     return {
       result: new AgentResult({
         stopReason: 'handoff',
         lastMessage: new Message({
           role: 'assistant',
-          content: toContentBlocks(handoffBlock),
+          content: toContentBlocks(directReturnBlock),
         }),
         invocationState: streamResult.result.invocationState,
         ...(streamResult.result.metrics !== undefined && { metrics: streamResult.result.metrics }),

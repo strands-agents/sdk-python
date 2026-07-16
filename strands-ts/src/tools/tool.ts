@@ -121,6 +121,17 @@ export abstract class Tool {
   abstract toolSpec: ToolSpec
 
   /**
+   * When true, the orchestrator treats this tool's result as the final
+   * response and exits without an additional model call.
+   *
+   * @internal Not yet exposed to regular tool factories. Set by AgentAsTool
+   * when `handoff: true` (which sets `directReturn` on the base class).
+   *
+   * @defaultValue false
+   */
+  readonly directReturn: boolean = false
+
+  /**
    * Executes the tool with streaming support.
    * Yields zero or more ToolStreamEvents during execution, then returns
    * exactly one ToolResultBlock as the final value.
@@ -216,3 +227,10 @@ const TOOL_NAME_MAX_LENGTH = 64
 export function isValidToolName(name: string): boolean {
   return name.length > 0 && name.length <= TOOL_NAME_MAX_LENGTH && TOOL_NAME_PATTERN.test(name)
 }
+
+/**
+ * Description suffix appended to direct-return tools to guide the model.
+ * @internal
+ */
+export const DIRECT_RETURN_DESCRIPTION_SUFFIX =
+  ' Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn.'

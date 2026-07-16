@@ -1,7 +1,7 @@
 /**
- * Handoff plugin for Strands Agents — enforces handoff semantics for
- * agent-as-tool routing scenarios where a sub-agent's response should
- * reach the user verbatim without post-processing.
+ * Direct-return plugin for Strands Agents — enforces direct-return semantics for
+ * tool routing scenarios where a tool's response should reach the user verbatim
+ * without post-processing.
  *
  * @example
  * ```typescript
@@ -10,7 +10,7 @@
  * const specialist = new Agent({ name: 'Specialist' })
  * const orchestrator = new Agent({
  *   tools: [specialist.asTool({ handoff: true })],
- *   // HandoffPlugin is auto-registered — no manual setup needed
+ *   // DirectReturnPlugin is auto-registered — no manual setup needed
  * })
  *
  * const result = await orchestrator.invoke('Help me with billing')
@@ -18,4 +18,4 @@
  * ```
  */
 
-export { HandoffPlugin } from './plugin.js'
+export { DirectReturnPlugin } from './plugin.js'

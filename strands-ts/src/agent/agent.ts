@@ -47,7 +47,7 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
-import { HandoffPlugin } from '../vended-plugins/handoff/plugin.js'
+import { DirectReturnPlugin } from '../vended-plugins/direct-return/plugin.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { createMiddlewareInterrupt } from '../middleware/interrupt.js'
@@ -565,15 +565,15 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
 
-    // Auto-register HandoffPlugin when any tool has handoff: true
-    const hasHandoffTool = tools.some((tool) => tool instanceof AgentAsTool && tool.handoff)
-    const hasHandoffPlugin = (config?.plugins ?? []).some((p) => p.name === 'strands:handoff')
+    // Auto-register DirectReturnPlugin when any tool has directReturn: true
+    const hasDirectReturnTool = tools.some((tool) => tool.directReturn)
+    const hasDirectReturnPlugin = (config?.plugins ?? []).some((p) => p.name === 'strands:direct-return')
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
-      ...(hasHandoffTool && !hasHandoffPlugin ? [new HandoffPlugin()] : []),
+      ...(hasDirectReturnTool && !hasDirectReturnPlugin ? [new DirectReturnPlugin()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({

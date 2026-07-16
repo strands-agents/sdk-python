@@ -61,6 +61,7 @@ export function createMockTool(name: string, resultFn: ToolResultFn): Tool {
   return {
     name,
     description: `Mock tool ${name}`,
+    directReturn: false,
     toolSpec: {
       name,
       description: `Mock tool ${name}`,
