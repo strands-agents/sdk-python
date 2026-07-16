@@ -204,6 +204,16 @@ describe('TestMemoryStore', () => {
       await expect(fs.access(join(dir, 'memory', '__weird_name.json'))).resolves.toBeUndefined()
     })
 
+    it('does not double-prefix an already-namespaced view', async () => {
+      // A caller who passes an already-`memory/`-namespaced view must not be re-scoped to
+      // `memory/memory/...`; the store detects the namespaced view and uses it as-is.
+      const preScoped = new LocalFileStorage(dir).namespace('memory')
+      const store = new TestMemoryStore({ name: 'notes', storage: preScoped })
+      await store.add('a fact worth keeping')
+      await expect(fs.access(join(dir, 'memory', 'notes.json'))).resolves.toBeUndefined()
+      await expect(fs.access(join(dir, 'memory', 'memory'))).rejects.toThrow()
+    })
+
     it('throws a clear error on a corrupt backing store', async () => {
       const storage = new LocalFileStorage(dir)
       await storage.write('memory/notes.json', new TextEncoder().encode('not json{'))
@@ -216,6 +226,16 @@ describe('TestMemoryStore', () => {
       await storage.write('memory/notes.json', new TextEncoder().encode('{}'))
       const store = new TestMemoryStore({ name: 'notes', storage })
       await expect(store.search('anything')).rejects.toThrow('expected a JSON array')
+    })
+
+    it('throws a clear error on a record whose metadata is not an object', async () => {
+      // A present-but-non-object metadata (e.g. a hand-edited or cross-SDK blob) must fail fast
+      // rather than silently corrupting the spread into search results.
+      const badRecord = [{ id: 'a', content: 'hi', createdAt: '2026-01-01T00:00:00.000Z', metadata: 'oops' }]
+      const storage = new LocalFileStorage(dir)
+      await storage.write('memory/notes.json', new TextEncoder().encode(JSON.stringify(badRecord)))
+      const store = new TestMemoryStore({ name: 'notes', storage })
+      await expect(store.search('hi')).rejects.toThrow("'metadata', when present, must be a JSON object")
     })
 
     it('throws a clear error on a malformed record', async () => {

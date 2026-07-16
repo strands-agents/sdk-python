@@ -264,6 +264,12 @@ class TestMemoryStore(MemoryStore):
                     f"TestMemoryStore: invalid backing store {self._key}: "
                     "each record must have string 'id', 'content', and 'createdAt' fields"
                 )
+            metadata = record.get("metadata")
+            if metadata is not None and not isinstance(metadata, dict):
+                raise ValueError(
+                    f"TestMemoryStore: invalid backing store {self._key}: "
+                    "a record's 'metadata', when present, must be a JSON object"
+                )
         return parsed_blob
 
     async def _write(self, records: list[dict[str, Any]]) -> None:

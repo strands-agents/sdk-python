@@ -274,6 +274,15 @@ export class TestMemoryStore implements MemoryStore {
             "each record must have string 'id', 'content', and 'createdAt' fields"
         )
       }
+      if (
+        record.metadata !== undefined &&
+        (record.metadata === null || typeof record.metadata !== 'object' || Array.isArray(record.metadata))
+      ) {
+        throw new Error(
+          `TestMemoryStore: invalid backing store ${this._key}: ` +
+            "a record's 'metadata', when present, must be a JSON object"
+        )
+      }
     }
     return parsedBlob as TestMemoryRecord[]
   }

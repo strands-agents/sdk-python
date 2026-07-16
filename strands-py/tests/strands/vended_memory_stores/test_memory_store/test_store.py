@@ -287,6 +287,16 @@ class TestPersistence:
             await store.search("anything")
 
     @pytest.mark.asyncio
+    async def test_raises_clear_error_on_non_object_metadata(self, make_store, tmp_path):
+        # A present-but-non-object metadata (e.g. a hand-edited or cross-SDK blob) must fail fast
+        # rather than crashing opaquely when search spreads it into the result.
+        record = [{"id": "a", "content": "hi", "createdAt": "2026-01-01T00:00:00.000Z", "metadata": "oops"}]
+        await LocalFileStorage(str(tmp_path)).write("memory/notes.json", json.dumps(record).encode("utf-8"))
+        store = make_store()
+        with pytest.raises(ValueError, match="'metadata', when present, must be a JSON object"):
+            await store.search("hi")
+
+    @pytest.mark.asyncio
     async def test_keeps_all_entries_under_concurrent_writes(self, make_store, storage_file):
         store = make_store()
         await asyncio.gather(*(store.add(f"fact number {index}") for index in range(10)))
