@@ -15,7 +15,6 @@ Key Features:
 
 import asyncio
 import copy
-import json
 import logging
 import sys
 import time
@@ -53,6 +52,7 @@ from ..types._events import (
 )
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
+from ..types.json_dict import _validate_json_serializable, _validate_key
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
@@ -124,46 +124,22 @@ class SharedContext:
     context: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def add_context(self, node: SwarmNode, key: str, value: Any) -> None:
-        """Add context."""
-        self._validate_key(key)
-        self._validate_json_serializable(value)
+        """Add context.
+
+        Args:
+            node: The node adding the context
+            key: The key to store the value under
+            value: The value to store (must be JSON serializable)
+
+        Raises:
+            ValueError: If key is invalid, or if value is not JSON serializable
+        """
+        _validate_key(key)
+        _validate_json_serializable(value)
 
         if node.node_id not in self.context:
             self.context[node.node_id] = {}
         self.context[node.node_id][key] = value
-
-    def _validate_key(self, key: str) -> None:
-        """Validate that a key is valid.
-
-        Args:
-            key: The key to validate
-
-        Raises:
-            ValueError: If key is invalid
-        """
-        if key is None:
-            raise ValueError("Key cannot be None")
-        if not isinstance(key, str):
-            raise ValueError("Key must be a string")
-        if not key.strip():
-            raise ValueError("Key cannot be empty")
-
-    def _validate_json_serializable(self, value: Any) -> None:
-        """Validate that a value is JSON serializable.
-
-        Args:
-            value: The value to validate
-
-        Raises:
-            ValueError: If value is not JSON serializable
-        """
-        try:
-            json.dumps(value)
-        except (TypeError, ValueError) as e:
-            raise ValueError(
-                f"Value is not JSON serializable: {type(value).__name__}. "
-                f"Only JSON-compatible types (str, int, float, bool, list, dict, None) are allowed."
-            ) from e
 
 
 @dataclass

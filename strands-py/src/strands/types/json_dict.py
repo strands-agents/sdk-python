@@ -5,6 +5,41 @@ import json
 from typing import Any
 
 
+def _validate_key(key: str) -> None:
+    """Validate that a key is valid.
+
+    Args:
+        key: The key to validate
+
+    Raises:
+        ValueError: If key is invalid
+    """
+    if key is None:
+        raise ValueError("Key cannot be None")
+    if not isinstance(key, str):
+        raise ValueError("Key must be a string")
+    if not key.strip():
+        raise ValueError("Key cannot be empty")
+
+
+def _validate_json_serializable(value: Any) -> None:
+    """Validate that a value is JSON serializable.
+
+    Args:
+        value: The value to validate
+
+    Raises:
+        ValueError: If value is not JSON serializable
+    """
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"Value is not JSON serializable: {type(value).__name__}. "
+            f"Only JSON-compatible types (str, int, float, bool, list, dict, None) are allowed."
+        ) from error
+
+
 class JSONSerializableDict:
     """A key-value store with JSON serialization validation.
 
@@ -17,7 +52,7 @@ class JSONSerializableDict:
         self._data: dict[str, Any]
         self._version: int = 0
         if initial_state:
-            self._validate_json_serializable(initial_state)
+            _validate_json_serializable(initial_state)
             self._data = copy.deepcopy(initial_state)
         else:
             self._data = {}
@@ -32,8 +67,8 @@ class JSONSerializableDict:
         Raises:
             ValueError: If key is invalid, or if value is not JSON serializable
         """
-        self._validate_key(key)
-        self._validate_json_serializable(value)
+        _validate_key(key)
+        _validate_json_serializable(value)
         self._data[key] = copy.deepcopy(value)
         self._version += 1
 
@@ -57,7 +92,7 @@ class JSONSerializableDict:
         Args:
             key: The key to delete
         """
-        self._validate_key(key)
+        _validate_key(key)
         self._data.pop(key, None)
         self._version += 1
 
@@ -72,36 +107,3 @@ class JSONSerializableDict:
             The current version number.
         """
         return self._version
-
-    def _validate_key(self, key: str) -> None:
-        """Validate that a key is valid.
-
-        Args:
-            key: The key to validate
-
-        Raises:
-            ValueError: If key is invalid
-        """
-        if key is None:
-            raise ValueError("Key cannot be None")
-        if not isinstance(key, str):
-            raise ValueError("Key must be a string")
-        if not key.strip():
-            raise ValueError("Key cannot be empty")
-
-    def _validate_json_serializable(self, value: Any) -> None:
-        """Validate that a value is JSON serializable.
-
-        Args:
-            value: The value to validate
-
-        Raises:
-            ValueError: If value is not JSON serializable
-        """
-        try:
-            json.dumps(value)
-        except (TypeError, ValueError) as e:
-            raise ValueError(
-                f"Value is not JSON serializable: {type(value).__name__}. "
-                f"Only JSON-compatible types (str, int, float, bool, list, dict, None) are allowed."
-            ) from e
