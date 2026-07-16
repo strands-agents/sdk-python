@@ -133,7 +133,9 @@ const orchestrator = new Agent({
 
 ### Handoff Mechanism
 
-Regardless of which API surface is chosen, a description suffix applied to the agent-as-tool during construction time if `handoff: true`. The suffix resembles the following:
+Regardless of which API surface is chosen, `Agent.asTool({ handoff: true })` sets `directReturn: true` on the resulting tool instance. `directReturn` is a property on the base `Tool` class, so it can be extended in the future to support non-agent tools that want to return results directly to the user without additional orchestrator reasoning.
+
+A description suffix is applied to the agent-as-tool during construction time if `handoff: true`. The suffix resembles the following:
 
 > "Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn."
 
@@ -141,9 +143,9 @@ This nudges the model to treat the tool call as a terminal action, avoiding wast
 
 The potential handoff implementations are described in the proposals below. In both cases, the final AgentResult is passed a new `stopReason` of `handoff` for observability.
 
-### Recommended: Handoff Plugin
+### Recommended: Direct Return Plugin
 
-This implements the handoff mechanism using a vended plugin that combines hooks (for control flow) with middleware (for result transformation). The SDK vends a `HandoffPlugin` that is auto-registered when any tool in the agent's tool list has `handoff: true`.
+This implements the handoff mechanism using a vended plugin that combines hooks (for control flow) with middleware (for result transformation). The SDK vends a `DirectReturnPlugin` that is auto-registered when any tool in the agent's tool list has `directReturn: true`.
 
 The plugin subscribes to `BeforeToolsEvent` (TS) or the per-tool `BeforeToolCallEvent` (Python). When the model emits a handoff tool call alongside other tool calls in the same assistant message, the hook cancels all tool execution:
 
