@@ -67,7 +67,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
