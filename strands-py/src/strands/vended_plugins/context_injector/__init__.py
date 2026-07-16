@@ -16,11 +16,12 @@ Example Usage:
     ```
 """
 
-from ...injection import InjectionContext, InjectionTrigger
+from ...injection import InjectionContext, InjectionLocation, InjectionTrigger
 from .plugin import ContextInjector
 
 __all__ = [
     "ContextInjector",
     "InjectionContext",
+    "InjectionLocation",
     "InjectionTrigger",
 ]

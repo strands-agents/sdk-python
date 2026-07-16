@@ -15,7 +15,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from strands.hooks.events import BeforeInvocationEvent, BeforeModelCallEvent
+from strands._middleware.stages import InvokeModelContext, InvokeModelStage
+from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
 from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
@@ -93,6 +94,45 @@ def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
+
+
+_UNSET = object()
+
+
+def _injection_handler(agent: MagicMock):
+    """Return the injection middleware the plugin's internal ContextInjector registered."""
+    call = agent._middleware_registry.add_middleware.call_args
+    assert call is not None, "no injection middleware was registered on the agent"
+    assert call.args[0] is InvokeModelStage.Input
+    return call.args[1]
+
+
+async def _injected_prompt(agent: MagicMock, system_prompt=_UNSET):
+    """Run the registered injection middleware and return the per-call system prompt.
+
+    Simulates what the event loop does on each model call: build the per-call context
+    from the agent's durable prompt (or an explicit override) and pass it through the
+    ``InvokeModelStage.Input`` handler.
+    """
+    if system_prompt is _UNSET:
+        system_prompt = agent._system_prompt_content
+    ctx = InvokeModelContext(
+        agent=agent,
+        messages=[{"role": "user", "content": [{"text": "hi"}]}],
+        system_prompt=system_prompt,
+        tool_specs=[],
+        tool_choice=None,
+        invocation_state={},
+    )
+    result = await _injection_handler(agent)(ctx)
+    return result.system_prompt
+
+
+def _prompt_text(prompt) -> str:
+    """Flatten a per-call system prompt (str or block list) to plain text."""
+    if isinstance(prompt, str):
+        return prompt
+    return "\n".join(block["text"] for block in prompt if "text" in block)
 
 
 class TestSkillsPluginInit:
@@ -1056,7 +1096,11 @@ class TestInjectionModeConfig:
 
 
 class TestSystemPromptModeInjection:
-    """Tests for instruction injection in system_prompt mode."""
+    """Tests for ephemeral skills-block delivery in system_prompt mode.
+
+    The plugin's internal ContextInjector appends the block to the per-call system prompt
+    on every model call; ``agent.system_prompt`` itself is never modified in this mode.
+    """
 
     @pytest.mark.asyncio
     async def test_inactive_skill_instructions_not_injected(self):
@@ -1065,10 +1109,10 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
 
         await plugin.init_agent(agent)
-        await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
+        prompt = _prompt_text(await _injected_prompt(agent))
 
-        assert "<name>test-skill</name>" in agent.system_prompt
-        assert "SECRET STEPS" not in agent.system_prompt
+        assert "<name>test-skill</name>" in prompt
+        assert "SECRET STEPS" not in prompt
 
     @pytest.mark.asyncio
     async def test_activated_skill_instructions_injected(self):
@@ -1079,10 +1123,10 @@ class TestSystemPromptModeInjection:
 
         await plugin.init_agent(agent)
         await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+        prompt = _prompt_text(await _injected_prompt(agent))
 
-        assert 'active="true"' in agent.system_prompt
-        assert "FULL INSTRUCTIONS HERE" in agent.system_prompt
+        assert 'active="true"' in prompt
+        assert "FULL INSTRUCTIONS HERE" in prompt
 
     @pytest.mark.asyncio
     async def test_deactivate_removes_instructions(self):
@@ -1093,18 +1137,18 @@ class TestSystemPromptModeInjection:
 
         await plugin.init_agent(agent)
         await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
-        assert "FULL INSTRUCTIONS HERE" in agent.system_prompt
+        assert "FULL INSTRUCTIONS HERE" in _prompt_text(await _injected_prompt(agent))
 
         await plugin.manage_skills(action="deactivate", skill_name="test-skill", tool_context=tool_context)
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+        prompt = _prompt_text(await _injected_prompt(agent))
 
-        assert "FULL INSTRUCTIONS HERE" not in agent.system_prompt
+        assert "FULL INSTRUCTIONS HERE" not in prompt
         # metadata listing remains
-        assert "<name>test-skill</name>" in agent.system_prompt
+        assert "<name>test-skill</name>" in prompt
 
     @pytest.mark.asyncio
-    async def test_repeated_model_calls_do_not_accumulate(self):
+    async def test_repeated_model_calls_render_identical_block(self):
+        """Ephemeral delivery re-renders from the same durable prompt: no accumulation possible."""
         skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
         plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
         agent = _mock_agent()
@@ -1112,24 +1156,37 @@ class TestSystemPromptModeInjection:
 
         await plugin.init_agent(agent)
         await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
-        first = agent.system_prompt
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
+        first = await _injected_prompt(agent)
+        second = await _injected_prompt(agent)
 
-        assert agent.system_prompt == first
+        assert first == second
+        assert _prompt_text(first).count("<available_skills>") == 1
 
     @pytest.mark.asyncio
-    async def test_before_model_call_noop_in_tool_mode(self):
+    async def test_durable_system_prompt_never_modified(self):
+        """system_prompt mode is fully ephemeral: agent.system_prompt is left untouched."""
+        skill = _make_skill(instructions="STEPS")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+
+        await plugin.init_agent(agent)
+        await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
+        plugin.activate_skill_for(agent, "test-skill")
+        await _injected_prompt(agent)
+
+        assert agent.system_prompt == "You are an agent."
+        assert agent.system_prompt_content == [{"text": "You are an agent."}]
+
+    @pytest.mark.asyncio
+    async def test_tool_mode_registers_no_injection_middleware(self):
         skill = _make_skill(instructions="FULL INSTRUCTIONS HERE")
         plugin = AgentSkills(skills=[skill])  # tool mode
         agent = _mock_agent()
 
         await plugin.init_agent(agent)
         await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
-        before = agent.system_prompt
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
-        assert agent.system_prompt == before
+        agent._middleware_registry.add_middleware.assert_not_called()
         assert "FULL INSTRUCTIONS HERE" not in agent.system_prompt
 
     @pytest.mark.asyncio
@@ -1225,11 +1282,12 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
         await plugin.init_agent(agent)
         plugin.activate_skill_for(agent, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
-        assert code_body in agent.system_prompt
-        assert "&lt;" not in agent.system_prompt
-        assert "&amp;" not in agent.system_prompt
+        prompt = _prompt_text(await _injected_prompt(agent))
+
+        assert code_body in prompt
+        assert "&lt;" not in prompt
+        assert "&amp;" not in prompt
 
     @pytest.mark.asyncio
     async def test_instruction_closing_delimiters_neutralized(self):
@@ -1239,13 +1297,29 @@ class TestSystemPromptModeInjection:
         agent = _mock_agent()
         await plugin.init_agent(agent)
         plugin.activate_skill_for(agent, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
-        prompt = agent.system_prompt
+        prompt = _prompt_text(await _injected_prompt(agent))
+
         # Only the real wrappers close these elements; the body's copies are defanged.
         assert prompt.count("</instructions>") == 1
         assert prompt.count("</available_skills>") == 1
         assert "pre <\\/instructions> mid <\\/available_skills> post" in prompt
+
+    @pytest.mark.asyncio
+    async def test_variant_closing_delimiters_neutralized(self):
+        """Whitespace/case variants of the closing delimiters are also neutralized."""
+        skill = _make_skill(instructions="a </instructions > b </INSTRUCTIONS> c </available_skills\t> d")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        plugin.activate_skill_for(agent, "test-skill")
+
+        prompt = _prompt_text(await _injected_prompt(agent))
+
+        # Only the real wrappers close these elements; all body variants are defanged.
+        assert prompt.count("</instructions>") == 1
+        assert prompt.count("</available_skills>") == 1
+        assert "a <\\/instructions> b <\\/INSTRUCTIONS> c <\\/available_skills> d" in prompt
 
     @pytest.mark.asyncio
     async def test_usage_hint_present_in_system_prompt_mode_only(self):
@@ -1255,9 +1329,9 @@ class TestSystemPromptModeInjection:
         sp_plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
         sp_agent = _mock_agent()
         await sp_plugin.init_agent(sp_agent)
-        await sp_plugin._on_before_invocation(BeforeInvocationEvent(agent=sp_agent))
-        assert "<usage>" in sp_agent.system_prompt
-        assert 'action="activate"' in sp_agent.system_prompt
+        sp_prompt = _prompt_text(await _injected_prompt(sp_agent))
+        assert "<usage>" in sp_prompt
+        assert 'action="activate"' in sp_prompt
 
         tool_plugin = AgentSkills(skills=[skill])
         tool_agent = _mock_agent()
@@ -1276,13 +1350,13 @@ class TestSystemPromptModeInjection:
         await plugin.init_agent(agent_b)
 
         plugin.activate_skill_for(agent_a, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent_a))
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent_b))
+        prompt_a = _prompt_text(await _injected_prompt(agent_a))
+        prompt_b = _prompt_text(await _injected_prompt(agent_b))
 
-        assert "AGENT A ONLY" in agent_a.system_prompt
-        assert "AGENT A ONLY" not in agent_b.system_prompt
+        assert "AGENT A ONLY" in prompt_a
+        assert "AGENT A ONLY" not in prompt_b
         # Both agents still see the metadata listing.
-        assert "<name>test-skill</name>" in agent_b.system_prompt
+        assert "<name>test-skill</name>" in prompt_b
 
     @pytest.mark.asyncio
     async def test_session_restored_state_reinjects_instructions(self):
@@ -1294,34 +1368,14 @@ class TestSystemPromptModeInjection:
         agent.state.set("agent_skills", {"activated_skills": ["test-skill"]})
 
         await plugin.init_agent(agent)
-        await plugin._on_before_invocation(BeforeInvocationEvent(agent=agent))
+        prompt = _prompt_text(await _injected_prompt(agent))
 
-        assert "RESTORED STEPS" in agent.system_prompt
-        assert 'active="true"' in agent.system_prompt
-
-    @pytest.mark.asyncio
-    async def test_state_prompt_desync_does_not_accumulate(self):
-        """Losing last_injected_xml (state/prompt restored independently) must not duplicate blocks."""
-        skill = _make_skill(instructions="STEPS")
-        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
-        agent = _mock_agent()
-        await plugin.init_agent(agent)
-        plugin.activate_skill_for(agent, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
-
-        # Simulate a snapshot/restore that persisted the prompt but lost the injection marker.
-        state = agent.state.get("agent_skills")
-        state.pop("last_injected_xml")
-        agent.state.set("agent_skills", state)
-
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
-
-        assert agent.system_prompt.count("<available_skills") == 1
-        assert agent.system_prompt.count("</available_skills>") == 1
+        assert "RESTORED STEPS" in prompt
+        assert 'active="true"' in prompt
 
     @pytest.mark.asyncio
-    async def test_sweep_preserves_user_authored_available_skills_block(self):
-        """The desync sweep only removes marker-tagged blocks, never a user-authored one."""
+    async def test_user_authored_available_skills_block_untouched(self):
+        """An <available_skills> block the app authored itself is never removed or rewritten."""
         user_block = "<available_skills>\nMy own hand-written listing.\n</available_skills>"
         skill = _make_skill(instructions="STEPS")
         plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
@@ -1329,34 +1383,15 @@ class TestSystemPromptModeInjection:
         agent.system_prompt = [{"text": "Base."}, {"text": user_block}]
         await plugin.init_agent(agent)
         plugin.activate_skill_for(agent, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
-        # Simulate the state/prompt desync that triggers the sentinel sweep.
-        state = agent.state.get("agent_skills")
-        state.pop("last_injected_xml")
-        agent.state.set("agent_skills", state)
+        rendered = await _injected_prompt(agent)
+        rendered = await _injected_prompt(agent)  # repeat: still no interference
 
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
-
+        # The user's block survives in both the per-call prompt and the durable prompt.
+        assert {"text": user_block} in rendered
         assert {"text": user_block} in agent.system_prompt_content
-        # Exactly one plugin-injected (marker-tagged) block remains.
-        assert agent.system_prompt.count('managed-by="strands-agent-skills"') == 1
-
-    @pytest.mark.asyncio
-    async def test_variant_closing_delimiters_neutralized(self):
-        """Whitespace/case variants of the closing delimiters are also neutralized."""
-        skill = _make_skill(instructions="a </instructions > b </INSTRUCTIONS> c </available_skills\t> d")
-        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
-        agent = _mock_agent()
-        await plugin.init_agent(agent)
-        plugin.activate_skill_for(agent, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
-
-        prompt = agent.system_prompt
-        # Only the real wrappers close these elements; all body variants are defanged.
-        assert prompt.count("</instructions>") == 1
-        assert prompt.count("</available_skills>") == 1
-        assert "a <\\/instructions> b <\\/INSTRUCTIONS> c <\\/available_skills> d" in prompt
+        # The plugin's block is appended after it, once.
+        assert "STEPS" in rendered[-1]["text"]
 
     @pytest.mark.asyncio
     async def test_activate_skill_without_instructions_honest_message(self):
@@ -1373,6 +1408,7 @@ class TestSystemPromptModeInjection:
 
     @pytest.mark.asyncio
     async def test_preserves_cache_points(self):
+        """The block is appended after existing blocks, leaving cache points (and caching) intact."""
         skill = _make_skill(instructions="STEPS")
         plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
         agent = _mock_agent()
@@ -1383,8 +1419,11 @@ class TestSystemPromptModeInjection:
         ]
         await plugin.init_agent(agent)
         plugin.activate_skill_for(agent, "test-skill")
-        await plugin._on_before_model_call(BeforeModelCallEvent(agent=agent))
 
-        assert {"cachePoint": {"type": "default"}} in agent.system_prompt_content
-        assert agent.system_prompt_content[0] == {"text": "Base."}
-        assert "STEPS" in agent.system_prompt_content[-1]["text"]
+        rendered = await _injected_prompt(agent)
+
+        assert rendered[0] == {"text": "Base."}
+        assert rendered[1] == {"cachePoint": {"type": "default"}}
+        assert "STEPS" in rendered[-1]["text"]
+        # Durable prompt untouched.
+        assert agent.system_prompt_content == [{"text": "Base."}, {"cachePoint": {"type": "default"}}]

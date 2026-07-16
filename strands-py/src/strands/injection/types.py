@@ -28,6 +28,19 @@ InjectionTrigger = Literal["userTurn", "everyTurn"]
 For finer control, pass a predicate instead of a trigger name.
 """
 
+InjectionLocation = Literal["lastUserMessage", "systemPrompt"]
+"""Determines where injected text lands in the model input.
+
+- ``"lastUserMessage"``: fold the text into the latest user message — the default, suited to
+  per-ask context (retrieved memories, timestamps) that should sit next to the user's message.
+- ``"systemPrompt"``: append the text to the per-call system prompt — suited to standing
+  guidance (skill instructions, policies) that belongs with the agent's directives rather
+  than inside the conversation.
+
+Both locations are ephemeral: the model sees the augmented input for that one call while the
+agent's durable system prompt and conversation history are never touched.
+"""
+
 
 @dataclass
 class InjectionContext:

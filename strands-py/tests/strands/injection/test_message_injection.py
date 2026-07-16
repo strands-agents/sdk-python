@@ -9,6 +9,7 @@ from strands._middleware.stages import InvokeModelContext
 from strands.injection._message_injection import (
     _create_injection_middleware,
     _fold_into_last_user_message,
+    _fold_into_system_prompt,
     _is_user_turn,
     _resolve_trigger,
 )
@@ -42,12 +43,12 @@ def make_agent(state: Any = None) -> Any:
     return agent
 
 
-def invoke_ctx(messages: list[dict], agent: Any = None) -> InvokeModelContext:
+def invoke_ctx(messages: list[dict], agent: Any = None, system_prompt: Any = None) -> InvokeModelContext:
     """Build an InvokeModelContext; the handler reads messages and agent.state/agent."""
     return InvokeModelContext(
         agent=agent or make_agent(),
         messages=messages,
-        system_prompt=None,
+        system_prompt=system_prompt,
         tool_specs=[],
         tool_choice=None,
         invocation_state={},
@@ -242,3 +243,72 @@ class TestCreateInjectionMiddleware:
         await handler(ctx)
 
         assert len(before["content"]) == 1  # original user message untouched
+
+
+class TestFoldIntoSystemPrompt:
+    def test_none_prompt_becomes_the_text(self):
+        assert _fold_into_system_prompt(None, "INJECTED") == "INJECTED"
+
+    def test_string_prompt_appends_with_blank_line(self):
+        assert _fold_into_system_prompt("Base prompt.", "INJECTED") == "Base prompt.\n\nINJECTED"
+
+    def test_block_prompt_appends_trailing_text_block(self):
+        blocks = [{"text": "Base prompt."}, {"cachePoint": {"type": "default"}}]
+        result = _fold_into_system_prompt(blocks, "INJECTED")
+        assert result == [
+            {"text": "Base prompt."},
+            {"cachePoint": {"type": "default"}},
+            {"text": "INJECTED"},
+        ]
+
+    def test_returns_new_list_and_does_not_mutate_input(self):
+        blocks = [{"text": "Base prompt."}]
+        result = _fold_into_system_prompt(blocks, "INJECTED")
+        assert result is not blocks
+        assert blocks == [{"text": "Base prompt."}]
+
+
+@pytest.mark.asyncio
+class TestSystemPromptLocation:
+    async def test_appends_to_per_call_system_prompt_and_leaves_messages_untouched(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+        ctx = invoke_ctx([user("ask")], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result.system_prompt == "Base prompt.\n\nINJECTED"
+        assert result.messages == [user("ask")]
+
+    async def test_none_prompt_becomes_injected_text(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+
+        result = await handler(invoke_ctx([user("ask")], system_prompt=None))
+
+        assert result.system_prompt == "INJECTED"
+
+    async def test_respects_trigger_gate(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", location="systemPrompt")
+        ctx = invoke_ctx([assistant("reply")], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result is ctx
+
+    async def test_every_turn_injects_on_tool_result_turn(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED", trigger="everyTurn", location="systemPrompt")
+        ctx = invoke_ctx([user("ask"), assistant("use tool"), tool_result()], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result.system_prompt == "Base prompt.\n\nINJECTED"
+        # The tool-result turn is untouched: injection landed in the system prompt instead.
+        assert result.messages == ctx.messages
+
+    async def test_default_location_still_folds_into_messages(self):
+        handler = _create_injection_middleware(lambda context: "INJECTED")
+        ctx = invoke_ctx([user("ask")], system_prompt="Base prompt.")
+
+        result = await handler(ctx)
+
+        assert result.system_prompt == "Base prompt."
+        assert result.messages == [{"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]}]

@@ -1,7 +1,8 @@
 """Delivery primitives for context injection.
 
-These fold just-in-time text into the latest user message *ephemerally* — the model sees the
-augmented input for one call while the agent's durable history is never touched. Reach injection
+These fold just-in-time text into the model input *ephemerally* — into the latest user
+message or the per-call system prompt, depending on the configured location — so the model
+sees the augmented input for one call while the agent's durable history is never touched. Reach injection
 through the ``ContextInjector`` plugin or the ``MemoryManager`` rather than these primitives
 directly.
 """
@@ -14,11 +15,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol
 
-from .types import InjectionContext, InjectionTriggerPredicate
+from .types import InjectionContext, InjectionLocation, InjectionTriggerPredicate
 
 if TYPE_CHECKING:
     from .._middleware.stages import InvokeModelContext
-    from ..types.content import ContentBlock, Message, Messages
+    from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, SystemPrompt
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,14 @@ def _create_injection_middleware(
     render_content: RenderContent,
     *,
     trigger: InjectionTriggerPredicate | None = None,
+    location: InjectionLocation | None = None,
 ) -> Callable[[InvokeModelContext], Awaitable[InvokeModelContext]]:
     """Build an ``InvokeModelStage.Input`` handler that folds injected text into the conversation.
 
-    The handler folds ``render_content``'s text into the latest user message, ephemerally: the
-    model sees the augmented input for this one call while the agent's durable history is
-    never touched. The handler gates on the resolved trigger, asks ``render_content`` for the
+    The handler folds ``render_content``'s text into the model input, ephemerally: the model
+    sees the augmented input for this one call while the agent's durable history is never
+    touched. ``location`` selects where the text lands — the latest user message (default) or
+    the per-call system prompt. The handler gates on the resolved trigger, asks ``render_content`` for the
     text, and returns a context with the folded messages. Anything that skips — the trigger
     not firing, ``render_content`` returning empty, or any callback raising — returns the
     context unchanged so the model call proceeds (fail open). The injected text never enters
@@ -63,6 +66,8 @@ def _create_injection_middleware(
         trigger: When to inject. An ``InjectionTrigger`` name selects a built-in policy
             (``"userTurn"`` — default — or ``"everyTurn"``); a predicate over the
             ``InjectionContext`` is the escape hatch. Defaults to ``"userTurn"``.
+        location: Where the text lands. ``"lastUserMessage"`` (default) folds it into the
+            latest user message; ``"systemPrompt"`` appends it to the per-call system prompt.
 
     Returns:
         An ``InvokeModelStage.Input`` handler that returns a (possibly) folded context.
@@ -90,6 +95,8 @@ def _create_injection_middleware(
         if text is None or not text.strip():
             return context
 
+        if location == "systemPrompt":
+            return replace(context, system_prompt=_fold_into_system_prompt(context.system_prompt, text))
         return replace(context, messages=_fold_into_last_user_message(context.messages, text))
 
     return handler
@@ -188,3 +195,32 @@ def _fold_into_last_user_message(messages: Messages, text: str) -> Messages:
     result = list(messages)
     result[target_index] = folded
     return result
+
+
+def _fold_into_system_prompt(system_prompt: SystemPrompt, text: str) -> SystemPrompt:
+    """Append ``text`` to the per-call system prompt, returning a NEW value.
+
+    The text is **appended** so it lands after the agent's own directives — and, for a
+    structured prompt, after any ``cachePoint`` marking the static prefix, keeping that prefix
+    cacheable while the injected text varies call to call.
+
+    The input is never mutated:
+
+    - ``None``: the injected text becomes the entire prompt.
+    - ``str``: the text is appended, separated by a blank line.
+    - list of blocks: a new list with a trailing text block is returned; existing blocks
+      (including cache points) are preserved untouched.
+
+    Args:
+        system_prompt: The per-call system prompt to fold into.
+        text: The text to append.
+
+    Returns:
+        A new system prompt value carrying the injected text.
+    """
+    if system_prompt is None:
+        return text
+    if isinstance(system_prompt, str):
+        return f"{system_prompt}\n\n{text}"
+    injected: SystemContentBlock = {"text": text}
+    return [*system_prompt, injected]
