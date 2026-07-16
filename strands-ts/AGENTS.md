@@ -56,15 +56,7 @@ See [CONTRIBUTING.md - TypeScript SDK](../CONTRIBUTING.md#typescript-sdk) for pr
 
 ### 3. Pull Request Guidelines
 
-When creating pull requests, you **MUST** follow the guidelines in [PR.md](../team/PR.md) and use the [PR template](../.github/PULL_REQUEST_TEMPLATE.md). Key principles:
-
-- **Focus on WHY**: Explain motivation and user impact, not implementation details
-- **Document public API changes**: Show before/after code examples
-- **Be concise**: Use prose over bullet lists; avoid exhaustive checklists
-- **Target senior engineers**: Assume familiarity with the SDK
-- **Exclude implementation details**: Leave these to code comments and diffs
-
-See [PR.md](../team/PR.md) for the complete guidance and template.
+When creating pull requests, you **MUST** follow the guidelines in [PR.md](../team/PR.md) and use the [PR template](../.github/PULL_REQUEST_TEMPLATE.md).
 
 ### 4. Quality Gates
 
