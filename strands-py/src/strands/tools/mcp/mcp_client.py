@@ -1157,10 +1157,6 @@ class MCPClient(ToolProvider):
         invoke_future = asyncio.run_coroutine_threadsafe(coro=run_async(), loop=self._background_thread_event_loop)
         return invoke_future
 
-    def _should_include_tool(self, tool: MCPAgentTool) -> bool:
-        """Check if a tool should be included based on constructor filters."""
-        return self._should_include_tool_with_filters(tool, self._tool_filters)
-
     def _should_include_tool_with_filters(self, tool: MCPAgentTool, filters: ToolFilters | None) -> bool:
         """Check if a tool should be included based on provided filters."""
         if not filters:
