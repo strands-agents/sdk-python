@@ -66,7 +66,7 @@ Pre-commit hooks run automatically and must all pass: build (`npm run build`), u
 
 ### 5. Testing Guidelines
 
-When writing tests, you **MUST** follow the guidelines in [docs/TESTING.md](./docs/TESTING.md): test organization and file location, batching strategy, object-assertion best practices, coverage requirements, and multi-environment (Node.js + browser) testing. Canonical paths: unit tests co-located under `src/**/__tests__/`, integration tests under `test/integ/`.
+When writing tests, you **MUST** follow the guidelines in [docs/TESTING.md](./docs/TESTING.md); see [Testing](#testing) below.
 
 ## Coding Patterns and Best Practices
 
@@ -129,7 +129,7 @@ Order imports: (1) external dependencies, (2) internal modules via relative path
 
 ### File Organization
 
-- **Unit tests co-located** under `__tests__/` beside the source (`src/module.ts` ↔ `src/__tests__/module.test.ts`); integration tests under `test/integ/`.
+- **Test file locations and naming** are defined in [docs/TESTING.md](./docs/TESTING.md) (see [Testing](#testing) below).
 - **Function ordering within a file** reads top-down, most general to most specific: main entry-point/exported functions at the top, private helpers below in order of use.
 - **Keep functions small and focused** — a single responsibility each.
 
@@ -212,11 +212,7 @@ export class XModel extends Model<XModelConfig> {
 
 ## Testing
 
-When writing tests, you **MUST** follow [docs/TESTING.md](./docs/TESTING.md) — it is the authoritative reference. In short:
-
-- **Unit tests** co-located under `src/**/__tests__/`; **integration tests** under `test/integ/`.
-- **File naming** selects the environment: `*.test.ts` (Node + browser), `*.test.node.ts` (Node only), `*.test.browser.ts` (browser only).
-- Use the nested `describe` pattern; assert on whole objects with `toEqual`; reuse fixtures from `src/__fixtures__/` rather than hand-rolling mocks.
+When writing tests, you **MUST** follow [docs/TESTING.md](./docs/TESTING.md). It is the authoritative reference for test file location and naming (co-location, environment suffixes), the nested `describe` pattern, batching strategy, whole-object assertions, fixtures, coverage requirements, and multi-environment testing.
 
 ## Quick Rules
 
