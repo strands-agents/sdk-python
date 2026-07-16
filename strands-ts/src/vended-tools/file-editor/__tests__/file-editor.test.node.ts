@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { fileEditor } from '../file-editor.js'
+import { fileEditor, makeFileEditor } from '../file-editor.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -7,6 +7,7 @@ import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
 import { promises as fs, mkdtempSync } from 'fs'
 import * as path from 'path'
 import { tmpdir } from 'os'
+import { Buffer } from 'buffer'
 
 describe('fileEditor tool', () => {
   let testDir: string
@@ -476,12 +477,402 @@ describe('fileEditor tool', () => {
   })
 
   describe('file size limits', () => {
-    it('throws when file exceeds default size limit', async () => {
-      // Create a file larger than 1MB
-      const largeContent = 'x'.repeat(1048577) // 1MB + 1 byte
-      const filePath = await createTestFile('large.txt', largeContent)
+    it('throws when file exceeds configured size limit', async () => {
+      const smallEditor = makeFileEditor({ maxFileSize: 1024 })
+      const filePath = await createTestFile('large.txt', 'x'.repeat(2048))
+      await expect(smallEditor.invoke({ command: 'view', path: filePath }, context)).rejects.toThrow('exceeds')
+    })
 
-      await expect(fileEditor.invoke({ command: 'view', path: filePath }, context)).rejects.toThrow('exceeds')
+    it('default cap is 1 MB: accepts a file just under and rejects a 2 MB file', async () => {
+      const under = await createTestFile('under.txt', 'x'.repeat(1 * 1024 * 1024 - 1))
+      const result = await fileEditor.invoke({ command: 'view', path: under }, context)
+      expect(result).toContain('cat -n')
+      const over = await createTestFile('over.txt', 'x'.repeat(2 * 1024 * 1024))
+      await expect(fileEditor.invoke({ command: 'view', path: over }, context)).rejects.toThrow('exceeds')
+    })
+  })
+
+  describe('binary rejection', () => {
+    it('rejects a binary file on view', async () => {
+      const filePath = path.join(testDir, 'binary.bin')
+      await fs.writeFile(filePath, Buffer.from([0x00, 0x01, 0x02, 0x66, 0x6f, 0x6f, 0x00]))
+      await expect(fileEditor.invoke({ command: 'view', path: filePath }, context)).rejects.toThrow('binary')
+    })
+
+    it('rejects a binary file on str_replace', async () => {
+      const filePath = path.join(testDir, 'binary.bin')
+      await fs.writeFile(filePath, Buffer.from([0x48, 0x45, 0x41, 0x44, 0x00, 0x54, 0x41, 0x49, 0x4c]))
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: 'HEAD', new_str: 'X' }, context)
+      ).rejects.toThrow('binary')
+    })
+
+    it('rejects a UTF-16 file as unsupported encoding, not as binary', async () => {
+      const filePath = path.join(testDir, 'utf16.txt')
+      const bom = Buffer.from([0xff, 0xfe])
+      const body = Buffer.from('hello world', 'utf16le')
+      await fs.writeFile(filePath, Buffer.concat([bom, body]))
+      await expect(fileEditor.invoke({ command: 'view', path: filePath }, context)).rejects.toThrow('UTF-16')
+    })
+  })
+
+  describe('pattern_replace ReDoS guards', () => {
+    it('rejects an overlong pattern', async () => {
+      const filePath = await createTestFile('test.txt', 'content')
+      await expect(
+        fileEditor.invoke(
+          { command: 'pattern_replace', path: filePath, pattern: 'a'.repeat(1001), new_str: 'x' },
+          context
+        )
+      ).rejects.toThrow('exceeds maximum')
+    })
+
+    it('rejects a pattern that produces more than the match cap', async () => {
+      // A tiny pattern over a large-ish input can easily blow past the 10k cap.
+      const filePath = await createTestFile('many.txt', 'a'.repeat(20_000))
+      await expect(
+        fileEditor.invoke(
+          { command: 'pattern_replace', path: filePath, pattern: 'a', new_str: 'b', replace_all: true },
+          context
+        )
+      ).rejects.toThrow('more than')
+    })
+
+    it('rejects a nested-quantifier pattern before compilation', async () => {
+      // `(a+)+b` on all-a input hangs a single V8 exec call — the match-count
+      // cap can't catch it because catastrophic backtracking happens inside
+      // one exec, not between execs. The sync heuristic must reject it.
+      const filePath = await createTestFile('evil.txt', 'a'.repeat(24))
+      await expect(
+        fileEditor.invoke({ command: 'pattern_replace', path: filePath, pattern: '(a+)+b', new_str: 'x' }, context)
+      ).rejects.toThrow(/nested quantifier|catastrophic/i)
+    })
+  })
+
+  describe('write-side size caps', () => {
+    it('rejects a create whose file_text exceeds maxFileSize', async () => {
+      const editor = makeFileEditor({ maxFileSize: 1024 })
+      const filePath = path.join(testDir, 'big-create.txt')
+      await expect(
+        editor.invoke({ command: 'create', path: filePath, file_text: 'x'.repeat(2048) }, context)
+      ).rejects.toThrow('exceeds maximum allowed size')
+    })
+
+    it('rejects a str_replace whose new_str exceeds maxFileSize', async () => {
+      const editor = makeFileEditor({ maxFileSize: 1024 })
+      const filePath = await createTestFile('small.txt', 'small')
+      await expect(
+        editor.invoke({ command: 'str_replace', path: filePath, old_str: 'small', new_str: 'y'.repeat(2048) }, context)
+      ).rejects.toThrow('exceeds maximum allowed size')
+    })
+
+    it('rejects a str_replace whose result expands past the cap', async () => {
+      // Cap is 32 bytes. Original is 20 bytes. `replace_all` on 'x' -> 'XXX'
+      // produces 60 bytes, past the cap even though every individual new_str
+      // fits.
+      const editor = makeFileEditor({ maxFileSize: 32 })
+      const filePath = await createTestFile('grow.txt', 'x'.repeat(20))
+      await expect(
+        editor.invoke(
+          { command: 'str_replace', path: filePath, old_str: 'x', new_str: 'XXX', replace_all: true },
+          context
+        )
+      ).rejects.toThrow('exceeding the maximum')
+    })
+
+    it('rejects an insert whose result expands past the cap', async () => {
+      const editor = makeFileEditor({ maxFileSize: 32 })
+      const filePath = await createTestFile('grow.txt', 'x'.repeat(30))
+      await expect(
+        editor.invoke({ command: 'insert', path: filePath, insert_line: 0, new_str: 'y'.repeat(10) }, context)
+      ).rejects.toThrow('exceeding the maximum')
+    })
+
+    it('rejects a pattern_replace whose result expands past the cap', async () => {
+      const editor = makeFileEditor({ maxFileSize: 32 })
+      const filePath = await createTestFile('grow.txt', 'x'.repeat(20))
+      await expect(
+        editor.invoke(
+          { command: 'pattern_replace', path: filePath, pattern: 'x', new_str: 'XXX', replace_all: true },
+          context
+        )
+      ).rejects.toThrow('exceeding the maximum')
+    })
+  })
+
+  describe('empty input rejection', () => {
+    it('rejects an empty old_str on str_replace', async () => {
+      // `"".count("")` returns len + 1; without an explicit guard the caller
+      // would see a confusing "multiple occurrences" error or, with replace_all,
+      // new_str inserted between every character.
+      const filePath = await createTestFile('empty-old.txt', 'hello\n')
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: '', new_str: 'X' }, context)
+      ).rejects.toThrow('must not be empty')
+    })
+
+    it('rejects an empty pattern on pattern_replace', async () => {
+      // An empty pattern is a zero-width regex that matches at every position.
+      const filePath = await createTestFile('empty-pattern.txt', 'hello\n')
+      await expect(
+        fileEditor.invoke({ command: 'pattern_replace', path: filePath, pattern: '', new_str: 'X' }, context)
+      ).rejects.toThrow('must not be empty')
+    })
+  })
+
+  describe('non-local root (docker-shaped)', () => {
+    it('confines against a container-side root that does not exist locally', async () => {
+      // Simulates a Docker sandbox whose paths are container-side: `root` does
+      // not map to any local path. The realpath layer must be skipped or every
+      // op would fail ENOENT. The string-level check still applies.
+      const containerRoot = '/workspace-in-container-does-not-exist-locally'
+      const editor = makeFileEditor({ root: containerRoot })
+      // A path inside the (non-local) root should pass path resolution and
+      // fail only when the sandbox tries to actually read it. Use the sandbox
+      // path-not-found error as the signal: resolution succeeded.
+      await expect(editor.invoke({ command: 'view', path: `${containerRoot}/foo.txt` }, context)).rejects.toThrow(
+        'does not exist'
+      )
+      // And a path outside root still fails cleanly at the string-level check.
+      await expect(editor.invoke({ command: 'view', path: '/etc/passwd' }, context)).rejects.toThrow(
+        'outside the configured root'
+      )
+    })
+  })
+
+  describe('undo LRU eviction', () => {
+    it('evicts the oldest entry when maxUndoEntries is exceeded', async () => {
+      const editor = makeFileEditor({ maxUndoEntries: 2 })
+      const paths: string[] = []
+      for (let i = 0; i < 3; i++) {
+        const p = await createTestFile(`f${i}.txt`, `orig${i}`)
+        paths.push(p)
+        await editor.invoke({ command: 'str_replace', path: p, old_str: `orig${i}`, new_str: `new${i}` }, context)
+      }
+      // Oldest (f0) has been evicted.
+      await expect(editor.invoke({ command: 'undo_edit', path: paths[0]! }, context)).rejects.toThrow('No undo history')
+      // Second-oldest still restores.
+      await editor.invoke({ command: 'undo_edit', path: paths[1]! }, context)
+      expect(await fs.readFile(paths[1]!, 'utf-8')).toBe('orig1')
+    })
+
+    it('evicts past the byte cap', async () => {
+      const editor = makeFileEditor({ maxUndoBytes: 10 })
+      const p1 = await createTestFile('big1.txt', 'x'.repeat(100))
+      const p2 = await createTestFile('big2.txt', 'y'.repeat(100))
+      await editor.invoke({ command: 'str_replace', path: p1, old_str: 'x', new_str: 'X', replace_all: true }, context)
+      await editor.invoke({ command: 'str_replace', path: p2, old_str: 'y', new_str: 'Y', replace_all: true }, context)
+      await expect(editor.invoke({ command: 'undo_edit', path: p1 }, context)).rejects.toThrow('No undo history')
+    })
+  })
+
+  describe('str_replace replace_all opt-in', () => {
+    it('rejects an ambiguous match without replace_all', async () => {
+      const filePath = await createTestFile('dup.txt', 'DUP\nfoo\nDUP\nbar\nDUP\n')
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: 'DUP', new_str: 'X' }, context)
+      ).rejects.toThrow('replace_all')
+    })
+
+    it('replaces every occurrence when replace_all is true', async () => {
+      const filePath = await createTestFile('dup.txt', 'DUP\nfoo\nDUP\nbar\nDUP\n')
+      const result = await fileEditor.invoke(
+        { command: 'str_replace', path: filePath, old_str: 'DUP', new_str: 'X', replace_all: true },
+        context
+      )
+      expect(result).toContain('3 occurrences replaced')
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('X\nfoo\nX\nbar\nX\n')
+    })
+  })
+
+  describe('pattern_replace command', () => {
+    it('replaces a unique regex match with backreferences', async () => {
+      const filePath = await createTestFile('test.txt', 'hello world\ngoodbye')
+      await fileEditor.invoke(
+        { command: 'pattern_replace', path: filePath, pattern: 'hello (\\w+)', new_str: 'HI $1' },
+        context
+      )
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('HI world\ngoodbye')
+    })
+
+    it('rejects an ambiguous match without replace_all', async () => {
+      const filePath = await createTestFile('test.txt', 'foo\nfoo\nfoo\n')
+      await expect(
+        fileEditor.invoke({ command: 'pattern_replace', path: filePath, pattern: 'foo', new_str: 'bar' }, context)
+      ).rejects.toThrow('replace_all')
+    })
+
+    it('replaces every match when replace_all is true', async () => {
+      const filePath = await createTestFile('test.txt', 'foo\nfoo\nfoo\n')
+      await fileEditor.invoke(
+        { command: 'pattern_replace', path: filePath, pattern: 'foo', new_str: 'bar', replace_all: true },
+        context
+      )
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('bar\nbar\nbar\n')
+    })
+
+    it('throws on an invalid regex', async () => {
+      const filePath = await createTestFile('test.txt', 'content')
+      await expect(
+        fileEditor.invoke({ command: 'pattern_replace', path: filePath, pattern: '[unclosed', new_str: 'x' }, context)
+      ).rejects.toThrow('Invalid regex')
+    })
+
+    it('throws when the pattern does not match', async () => {
+      const filePath = await createTestFile('test.txt', 'content')
+      await expect(
+        fileEditor.invoke({ command: 'pattern_replace', path: filePath, pattern: 'MISSING', new_str: 'x' }, context)
+      ).rejects.toThrow('did not match')
+    })
+  })
+
+  describe('find_line command', () => {
+    it('finds the first occurrence and returns a context snippet', async () => {
+      const filePath = await createTestFile('test.txt', 'alpha\nbeta\ngamma\nbeta again\n')
+      const result = await fileEditor.invoke({ command: 'find_line', path: filePath, search_text: 'beta' }, context)
+      expect(result).toContain('line 2')
+      expect(result).toContain('gamma')
+    })
+
+    it('throws when not found', async () => {
+      const filePath = await createTestFile('test.txt', 'alpha\n')
+      await expect(
+        fileEditor.invoke({ command: 'find_line', path: filePath, search_text: 'MISSING' }, context)
+      ).rejects.toThrow('Could not find')
+    })
+
+    it('matches across whitespace when fuzzy is true', async () => {
+      const filePath = await createTestFile('test.txt', 'def   my_function ( ):\n    pass\n')
+      const result = await fileEditor.invoke(
+        { command: 'find_line', path: filePath, search_text: 'def my_function', fuzzy: true },
+        context
+      )
+      expect(result).toContain('line 1')
+    })
+  })
+
+  describe('undo_edit command', () => {
+    it('reverts a str_replace edit', async () => {
+      const editor = makeFileEditor()
+      const filePath = await createTestFile('test.txt', 'hello\n')
+      await editor.invoke({ command: 'str_replace', path: filePath, old_str: 'hello', new_str: 'goodbye' }, context)
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('goodbye\n')
+      await editor.invoke({ command: 'undo_edit', path: filePath }, context)
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('hello\n')
+    })
+
+    it('reverts an insert edit', async () => {
+      const editor = makeFileEditor()
+      const filePath = await createTestFile('test.txt', 'one\ntwo\n')
+      await editor.invoke({ command: 'insert', path: filePath, insert_line: 1, new_str: 'between' }, context)
+      await editor.invoke({ command: 'undo_edit', path: filePath }, context)
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('one\ntwo\n')
+    })
+
+    it('reverts a pattern_replace edit', async () => {
+      const editor = makeFileEditor()
+      const filePath = await createTestFile('test.txt', 'a\nb\nc\n')
+      await editor.invoke({ command: 'pattern_replace', path: filePath, pattern: 'a', new_str: 'A' }, context)
+      await editor.invoke({ command: 'undo_edit', path: filePath }, context)
+      expect(await fs.readFile(filePath, 'utf-8')).toBe('a\nb\nc\n')
+    })
+
+    it('throws when no history exists', async () => {
+      const filePath = await createTestFile('test.txt', 'content\n')
+      await expect(fileEditor.invoke({ command: 'undo_edit', path: filePath }, context)).rejects.toThrow(
+        'No undo history'
+      )
+    })
+
+    it('scopes history to a single tool instance', async () => {
+      const filePath = await createTestFile('test.txt', 'original\n')
+      const editorA = makeFileEditor()
+      const editorB = makeFileEditor()
+      await editorA.invoke({ command: 'str_replace', path: filePath, old_str: 'original', new_str: 'changed' }, context)
+      await expect(editorB.invoke({ command: 'undo_edit', path: filePath }, context)).rejects.toThrow('No undo history')
+    })
+  })
+
+  describe('root confinement', () => {
+    it('rejects an absolute path outside the configured root', async () => {
+      const rootDir = path.join(testDir, 'workspace')
+      const outside = path.join(testDir, 'outside.txt')
+      await fs.mkdir(rootDir)
+      await fs.writeFile(outside, 'secret')
+      const confined = makeFileEditor({ root: rootDir })
+      await expect(confined.invoke({ command: 'view', path: outside }, context)).rejects.toThrow(
+        'outside the configured root'
+      )
+    })
+
+    it('still rejects `..` traversal even with a root', async () => {
+      const rootDir = path.join(testDir, 'workspace')
+      await fs.mkdir(rootDir)
+      const confined = makeFileEditor({ root: rootDir })
+      await expect(confined.invoke({ command: 'view', path: `${rootDir}/../outside.txt` }, context)).rejects.toThrow(
+        'path traversal'
+      )
+    })
+
+    it('rejects a sibling that shares the root prefix', async () => {
+      const rootDir = path.join(testDir, 'ws')
+      const sibling = path.join(testDir, 'ws-neighbor')
+      await fs.mkdir(rootDir)
+      await fs.mkdir(sibling)
+      await fs.writeFile(path.join(sibling, 'file.txt'), 'content')
+      const confined = makeFileEditor({ root: rootDir })
+      await expect(confined.invoke({ command: 'view', path: path.join(sibling, 'file.txt') }, context)).rejects.toThrow(
+        'outside the configured root'
+      )
+    })
+
+    it('allows a path inside the root', async () => {
+      const rootDir = path.join(testDir, 'workspace')
+      await fs.mkdir(rootDir)
+      const target = path.join(rootDir, 'ok.txt')
+      await fs.writeFile(target, 'hello')
+      const confined = makeFileEditor({ root: rootDir })
+      const result = await confined.invoke({ command: 'view', path: target }, context)
+      expect(result).toContain('hello')
+    })
+
+    it('throws at construction if root is not absolute', () => {
+      expect(() => makeFileEditor({ root: 'relative/root' })).toThrow('absolute path')
+    })
+
+    it('rejects a symlink inside root that points outside root', async () => {
+      const rootDir = path.join(testDir, 'workspace')
+      await fs.mkdir(rootDir)
+      const secret = path.join(testDir, 'secret.txt')
+      await fs.writeFile(secret, 'top secret')
+      const link = path.join(rootDir, 'escape.txt')
+      await fs.symlink(secret, link)
+      const confined = makeFileEditor({ root: rootDir })
+      await expect(confined.invoke({ command: 'view', path: link }, context)).rejects.toThrow(/symlink|outside/)
+    })
+
+    it('allows a symlink inside root that points to a file also inside root', async () => {
+      const rootDir = path.join(testDir, 'workspace')
+      await fs.mkdir(rootDir)
+      const target = path.join(rootDir, 'real.txt')
+      await fs.writeFile(target, 'inside content')
+      const link = path.join(rootDir, 'alias.txt')
+      await fs.symlink(target, link)
+      const confined = makeFileEditor({ root: rootDir })
+      const result = await confined.invoke({ command: 'view', path: link }, context)
+      expect(result).toContain('inside content')
+    })
+
+    it.skipIf(process.platform === 'win32')('allows a path when root is the filesystem root', async () => {
+      // POSIX-only: stripTrailingSep preserves `/`, so a naive `r + sep` check
+      // would produce `//` and reject every valid in-root path. Guard against
+      // regressing that edge case. Windows treats each drive letter as its
+      // own root; the analogous case there (`root: 'C:\\'`) is covered by the
+      // trailing-separator branch in isInsideRoot the same way.
+      const filePath = await createTestFile('at-fs-root.txt', 'content')
+      const confined = makeFileEditor({ root: '/' })
+      const result = await confined.invoke({ command: 'view', path: filePath }, context)
+      expect(result).toContain('content')
     })
   })
 

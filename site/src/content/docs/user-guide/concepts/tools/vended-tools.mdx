@@ -7,6 +7,7 @@ languages: [python, typescript]
 tags: [tool-authoring]
 sourceLinks:
   - path: strands-ts/src/vended-tools/file-editor/file-editor.ts
+  - path: strands-py/src/strands/vended_tools/file_editor/file_editor.py
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
@@ -37,7 +38,11 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 
 ### File Editor
 
-Gives your agent the ability to read and modify files on disk — useful for coding agents, config management, or any workflow where the agent needs to inspect output and make targeted edits.
+Gives your agent the ability to read and modify files on disk — useful for coding agents, config management, or any workflow where the agent needs to inspect output and make targeted edits. Commands: `view`, `create`, `str_replace`, `insert`, `pattern_replace` (regex), `find_line`, and `undo_edit` (single-step, in-memory).
+
+Ambiguous `str_replace` and `pattern_replace` matches are rejected unless the caller opts in with `replace_all: true`, so the model can't silently rewrite an entire file. Binary files and files above the configurable size cap (default 1 MB) are rejected with a clean error. Pass `root` to `makeFileEditor` / `make_file_editor` to confine every operation to a single directory — the resolver applies both string-level and (when the local filesystem sees the target) `realpath`-based symlink checks.
+
+The two SDKs guard `pattern_replace` against catastrophic regex differently. The Python side runs the match and substitution on a worker thread with a configurable wall-clock timeout (`pattern_replace_timeout`, default five seconds). The TypeScript side cannot replicate that — V8 has no in-exec regex timeout and JavaScript has no way to cancel a running `.exec()` call — so it statically rejects the classic ReDoS shapes (`(a+)+`, `(a*)*`, and so on) before compiling. A pattern accepted by Python may be refused by TypeScript.
 
 :::caution[Security Warning]
 This tool reads and writes files at arbitrary absolute paths with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.

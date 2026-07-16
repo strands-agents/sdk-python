@@ -3,10 +3,29 @@
  */
 export interface FileEditorOptions {
   /**
-   * Maximum file size in bytes that can be read (default: 1048576 / 1MB).
+   * Maximum file size in bytes that can be read (default: 1 * 1024 * 1024 / 1 MB).
    */
   maxFileSize?: number
+  /**
+   * Optional absolute directory that confines every operation.
+   */
+  root?: string
+  /**
+   * Maximum number of distinct paths retained in the in-memory undo history
+   * (default: 32).
+   */
+  maxUndoEntries?: number
+  /**
+   * Approximate byte cap on total undo history (default: 32 * 1024 * 1024 / 32 MB).
+   */
+  maxUndoBytes?: number
 }
+
+// The Zod schema in `file-editor.ts` (`fileEditorInputSchema`) is the single
+// source of truth for the validated input shape. These interfaces exist as a
+// discriminated union so consumers can narrow on `command` in TypeScript; when
+// you add or rename a field on the schema, update the matching interface here
+// too.
 
 /**
  * Input parameters for view operation.
@@ -34,6 +53,12 @@ export interface StrReplaceInput {
   path: string
   old_str: string
   new_str?: string
+  /**
+   * When true, replace every occurrence of `old_str`. Defaults to false; a
+   * match count \> 1 is rejected without this flag to prevent silent broad
+   * edits.
+   */
+  replace_all?: boolean
 }
 
 /**
@@ -47,9 +72,47 @@ export interface InsertInput {
 }
 
 /**
+ * Input parameters for pattern_replace (regex) operation.
+ */
+export interface PatternReplaceInput {
+  command: 'pattern_replace'
+  path: string
+  pattern: string
+  new_str: string
+  /**
+   * When true, replace every match. Defaults to false; a match count \> 1 is
+   * rejected without this flag to prevent silent broad edits.
+   */
+  replace_all?: boolean
+}
+
+/**
+ * Input parameters for find_line operation.
+ */
+export interface FindLineInput {
+  command: 'find_line'
+  path: string
+  search_text: string
+  /**
+   * When true, whitespace between tokens is collapsed and matching is
+   * case-insensitive.
+   */
+  fuzzy?: boolean
+}
+
+/**
+ * Input parameters for undo_edit operation.
+ */
+export interface UndoEditInput {
+  command: 'undo_edit'
+  path: string
+}
+
+/**
  * Union type of all valid file editor inputs.
  */
-export type FileEditorInput = ViewInput | CreateInput | StrReplaceInput | InsertInput
+export type FileEditorInput =
+  ViewInput | CreateInput | StrReplaceInput | InsertInput | PatternReplaceInput | FindLineInput | UndoEditInput
 
 /**
  * Interface for pluggable file readers.
