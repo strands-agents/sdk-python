@@ -13,10 +13,29 @@ programmatic approach after creating the agent:
 
 import json
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
-import jsonschema
-from jsonschema import ValidationError
+
+def _import_jsonschema() -> ModuleType:
+    """Import jsonschema lazily so it is only required when validating configurations.
+
+    Returns:
+        The imported ``jsonschema`` module.
+
+    Raises:
+        ImportError: If jsonschema is not installed.
+    """
+    try:
+        import jsonschema
+    except ImportError as e:
+        raise ImportError(
+            "config_to_agent requires the 'jsonschema' package. "
+            "Install it with: pip install strands-agents[agent-config]"
+        ) from e
+
+    return jsonschema
+
 
 # JSON Schema for agent configuration
 AGENT_CONFIG_SCHEMA = {
@@ -46,9 +65,6 @@ AGENT_CONFIG_SCHEMA = {
     },
     "additionalProperties": False,
 }
-
-# Pre-compile validator for better performance
-_VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
 
 
 def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> Any:
@@ -106,9 +122,10 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
         raise ValueError("Config must be a file path string or dictionary")
 
     # Validate configuration against schema
+    jsonschema = _import_jsonschema()
     try:
-        _VALIDATOR.validate(config_dict)
-    except ValidationError as e:
+        jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA).validate(config_dict)
+    except jsonschema.ValidationError as e:
         # Provide more detailed error message
         error_path = " -> ".join(str(p) for p in e.absolute_path) if e.absolute_path else "root"
         raise ValueError(f"Configuration validation error at {error_path}: {e.message}") from e

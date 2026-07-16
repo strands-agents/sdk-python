@@ -45,6 +45,12 @@ dependencies = [
 
 
 [project.optional-dependencies]
+# pyyaml and jsonschema are still listed in [project.dependencies] for backwards
+# compatibility. These extras exist so that installs can start depending on them
+# explicitly; the base dependencies can then be dropped in the next major version.
+agent-config = ["jsonschema>=4.0.0,<5.0.0"]
+skills = ["pyyaml>=6.0.0,<7.0.0"]
+
 anthropic = ["anthropic>=0.21.0,<1.0.0"]
 gemini = ["google-genai>=1.32.0,<3.0.0"]
 # The latest litellm v1.92.0 do not support python 3.14, for the short term we will keep 
@@ -67,7 +73,6 @@ docs = [
 ]
 
 a2a = [
-    "a2a-sdk>=0.3.0,<0.4.0",
     "a2a-sdk[sql]>=0.3.0,<0.4.0",
     "uvicorn>=0.34.2,<1.0.0",
     "httpx>=0.28.1,<1.0.0",
@@ -83,12 +88,12 @@ bidi-io = [
     "prompt_toolkit>=3.0.0,<4.0.0",
     "pyaudio>=0.2.13,<1.0.0",
 ]
-bidi-gemini = ["google-genai>=1.32.0,<3.0.0"]
+bidi-gemini = ["strands-agents[gemini]"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 cedar = ["cedarpy==4.8.6", "cedar-policy-mcp-schema-generator==0.6.0"]
 
-all = ["strands-agents[a2a,anthropic,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
+all = ["strands-agents[a2a,agent-config,anthropic,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,skills,writer,sagemaker,otel]"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-io,bidi-gemini,bidi-openai,docs,otel]"]
 
 dev = [

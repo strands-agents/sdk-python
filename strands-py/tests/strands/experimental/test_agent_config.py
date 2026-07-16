@@ -170,3 +170,28 @@ def test_config_to_agent_with_tool():
     config = {"model": "test-model", "tools": ["tests.fixtures.say_tool:say"]}
     agent = config_to_agent(config)
     assert "say" in agent.tool_names
+
+
+def test_config_to_agent_without_jsonschema_raises_helpful_error():
+    """Test that config_to_agent raises an ImportError naming the agent-config extra when jsonschema is absent."""
+    import sys
+    from unittest.mock import patch
+
+    with patch.dict(sys.modules, {"jsonschema": None}):
+        with pytest.raises(ImportError, match=r"pip install strands-agents\[agent-config\]"):
+            config_to_agent({"model": "test-model"})
+
+
+def test_experimental_import_does_not_require_jsonschema():
+    """Test that importing strands.experimental does not eagerly import jsonschema."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "sys.modules['jsonschema'] = None\n"
+        "import strands.experimental\n"
+        "assert callable(strands.experimental.config_to_agent)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

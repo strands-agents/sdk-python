@@ -14,11 +14,30 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
-import yaml
-
 logger = logging.getLogger(__name__)
+
+
+def _import_yaml() -> ModuleType:
+    """Import pyyaml lazily so it is only required when parsing skills.
+
+    Returns:
+        The imported ``yaml`` module.
+
+    Raises:
+        ImportError: If pyyaml is not installed.
+    """
+    try:
+        import yaml
+    except ImportError as e:
+        raise ImportError(
+            "Skill loading requires the 'pyyaml' package. Install it with: pip install strands-agents[skills]"
+        ) from e
+
+    return yaml
+
 
 _SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 _MAX_SKILL_NAME_LENGTH = 64
@@ -61,6 +80,8 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     Raises:
         ValueError: If the frontmatter is malformed or missing required delimiters.
     """
+    yaml = _import_yaml()
+
     stripped = content.strip()
     if not stripped.startswith("---"):
         raise ValueError("SKILL.md must start with --- frontmatter delimiter")

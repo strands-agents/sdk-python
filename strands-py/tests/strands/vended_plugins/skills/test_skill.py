@@ -647,3 +647,18 @@ class TestSkillClassmethods:
         assert callable(getattr(Skill, "from_content", None))
         assert callable(getattr(Skill, "from_directory", None))
         assert callable(getattr(Skill, "from_url", None))
+
+
+class TestMissingPyyaml:
+    """Tests for the lazy pyyaml import guard."""
+
+    def test_parse_frontmatter_without_pyyaml_raises_helpful_error(self):
+        """Test that parsing raises an ImportError naming the skills extra when pyyaml is absent."""
+        import sys
+        from unittest.mock import patch
+
+        content = "---\nname: my-skill\ndescription: A skill\n---\nBody."
+
+        with patch.dict(sys.modules, {"yaml": None}):
+            with pytest.raises(ImportError, match=r"pip install strands-agents\[skills\]"):
+                Skill.from_content(content)
