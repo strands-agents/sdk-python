@@ -71,6 +71,57 @@ export const changelogFrontmatterSchema = z
   })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
+const catalogLanguageSchema = z.object({
+  // Package name as published on the registry
+  package: z.string(),
+  // Full registry URL (PyPI project page or npm package page)
+  registry: z.string().url(),
+})
+
+export const catalogEntrySchema = z
+  .object({
+    name: z.string(),
+    description: z.string(),
+    // Shared enum with the docs frontmatter integrationType below — keep in sync
+    integrationType: z.enum([
+      'model-provider',
+      'tool',
+      'session-manager',
+      'memory-store',
+      'integration',
+      'plugin',
+      'agent-extension',
+      'intervention',
+    ]),
+    // Which SDK's ecosystem this belongs to. The catalog's SDK facet stays
+    // hidden until at least one evals entry exists.
+    sdk: z.enum(['agents', 'evals']).default('agents'),
+    languages: z.object({
+      python: catalogLanguageSchema.optional(),
+      typescript: catalogLanguageSchema.optional(),
+    }),
+    github: z.string().url(),
+    maintainer: z.string(),
+    // Docs collection id of the detail page (e.g. 'docs/community/tools/strands-deepgram').
+    // Optional: entries without one link out to their GitHub repo instead.
+    docsPage: z.string().optional(),
+    // Editorial fields — maintainer-granted only; submitters leave them unset.
+    featured: z.boolean().default(false),
+    badges: z.array(z.enum(['verified'])).default([]),
+    // Drives the "New" badge on the catalog card.
+    addedDate: z.coerce.date(),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.languages.python && !d.languages.typescript) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['languages'],
+        message: 'at least one language block (python or typescript) is required',
+      })
+    }
+  })
+export type CatalogEntryData = z.infer<typeof catalogEntrySchema>
+
 const blogSchema = z.object({
   title: z.string(),
   date: z.coerce.date(),
@@ -96,6 +147,13 @@ export const collections = {
       pattern: '**/*.{md,mdx}',
     }),
     schema: blogSchema,
+  }),
+  catalog: defineCollection({
+    loader: glob({
+      base: 'src/content/catalog',
+      pattern: '**/*.yaml',
+    }),
+    schema: catalogEntrySchema,
   }),
   changelog: defineCollection({
     loader: glob({
