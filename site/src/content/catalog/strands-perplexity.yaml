@@ -1,0 +1,11 @@
+name: strands-perplexity
+description: Perplexity web search
+integrationType: tool
+languages:
+  python:
+    package: strands-perplexity
+    registry: https://pypi.org/project/strands-perplexity/
+github: https://github.com/mkmeral/strands-perplexity
+maintainer: mkmeral
+docsPage: docs/community/tools/strands-perplexity
+addedDate: 2026-01-01

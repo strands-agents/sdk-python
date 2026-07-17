@@ -1,0 +1,11 @@
+name: agentcore-memory
+description: Amazon AgentCore
+integrationType: session-manager
+languages:
+  python:
+    package: bedrock-agentcore
+    registry: https://pypi.org/project/bedrock-agentcore/
+github: https://github.com/aws/bedrock-agentcore-sdk-python
+maintainer: aws
+docsPage: docs/community/session-managers/agentcore-memory
+addedDate: 2026-01-01

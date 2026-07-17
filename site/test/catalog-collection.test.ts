@@ -43,4 +43,25 @@ describe('catalog content collection', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('every docsPage points at a real docs collection entry', async () => {
+    const [entries, docs] = await Promise.all([getCollection('catalog'), getCollection('docs')])
+    const docIds = new Set(docs.map((d) => d.id))
+    for (const e of entries) {
+      if (e.data.docsPage) {
+        expect(docIds.has(e.data.docsPage), `catalog entry ${e.id} docsPage ${e.data.docsPage} not found in docs`).toBe(true)
+      }
+    }
+  })
+
+  it('every community docs page with an integrationType has a catalog entry', async () => {
+    const [entries, docs] = await Promise.all([getCollection('catalog'), getCollection('docs')])
+    const cataloged = new Set(entries.map((e) => e.data.docsPage).filter(Boolean))
+    const communityPages = docs.filter(
+      (d) => d.id.startsWith('docs/community/') && d.data.community === true && d.data.integrationType
+    )
+    for (const page of communityPages) {
+      expect(cataloged.has(page.id), `community page ${page.id} has no catalog entry`).toBe(true)
+    }
+  })
 })

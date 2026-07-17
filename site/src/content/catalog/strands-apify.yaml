@@ -1,0 +1,11 @@
+name: strands-apify
+description: Web scraping for social media, search engines, e-commerce, and more via Apify Actors
+integrationType: tool
+languages:
+  python:
+    package: strands-apify
+    registry: https://pypi.org/project/strands-apify/
+github: https://github.com/apify/strands-apify
+maintainer: apify
+docsPage: docs/community/tools/strands-apify
+addedDate: 2026-01-01

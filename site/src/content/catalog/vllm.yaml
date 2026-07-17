@@ -1,0 +1,11 @@
+name: vllm
+description: vLLM
+integrationType: model-provider
+languages:
+  python:
+    package: strands-vllm
+    registry: https://pypi.org/project/strands-vllm/
+github: https://github.com/agents-community/strands-vllm
+maintainer: agents-community
+docsPage: docs/community/model-providers/vllm
+addedDate: 2026-01-01

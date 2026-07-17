@@ -1,0 +1,11 @@
+name: agentcore-tool-search
+description: Semantic tool discovery for agents using Amazon Bedrock AgentCore Gateway
+integrationType: plugin
+languages:
+  python:
+    package: bedrock-agentcore
+    registry: https://pypi.org/project/bedrock-agentcore/
+github: https://github.com/aws/bedrock-agentcore-sdk-python
+maintainer: aws
+docsPage: docs/community/plugins/agentcore-tool-search
+addedDate: 2026-01-01

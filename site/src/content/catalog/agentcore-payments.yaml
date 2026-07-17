@@ -1,0 +1,11 @@
+name: agentcore-payments
+description: Automated payment processing for agents using Amazon Bedrock AgentCore
+integrationType: plugin
+languages:
+  python:
+    package: bedrock-agentcore
+    registry: https://pypi.org/project/bedrock-agentcore/
+github: https://github.com/aws/bedrock-agentcore-sdk-python
+maintainer: aws
+docsPage: docs/community/plugins/agentcore-payments
+addedDate: 2026-01-01

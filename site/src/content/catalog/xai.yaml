@@ -1,0 +1,11 @@
+name: xai
+description: xAI Grok
+integrationType: model-provider
+languages:
+  python:
+    package: strands-xai
+    registry: https://pypi.org/project/strands-xai/
+github: https://github.com/Cerrix/strands-xai
+maintainer: Cerrix
+docsPage: docs/community/model-providers/xai
+addedDate: 2026-01-01

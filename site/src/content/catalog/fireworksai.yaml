@@ -1,0 +1,11 @@
+name: fireworksai
+description: Fireworks AI
+integrationType: model-provider
+languages:
+  python:
+    package: strands-agents
+    registry: https://pypi.org/project/strands-agents/
+github: https://github.com/strands-agents/harness-sdk
+maintainer: strands-agents
+docsPage: docs/community/model-providers/fireworksai
+addedDate: 2026-01-01

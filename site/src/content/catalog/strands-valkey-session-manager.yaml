@@ -1,0 +1,11 @@
+name: strands-valkey-session-manager
+description: Valkey session manager
+integrationType: session-manager
+languages:
+  python:
+    package: strands-valkey-session-manager
+    registry: https://pypi.org/project/strands-valkey-session-manager/
+github: https://github.com/jeromevdl/strands-valkey-session-manager
+maintainer: jeromevdl
+docsPage: docs/community/session-managers/strands-valkey-session-manager
+addedDate: 2026-01-01

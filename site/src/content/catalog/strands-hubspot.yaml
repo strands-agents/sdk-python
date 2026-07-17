@@ -1,0 +1,11 @@
+name: strands-hubspot
+description: HubSpot CRM integration
+integrationType: tool
+languages:
+  python:
+    package: strands-hubspot
+    registry: https://pypi.org/project/strands-hubspot/
+github: https://github.com/eraykeskinmac/strands-hubspot
+maintainer: eraykeskinmac
+docsPage: docs/community/tools/strands-hubspot
+addedDate: 2026-01-01
