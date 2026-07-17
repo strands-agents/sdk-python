@@ -34,6 +34,34 @@ from strands.vended_memory_stores.test_memory_store import (
 )
 
 
+class _YieldingStorage:
+    """A ``Storage`` wrapper that awaits a real suspension point before delegating each operation.
+
+    Forcing the write lock to actually suspend (rather than complete synchronously) is what binds a
+    lock's internal waiter to the running loop, so a store reused across loops fails loudly on a
+    loop-bound lock instead of passing by luck.
+    """
+
+    def __init__(self, inner: LocalFileStorage) -> None:
+        self._inner = inner
+
+    async def write(self, key: str, data: bytes) -> None:
+        await asyncio.sleep(0)
+        await self._inner.write(key, data)
+
+    async def read(self, key: str) -> bytes | None:
+        await asyncio.sleep(0)
+        return await self._inner.read(key)
+
+    async def delete(self, key: str) -> None:
+        await asyncio.sleep(0)
+        await self._inner.delete(key)
+
+    async def list(self, query: str = "") -> list[str]:
+        await asyncio.sleep(0)
+        return await self._inner.list(query)
+
+
 @pytest.fixture
 def storage_file(tmp_path: Path) -> Path:
     """The on-disk location a ``LocalFileStorage(tmp_path)`` writes for the store's ``memory/notes.json`` key."""
@@ -301,6 +329,21 @@ class TestPersistence:
         store = make_store()
         await asyncio.gather(*(store.add(f"fact number {index}") for index in range(10)))
         assert len(json.loads(storage_file.read_text(encoding="utf-8"))) == 10
+
+    def test_reused_across_separate_event_loops(self, tmp_path, storage_file):
+        # A synchronous Agent runs each invocation on a fresh event loop, so a store reused across
+        # invocations acquires its write lock on a different loop each time. A loop-bound lock created
+        # once would raise "bound to a different event loop"; the lock must rebind per loop. The
+        # yielding backend forces the lock to actually suspend under contention, which is what binds a
+        # waiter to a loop, so a regression surfaces rather than passing by luck.
+        store = TestMemoryStore(name="notes", storage=_YieldingStorage(LocalFileStorage(str(tmp_path))))
+
+        async def batch(tag: str) -> None:
+            await asyncio.gather(store.add(f"{tag} one"), store.add(f"{tag} two"))
+
+        asyncio.run(batch("first"))
+        asyncio.run(batch("second"))
+        assert len(json.loads(storage_file.read_text(encoding="utf-8"))) == 4
 
     @pytest.mark.asyncio
     async def test_surfaces_storage_error_when_backend_is_unreachable(self, tmp_path):

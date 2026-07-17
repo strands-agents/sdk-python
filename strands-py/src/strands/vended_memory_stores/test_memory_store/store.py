@@ -140,8 +140,12 @@ class TestMemoryStore(MemoryStore):
         self._key = f"{_sanitize_name(self.name)}.json"
 
         # Serializes the read-modify-write cycle of add so concurrent adds don't each read the same
-        # snapshot and clobber one another (last-write-wins).
-        self._lock = asyncio.Lock()
+        # snapshot and clobber one another (last-write-wins). The lock is created lazily per running
+        # loop (see _get_lock): an asyncio.Lock binds to the first loop that uses it, so a store
+        # reused across the fresh loops a synchronous Agent creates per invocation would otherwise
+        # raise "bound to a different event loop".
+        self._lock: asyncio.Lock | None = None
+        self._lock_loop: asyncio.AbstractEventLoop | None = None
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search stored entries for those whose content overlaps the query.
@@ -216,7 +220,7 @@ class TestMemoryStore(MemoryStore):
         # The lock serializes the whole read-modify-write cycle so concurrent adds don't each read the
         # same snapshot and clobber one another. Reading inside the critical section guarantees add #N
         # sees add #N-1's write.
-        async with self._lock:
+        async with self._get_lock():
             records = await self._read()
 
             normalized_content = content.strip()
@@ -230,6 +234,21 @@ class TestMemoryStore(MemoryStore):
 
             await self._write([*records, new_record])
             return TestMemoryAddResult(id=new_record["id"])
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Return the write lock for the running event loop, creating a fresh one when the loop changes.
+
+        An ``asyncio.Lock`` binds to the first loop that uses it, so a lock created once and reused
+        across loops raises ``RuntimeError``. A synchronous ``Agent`` runs each invocation on a fresh
+        loop, so a store reused across invocations must rebind. Rebinding per loop keeps the
+        serialization guarantee within a single loop (the only scope concurrency happens in) while
+        never carrying a lock across loops.
+        """
+        running_loop = asyncio.get_running_loop()
+        if self._lock is None or self._lock_loop is not running_loop:
+            self._lock = asyncio.Lock()
+            self._lock_loop = running_loop
+        return self._lock
 
     async def _read(self) -> list[dict[str, Any]]:
         """Read and parse the record blob from storage; a missing key (or empty store) starts empty.
