@@ -352,7 +352,7 @@ flowchart LR
 ### Basic Delegation
 
 ```typescript
---8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:handoff_basic"
+--8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:delegation_basic"
 ```
 
 When the orchestrator calls a delegation tool and it succeeds, the agent loop exits immediately with `stopReason: 'delegated'`. The sub-agent's response reaches the caller verbatim — no reformatting, no extra model call.
@@ -362,7 +362,7 @@ When the orchestrator calls a delegation tool and it succeeds, the agent loop ex
 Delegation tools coexist with regular tools on the same orchestrator. Regular tool results feed back into the orchestrator for further reasoning; delegation results short-circuit the loop.
 
 ```typescript
---8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:handoff_mixed"
+--8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:delegation_mixed"
 ```
 
 ## Remote Agents with A2A

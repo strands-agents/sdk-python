@@ -217,6 +217,41 @@ describe('ToolDelegationPlugin integration', () => {
     })
   })
 
+  describe('non-text delegation', () => {
+    it('delegates successfully when sub-agent returns empty text (e.g. image-only response)', async () => {
+      // Simulate a sub-agent whose toString() returns '' — this happens when the
+      // sub-agent's lastMessage contains only non-text content (image, document, video).
+      // AgentAsTool wraps it in TextBlock(''), so the ToolResultBlock has a single
+      // empty TextBlock. extractText() returns '' for this, which previously caused
+      // endTurn to be falsy and the early-exit check to fail.
+      const emptyTextModel = new MockMessageModel().addTurn({ type: 'textBlock', text: '' })
+      const imageAgent = new Agent({ model: emptyTextModel, name: 'ImageAgent', printer: false })
+
+      // Orchestrator model has ONLY one turn (the delegation tool call).
+      // If the early-exit fails and the orchestrator tries a second model call,
+      // MockMessageModel throws "All turns have been consumed" — so the test
+      // implicitly verifies no extra model call occurs.
+      const orchestratorModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'ImageAgent',
+        toolUseId: 'img-1',
+        input: { input: 'Generate an image' },
+      })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [imageAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      const result = await orchestrator.invoke('Generate an image')
+
+      // Delegation MUST trigger even when the sub-agent returns empty text
+      expect(result.stopReason).toBe('delegated')
+    })
+  })
+
   describe('structured output preservation', () => {
     it('preserves JSON content from sub-agent with structuredOutputSchema', async () => {
       const schema = z.object({ status: z.string(), total: z.number() })

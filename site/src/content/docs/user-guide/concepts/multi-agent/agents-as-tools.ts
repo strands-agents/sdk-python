@@ -159,7 +159,7 @@ Always select the most appropriate tool based on the user's query.`,
 
 void orchestratorExample
 
-// --8<-- [start:handoff_basic]
+// --8<-- [start:delegation_basic]
 {
   const customerService = new Agent({
     name: 'CustomerService',
@@ -189,9 +189,9 @@ void orchestratorExample
   // The TechnicalSupport agent's response is returned directly
   void result
 }
-// --8<-- [end:handoff_basic]
+// --8<-- [end:delegation_basic]
 
-// --8<-- [start:handoff_mixed]
+// --8<-- [start:delegation_mixed]
 {
   const researcher = new Agent({
     name: 'Researcher',
@@ -214,5 +214,5 @@ void orchestratorExample
   })
   void orchestrator
 }
-// --8<-- [end:handoff_mixed]
+// --8<-- [end:delegation_mixed]
 

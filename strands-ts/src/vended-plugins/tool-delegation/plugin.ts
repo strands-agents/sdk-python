@@ -191,10 +191,14 @@ export class ToolDelegationPlugin implements Plugin {
       return
     }
 
-    // Extract text representation and end the turn
+    // Extract text representation and end the turn.
+    // Use `|| true` so that non-text-only results (e.g. image/document blocks)
+    // still produce a truthy endTurn — extractText returns '' for those, which
+    // would skip the agent loop's early-exit check.
     state.triggered = true
     state.toolResult = delegationResult
-    event.endTurn = extractText(delegationResult)
+    const textSummary = extractText(delegationResult)
+    event.endTurn = textSummary || true
     delete state.toolUseId
   }
 
