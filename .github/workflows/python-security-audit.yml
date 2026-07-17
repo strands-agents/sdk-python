@@ -48,4 +48,4 @@ jobs:
           python -m venv /tmp/audit-env
           /tmp/audit-env/bin/pip install --upgrade pip
           /tmp/audit-env/bin/pip install .
-          /tmp/audit-env/bin/pip-audit
+          pip-audit --path /tmp/audit-env/lib/python*/site-packages
