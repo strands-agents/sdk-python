@@ -71,10 +71,15 @@ export type InvokeArgs =
  * to subsequent hooks, tools, and recursive loop cycles.
  *
  * Typically used for request-scoped context (`userId`, `requestId`, `traceId`)
- * or cross-hook counters. The core agent loop writes no keys into it — the
- * key space is the caller's. Transport bridges may populate reserved keys
+ * or cross-hook counters. Transport bridges may populate reserved keys
  * (e.g. `A2AExecutor` sets `a2aRequestContext`); those bridges document their
  * own reserved keys.
+ *
+ * ## Reserved keys
+ *
+ * | Key | Type | Description |
+ * |-----|------|-------------|
+ * | `stopEventLoop` | `boolean` | When set to `true` by a tool during execution, the agent loop exits immediately after that tool batch completes — no further model call is made. The returned {@link AgentResult} carries the model's original `stopReason` (typically `'toolUse'`). Equivalent to Python SDK's `request_state["stop_event_loop"]`. |
  *
  * Distinct from {@link LocalAgent.appState}: `appState` is durable across
  * invocations, JSON-serializable, and deep-copied. `invocationState` is

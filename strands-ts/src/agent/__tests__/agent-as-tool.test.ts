@@ -5,7 +5,8 @@ import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 import { createMockContext } from '../../__fixtures__/tool-helpers.js'
 import { ToolValidationError } from '../../errors.js'
-import { Tool, ToolStreamEvent, DELEGATION_DESCRIPTION_SUFFIX } from '../../tools/tool.js'
+import { Tool, ToolStreamEvent } from '../../tools/tool.js'
+import { DELEGATION_DESCRIPTION_SUFFIX } from '../agent-as-tool.js'
 import { ToolResultBlock } from '../../types/messages.js'
 import { SessionManager } from '../../session/session-manager.js'
 import type { SnapshotStorage } from '../../session/storage.js'
@@ -411,7 +412,7 @@ describe('AgentAsTool', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
       const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
 
-      const tool = agent.asTool({ delegate: true })
+      const tool = agent.asTool({ delegate: true }) as AgentAsTool
 
       expect(tool.delegate).toBe(true)
       expect(tool.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
@@ -422,7 +423,7 @@ describe('AgentAsTool', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
       const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
 
-      const tool = agent.asTool({ delegate: false })
+      const tool = agent.asTool({ delegate: false }) as AgentAsTool
 
       expect(tool.delegate).toBe(false)
       expect(tool.description).toBe('Handles billing')

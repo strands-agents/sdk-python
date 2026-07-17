@@ -1,5 +1,5 @@
 /**
- * Integration tests for ToolDelegation — verifies the full agent invoke flow
+ * Integration tests for AgentToolDelegation — verifies the full agent invoke flow
  * with delegation tools using a mock model.
  *
  * Tests exercise the complete path: Agent constructor auto-registration,
@@ -14,7 +14,7 @@ import { AfterToolsEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 
-describe('ToolDelegation integration', () => {
+describe('AgentToolDelegation integration', () => {
   describe('basic routing', () => {
     it('routes to the correct specialist and returns stopReason delegated', async () => {
       // Sub-agent models: each returns a distinct response

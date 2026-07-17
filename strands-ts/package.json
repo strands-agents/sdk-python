@@ -116,9 +116,9 @@
       "types": "./dist/src/vended-plugins/goal/index.d.ts",
       "default": "./dist/src/vended-plugins/goal/index.js"
     },
-    "./vended-plugins/tool-delegation": {
-      "types": "./dist/src/vended-plugins/tool-delegation/index.d.ts",
-      "default": "./dist/src/vended-plugins/tool-delegation/index.js"
+    "./vended-plugins/agent-tool-delegation": {
+      "types": "./dist/src/vended-plugins/agent-tool-delegation/index.d.ts",
+      "default": "./dist/src/vended-plugins/agent-tool-delegation/index.js"
     },
     "./vended-interventions/hitl": {
       "types": "./dist/src/vended-interventions/hitl/index.d.ts",

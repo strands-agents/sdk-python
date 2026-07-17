@@ -10,9 +10,16 @@ import type { Agent } from './agent.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { JSONValue } from '../types/json.js'
 import { JsonBlock, TextBlock, ToolResultBlock } from '../types/messages.js'
-import { createErrorResult, DELEGATION_DESCRIPTION_SUFFIX, Tool, ToolStreamEvent } from '../tools/tool.js'
+import { createErrorResult, Tool, ToolStreamEvent } from '../tools/tool.js'
 import type { ToolContext, ToolStreamGenerator } from '../tools/tool.js'
 import type { ToolSpec } from '../tools/types.js'
+
+/**
+ * Description suffix appended to delegation tools to guide the model.
+ * @internal
+ */
+export const DELEGATION_DESCRIPTION_SUFFIX =
+  ' Calling this tool will return its response directly to the user as the final answer. It should be the only tool called in the turn.'
 
 /**
  * Options for creating an agent tool via {@link Agent.asTool}.
@@ -101,7 +108,14 @@ export class AgentAsTool extends Tool {
   readonly name: string
   readonly description: string
   readonly toolSpec: ToolSpec
-  override readonly delegate: boolean
+
+  /**
+   * When true, the orchestrator treats this tool's result as the final
+   * response and exits without an additional model call.
+   *
+   * @defaultValue false
+   */
+  readonly delegate: boolean
 
   private readonly _agent: Agent
   private readonly _preserveContext: boolean

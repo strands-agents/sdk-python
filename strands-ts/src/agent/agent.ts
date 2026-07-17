@@ -47,7 +47,7 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
-import { ToolDelegation } from '../vended-plugins/tool-delegation/plugin.js'
+import { AgentToolDelegation } from '../vended-plugins/agent-tool-delegation/plugin.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { createMiddlewareInterrupt } from '../middleware/interrupt.js'
@@ -565,16 +565,16 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
 
-    // Always register ToolDelegation so delegation semantics work regardless of
+    // Always register AgentToolDelegation so delegation semantics work regardless of
     // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
     // The plugin is a no-op when no delegation tools fire.
-    const hasToolDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:tool-delegation')
+    const hasAgentToolDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-tool-delegation')
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
-      ...(!hasToolDelegation ? [new ToolDelegation()] : []),
+      ...(!hasAgentToolDelegation ? [new AgentToolDelegation()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
@@ -1625,6 +1625,23 @@ export class Agent implements LocalAgent, InvokableAgent {
 
           this._meter.endCycle(cycleStartTime)
           this._tracer.endAgentLoopSpan(cycleSpan)
+
+          // Tool requested loop stop: exit without calling the model again.
+          // Any tool can set `invocationState.stopEventLoop = true` during execution
+          // to signal that its result is the final answer and no further model call
+          // is needed. Mirrors Python's `request_state["stop_event_loop"]`.
+          // Preserves the model's stop reason for the cycle — always 'toolUse' here
+          // since we only reach this point when the model requested tool execution.
+          if (invocationState.stopEventLoop === true) {
+            result = new AgentResult({
+              stopReason: 'toolUse',
+              lastMessage: assistantMessage,
+              traces: this._tracer.localTraces,
+              metrics: this._meter.metrics,
+              invocationState,
+            })
+            return result
+          }
 
           // Hook requested halt: exit without calling the model again
           const { afterToolsEvent } = toolsResult
