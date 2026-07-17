@@ -1,0 +1,57 @@
+---
+/**
+ * Search input + filter chips for the catalog. Renders static controls with
+ * data-cat-* hooks; the page script owns all interactive behavior. The SDK
+ * facet only renders when the catalog contains evals entries.
+ */
+interface FacetOption {
+  value: string
+  label: string
+  count: number
+}
+
+interface Props {
+  types: FacetOption[]
+  showSdkFacet: boolean
+}
+
+const { types, showSdkFacet } = Astro.props
+
+const LANGUAGES: FacetOption[] = [
+  { value: 'python', label: 'Python', count: 0 },
+  { value: 'typescript', label: 'TypeScript', count: 0 },
+]
+---
+
+<form class="cat-filters" role="search" aria-label="Filter catalog" onsubmit="return false">
+  <input
+    class="cat-search"
+    type="search"
+    placeholder="Search integrations…"
+    aria-label="Search integrations"
+    data-cat-search
+  />
+  {
+    showSdkFacet && (
+      <div class="cat-facet" role="radiogroup" aria-label="SDK">
+        <button class="cat-chip" type="button" role="radio" aria-checked="true" data-cat-sdk="agents">Agents</button>
+        <button class="cat-chip" type="button" role="radio" aria-checked="false" data-cat-sdk="evals">Evals</button>
+      </div>
+    )
+  }
+  <div class="cat-facet" aria-label="Type">
+    {types.map((t) => (
+      <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
+        {t.label}<span class="cat-count">{t.count}</span>
+      </button>
+    ))}
+  </div>
+  <div class="cat-facet" aria-label="Language">
+    {LANGUAGES.map((l) => (
+      <button class="cat-chip" type="button" data-cat-lang={l.value} aria-pressed="false">{l.label}</button>
+    ))}
+  </div>
+  <div class="cat-facet" aria-label="Badges">
+    <button class="cat-chip" type="button" data-cat-badge="verified" aria-pressed="false">Verified</button>
+  </div>
+</form>

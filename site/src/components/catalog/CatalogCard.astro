@@ -1,0 +1,67 @@
+---
+/**
+ * A single integration card in the catalog grid. All filterable facets are
+ * exposed as data-* attributes; the page script (catalog.astro) toggles
+ * visibility, so the card itself stays a pure server-rendered component.
+ */
+import type { CatalogCardModel } from '../../util/catalog'
+
+interface Props {
+  card: CatalogCardModel
+  featured?: boolean
+}
+
+const { card, featured = false } = Astro.props
+
+const TYPE_LABELS: Record<string, string> = {
+  'model-provider': 'Model Provider',
+  tool: 'Tool',
+  'session-manager': 'Session Manager',
+  'memory-store': 'Memory Store',
+  integration: 'Integration',
+  plugin: 'Plugin',
+  'agent-extension': 'Agent Extension',
+  intervention: 'Intervention',
+}
+
+const LANG_LABELS: Record<string, string> = { python: 'Python', typescript: 'TypeScript' }
+
+const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
+---
+
+<article
+  class:list={['cat-card', { 'cat-card--featured': featured }]}
+  data-name={card.name}
+  data-type={card.integrationType}
+  data-langs={card.languages.join(' ')}
+  data-badges={card.badges.join(' ')}
+  data-sdk={card.sdk}
+  data-search={`${card.name} ${card.description}`.toLowerCase()}
+>
+  <div class="cat-card-head">
+    <a class="cat-card-title" href={card.href} rel={card.external ? 'noopener' : undefined}>
+      {card.name}
+      {card.external && <span class="cat-external" aria-label="external link">↗</span>}
+    </a>
+    <span class="cat-chip cat-chip--type">{TYPE_LABELS[card.integrationType]}</span>
+  </div>
+  <p class="cat-card-desc">{card.description}</p>
+  <div class="cat-card-meta">
+    {card.languages.map((lang) => <span class:list={['cat-badge', `cat-badge--${lang}`]}>{LANG_LABELS[lang]}</span>)}
+    {card.badges.includes('verified') && <span class="cat-badge cat-badge--verified">Verified</span>}
+    {card.badges.includes('new') && <span class="cat-badge cat-badge--new">New</span>}
+  </div>
+  <div class="cat-card-foot">
+    <span class="cat-maintainer">by {card.maintainer}</span>
+    <span class="cat-links">
+      {card.stars !== undefined && <span class="cat-stat" title="GitHub stars">★ {numberFormat.format(card.stars)}</span>}
+      {card.downloads !== undefined && (
+        <span class="cat-stat" title="Downloads per week">⬇ {numberFormat.format(card.downloads)}</span>
+      )}
+      <a class="cat-link" href={card.github} rel="noopener" aria-label={`${card.name} on GitHub`}>GitHub</a>
+      {card.registryLinks.map((link) => (
+        <a class="cat-link" href={link.href} rel="noopener" aria-label={`${card.name} on ${link.label}`}>{link.label}</a>
+      ))}
+    </span>
+  </div>
+</article>
