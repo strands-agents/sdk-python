@@ -1,4 +1,4 @@
-Defined in: [src/multiagent/graph.ts:131](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L131)
+Defined in: [src/multiagent/graph.ts:139](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L139)
 
 Directed graph orchestration pattern.
 
@@ -35,7 +35,7 @@ const result = await graph.invoke('Explain quantum computing')
 new Graph(options): Graph;
 ```
 
-Defined in: [src/multiagent/graph.ts:152](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L152)
+Defined in: [src/multiagent/graph.ts:160](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L160)
 
 #### Parameters
 
@@ -55,7 +55,7 @@ Defined in: [src/multiagent/graph.ts:152](https://github.com/strands-agents/harn
 readonly id: string;
 ```
 
-Defined in: [src/multiagent/graph.ts:132](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L132)
+Defined in: [src/multiagent/graph.ts:140](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L140)
 
 Unique identifier for this orchestrator.
 
@@ -73,7 +73,7 @@ MultiAgent.id
 readonly nodes: ReadonlyMap<string, Node>;
 ```
 
-Defined in: [src/multiagent/graph.ts:133](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L133)
+Defined in: [src/multiagent/graph.ts:141](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L141)
 
 ---
 
@@ -83,7 +83,7 @@ Defined in: [src/multiagent/graph.ts:133](https://github.com/strands-agents/harn
 readonly edges: readonly Edge[];
 ```
 
-Defined in: [src/multiagent/graph.ts:134](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L134)
+Defined in: [src/multiagent/graph.ts:142](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L142)
 
 ---
 
@@ -93,7 +93,7 @@ Defined in: [src/multiagent/graph.ts:134](https://github.com/strands-agents/harn
 readonly config: Required<GraphConfig>;
 ```
 
-Defined in: [src/multiagent/graph.ts:135](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L135)
+Defined in: [src/multiagent/graph.ts:143](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L143)
 
 ---
 
@@ -103,7 +103,7 @@ Defined in: [src/multiagent/graph.ts:135](https://github.com/strands-agents/harn
 readonly optional sessionManager?: SessionManager;
 ```
 
-Defined in: [src/multiagent/graph.ts:142](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L142)
+Defined in: [src/multiagent/graph.ts:150](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L150)
 
 ## Methods
 
@@ -113,7 +113,7 @@ Defined in: [src/multiagent/graph.ts:142](https://github.com/strands-agents/harn
 initialize(): Promise<void>;
 ```
 
-Defined in: [src/multiagent/graph.ts:194](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L194)
+Defined in: [src/multiagent/graph.ts:202](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L202)
 
 Initialize the graph. Invokes the MultiAgentInitializedEvent callback. Called automatically on first invocation.
 
@@ -129,7 +129,7 @@ Initialize the graph. Invokes the MultiAgentInitializedEvent callback. Called au
 invoke(input, options?): Promise<MultiAgentResult>;
 ```
 
-Defined in: [src/multiagent/graph.ts:208](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L208)
+Defined in: [src/multiagent/graph.ts:216](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L216)
 
 Invoke graph and return final result (consumes stream).
 
@@ -160,7 +160,7 @@ MultiAgent.invoke
 addHook<T>(eventType, callback): HookCleanup;
 ```
 
-Defined in: [src/multiagent/graph.ts:224](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L224)
+Defined in: [src/multiagent/graph.ts:232](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L232)
 
 Register a hook callback for a specific graph event type.
 
@@ -197,7 +197,7 @@ MultiAgent.addHook
 stream(input, options?): AsyncGenerator<MultiAgentStreamEvent, MultiAgentResult, undefined>;
 ```
 
-Defined in: [src/multiagent/graph.ts:236](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/multiagent/graph.ts#L236)
+Defined in: [src/multiagent/graph.ts:244](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/multiagent/graph.ts#L244)
 
 Stream graph execution, yielding events as nodes execute. Invokes hook callbacks for each event before yielding.
 

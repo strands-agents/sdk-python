@@ -85,6 +85,14 @@ Agent extensions provide specialized agent subclasses that change how Strands ag
 | --- | --- | --- | --- |
 | [Code Agent](/docs/community/agent-extensions/strands-code-agent/index.md) | A coding agent that replaces tool-calling with code generation in a persistent Python REPL | ✅ | ❌ |
 
+## Interventions
+
+Interventions provide composable control handlers for authorization, guardrails, and steering. Use these to add typed decision-making to your agents without modifying core logic.
+
+| Package | Description | Python | TypeScript |
+| --- | --- | --- | --- |
+| [Agent Governance Toolkit](/docs/community/interventions/strands-agt/index.md) | Deterministic policy enforcement via Microsoft Agent Governance Toolkit | ✅ | ❌ |
+
 ---
 
 ## Add your package

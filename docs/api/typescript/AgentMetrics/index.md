@@ -1,4 +1,4 @@
-Defined in: [src/telemetry/meter.ts:166](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L166)
+Defined in: [src/telemetry/meter.ts:166](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L166)
 
 Read-only snapshot of aggregated agent metrics.
 
@@ -27,7 +27,7 @@ console.log(JSON.stringify(result.metrics))
 new AgentMetrics(data?): AgentMetrics;
 ```
 
-Defined in: [src/telemetry/meter.ts:213](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L213)
+Defined in: [src/telemetry/meter.ts:213](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L213)
 
 #### Parameters
 
@@ -47,7 +47,7 @@ Defined in: [src/telemetry/meter.ts:213](https://github.com/strands-agents/harne
 readonly cycleCount: number;
 ```
 
-Defined in: [src/telemetry/meter.ts:170](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L170)
+Defined in: [src/telemetry/meter.ts:170](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L170)
 
 Total number of agent loop cycles executed across all invocations.
 
@@ -59,7 +59,7 @@ Total number of agent loop cycles executed across all invocations.
 readonly accumulatedUsage: Usage;
 ```
 
-Defined in: [src/telemetry/meter.ts:175](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L175)
+Defined in: [src/telemetry/meter.ts:175](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L175)
 
 Accumulated token usage across all model invocations.
 
@@ -71,7 +71,7 @@ Accumulated token usage across all model invocations.
 readonly accumulatedMetrics: Metrics;
 ```
 
-Defined in: [src/telemetry/meter.ts:180](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L180)
+Defined in: [src/telemetry/meter.ts:180](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L180)
 
 Accumulated performance metrics across all model invocations.
 
@@ -83,7 +83,7 @@ Accumulated performance metrics across all model invocations.
 readonly agentInvocations: InvocationMetricsData[];
 ```
 
-Defined in: [src/telemetry/meter.ts:187](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L187)
+Defined in: [src/telemetry/meter.ts:187](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L187)
 
 Per-invocation metrics for recent invocations. Only the most recent 50 entries are retained to prevent unbounded memory growth. For full history, collect [latestAgentInvocation](#latestagentinvocation) from each [AgentResult](/docs/api/typescript/AgentResult/index.md).
 
@@ -95,7 +95,7 @@ Per-invocation metrics for recent invocations. Only the most recent 50 entries a
 readonly toolMetrics: Record<string, ToolMetricsData>;
 ```
 
-Defined in: [src/telemetry/meter.ts:192](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L192)
+Defined in: [src/telemetry/meter.ts:192](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L192)
 
 Per-tool execution metrics keyed by tool name.
 
@@ -107,7 +107,7 @@ Per-tool execution metrics keyed by tool name.
 readonly latestContextSize: number;
 ```
 
-Defined in: [src/telemetry/meter.ts:199](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L199)
+Defined in: [src/telemetry/meter.ts:199](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L199)
 
 The most recent input token count from the last model invocation. Represents the current context window utilization. Returns `undefined` when no invocations have occurred.
 
@@ -119,7 +119,7 @@ The most recent input token count from the last model invocation. Represents the
 readonly projectedContextSize: number;
 ```
 
-Defined in: [src/telemetry/meter.ts:206](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L206)
+Defined in: [src/telemetry/meter.ts:206](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L206)
 
 Projected context size for the next model call (inputTokens + outputTokens from the last call). Represents the baseline token count the next invocation will start with. Returns `undefined` when no invocations have occurred.
 
@@ -131,7 +131,7 @@ Projected context size for the next model call (inputTokens + outputTokens from 
 readonly totalDuration: number;
 ```
 
-Defined in: [src/telemetry/meter.ts:211](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L211)
+Defined in: [src/telemetry/meter.ts:211](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L211)
 
 Total duration of all cycles across all invocations in milliseconds.
 
@@ -145,7 +145,7 @@ Total duration of all cycles across all invocations in milliseconds.
 get latestAgentInvocation(): InvocationMetricsData;
 ```
 
-Defined in: [src/telemetry/meter.ts:227](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L227)
+Defined in: [src/telemetry/meter.ts:227](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L227)
 
 The most recent agent invocation, or undefined if none exist.
 
@@ -166,7 +166,7 @@ get accumulatedData(): {
 };
 ```
 
-Defined in: [src/telemetry/meter.ts:234](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L234)
+Defined in: [src/telemetry/meter.ts:234](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L234)
 
 Accumulated usage and performance metrics across all model invocations.
 
@@ -181,8 +181,8 @@ Accumulated usage and performance metrics across all model invocations.
 
 | Name | Type | Defined in |
 | --- | --- | --- |
-| `usage` | [`Usage`](/docs/api/typescript/Usage/index.md) | [src/telemetry/meter.ts:234](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L234) |
-| `metrics` | [`Metrics`](/docs/api/typescript/Metrics/index.md) | [src/telemetry/meter.ts:234](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L234) |
+| `usage` | [`Usage`](/docs/api/typescript/Usage/index.md) | [src/telemetry/meter.ts:234](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L234) |
+| `metrics` | [`Metrics`](/docs/api/typescript/Metrics/index.md) | [src/telemetry/meter.ts:234](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L234) |
 
 ---
 
@@ -194,7 +194,7 @@ Accumulated usage and performance metrics across all model invocations.
 get averageCycleTime(): number;
 ```
 
-Defined in: [src/telemetry/meter.ts:241](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L241)
+Defined in: [src/telemetry/meter.ts:241](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L241)
 
 Average cycle duration in milliseconds, or 0 if no cycles exist.
 
@@ -215,7 +215,7 @@ get toolUsage(): Record<string, ToolMetricsData & {
 }>;
 ```
 
-Defined in: [src/telemetry/meter.ts:248](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L248)
+Defined in: [src/telemetry/meter.ts:248](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L248)
 
 Per-tool execution statistics with computed averages and rates.
 
@@ -231,7 +231,7 @@ Per-tool execution statistics with computed averages and rates.
 toJSON(): AgentMetricsData;
 ```
 
-Defined in: [src/telemetry/meter.ts:266](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/telemetry/meter.ts#L266)
+Defined in: [src/telemetry/meter.ts:266](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/telemetry/meter.ts#L266)
 
 Returns a JSON-serializable representation of all collected metrics. Called automatically by JSON.stringify().
 

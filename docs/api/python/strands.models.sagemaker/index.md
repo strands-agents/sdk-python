@@ -248,7 +248,7 @@ def format_request_tool_message(cls, tool_result: ToolResult,
                                 **kwargs: Any) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/models/sagemaker.py:508](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/sagemaker.py#L508)
+Defined in: [src/strands/models/sagemaker.py:512](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/sagemaker.py#L512)
 
 Format a SageMaker compatible tool message.
 
@@ -270,7 +270,7 @@ def format_request_message_content(cls, content: ContentBlock,
                                    **kwargs: Any) -> dict[str, Any]
 ```
 
-Defined in: [src/strands/models/sagemaker.py:539](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/sagemaker.py#L539)
+Defined in: [src/strands/models/sagemaker.py:543](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/sagemaker.py#L543)
 
 Format a content block.
 
@@ -298,7 +298,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/sagemaker.py:576](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/sagemaker.py#L576)
+Defined in: [src/strands/models/sagemaker.py:580](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/sagemaker.py#L580)
 
 Get structured output from the model.
 

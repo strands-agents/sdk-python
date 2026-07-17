@@ -1,4 +1,4 @@
-Defined in: [src/middleware/stages.ts:23](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/middleware/stages.ts#L23)
+Defined in: [src/middleware/stages.ts:23](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/middleware/stages.ts#L23)
 
 Result returned by `interrupt()` in middleware contexts. Returns an object to allow future extension (e.g., cached data, metadata) without a breaking change to callers.
 
@@ -16,6 +16,6 @@ Result returned by `interrupt()` in middleware contexts. Returns an object to al
 response: T;
 ```
 
-Defined in: [src/middleware/stages.ts:30](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/middleware/stages.ts#L30)
+Defined in: [src/middleware/stages.ts:30](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/middleware/stages.ts#L30)
 
 The resolved response value from the interrupt. The generic `T` is a caller assertion — the actual value is whatever the user passed in `InterruptResponseContent.response` (a `JSONValue`). No runtime validation is performed; callers are responsible for ensuring the shape matches.

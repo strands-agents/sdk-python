@@ -34,7 +34,7 @@ agent = Agent(plugins=[
 class LineRange(TypedDict)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:56](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L56)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:124](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L124)
 
 A span of lines to retrieve (1-indexed, inclusive).
 
@@ -44,7 +44,7 @@ A span of lines to retrieve (1-indexed, inclusive).
 class ContextOffloader(Plugin)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:73](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L73)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:141](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L141)
 
 Plugin that offloads oversized tool results to reduce context consumption.
 
@@ -83,27 +83,29 @@ agent = Agent(plugins=[
 #### \_\_init\_\_
 
 ```python
-def __init__(storage: Storage,
+def __init__(storage: Storage | _LegacyStorage,
              max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
              preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
              *,
-             include_retrieval_tool: bool = True) -> None
+             include_retrieval_tool: bool = True,
+             evict_after_cycles: int | None = 20) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:117](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L117)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:185](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L185)
 
 Initialize the ContextOffloader plugin.
 
 **Arguments**:
 
--   `storage` - Backend for storing offloaded content.
+-   `storage` - Backend for storing offloaded content. Accepts either a unified `Storage` (from `strands.storage`) or a legacy offloader `Storage` (from this module).
 -   `max_result_tokens` - Offload results whose estimated token count exceeds this threshold. Defaults to `_DEFAULT_MAX_RESULT_TOKENS` (2,500).
 -   `preview_tokens` - Number of tokens to keep as a text preview in context. Uses tiktoken for exact slicing when available, falls back to chars/4 heuristic. Defaults to `_DEFAULT_PREVIEW_TOKENS` (1,000).
 -   `include_retrieval_tool` - Whether to register the `retrieve_offloaded_content` tool so the agent can fetch offloaded content. Defaults to True.
+-   `evict_after_cycles` - Number of agent loop cycles before an offloaded entry is evicted (unified Storage only). Entries stored more than this many cycles ago are deleted. Defaults to 20. Set to None to disable eviction.
 
 **Raises**:
 
--   `ValueError` - If max\_result\_tokens is not positive, preview\_tokens is negative, or preview\_tokens >= max\_result\_tokens.
+-   `ValueError` - If max\_result\_tokens is not positive, preview\_tokens is negative, preview\_tokens >= max\_result\_tokens, or evict\_after\_cycles is invalid.
 
 #### init\_agent
 
@@ -111,7 +113,7 @@ Initialize the ContextOffloader plugin.
 def init_agent(agent: Agent) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:178](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L178)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:263](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L263)
 
 Conditionally register the retrieval tool and bind storage.
 
@@ -127,7 +129,7 @@ async def retrieve_offloaded_content(
         context_lines: int | None = None) -> dict | str
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:195](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L195)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:305](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L305)
 
 Retrieve offloaded content by reference.
 

@@ -77,6 +77,11 @@
     -   [S3 Session Manager](/docs/api/python/strands.session.s3_session_manager)
     -   [Session Manager](/docs/api/python/strands.session.session_manager)
     -   [Session Repository](/docs/api/python/strands.session.session_repository)
+-   **Storage**
+    -   [In Memory Storage](/docs/api/python/strands.storage.in_memory_storage)
+    -   [Local File Storage](/docs/api/python/strands.storage.local_file_storage)
+    -   [S3 Storage](/docs/api/python/strands.storage.s3_storage)
+    -   [Storage](/docs/api/python/strands.storage.storage)
 -   **Telemetry**
     -   [Config](/docs/api/python/strands.telemetry.config)
     -   [Metrics](/docs/api/python/strands.telemetry.metrics)

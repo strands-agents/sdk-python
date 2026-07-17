@@ -96,6 +96,6 @@ Dispatches to appropriate internal handler based on content type.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:774](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L774)
+Defined in: [src/strands/experimental/bidi/models/openai\_realtime.py:770](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/openai_realtime.py#L770)
 
 Close session and cleanup resources.

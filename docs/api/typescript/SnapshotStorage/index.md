@@ -1,6 +1,10 @@
-Defined in: [src/session/storage.ts:47](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L47)
+Defined in: [src/session/storage.ts:44](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L44)
 
 Interface for snapshot persistence. Implementations provide storage backends (S3, filesystem, etc.).
+
+## Deprecated
+
+Prefer passing a unified `Storage` to `SessionManagerConfig.storage` instead of implementing this directly.
 
 File layout convention:
 
@@ -17,13 +21,13 @@ sessions/<session_id>/
 
 ## Methods
 
-### saveSnapshot()
+### ~saveSnapshot()~
 
 ```ts
 saveSnapshot(params): Promise<void>;
 ```
 
-Defined in: [src/session/storage.ts:51](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L51)
+Defined in: [src/session/storage.ts:48](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L48)
 
 Persists a snapshot to storage.
 
@@ -43,13 +47,13 @@ Persists a snapshot to storage.
 
 ---
 
-### loadSnapshot()
+### ~loadSnapshot()~
 
 ```ts
 loadSnapshot(params): Promise<Snapshot>;
 ```
 
-Defined in: [src/session/storage.ts:61](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L61)
+Defined in: [src/session/storage.ts:58](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L58)
 
 Loads a snapshot from storage.
 
@@ -67,13 +71,13 @@ Loads a snapshot from storage.
 
 ---
 
-### listSnapshotIds()
+### ~listSnapshotIds()~
 
 ```ts
 listSnapshotIds(params): Promise<string[]>;
 ```
 
-Defined in: [src/session/storage.ts:77](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L77)
+Defined in: [src/session/storage.ts:74](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L74)
 
 Lists all available immutable snapshot IDs for a session scope, sorted chronologically. Snapshot IDs are UUID v7 strings vended by the SDK — callers should treat them as opaque handles and never construct them manually.
 
@@ -101,13 +105,13 @@ const page2 = await storage.listSnapshotIds({ location, startAfter: page1.at(-1)
 
 ---
 
-### deleteSession()
+### ~deleteSession()~
 
 ```ts
 deleteSession(params): Promise<void>;
 ```
 
-Defined in: [src/session/storage.ts:82](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L82)
+Defined in: [src/session/storage.ts:79](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L79)
 
 Deletes all snapshots and directories belonging to the session ID.
 
@@ -124,13 +128,13 @@ Deletes all snapshots and directories belonging to the session ID.
 
 ---
 
-### loadManifest()
+### ~loadManifest()~
 
 ```ts
 loadManifest(params): Promise<SnapshotManifest>;
 ```
 
-Defined in: [src/session/storage.ts:87](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L87)
+Defined in: [src/session/storage.ts:84](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L84)
 
 Loads the snapshot manifest.
 
@@ -147,13 +151,13 @@ Loads the snapshot manifest.
 
 ---
 
-### saveManifest()
+### ~saveManifest()~
 
 ```ts
 saveManifest(params): Promise<void>;
 ```
 
-Defined in: [src/session/storage.ts:92](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/session/storage.ts#L92)
+Defined in: [src/session/storage.ts:89](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/session/storage.ts#L89)
 
 Saves the snapshot manifest.
 

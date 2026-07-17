@@ -201,13 +201,25 @@ Defined in: [src/strands/types/exceptions.py:139](https://github.com/strands-age
 
 Exception raised when checkpoint operations fail (e.g., incompatible schema version).
 
+## StorageError
+
+```python
+class StorageError(Exception)
+```
+
+Defined in: [src/strands/types/exceptions.py:145](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/exceptions.py#L145)
+
+Raised when a storage operation fails.
+
+Wraps backend-specific errors (filesystem, S3, network) with a uniform type that consumers can catch without knowing which backend is in use.
+
 ## AggregateMemoryError
 
 ```python
 class AggregateMemoryError(Exception)
 ```
 
-Defined in: [src/strands/types/exceptions.py:145](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/exceptions.py#L145)
+Defined in: [src/strands/types/exceptions.py:155](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/exceptions.py#L155)
 
 Raised when one or more memory store operations fail.
 
@@ -221,7 +233,7 @@ Raised when one or more memory store operations fail.
 def __init__(message: str, errors: list[BaseException]) -> None
 ```
 
-Defined in: [src/strands/types/exceptions.py:152](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/exceptions.py#L152)
+Defined in: [src/strands/types/exceptions.py:162](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/types/exceptions.py#L162)
 
 Initialize the aggregate error.
 

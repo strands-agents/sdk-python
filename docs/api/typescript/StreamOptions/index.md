@@ -1,4 +1,4 @@
-Defined in: [src/models/model.ts:130](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L130)
+Defined in: [src/models/model.ts:130](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L130)
 
 Options interface for configuring streaming model invocation.
 
@@ -10,7 +10,7 @@ Options interface for configuring streaming model invocation.
 optional systemPrompt?: SystemPrompt;
 ```
 
-Defined in: [src/models/model.ts:135](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L135)
+Defined in: [src/models/model.ts:135](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L135)
 
 System prompt to guide the model’s behavior. Can be a simple string or an array of content blocks for advanced caching.
 
@@ -22,7 +22,7 @@ System prompt to guide the model’s behavior. Can be a simple string or an arra
 optional toolSpecs?: ToolSpec[];
 ```
 
-Defined in: [src/models/model.ts:140](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L140)
+Defined in: [src/models/model.ts:140](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L140)
 
 Array of tool specifications that the model can use.
 
@@ -34,7 +34,7 @@ Array of tool specifications that the model can use.
 optional toolChoice?: ToolChoice;
 ```
 
-Defined in: [src/models/model.ts:145](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L145)
+Defined in: [src/models/model.ts:145](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L145)
 
 Controls how the model selects tools to use.
 
@@ -46,6 +46,6 @@ Controls how the model selects tools to use.
 optional modelState?: StateStore;
 ```
 
-Defined in: [src/models/model.ts:153](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L153)
+Defined in: [src/models/model.ts:153](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L153)
 
 Runtime state for model providers that manage server-side conversation state. The model can read and write this state during streaming (e.g., to store a response ID for conversation chaining). Mutations via `set`/`delete` are visible to the caller after the stream completes.

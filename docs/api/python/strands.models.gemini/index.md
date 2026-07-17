@@ -158,7 +158,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/gemini.py:618](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L618)
+Defined in: [src/strands/models/gemini.py:608](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L608)
 
 Get structured output from the model using Gemini’s native structured output.
 

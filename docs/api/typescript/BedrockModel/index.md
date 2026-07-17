@@ -1,4 +1,4 @@
-Defined in: [src/models/bedrock.ts:377](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/bedrock.ts#L377)
+Defined in: [src/models/bedrock.ts:377](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/bedrock.ts#L377)
 
 AWS Bedrock model provider implementation.
 
@@ -41,7 +41,7 @@ for await (const event of provider.stream(messages)) {
 new BedrockModel(options?): BedrockModel;
 ```
 
-Defined in: [src/models/bedrock.ts:421](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/bedrock.ts#L421)
+Defined in: [src/models/bedrock.ts:421](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/bedrock.ts#L421)
 
 Creates a new BedrockModel instance.
 
@@ -95,7 +95,7 @@ const provider = new BedrockModel({
 get modelId(): string;
 ```
 
-Defined in: [src/models/model.ts:227](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L227)
+Defined in: [src/models/model.ts:227](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L227)
 
 The model ID from the current configuration, if configured.
 
@@ -117,7 +117,7 @@ The model ID from the current configuration, if configured.
 get stateful(): boolean;
 ```
 
-Defined in: [src/models/model.ts:243](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L243)
+Defined in: [src/models/model.ts:243](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L243)
 
 Whether this model manages conversation state server-side.
 
@@ -143,7 +143,7 @@ Model providers that support server-side state management should override this t
 updateConfig(modelConfig): void;
 ```
 
-Defined in: [src/models/bedrock.ts:513](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/bedrock.ts#L513)
+Defined in: [src/models/bedrock.ts:513](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/bedrock.ts#L513)
 
 Updates the model configuration. Merges the provided configuration with existing settings.
 
@@ -179,7 +179,7 @@ provider.updateConfig({
 getConfig(): BedrockModelConfig;
 ```
 
-Defined in: [src/models/bedrock.ts:528](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/bedrock.ts#L528)
+Defined in: [src/models/bedrock.ts:528](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/bedrock.ts#L528)
 
 Retrieves the current model configuration.
 
@@ -208,7 +208,7 @@ console.log(config.modelId)
 countTokens(messages, options?): Promise<number>;
 ```
 
-Defined in: [src/models/bedrock.ts:542](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/bedrock.ts#L542)
+Defined in: [src/models/bedrock.ts:542](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/bedrock.ts#L542)
 
 Count tokens using Bedrock’s native CountTokens API.
 
@@ -239,7 +239,7 @@ Total input token count
 stream(messages, options?): AsyncIterable<ModelStreamEvent>;
 ```
 
-Defined in: [src/models/bedrock.ts:623](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/bedrock.ts#L623)
+Defined in: [src/models/bedrock.ts:623](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/bedrock.ts#L623)
 
 Streams a conversation with the Bedrock model. Returns an async iterable that yields streaming events as they occur.
 
@@ -297,7 +297,7 @@ streamAggregated(messages, options?): AsyncGenerator<
 | ModelStreamEvent, StreamAggregatedResult, undefined>;
 ```
 
-Defined in: [src/models/model.ts:329](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/models/model.ts#L329)
+Defined in: [src/models/model.ts:329](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/model.ts#L329)
 
 Streams a conversation with aggregated content blocks and messages. Returns an async generator that yields streaming events and content blocks, and returns the final message with stop reason and optional metadata.
 

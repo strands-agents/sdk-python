@@ -163,6 +163,14 @@ Agent extensions provide specialized agent subclasses that change how Strands ag
 | --- | --- | --- | --- |
 | [Code Agent](/docs/community/agent-extensions/strands-code-agent/index.md) | A coding agent that replaces tool-calling with code generation in a persistent Python REPL | ✅ | ❌ |
 
+## Interventions
+
+Interventions provide composable control handlers for authorization, guardrails, and steering. Use these to add typed decision-making to your agents without modifying core logic.
+
+| Package | Description | Python | TypeScript |
+| --- | --- | --- | --- |
+| [Agent Governance Toolkit](/docs/community/interventions/strands-agt/index.md) | Deterministic policy enforcement via Microsoft Agent Governance Toolkit | ✅ | ❌ |
+
 ---
 
 ## Add your package
@@ -190,12 +198,13 @@ We feature **reusable packages** that extend Strands Agents capabilities:
 -   **Plugins** — extend or modify agent behavior during lifecycle events
 -   **Integrations** — protocol implementations, framework bridges, etc.
 -   **Agent Extensions** — specialized agent subclasses that change how agents reason and act
+-   **Interventions** — composable control handlers for authorization, guardrails, and steering
 
 We’re not looking for example agents or one-off projects — the focus is on packages published to PyPI that others can `pip install` or `npm install` and use in their own agents. See [Community Packages](/docs/community/community-packages/index.md) for guidance on creating and publishing your package.
 
 Starting from scratch?
 
-The [extension template](https://github.com/strands-agents/extension-template-python) gives you a ready-made project structure with testing, linting, and PyPI publishing already set up.
+The [extension template](https://github.com/strands-agents/extension-template) gives you a ready-made project structure with testing, linting, and publishing already set up.
 
 ## Quick Steps
 
@@ -217,6 +226,7 @@ Place your documentation in the right spot:
 | Plugins | `community/plugins/` | `my-plugin.mdx` |
 | Integrations | `community/integrations/` | `ag-ui.mdx` |
 | Agent Extensions | `community/agent-extensions/` | `strands-code-agent.mdx` |
+| Interventions | `community/interventions/` | `my-intervention.mdx` |
 
 ## Document Layout
 
@@ -254,7 +264,7 @@ Links to your repo, PyPI, official docs, etc.
 
 Every community page needs frontmatter with catalog fields so it appears in the [community catalog](/docs/community/community-packages/index.md). Without `community: true`, `integrationType`, `description`, and `languages`, your page won’t show up in the catalog tables.
 
-Here’s the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, or `agent-extension`):
+Here’s the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention`):
 
 ```yaml
 ---
@@ -278,7 +288,7 @@ service:
 | Field | Required | Notes |
 | --- | --- | --- |
 | `community` | ✅ | Must be `true` |
-| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, or `agent-extension` |
+| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention` |
 | `description` | ✅ | Shown in the catalog table |
 | `languages` | ✅ | `Python`, `TypeScript`, or omit for both |
 | `project` | Recommended | PyPI/npm link, GitHub repo, maintainer |
@@ -494,6 +504,171 @@ To see what other features you can build into your UI with AG-UI, refer to the C
 Or try them out in the [AG-UI Dojo](https://dojo.ag-ui.com).
 
 Source: https://strandsagents.com/docs/community/integrations/ag-ui/index.md
+
+---
+
+## Community Interventions
+
+An **intervention handler** is a composable control layer that intercepts agent lifecycle events and returns typed decisions — proceed, deny, guide, confirm, or transform. Handlers are registered via the `interventions` option in agent configuration and evaluated in order, with short-circuiting on deny or guide actions. See [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) for the full concept and built-in handlers.
+
+The SDK ships reference handlers like [Cedar Authorization](/docs/user-guide/concepts/agents/interventions/cedar-authorization/index.md), [Steering](/docs/user-guide/concepts/agents/interventions/steering/index.md), and [Human-in-the-Loop](/docs/user-guide/concepts/agents/interventions/human-in-the-loop/index.md). The packages below are **community-built** intervention handlers you can install and attach to an agent.
+
+Community maintained
+
+These packages are maintained by their authors, not the Strands team. Review packages before using them in production. Quality and support may vary.
+
+## Browse the catalog
+
+See the [Interventions section of the community catalog](/docs/community/community-packages/index.md#interventions) for the current list, with language support and links to each package.
+
+## Add your intervention handler
+
+Built an `InterventionHandler`? See the [Get Featured guide](/docs/community/get-featured/index.md) to list it here, and the [Extensions guide](/docs/contribute/contributing/extensions/index.md) for how to build and publish a package.
+
+Source: https://strandsagents.com/docs/community/interventions/overview/index.md
+
+---
+
+## Agent Governance Toolkit
+
+[strands-agt](https://github.com/lizradway/strands-agt) integrates Microsoft’s [Agent Governance Toolkit (AGT)](https://github.com/microsoft/agent-governance-toolkit) with Strands Agents via the `InterventionHandler` primitive. It provides deterministic, YAML-based policy enforcement that gates tool calls before execution — no model judgment involved.
+
+-   **Deny** — block tool calls that violate policy (e.g. file deletion, production access)
+-   **Allow** — permit tool calls that match policy
+-   **Steer** — redirect the agent with guidance instead of a hard block
+
+## Installation
+
+```bash
+pip install strands-agt
+```
+
+## Usage
+
+### Basic policy enforcement
+
+Define policies in YAML:
+
+policies.yaml
+
+```yaml
+policies:
+  - name: allow-search
+    effect: allow
+    actions: ["search", "read_file"]
+    principals: ["User::*"]
+
+  - name: deny-delete
+    effect: deny
+    actions: ["delete_file"]
+    principals: ["*"]
+    reason: "File deletion is not permitted"
+```
+
+Attach to your agent:
+
+```python
+from strands import Agent
+from strands_agt import AGTGovernance
+
+governance = AGTGovernance(policies="policies.yaml")
+
+agent = Agent(
+    tools=[search_tool, read_file_tool, delete_file_tool],
+    interventions=[governance],
+)
+
+# search_tool executes normally
+agent("Search for quarterly reports")
+
+# delete_file_tool is blocked — the model sees the denial reason
+agent("Delete the temp files")
+```
+
+### Role-based access with principal resolution
+
+```python
+from strands_agt import AGTGovernance
+
+governance = AGTGovernance(
+    policies="role_policies.yaml",
+    principal_resolver=lambda state: {
+        "type": state.get("user_role", "User"),
+        "id": state.get("user_id", "anonymous"),
+    },
+)
+
+agent = Agent(
+    tools=[...],
+    interventions=[governance],
+)
+
+# Pass identity via invocation_state
+agent("Delete the old backups", invocation_state={"user_role": "Admin", "user_id": "alice"})
+```
+
+### Rate limiting
+
+```yaml
+policies:
+  - name: rate-limited-email
+    effect: allow
+    actions: ["send_email"]
+    conditions:
+      session.call_count:
+        lt: 5
+```
+
+The handler tracks per-tool call counts automatically and includes them in policy evaluation.
+
+### Context enrichment
+
+```python
+governance = AGTGovernance(
+    policies="env_policies.yaml",
+    context_enricher=lambda ctx: {
+        "environment": os.environ.get("DEPLOY_ENV", "development"),
+        "tenant_id": ctx["invocation_state"].get("tenant_id"),
+    },
+)
+```
+
+Enricher fields are available in policy conditions under `session.*`.
+
+## Configuration
+
+| Parameter | Type | Default | Description |
+| --- | --- | --- | --- |
+| `policies` | `str | list[str]` | required | YAML policy file path(s) or inline YAML text |
+| `principal` | `dict[str, str] | None` | `{"type": "User", "id": "anonymous"}` | Static principal identity |
+| `principal_resolver` | `Callable | None` | `None` | Dynamic resolver from `invocation_state` |
+| `context_enricher` | `Callable | None` | `None` | Injects extra fields into policy context |
+| `on_error` | `str` | `"throw"` | Error mode: `"throw"`, `"proceed"`, or `"deny"` |
+
+## Policy format
+
+Each policy has:
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `name` | Yes | Unique policy identifier |
+| `effect` | Yes | `allow`, `deny`, or `steer` |
+| `actions` | No | Tool names to match (`["*"]` = all) |
+| `principals` | No | Principal patterns (`["Type::id"]`, `["Type::*"]`, `["*"]`) |
+| `conditions` | No | Context conditions (supports `lt`, `lte`, `gt`, `gte`, `eq`, `neq`, `in`) |
+| `reason` | No | Message shown to the model on deny |
+| `guidance` | No | Feedback for steer decisions |
+
+Deny policies are evaluated first and short-circuit. If no deny matches, steer is checked. If neither matches, the first matching allow wins. No match = deny (fail-closed).
+
+## References
+
+-   [GitHub](https://github.com/lizradway/strands-agt)
+-   [PyPI](https://pypi.org/project/strands-agt/)
+-   [Microsoft AGT](https://github.com/microsoft/agent-governance-toolkit)
+-   [Strands Interventions docs](/docs/user-guide/concepts/agents/interventions/index.md)
+
+Source: https://strandsagents.com/docs/community/interventions/strands-agt/index.md
 
 ---
 
@@ -4284,6 +4459,7 @@ Strands has several extension points. Each serves a different purpose in the age
 | **Tools** | Add capabilities to agents—call APIs, access databases, interact with services | [Custom tools](/docs/user-guide/concepts/tools/custom-tools/index.md) |
 | **Model providers** | Integrate LLM APIs beyond the built-in providers | [Custom model providers](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) |
 | **Plugins** | Extend or modify agent behavior during lifecycle events such as invocations, tool calls, and model calls | [Plugins](/docs/user-guide/concepts/plugins/index.md) |
+| **Interventions** | Add composable control handlers for authorization, guardrails, and steering with typed actions | [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) |
 | **Session managers** | Persist conversations to external storage for resumption or sharing | [Session management](/docs/user-guide/concepts/agents/session-management/index.md) |
 | **Conversation managers** | Control how message history grows—trim old messages or summarize context | [Conversation management](/docs/user-guide/concepts/agents/conversation-management/index.md) |
 
@@ -4291,19 +4467,14 @@ Tools are the most common extension type. They let agents interact with specific
 
 ## Start from the template
 
-Python only
-
-The extension template is currently Python-only.
-
-The fastest way to create a publishable extension is the [extension template](https://github.com/strands-agents/extension-template-python). It gives you a ready-made project structure with skeleton implementations, testing setup, and a GitHub Actions workflow for publishing to PyPI.
+The fastest way to create a publishable extension is the [extension template](https://github.com/strands-agents/extension-template). It gives you a ready-made project structure with skeleton implementations for Python and TypeScript, testing setup, and GitHub Actions workflows for publishing.
 
 1.  Click “Use this template” on GitHub to create your repository
-2.  Run `python setup_template.py` to customize the project — pick a package name, select which components you need (tool, model provider, plugin, session manager, conversation manager), and fill in your author info
-3.  Install dependencies with `pip install -e ".[dev]"`
+2.  Run the setup script to customize the project — pick a package name, select which components you need (tool, model provider, plugin, intervention, session manager, conversation manager), and fill in your author info
+3.  Install dependencies and run checks
 4.  Implement your component logic in the generated files
-5.  Run `hatch run prepare` to validate everything (format, lint, typecheck, test)
 
-The template follows Strands naming conventions automatically — your package becomes `strands-{name}` on PyPI and `strands_{name}` as a Python module.
+The template follows Strands naming conventions automatically — your package becomes `strands-{name}` on PyPI or npm and uses the appropriate module naming for each language.
 
 ## Get discovered
 
@@ -15413,13 +15584,12 @@ model = BidiNovaSonicModel(
         "audio": {
             "input_rate": 16000,
             "output_rate": 16000,
-            "voice": "matthew",  # or "ruth"
+            "voice": "matthew",  # or "tiffany"
             "channels": 1,
             "format": "pcm"
         }
     },
     client_config={
-        "boto_session": boto3.Session(),
         "region": "us-east-1"
     }
 )
@@ -15772,14 +15942,14 @@ Emitted when the streaming connection is established and ready for interaction.
 {
     "type": "bidi_connection_start",
     "connection_id": "conn_abc123",
-    "model": "amazon.nova-sonic-v1:0"
+    "model": "amazon.nova-2-sonic-v1:0"
 }
 ```
 
 **Properties:**
 
 -   `connection_id`: Unique identifier for this streaming connection
--   `model`: Model identifier (e.g., “amazon.nova-sonic-v1:0”, “gemini-2.0-flash-live”)
+-   `model`: Model identifier (e.g., “amazon.nova-2-sonic-v1:0”, “gemini-2.0-flash-live”)
 
 #### BidiConnectionRestartEvent
 
@@ -17233,13 +17403,13 @@ Source: https://strandsagents.com/docs/user-guide/concepts/bidirectional-streami
 
 ## Nova Sonic
 
-[Amazon Nova Sonic](https://docs.aws.amazon.com/nova/latest/userguide/speech.html) provides real-time, conversational interactions through bidirectional audio streaming. Amazon Nova Sonic processes and responds to real-time speech as it occurs, enabling natural, human-like conversational experiences. Key capabilities and features include:
+[Amazon Nova Sonic](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-conversational-speech.html) provides real-time, conversational interactions through bidirectional audio streaming. Amazon Nova Sonic processes and responds to real-time speech as it occurs, enabling natural, human-like conversational experiences. Key capabilities and features include:
 
 -   Adaptive speech response that dynamically adjusts delivery based on the prosody of the input speech.
 -   Graceful handling of user interruptions without dropping conversational context.
 -   Function calling and agentic workflow support for building complex AI applications.
 -   Robustness to background noise for real-world deployment scenarios.
--   Multilingual support with expressive voices and speaking styles. Expressive voices are offered, including both masculine-sounding and feminine sounding, in five languages: English (US, UK), French, Italian, German, and Spanish.
+-   Multilingual support with expressive voices and speaking styles. Expressive voices are offered, including both masculine-sounding and feminine sounding, in seven languages: English (US, UK, AU, IN), French, Italian, German, Spanish (US), Portuguese (BR), and Hindi.
 -   Recognition of varied speaking styles across all supported languages.
 
 ## Installation
@@ -17285,7 +17455,7 @@ async def main() -> None:
                 "voice": "tiffany",
             },
         },
-        client_config={"region": "us-east-1"},  # only available in us-east-1, eu-north-1, and ap-northeast-1
+        client_config={"region": "us-east-1"},  # available in us-east-1, us-west-2, eu-north-1, and ap-northeast-1
     )
     # stop tool allows user to verbally stop agent execution.
     agent = BidiAgent(model=model, tools=[calculator, stop])
@@ -17299,11 +17469,23 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
+## Cross-Modal Input
+
+Nova Sonic accepts text input at any point during an active voice session, without interrupting or waiting on the audio stream. Send a [`BidiTextInputEvent`](/docs/user-guide/concepts/bidirectional-streaming/events/index.md#biditextinputevent) the same way you would outside of a live conversation:
+
+```python
+from strands.experimental.bidi.types.events import BidiTextInputEvent
+
+await agent.send(BidiTextInputEvent(text="What's the weather in Seattle?"))
+```
+
+Text and audio input can be interleaved freely; sending text does not require pausing the microphone or waiting for the model to finish speaking.
+
 ## Credentials
 
-Nova Sonic is only available in us-east-1, eu-north-1, and ap-northeast-1.
+Nova Sonic is available in us-east-1, us-west-2, eu-north-1, and ap-northeast-1.
 
-Nova Sonic requires AWS credentials for access. Under the hook, `BidiNovaSonicModel` uses an experimental [Bedrock client](https://github.com/awslabs/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime/src/aws_sdk_bedrock_runtime), which allows for credentials to be configured in the following ways:
+Nova Sonic requires AWS credentials for access. Under the hook, `BidiNovaSonicModel` uses an experimental [Bedrock client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime/src/aws_sdk_bedrock_runtime), which allows for credentials to be configured in the following ways:
 
 **Option 1: Environment Variables**
 
@@ -17340,18 +17522,23 @@ For more details on this approach, please refer to the [boto3 session docs](http
 | Parameter | Description | Default |
 | --- | --- | --- |
 | `boto_session` | A `boto3.Session` instance under which AWS credentials are configured. | `None` |
-| `region` | Region under which credentials are configured. Cannot use if providing `boto3_session`. | `us-east-1` |
+| `region` | Region under which credentials are configured. Cannot use if providing `boto_session`. | `us-east-1` |
 
 ### Provider Configs
 
 | Parameter | Description | Example | Options |
 | --- | --- | --- | --- |
-| `audio` | `AudioConfig` instance. | `{"voice": "tiffany", "output_rate": 24000}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig) |
-| `inference` | Session start `inferenceConfiguration`’s (as snake\_case). | `{"top_p": 0.9}` | [reference](https://docs.aws.amazon.com/nova/latest/userguide/input-events.html) |
+| `audio` | `AudioConfig` instance. | `{"voice": "tiffany", "output_rate": 24000}` | [reference](/docs/api/python/strands.experimental.bidi.types.model#AudioConfig); see [supported voices](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-language-support.html) for valid `voice` values |
+| `inference` | Session start `inferenceConfiguration`’s (as snake\_case). | `{"top_p": 0.9, "max_tokens": 2048, "temperature": 0.7}` | [reference](https://docs.aws.amazon.com/nova/latest/nova2-userguide/sonic-input-events.html) |
+| `turn_detection` | Turn detection sensitivity. Nova Sonic v2 only; raises `ValueError` on v1. | `{"endpointingSensitivity": "MEDIUM"}` | `HIGH`, `MEDIUM`, `LOW` |
 
 Note
 
-The `audio` config accepts any sample rate supported by the underlying model API. Refer to the [Nova Sonic documentation](https://docs.aws.amazon.com/nova/latest/userguide/speech.html) for the full list of supported rates.
+The `audio` config accepts any sample rate supported by the underlying model API. Refer to the [Nova Sonic documentation](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-conversational-speech.html) for the full list of supported rates.
+
+Conversation History Limits
+
+Nova Sonic caps conversation history passed via `messages` at 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated; if the total exceeds 200KB, the oldest messages are dropped until it fits. This happens silently (only visible via debug-level logs) and only applies to history provided at connection start, not to turns generated during the live conversation.
 
 ## Troubleshooting
 
@@ -17367,12 +17554,12 @@ Nova Sonic requires Python 3.12+ due to the experimental AWS SDK dependency. If 
 
 When credentials are misconfigured, the model provider does not throw an exception (a quirk of the underlying experimental Bedrock client). As a result, the provider allows the user to proceed forward with a call to `receive`, which emits no events and thus presents an indefinite hanging behavior.
 
-As a reminder, Nova Sonic is only available in us-east-1, eu-north-1, and ap-northeast-1.
+As a reminder, Nova Sonic is only available in us-east-1, us-west-2, eu-north-1, and ap-northeast-1.
 
 ## References
 
--   [Nova Sonic](https://docs.aws.amazon.com/nova/latest/userguide/speech.html)
--   [Experimental Bedrock Client](https://github.com/awslabs/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime)
+-   [Nova Sonic](https://docs.aws.amazon.com/nova/latest/nova2-userguide/using-conversational-speech.html)
+-   [Experimental Bedrock Client](https://github.com/aws/aws-sdk-python/tree/develop/clients/aws-sdk-bedrock-runtime)
 -   [Python API Reference](/docs/api/python/strands.experimental.bidi.models.nova_sonic#BidiNovaSonicModel)
 
 ## Related pages
@@ -18129,6 +18316,12 @@ await agent.run(
 The conversation history is automatically persisted and will be restored on the next session.
 
 ## Provider-Specific Considerations
+
+### Nova Sonic
+
+Conversation History Limits
+
+When restoring a session, Nova Sonic caps the conversation history sent at connection start to 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated, and if the total exceeds 200KB, the oldest messages are dropped until it fits. Long-running or transcript-heavy sessions restored after this limit is hit will silently lose earlier context.
 
 ### Gemini Live
 
@@ -21040,6 +21233,7 @@ Common configuration parameters include:
 -   `cache_prompt` - Cache point type for the system prompt (deprecated, use `cache_config`)
 -   `cache_config` - Configuration for prompt caching (e.g., `CacheConfig(strategy="auto")`)
 -   `cache_tools` - Enable tool caching
+-   `strict_tools` - Enforce structured output on tool definitions. Bedrock’s strict mode restricts which JSON Schema features tool input schemas may use (for example, `oneOf` is unsupported), so a schema that uses an unsupported feature fails at request time. See the [Bedrock structured output documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html)
 -   `boto_session` - Custom boto3 session for AWS credentials
 -   `additional_request_fields` - Additional model-specific parameters
 (( /tab "Python" ))

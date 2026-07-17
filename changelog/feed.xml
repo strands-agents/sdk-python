@@ -1,4 +1,12 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.47.0</title><link>https://strandsagents.com/changelog/harness/python-v1.47.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.47.0/</guid><description>• validate the AWS region before building the Nova Sonic endpoint URL
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.48.0</title><link>https://strandsagents.com/changelog/harness/python-v1.48.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.48.0/</guid><description>• allow ports in either direction
+• bump actions/checkout from 6 to 7
+• group Python dev tooling by name pattern
+• scale description length to diff size
+• upgrade ts release workflow to npm 12</description><pubDate>Fri, 17 Jul 2026 00:00:00 GMT</pubDate><category>devx</category><category>mcp</category><category>tool</category><category>otel</category><category>bidirectional-streaming</category><category>model</category><category>persistence</category></item><item><title>Harness TypeScript v1.10.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.10.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.10.0/</guid><description>• sync bot fork with upstream before opening PRs
+• trigger changelog sync directly from the release workflows
+• add unified storage interface
+• added gen_ai_span_attributes_only var to skip event attributes
+• place cache point before non-PDF document blocks</description><pubDate>Fri, 17 Jul 2026 00:00:00 GMT</pubDate><category>hooks</category><category>persistence</category><category>otel</category><category>model</category><category>context</category><category>async</category><category>multiagent</category></item><item><title>Harness Python v1.47.0</title><link>https://strandsagents.com/changelog/harness/python-v1.47.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.47.0/</guid><description>• validate the AWS region before building the Nova Sonic endpoint URL
 • add changelog generator and sync workflow
 • remove duplicate client creation in Nova Sonic start()
 • fix typo and inconsistent error messages across model providers
@@ -6,7 +14,9 @@
 • add changelog generator and sync workflow
 • fixed typescript release-workflow not running integ tests
 • map labels to native issue type and language field
-• harden npm lifecycle scripts for best practices</description><pubDate>Fri, 10 Jul 2026 00:00:00 GMT</pubDate><category>devx</category><category>agent</category><category>sessions</category><category>language</category><category>persistence</category></item><item><title>Harness TypeScript v1.8.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.8.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.8.0/</guid><description>• result handling, model-state isolation, and system-prompt fidelity
+• harden npm lifecycle scripts for best practices</description><pubDate>Fri, 10 Jul 2026 00:00:00 GMT</pubDate><category>devx</category><category>agent</category><category>sessions</category><category>language</category><category>persistence</category></item><item><title>Evals v1.0.2</title><link>https://strandsagents.com/changelog/evals/v1.0.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v1.0.2/</guid><description>• rename structured-output models off leading underscore
+• added evals full release workflow
+• add aggregate CI Gate status check</description><pubDate>Thu, 09 Jul 2026 00:00:00 GMT</pubDate><category>redteam</category></item><item><title>Harness TypeScript v1.8.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.8.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.8.0/</guid><description>• result handling, model-state isolation, and system-prompt fidelity
 • add local memory store
 • add Strandslator design doc
 • improve agent guidance

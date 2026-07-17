@@ -1,4 +1,4 @@
-Defined in: [src/state-store.ts:19](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L19)
+Defined in: [src/state-store.ts:19](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L19)
 
 Key-value storage for application state outside conversation context. State is not passed to the model during inference but is accessible by tools (via ToolContext) and application logic.
 
@@ -24,7 +24,7 @@ const userId = state.get('userId') // 'user-123'
 new StateStore(initialState?): StateStore;
 ```
 
-Defined in: [src/state-store.ts:28](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L28)
+Defined in: [src/state-store.ts:28](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L28)
 
 Creates a new StateStore instance.
 
@@ -52,7 +52,7 @@ Error if initialState is not JSON serializable
 get<TState, K>(key): TState[K];
 ```
 
-Defined in: [src/state-store.ts:54](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L54)
+Defined in: [src/state-store.ts:54](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L54)
 
 Get a state value by key with optional type-safe property lookup. Returns a deep copy to prevent mutations.
 
@@ -91,7 +91,7 @@ const value = state.get('someKey')            // JSONValue | undefined
 get(key): JSONValue;
 ```
 
-Defined in: [src/state-store.ts:55](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L55)
+Defined in: [src/state-store.ts:55](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L55)
 
 Get a state value by key with optional type-safe property lookup. Returns a deep copy to prevent mutations.
 
@@ -127,7 +127,7 @@ const value = state.get('someKey')            // JSONValue | undefined
 set<TState, K>(key, value): void;
 ```
 
-Defined in: [src/state-store.ts:89](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L89)
+Defined in: [src/state-store.ts:89](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L89)
 
 Set a state value with optional type-safe property validation. Validates JSON serializability and stores a deep copy.
 
@@ -169,7 +169,7 @@ state.set('someKey', { any: 'value' })
 set(key, value): void;
 ```
 
-Defined in: [src/state-store.ts:90](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L90)
+Defined in: [src/state-store.ts:90](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L90)
 
 Set a state value with optional type-safe property validation. Validates JSON serializability and stores a deep copy.
 
@@ -208,7 +208,7 @@ state.set('someKey', { any: 'value' })
 delete<TState, K>(key): void;
 ```
 
-Defined in: [src/state-store.ts:111](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L111)
+Defined in: [src/state-store.ts:111](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L111)
 
 Delete a state value by key with optional type-safe property validation.
 
@@ -245,7 +245,7 @@ state.delete('someKey')
 delete(key): void;
 ```
 
-Defined in: [src/state-store.ts:112](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L112)
+Defined in: [src/state-store.ts:112](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L112)
 
 Delete a state value by key with optional type-safe property validation.
 
@@ -277,7 +277,7 @@ state.delete('someKey')
 clear(): void;
 ```
 
-Defined in: [src/state-store.ts:120](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L120)
+Defined in: [src/state-store.ts:120](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L120)
 
 Clear all state values.
 
@@ -293,7 +293,7 @@ Clear all state values.
 getAll(): Record<string, JSONValue>;
 ```
 
-Defined in: [src/state-store.ts:129](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L129)
+Defined in: [src/state-store.ts:129](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L129)
 
 Get a copy of all state as an object.
 
@@ -311,7 +311,7 @@ Deep copy of all state
 keys(): string[];
 ```
 
-Defined in: [src/state-store.ts:138](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L138)
+Defined in: [src/state-store.ts:138](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L138)
 
 Get all state keys.
 
@@ -329,7 +329,7 @@ Array of state keys
 stateToJSONSymbol: JSONValue;
 ```
 
-Defined in: [src/state-store.ts:147](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L147)
+Defined in: [src/state-store.ts:147](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L147)
 
 Returns the serialized state as JSON value.
 
@@ -353,7 +353,7 @@ StateSerializable.[stateToJSONSymbol]
 loadStateFromJSONSymbol: void;
 ```
 
-Defined in: [src/state-store.ts:156](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/state-store.ts#L156)
+Defined in: [src/state-store.ts:156](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/state-store.ts#L156)
 
 Loads state from a previously serialized JSON value.
 

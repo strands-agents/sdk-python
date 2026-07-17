@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:170](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L170)
+Defined in: [src/hooks/events.ts:170](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L170)
 
 Event triggered at the end of an agent request. Fired after all processing completes, regardless of success or error. Uses reverse callback ordering for proper cleanup semantics.
 
@@ -14,7 +14,7 @@ Event triggered at the end of an agent request. Fired after all processing compl
 new AfterInvocationEvent(data): AfterInvocationEvent;
 ```
 
-Defined in: [src/hooks/events.ts:186](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L186)
+Defined in: [src/hooks/events.ts:186](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L186)
 
 #### Parameters
 
@@ -40,7 +40,7 @@ Defined in: [src/hooks/events.ts:186](https://github.com/strands-agents/harness-
 readonly type: "afterInvocationEvent";
 ```
 
-Defined in: [src/hooks/events.ts:171](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L171)
+Defined in: [src/hooks/events.ts:171](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L171)
 
 ---
 
@@ -50,7 +50,7 @@ Defined in: [src/hooks/events.ts:171](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:172](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L172)
+Defined in: [src/hooks/events.ts:172](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L172)
 
 ---
 
@@ -60,7 +60,7 @@ Defined in: [src/hooks/events.ts:172](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:173](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L173)
+Defined in: [src/hooks/events.ts:173](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L173)
 
 ---
 
@@ -70,7 +70,7 @@ Defined in: [src/hooks/events.ts:173](https://github.com/strands-agents/harness-
 resume: InvokeArgs = undefined;
 ```
 
-Defined in: [src/hooks/events.ts:184](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L184)
+Defined in: [src/hooks/events.ts:184](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L184)
 
 Set by hook callbacks to trigger a follow-up agent invocation with new input. When set, after this event’s callbacks complete the agent re-enters its loop with these args as new input, under the same invocation lock. A fresh [BeforeInvocationEvent](/docs/api/typescript/BeforeInvocationEvent/index.md)/AfterInvocationEvent pair fires for the resumed run. Ignored if the invocation ended with an error.
 
@@ -84,7 +84,7 @@ If multiple callbacks set `resume`, the last callback to run wins.
 toJSON(): Pick<AfterInvocationEvent, "type">;
 ```
 
-Defined in: [src/hooks/events.ts:201](https://github.com/strands-agents/harness-sdk/blob/941d52513ea948b97c540e680c5cc8d6c0aeb54d/strands-ts/src/hooks/events.ts#L201)
+Defined in: [src/hooks/events.ts:201](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L201)
 
 Serializes for wire transport, excluding the agent reference, invocationState, and mutable resume field. Called automatically by JSON.stringify().
 

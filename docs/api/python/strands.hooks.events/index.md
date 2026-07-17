@@ -197,7 +197,7 @@ Note: This event uses reverse callback ordering, meaning callbacks registered la
 
 Note: This event is not fired for invocations to structured\_output.
 
-Model Retrying: When `retry_model` is set to True by a hook callback, the agent will discard the current model response and invoke the model again. This has important implications for streaming consumers:
+Model Retrying: When `retry` is set to True by a hook callback, the agent will discard the current model response and invoke the model again. This has important implications for streaming consumers:
 
 -   Streaming events from the discarded response will have already been emitted to callers before the retry occurs. Agent invokers consuming streamed events should be prepared to handle this scenario, potentially by tracking retry state or implementing idempotent event processing
 -   The original model message is thrown away internally and not added to the conversation history
