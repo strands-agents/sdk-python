@@ -2127,6 +2127,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           // get/set methods.
           tempModelState = new StateStore(modelStateSnapshot)
           const streamOptions: StreamOptions = {
+            signal: self._abortSignal,
             toolSpecs: ctx.toolSpecs as ToolSpec[],
             modelState: tempModelState,
             ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
@@ -2189,25 +2190,32 @@ export class Agent implements LocalAgent, InvokableAgent {
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     messages = normalizeToolUseNames(messages)
     const streamGenerator = this.model.streamAggregated(messages, streamOptions)
-    let result = await streamGenerator.next()
+    try {
+      let result = await streamGenerator.next()
 
-    while (!result.done) {
-      this._throwIfCancelled()
+      while (!result.done) {
+        this._throwIfCancelled()
 
-      const event = result.value
+        const event = result.value
 
-      if (isModelStreamEvent(event)) {
-        // ModelStreamEvent: wrap in ModelStreamUpdateEvent
-        yield new ModelStreamUpdateEvent({ agent: this, event, invocationState })
-      } else {
-        // ContentBlock: wrap in ContentBlockEvent
-        yield new ContentBlockEvent({ agent: this, contentBlock: event, invocationState })
+        if (isModelStreamEvent(event)) {
+          // ModelStreamEvent: wrap in ModelStreamUpdateEvent
+          yield new ModelStreamUpdateEvent({ agent: this, event, invocationState })
+        } else {
+          // ContentBlock: wrap in ContentBlockEvent
+          yield new ContentBlockEvent({ agent: this, contentBlock: event, invocationState })
+        }
+        result = await streamGenerator.next()
       }
-      result = await streamGenerator.next()
-    }
 
-    // result.done is true, result.value contains the return value
-    return result.value
+      // result.done is true, result.value contains the return value
+      return result.value
+    } catch (error) {
+      // Provider transports typically surface cancellation as AbortError.
+      // Preserve the Agent cancellation contract when the shared signal fired.
+      this._throwIfCancelled()
+      throw error
+    }
   }
 
   /**
