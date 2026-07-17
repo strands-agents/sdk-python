@@ -80,7 +80,9 @@ const store = new AgentCoreMemoryStore({
 
 ## Configuration
 
-Key options for both the store and each `namespaces` entry:
+In `createAgentCoreMemoryStores`, `namespace`, `writable`, and `minScore` are set per
+`namespaces` entry, while everything else is passed once at the top level. The direct
+`AgentCoreMemoryStore` constructor takes all options in one flat config.
 
 | Option | Type | Description |
 |--------|------|-------------|
@@ -97,11 +99,14 @@ for the full option reference, including subtree reads and over-fetch tuning.
 
 ## Notes
 
-- **One writable store per session.** At most one store may be `writable` for a given
-  `(actorId, sessionId)`. Constructing more than one throws.
-- **Placeholders resolve at write time.** Only `{actorId}` and `{sessionId}` are substituted
-  client-side. Any other placeholder in a namespace causes construction to throw. Provision
-  strategies with `{actorId}`/`{sessionId}`-only templates to match.
+- **One writable store per session.** Mark at most one store `writable` for a given
+  `(actorId, sessionId)`: because writes are namespace-free, multiple writable stores would
+  emit duplicate events to the same `(memoryId, actorId, sessionId)` stream.
+  `createAgentCoreMemoryStores` enforces this and throws if more than one store is writable.
+- **Placeholders resolve at construction.** Only `{actorId}` and `{sessionId}` are substituted
+  client-side, into the namespace used for recall. Any other placeholder in a namespace causes
+  construction to throw. Provision strategies with `{actorId}`/`{sessionId}`-only templates to
+  match.
 - **Eventual consistency.** Writes and extraction are asynchronous, so a fact written this
   turn may not be retrievable on the next one.
 
