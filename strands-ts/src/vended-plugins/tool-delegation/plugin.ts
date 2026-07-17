@@ -132,9 +132,6 @@ export class ToolDelegation implements Plugin {
    * BeforeToolsEvent hook: enforces single-call constraint.
    *
    * If a delegation tool is present alongside other tools, cancel all.
-   * Does not capture toolUseId — that responsibility moves to AfterToolCallEvent
-   * which observes the effective tool identity after BeforeToolCallEvent hooks
-   * have had a chance to rewrite name, selectedTool, or toolUseId.
    */
   private _onBeforeTools(event: BeforeToolsEvent): void {
     // Reset per-turn state to prevent stale values from a prior turn leaking
@@ -172,9 +169,6 @@ export class ToolDelegation implements Plugin {
    * rewritten selectedTool, toolUse.name, or toolUse.toolUseId) to determine
    * whether this is a delegation call. If the effective tool has `delegate: true`
    * and the result is successful, captures the result for the middleware.
-   *
-   * This replaces the previous approach of capturing toolUseId eagerly in
-   * BeforeToolsEvent, which missed hook-driven renames and ID rewrites.
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
     // Skip for stateful models — delegation semantics are disabled.
@@ -224,11 +218,6 @@ export class ToolDelegation implements Plugin {
    * `lastMessage`. This `lastMessage` may differ from the text-only message
    * appended to `agent.messages` by the endTurn path. See the AfterToolsEvent
    * hook comment for details on why this divergence exists.
-   *
-   * State is cleared unconditionally on entry so that a failure in a prior
-   * invocation (e.g., a later AfterTools hook throwing after _onAfterTools
-   * committed delegation state) cannot leak triggered/toolResult into this
-   * invocation.
    */
   private async *_handleStream(
     context: AgentStreamContext,
@@ -244,9 +233,6 @@ export class ToolDelegation implements Plugin {
 
     const streamResult = yield* next(context)
 
-    // Snapshot and clear delegation state that _onAfterTools set during this
-    // invocation. Clearing immediately ensures no leak even if the caller
-    // discards the generator after receiving the result.
     const triggered = state.triggered
     const delegationBlock = state.toolResult
     state.triggered = false
