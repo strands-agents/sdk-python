@@ -1,5 +1,5 @@
 /**
- * ToolDelegationPlugin — enforces tool-delegation semantics for tool routing.
+ * ToolDelegation — enforces tool-delegation semantics for tool routing.
  *
  * When a tool is configured with `delegate: true`, this plugin ensures:
  * 1. The delegation tool is the only tool called in the turn (single-call constraint)
@@ -11,7 +11,7 @@ import type { Plugin } from '../../plugins/plugin.js'
 import { AgentResult } from '../../types/agent.js'
 import type { LocalAgent, AgentStreamEvent } from '../../types/agent.js'
 import type { ContentBlock } from '../../types/messages.js'
-import { BeforeToolsEvent, AfterToolsEvent } from '../../hooks/events.js'
+import { AfterToolCallEvent, BeforeToolsEvent, AfterToolsEvent } from '../../hooks/events.js'
 import { AgentStreamStage } from '../../middleware/index.js'
 import type { AgentStreamContext, AgentStreamResult, MiddlewareNext } from '../../middleware/index.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
@@ -73,9 +73,7 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
 interface ToolDelegationState {
   /** Whether a successful delegation was detected in the current turn. */
   triggered: boolean
-  /** The toolUseId of the pending delegation tool, set in BeforeTools and consumed in AfterTools. */
-  toolUseId?: string
-  /** The resolved delegation ToolResultBlock, captured in AfterTools and consumed by the middleware. */
+  /** The resolved delegation ToolResultBlock, captured in AfterToolCallEvent and consumed by the middleware. */
   toolResult?: ToolResultBlock
 }
 
@@ -92,11 +90,11 @@ interface ToolDelegationState {
  * const specialist = new Agent({ name: 'Specialist' })
  * const orchestrator = new Agent({
  *   tools: [specialist.asTool({ delegate: true })],
- *   // ToolDelegationPlugin is auto-registered — no manual setup needed
+ *   // ToolDelegation is auto-registered — no manual setup needed
  * })
  * ```
  */
-export class ToolDelegationPlugin implements Plugin {
+export class ToolDelegation implements Plugin {
   readonly name = 'strands:tool-delegation'
 
   /** Per-agent delegation state. Keyed by agent so one plugin instance can serve many. */
@@ -113,6 +111,7 @@ export class ToolDelegationPlugin implements Plugin {
 
   initAgent(agent: LocalAgent): void {
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
+    agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
     agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event))
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
@@ -133,15 +132,21 @@ export class ToolDelegationPlugin implements Plugin {
    * BeforeToolsEvent hook: enforces single-call constraint.
    *
    * If a delegation tool is present alongside other tools, cancel all.
-   * If a single delegation tool is alone, record its toolUseId for later.
+   * Does not capture toolUseId — that responsibility moves to AfterToolCallEvent
+   * which observes the effective tool identity after BeforeToolCallEvent hooks
+   * have had a chance to rewrite name, selectedTool, or toolUseId.
    */
   private _onBeforeTools(event: BeforeToolsEvent): void {
     // Reset per-turn state to prevent stale values from a prior turn leaking
     // forward (e.g., if AfterToolsEvent never fired due to an exception).
     const state = this._getState(event.agent)
     state.triggered = false
-    delete state.toolUseId
     delete state.toolResult
+
+    // Stateful models manage conversation state server-side. Delegation's early
+    // exit would leave an unclosed function call on the server, corrupting the
+    // next request. Skip all delegation logic and let the tool run normally.
+    if (event.agent.model.stateful) return
 
     const toolUseBlocks = event.message.content.filter((block): block is ToolUseBlock => block.type === 'toolUseBlock')
 
@@ -158,16 +163,39 @@ export class ToolDelegationPlugin implements Plugin {
         'use only non-delegation tools.'
       return
     }
+  }
 
-    // Single delegation tool — allow execution, record the toolUseId
-    state.toolUseId = delegationBlocks[0]!.toolUseId
+  /**
+   * AfterToolCallEvent hook: captures delegation result at execution time.
+   *
+   * Checks the *effective* tool (after BeforeToolCallEvent hooks may have
+   * rewritten selectedTool, toolUse.name, or toolUse.toolUseId) to determine
+   * whether this is a delegation call. If the effective tool has `delegate: true`
+   * and the result is successful, captures the result for the middleware.
+   *
+   * This replaces the previous approach of capturing toolUseId eagerly in
+   * BeforeToolsEvent, which missed hook-driven renames and ID rewrites.
+   */
+  private _onAfterToolCall(event: AfterToolCallEvent): void {
+    // Skip for stateful models — delegation semantics are disabled.
+    if (event.agent.model.stateful) return
+
+    // Only trigger if the effective tool is a delegation tool
+    if (!event.tool?.delegate) return
+
+    // If the delegation tool errored, don't trigger — let the model recover
+    if (event.result.status === 'error') return
+
+    const state = this._getState(event.agent)
+    state.triggered = true
+    state.toolResult = event.result
   }
 
   /**
    * AfterToolsEvent hook: triggers early exit on successful delegation.
    *
-   * If the recorded delegation tool completed successfully, set endTurn.
-   * If it errored, reset state and let the model recover.
+   * If a delegation was detected in AfterToolCallEvent (state.triggered is true),
+   * sets endTurn so the agent loop exits without calling the model again.
    *
    * Note: `event.endTurn` accepts only `boolean | string`, so the agent loop
    * appends a text-only assistant message to `agent.messages`. The full typed
@@ -178,28 +206,14 @@ export class ToolDelegationPlugin implements Plugin {
    */
   private _onAfterTools(event: AfterToolsEvent): void {
     const state = this._getState(event.agent)
-    if (!state.toolUseId) return
-
-    // Find the tool result for the delegation tool
-    const delegationResult = event.message.content.find(
-      (block): block is ToolResultBlock => block.type === 'toolResultBlock' && block.toolUseId === state.toolUseId
-    )
-
-    // If the delegation tool errored or wasn't found, don't trigger — let the model recover
-    if (!delegationResult || delegationResult.status === 'error') {
-      delete state.toolUseId
-      return
-    }
+    if (!state.triggered || !state.toolResult) return
 
     // Extract text representation and end the turn.
     // Use `|| true` so that non-text-only results (e.g. image/document blocks)
     // still produce a truthy endTurn — extractText returns '' for those, which
     // would skip the agent loop's early-exit check.
-    state.triggered = true
-    state.toolResult = delegationResult
-    const textSummary = extractText(delegationResult)
+    const textSummary = extractText(state.toolResult)
     event.endTurn = textSummary || true
-    delete state.toolUseId
   }
 
   /**
@@ -210,19 +224,35 @@ export class ToolDelegationPlugin implements Plugin {
    * `lastMessage`. This `lastMessage` may differ from the text-only message
    * appended to `agent.messages` by the endTurn path. See the AfterToolsEvent
    * hook comment for details on why this divergence exists.
+   *
+   * State is cleared unconditionally on entry so that a failure in a prior
+   * invocation (e.g., a later AfterTools hook throwing after _onAfterTools
+   * committed delegation state) cannot leak triggered/toolResult into this
+   * invocation.
    */
   private async *_handleStream(
     context: AgentStreamContext,
     next: MiddlewareNext<AgentStreamContext, AgentStreamResult, AgentStreamEvent>
   ): AsyncGenerator<AgentStreamEvent, AgentStreamResult, undefined> {
+    const state = this._getState(context.agent)
+
+    // Unconditionally clear any stale delegation state from a prior invocation
+    // that may not have completed cleanup (e.g., the stream threw after
+    // _onAfterTools committed state).
+    state.triggered = false
+    delete state.toolResult
+
     const streamResult = yield* next(context)
 
-    const state = this._getState(context.agent)
-    if (!state.triggered) return streamResult
-    state.triggered = false
-
+    // Snapshot and clear delegation state that _onAfterTools set during this
+    // invocation. Clearing immediately ensures no leak even if the caller
+    // discards the generator after receiving the result.
+    const triggered = state.triggered
     const delegationBlock = state.toolResult
+    state.triggered = false
     delete state.toolResult
+
+    if (!triggered) return streamResult
     if (!delegationBlock) return streamResult
 
     // Replace AgentResult with rich content from the delegation tool.

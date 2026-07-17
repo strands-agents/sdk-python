@@ -47,7 +47,7 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
-import { ToolDelegationPlugin } from '../vended-plugins/tool-delegation/plugin.js'
+import { ToolDelegation } from '../vended-plugins/tool-delegation/plugin.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { createMiddlewareInterrupt } from '../middleware/interrupt.js'
@@ -565,15 +565,16 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
 
-    // Auto-register ToolDelegationPlugin when any tool has delegate: true
-    const hasDelegationTool = tools.some((tool) => tool.delegate)
-    const hasToolDelegationPlugin = (config?.plugins ?? []).some((p) => p.name === 'strands:tool-delegation')
+    // Always register ToolDelegation so delegation semantics work regardless of
+    // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
+    // The plugin is a no-op when no delegation tools fire.
+    const hasToolDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:tool-delegation')
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
-      ...(hasDelegationTool && !hasToolDelegationPlugin ? [new ToolDelegationPlugin()] : []),
+      ...(!hasToolDelegation ? [new ToolDelegation()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({

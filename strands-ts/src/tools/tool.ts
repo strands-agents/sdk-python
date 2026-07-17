@@ -129,7 +129,7 @@ export abstract class Tool {
    *
    * @defaultValue false
    */
-  readonly delegate: boolean = false
+  readonly delegate?: boolean
 
   /**
    * Executes the tool with streaming support.

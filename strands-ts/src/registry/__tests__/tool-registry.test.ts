@@ -8,7 +8,6 @@ import { ToolResultBlock } from '../../types/messages.js'
 const createMockTool = (overrides: Partial<Tool> = {}): Tool => ({
   name: 'valid-tool',
   description: 'A valid tool description.',
-  delegate: false,
   toolSpec: {
     name: 'valid-tool',
     description: 'A valid tool description.',

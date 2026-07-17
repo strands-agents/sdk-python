@@ -1,5 +1,5 @@
 /**
- * Integration tests for ToolDelegationPlugin — verifies the full agent invoke flow
+ * Integration tests for ToolDelegation — verifies the full agent invoke flow
  * with delegation tools using a mock model.
  *
  * Tests exercise the complete path: Agent constructor auto-registration,
@@ -10,10 +10,11 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { Agent } from '../../../agent/agent.js'
+import { AfterToolsEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 
-describe('ToolDelegationPlugin integration', () => {
+describe('ToolDelegation integration', () => {
   describe('basic routing', () => {
     it('routes to the correct specialist and returns stopReason delegated', async () => {
       // Sub-agent models: each returns a distinct response
@@ -217,6 +218,55 @@ describe('ToolDelegationPlugin integration', () => {
     })
   })
 
+  describe('cross-request state isolation', () => {
+    it('does not leak delegation state when a later AfterTools hook throws', async () => {
+      // Repro: first request — delegation tool succeeds (state committed), but
+      // a later AfterToolsEvent hook throws. Second request should NOT see
+      // stale stopReason: 'delegated' from the first request.
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'STALE_FIRST_RESULT' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      // First request: model calls the delegation tool
+      // Second request: model produces a fresh text response
+      const orchestratorModel = new MockMessageModel()
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'Sub',
+          toolUseId: 'del-1',
+          input: { input: 'first request' },
+        })
+        .addTurn({ type: 'textBlock', text: 'FRESH_SECOND_RESULT' })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      // Register a hook AFTER the plugin's hook so it fires after _onAfterTools
+      // commits delegation state.
+      let throwOnNext = true
+      orchestrator.addHook(AfterToolsEvent, () => {
+        if (throwOnNext) {
+          throw new Error('AFTER_TOOLS_BOOM')
+        }
+      })
+
+      // First invocation should throw because of the later hook
+      await expect(orchestrator.invoke('first')).rejects.toThrow('AFTER_TOOLS_BOOM')
+
+      // Disable the throwing hook for the second invocation
+      throwOnNext = false
+
+      // Second invocation must NOT produce stale delegation result
+      const result = await orchestrator.invoke('second')
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('FRESH_SECOND_RESULT')
+    })
+  })
+
   describe('non-text delegation', () => {
     it('delegates successfully when sub-agent returns empty text (e.g. image-only response)', async () => {
       // Simulate a sub-agent whose toString() returns '' — this happens when the
@@ -295,6 +345,80 @@ describe('ToolDelegationPlugin integration', () => {
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect(textBlocks).toHaveLength(1)
       expect(JSON.parse((textBlocks[0] as { text: string }).text)).toEqual({ status: 'refunded', total: 42 })
+    })
+  })
+
+  describe('stateful model bypass', () => {
+    it('skips delegation logic when model is stateful — tool runs as a normal tool', async () => {
+      class StatefulModel extends MockMessageModel {
+        override get stateful(): boolean {
+          return true
+        }
+      }
+
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Sub response' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      // Turn 1: model calls the delegation tool (which won't trigger delegation)
+      // Turn 2: model produces final text after seeing tool result
+      const statefulModel = new StatefulModel()
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'Sub',
+          toolUseId: 'del-1',
+          input: { input: 'do something' },
+        })
+        .addTurn({ type: 'textBlock', text: 'Got the sub-agent response, done.' })
+
+      const orchestrator = new Agent({
+        model: statefulModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      const result = await orchestrator.invoke('Do something')
+
+      // Delegation did NOT trigger — model consumed the tool result normally
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('Got the sub-agent response, done.')
+    })
+
+    it('does not enforce single-call constraint for stateful models', async () => {
+      class StatefulModel extends MockMessageModel {
+        override get stateful(): boolean {
+          return true
+        }
+      }
+
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Sub response' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      const calculator = createMockTool('calculator', () => 'Result: 42')
+
+      // Model calls BOTH calculator and delegation tool simultaneously.
+      // With a stateful model, this should NOT be cancelled.
+      const statefulModel = new StatefulModel()
+        .addTurn([
+          { type: 'toolUseBlock', name: 'calculator', toolUseId: 'calc-1', input: {} },
+          { type: 'toolUseBlock', name: 'Sub', toolUseId: 'del-1', input: { input: 'help' } },
+        ])
+        .addTurn({ type: 'textBlock', text: 'Both tools ran successfully.' })
+
+      const orchestrator = new Agent({
+        model: statefulModel,
+        name: 'Orchestrator',
+        tools: [calculator, subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      const result = await orchestrator.invoke('Do both')
+
+      // Both tools ran normally — no cancellation, no delegation
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('Both tools ran successfully.')
     })
   })
 })

@@ -438,6 +438,12 @@ export class ContextOffloader implements Plugin {
     // Skip results from the retrieval tool to prevent circular offloading
     if (this._includeRetrievalTool && event.toolUse.name === RETRIEVAL_TOOL_NAME) return
 
+    // Skip delegation tools — their result is the caller's final answer, not
+    // future model context. The agent loop exits immediately after a delegation
+    // so offloading would waste a storage write and leave an unretrievable
+    // placeholder in conversation history.
+    if (event.tool?.delegate) return
+
     const content = event.result.content
     const toolUseId = event.result.toolUseId
 
