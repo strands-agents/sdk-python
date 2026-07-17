@@ -37,11 +37,16 @@ function symbolMatchesSegment(symbol: string, segment: string): boolean {
   return symbol.toLowerCase() === segment.replace(/_/g, '').toLowerCase()
 }
 
+/** Escape every regex metacharacter so the string matches literally. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /** Top-level symbols documented by a Python module page, in document order. */
 function extractPythonSymbols(moduleName: string, body: string): string[] {
   // Match anchors exactly one level below the module (members like
   // `module.Class.method` have a further dot and are excluded).
-  const escaped = moduleName.replace(/\./g, '\\.')
+  const escaped = escapeRegExp(moduleName)
   const anchorRe = new RegExp(`<a id="${escaped}\\.([A-Za-z_][A-Za-z0-9_]*)"`, 'g')
   const seen = new Set<string>()
   const symbols: string[] = []
