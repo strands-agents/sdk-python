@@ -47,7 +47,52 @@ describe('candidateToYaml', () => {
       addedDate: '2026-07-17',
     })
     expect(yaml).toContain('# REVIEW: integrationType inferred as fallback — verify')
+    expect(yaml).toContain('name: "strands-something"')
     expect(yaml).toContain('integrationType: tool')
     expect(yaml).toContain('package: strands-something')
+    expect(yaml).toContain('maintainer: "ex"')
+  })
+
+  it('quotes maintainer containing YAML-hostile characters', () => {
+    const yaml = candidateToYaml({
+      name: 'strands-pkg',
+      description: 'A package',
+      github: 'https://github.com/ex/strands-pkg',
+      maintainer: 'John Doe <john@example.com>',
+      inferredType: 'integration',
+      typeUncertain: false,
+      addedDate: '2026-07-18',
+    })
+    expect(yaml).toContain('maintainer: "John Doe <john@example.com>"')
+  })
+})
+
+describe('mergeCandidates – malformed github URLs', () => {
+  it('excludes candidates with a prefixed github URL ("See https://...") without throwing', () => {
+    const pypi: RegistryCandidate[] = [
+      {
+        source: 'pypi',
+        name: 'bad-url-pkg',
+        description: 'Has bad url',
+        github: 'See https://github.com/x/bad-url-pkg',
+        registry: 'https://pypi.org/project/bad-url-pkg/',
+      },
+    ]
+    expect(() => mergeCandidates(pypi, [], [])).not.toThrow()
+    expect(mergeCandidates(pypi, [], [])).toHaveLength(0)
+  })
+
+  it('excludes candidates with a scheme-less github URL without throwing', () => {
+    const pypi: RegistryCandidate[] = [
+      {
+        source: 'pypi',
+        name: 'no-scheme-pkg',
+        description: 'Has no scheme',
+        github: 'github.com/x/no-scheme-pkg',
+        registry: 'https://pypi.org/project/no-scheme-pkg/',
+      },
+    ]
+    expect(() => mergeCandidates(pypi, [], [])).not.toThrow()
+    expect(mergeCandidates(pypi, [], [])).toHaveLength(0)
   })
 })

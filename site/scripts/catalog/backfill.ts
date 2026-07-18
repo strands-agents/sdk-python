@@ -35,6 +35,15 @@ export interface MergedCandidate {
 // Official packages are documented in the SDK docs, not the community catalog.
 const OFFICIAL_ORGS = ['strands-agents', 'strands-labs']
 
+/** Parse the GitHub org from a URL string, returning undefined if the URL is invalid. */
+function parseRepoOrg(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.split('/')[1] || undefined
+  } catch {
+    return undefined
+  }
+}
+
 const TYPE_KEYWORDS: [string, RegExp][] = [
   ['model-provider', /model.provider|llm provider|inference/i],
   ['session-manager', /session.manager|session storage/i],
@@ -54,7 +63,7 @@ export function inferType(name: string, description: string): string {
 }
 
 function isOfficial(candidate: RegistryCandidate): boolean {
-  const repoOrg = candidate.github ? new URL(candidate.github).pathname.split('/')[1] : undefined
+  const repoOrg = candidate.github ? parseRepoOrg(candidate.github) : undefined
   return repoOrg !== undefined && OFFICIAL_ORGS.includes(repoOrg)
 }
 
@@ -69,6 +78,10 @@ export function mergeCandidates(
 
   function upsert(c: RegistryCandidate): MergedCandidate | undefined {
     if (!c.github || isOfficial(c)) return undefined
+    // Skip candidates whose github URL can't be parsed — they can't produce a
+    // valid `github:` field and would crash on new URL().
+    const repoOrg = parseRepoOrg(c.github)
+    if (!repoOrg) return undefined
     const key = c.github.replace(/\/$/, '').toLowerCase()
     let merged = byRepo.get(key)
     if (!merged) {
@@ -78,7 +91,7 @@ export function mergeCandidates(
         name: key.split('/').pop() || c.name,
         description: c.description,
         github: c.github,
-        maintainer: c.maintainer || new URL(c.github).pathname.split('/')[1] || 'unknown',
+        maintainer: c.maintainer || repoOrg || 'unknown',
         inferredType,
         typeUncertain: inferredType === 'tool',
         addedDate: today,
@@ -106,7 +119,7 @@ export function mergeCandidates(
 export function candidateToYaml(c: MergedCandidate): string {
   const lines: string[] = []
   if (c.typeUncertain) lines.push('# REVIEW: integrationType inferred as fallback — verify')
-  lines.push(`name: ${c.name}`)
+  lines.push(`name: ${JSON.stringify(c.name)}`)
   lines.push(`description: ${JSON.stringify(c.description)}`)
   lines.push(`integrationType: ${c.inferredType}`)
   lines.push('languages:')
@@ -121,7 +134,7 @@ export function candidateToYaml(c: MergedCandidate): string {
     lines.push(`    registry: ${c.typescript.registry}`)
   }
   lines.push(`github: ${c.github}`)
-  lines.push(`maintainer: ${c.maintainer}`)
+  lines.push(`maintainer: ${JSON.stringify(c.maintainer)}`)
   lines.push(`addedDate: ${c.addedDate}`)
   return lines.join('\n') + '\n'
 }
@@ -204,7 +217,20 @@ async function discoverGithub(): Promise<RegistryCandidate[]> {
 const isDirectRun = process.argv[1]?.endsWith('backfill.ts')
 if (isDirectRun) {
   const catalogDir = path.resolve('src/content/catalog')
-  const [pypi, npm, github] = await Promise.all([discoverPypi(), discoverNpm(), discoverGithub()])
+  const [pypi, npm, github] = await Promise.all([
+    discoverPypi().catch((e) => {
+      console.error(`source=pypi | discovery failed, continuing with other sources: ${e}`)
+      return [] as RegistryCandidate[]
+    }),
+    discoverNpm().catch((e) => {
+      console.error(`source=npm | discovery failed, continuing with other sources: ${e}`)
+      return [] as RegistryCandidate[]
+    }),
+    discoverGithub().catch((e) => {
+      console.error(`source=github | discovery failed, continuing with other sources: ${e}`)
+      return [] as RegistryCandidate[]
+    }),
+  ])
   console.log(`pypi=${pypi.length}, npm=${npm.length}, github=${github.length} | candidates discovered`)
   const merged = mergeCandidates(pypi, npm, github)
   let written = 0
