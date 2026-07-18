@@ -3473,3 +3473,25 @@ async def test_checkpoint_resume_schema_mismatch_raises_checkpoint_exception() -
     prompt = {"checkpointResume": {"checkpoint": {"schema_version": "0.1", "position": "after_model"}}}
     with pytest.raises(CheckpointException, match="schema version"):
         await agent.invoke_async(prompt)
+
+
+def test_agent__call__non_converging_reduce_context_doesnt_infinite_loop(mock_model, agent, quiet_strands_logging):
+    """A conversation manager whose reduce_context succeeds without shrinking the
+    context (e.g. the token mass sits inside SummarizingConversationManager's
+    preserve_recent_messages) must surface the overflow after a bounded number of
+    recovery attempts — not recurse until RecursionError."""
+    conversation_manager = unittest.mock.Mock(spec=SlidingWindowConversationManager)
+    conversation_manager.reduce_context.return_value = None  # "succeeds", reduces nothing
+    conversation_manager.apply_management.return_value = None
+    agent.conversation_manager = conversation_manager
+
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
+        RuntimeError("Input is too long for requested model")
+    )
+
+    with pytest.raises(ContextWindowOverflowException):
+        agent("Test!")
+
+    from strands.agent.agent import _MAX_CONTEXT_OVERFLOW_RECOVERY_ATTEMPTS
+
+    assert conversation_manager.reduce_context.call_count == _MAX_CONTEXT_OVERFLOW_RECOVERY_ATTEMPTS

@@ -133,6 +133,13 @@ _AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 8_000
 """Higher offload threshold for agentic mode - the model manages its own context, so we preserve more inline."""
 
 _CONTEXT_MANAGER_PREVIEW_TOKENS = 750
+
+# Maximum consecutive context-overflow recoveries per invocation. Each recovery
+# calls ``ConversationManager.reduce_context`` and retries the model call; a
+# manager that cannot actually shrink the context (e.g. the token mass sits
+# inside ``SummarizingConversationManager.preserve_recent_messages``) would
+# otherwise retry forever and eventually die with an unrelated RecursionError.
+_MAX_CONTEXT_OVERFLOW_RECOVERY_ATTEMPTS = 10
 """Benchmark-validated preview token count for offloaded results."""
 
 _CONTEXT_MANAGER_SUMMARY_RATIO = 0.3
@@ -1338,7 +1345,12 @@ class Agent(AgentBase):
 
         This internal method handles the execution of the event loop cycle and implements
         retry logic for handling context window overflow exceptions by reducing the
-        conversation context and retrying.
+        conversation context and retrying, bounded by
+        ``_MAX_CONTEXT_OVERFLOW_RECOVERY_ATTEMPTS``. The bound guards against a
+        conversation manager whose ``reduce_context`` succeeds without actually
+        shrinking the context — an unbounded retry would loop until the Python
+        recursion limit and surface as a ``RecursionError`` instead of the
+        underlying overflow.
 
         Args:
             invocation_state: Additional parameters to pass to the event loop.
@@ -1347,6 +1359,10 @@ class Agent(AgentBase):
 
         Yields:
             Events of the loop cycle.
+
+        Raises:
+            ContextWindowOverflowException: If the context still overflows after the
+                maximum number of reduce-and-retry attempts.
         """
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
@@ -1355,26 +1371,31 @@ class Agent(AgentBase):
             structured_output_context.register_tool(self.tool_registry)
 
         try:
-            events = event_loop_cycle(
-                agent=self,
-                invocation_state=invocation_state,
-                structured_output_context=structured_output_context,
-                limits=limits,
-            )
-            async for event in events:
-                yield event
+            for attempt in range(_MAX_CONTEXT_OVERFLOW_RECOVERY_ATTEMPTS + 1):
+                try:
+                    events = event_loop_cycle(
+                        agent=self,
+                        invocation_state=invocation_state,
+                        structured_output_context=structured_output_context,
+                        limits=limits,
+                    )
+                    async for event in events:
+                        yield event
+                    return
 
-        except ContextWindowOverflowException as e:
-            # Try reducing the context size and retrying
-            self.conversation_manager.reduce_context(self, e=e)
+                except ContextWindowOverflowException as e:
+                    if attempt >= _MAX_CONTEXT_OVERFLOW_RECOVERY_ATTEMPTS:
+                        logger.error(
+                            "attempts=<%d> | context overflow recovery did not converge, re-raising",
+                            attempt,
+                        )
+                        raise
+                    # Try reducing the context size and retrying
+                    self.conversation_manager.reduce_context(self, e=e)
 
-            # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
-            if self._session_manager:
-                self._session_manager.sync_agent(self)
-
-            events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
-            async for event in events:
-                yield event
+                    # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
+                    if self._session_manager:
+                        self._session_manager.sync_agent(self)
 
         finally:
             if structured_output_context:
