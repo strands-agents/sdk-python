@@ -1,10 +1,10 @@
 /**
- * AgentToolDelegation — enforces agent-tool-delegation semantics for tool routing.
+ * AgentDelegation — enforces delegation semantics for tool routing.
  *
  * When a tool is configured with `delegate: true`, this plugin ensures:
  * 1. The delegation tool is the only tool called in the turn (single-call constraint)
  * 2. The agent loop exits immediately after a successful delegation (via stopEventLoop)
- * 3. The AgentResult is transformed with `stopReason: 'subagentDelegated'` and the tool's content
+ * 3. The AgentResult is transformed with `stopReason: 'delegated'` and the tool's content
  */
 
 import type { Plugin } from '../../plugins/plugin.js'
@@ -41,7 +41,7 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
 }
 
 /**
- * Plugin that enforces agent-tool-delegation semantics for tool routing.
+ * Plugin that enforces delegation semantics for tool routing.
  *
  * Automatically registered when any tool in the agent's tool list has `delegate: true`.
  * Implements single-call constraint, early loop exit, and result transformation.
@@ -53,12 +53,12 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
  * const specialist = new Agent({ name: 'Specialist' })
  * const orchestrator = new Agent({
  *   tools: [specialist.asTool({ delegate: true })],
- *   // AgentToolDelegation is auto-registered — no manual setup needed
+ *   // AgentDelegation is auto-registered — no manual setup needed
  * })
  * ```
  */
-export class AgentToolDelegation implements Plugin {
-  readonly name = 'strands:agent-tool-delegation'
+export class AgentDelegation implements Plugin {
+  readonly name = 'strands:agent-delegation'
 
   /** Stores the delegation tool result per agent, consumed by the stream middleware. */
   private readonly _delegationResult = new WeakMap<LocalAgent, ToolResultBlock>()
@@ -140,7 +140,7 @@ export class AgentToolDelegation implements Plugin {
    * AgentStreamStage middleware: transforms the AgentResult on delegation.
    *
    * When stopEventLoop was triggered by a delegation tool, consumes the stashed
-   * tool result and replaces the AgentResult with `stopReason: 'subagentDelegated'`
+   * tool result and replaces the AgentResult with `stopReason: 'delegated'`
    * and the tool's content as `lastMessage`.
    */
   private async *_handleStream(
@@ -163,7 +163,7 @@ export class AgentToolDelegation implements Plugin {
     // Replace AgentResult with the delegation tool's content
     return {
       result: new AgentResult({
-        stopReason: 'subagentDelegated',
+        stopReason: 'delegated',
         lastMessage: new Message({
           role: 'assistant',
           content: toContentBlocks(delegationBlock),

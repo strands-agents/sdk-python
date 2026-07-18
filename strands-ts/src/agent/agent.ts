@@ -47,7 +47,7 @@ import { SummarizingConversationManager } from '../conversation-manager/summariz
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
-import { AgentToolDelegation } from '../vended-plugins/agent-tool-delegation/plugin.js'
+import { AgentDelegation } from '../vended-plugins/agent-delegation/plugin.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { createMiddlewareInterrupt } from '../middleware/interrupt.js'
@@ -565,16 +565,16 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
 
-    // Always register AgentToolDelegation so delegation semantics work regardless of
+    // Always register AgentDelegation so delegation semantics work regardless of
     // when a delegate tool is added (construction, plugin getTools, MCP, runtime).
     // The plugin is a no-op when no delegation tools fire.
-    const hasAgentToolDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-tool-delegation')
+    const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
-      ...(!hasAgentToolDelegation ? [new AgentToolDelegation()] : []),
+      ...(!hasAgentDelegation ? [new AgentDelegation()] : []),
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({

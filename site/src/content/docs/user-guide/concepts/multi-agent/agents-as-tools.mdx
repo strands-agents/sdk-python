@@ -7,7 +7,7 @@ tags: [multi-agent, tool-authoring, tool-execution]
 sourceLinks:
   - path: strands-py/src/strands/agent/_agent_as_tool.py
   - path: strands-ts/src/agent/agent-as-tool.ts
-  - path: strands-ts/src/vended-plugins/agent-tool-delegation/plugin.ts
+  - path: strands-ts/src/vended-plugins/agent-delegation/plugin.ts
 ---
 
 ## The Concept: Agents as Tools
@@ -355,7 +355,7 @@ flowchart LR
 --8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:delegation_basic"
 ```
 
-When the orchestrator calls a delegation tool and it succeeds, the agent loop exits immediately with `stopReason: 'subagentDelegated'`. The sub-agent's response reaches the caller verbatim without reformatting.
+When the orchestrator calls a delegation tool and it succeeds, the agent loop exits immediately with `stopReason: 'delegated'`. The sub-agent's response reaches the caller verbatim without reformatting.
 
 ### Mixing Delegation and Regular Tools
 

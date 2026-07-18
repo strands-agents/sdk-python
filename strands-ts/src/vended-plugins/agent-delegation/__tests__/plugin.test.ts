@@ -1,5 +1,5 @@
 /**
- * Integration tests for AgentToolDelegation — verifies the full agent invoke flow
+ * Integration tests for AgentDelegation — verifies the full agent invoke flow
  * with delegation tools using a mock model.
  *
  * Tests exercise the complete path: Agent constructor auto-registration,
@@ -15,9 +15,9 @@ import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 import { AgentAsTool } from '../../../agent/agent-as-tool.js'
 
-describe('AgentToolDelegation integration', () => {
+describe('AgentDelegation integration', () => {
   describe('basic routing', () => {
-    it('routes to the correct specialist and returns stopReason subagentDelegated', async () => {
+    it('routes to the correct specialist and returns stopReason delegated', async () => {
       // Sub-agent models: each returns a distinct response
       const billingModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Your balance is $42.' })
       const techModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Try rebooting your router.' })
@@ -42,7 +42,7 @@ describe('AgentToolDelegation integration', () => {
 
       const result = await orchestrator.invoke('My wifi does not work')
 
-      expect(result.stopReason).toBe('subagentDelegated')
+      expect(result.stopReason).toBe('delegated')
       // The lastMessage should contain the sub-agent's response text
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect(textBlocks).toHaveLength(1)
@@ -107,7 +107,7 @@ describe('AgentToolDelegation integration', () => {
 
       const result = await orchestrator.invoke('Fix my router')
 
-      expect(result.stopReason).toBe('subagentDelegated')
+      expect(result.stopReason).toBe('delegated')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Router fixed!')
     })
@@ -144,7 +144,7 @@ describe('AgentToolDelegation integration', () => {
       const result = await orchestrator.invoke('Do both things')
 
       // After the retry, the delegation succeeds
-      expect(result.stopReason).toBe('subagentDelegated')
+      expect(result.stopReason).toBe('delegated')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Specialist answer')
     })
@@ -180,7 +180,7 @@ describe('AgentToolDelegation integration', () => {
       const result = await orchestrator.invoke('Handle both billing and tech')
 
       // After the retry, the delegation succeeds with the single tool
-      expect(result.stopReason).toBe('subagentDelegated')
+      expect(result.stopReason).toBe('delegated')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Tech response')
     })
@@ -223,7 +223,7 @@ describe('AgentToolDelegation integration', () => {
     it('does not leak delegation state when a later AfterTools hook throws', async () => {
       // Repro: first request — delegation tool succeeds (state committed), but
       // a later AfterToolsEvent hook throws. Second request should NOT see
-      // stale stopReason: 'subagentDelegated' from the first request.
+      // stale stopReason: 'delegated' from the first request.
       const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'STALE_FIRST_RESULT' })
       const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
 
@@ -299,7 +299,7 @@ describe('AgentToolDelegation integration', () => {
       const result = await orchestrator.invoke('Generate an image')
 
       // Delegation MUST trigger even when the sub-agent returns empty text
-      expect(result.stopReason).toBe('subagentDelegated')
+      expect(result.stopReason).toBe('delegated')
     })
   })
 
@@ -423,7 +423,7 @@ describe('AgentToolDelegation integration', () => {
 
       const result = await orchestrator.invoke('get data')
 
-      expect(result.stopReason).toBe('subagentDelegated')
+      expect(result.stopReason).toBe('delegated')
       // The JsonBlock must be converted to a TextBlock containing stringified JSON
       expect(result.lastMessage.content).toHaveLength(1)
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
