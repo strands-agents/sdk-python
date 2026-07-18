@@ -26,10 +26,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import fg from 'fast-glob'
 import yaml from 'js-yaml'
-import { slug as githubSlug } from 'github-slugger'
 
 import { STATIC_SLUG_REDIRECTS } from './redirect'
-import { normalizePathToSlug } from './links'
+import { pathToDocsSlug } from './links'
 
 /**
  * Extract frontmatter from a markdown/MDX file. Returns an empty object when
@@ -44,46 +43,18 @@ function readFrontmatter(filePath: string): Record<string, unknown> {
 }
 
 /**
- * Derive the content-collection ID (slug) for a doc file, mirroring
- * generateDocsId in content.config.ts: an explicit frontmatter `slug` wins,
- * otherwise the path is normalised and each segment slugified.
+ * Scan the docs content directory once, producing the set of every real page
+ * slug (for validation) and the old-slug → new-slug pairs declared in
+ * `redirectFrom` frontmatter (same source of truth as redirect.build.ts, read
+ * from disk because astro:content isn't available at config time).
+ *
+ * Slugs come from pathToDocsSlug — including frontmatter `slug` overrides —
+ * so validation agrees with the ids the content collection actually uses,
+ * rather than guessing filenames from slugs.
  */
-function docIdFor(relativePath: string, frontmatter: Record<string, unknown>): string {
-  if (typeof frontmatter.slug === 'string') return frontmatter.slug
-
-  const normalized = normalizePathToSlug(relativePath)
-  if (!normalized) return 'index'
-
-  return normalized
-    .split('/')
-    .map((segment) => githubSlug(segment))
-    .join('/')
-}
-
-/**
- * Check whether a slug resolves to a real content file — used to reject
- * redirect sources that would shadow an existing page. Mirrors the candidate
- * list used by sidebar.ts, plus README variants (see normalizePathToSlug).
- */
-function contentExists(slug: string, contentDir: string): boolean {
-  const candidates = [
-    path.join(contentDir, `${slug}.md`),
-    path.join(contentDir, `${slug}.mdx`),
-    path.join(contentDir, slug, 'index.md'),
-    path.join(contentDir, slug, 'index.mdx'),
-    path.join(contentDir, slug, 'README.md'),
-    path.join(contentDir, slug, 'README.mdx'),
-  ]
-  return candidates.some((p) => fs.existsSync(p))
-}
-
-/**
- * Collect old-slug → new-slug pairs from `redirectFrom` frontmatter across the
- * docs content directory (same source of truth as redirect.build.ts, read from
- * disk because astro:content isn't available at config time).
- */
-function collectRedirectFromEntries(contentDir: string): Record<string, string> {
-  const entries: Record<string, string> = {}
+function scanContent(contentDir: string): { slugs: Set<string>; redirectFromEntries: Record<string, string> } {
+  const slugs = new Set<string>()
+  const redirectFromEntries: Record<string, string> = {}
 
   const files = fg.sync('docs/**/*.{md,mdx}', {
     cwd: contentDir,
@@ -92,23 +63,25 @@ function collectRedirectFromEntries(contentDir: string): Record<string, string> 
 
   for (const relativePath of files) {
     const frontmatter = readFrontmatter(path.join(contentDir, relativePath))
+    const target = pathToDocsSlug(relativePath, frontmatter.slug)
+    slugs.add(target)
+
     const redirectFrom = frontmatter.redirectFrom
     if (!Array.isArray(redirectFrom)) continue
 
-    const target = docIdFor(relativePath, frontmatter)
     for (const source of redirectFrom) {
       if (typeof source !== 'string') continue
-      const existing = entries[source]
+      const existing = redirectFromEntries[source]
       if (existing !== undefined && existing !== target) {
         throw new Error(
           `[redirect.static] duplicate redirectFrom slug "${source}" points to both "${existing}" and "${target}"`
         )
       }
-      entries[source] = target
+      redirectFromEntries[source] = target
     }
   }
 
-  return entries
+  return { slugs, redirectFromEntries }
 }
 
 /** Format a slug as a root-relative URL path in the site's directory format. */
@@ -127,8 +100,10 @@ function toUrlPath(slug: string, base: string): string {
  *   internal destinations so meta-refresh URLs work under a subpath deploy
  */
 export function buildStaticRedirects(contentDir: string, base = '/'): Record<string, string> {
+  const { slugs, redirectFromEntries } = scanContent(contentDir)
+
   const slugMap: Record<string, string> = {
-    ...collectRedirectFromEntries(contentDir),
+    ...redirectFromEntries,
     // Exact-match renames take priority, matching resolveRedirect's rule order
     ...STATIC_SLUG_REDIRECTS,
   }
@@ -138,7 +113,7 @@ export function buildStaticRedirects(contentDir: string, base = '/'): Record<str
   for (const [source, target] of Object.entries(slugMap)) {
     // A source that resolves to a real page would make Astro emit a redirect
     // stub on top of it (or fail the build) — always a configuration mistake.
-    if (contentExists(source, contentDir)) {
+    if (slugs.has(source)) {
       throw new Error(`[redirect.static] redirect source "${source}" collides with an existing content file`)
     }
 
@@ -147,7 +122,7 @@ export function buildStaticRedirects(contentDir: string, base = '/'): Record<str
       continue
     }
 
-    if (!contentExists(target, contentDir)) {
+    if (!slugs.has(target)) {
       throw new Error(`[redirect.static] redirect target "${target}" (from "${source}") has no content file`)
     }
 
