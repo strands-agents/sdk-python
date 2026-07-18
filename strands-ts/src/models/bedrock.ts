@@ -45,6 +45,7 @@ import {
   type CitationsDelta as BedrockCitationsDelta,
   type GuardrailTraceAssessment,
 } from '@aws-sdk/client-bedrock-runtime'
+import { FetchHttpHandler, type FetchHttpHandlerOptions } from '@smithy/fetch-http-handler'
 import {
   type BaseModelConfig,
   type CacheConfig,
@@ -438,13 +439,15 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       ? `${clientConfig.customUserAgent} strands-agents-ts-sdk`
       : 'strands-agents-ts-sdk'
 
+    const requestHandler = withDefaultRequestTimeout(clientConfig?.requestHandler)
     this._client = new BedrockRuntimeClient({
       ...(clientConfig ?? {}),
-      requestHandler: withDefaultRequestTimeout(clientConfig?.requestHandler),
+      requestHandler,
       // region takes precedence over clientConfig
       ...(region ? { region: region } : {}),
       customUserAgent,
     })
+    applyAbortAwareBrowserRequestHandler(this._client.config, requestHandler)
 
     if (apiKey) {
       applyApiKey(this._client, apiKey)
@@ -1805,6 +1808,25 @@ function withDefaultRequestTimeout(
   // Use `??` rather than spread order so an explicit `requestTimeout: undefined` still gets
   // the default (spread would otherwise overwrite the default with `undefined`, disabling it).
   return { ...options, requestTimeout: options.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MS }
+}
+
+/**
+ * Replaces the AWS browser default WebSocket wrapper for this model's HTTPS
+ * requests. The wrapper drops HttpHandlerOptions when delegating to fetch, so
+ * abortSignal never reaches the transport. Node defaults and caller-provided
+ * handler instances are left unchanged.
+ */
+function applyAbortAwareBrowserRequestHandler(
+  config: BedrockRuntimeClientResolvedConfig,
+  requestHandler: NonNullable<BedrockRuntimeClientConfig['requestHandler']>
+): void {
+  if (typeof (requestHandler as { handle?: unknown }).handle === 'function') {
+    return
+  }
+  if (config.requestHandler?.metadata?.handlerProtocol !== 'websocket/h1.1') {
+    return
+  }
+  config.requestHandler = new FetchHttpHandler(requestHandler as FetchHttpHandlerOptions)
 }
 
 /**
