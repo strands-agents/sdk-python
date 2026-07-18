@@ -179,6 +179,24 @@ describe('Known Routes', () => {
     // Non-docs Astro pages that are valid redirect targets (not in the docs collection)
     const validNonDocsPages = new Set(['catalog'])
 
+    // Verify each allowlisted non-docs page exists as an Astro file
+    const missingPages: string[] = []
+    for (const slug of validNonDocsPages) {
+      const astroPagePath = path.resolve(`src/pages/${slug}.astro`)
+      if (!fs.existsSync(astroPagePath)) {
+        missingPages.push(slug)
+      }
+    }
+
+    if (missingPages.length > 0) {
+      console.log(`\n=== Non-docs pages in allowlist but missing as Astro files (${missingPages.length}) ===\n`)
+      for (const slug of missingPages) {
+        console.log(`  ${slug} (expected at src/pages/${slug}.astro)`)
+      }
+    }
+
+    expect(missingPages).toEqual([])
+
     // Build redirectFromMap from frontmatter so page-level redirects are honoured
     const redirectFromMap = await buildRedirectFromMap()
 
