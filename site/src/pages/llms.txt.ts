@@ -56,7 +56,10 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
   const base = getSiteOrigin() + getBase()
   const lines: string[] = []
 
-  // Frontmatter descriptions keyed by doc id, for annotating sidebar-derived links
+  // Frontmatter descriptions keyed by doc id, for annotating sidebar-derived
+  // links. Sidebar slugs live in the same namespace (sidebar.ts validates each
+  // against src/content files); if that ever diverges, a miss here degrades to
+  // a link without a description rather than an error.
   const descriptions = new Map(docs.map((doc) => [doc.id, doc.data.description]))
 
   lines.push('# Strands Agents')

@@ -8,6 +8,7 @@ import { getCollection } from 'astro:content'
 import SiteScripts from '../SiteScripts.astro'
 import Analytics from '../Analytics.astro'
 import { baseSchemas } from '../../util/structured-data'
+import { getDocsIds } from '../../util/docs-ids'
 import { relatedUserGuideFor } from '../../util/related-docs'
 import { resolveLanguage, sourceLinkUrl } from '../../util/source-links'
 import type { SourceLink } from '../../content.config'
@@ -22,7 +23,7 @@ const faviconHref = base.endsWith('/') ? `${base}favicon.svg` : `${base}/favicon
 // Raw markdown twin served by src/pages/[...slug]/index.md.ts — one endpoint per docs
 // collection entry, at `/{entry.id}/index.md`. Only advertise it for routes backed by a
 // docs entry (blog/changelog pages flow through Starlight with synthetic entries).
-const docIds = new Set((await getCollection('docs')).map((doc) => doc.id))
+const docIds = await getDocsIds()
 const baseNoSlash = base.replace(/\/$/, '')
 const markdownHref = docIds.has(route.entry.id) ? `${baseNoSlash}/${route.entry.id}/index.md` : null
 
