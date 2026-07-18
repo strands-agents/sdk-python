@@ -450,6 +450,40 @@ def test_format_chunk_metadata(model):
     assert tru_chunk == exp_chunk
 
 
+@pytest.mark.parametrize(
+    ("omitted_field", "exp_usage", "exp_latency_ms"),
+    [
+        ("prompt_eval_count", {"inputTokens": 0, "outputTokens": 7, "totalTokens": 7}, 1),
+        ("eval_count", {"inputTokens": 11, "outputTokens": 0, "totalTokens": 11}, 1),
+        ("total_duration", {"inputTokens": 11, "outputTokens": 7, "totalTokens": 18}, 0),
+    ],
+)
+def test_format_chunk_metadata_omitted_counts(model, omitted_field, exp_usage, exp_latency_ms):
+    # Ollama omits zero-valued Metrics fields from the response (`json:",omitempty"`), so
+    # ollama-python deserializes them to None. Build a real ChatResponse (not a Mock, which
+    # would supply ints and hide the None contract) with each field omitted in turn.
+    data = {
+        "model": "llama3",
+        "done": True,
+        "message": {"role": "assistant", "content": ""},
+        "prompt_eval_count": 11,
+        "eval_count": 7,
+        "total_duration": 1_000_000,
+    }
+    del data[omitted_field]
+    event = {"chunk_type": "metadata", "data": ollama.ChatResponse.model_validate(data)}
+
+    tru_chunk = model.format_chunk(event)
+    exp_chunk = {
+        "metadata": {
+            "usage": exp_usage,
+            "metrics": {"latencyMs": exp_latency_ms},
+        },
+    }
+
+    assert tru_chunk == exp_chunk
+
+
 def test_format_chunk_other(model):
     event = {"chunk_type": "other"}
 

@@ -280,15 +280,21 @@ class OllamaModel(Model):
                 return {"messageStop": {"stopReason": reason}}
 
             case "metadata":
+                # Ollama omits zero-valued counts from the response (Metrics fields are
+                # `json:",omitempty"`), so ollama-python deserializes them to None. Guard the
+                # arithmetic with `or 0`, matching the idiom already used in anthropic.py.
+                prompt_eval_count = event["data"].prompt_eval_count or 0
+                eval_count = event["data"].eval_count or 0
+                total_duration = event["data"].total_duration or 0
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].prompt_eval_count,
-                            "outputTokens": event["data"].eval_count,
-                            "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
+                            "inputTokens": prompt_eval_count,
+                            "outputTokens": eval_count,
+                            "totalTokens": eval_count + prompt_eval_count,
                         },
                         "metrics": {
-                            "latencyMs": int(event["data"].total_duration / 1e6),
+                            "latencyMs": int(total_duration / 1e6),
                         },
                     },
                 }
