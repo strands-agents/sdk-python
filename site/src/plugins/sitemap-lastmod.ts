@@ -147,9 +147,11 @@ export function sitemapWithLastmod(contentDir: string = 'src/content') {
   // Precompute lastmod dates for route classes with no backing content file.
   // Homepage uses the newest content commit overall — never the build date,
   // which would advertise fake freshness on every deploy.
-  const newestOverall = newestDateUnder(lastModMap, contentPrefix(''))
-  const newestBlog = newestDateUnder(lastModMap, contentPrefix('blog/'))
-  const newestChangelog = newestDateUnder(lastModMap, contentPrefix('changelog/'))
+  const indexDates: Record<string, string | undefined> = {
+    '/': newestDateUnder(lastModMap, contentPrefix('')),
+    '/blog/': newestDateUnder(lastModMap, contentPrefix('blog/')),
+    '/changelog/': newestDateUnder(lastModMap, contentPrefix('changelog/')),
+  }
   // API reference pages are regenerated from SDK source at each release, and
   // every release commits a changelog file — its commit date approximates the
   // release date for the matching stream.
@@ -169,11 +171,6 @@ export function sitemapWithLastmod(contentDir: string = 'src/content') {
 
       // Dynamically-generated index routes: derive lastmod from the newest
       // commit to the content that feeds them.
-      const indexDates: Record<string, string | undefined> = {
-        '/': newestOverall,
-        '/blog/': newestBlog,
-        '/changelog/': newestChangelog,
-      }
       if (pathname in indexDates) {
         const date = indexDates[pathname]
         if (date) item.lastmod = date

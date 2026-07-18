@@ -8,7 +8,7 @@
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import { pathWithBase } from '../util/links'
 
-export type HeadTag = 'link' | 'meta' | 'script' | 'style' | 'title' | 'base' | 'noscript' | 'template'
+type HeadTag = 'link' | 'meta' | 'script' | 'style' | 'title' | 'base' | 'noscript' | 'template'
 export type HeadEntry = { tag: HeadTag; attrs?: Record<string, string | boolean | undefined>; content?: string }
 
 interface Props {
