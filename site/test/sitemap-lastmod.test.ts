@@ -13,6 +13,8 @@ describe('urlToContentPaths', () => {
       'site/src/content/docs/user-guide/quickstart/python.md',
       'site/src/content/docs/user-guide/quickstart/python/index.mdx',
       'site/src/content/docs/user-guide/quickstart/python/index.md',
+      'site/src/content/docs/user-guide/quickstart/python/README.mdx',
+      'site/src/content/docs/user-guide/quickstart/python/README.md',
     ])
   })
 
@@ -22,6 +24,8 @@ describe('urlToContentPaths', () => {
       'src/content/changelog/harness/python-v1.43.0.md',
       'src/content/changelog/harness/python-v1.43.0/index.mdx',
       'src/content/changelog/harness/python-v1.43.0/index.md',
+      'src/content/changelog/harness/python-v1.43.0/README.mdx',
+      'src/content/changelog/harness/python-v1.43.0/README.md',
     ])
   })
 
