@@ -326,3 +326,31 @@ async def test_model_retry_strategy_no_retry_when_no_exception_and_no_stop_respo
     # Should not retry and should reset state
     assert event.retry is False
     assert strategy._current_attempt == 0
+
+
+# should_retry predicate tests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "should_retry, exception, expect_retry",
+    [
+        # Custom predicate accepts TimeoutError
+        (lambda e: isinstance(e, TimeoutError), TimeoutError("timed out"), True),
+        # Custom predicate rejects ModelThrottledException
+        (lambda e: isinstance(e, TimeoutError), ModelThrottledException("Throttled"), False),
+        # Default predicate (None) accepts ModelThrottledException
+        (None, ModelThrottledException("Throttled"), True),
+        # Default predicate (None) rejects other exceptions
+        (None, TimeoutError("timed out"), False),
+    ],
+)
+async def test_model_retry_strategy_should_retry_predicate(mock_sleep, should_retry, exception, expect_retry):
+    """Test that should_retry predicate controls which exceptions are retried."""
+    strategy = ModelRetryStrategy(max_attempts=3, initial_delay=2, max_delay=60, should_retry=should_retry)
+    mock_agent = Mock()
+
+    event = AfterModelCallEvent(agent=mock_agent, exception=exception)
+    await strategy._handle_after_model_call(event)
+
+    assert event.retry is expect_retry

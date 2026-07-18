@@ -8,7 +8,7 @@ when and how to retry failed model calls.
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from ..hooks.events import AfterInvocationEvent, AfterModelCallEvent
 from ..hooks.registry import HookProvider, HookRegistry
@@ -18,10 +18,14 @@ from ..types.exceptions import ModelThrottledException
 logger = logging.getLogger(__name__)
 
 
+def _default_should_retry(exception: Exception) -> bool:
+    return isinstance(exception, ModelThrottledException)
+
+
 class ModelRetryStrategy(HookProvider):
     """Default retry strategy for model throttling with exponential backoff.
 
-    Retries model calls on ModelThrottledException using exponential backoff.
+    Retries model calls on ModelThrottledException (customizable) using exponential backoff.
     Delay doubles after each attempt: initial_delay, initial_delay*2, initial_delay*4,
     etc., capped at max_delay. State resets after successful calls.
 
@@ -32,6 +36,8 @@ class ModelRetryStrategy(HookProvider):
         max_attempts: Total model attempts before re-raising the exception.
         initial_delay: Base delay in seconds; used for first two retries, then doubles.
         max_delay: Upper bound in seconds for the exponential backoff.
+        should_retry: Optional predicate that indicates if the exception should be retried.
+            By default, only ModelThrottledException is retried.
     """
 
     def __init__(
@@ -40,6 +46,7 @@ class ModelRetryStrategy(HookProvider):
         max_attempts: int = 6,
         initial_delay: int = 4,
         max_delay: int = 240,
+        should_retry: Callable[[Exception], bool] | None = None,
     ):
         """Initialize the retry strategy.
 
@@ -48,10 +55,15 @@ class ModelRetryStrategy(HookProvider):
             initial_delay: Base delay in seconds; used for first two retries, then doubles.
                 Defaults to 4.
             max_delay: Upper bound in seconds for the exponential backoff. Defaults to 240.
+            should_retry: Optional predicate that receives the exception and returns whether
+                to retry. When provided, this replaces the default behavior of only retrying
+                ModelThrottledException. When not provided or None, only ModelThrottledException
+                is retried.
         """
         self._max_attempts = max_attempts
         self._initial_delay = initial_delay
         self._max_delay = max_delay
+        self._should_retry = should_retry or _default_should_retry
         self._current_attempt = 0
         self._backwards_compatible_event_to_yield: TypedEvent | None = None
 
@@ -123,8 +135,8 @@ class ModelRetryStrategy(HookProvider):
             self._reset_retry_state()
             return
 
-        # Only retry on ModelThrottledException
-        if not isinstance(event.exception, ModelThrottledException):
+        # Check if the exception is retryable
+        if not self._should_retry(event.exception):
             return
 
         # Increment attempt counter first
