@@ -98,14 +98,21 @@ function toUrlPath(slug: string, base: string): string {
  *   redirect source shadows a real page and every internal target exists
  * @param base - The site's base path (Astro `base` config), prepended to
  *   internal destinations so meta-refresh URLs work under a subpath deploy
+ * @param staticRedirects - Exact-match rename rules; defaults to the production
+ *   STATIC_SLUG_REDIRECTS. Injectable so unit tests aren't coupled to the
+ *   production entries (adding a rename must not break the test suite).
  */
-export function buildStaticRedirects(contentDir: string, base = '/'): Record<string, string> {
+export function buildStaticRedirects(
+  contentDir: string,
+  base = '/',
+  staticRedirects: Record<string, string> = STATIC_SLUG_REDIRECTS
+): Record<string, string> {
   const { slugs, redirectFromEntries } = scanContent(contentDir)
 
   const slugMap: Record<string, string> = {
     ...redirectFromEntries,
     // Exact-match renames take priority, matching resolveRedirect's rule order
-    ...STATIC_SLUG_REDIRECTS,
+    ...staticRedirects,
   }
 
   const redirects: Record<string, string> = {}
