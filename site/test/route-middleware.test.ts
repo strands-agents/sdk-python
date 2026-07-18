@@ -18,7 +18,7 @@ const testNavLinks: NavLink[] = [
   { label: 'Home', href: '/' },
   { label: 'User Guide', href: '/docs/user-guide/quickstart/overview/', basePath: '/docs/user-guide/' },
   { label: 'Examples', href: '/docs/examples/', basePath: '/docs/examples/' },
-  { label: 'Community', href: '/docs/community/community-packages/', basePath: '/docs/community/' },
+  { label: 'Community', href: '/catalog/', basePath: ['/catalog/', '/docs/community/'] },
   { label: 'Contribute', href: 'https://github.com/example', external: true },
 ]
 

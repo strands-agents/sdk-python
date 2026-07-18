@@ -176,6 +176,9 @@ describe('Known Routes', () => {
     const docs = await getCollection('docs')
     const validIds = new Set(docs.map((doc) => doc.id))
 
+    // Non-docs Astro pages that are valid redirect targets (not in the docs collection)
+    const validNonDocsPages = new Set(['catalog'])
+
     // Build redirectFromMap from frontmatter so page-level redirects are honoured
     const redirectFromMap = await buildRedirectFromMap()
 
@@ -186,6 +189,7 @@ describe('Known Routes', () => {
       // External redirects (e.g. GitHub) are always valid
       if (resolved.startsWith('https://') || resolved.startsWith('http://')) continue
       const slug = resolved.replace(/\/$/, '')
+      if (validNonDocsPages.has(slug)) continue
       if (!validIds.has(slug)) broken.push({ url: routePath, resolved: slug })
     }
 

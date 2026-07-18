@@ -47,6 +47,12 @@ const SLUG_RULES: SlugRule[] = [
     to: 'docs/examples',
   },
 
+  // community-packages was replaced by the interactive catalog page
+  {
+    match: exactly('docs/community/community-packages'),
+    to: 'catalog',
+  },
+
   // CDK and deployment examples now live on GitHub
   {
     match: exactly('docs/examples/cdk/deploy_to_apprunner'),

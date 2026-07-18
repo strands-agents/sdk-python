@@ -20,8 +20,9 @@ navbar:
     href: /docs/examples/
     basePath: /docs/examples/
   - label: Community
-    href: /docs/community/community-packages/
+    href: /catalog/
     basePath:
+      - /catalog/
       - /docs/community/
       - /docs/labs/
       - /docs/contribute/
@@ -293,7 +294,6 @@ sidebar:
 
   - label: Community
     items:
-      - docs/community/community-packages
       - docs/community/get-featured
       - label: Contribute
         items:

@@ -19,7 +19,7 @@ We feature **reusable packages** that extend Strands Agents capabilities:
 - **Agent Extensions** — specialized agent subclasses that change how agents reason and act
 - **Interventions** — composable control handlers for authorization, guardrails, and steering
 
-We're not looking for example agents or one-off projects — the focus is on packages published to PyPI that others can `pip install` or `npm install` and use in their own agents. See [Community Packages](./community-packages.md) for guidance on creating and publishing your package.
+We're not looking for example agents or one-off projects — the focus is on packages published to PyPI that others can `pip install` or `npm install` and use in their own agents. See [Community Catalog](/catalog/) for guidance on creating and publishing your package.
 
 :::tip[Starting from scratch?]
 The [extension template](https://github.com/strands-agents/extension-template) gives you a ready-made project structure with testing, linting, and publishing already set up.
@@ -29,7 +29,7 @@ The [extension template](https://github.com/strands-agents/extension-template) g
 
 1. **Create a PR** to [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk)
 2. **Add your doc file** in the appropriate `community/` subdirectory
-3. **Include the required frontmatter** so your page appears in the [community catalog](./community-packages.md)
+3. **Include the required frontmatter** so your page appears in the [community catalog](/catalog/)
 4. **Update `src/config/navigation.yml`** to include your new page in the nav
 
 ## Directory Structure
@@ -81,7 +81,7 @@ Links to your repo, PyPI, official docs, etc.
 
 ### Frontmatter
 
-Every community page needs frontmatter with catalog fields so it appears in the [community catalog](./community-packages.md). Without `community: true`, `integrationType`, `description`, and `languages`, your page won't show up in the catalog tables.
+Every community page needs frontmatter with catalog fields so it appears in the [community catalog](/catalog/). Without `community: true`, `integrationType`, `description`, and `languages`, your page won't show up in the catalog tables.
 
 Here's the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention`):
 
