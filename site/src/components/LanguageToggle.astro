@@ -41,8 +41,10 @@ const routeData = (Astro.locals as { starlightRoute?: { entry?: { data?: { langu
 const pageLanguages = routeData?.languages
   ? (Array.isArray(routeData.languages) ? routeData.languages : [routeData.languages]).map((l) => l.toLowerCase())
   : undefined
-const pythonDisabled = pageLanguages !== undefined && !pageLanguages.includes('python')
-const typescriptDisabled = pageLanguages !== undefined && !pageLanguages.includes('typescript')
+// An empty array carries no language restriction; treat it the same as an absent field.
+const resolvedLanguages = pageLanguages?.length ? pageLanguages : undefined
+const pythonDisabled = resolvedLanguages !== undefined && !resolvedLanguages.includes('python')
+const typescriptDisabled = resolvedLanguages !== undefined && !resolvedLanguages.includes('typescript')
 ---
 
 <language-toggle class="language-toggle" role="radiogroup" aria-label="Preferred language">
@@ -216,7 +218,9 @@ const typescriptDisabled = pageLanguages !== undefined && !pageLanguages.include
 
     function updateToggle(lang) {
       document.querySelectorAll('language-toggle .lang-option').forEach(function (btn) {
-        btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
+        if (!btn.disabled) {
+          btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
+        }
       });
     }
 
