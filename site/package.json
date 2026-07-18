@@ -20,6 +20,7 @@
     "sdk:sync": "npm run sdk:generate && npm install",
     "routes:update": "tsx scripts/update-known-routes.ts",
     "changelog:sync": "tsx scripts/changelog/sync.ts",
+    "catalog:stats": "tsx scripts/catalog/refresh-stats.ts",
     "astro": "astro"
   },
   "author": "",

@@ -1,1 +1,186 @@
-{}
+{
+  "ag-ui": {
+    "downloads": {
+      "python": 34629626
+    },
+    "stars": 14792,
+    "lastRelease": "2026-07-15"
+  },
+  "agent-control": {
+    "downloads": {},
+    "stars": 277,
+    "lastRelease": "2026-07-13"
+  },
+  "agentcore-memory": {
+    "downloads": {},
+    "stars": 744,
+    "lastRelease": "2026-07-17"
+  },
+  "agentcore-payments": {
+    "downloads": {
+      "python": 7837629
+    },
+    "stars": 744,
+    "lastRelease": "2026-07-17"
+  },
+  "agentcore-tool-search": {
+    "downloads": {
+      "python": 7837629
+    },
+    "stars": 744,
+    "lastRelease": "2026-07-17"
+  },
+  "clova-studio": {
+    "downloads": {
+      "python": 25
+    },
+    "stars": 1
+  },
+  "cohere": {
+    "downloads": {},
+    "stars": 6626,
+    "lastRelease": "2026-07-17"
+  },
+  "datadog-ai-guard": {
+    "downloads": {},
+    "stars": 645,
+    "lastRelease": "2026-07-17"
+  },
+  "fireworksai": {
+    "downloads": {
+      "python": 34629626
+    },
+    "stars": 6626,
+    "lastRelease": "2026-07-17"
+  },
+  "mlx": {
+    "downloads": {
+      "python": 100
+    },
+    "stars": 37
+  },
+  "nebius-token-factory": {
+    "downloads": {
+      "python": 34629626
+    },
+    "stars": 6626,
+    "lastRelease": "2026-07-17"
+  },
+  "nvidia-nim": {
+    "downloads": {
+      "python": 33
+    },
+    "stars": 2
+  },
+  "ovhcloud-ai-endpoints": {
+    "downloads": {},
+    "stars": 6626,
+    "lastRelease": "2026-07-17"
+  },
+  "s3-vectors-memory": {
+    "downloads": {}
+  },
+  "sglang": {
+    "downloads": {
+      "python": 3140
+    },
+    "stars": 74,
+    "lastRelease": "2026-07-04"
+  },
+  "strands-agt": {
+    "downloads": {
+      "python": 129
+    },
+    "stars": 0
+  },
+  "strands-apify": {
+    "downloads": {
+      "python": 25
+    },
+    "stars": 1,
+    "lastRelease": "2026-05-28"
+  },
+  "strands-code-agent": {
+    "downloads": {
+      "python": 1800
+    },
+    "stars": 10,
+    "lastRelease": "2026-06-29"
+  },
+  "strands-deepgram": {
+    "downloads": {},
+    "stars": 3,
+    "lastRelease": "2025-10-15"
+  },
+  "strands-google": {
+    "downloads": {
+      "python": 139
+    },
+    "stars": 7
+  },
+  "strands-hubspot": {
+    "downloads": {},
+    "stars": 3,
+    "lastRelease": "2025-10-15"
+  },
+  "strands-perplexity": {
+    "downloads": {
+      "python": 716
+    },
+    "stars": 1,
+    "lastRelease": "2026-01-26"
+  },
+  "strands-spraay": {
+    "downloads": {
+      "python": 24
+    },
+    "stars": 0
+  },
+  "strands-sql": {
+    "downloads": {
+      "python": 45
+    },
+    "stars": 2
+  },
+  "strands-teams": {
+    "downloads": {
+      "python": 59
+    },
+    "stars": 4,
+    "lastRelease": "2025-10-15"
+  },
+  "strands-telegram-listener": {
+    "downloads": {},
+    "stars": 2,
+    "lastRelease": "2025-10-21"
+  },
+  "strands-telegram": {
+    "downloads": {
+      "python": 38
+    },
+    "stars": 5,
+    "lastRelease": "2025-10-21"
+  },
+  "strands-valkey-session-manager": {
+    "downloads": {
+      "python": 1452
+    },
+    "stars": 3,
+    "lastRelease": "2025-10-16"
+  },
+  "utcp": {
+    "downloads": {
+      "python": 587
+    },
+    "stars": 645
+  },
+  "vllm": {
+    "downloads": {},
+    "stars": 1
+  },
+  "xai": {
+    "downloads": {},
+    "stars": 4,
+    "lastRelease": "2026-06-12"
+  }
+}
