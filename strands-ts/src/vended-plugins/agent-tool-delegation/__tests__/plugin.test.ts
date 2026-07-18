@@ -13,10 +13,11 @@ import { Agent } from '../../../agent/agent.js'
 import { AfterToolsEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
+import { AgentAsTool } from '../../../agent/agent-as-tool.js'
 
 describe('AgentToolDelegation integration', () => {
   describe('basic routing', () => {
-    it('routes to the correct specialist and returns stopReason delegated', async () => {
+    it('routes to the correct specialist and returns stopReason subagentDelegated', async () => {
       // Sub-agent models: each returns a distinct response
       const billingModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Your balance is $42.' })
       const techModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Try rebooting your router.' })
@@ -41,7 +42,7 @@ describe('AgentToolDelegation integration', () => {
 
       const result = await orchestrator.invoke('My wifi does not work')
 
-      expect(result.stopReason).toBe('delegated')
+      expect(result.stopReason).toBe('subagentDelegated')
       // The lastMessage should contain the sub-agent's response text
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect(textBlocks).toHaveLength(1)
@@ -106,7 +107,7 @@ describe('AgentToolDelegation integration', () => {
 
       const result = await orchestrator.invoke('Fix my router')
 
-      expect(result.stopReason).toBe('delegated')
+      expect(result.stopReason).toBe('subagentDelegated')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Router fixed!')
     })
@@ -143,7 +144,7 @@ describe('AgentToolDelegation integration', () => {
       const result = await orchestrator.invoke('Do both things')
 
       // After the retry, the delegation succeeds
-      expect(result.stopReason).toBe('delegated')
+      expect(result.stopReason).toBe('subagentDelegated')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Specialist answer')
     })
@@ -179,7 +180,7 @@ describe('AgentToolDelegation integration', () => {
       const result = await orchestrator.invoke('Handle both billing and tech')
 
       // After the retry, the delegation succeeds with the single tool
-      expect(result.stopReason).toBe('delegated')
+      expect(result.stopReason).toBe('subagentDelegated')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Tech response')
     })
@@ -222,7 +223,7 @@ describe('AgentToolDelegation integration', () => {
     it('does not leak delegation state when a later AfterTools hook throws', async () => {
       // Repro: first request — delegation tool succeeds (state committed), but
       // a later AfterToolsEvent hook throws. Second request should NOT see
-      // stale stopReason: 'delegated' from the first request.
+      // stale stopReason: 'subagentDelegated' from the first request.
       const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'STALE_FIRST_RESULT' })
       const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
 
@@ -298,53 +299,7 @@ describe('AgentToolDelegation integration', () => {
       const result = await orchestrator.invoke('Generate an image')
 
       // Delegation MUST trigger even when the sub-agent returns empty text
-      expect(result.stopReason).toBe('delegated')
-    })
-  })
-
-  describe('structured output preservation', () => {
-    it('preserves JSON content from sub-agent with structuredOutputSchema', async () => {
-      const schema = z.object({ status: z.string(), total: z.number() })
-
-      // Sub-agent calls the structured output tool to produce JSON
-      const subModel = new MockMessageModel()
-        .addTurn({
-          type: 'toolUseBlock',
-          name: 'strands_structured_output',
-          toolUseId: 'so-1',
-          input: { status: 'refunded', total: 42 },
-        })
-        .addTurn({ type: 'textBlock', text: 'Done' })
-
-      const subAgent = new Agent({
-        model: subModel,
-        name: 'SchemaAgent',
-        structuredOutputSchema: schema,
-        printer: false,
-      })
-
-      // Orchestrator calls the delegation sub-agent
-      const orchestratorModel = new MockMessageModel().addTurn({
-        type: 'toolUseBlock',
-        name: 'SchemaAgent',
-        toolUseId: 'call-1',
-        input: { input: 'Generate the schema' },
-      })
-
-      const orchestrator = new Agent({
-        model: orchestratorModel,
-        name: 'Orchestrator',
-        tools: [subAgent.asTool({ delegate: true })],
-        printer: false,
-      })
-
-      const result = await orchestrator.invoke('Generate schema')
-
-      expect(result.stopReason).toBe('delegated')
-      // JsonBlock is converted to TextBlock with JSON-stringified content
-      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
-      expect(textBlocks).toHaveLength(1)
-      expect(JSON.parse((textBlocks[0] as { text: string }).text)).toEqual({ status: 'refunded', total: 42 })
+      expect(result.stopReason).toBe('subagentDelegated')
     })
   })
 
@@ -419,6 +374,61 @@ describe('AgentToolDelegation integration', () => {
       expect(result.stopReason).toBe('endTurn')
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect((textBlocks[0] as { text: string }).text).toBe('Both tools ran successfully.')
+    })
+  })
+
+  describe('toContentBlocks conversion', () => {
+    it('converts JsonBlock to TextBlock with JSON-stringified content', async () => {
+      // Create a delegation tool that returns a JsonBlock directly.
+      // This exercises the toContentBlocks helper's JsonBlock → TextBlock path
+      // without involving the full structured output machinery.
+      const jsonPayload = { items: ['a', 'b'], count: 2 }
+
+      const jsonTool = new AgentAsTool({
+        agent: (() => {
+          // Sub-agent returns structured output via the schema tool
+          const subModel = new MockMessageModel()
+            .addTurn({
+              type: 'toolUseBlock',
+              name: 'strands_structured_output',
+              toolUseId: 'so-1',
+              input: jsonPayload,
+            })
+            .addTurn({ type: 'textBlock', text: '' })
+
+          return new Agent({
+            model: subModel,
+            name: 'JsonAgent',
+            structuredOutputSchema: z.object({ items: z.array(z.string()), count: z.number() }),
+            printer: false,
+          })
+        })(),
+        name: 'JsonAgent',
+        delegate: true,
+      })
+
+      const orchestratorModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'JsonAgent',
+        toolUseId: 'json-1',
+        input: { input: 'get data' },
+      })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [jsonTool],
+        printer: false,
+      })
+
+      const result = await orchestrator.invoke('get data')
+
+      expect(result.stopReason).toBe('subagentDelegated')
+      // The JsonBlock must be converted to a TextBlock containing stringified JSON
+      expect(result.lastMessage.content).toHaveLength(1)
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect(textBlocks).toHaveLength(1)
+      expect(JSON.parse((textBlocks[0] as { text: string }).text)).toEqual(jsonPayload)
     })
   })
 })

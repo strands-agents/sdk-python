@@ -1629,8 +1629,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           // Tool requested loop stop: exit without calling the model again.
           // Any tool can set `invocationState.stopEventLoop = true` during execution
           // to signal that its result is the final answer and no further model call
-          // is needed. Mirrors Python's `request_state["stop_event_loop"]`.
-          // Preserves the model's stop reason for the cycle — always 'toolUse' here
+          // is needed. Preserves the model's stop reason of 'toolUse' here
           // since we only reach this point when the model requested tool execution.
           if (invocationState.stopEventLoop === true) {
             result = new AgentResult({

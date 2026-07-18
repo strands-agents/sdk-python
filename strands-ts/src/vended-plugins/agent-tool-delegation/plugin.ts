@@ -4,7 +4,7 @@
  * When a tool is configured with `delegate: true`, this plugin ensures:
  * 1. The delegation tool is the only tool called in the turn (single-call constraint)
  * 2. The agent loop exits immediately after a successful delegation (via stopEventLoop)
- * 3. The AgentResult is transformed with `stopReason: 'delegated'` and the tool's content
+ * 3. The AgentResult is transformed with `stopReason: 'subagentDelegated'` and the tool's content
  */
 
 import type { Plugin } from '../../plugins/plugin.js'
@@ -41,42 +41,6 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
 }
 
 /**
- * Finds the delegation ToolResultBlock from the agent's message history.
- *
- * When stopEventLoop fires, the last two messages are:
- * - assistant: [ToolUseBlock] (the delegation call)
- * - user: [ToolResultBlock] (the delegation result)
- *
- * Returns the successful ToolResultBlock for the delegation tool, or undefined
- * if not found or if the result was an error.
- */
-function findDelegationResult(agent: LocalAgent): ToolResultBlock | undefined {
-  const messages = agent.messages
-  if (messages.length < 2) return undefined
-
-  const toolResultMessage = messages.at(-1)
-  const assistantMessage = messages.at(-2)
-
-  if (!toolResultMessage || !assistantMessage) return undefined
-  if (toolResultMessage.role !== 'user' || assistantMessage.role !== 'assistant') return undefined
-
-  // Find the delegation tool use in the assistant message
-  const delegationToolUse = assistantMessage.content.find(
-    (block): block is ToolUseBlock => block.type === 'toolUseBlock' && isDelegationTool(agent, block.name)
-  )
-  if (!delegationToolUse) return undefined
-
-  // Find the matching tool result
-  const toolResult = toolResultMessage.content.find(
-    (block): block is ToolResultBlock =>
-      block.type === 'toolResultBlock' && block.toolUseId === delegationToolUse.toolUseId
-  )
-  if (!toolResult || toolResult.status === 'error') return undefined
-
-  return toolResult
-}
-
-/**
  * Plugin that enforces agent-tool-delegation semantics for tool routing.
  *
  * Automatically registered when any tool in the agent's tool list has `delegate: true`.
@@ -95,6 +59,9 @@ function findDelegationResult(agent: LocalAgent): ToolResultBlock | undefined {
  */
 export class AgentToolDelegation implements Plugin {
   readonly name = 'strands:agent-tool-delegation'
+
+  /** Stores the delegation tool result per agent, consumed by the stream middleware. */
+  private readonly _delegationResult = new WeakMap<LocalAgent, ToolResultBlock>()
 
   initAgent(agent: LocalAgent): void {
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
@@ -149,7 +116,8 @@ export class AgentToolDelegation implements Plugin {
    * rewritten selectedTool, toolUse.name, or toolUse.toolUseId) to determine
    * whether this is a delegation call. If the effective tool has `delegate: true`
    * and the result is successful, sets `invocationState.stopEventLoop = true`
-   * so the agent loop exits without calling the model again.
+   * so the agent loop exits without calling the model again, and stashes the
+   * result for the stream middleware to consume.
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
     // Skip for stateful models — delegation semantics are disabled.
@@ -163,32 +131,39 @@ export class AgentToolDelegation implements Plugin {
 
     // Signal the agent loop to stop after this tool batch completes
     event.invocationState.stopEventLoop = true
+
+    // Stash the result for the stream middleware to transform into the AgentResult.
+    this._delegationResult.set(event.agent, event.result)
   }
 
   /**
    * AgentStreamStage middleware: transforms the AgentResult on delegation.
    *
-   * When stopEventLoop was triggered by a delegation tool, finds the tool result
-   * in the agent's message history and replaces the AgentResult with
-   * `stopReason: 'delegated'` and the tool's content as `lastMessage`.
+   * When stopEventLoop was triggered by a delegation tool, consumes the stashed
+   * tool result and replaces the AgentResult with `stopReason: 'subagentDelegated'`
+   * and the tool's content as `lastMessage`.
    */
   private async *_handleStream(
     context: AgentStreamContext,
     next: MiddlewareNext<AgentStreamContext, AgentStreamResult, AgentStreamEvent>
   ): AsyncGenerator<AgentStreamEvent, AgentStreamResult, undefined> {
+    // Clear any stale entry from a prior failed invocation before the loop runs.
+    this._delegationResult.delete(context.agent)
+
     const streamResult = yield* next(context)
 
     // Only transform when stopEventLoop was set (delegation or otherwise)
     if (streamResult.result.invocationState.stopEventLoop !== true) return streamResult
 
-    // Find the delegation result from message history
-    const delegationBlock = findDelegationResult(context.agent)
+    // Consume the result stashed during this invocation by _onAfterToolCall.
+    const delegationBlock = this._delegationResult.get(context.agent)
+    this._delegationResult.delete(context.agent)
     if (!delegationBlock) return streamResult
 
     // Replace AgentResult with the delegation tool's content
     return {
       result: new AgentResult({
-        stopReason: 'delegated',
+        stopReason: 'subagentDelegated',
         lastMessage: new Message({
           role: 'assistant',
           content: toContentBlocks(delegationBlock),

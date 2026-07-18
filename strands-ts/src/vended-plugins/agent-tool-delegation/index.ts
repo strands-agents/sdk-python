@@ -14,7 +14,7 @@
  * })
  *
  * const result = await orchestrator.invoke('Help me with billing')
- * console.log(result.stopReason) // 'delegated'
+ * console.log(result.stopReason) // 'subagentDelegated'
  * ```
  */
 export { AgentToolDelegation } from './plugin.js'
