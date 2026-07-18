@@ -1,144 +1,80 @@
 ---
-title: Get Featured in the Docs
+title: Add Your Integration to the Catalog
 sidebar:
   label: "Get Featured"
 ---
 
-Built something useful for Strands Agents? Getting featured in our docs helps other developers discover your work and gives your package visibility across the community.
+Built something useful for Strands Agents? Add it to the [community catalog](/catalog/) so other developers can discover it. A catalog listing is one small YAML file — an on-site documentation page is optional.
 
-## What We're Looking For
+## What we list
 
-We feature **reusable packages** that extend Strands Agents capabilities:
-
-- **Model Providers** — integrations with LLM services (OpenAI-compatible endpoints, custom APIs, etc.)
-- **Tools** — packaged tools that solve common problems (API integrations, utilities, etc.)
-- **Session Managers** — custom storage backends for conversation history
-- **Memory Stores** — `MemoryStore` implementations giving agents long-term knowledge across sessions
-- **Plugins** — extend or modify agent behavior during lifecycle events
-- **Integrations** — protocol implementations, framework bridges, etc.
-- **Agent Extensions** — specialized agent subclasses that change how agents reason and act
-- **Interventions** — composable control handlers for authorization, guardrails, and steering
-
-We're not looking for example agents or one-off projects — the focus is on packages published to PyPI that others can `pip install` or `npm install` and use in their own agents. See [Community Catalog](/catalog/) for guidance on creating and publishing your package.
+Reusable packages published to PyPI or npm that extend Strands Agents: model providers, tools, session managers, memory stores, plugins, integrations, agent extensions, and interventions. We don't list example agents or one-off projects.
 
 :::tip[Starting from scratch?]
 The [extension template](https://github.com/strands-agents/extension-template) gives you a ready-made project structure with testing, linting, and publishing already set up.
 :::
 
-## Quick Steps
+## Add your entry
 
-1. **Create a PR** to [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk)
-2. **Add your doc file** in the appropriate `community/` subdirectory
-3. **Include the required frontmatter** so your page appears in the [community catalog](/catalog/)
-4. **Update `src/config/navigation.yml`** to include your new page in the nav
+1. Fork [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk)
+2. Add one file: `site/src/content/catalog/<your-package>.yaml`
+3. Open a PR using the **Catalog submission** template
 
-## Directory Structure
+Your entry:
 
-Place your documentation in the right spot:
-
-| Type | Directory | Example |
-|------|-----------|---------|
-| Model Providers | `community/model-providers/` | `cohere.mdx` |
-| Tools | `community/tools/` | `strands-deepgram.mdx` |
-| Session Managers | `community/session-managers/` | `agentcore-memory.mdx` |
-| Memory Stores | `community/memory-stores/` | `my-store.mdx` |
-| Plugins | `community/plugins/` | `my-plugin.mdx` |
-| Integrations | `community/integrations/` | `ag-ui.mdx` |
-| Agent Extensions | `community/agent-extensions/` | `strands-code-agent.mdx` |
-| Interventions | `community/interventions/` | `my-intervention.mdx` |
-
-## Document Layout
-
-Your Strands docs page should be a **concise overview** — not a copy of your GitHub README. Keep it focused on getting users started quickly. Save the deep dives, advanced configurations, and detailed API docs for your project's own documentation.
-
-Follow this structure (see existing docs for reference):
-
-```markdown
-# Package Name
-
-Brief intro explaining what your package does and why it's useful.
-
-## Installation
-
-pip install your-package
-
-## Usage
-
-Working code example showing basic usage with Strands Agent.
-
-## Configuration
-
-Environment variables, client options, or model parameters.
-
-## Troubleshooting (optional)
-
-Common issues and how to fix them.
-
-## References
-
-Links to your repo, PyPI, official docs, etc.
+```yaml
+name: your-package-name
+description: One sentence describing what it does
+integrationType: tool        # tool | model-provider | session-manager | memory-store | integration | plugin | agent-extension | intervention
+languages:
+  python:                    # include the languages you publish for
+    package: your-package-name
+    registry: https://pypi.org/project/your-package-name/
+  typescript:
+    package: "@your-scope/your-package"
+    registry: https://www.npmjs.com/package/@your-scope/your-package
+github: https://github.com/your-org/your-repo
+maintainer: your-github-username
+addedDate: 2026-07-17        # the date you open the PR
 ```
 
-### Frontmatter
+| Field | Required | Notes |
+|-------|----------|-------|
+| `name` | ✅ | Display name in the catalog |
+| `description` | ✅ | One sentence, shown on the card |
+| `integrationType` | ✅ | One of the eight types above |
+| `languages` | ✅ | At least one of `python` / `typescript`, each with `package` + `registry` |
+| `github` | ✅ | Public repository URL |
+| `maintainer` | ✅ | Your GitHub username or org |
+| `addedDate` | ✅ | Date of submission (drives the "New" badge) |
+| `docsPage` | Optional | Set only if you also add a docs page (below) |
 
-Every community page needs frontmatter with catalog fields so it appears in the [community catalog](/catalog/). Without `community: true`, `integrationType`, `description`, and `languages`, your page won't show up in the catalog tables.
+Leave `featured` and `badges` unset — the Strands team grants those.
 
-Here's the full frontmatter for a **Tool** (adapt `integrationType` for your package type — `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention`):
+The site build validates your file against the schema, so a malformed entry fails CI with a clear error.
+
+## Optional: add a documentation page
+
+Without a docs page, your catalog card links to your GitHub repo — perfectly fine. If you want an on-site page with install/usage examples:
+
+1. Add `site/src/content/docs/community/<type-directory>/<your-package>.mdx` (e.g. `community/tools/your-package.mdx`) with frontmatter:
 
 ```yaml
 ---
 title: your-package-name
 community: true
+description: Same description as your catalog entry
 integrationType: tool
-description: Short description of what the tool does
-languages: Python
+languages: Python            # or TypeScript, or omit for both
 sidebar:
   label: "display-name"
-project:
-  pypi: https://pypi.org/project/your-package/
-  github: https://github.com/your-org/your-repo
-  maintainer: your-github-username
-service:
-  name: Service Name
-  link: https://service-website.com/
 ---
 ```
 
-| Field | Required | Notes |
-|-------|----------|-------|
-| `community` | ✅ | Must be `true` |
-| `integrationType` | ✅ | `tool`, `model-provider`, `session-manager`, `memory-store`, `plugin`, `integration`, `agent-extension`, or `intervention` |
-| `description` | ✅ | Shown in the catalog table |
-| `languages` | ✅ | `Python`, `TypeScript`, or omit for both |
-| `project` | Recommended | PyPI/npm link, GitHub repo, maintainer |
-| `service` | Optional | External service metadata |
-
-## Update navigation.yml
-
-Add your page to `src/config/navigation.yml` under the Community section:
-
-```yaml
-- label: Community
-  items:
-    - label: Model Providers
-      items:
-        - label: Your Provider
-          link: community/model-providers/your-provider
-    - label: Tools
-      items:
-        - label: your-tool
-          link: community/tools/your-tool
-```
-
-## Examples to Follow
-
-Look at existing community pages for reference:
-
-- **Tool**: [strands-deepgram.mdx](https://github.com/strands-agents/harness-sdk/blob/main/site/src/content/docs/community/tools/strands-deepgram.mdx)
-- **Model Provider**: [nvidia-nim.mdx](https://github.com/strands-agents/harness-sdk/blob/main/site/src/content/docs/community/model-providers/nvidia-nim.mdx)
-- **Session Manager**: [agentcore-memory.mdx](https://github.com/strands-agents/harness-sdk/blob/main/site/src/content/docs/community/session-managers/agentcore-memory.mdx)
-- **Integration**: [ag-ui.mdx](https://github.com/strands-agents/harness-sdk/blob/main/site/src/content/docs/community/integrations/ag-ui.mdx)
+2. Keep the page a concise overview: installation, a working usage example, configuration. If your package supports both languages, use `<Tabs>` with `Python` / `TypeScript` labels so the page follows the site-wide language toggle.
+3. Add the page under the Community section of `site/src/config/navigation.yml`.
+4. Reference it from your catalog entry: `docsPage: docs/community/tools/your-package`
 
 ## Questions?
 
-Open an issue at [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk/issues) — we're happy to help!
+Ask in [Discord](https://discord.gg/strands) or open an issue at [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk/issues).
