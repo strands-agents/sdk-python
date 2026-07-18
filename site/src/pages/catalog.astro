@@ -1,0 +1,158 @@
+---
+/**
+ * Community integration catalog: searchable, filterable grid of community
+ * packages. Entries come from the `catalog` content collection; popularity
+ * stats from the bot-maintained src/data/catalog-stats.json. Everything is
+ * rendered statically; the inline script only toggles card visibility.
+ */
+import { getCollection } from 'astro:content'
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import CatalogCard from '../components/catalog/CatalogCard.astro'
+import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
+import { toCardModel, sortEntries, hasEvalsEntries, type CatalogStatsFile } from '../util/catalog'
+import statsFile from '../data/catalog-stats.json'
+import '../styles/catalog.css'
+
+const stats = statsFile as CatalogStatsFile
+const entries = await getCollection('catalog')
+const buildDate = new Date()
+const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.id], buildDate)))
+
+const featured = cards.filter((c) => c.featured)
+const showSdkFacet = hasEvalsEntries(cards)
+
+const TYPE_LABELS: Record<string, string> = {
+  'model-provider': 'Model Providers',
+  tool: 'Tools',
+  'session-manager': 'Session Managers',
+  'memory-store': 'Memory Stores',
+  integration: 'Integrations',
+  plugin: 'Plugins',
+  'agent-extension': 'Agent Extensions',
+  intervention: 'Interventions',
+}
+const typeFacets = Object.entries(TYPE_LABELS)
+  .map(([value, label]) => ({ value, label, count: cards.filter((c) => c.integrationType === value).length }))
+  .filter((t) => t.count > 0)
+
+const title = 'Community Catalog'
+const description = 'Community-built tools, model providers, plugins, and integrations for Strands Agents.'
+---
+
+<StarlightPage frontmatter={{ title, description, template: 'splash', pagefind: false, hero: { actions: [] } }} hasSidebar={false}>
+  <div class="cat-page">
+    <p>
+      Integrations built and maintained by the Strands community. Review a package before using it in
+      production — quality and support vary by author.
+    </p>
+
+    {
+      featured.length > 0 && (
+        <>
+          <h2 class="cat-section-title">Featured</h2>
+          <div class="cat-featured">
+            {featured.map((card) => (
+              <CatalogCard card={card} featured />
+            ))}
+          </div>
+        </>
+      )
+    }
+
+    <h2 class="cat-section-title">All integrations</h2>
+    <CatalogFilterBar types={typeFacets} showSdkFacet={showSdkFacet} />
+    <p class="cat-note"><span data-cat-count>{cards.length}</span> integrations</p>
+    <div class="cat-grid" data-cat-grid>
+      {cards.map((card) => <CatalogCard card={card} />)}
+    </div>
+    <p class="cat-empty" data-cat-empty hidden>No integrations match the current filters.</p>
+
+    <div class="cat-submit">
+      <p>
+        Built something for Strands? <a href="/docs/community/get-featured/">Add your integration to the catalog</a>.
+      </p>
+    </div>
+  </div>
+</StarlightPage>
+
+<script>
+  // Client-side faceted filtering over the statically-rendered cards. The
+  // matching + URL-state logic lives in util/catalog-filter (unit-tested);
+  // this script only reads the DOM and toggles [hidden].
+  import { matchesFilters, stateToQuery, queryToState, type CardFilterData } from '../util/catalog-filter'
+
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-grid] .cat-card'))
+  const searchInput = document.querySelector<HTMLInputElement>('[data-cat-search]')
+  const typeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-type]'))
+  const langBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-lang]'))
+  const badgeBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-badge]'))
+  const sdkBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-sdk]'))
+  const emptyEl = document.querySelector<HTMLElement>('[data-cat-empty]')
+  const countEl = document.querySelector<HTMLElement>('[data-cat-count]')
+
+  const state = queryToState(location.search)
+
+  function cardData(el: HTMLElement): CardFilterData {
+    return {
+      search: el.dataset.search || '',
+      type: el.dataset.type || '',
+      languages: (el.dataset.langs || '').split(' ').filter(Boolean),
+      badges: (el.dataset.badges || '').split(' ').filter(Boolean),
+      sdk: el.dataset.sdk || 'agents',
+    }
+  }
+
+  function apply() {
+    let visible = 0
+    for (const el of cards) {
+      const show = matchesFilters(cardData(el), state)
+      el.hidden = !show
+      if (show) visible++
+    }
+    if (emptyEl) emptyEl.hidden = visible > 0
+    if (countEl) countEl.textContent = String(visible)
+
+    for (const btn of typeBtns) btn.setAttribute('aria-pressed', String(state.types.has(btn.dataset.catType || '')))
+    for (const btn of langBtns) btn.setAttribute('aria-pressed', String(state.languages.has(btn.dataset.catLang || '')))
+    for (const btn of badgeBtns) btn.setAttribute('aria-pressed', String(state.badges.has(btn.dataset.catBadge || '')))
+    for (const btn of sdkBtns) btn.setAttribute('aria-checked', String(state.sdk === btn.dataset.catSdk))
+
+    const query = stateToQuery(state)
+    history.replaceState(null, '', query ? `?${query}` : location.pathname)
+  }
+
+  function toggle(set: Set<string>, value: string) {
+    if (set.has(value)) set.delete(value)
+    else set.add(value)
+  }
+
+  if (searchInput) {
+    searchInput.value = state.search
+    searchInput.addEventListener('input', () => {
+      state.search = searchInput.value
+      apply()
+    })
+  }
+  for (const btn of typeBtns)
+    btn.addEventListener('click', () => {
+      toggle(state.types, btn.dataset.catType || '')
+      apply()
+    })
+  for (const btn of langBtns)
+    btn.addEventListener('click', () => {
+      toggle(state.languages, btn.dataset.catLang || '')
+      apply()
+    })
+  for (const btn of badgeBtns)
+    btn.addEventListener('click', () => {
+      toggle(state.badges, btn.dataset.catBadge || '')
+      apply()
+    })
+  for (const btn of sdkBtns)
+    btn.addEventListener('click', () => {
+      state.sdk = btn.dataset.catSdk || 'agents'
+      apply()
+    })
+
+  apply()
+</script>
