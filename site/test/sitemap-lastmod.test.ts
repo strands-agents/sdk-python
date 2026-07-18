@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { urlToContentPaths } from '../src/plugins/sitemap-lastmod'
+import { urlToContentPaths, newestDateUnder } from '../src/plugins/sitemap-lastmod'
 
 // The sitemap lastmod lookup matches URLs against keys produced by
 // `git log --name-only`, which are repo-root-relative with forward slashes
@@ -34,5 +34,34 @@ describe('urlToContentPaths', () => {
     for (const candidate of urlToContentPaths('/docs/a/b/', 'src/content', 'site/')) {
       expect(candidate).not.toContain('\\')
     }
+  })
+})
+
+describe('newestDateUnder', () => {
+  it('compares dates numerically across mixed UTC offsets', () => {
+    // git log %cI emits committer-local offsets: 09:00+09:00 is 00:00 UTC,
+    // so the -07:00 entry is newer despite sorting earlier as a string.
+    const map = new Map([
+      ['site/src/content/blog/a.mdx', '2026-07-10T09:00:00+09:00'],
+      ['site/src/content/blog/b.mdx', '2026-07-10T08:00:00-07:00'],
+    ])
+
+    expect(newestDateUnder(map, 'site/src/content/blog/')).toBe('2026-07-10T08:00:00-07:00')
+  })
+
+  it('only considers entries under the prefix', () => {
+    const map = new Map([
+      ['site/src/content/blog/a.mdx', '2026-07-01T00:00:00Z'],
+      ['site/src/content/changelog/b.md', '2026-07-15T00:00:00Z'],
+    ])
+
+    expect(newestDateUnder(map, 'site/src/content/blog/')).toBe('2026-07-01T00:00:00Z')
+  })
+
+  it('returns undefined when nothing matches or dates are unparseable', () => {
+    const map = new Map([['site/src/content/blog/a.mdx', 'not-a-date']])
+
+    expect(newestDateUnder(map, 'site/src/content/blog/')).toBeUndefined()
+    expect(newestDateUnder(new Map(), 'site/src/content/')).toBeUndefined()
   })
 })
