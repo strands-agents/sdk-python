@@ -112,21 +112,33 @@ export const liveFetchers: StatsFetchers = {
 
 // ── CLI entry point ───────────────────────────────────────────────────────────
 
-function loadEntries(catalogDir: string): StatsEntry[] {
-  return readdirSync(catalogDir)
-    .filter((f) => f.endsWith('.yaml'))
-    .map((f) => {
+export function loadEntries(catalogDir: string): StatsEntry[] {
+  const entries: StatsEntry[] = []
+  for (const f of readdirSync(catalogDir)) {
+    if (!f.endsWith('.yaml')) continue
+    try {
       const data = yaml.load(readFileSync(path.join(catalogDir, f), 'utf-8')) as {
-        github: string
-        languages: { python?: { package: string }; typescript?: { package: string } }
+        github?: string
+        languages?: { python?: { package: string }; typescript?: { package: string } }
       }
-      return {
+      if (!data?.github || typeof data.github !== 'string') {
+        const id = f.replace(/\.yaml$/, '')
+        console.warn(`entry=${id} | malformed yaml, skipping`)
+        continue
+      }
+      const languages = data?.languages ?? {}
+      entries.push({
         id: f.replace(/\.yaml$/, ''),
         github: data.github,
-        python: data.languages.python?.package,
-        typescript: data.languages.typescript?.package,
-      }
-    })
+        python: languages.python?.package,
+        typescript: languages.typescript?.package,
+      })
+    } catch (err) {
+      const id = f.replace(/\.yaml$/, '')
+      console.warn(`entry=${id} | malformed yaml, skipping`, err)
+    }
+  }
+  return entries
 }
 
 const isDirectRun = process.argv[1]?.endsWith('refresh-stats.ts')
