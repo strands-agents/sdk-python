@@ -1,6 +1,7 @@
 name: ag-ui
 description: AG-UI integration
 integrationType: integration
+featured: true
 languages:
   python:
     package: strands-agents

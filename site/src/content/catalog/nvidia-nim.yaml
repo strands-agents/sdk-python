@@ -1,6 +1,7 @@
 name: nvidia-nim
 description: NVIDIA NIM
 integrationType: model-provider
+featured: true
 languages:
   python:
     package: strands-nvidia-nim

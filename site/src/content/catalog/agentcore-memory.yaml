@@ -1,6 +1,7 @@
 name: agentcore-memory
 description: Amazon AgentCore
 integrationType: session-manager
+featured: true
 languages:
   python:
     package: bedrock-agentcore
