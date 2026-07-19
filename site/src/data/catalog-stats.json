@@ -1,6 +1,8 @@
 {
   "ag-ui": {
-    "downloads": {},
+    "downloads": {
+      "python": 34629626
+    },
     "stars": 14802,
     "lastRelease": "2026-07-15"
   },
@@ -24,12 +26,16 @@
     "lastRelease": "2026-07-17"
   },
   "agentcore-payments": {
-    "downloads": {},
+    "downloads": {
+      "python": 7736670
+    },
     "stars": 744,
     "lastRelease": "2026-07-17"
   },
   "agentcore-tool-search": {
-    "downloads": {},
+    "downloads": {
+      "python": 7736670
+    },
     "stars": 744,
     "lastRelease": "2026-07-17"
   },
@@ -49,17 +55,21 @@
     "downloads": {
       "python": 34352799
     },
-    "stars": 6632,
+    "stars": 6633,
     "lastRelease": "2026-07-17"
   },
   "datadog-ai-guard": {
-    "downloads": {},
+    "downloads": {
+      "python": 38505054
+    },
     "stars": 647,
     "lastRelease": "2026-07-17"
   },
   "fireworksai": {
-    "downloads": {},
-    "stars": 6632,
+    "downloads": {
+      "python": 34352799
+    },
+    "stars": 6633,
     "lastRelease": "2026-07-17"
   },
   "grantex": {
@@ -70,21 +80,29 @@
     "lastRelease": "2026-06-14"
   },
   "mlx": {
-    "downloads": {},
+    "downloads": {
+      "python": 93
+    },
     "stars": 37
   },
   "nebius-token-factory": {
-    "downloads": {},
-    "stars": 6632,
+    "downloads": {
+      "python": 34352799
+    },
+    "stars": 6633,
     "lastRelease": "2026-07-17"
   },
   "nvidia-nim": {
-    "downloads": {},
+    "downloads": {
+      "python": 33
+    },
     "stars": 2
   },
   "ovhcloud-ai-endpoints": {
-    "downloads": {},
-    "stars": 6632,
+    "downloads": {
+      "python": 34352799
+    },
+    "stars": 6633,
     "lastRelease": "2026-07-17"
   },
   "respan": {
@@ -94,10 +112,14 @@
     "stars": 41
   },
   "s3-vectors-memory": {
-    "downloads": {}
+    "downloads": {
+      "python": 573
+    }
   },
   "sglang": {
-    "downloads": {},
+    "downloads": {
+      "python": 3140
+    },
     "stars": 74,
     "lastRelease": "2026-07-04"
   },
@@ -109,28 +131,36 @@
     "lastRelease": "2026-05-21"
   },
   "strands-agt": {
-    "downloads": {},
+    "downloads": {
+      "python": 129
+    },
     "stars": 0
   },
   "strands-apify": {
-    "downloads": {},
+    "downloads": {
+      "python": 23
+    },
     "stars": 1,
     "lastRelease": "2026-05-28"
   },
   "strands-code-agent": {
     "downloads": {
-      "python": 1799
+      "python": 1800
     },
     "stars": 10,
     "lastRelease": "2026-06-29"
   },
   "strands-deepgram": {
-    "downloads": {},
+    "downloads": {
+      "python": 63
+    },
     "stars": 3,
     "lastRelease": "2025-10-15"
   },
   "strands-google": {
-    "downloads": {},
+    "downloads": {
+      "python": 139
+    },
     "stars": 7
   },
   "strands-hubspot": {
@@ -141,12 +171,16 @@
     "lastRelease": "2025-10-15"
   },
   "strands-perplexity": {
-    "downloads": {},
+    "downloads": {
+      "python": 708
+    },
     "stars": 1,
     "lastRelease": "2026-01-26"
   },
   "strands-spraay": {
-    "downloads": {},
+    "downloads": {
+      "python": 24
+    },
     "stars": 0
   },
   "strands-sql": {
@@ -157,7 +191,7 @@
   },
   "strands-teams": {
     "downloads": {
-      "python": 55
+      "python": 59
     },
     "stars": 4,
     "lastRelease": "2025-10-15"
@@ -176,7 +210,7 @@
   },
   "strands-valkey-session-manager": {
     "downloads": {
-      "python": 1417
+      "python": 1452
     },
     "stars": 3,
     "lastRelease": "2025-10-16"
@@ -201,9 +235,7 @@
     "stars": 1
   },
   "xai": {
-    "downloads": {
-      "python": 8143
-    },
+    "downloads": {},
     "stars": 4,
     "lastRelease": "2026-06-12"
   }
