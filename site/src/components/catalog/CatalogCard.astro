@@ -5,6 +5,7 @@
  * visibility, so the card itself stays a pure server-rendered component.
  */
 import type { CatalogCardModel } from '../../util/catalog'
+import { pathWithBase } from '../../util/links'
 
 interface Props {
   card: CatalogCardModel
@@ -27,6 +28,9 @@ const TYPE_LABELS: Record<string, string> = {
 const LANG_LABELS: Record<string, string> = { python: 'Python', typescript: 'TypeScript' }
 
 const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
+
+// Internal docs hrefs need the deploy base path; external URLs must not get it.
+const href = card.external ? card.href : pathWithBase(card.href)
 ---
 
 <article
@@ -39,7 +43,7 @@ const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
   data-search={`${card.name} ${card.description}`.toLowerCase()}
 >
   <div class="cat-card-head">
-    <a class="cat-card-title" href={card.href} rel={card.external ? 'noopener' : undefined}>
+    <a class="cat-card-title" href={href} rel={card.external ? 'noopener' : undefined}>
       {card.name}
       {card.external && <span class="cat-external" aria-label="external link">↗</span>}
     </a>

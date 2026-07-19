@@ -10,6 +10,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
 import { toCardModel, sortEntries, hasEvalsEntries, type CatalogStatsFile } from '../util/catalog'
+import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
 import '../styles/catalog.css'
 
@@ -69,7 +70,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
 
     <div class="cat-submit">
       <p>
-        Built something for Strands? <a href="/docs/community/get-featured/">Add your integration to the catalog</a>.
+        Built something for Strands? <a href={pathWithBase('/docs/community/get-featured/')}>Add your integration to the catalog</a>.
       </p>
     </div>
   </div>

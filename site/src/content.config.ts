@@ -71,12 +71,15 @@ export const changelogFrontmatterSchema = z
   })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
-const catalogLanguageSchema = z.object({
-  // Package name as published on the registry
-  package: z.string(),
-  // Full registry URL (PyPI project page or npm package page)
-  registry: z.string().url(),
-})
+// Catalog URLs render as hrefs, so constrain them to the expected host —
+// a bare .url() would accept javascript: and other unsafe schemes.
+const catalogLanguageSchema = (registryPrefix: string) =>
+  z.object({
+    // Package name as published on the registry
+    package: z.string(),
+    // Full registry URL (PyPI project page or npm package page)
+    registry: z.string().url().startsWith(registryPrefix, `registry must start with ${registryPrefix}`),
+  })
 
 export const catalogEntrySchema = z
   .object({
@@ -97,10 +100,10 @@ export const catalogEntrySchema = z
     // hidden until at least one evals entry exists.
     sdk: z.enum(['agents', 'evals']).default('agents'),
     languages: z.object({
-      python: catalogLanguageSchema.optional(),
-      typescript: catalogLanguageSchema.optional(),
+      python: catalogLanguageSchema('https://pypi.org/').optional(),
+      typescript: catalogLanguageSchema('https://www.npmjs.com/').optional(),
     }),
-    github: z.string().url(),
+    github: z.string().url().startsWith('https://github.com/', 'github must start with https://github.com/'),
     maintainer: z.string(),
     // Docs collection id of the detail page (e.g. 'docs/community/tools/strands-deepgram').
     // Optional: entries without one link out to their GitHub repo instead.

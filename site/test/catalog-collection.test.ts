@@ -31,6 +31,35 @@ describe('catalog content collection', () => {
     expect(result.success).toBe(false)
   })
 
+  it('rejects urls outside the expected hosts', () => {
+    const base = {
+      name: 'bad-urls',
+      description: 'url smuggling',
+      integrationType: 'tool',
+      languages: { python: { package: 'x', registry: 'https://pypi.org/project/x/' } },
+      github: 'https://github.com/example/x',
+      maintainer: 'example',
+      addedDate: '2026-07-17',
+    }
+    // javascript: scheme in github
+    expect(catalogEntrySchema.safeParse({ ...base, github: 'javascript:alert(1)' }).success).toBe(false)
+    // https but wrong host
+    expect(catalogEntrySchema.safeParse({ ...base, github: 'https://evil.example/x' }).success).toBe(false)
+    // registry on the wrong host for the language
+    expect(
+      catalogEntrySchema.safeParse({
+        ...base,
+        languages: { python: { package: 'x', registry: 'https://www.npmjs.com/package/x' } },
+      }).success
+    ).toBe(false)
+    expect(
+      catalogEntrySchema.safeParse({
+        ...base,
+        languages: { typescript: { package: 'x', registry: 'https://pypi.org/project/x/' } },
+      }).success
+    ).toBe(false)
+  })
+
   it('rejects an unknown integrationType', () => {
     const result = catalogEntrySchema.safeParse({
       name: 'bad-type',
