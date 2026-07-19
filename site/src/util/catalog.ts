@@ -76,9 +76,9 @@ export function toCardModel(
     maintainer: data.maintainer,
     featured: data.featured,
     badges,
-    stars: stats?.stars,
-    downloads: totalDownloads > 0 ? totalDownloads : undefined,
-  } as CatalogCardModel
+    ...(stats?.stars !== undefined && { stars: stats.stars }),
+    ...(totalDownloads > 0 && { downloads: totalDownloads }),
+  }
 }
 
 /** Featured entries first, then alphabetical by name. */

@@ -1,5 +1,5 @@
 name: ag-ui
-description: AG-UI integration
+description: Connect agents to rich clients like CopilotKit through the AG-UI protocol, with streaming chat and tool-based generative UI
 integrationType: integration
 featured: true
 languages:

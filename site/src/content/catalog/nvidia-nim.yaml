@@ -1,5 +1,5 @@
 name: nvidia-nim
-description: NVIDIA NIM
+description: Model provider for NVIDIA NIM APIs with message format conversion, tool support, and clean streaming
 integrationType: model-provider
 featured: true
 languages:

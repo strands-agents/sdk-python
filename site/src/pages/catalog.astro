@@ -119,7 +119,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
     for (const btn of sdkBtns) btn.setAttribute('aria-checked', String(state.sdk === btn.dataset.catSdk))
 
     const query = stateToQuery(state)
-    history.replaceState(null, '', query ? `?${query}` : location.pathname)
+    history.replaceState(null, '', (query ? `?${query}` : location.pathname) + location.hash)
   }
 
   function toggle(set: Set<string>, value: string) {

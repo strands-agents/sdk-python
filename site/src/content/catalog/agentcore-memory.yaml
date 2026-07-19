@@ -1,5 +1,5 @@
 name: agentcore-memory
-description: Amazon AgentCore
+description: Session manager backed by Amazon Bedrock AgentCore Memory, with short-term conversation persistence and long-term memory strategies
 integrationType: session-manager
 featured: true
 languages:
