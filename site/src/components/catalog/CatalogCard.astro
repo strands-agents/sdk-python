@@ -3,9 +3,16 @@
  * A single integration card in the catalog grid. All filterable facets are
  * exposed as data-* attributes; the page script (catalog.astro) toggles
  * visibility, so the card itself stays a pure server-rendered component.
+ *
+ * The whole card is clickable via the stretched-link pattern: the title
+ * anchor's ::after covers the card, and the secondary GitHub/registry links
+ * sit above it with a raised z-index so they stay independently clickable.
+ * Each entry gets a deterministic colored monogram tile (hue derived from its
+ * name) so the grid reads visually without fetching external logos.
  */
 import type { CatalogCardModel } from '../../util/catalog'
 import { pathWithBase } from '../../util/links'
+import { TYPE_ICONS, tileHue } from './icons'
 
 interface Props {
   card: CatalogCardModel
@@ -25,16 +32,16 @@ const TYPE_LABELS: Record<string, string> = {
   intervention: 'Intervention',
 }
 
-const LANG_LABELS: Record<string, string> = { python: 'Python', typescript: 'TypeScript' }
-
 const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
 
 // Internal docs hrefs need the deploy base path; external URLs must not get it.
 const href = card.external ? card.href : pathWithBase(card.href)
+const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
 ---
 
 <article
   class:list={['cat-card', { 'cat-card--featured': featured }]}
+  style={`--cat-hue: ${tileHue(card.name)}`}
   data-name={card.name}
   data-type={card.integrationType}
   data-langs={card.languages.join(' ')}
@@ -42,30 +49,46 @@ const href = card.external ? card.href : pathWithBase(card.href)
   data-sdk={card.sdk}
   data-search={`${card.name} ${card.description}`.toLowerCase()}
 >
-  <div class="cat-card-head">
-    <a class="cat-card-title" href={href} rel={card.external ? 'noopener' : undefined}>
-      {card.name}
-      {card.external && <span class="cat-external" aria-label="external link">↗</span>}
-    </a>
-    <span class="cat-chip cat-chip--type">{TYPE_LABELS[card.integrationType]}</span>
-  </div>
-  <p class="cat-card-desc">{card.description}</p>
-  <div class="cat-card-meta">
-    {card.languages.map((lang) => <span class:list={['cat-badge', `cat-badge--${lang}`]}>{LANG_LABELS[lang]}</span>)}
-    {card.badges.includes('verified') && <span class="cat-badge cat-badge--verified">Verified</span>}
-    {card.badges.includes('new') && <span class="cat-badge cat-badge--new">New</span>}
-  </div>
-  <div class="cat-card-foot">
-    <span class="cat-maintainer">by {card.maintainer}</span>
-    <span class="cat-links">
+  <span class="cat-tile" aria-hidden="true">{monogram}</span>
+  <div class="cat-card-main">
+    <div class="cat-card-head">
+      <a class="cat-card-title" href={href} rel={card.external ? 'noopener' : undefined}>{card.name}</a>
+      {card.external && <span class="cat-external" aria-hidden="true">↗</span>}
+      {
+        card.badges.includes('verified') && (
+          <span class="cat-flag cat-flag--verified" title="Verified by the Strands team">
+            <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+              <path fill="currentColor" d="M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1.5 15L7 12.5 8.4 11l2.1 2.1 5.1-5.1L17 9.4 10.5 16z" />
+            </svg>
+            Verified
+          </span>
+        )
+      }
+      {card.badges.includes('new') && <span class="cat-flag cat-flag--new">New</span>}
+    </div>
+    <p class="cat-card-desc">{card.description}</p>
+    <div class="cat-card-meta">
+      <span class="cat-type" title={TYPE_LABELS[card.integrationType]}>
+        <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d={TYPE_ICONS[card.integrationType]} />
+        </svg>
+        {TYPE_LABELS[card.integrationType]}
+      </span>
+      <span class="cat-langs">{card.languages.map((l) => (l === 'python' ? 'Python' : 'TypeScript')).join(' · ')}</span>
       {card.stars !== undefined && <span class="cat-stat" title="GitHub stars">★ {numberFormat.format(card.stars)}</span>}
-      {card.downloads !== undefined && (
-        <span class="cat-stat" title="Downloads per month">⬇ {numberFormat.format(card.downloads)}</span>
-      )}
-      <a class="cat-link" href={card.github} rel="noopener" aria-label={`${card.name} on GitHub`}>GitHub</a>
-      {card.registryLinks.map((link) => (
-        <a class="cat-link" href={link.href} rel="noopener" aria-label={`${card.name} on ${link.label}`}>{link.label}</a>
-      ))}
-    </span>
+      {
+        card.downloads !== undefined && (
+          <span class="cat-stat" title="Downloads per month">
+            ⬇ {numberFormat.format(card.downloads)}
+          </span>
+        )
+      }
+      <span class="cat-links">
+        <a class="cat-link" href={card.github} rel="noopener" aria-label={`${card.name} on GitHub`}>GitHub</a>
+        {card.registryLinks.map((link) => (
+          <a class="cat-link" href={link.href} rel="noopener" aria-label={`${card.name} on ${link.label}`}>{link.label}</a>
+        ))}
+      </span>
+    </div>
   </div>
 </article>
