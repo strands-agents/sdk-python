@@ -1,0 +1,10 @@
+name: nvidia-nat-strands
+description: NVIDIA NeMo Agent Toolkit integration for Strands Agents enabling multi-agent coordination with NVIDIA's enterprise AI orchestration framework.
+integrationType: integration
+languages:
+  python:
+    package: nvidia-nat-strands
+    registry: https://pypi.org/project/nvidia-nat-strands/
+github: https://github.com/NVIDIA/NeMo-Agent-Toolkit
+maintainer: NVIDIA
+addedDate: 2026-07-19

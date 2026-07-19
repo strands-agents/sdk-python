@@ -1,0 +1,10 @@
+name: headroom-ai
+description: Token optimization library that compresses Strands agent conversations and tool outputs to reduce API costs and fit more context within model limits.
+integrationType: plugin
+languages:
+  python:
+    package: headroom-ai
+    registry: https://pypi.org/project/headroom-ai/
+github: https://github.com/chopratejas/headroom
+maintainer: chopratejas
+addedDate: 2026-07-19

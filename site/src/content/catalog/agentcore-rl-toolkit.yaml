@@ -1,0 +1,10 @@
+name: agentcore-rl-toolkit
+description: Toolkit for enabling reinforcement learning training workflows with Amazon Bedrock AgentCore, bridging Strands agents and RL environments.
+integrationType: integration
+languages:
+  python:
+    package: agentcore-rl-toolkit
+    registry: https://pypi.org/project/agentcore-rl-toolkit/
+github: https://github.com/awslabs/agentcore-rl-toolkit
+maintainer: awslabs
+addedDate: 2026-07-19

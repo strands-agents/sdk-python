@@ -1,0 +1,10 @@
+name: valyu-agentcore
+description: Valyu search tools for AWS Bedrock AgentCore providing web, financial, academic, biomedical, patent, and regulatory data search.
+integrationType: tool
+languages:
+  python:
+    package: valyu-agentcore
+    registry: https://pypi.org/project/valyu-agentcore/
+github: https://github.com/valyu-network/valyu-agentcore
+maintainer: valyu-network
+addedDate: 2026-07-19

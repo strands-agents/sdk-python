@@ -1,0 +1,11 @@
+name: temporal
+description: Durable execution for Strands agents via Temporal workflows, routing model calls and tool invocations through Temporal Activities so every agent step survives crashes and restarts.
+integrationType: integration
+languages:
+  python:
+    package: temporalio
+    registry: https://pypi.org/project/temporalio/
+github: https://github.com/temporalio/sdk-python
+maintainer: temporalio
+featured: true
+addedDate: 2026-07-19

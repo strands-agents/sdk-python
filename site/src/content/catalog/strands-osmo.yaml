@@ -1,0 +1,10 @@
+name: strands-osmo
+description: NVIDIA OSMO workflow orchestration tools for Strands Agents to submit, monitor, and debug multi-stage GPU compute pipelines.
+integrationType: tool
+languages:
+  python:
+    package: strands-osmo
+    registry: https://pypi.org/project/strands-osmo/
+github: https://github.com/cagataycali/strands-osmo
+maintainer: cagataycali
+addedDate: 2026-07-19

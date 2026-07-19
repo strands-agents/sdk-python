@@ -1,0 +1,10 @@
+name: llm-tracekit-strands
+description: OpenTelemetry instrumentation for Strands Agents that captures spans, traces, and metrics compatible with Coralogix and other OTel backends.
+integrationType: plugin
+languages:
+  python:
+    package: llm-tracekit-strands
+    registry: https://pypi.org/project/llm-tracekit-strands/
+github: https://github.com/coralogix/llm-tracekit
+maintainer: coralogix
+addedDate: 2026-07-19

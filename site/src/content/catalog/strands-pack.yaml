@@ -1,0 +1,10 @@
+name: strands-pack
+description: Custom tool library for Strands Agents providing a curated collection of reusable tools for common agent tasks.
+integrationType: tool
+languages:
+  python:
+    package: strands-pack
+    registry: https://pypi.org/project/strands-pack/
+github: https://github.com/labeveryday/strands-pack
+maintainer: labeveryday
+addedDate: 2026-07-19

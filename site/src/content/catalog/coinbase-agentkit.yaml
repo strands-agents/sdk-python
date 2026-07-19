@@ -1,0 +1,10 @@
+name: coinbase-agentkit-strands-agents
+description: Coinbase AgentKit extension for Strands Agents that provides onchain action tools for interacting with blockchain networks and wallets.
+integrationType: tool
+languages:
+  python:
+    package: coinbase-agentkit-strands-agents
+    registry: https://pypi.org/project/coinbase-agentkit-strands-agents/
+github: https://github.com/coinbase/agentkit
+maintainer: coinbase
+addedDate: 2026-07-19

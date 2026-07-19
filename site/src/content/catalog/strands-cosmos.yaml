@@ -1,0 +1,10 @@
+name: strands-cosmos
+description: NVIDIA Cosmos model provider for Strands Agents enabling physical AI reasoning, video understanding, and embodied intelligence tasks.
+integrationType: model-provider
+languages:
+  python:
+    package: strands-cosmos
+    registry: https://pypi.org/project/strands-cosmos/
+github: https://github.com/cagataycali/strands-cosmos
+maintainer: cagataycali
+addedDate: 2026-07-19
