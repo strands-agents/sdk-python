@@ -48,4 +48,48 @@ describe('buildStats', () => {
     expect(stats['strands-example']?.stars).toBe(42)
     expect(stats['strands-broken']).toEqual({ downloads: {} })
   })
+
+  it('keeps the previous value for a failing source while successful sources refresh', async () => {
+    const previous = {
+      'strands-example': {
+        stars: 40,
+        lastRelease: '2026-06-01',
+        downloads: { python: 90, typescript: 45 },
+      },
+    }
+    const stats = await buildStats(
+      [entries[0]!],
+      fetchers({
+        pypiDownloads: async () => {
+          throw new Error('rate limited')
+        },
+      }),
+      previous
+    )
+    expect(stats['strands-example']).toEqual({
+      stars: 42,
+      lastRelease: '2026-07-01',
+      downloads: { python: 90, typescript: 50 },
+    })
+  })
+
+  it('keeps previous github stats when the github fetch fails', async () => {
+    const previous = {
+      'strands-example': { stars: 40, lastRelease: '2026-06-01', downloads: { python: 90 } },
+    }
+    const stats = await buildStats(
+      [entries[0]!],
+      fetchers({
+        githubRepo: async () => {
+          throw new Error('boom')
+        },
+      }),
+      previous
+    )
+    expect(stats['strands-example']).toEqual({
+      stars: 40,
+      lastRelease: '2026-06-01',
+      downloads: { python: 100, typescript: 50 },
+    })
+  })
 })

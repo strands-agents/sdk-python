@@ -56,7 +56,7 @@ const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
     <span class="cat-links">
       {card.stars !== undefined && <span class="cat-stat" title="GitHub stars">★ {numberFormat.format(card.stars)}</span>}
       {card.downloads !== undefined && (
-        <span class="cat-stat" title="Downloads per week">⬇ {numberFormat.format(card.downloads)}</span>
+        <span class="cat-stat" title="Downloads per month">⬇ {numberFormat.format(card.downloads)}</span>
       )}
       <a class="cat-link" href={card.github} rel="noopener" aria-label={`${card.name} on GitHub`}>GitHub</a>
       {card.registryLinks.map((link) => (

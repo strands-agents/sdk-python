@@ -1,8 +1,6 @@
 {
   "ag-ui": {
-    "downloads": {
-      "python": 34629626
-    },
+    "downloads": {},
     "stars": 14802,
     "lastRelease": "2026-07-15"
   },
@@ -52,11 +50,7 @@
     "stars": 1
   },
   "cohere": {
-    "downloads": {
-      "python": 34352799
-    },
-    "stars": 6633,
-    "lastRelease": "2026-07-17"
+    "downloads": {}
   },
   "datadog-ai-guard": {
     "downloads": {
@@ -66,11 +60,7 @@
     "lastRelease": "2026-07-17"
   },
   "fireworksai": {
-    "downloads": {
-      "python": 34352799
-    },
-    "stars": 6633,
-    "lastRelease": "2026-07-17"
+    "downloads": {}
   },
   "grantex": {
     "downloads": {
@@ -86,11 +76,7 @@
     "stars": 37
   },
   "nebius-token-factory": {
-    "downloads": {
-      "python": 34352799
-    },
-    "stars": 6633,
-    "lastRelease": "2026-07-17"
+    "downloads": {}
   },
   "nvidia-nim": {
     "downloads": {
@@ -99,11 +85,7 @@
     "stars": 2
   },
   "ovhcloud-ai-endpoints": {
-    "downloads": {
-      "python": 34352799
-    },
-    "stars": 6633,
-    "lastRelease": "2026-07-17"
+    "downloads": {}
   },
   "respan": {
     "downloads": {
