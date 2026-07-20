@@ -71,28 +71,14 @@
   font-variant-numeric: tabular-nums;
 }
 
-.cat-rail-label {
-  font-size: var(--cat-text-meta);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--sl-color-gray-3);
-  font-weight: 700;
-  margin-bottom: 0.55rem;
-}
-
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 
-.cat-featured {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
-  gap: 0.9rem;
-}
-.cat-featured-section {
-  margin-bottom: 1.75rem;
-}
 .cat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  /* Uniform card size regardless of content: every row shares one height and
+     each card's internals reserve fixed space (see .cat-card-desc). */
+  grid-auto-rows: 1fr;
   gap: 0.9rem;
 }
 
@@ -115,11 +101,26 @@
   display: none;
 }
 
-/* Featured cards share the exact grid card anatomy (equal size by grid), with
-   a subtle accent tint instead of heavier chrome. */
+/* Featured entries live in the same grid (sorted first) and are marked purely
+   visually: accent border/tint plus a corner ribbon label. */
 .cat-card--featured {
-  border-color: color-mix(in srgb, var(--sl-color-accent) 30%, var(--sl-color-gray-5));
+  border-color: color-mix(in srgb, var(--sl-color-accent) 35%, var(--sl-color-gray-5));
   background: color-mix(in srgb, var(--sl-color-accent) 5%, var(--sl-color-bg-nav));
+}
+.cat-card--featured::before {
+  content: 'Featured';
+  position: absolute;
+  top: 0;
+  right: 0.9rem;
+  transform: translateY(-50%);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--cat-radius-pill);
+  color: var(--sl-color-text-invert, #fff);
+  background: var(--sl-color-accent);
 }
 
 /* Whole-card click: the title link stretches over the card; secondary links
@@ -210,11 +211,13 @@
   line-height: 1.5;
   margin: 0;
   flex-grow: 1;
-  /* Uniform card heights: clamp long descriptions to two lines. */
+  /* Uniform card heights: every description occupies exactly two lines —
+     longer text clamps, shorter text still reserves the space. */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: calc(2 * 1.5 * 0.84rem);
 }
 
 .cat-card-meta {
@@ -270,28 +273,141 @@
   margin-bottom: 0.7rem;
 }
 
-.cat-search-wrap {
-  position: relative;
+/* Search trigger button: styled like the global header search bar; opens the
+   dialog palette. */
+.cat-search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex: 1 1 14rem;
   max-width: 26rem;
-}
-.cat-search-icon {
-  position: absolute;
-  left: 0.7rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--sl-color-gray-3);
-  pointer-events: none;
-}
-.cat-search {
-  width: 100%;
-  padding: 0.5rem 0.7rem 0.5rem 2rem;
+  padding: 0.5rem 0.7rem;
   font-size: 0.9rem;
   font-family: inherit;
   border-radius: var(--cat-radius-control);
   border: 1px solid var(--sl-color-gray-5);
   background: var(--sl-color-bg);
+  color: var(--sl-color-gray-3);
+  cursor: pointer;
+  text-align: left;
+}
+.cat-search-trigger:hover {
+  border-color: var(--sl-color-gray-4);
+  color: var(--sl-color-gray-2);
+}
+.cat-search-trigger--active {
   color: var(--sl-color-white);
+  border-color: color-mix(in srgb, var(--sl-color-accent) 45%, var(--sl-color-gray-5));
+}
+.cat-search-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-search-icon {
+  color: var(--sl-color-gray-3);
+  flex-shrink: 0;
+}
+.cat-search-kbd {
+  font-size: 0.65rem;
+  font-family: var(--sl-font);
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 4px;
+  color: var(--sl-color-gray-3);
+  background: var(--sl-color-bg-nav);
+}
+
+/* Search dialog palette (mirrors the global Pagefind search modal shape). */
+.cat-dialog {
+  width: min(40rem, 90vw);
+  margin: 10vh auto auto;
+  padding: 0;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: var(--cat-radius-card);
+  background: var(--sl-color-bg-nav);
+  color: var(--sl-color-gray-2);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+}
+.cat-dialog::backdrop {
+  background: rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(2px);
+}
+.cat-dialog-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--sl-color-gray-5);
+  color: var(--sl-color-gray-3);
+}
+.cat-dialog-input {
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--sl-color-white);
+}
+.cat-dialog-close {
+  font-size: 0.65rem;
+  font-family: var(--sl-font);
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 4px;
+  color: var(--sl-color-gray-3);
+  background: transparent;
+  cursor: pointer;
+}
+.cat-dialog-close:hover {
+  color: var(--sl-color-white);
+}
+.cat-dialog-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem;
+  max-height: 55vh;
+  overflow: auto;
+}
+.cat-dialog-item {
+  margin: 0;
+}
+.cat-dialog-item[hidden] {
+  display: none;
+}
+.cat-dialog-item a {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: var(--cat-radius-control);
+  text-decoration: none;
+}
+.cat-dialog-item a:hover,
+.cat-dialog-item a:focus-visible {
+  background: color-mix(in srgb, var(--sl-color-accent) 10%, transparent);
+}
+.cat-dialog-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--sl-color-white);
+  white-space: nowrap;
+}
+.cat-dialog-desc {
+  font-size: 0.78rem;
+  color: var(--sl-color-gray-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-dialog-empty {
+  text-align: center;
+  color: var(--sl-color-gray-3);
+  font-size: 0.85rem;
+  padding: 1.5rem;
+  margin: 0;
 }
 
 /* Segmented control groups (mirrors .cl-lang / .cl-sdk). */

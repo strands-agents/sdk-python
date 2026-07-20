@@ -53,23 +53,43 @@ const description = 'Community-built tools, model providers, plugins, and integr
       <p class="cat-note"><span data-cat-count>{cards.length}</span> integrations</p>
     </div>
 
-    {
-      featured.length > 0 && (
-        <section class="cat-featured-section" aria-label="Featured integrations">
-          <p class="cat-rail-label">Featured</p>
-          <div class="cat-featured">
-            {featured.map((card) => (
-              <CatalogCard card={card} featured />
-            ))}
-          </div>
-        </section>
-      )
-    }
-
     <CatalogFilterBar types={typeFacets} showSdkFacet={showSdkFacet} />
     <div class="cat-grid" data-cat-grid>
-      {cards.map((card) => <CatalogCard card={card} />)}
+      {cards.map((card) => <CatalogCard card={card} featured={card.featured} />)}
     </div>
+
+    <dialog class="cat-dialog" data-cat-dialog aria-label="Search integrations">
+      <div class="cat-dialog-bar">
+        <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M15.5 14h-.8l-.3-.3a6.5 6.5 0 1 0-.7.7l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"
+          />
+        </svg>
+        <input
+          class="cat-dialog-input"
+          type="search"
+          placeholder="Search integrations…"
+          aria-label="Search integrations"
+          data-cat-search
+        />
+        <button class="cat-dialog-close" type="button" data-cat-dialog-close aria-label="Close search">Esc</button>
+      </div>
+      <ul class="cat-dialog-list" data-cat-dialog-list>
+        {cards.map((card) => (
+          <li
+            class="cat-dialog-item"
+            data-search={`${card.name} ${card.description}`.toLowerCase()}
+          >
+            <a href={card.external ? card.href : pathWithBase(card.href)} rel={card.external ? 'noopener' : undefined}>
+              <span class="cat-dialog-name">{card.name}</span>
+              <span class="cat-dialog-desc">{card.description}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <p class="cat-dialog-empty" data-cat-dialog-empty hidden>No integrations found.</p>
+    </dialog>
     <p class="cat-empty" data-cat-empty hidden>No integrations match the current filters.</p>
 
     <div class="cat-submit">
@@ -95,6 +115,11 @@ const description = 'Community-built tools, model providers, plugins, and integr
   const sdkBtns = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-sdk]'))
   const emptyEl = document.querySelector<HTMLElement>('[data-cat-empty]')
   const countEl = document.querySelector<HTMLElement>('[data-cat-count]')
+  const dialog = document.querySelector<HTMLDialogElement>('[data-cat-dialog]')
+  const dialogItems = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-dialog-list] .cat-dialog-item'))
+  const dialogEmpty = document.querySelector<HTMLElement>('[data-cat-dialog-empty]')
+  const searchOpenBtn = document.querySelector<HTMLElement>('[data-cat-search-open]')
+  const searchLabel = document.querySelector<HTMLElement>('[data-cat-search-label]')
 
   const state = queryToState(location.search)
 
@@ -117,6 +142,19 @@ const description = 'Community-built tools, model providers, plugins, and integr
     }
     if (emptyEl) emptyEl.hidden = visible > 0
     if (countEl) countEl.textContent = String(visible)
+    if (searchLabel) searchLabel.textContent = state.search.trim() || 'Search integrations…'
+    if (searchOpenBtn) searchOpenBtn.classList.toggle('cat-search-trigger--active', Boolean(state.search.trim()))
+
+    // Mirror the search into the dialog's result list (dialog matches on
+    // search text only; the grid behind it applies the full facet state).
+    const q = state.search.trim().toLowerCase()
+    let dialogVisible = 0
+    for (const item of dialogItems) {
+      const show = !q || (item.dataset.search || '').includes(q)
+      item.hidden = !show
+      if (show) dialogVisible++
+    }
+    if (dialogEmpty) dialogEmpty.hidden = dialogVisible > 0
 
     for (const btn of typeBtns) btn.setAttribute('aria-pressed', String(state.types.has(btn.dataset.catType || '')))
     for (const btn of langBtns) btn.setAttribute('aria-pressed', String(state.languages.has(btn.dataset.catLang || '')))
@@ -139,6 +177,33 @@ const description = 'Community-built tools, model providers, plugins, and integr
       apply()
     })
   }
+
+  // Search palette: the filter-bar trigger opens a modal dialog (mirroring the
+  // global site search UX); typing filters both the dialog list and the grid.
+  function openSearch() {
+    if (!dialog) return
+    dialog.showModal()
+    searchInput?.focus()
+    searchInput?.select()
+  }
+  function closeSearch() {
+    dialog?.close()
+  }
+  searchOpenBtn?.addEventListener('click', openSearch)
+  document.querySelector('[data-cat-dialog-close]')?.addEventListener('click', closeSearch)
+  dialog?.addEventListener('click', (e) => {
+    // Clicks on the backdrop land on the dialog element itself.
+    if (e.target === dialog) closeSearch()
+  })
+  dialog?.addEventListener('close', () => apply())
+  document.addEventListener('keydown', (e) => {
+    const target = e.target as HTMLElement
+    const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable
+    if (e.key === '/' && !typing && dialog && !dialog.open) {
+      e.preventDefault()
+      openSearch()
+    }
+  })
   for (const btn of typeBtns)
     btn.addEventListener('click', () => {
       toggle(state.types, btn.dataset.catType || '')
