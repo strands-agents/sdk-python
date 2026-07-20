@@ -1,9 +1,10 @@
 ---
 /**
  * Search trigger + facet controls for the catalog, following the changelog
- * page's control language (segmented groups, chip rail). Renders static
- * controls with data-cat-* hooks; the page script owns all behavior. Facets
- * are shared with the search dialog via CatalogFacets.
+ * page's control language (segmented groups). Renders static controls with
+ * data-cat-* hooks; the page script owns all behavior. Facets are shared
+ * with the search dialog via CatalogFacets; the type chips render in the
+ * page's left rail instead of here.
  */
 import CatalogFacets from './CatalogFacets.astro'
 import type { FacetOption } from './types'
@@ -11,9 +12,10 @@ import type { FacetOption } from './types'
 interface Props {
   types: FacetOption[]
   showSdkFacet: boolean
+  hasVerified: boolean
 }
 
-const { types, showSdkFacet } = Astro.props
+const { types, showSdkFacet, hasVerified } = Astro.props
 ---
 
 <form class="cat-filters" role="search" aria-label="Filter catalog" onsubmit="return false">
@@ -29,5 +31,5 @@ const { types, showSdkFacet } = Astro.props
       <kbd class="cat-search-kbd">/</kbd>
     </button>
   </div>
-  <CatalogFacets types={types} showSdkFacet={showSdkFacet} />
+  <CatalogFacets types={types} showSdkFacet={showSdkFacet} hasVerified={hasVerified} showTypes={false} />
 </form>

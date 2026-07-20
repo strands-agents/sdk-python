@@ -3,6 +3,9 @@
  * Facet controls (SDK, language, verified, type chips) shared by the filter
  * bar and the search dialog. Static markup with data-cat-* hooks; the page
  * script binds every instance document-wide, so multiple copies stay in sync.
+ *
+ * The filter bar hides the type chips (they live in the page's left rail);
+ * the dialog keeps them inline because its space is constrained.
  */
 import { LANG_ICONS } from './icons'
 import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
@@ -10,9 +13,11 @@ import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
 interface Props {
   types: FacetOption[]
   showSdkFacet: boolean
+  hasVerified: boolean
+  showTypes?: boolean
 }
 
-const { types, showSdkFacet } = Astro.props
+const { types, showSdkFacet, hasVerified, showTypes = true } = Astro.props
 
 const LANGUAGES = [
   { value: 'python', label: 'Python' },
@@ -47,23 +52,29 @@ const LANGUAGES = [
       ))
     }
   </div>
-  <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
-    <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-      <path fill="currentColor" d={VERIFIED_ICON} />
-    </svg>
-    Verified
-  </button>
-</div>
-<div class="cat-type-rail" role="group" aria-label="Type">
   {
-    types.map((t) => (
-      <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
-        <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-          <path fill="currentColor" d={TYPE_ICONS[t.value]} />
+    hasVerified && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
+        <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d={VERIFIED_ICON} />
         </svg>
-        {t.label}
-        <span class="cat-count">{t.count}</span>
+        Verified
       </button>
-    ))
+    )
   }
 </div>
+{
+  showTypes && (
+    <div class="cat-type-rail" role="group" aria-label="Type">
+      {types.map((t) => (
+        <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
+          <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d={TYPE_ICONS[t.value]} />
+          </svg>
+          {t.label}
+          <span class="cat-count">{t.count}</span>
+        </button>
+      ))}
+    </div>
+  )
+}

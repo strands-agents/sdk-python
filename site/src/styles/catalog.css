@@ -40,7 +40,8 @@
    (its :not() arguments carry element specificity). Cards must never carry
    external margins: with grid-auto-rows: 1fr, a margin on all-but-the-first
    card makes the first card render taller than the rest of its row. */
-.cat-grid > .cat-card {
+.cat-grid > .cat-card,
+.cat-grid > .cat-cta {
   margin: 0;
 }
 .cat-page :where(svg) {
@@ -80,7 +81,47 @@
 
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 
+/* Left type rail + grid, mirroring the changelog's .cl-body/.cl-rail layout. */
+.cat-body {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+.cat-rail {
+  width: 200px;
+  flex-shrink: 0;
+}
+.cat-rail-label {
+  font-size: var(--cat-text-meta);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+  font-weight: 700;
+  margin: 0 0 0.55rem;
+}
+.cat-rail-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.cat-rail-item {
+  margin: 0;
+  display: flex;
+}
+.cat-rail .cat-chip {
+  width: 100%;
+  text-align: left;
+}
+.cat-rail .cat-count {
+  margin-left: auto;
+}
+
 .cat-grid {
+  flex: 1;
+  min-width: 0;
   display: grid;
   /* min(20rem, 100%) keeps the track from forcing horizontal overflow on
      viewports narrower than the ideal card width. */
@@ -88,7 +129,7 @@
   /* Uniform card size regardless of content: every row shares one height and
      each card's internals reserve fixed space (see .cat-card-desc). */
   grid-auto-rows: 1fr;
-  gap: 0.9rem;
+  gap: 1.25rem;
 }
 
 .cat-card {
@@ -101,7 +142,7 @@
   min-width: 0;
   border: 1px solid var(--sl-color-hairline, var(--sl-color-gray-5));
   border-radius: var(--cat-radius-card);
-  padding: 1rem;
+  padding: 1.25rem;
   background: var(--sl-color-bg-nav);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -113,26 +154,10 @@
   display: none;
 }
 
-/* Featured entries live in the same grid (sorted first) and are marked purely
-   visually: accent border/tint plus a corner ribbon label. */
+/* Featured entries live in the same grid (sorted first) and are marked by a
+   Featured chip in the card head plus a light accent border tint. */
 .cat-card--featured {
-  border-color: color-mix(in srgb, var(--sl-color-accent) 35%, var(--sl-color-gray-5));
-  background: color-mix(in srgb, var(--sl-color-accent) 5%, var(--sl-color-bg-nav));
-}
-.cat-card--featured::before {
-  content: 'Featured';
-  position: absolute;
-  top: 0;
-  right: 0.9rem;
-  transform: translateY(-50%);
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  padding: 0.1rem 0.5rem;
-  border-radius: var(--cat-radius-pill);
-  color: var(--sl-color-text-invert, #fff);
-  background: var(--sl-color-accent);
+  border-color: color-mix(in srgb, var(--sl-color-accent) 25%, var(--sl-color-gray-5));
 }
 
 /* Whole-card click: the title link stretches over the card; secondary links
@@ -147,7 +172,8 @@
   border-color: var(--cat-accent-text);
 }
 
-/* Monogram tile: deterministic per-entry hue set inline via --cat-hue. */
+/* Type tile: the entry's integration-type glyph in a calm accent tint, so
+   cards of the same type share one mark and the tile reads as meaning. */
 .cat-tile {
   flex-shrink: 0;
   width: 2.5rem;
@@ -155,16 +181,9 @@
   display: grid;
   place-items: center;
   border-radius: 10px;
-  font-size: 1.15rem;
-  font-weight: 700;
-  color: hsl(var(--cat-hue) 45% 68%);
-  background: hsl(var(--cat-hue) 40% 45% / 0.16);
-  border: 1px solid hsl(var(--cat-hue) 40% 55% / 0.25);
-}
-[data-theme='light'] .cat-tile {
-  color: hsl(var(--cat-hue) 55% 32%);
-  background: hsl(var(--cat-hue) 50% 50% / 0.12);
-  border-color: hsl(var(--cat-hue) 45% 45% / 0.28);
+  color: var(--sl-color-gray-2);
+  background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sl-color-accent) 14%, transparent);
 }
 
 .cat-card-main {
@@ -172,7 +191,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.45rem;
 }
 
 /* Fixed card anatomy: title row, two-line description, one footer line.
@@ -221,7 +240,8 @@
   border-radius: var(--cat-radius-pill);
   line-height: 1.4;
 }
-.cat-flag--verified {
+.cat-flag--verified,
+.cat-flag--featured {
   color: var(--cat-accent-text);
   background: color-mix(in srgb, var(--sl-color-accent) 12%, transparent);
 }
@@ -233,7 +253,7 @@
 .cat-card-desc {
   color: var(--sl-color-gray-2);
   font-size: 0.84rem;
-  line-height: 1.5;
+  line-height: 1.6;
   margin: 0;
   flex-grow: 1;
   /* Uniform card heights: every description occupies exactly two lines —
@@ -262,9 +282,6 @@
   overflow: hidden;
 }
 .cat-type {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
   color: var(--sl-color-gray-3);
   white-space: nowrap;
 }
@@ -274,8 +291,14 @@
   text-overflow: ellipsis;
 }
 .cat-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.cat-stat svg {
+  flex-shrink: 0;
 }
 .cat-links {
   display: inline-flex;
@@ -299,7 +322,7 @@
 /* ── Filters ────────────────────────────────────────────────────────────── */
 
 .cat-filters {
-  margin-bottom: 1.1rem;
+  margin-bottom: 1.75rem;
 }
 .cat-filters-row,
 .cat-facet-row {
@@ -539,16 +562,81 @@
   font-size: 0.9rem;
   margin-block: 3rem;
 }
-.cat-submit {
+
+/* Submit CTA: a dashed "add yours" tile at the end of the grid. Not a
+   .cat-card, so the filter script never hides it. */
+.cat-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 0.45rem;
+  min-height: 8rem;
+  padding: 1.25rem;
+  border: 1px dashed color-mix(in srgb, var(--sl-color-accent) 40%, var(--sl-color-gray-5));
+  border-radius: var(--cat-radius-card);
+  background: color-mix(in srgb, var(--sl-color-accent) 3%, transparent);
+}
+.cat-cta-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--sl-color-white);
+  margin: 0;
+}
+.cat-cta-body {
+  font-size: 0.84rem;
+  line-height: 1.6;
+  color: var(--sl-color-gray-3);
+  margin: 0;
+}
+/* Button treatment mirrors the changelog's .cl-novel-btn. */
+.cat-cta-btn {
+  display: inline-block;
+  margin-top: 0.35rem;
+  padding: 0.4rem 1rem;
+  border-radius: var(--cat-radius-control);
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: var(--sl-color-accent);
+  color: var(--sl-color-text-invert);
+  text-decoration: none;
+  border: 1px solid var(--sl-color-accent);
+}
+.cat-cta-btn:hover {
+  background: color-mix(in srgb, var(--sl-color-accent) 85%, black);
+}
+
+.cat-disclaimer {
   margin-top: 2.5rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--sl-color-gray-5);
   text-align: center;
   color: var(--sl-color-gray-3);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
-.cat-submit a {
-  color: var(--cat-accent-text);
+
+@media (max-width: 800px) {
+  /* The rail collapses into a horizontal chip row above the grid. */
+  .cat-body {
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .cat-rail {
+    width: 100%;
+  }
+  .cat-rail-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+  }
+  .cat-rail-item {
+    display: inline-flex;
+  }
+  .cat-rail .cat-chip {
+    width: auto;
+  }
+  .cat-rail .cat-count {
+    margin-left: 0;
+  }
 }
 
 @media (max-width: 640px) {

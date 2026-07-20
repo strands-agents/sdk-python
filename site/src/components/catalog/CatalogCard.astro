@@ -7,12 +7,12 @@
  * The whole card is clickable via the stretched-link pattern: the title
  * anchor's ::after covers the card, and the secondary GitHub/registry links
  * sit above it with a raised z-index so they stay independently clickable.
- * Each entry gets a deterministic colored monogram tile (hue derived from its
- * name) so the grid reads visually without fetching external logos.
+ * Each entry's tile shows its integration-type glyph in a neutral accent
+ * tint, so the tile signals the type at a glance without external logos.
  */
 import type { CatalogCardModel } from '../../util/catalog'
 import { pathWithBase } from '../../util/links'
-import { tileHue } from './icons'
+import { DOWNLOAD_ICON, STAR_ICON } from './icons'
 import { TYPE_ICONS, TYPE_LABELS, VERIFIED_ICON } from './types'
 
 interface Props {
@@ -26,12 +26,10 @@ const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
 
 // Internal docs hrefs need the deploy base path; external URLs must not get it.
 const href = card.external ? card.href : pathWithBase(card.href)
-const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
 ---
 
 <article
   class:list={['cat-card', { 'cat-card--featured': featured }]}
-  style={`--cat-hue: ${tileHue(card.name)}`}
   data-name={card.name}
   data-type={card.integrationType}
   data-langs={card.languages.join(' ')}
@@ -39,13 +37,18 @@ const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
   data-sdk={card.sdk}
   data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
 >
-  <span class="cat-tile" aria-hidden="true">{monogram}</span>
+  <span class="cat-tile" aria-hidden="true">
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+      <path fill="currentColor" d={TYPE_ICONS[card.integrationType]} />
+    </svg>
+  </span>
   <div class="cat-card-main">
     <div class="cat-card-head">
       <a class="cat-card-title" href={href} rel={card.external ? 'noopener' : undefined} title={card.name}>
         {card.name}
       </a>
       {card.external && <span class="cat-external" aria-hidden="true">↗</span>}
+      {featured && <span class="cat-flag cat-flag--featured" title="Featured by the Strands team">Featured</span>}
       {
         card.badges.includes('verified') && (
           <span class="cat-flag cat-flag--verified" title="Verified by the Strands team">
@@ -58,11 +61,23 @@ const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
       }
       {card.badges.includes('new') && <span class="cat-flag cat-flag--new">New</span>}
       <span class="cat-card-stats">
-        {card.stars !== undefined && <span class="cat-stat" title="GitHub stars">★ {numberFormat.format(card.stars)}</span>}
+        {
+          card.stars !== undefined && (
+            <span class="cat-stat" title="GitHub stars">
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d={STAR_ICON} />
+              </svg>
+              {numberFormat.format(card.stars)}
+            </span>
+          )
+        }
         {
           card.downloads !== undefined && (
             <span class="cat-stat" title="Downloads per month">
-              ⬇ {numberFormat.format(card.downloads)}
+              <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+                <path fill="currentColor" d={DOWNLOAD_ICON} />
+              </svg>
+              {numberFormat.format(card.downloads)}
             </span>
           )
         }
@@ -71,12 +86,7 @@ const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
     <p class="cat-card-desc">{card.description}</p>
     <div class="cat-card-foot">
       <span class="cat-facts">
-        <span class="cat-type" title={TYPE_LABELS[card.integrationType]}>
-          <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d={TYPE_ICONS[card.integrationType]} />
-          </svg>
-          {TYPE_LABELS[card.integrationType]}
-        </span>
+        <span class="cat-type">{TYPE_LABELS[card.integrationType]}</span>
         <span class="cat-langs">
           {card.languages.map((l) => (l === 'python' ? 'Python' : 'TypeScript')).join(' · ')} · by {card.maintainer}
         </span>

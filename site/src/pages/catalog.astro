@@ -10,7 +10,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
 import CatalogFacets from '../components/catalog/CatalogFacets.astro'
-import { CATALOG_TYPES } from '../components/catalog/types'
+import { CATALOG_TYPES, TYPE_ICONS } from '../components/catalog/types'
 import { toCardModel, sortEntries, type CatalogStatsFile } from '../util/catalog'
 import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
@@ -21,8 +21,10 @@ const entries = await getCollection('catalog')
 const buildDate = new Date()
 const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.id], buildDate)))
 
-// The SDK facet renders only when the catalog actually has evals entries.
+// The SDK facet renders only when the catalog actually has evals entries;
+// the Verified filter only when at least one entry is actually verified.
 const showSdkFacet = cards.some((c) => c.sdk === 'evals')
+const hasVerified = cards.some((c) => c.badges.includes('verified'))
 
 const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
   value,
@@ -47,9 +49,35 @@ const description = 'Community-built tools, model providers, plugins, and integr
       <p class="cat-note"><span data-cat-count>{cards.length}</span> integrations</p>
     </div>
 
-    <CatalogFilterBar types={typeFacets} showSdkFacet={showSdkFacet} />
-    <div class="cat-grid" data-cat-grid>
-      {cards.map((card) => <CatalogCard card={card} featured={card.featured} />)}
+    <CatalogFilterBar types={typeFacets} showSdkFacet={showSdkFacet} hasVerified={hasVerified} />
+    <div class="cat-body">
+      <nav class="cat-rail" aria-label="Filter by type">
+        <p class="cat-rail-label" id="cat-type-label">Type</p>
+        <ul class="cat-rail-list" aria-labelledby="cat-type-label">
+          {
+            typeFacets.map((t) => (
+              <li class="cat-rail-item">
+                <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
+                  <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+                    <path fill="currentColor" d={TYPE_ICONS[t.value]} />
+                  </svg>
+                  {t.label}
+                  <span class="cat-count">{t.count}</span>
+                </button>
+              </li>
+            ))
+          }
+        </ul>
+      </nav>
+      <div class="cat-grid" data-cat-grid>
+        {cards.map((card) => <CatalogCard card={card} featured={card.featured} />)}
+        {/* Not a .cat-card: the filter script must never hide this tile. */}
+        <div class="cat-cta">
+          <h2 class="cat-cta-title">Add your integration</h2>
+          <p class="cat-cta-body">Built a tool, model provider, or plugin for Strands? List it here.</p>
+          <a class="cat-cta-btn" href={pathWithBase('/docs/community/get-featured/')}>Get featured</a>
+        </div>
+      </div>
     </div>
 
     <dialog class="cat-dialog" data-cat-dialog aria-label="Search integrations">
@@ -70,7 +98,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
         <button class="cat-dialog-close" type="button" data-cat-dialog-close aria-label="Close search">Esc</button>
       </div>
       <div class="cat-dialog-facets">
-        <CatalogFacets types={typeFacets} showSdkFacet={showSdkFacet} />
+        <CatalogFacets types={typeFacets} showSdkFacet={showSdkFacet} hasVerified={hasVerified} />
       </div>
       <ul class="cat-dialog-list" data-cat-dialog-list>
         {cards.map((card) => (
@@ -93,12 +121,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
     </dialog>
     <p class="cat-empty" data-cat-empty hidden>No integrations match the current filters.</p>
 
-    <div class="cat-submit">
-      <p>
-        Community packages are maintained by their authors — review before production use. Built something
-        for Strands? <a href={pathWithBase('/docs/community/get-featured/')}>Add your integration to the catalog</a>.
-      </p>
-    </div>
+    <p class="cat-disclaimer">Community packages are maintained by their authors — review before production use.</p>
   </div>
 </StarlightPage>
 
@@ -124,8 +147,10 @@ const description = 'Community-built tools, model providers, plugins, and integr
 
   const state = queryToState(location.search)
   // Without the SDK facet rendered (no evals entries), a ?sdk=evals URL would
-  // show an empty grid with no visible control to reset it.
+  // show an empty grid with no visible control to reset it. Same for a
+  // ?badge=verified URL when no entry is verified (Verified button hidden).
   if (sdkBtns.length === 0) state.sdk = 'agents'
+  if (badgeBtns.length === 0) state.badges.clear()
 
   function cardData(el: HTMLElement): CardFilterData {
     return {
