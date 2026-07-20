@@ -49,7 +49,7 @@ describe('candidateToYaml', () => {
     expect(yaml).toContain('# REVIEW: integrationType inferred as fallback — verify')
     expect(yaml).toContain('name: "strands-something"')
     expect(yaml).toContain('integrationType: tool')
-    expect(yaml).toContain('package: strands-something')
+    expect(yaml).toContain('package: "strands-something"')
     expect(yaml).toContain('maintainer: "ex"')
   })
 

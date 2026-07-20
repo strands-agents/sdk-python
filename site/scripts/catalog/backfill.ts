@@ -125,7 +125,7 @@ export function candidateToYaml(c: MergedCandidate): string {
   lines.push('languages:')
   if (c.python) {
     lines.push('  python:')
-    lines.push(`    package: ${c.python.package}`)
+    lines.push(`    package: ${JSON.stringify(c.python.package)}`)
     lines.push(`    registry: ${c.python.registry}`)
   }
   if (c.typescript) {

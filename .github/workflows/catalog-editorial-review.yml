@@ -50,12 +50,17 @@ jobs:
               pull_number: pr.number,
             });
 
-            const featuredRe = /^\+\s*featured:\s*true\b/;
+            // YAML boolean spellings the schema coerces to true (js-yaml also
+            // accepts yes/on variants).
+            const featuredRe = /^\+\s*featured:\s*(true|True|TRUE|yes|Yes|on|On)\b/;
             // Inline non-empty value: `badges: [x]` or `badges: verified` —
             // but not an explicitly empty `badges: []`.
             const badgesInlineRe = /^\+\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
             const badgesBlockRe = /^\+\s*badges:\s*(#.*)?$/;
-            const listItemRe = /^\+\s*-\s*\S/;
+            // `verified` is the only badge value the schema accepts, so match
+            // it exactly rather than any added list item in the rest of the
+            // patch (which could belong to a different block-style field).
+            const listItemRe = /^\+\s*-\s*['"]?verified['"]?\s*$/;
 
             const flagged = [];
             for (const file of files) {

@@ -217,10 +217,18 @@ const typescriptDisabled = resolvedLanguages !== undefined && !resolvedLanguages
     }
 
     function updateToggle(lang) {
-      document.querySelectorAll('language-toggle .lang-option').forEach(function (btn) {
-        if (!btn.disabled) {
-          btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
-        }
+      // On single-language pages the stored preference may be the disabled
+      // language; the available language is then shown as selected so exactly
+      // one radio is always checked.
+      var enabled = Array.prototype.filter.call(
+        document.querySelectorAll('language-toggle .lang-option'),
+        function (btn) { return !btn.disabled; }
+      );
+      var effectiveLang = enabled.some(function (btn) { return btn.dataset.lang === lang; })
+        ? lang
+        : enabled.length > 0 && enabled[0].dataset.lang;
+      enabled.forEach(function (btn) {
+        btn.setAttribute('aria-checked', btn.dataset.lang === effectiveLang ? 'true' : 'false');
       });
     }
 
