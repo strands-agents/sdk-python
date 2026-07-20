@@ -45,12 +45,12 @@ mcp.run(transport="streamable-http")
 Now let's walk through how to connect a Strands agent to our MCP server:
 
 ```python
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from strands import Agent
 from strands.tools.mcp.mcp_client import MCPClient
 
 def create_streamable_http_transport():
-   return streamablehttp_client("http://localhost:8000/mcp/")
+   return streamable_http_client("http://localhost:8000/mcp/")
 
 streamable_http_mcp_client = MCPClient(create_streamable_http_transport)
 

@@ -158,12 +158,12 @@ For HTTP-based MCP servers that use Streamable HTTP transport:
 <Tab label="Python">
 
 ```python
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from strands import Agent
 from strands.tools.mcp import MCPClient
 
 streamable_http_mcp_client = MCPClient(
-    lambda: streamablehttp_client("http://localhost:8000/mcp")
+    lambda: streamable_http_client("http://localhost:8000/mcp")
 )
 
 with streamable_http_mcp_client:
@@ -175,11 +175,11 @@ Additional properties like authentication can be configured:
 
 ```python
 import os
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from strands.tools.mcp import MCPClient
 
 github_mcp_client = MCPClient(
-    lambda: streamablehttp_client(
+    lambda: streamable_http_client(
         url="https://api.githubcopilot.com/mcp/",
         headers={"Authorization": f"Bearer {os.getenv('MCP_PAT')}"}
     )
