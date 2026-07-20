@@ -242,7 +242,7 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: calc(2 * 1.5 * 0.84rem);
+  min-height: 2lh;
 }
 
 .cat-card-foot {
@@ -555,9 +555,6 @@
   .cat-head {
     flex-direction: column;
     align-items: stretch;
-  }
-  .cat-links {
-    margin-left: 0;
   }
 }
 
