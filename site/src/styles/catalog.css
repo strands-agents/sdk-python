@@ -7,10 +7,9 @@
   /* Accent for TEXT/links; darkened in light mode for WCAG AA (mirrors
      --cl-accent-text in changelog.css). */
   --cat-accent-text: var(--sl-color-accent);
-  --cat-text-meta: 0.72rem;
+  --cat-text-meta: 0.78rem;
   --cat-radius-control: 8px;
   --cat-radius-card: 12px;
-  --cat-radius-pill: 999px;
 }
 [data-theme='light'] {
   --cat-accent-text: #067a39;
@@ -105,7 +104,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
+  gap: 0.2rem;
 }
 .cat-rail-item {
   margin: 0;
@@ -129,7 +128,7 @@
   /* Uniform card size regardless of content: every row shares one height and
      each card's internals reserve fixed space (see .cat-card-desc). */
   grid-auto-rows: 1fr;
-  gap: 1.25rem;
+  gap: 1.4rem;
 }
 
 .cat-card {
@@ -142,7 +141,7 @@
   min-width: 0;
   border: 1px solid var(--sl-color-hairline, var(--sl-color-gray-5));
   border-radius: var(--cat-radius-card);
-  padding: 1.25rem;
+  padding: 1.4rem;
   background: var(--sl-color-bg-nav);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
@@ -191,7 +190,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.6rem;
 }
 
 /* Fixed card anatomy: title row, two-line description, one footer line.
@@ -204,7 +203,7 @@
 }
 .cat-card-title {
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   color: var(--sl-color-white);
   text-decoration: none;
   overflow: hidden;
@@ -228,31 +227,39 @@
   color: var(--sl-color-gray-3);
 }
 
+/* Card flags mirror Starlight's sidebar .sl-badge treatment (see Badge.astro):
+   bordered rectangle, system-mono, xs type — so a "New" here reads identically
+   to a "New" in the docs side menu. The --sl-badge-* variables are defined
+   globally on :root by Starlight's Badge component. */
 .cat-flag {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0.1rem 0.45rem;
-  border-radius: var(--cat-radius-pill);
-  line-height: 1.4;
+  font-family: var(--sl-font-system-mono);
+  font-size: var(--sl-text-xs);
+  line-height: 1;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid;
+  border-radius: 0.25rem;
 }
+/* Featured/Verified use the tip variant — the same one the sidebar's New
+   badges use — so team-endorsed flags carry the familiar docs treatment. */
 .cat-flag--verified,
 .cat-flag--featured {
-  color: var(--cat-accent-text);
-  background: color-mix(in srgb, var(--sl-color-accent) 12%, transparent);
+  color: var(--sl-badge-tip-text);
+  background: var(--sl-badge-tip-bg);
+  border-color: var(--sl-badge-tip-border);
 }
+/* New uses the caution (orange) variant to stay distinct from tip. */
 .cat-flag--new {
-  color: var(--sl-color-orange, #e0964a);
-  background: color-mix(in srgb, var(--sl-color-orange, #e0964a) 12%, transparent);
+  color: var(--sl-badge-caution-text);
+  background: var(--sl-badge-caution-bg);
+  border-color: var(--sl-badge-caution-border);
 }
 
 .cat-card-desc {
   color: var(--sl-color-gray-2);
-  font-size: 0.84rem;
+  font-size: 0.92rem;
   line-height: 1.6;
   margin: 0;
   flex-grow: 1;
@@ -270,6 +277,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
+  margin-top: 0.15rem;
   font-size: var(--cat-text-meta);
   color: var(--sl-color-gray-3);
   min-width: 0;
@@ -302,21 +310,26 @@
 }
 .cat-links {
   display: inline-flex;
+  align-items: center;
   gap: 0.55rem;
   flex-shrink: 0;
   white-space: nowrap;
 }
-/* Secondary links sit above the stretched title link. */
+/* Secondary links sit above the stretched title link. Each holds a 14px brand
+   mark (GitHub / PyPI / npm) with a title tooltip and aria-label for the name. */
 .cat-link {
   position: relative;
   z-index: 1;
+  display: inline-flex;
+  align-items: center;
   color: var(--sl-color-gray-3);
   text-decoration: none;
 }
+.cat-link svg {
+  display: block;
+}
 .cat-link:hover {
   color: var(--cat-accent-text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 
 /* ── Filters ────────────────────────────────────────────────────────────── */
@@ -461,12 +474,12 @@
 }
 .cat-dialog-name {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   color: var(--sl-color-white);
   white-space: nowrap;
 }
 .cat-dialog-desc {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   color: var(--sl-color-gray-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -527,7 +540,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   line-height: 1.2;
   padding: 0.3rem 0.65rem;
   border-radius: var(--cat-radius-control);
