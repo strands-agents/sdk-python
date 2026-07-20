@@ -185,7 +185,7 @@ void orchestratorExample
   })
 
   const result = await orchestrator.invoke('My wifi does not work')
-  // result.stopReason === 'delegated'
+  // result.stopReason === 'toolUse'
   // The TechnicalSupport agent's response is returned directly
   void result
 }

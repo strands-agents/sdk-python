@@ -4,7 +4,7 @@
  * When a tool is configured with `delegate: true`, this plugin ensures:
  * 1. The delegation tool is the only tool called in the turn (single-call constraint)
  * 2. The agent loop exits immediately after a successful delegation (via stopEventLoop)
- * 3. The AgentResult is transformed with `stopReason: 'delegated'` and the tool's content
+ * 3. The AgentResult is transformed with `stopReason: 'toolUse'` and the tool's content
  * 4. Streaming events from the delegate agent are surfaced natively in the parent stream
  */
 
@@ -230,7 +230,7 @@ export class AgentDelegation implements Plugin {
    * AgentStreamStage middleware: transforms the AgentResult on delegation.
    *
    * When stopEventLoop was triggered by a delegation tool, consumes the stashed
-   * tool result and replaces the AgentResult with `stopReason: 'delegated'`
+   * tool result and replaces the AgentResult with `stopReason: 'toolUse'`
    * and the tool's content as `lastMessage`.
    */
   private async *_handleStream(
@@ -255,7 +255,7 @@ export class AgentDelegation implements Plugin {
     // Replace AgentResult with the delegation tool's content
     return {
       result: new AgentResult({
-        stopReason: 'delegated',
+        stopReason: 'toolUse',
         lastMessage: new Message({
           role: 'assistant',
           content: toContentBlocks(delegationBlock),

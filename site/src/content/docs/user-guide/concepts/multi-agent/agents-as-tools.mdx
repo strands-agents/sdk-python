@@ -355,7 +355,7 @@ flowchart LR
 --8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:delegation_basic"
 ```
 
-When the orchestrator calls a delegation tool and it succeeds, the agent loop exits immediately with `stopReason: 'delegated'`. The sub-agent's response reaches the caller verbatim without reformatting.
+When the orchestrator calls a delegation tool and it succeeds, the agent loop exits immediately with `stopReason: 'toolUse'`. The sub-agent's response reaches the caller verbatim without reformatting.
 
 ### Mixing Delegation and Regular Tools
 
