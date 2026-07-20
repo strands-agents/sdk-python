@@ -57,6 +57,18 @@
   flex-wrap: wrap;
   margin-bottom: 1.75rem;
 }
+.cat-head-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+.cat-head-actions .cat-cta-btn {
+  margin-top: 0;
+}
+.cat-head-actions .cat-note {
+  margin: 0;
+}
 .cat-title {
   font-size: clamp(2rem, 4vw, 2.75rem);
   font-weight: 700;
@@ -656,6 +668,11 @@
   .cat-head {
     flex-direction: column;
     align-items: stretch;
+  }
+  .cat-head-actions {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 }
 

@@ -41,12 +41,12 @@ const description = 'Community-built tools, model providers, plugins, and integr
     <div class="cat-head">
       <div>
         <h1 class="cat-title">Community Catalog</h1>
-        <p class="cat-subtitle">
-          Tools, model providers, and integrations built by the Strands community ·
-          <a href={pathWithBase('/docs/community/get-featured/')}>add yours</a>
-        </p>
+        <p class="cat-subtitle">Tools, model providers, and integrations built by the Strands community</p>
       </div>
-      <p class="cat-note"><span data-cat-count>{cards.length}</span> integrations</p>
+      <div class="cat-head-actions">
+        <a class="cat-cta-btn" href={pathWithBase('/docs/community/get-featured/')}>Add your integration</a>
+        <p class="cat-note"><span data-cat-count>{cards.length}</span> integrations</p>
+      </div>
     </div>
 
     <CatalogFilterBar types={typeFacets} showSdkFacet={showSdkFacet} hasVerified={hasVerified} />
