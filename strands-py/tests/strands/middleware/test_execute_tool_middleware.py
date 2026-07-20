@@ -72,6 +72,78 @@ def test_wrap_handler_receives_execute_tool_context(agent):
     assert isinstance(context.invocation_state, dict)
 
 
+def test_wrap_handler_runs_for_unknown_tool_with_tool_none(calculator_tool):
+    """Middleware observes an unknown-tool call with context.tool is None (matches TS).
+
+    TS runs the middleware chain for unknown tools too (context.tool === undefined), letting
+    middleware mock or route a tool the registry doesn't have. The chain must run and see the
+    call, while the unknown-tool error result still flows through.
+    """
+    received_contexts: list[ExecuteToolContext] = []
+    observed_results: list[ToolResultEvent] = []
+
+    # Model calls a tool that isn't registered.
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "ghost_tool", "input": {}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[calculator_tool], callback_handler=None)
+
+    async def observer(context, next_fn):
+        received_contexts.append(context)
+        async for event in next_fn(context):
+            if isinstance(event, ToolResultEvent):
+                observed_results.append(event)
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, observer)
+    agent("call the ghost")
+
+    # Middleware ran and saw the unknown-tool call with tool resolved to None.
+    assert len(received_contexts) == 1
+    assert received_contexts[0].tool is None
+    assert received_contexts[0].tool_use["name"] == "ghost_tool"
+    # The unknown-tool error result still flows through the chain.
+    assert len(observed_results) == 1
+    assert observed_results[0].tool_result["status"] == "error"
+    assert "ghost_tool" in observed_results[0].tool_result["content"][0]["text"]
+
+
+def test_wrap_can_mock_unknown_tool(calculator_tool):
+    """Middleware can short-circuit an unknown tool with a mock result (the key TS use case)."""
+    tool_use_msg = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "ghost_tool", "input": {}}}],
+    }
+    final_msg = {"role": "assistant", "content": [{"text": "done"}]}
+    model = MockedModelProvider([tool_use_msg, final_msg])
+    agent = Agent(model=model, tools=[calculator_tool], callback_handler=None)
+
+    async def mock_missing(context, next_fn):
+        if context.tool is None:
+            yield ToolResultEvent(
+                {"toolUseId": context.tool_use["toolUseId"], "status": "success", "content": [{"text": "mocked"}]}
+            )
+            return
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(ExecuteToolStage, mock_missing)
+    agent("call the ghost")
+
+    tool_result_messages = [
+        msg for msg in agent.messages if msg.get("role") == "user" and any("toolResult" in c for c in msg["content"])
+    ]
+    assert len(tool_result_messages) == 1
+    assert tool_result_messages[0]["content"][0]["toolResult"] == {
+        "toolUseId": "t1",
+        "status": "success",
+        "content": [{"text": "mocked"}],
+    }
+
+
 def test_wrap_short_circuit_with_cached_result(agent):
     """Middleware can short-circuit by yielding a cached ToolResultEvent without calling next."""
 

@@ -190,6 +190,9 @@ class ToolExecutor(abc.ABC):
                 invocation_state = before_event.invocation_state
 
                 if not selected_tool:
+                    # Unknown tool: log here, but do NOT short-circuit. The middleware chain
+                    # still runs with ctx.tool = None (matching TS), so middleware can observe
+                    # or mock the call; the terminal produces the unknown-tool error result.
                     if tool_func == selected_tool:
                         logger.error(
                             "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
@@ -202,25 +205,6 @@ class ToolExecutor(abc.ABC):
                             tool_name,
                             str(tool_use.get("toolUseId")),
                         )
-
-                    result: ToolResult = {
-                        "toolUseId": str(tool_use.get("toolUseId")),
-                        "status": "error",
-                        "content": [{"text": f"Unknown tool: {tool_name}"}],
-                    }
-
-                    unknown_tool_error = Exception(f"Unknown tool: {tool_name}")
-                    after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                        agent, selected_tool, tool_use, invocation_state, result, exception=unknown_tool_error
-                    )
-                    # Check if retry requested for unknown tool error
-                    # Use getattr because BidiAfterToolCallEvent doesn't have retry attribute
-                    if getattr(after_event, "retry", False):
-                        logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
-                        continue
-                    yield ToolResultEvent(after_event.result, exception=after_event.exception)
-                    tool_results.append(after_event.result)
-                    return
                 if structured_output_context.is_enabled:
                     kwargs["structured_output_context"] = structured_output_context
 
@@ -440,10 +424,22 @@ def _make_execute_tool_terminal(
     """
 
     async def terminal(ctx: ExecuteToolContext) -> AsyncGenerator[TypedEvent, None]:
-        # ctx.tool is always set here — the caller resolves the tool before invoking the
-        # chain and handles the "unknown tool" case separately.
-        assert ctx.tool is not None
         tool_use = ctx.tool_use
+
+        # Unknown tool (not in the registry): the chain still ran so middleware could observe
+        # or mock it, but with no tool to invoke the terminal yields the error result. The
+        # message/exception mirror the pre-middleware unknown-tool contract.
+        if ctx.tool is None:
+            tool_name = tool_use["name"]
+            yield ToolResultEvent(
+                {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": f"Unknown tool: {tool_name}"}],
+                },
+                exception=Exception(f"Unknown tool: {tool_name}"),
+            )
+            return
 
         # Mirrors ToolExecutor._stream's original dispatch: built-in AgentTools yield
         # TypedEvents directly (ending in a ToolResultEvent); other tools yield raw values

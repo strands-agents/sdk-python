@@ -154,6 +154,14 @@ ExecuteToolStage terminal, so middleware always observes a *result*, not a throw
 a tool-raised interrupt still halts. In practice decorated `@tool` tools already self-convert
 their exceptions; this only affects custom `AgentTool`s whose `stream()` raises directly.
 
+## Unknown tools run through the chain
+
+When the model calls a tool that isn't in the registry, the middleware chain still runs — with
+`ExecuteToolContext.tool` set to `None` — and the terminal produces the "Unknown tool" error
+result (matching TS `_executeToolCore`, which runs the chain with `context.tool === undefined`).
+This lets middleware observe or mock a tool the registry doesn't have, rather than the executor
+short-circuiting before the chain. `ExecuteToolContext.tool` is therefore `AgentTool | None`.
+
 ## System prompt as a union type
 
 `InvokeModelContext.system_prompt` is `str | list[SystemContentBlock] | None` (a single union field). The terminal decomposes this into the two-param form needed by `Model.stream()` via `split_system_prompt()`.
