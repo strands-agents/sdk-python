@@ -1,5 +1,5 @@
 name: cohere
-description: Cohere LLM
+description: Cohere language models accessed through the Strands Agents OpenAI-compatibility layer, requiring only the strands-agents[openai] extra.
 integrationType: model-provider
 languages:
   python:

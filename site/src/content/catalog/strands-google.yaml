@@ -1,5 +1,5 @@
 name: strands-google
-description: Google API integration
+description: Tools for Strands Agents to access 200+ Google APIs including Gmail, Drive, Calendar, YouTube, Sheets, and Docs through a unified interface.
 integrationType: tool
 languages:
   python:

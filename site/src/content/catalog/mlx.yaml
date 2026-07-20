@@ -1,5 +1,5 @@
 name: mlx
-description: MLX
+description: Apple's MLX framework as a local model provider for Strands Agents, enabling offline inference, LoRA fine-tuning, and vision models on Apple Silicon Macs.
 integrationType: model-provider
 languages:
   python:

@@ -1,5 +1,5 @@
 name: datadog-ai-guard
-description: Real-time AI security with Datadog AI Guard
+description: Datadog AI Guard plugin for Strands Agents that inspects and blocks prompt injection, jailbreaking, data exfiltration, and destructive tool calls in real time against configurable security policies.
 integrationType: plugin
 languages:
   python:

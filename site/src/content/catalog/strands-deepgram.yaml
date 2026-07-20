@@ -1,5 +1,5 @@
 name: strands-deepgram
-description: Deepgram speech-to-text, text-to-speech, and audio intelligence
+description: Deepgram AI speech platform tools for Strands Agents, providing speech-to-text transcription, text-to-speech synthesis, and audio intelligence including sentiment analysis and topic detection.
 integrationType: tool
 languages:
   python:

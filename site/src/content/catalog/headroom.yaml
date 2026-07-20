@@ -1,5 +1,5 @@
 name: headroom-ai
-description: Token optimization library that compresses Strands agent conversations and tool outputs to reduce API costs and fit more context within model limits.
+description: Framework-agnostic context compression library that reduces LLM token usage 60–95% on JSON and 15–20% on code across agent frameworks including Strands, LangChain, and Claude Code.
 integrationType: plugin
 languages:
   python:

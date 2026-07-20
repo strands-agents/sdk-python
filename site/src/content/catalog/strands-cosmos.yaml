@@ -1,5 +1,5 @@
 name: strands-cosmos
-description: NVIDIA Cosmos model provider for Strands Agents enabling physical AI reasoning, video understanding, and embodied intelligence tasks.
+description: NVIDIA Cosmos multimodal model provider for Strands Agents, enabling joint understanding and generation of text, images, video, audio, and action for physical AI applications.
 integrationType: model-provider
 languages:
   python:

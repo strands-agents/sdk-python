@@ -1,5 +1,5 @@
 name: ovhcloud-ai-endpoints
-description: OVHcloud AI Endpoints
+description: OVHcloud AI Endpoints, a European cloud provider's OpenAI-compatible inference service for Strands Agents with GDPR-compliant data sovereignty across 40 data centers.
 integrationType: model-provider
 languages:
   python:

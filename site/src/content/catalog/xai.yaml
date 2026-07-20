@@ -1,5 +1,5 @@
 name: xai
-description: xAI Grok
+description: xAI's Grok family of large language models integrated with Strands Agents, including server-side tools for real-time X platform access, web search, and code execution.
 integrationType: model-provider
 languages:
   python:

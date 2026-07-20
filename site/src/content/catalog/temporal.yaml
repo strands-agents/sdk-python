@@ -3,7 +3,7 @@ description: Durable execution for Strands agents via Temporal workflows, routin
 integrationType: integration
 languages:
   python:
-    package: temporalio
+    package: temporalio[strands-agents]
     registry: https://pypi.org/project/temporalio/
 github: https://github.com/temporalio/sdk-python
 maintainer: temporalio

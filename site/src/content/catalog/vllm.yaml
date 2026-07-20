@@ -1,5 +1,5 @@
 name: vllm
-description: vLLM
+description: vLLM open-source inference server as a Strands Agents model provider with Token-In/Token-Out (TITO) capture and Agent Lightning integration for RL training without retokenization drift.
 integrationType: model-provider
 languages:
   python:

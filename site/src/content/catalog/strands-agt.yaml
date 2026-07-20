@@ -1,5 +1,5 @@
 name: strands-agt
-description: Deterministic policy enforcement via Microsoft Agent Governance Toolkit
+description: Microsoft Agent Governance Toolkit integration for Strands Agents that enforces YAML-defined allow/deny/steer policies on tool calls deterministically without model judgment.
 integrationType: intervention
 languages:
   python:

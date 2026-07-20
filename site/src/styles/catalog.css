@@ -163,18 +163,31 @@
   gap: 0.3rem;
 }
 
+/* Fixed card anatomy: title row, two-line description, one footer line.
+   Nothing wraps — long content ellipsizes so every card is identical. */
 .cat-card-head {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  flex-wrap: wrap;
+  min-width: 0;
 }
 .cat-card-title {
   font-weight: 600;
   font-size: 0.95rem;
   color: var(--sl-color-white);
   text-decoration: none;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cat-card-stats {
+  display: inline-flex;
+  gap: 0.55rem;
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--cat-text-meta);
+  color: var(--sl-color-gray-3);
 }
 .cat-card:hover .cat-card-title {
   color: var(--cat-accent-text);
@@ -220,13 +233,21 @@
   min-height: calc(2 * 1.5 * 0.84rem);
 }
 
-.cat-card-meta {
+.cat-card-foot {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.7rem;
-  flex-wrap: wrap;
   font-size: var(--cat-text-meta);
   color: var(--sl-color-gray-3);
+  min-width: 0;
+}
+.cat-facts {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  overflow: hidden;
 }
 .cat-type {
   display: inline-flex;
@@ -237,6 +258,8 @@
 }
 .cat-langs {
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cat-stat {
   font-variant-numeric: tabular-nums;
@@ -245,7 +268,8 @@
 .cat-links {
   display: inline-flex;
   gap: 0.55rem;
-  margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 /* Secondary links sit above the stretched title link. */
 .cat-link {

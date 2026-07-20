@@ -1,5 +1,5 @@
 name: agentcore-memory
-description: Session manager backed by Amazon Bedrock AgentCore Memory, with short-term conversation persistence and long-term memory strategies
+description: Amazon Bedrock AgentCore Memory session manager for Strands Agents providing short-term conversation persistence and long-term memory strategies such as user preferences and session summaries.
 integrationType: session-manager
 featured: true
 languages:

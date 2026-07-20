@@ -1,5 +1,5 @@
 name: fireworksai
-description: Fireworks AI
+description: Fireworks AI open-source model inference accessed through the Strands Agents OpenAI-compatibility layer, requiring only the strands-agents[openai] extra.
 integrationType: model-provider
 languages:
   python:

@@ -1,5 +1,5 @@
 name: strands-apify
-description: Web scraping for social media, search engines, e-commerce, and more via Apify Actors
+description: Apify platform integration giving Strands Agents access to thousands of pre-built Actors for web scraping, social media, search engines, and e-commerce crawling.
 integrationType: tool
 languages:
   python:

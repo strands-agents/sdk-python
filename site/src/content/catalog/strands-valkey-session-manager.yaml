@@ -1,5 +1,5 @@
 name: strands-valkey-session-manager
-description: Valkey session manager
+description: Valkey/Redis-backed session manager for Strands Agents that persists conversation history with low latency, supporting distributed deployments on ElastiCache and Upstash.
 integrationType: session-manager
 languages:
   python:

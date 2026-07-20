@@ -1,5 +1,5 @@
 name: strands-pack
-description: Custom tool library for Strands Agents providing a curated collection of reusable tools for common agent tasks.
+description: Collection of 54 ready-to-use tools for Strands Agents spanning AI media generation, Google Workspace, AWS services, social media, databases, and smart home integration.
 integrationType: tool
 languages:
   python:
