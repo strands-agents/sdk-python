@@ -82,7 +82,9 @@
 
 .cat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  /* min(20rem, 100%) keeps the track from forcing horizontal overflow on
+     viewports narrower than the ideal card width. */
+  grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr));
   /* Uniform card size regardless of content: every row shares one height and
      each card's internals reserve fixed space (see .cat-card-desc). */
   grid-auto-rows: 1fr;
@@ -94,6 +96,9 @@
   display: flex;
   gap: 0.85rem;
   align-items: flex-start;
+  /* Grid items default to min-width auto; without this a card's nowrap
+     footer would widen its track past the container on narrow screens. */
+  min-width: 0;
   border: 1px solid var(--sl-color-hairline, var(--sl-color-gray-5));
   border-radius: var(--cat-radius-card);
   padding: 1rem;
