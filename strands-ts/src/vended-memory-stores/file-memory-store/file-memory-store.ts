@@ -11,7 +11,7 @@ import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { Storage } from '../../storage/storage.js'
 import type { FileMemoryStoreConfig } from './types.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
-import { DEFAULT_MAX_SEARCH_RESULTS, tokenize } from '../../memory/search/keyword.js'
+import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 
 const KNOWLEDGE_PREFIX = 'knowledge/'
 const FACTS_PREFIX = `${KNOWLEDGE_PREFIX}facts/`
@@ -120,11 +120,7 @@ export class FileMemoryStore implements MemoryStore {
             const { description, body } = parseFrontmatter(content)
             const searchable = `${basename(key)} ${description} ${body}`
 
-            let relevanceScore = 0
-            for (const token of tokenize(searchable)) {
-              if (queryTokens.has(token)) relevanceScore++
-            }
-
+            const relevanceScore = tokenOverlapScore(queryTokens, searchable)
             if (relevanceScore === 0) return null
             return {
               entry: {
