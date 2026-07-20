@@ -73,14 +73,12 @@ describe('mergeCandidates – malformed github URLs', () => {
     const withPrefix: RegistryCandidate[] = [
       { source: 'pypi', name: 'bad-url-pkg', description: 'Has bad url', github: 'See https://github.com/x/bad-url-pkg', registry: 'https://pypi.org/project/bad-url-pkg/' },
     ]
-    expect(() => mergeCandidates(withPrefix, [], [])).not.toThrow()
     expect(mergeCandidates(withPrefix, [], [])).toHaveLength(0)
 
     // Scheme-less URL
     const noScheme: RegistryCandidate[] = [
       { source: 'pypi', name: 'no-scheme-pkg', description: 'Has no scheme', github: 'github.com/x/no-scheme-pkg', registry: 'https://pypi.org/project/no-scheme-pkg/' },
     ]
-    expect(() => mergeCandidates(noScheme, [], [])).not.toThrow()
     expect(mergeCandidates(noScheme, [], [])).toHaveLength(0)
   })
 })

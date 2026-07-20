@@ -6,12 +6,7 @@
  * are shared with the search dialog via CatalogFacets.
  */
 import CatalogFacets from './CatalogFacets.astro'
-
-interface FacetOption {
-  value: string
-  label: string
-  count: number
-}
+import type { FacetOption } from './types'
 
 interface Props {
   types: FacetOption[]

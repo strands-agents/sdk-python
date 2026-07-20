@@ -11,6 +11,8 @@
 import { existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
+import { fetchJson, githubApiHeaders } from './http'
+
 export interface RegistryCandidate {
   source: 'pypi' | 'npm' | 'github'
   name: string
@@ -141,12 +143,6 @@ export function candidateToYaml(c: MergedCandidate): string {
 
 // ── Discovery (live) ─────────────────────────────────────────────────────────
 
-async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<any> {
-  const res = await fetch(url, { headers })
-  if (!res.ok) throw new Error(`status=${res.status} url=${url}`)
-  return res.json()
-}
-
 async function discoverPypi(): Promise<RegistryCandidate[]> {
   // PyPI's XML-RPC search is dead; use the simple JSON search on pypi.org via
   // the public search page API is unstable — query the JSON metadata of known
@@ -154,14 +150,16 @@ async function discoverPypi(): Promise<RegistryCandidate[]> {
   // packages whose name matches strands-*. libraries.io is an alternative if
   // this misses too much.
   const results: RegistryCandidate[] = []
-  const search = await fetchJson('https://pypi.org/search/?q=strands&format=json').catch(() => null)
+  const search = (await fetchJson('https://pypi.org/search/?q=strands&format=json').catch(() => null)) as {
+    results?: { name: string }[]
+  } | null
   const names: string[] =
-    search?.results?.map((r: any) => r.name) ??
+    search?.results?.map((r) => r.name) ??
     // Fallback: GitHub code-search-derived names handled in main(); return empty here.
     []
   for (const name of names) {
     try {
-      const meta = await fetchJson(`https://pypi.org/pypi/${name}/json`)
+      const meta = (await fetchJson(`https://pypi.org/pypi/${name}/json`)) as { info: any }
       const info = meta.info
       const repoUrl: string | undefined =
         info.project_urls?.Source || info.project_urls?.Repository || info.project_urls?.Homepage
@@ -182,8 +180,10 @@ async function discoverPypi(): Promise<RegistryCandidate[]> {
 }
 
 async function discoverNpm(): Promise<RegistryCandidate[]> {
-  const data = await fetchJson('https://registry.npmjs.org/-/v1/search?text=strands%20agents&size=100')
-  return (data.objects as any[])
+  const data = (await fetchJson('https://registry.npmjs.org/-/v1/search?text=strands%20agents&size=100')) as {
+    objects: any[]
+  }
+  return data.objects
     .map((o) => o.package)
     .filter((p) => /strands/i.test(p.name) || /strands/i.test(p.description || ''))
     .map((p) => ({
@@ -197,13 +197,11 @@ async function discoverNpm(): Promise<RegistryCandidate[]> {
 }
 
 async function discoverGithub(): Promise<RegistryCandidate[]> {
-  const headers: Record<string, string> = { accept: 'application/vnd.github+json' }
-  if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`
-  const data = await fetchJson(
+  const data = (await fetchJson(
     'https://api.github.com/search/repositories?q=strands+agents+in:name,description,topics&per_page=100',
-    headers
-  )
-  return (data.items as any[]).map((r) => ({
+    githubApiHeaders()
+  )) as { items: any[] }
+  return data.items.map((r) => ({
     source: 'github' as const,
     name: r.name as string,
     description: (r.description as string) || '',
@@ -219,15 +217,15 @@ if (isDirectRun) {
   const catalogDir = path.resolve('src/content/catalog')
   const [pypi, npm, github] = await Promise.all([
     discoverPypi().catch((e) => {
-      console.error(`source=pypi | discovery failed, continuing with other sources: ${e}`)
+      console.error('source=pypi | discovery failed, continuing with other sources', e)
       return [] as RegistryCandidate[]
     }),
     discoverNpm().catch((e) => {
-      console.error(`source=npm | discovery failed, continuing with other sources: ${e}`)
+      console.error('source=npm | discovery failed, continuing with other sources', e)
       return [] as RegistryCandidate[]
     }),
     discoverGithub().catch((e) => {
-      console.error(`source=github | discovery failed, continuing with other sources: ${e}`)
+      console.error('source=github | discovery failed, continuing with other sources', e)
       return [] as RegistryCandidate[]
     }),
   ])

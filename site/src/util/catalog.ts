@@ -60,9 +60,7 @@ export function toCardModel(
   // Strands instructions page, then the bare GitHub repo.
   const docsHref = data.docsPage ? `/${data.docsPage}/` : undefined
 
-  const pythonDownloads = stats?.downloads?.python ?? 0
-  const typescriptDownloads = stats?.downloads?.typescript ?? 0
-  const totalDownloads = pythonDownloads + typescriptDownloads
+  const totalDownloads = (stats?.downloads?.python ?? 0) + (stats?.downloads?.typescript ?? 0)
 
   return {
     id,

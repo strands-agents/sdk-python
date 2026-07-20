@@ -47,7 +47,7 @@ const SLUG_RULES: SlugRule[] = [
     to: 'docs/examples',
   },
 
-  // community-packages was replaced by the interactive catalog page
+  // community-packages content lives on the interactive catalog page
   {
     match: exactly('docs/community/community-packages'),
     to: 'catalog',

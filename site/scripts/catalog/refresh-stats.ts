@@ -12,6 +12,8 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
 
+import { fetchJson, githubApiHeaders } from './http'
+
 export interface StatsEntry {
   id: string
   github?: string
@@ -75,18 +77,6 @@ export async function buildStats(
 
 // ── Live fetchers ─────────────────────────────────────────────────────────────
 
-function githubApiHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { accept: 'application/vnd.github+json' }
-  if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`
-  return headers
-}
-
-async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
-  const res = await fetch(url, { headers })
-  if (!res.ok) throw new Error(`status=${res.status} url=${url}`)
-  return res.json()
-}
-
 export const liveFetchers: StatsFetchers = {
   async githubRepo(repoUrl) {
     // Keep only the org/repo segments so tree/blob URLs resolve to the repo.
@@ -130,17 +120,16 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
   const entries: StatsEntry[] = []
   for (const f of readdirSync(catalogDir)) {
     if (!f.endsWith('.yaml')) continue
+    const id = f.replace(/\.yaml$/, '')
     try {
       const data = yaml.load(readFileSync(path.join(catalogDir, f), 'utf-8')) as {
         github?: string
         languages?: { python?: { package: string }; typescript?: { package: string } }
       }
       if (!data?.github || typeof data.github !== 'string') {
-        const id = f.replace(/\.yaml$/, '')
         console.warn(`entry=${id} | malformed yaml, skipping`)
         continue
       }
-      const id = f.replace(/\.yaml$/, '')
       const languages = data?.languages ?? {}
       const entry: StatsEntry = { id }
       // Entries anchored to the SDK itself (no dedicated package or repo) must
@@ -168,7 +157,6 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
       }
       entries.push(entry)
     } catch (err) {
-      const id = f.replace(/\.yaml$/, '')
       console.warn(`entry=${id} | malformed yaml, skipping`, err)
     }
   }

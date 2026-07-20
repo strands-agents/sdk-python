@@ -64,3 +64,14 @@ export const CATALOG_TYPES = [
 
 export const TYPE_LABELS: Record<string, string> = Object.fromEntries(CATALOG_TYPES.map((t) => [t.value, t.label]))
 export const TYPE_ICONS: Record<string, string> = Object.fromEntries(CATALOG_TYPES.map((t) => [t.value, t.icon]))
+
+/** Shield-check glyph for the verified badge (cards and the verified facet). */
+export const VERIFIED_ICON =
+  'M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1.5 15L7 12.5 8.4 11l2.1 2.1 5.1-5.1L17 9.4 10.5 16z'
+
+/** A facet choice (value + display label) with its entry count. */
+export interface FacetOption {
+  value: string
+  label: string
+  count: number
+}
