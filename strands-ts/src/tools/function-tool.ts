@@ -1,18 +1,9 @@
-import { createErrorResult, Tool } from './tool.js'
+import { createErrorResult, createSuccessResult, Tool } from './tool.js'
 import type { InvokableTool, ToolContext } from './tool.js'
 import { ToolStreamEvent } from './tool.js'
 import type { ToolSpec } from './types.js'
 import type { JSONSchema, JSONValue } from '../types/json.js'
-import { deepCopy } from '../types/json.js'
-import {
-  JsonBlock,
-  TextBlock,
-  ToolResultBlock,
-  toolResultContentFromData,
-  type ToolResultContent,
-  type ToolResultContentData,
-} from '../types/messages.js'
-import { DocumentBlock, ImageBlock, VideoBlock } from '../types/media.js'
+import { ToolResultBlock } from '../types/messages.js'
 import { InterruptError } from '../interrupt.js'
 
 /**
@@ -195,14 +186,14 @@ export class FunctionTool extends Tool implements InvokableTool<unknown, JSONVal
         }
 
         // The generator's return value (when done = true) is wrapped in ToolResultBlock
-        return this._wrapInToolResult(iterResult.value, toolUse.toolUseId)
+        return createSuccessResult(iterResult.value, toolUse.toolUseId)
       } else if (result instanceof Promise) {
         // Handle promise: await and wrap in ToolResultBlock
         const value = await result
-        return this._wrapInToolResult(value, toolUse.toolUseId)
+        return createSuccessResult(value, toolUse.toolUseId)
       } else {
         // Handle synchronous value: wrap in ToolResultBlock
-        return this._wrapInToolResult(result, toolUse.toolUseId)
+        return createSuccessResult(result, toolUse.toolUseId)
       }
     } catch (error) {
       // Re-throw InterruptError to allow interrupt handling in agent loop
@@ -239,129 +230,5 @@ export class FunctionTool extends Tool implements InvokableTool<unknown, JSONVal
     }
 
     return (await result) as JSONValue
-  }
-
-  /**
-   * Wraps a value in a ToolResultBlock with success status.
-   *
-   * Due to AWS Bedrock limitations (only accepts objects as JSON content), the following
-   * rules are applied:
-   * - Content blocks (TextBlock, JsonBlock, ImageBlock, VideoBlock, DocumentBlock) → passed through directly
-   * - Arrays of content blocks → used directly as content array
-   * - Strings → TextBlock
-   * - Numbers, Booleans → TextBlock (converted to string)
-   * - null, undefined → TextBlock containing the literal "null"
-   * - Objects → JsonBlock (with deep copy)
-   * - Arrays (non-content blocks) → JsonBlock wrapped in \{ $value: array \} (with deep copy)
-   *
-   * @param value - The value to wrap (can be any type)
-   * @param toolUseId - The tool use ID for the ToolResultBlock
-   * @returns A ToolResultBlock containing the value
-   */
-  private _wrapInToolResult(value: unknown, toolUseId: string): ToolResultBlock {
-    try {
-      // Handle media blocks - pass through directly
-      if (value instanceof DocumentBlock || value instanceof ImageBlock || value instanceof VideoBlock) {
-        return new ToolResultBlock({
-          toolUseId,
-          status: 'success',
-          content: [value],
-        })
-      }
-
-      // Represent null/undefined as the JSON literal "null" for parity with the Python SDK
-      if (value === null || value === undefined) {
-        return new ToolResultBlock({
-          toolUseId,
-          status: 'success',
-          content: [new TextBlock('null')],
-        })
-      }
-
-      // Handle content blocks - class instances or plain data objects
-      const contentBlock = this._asToolResultContent(value)
-      if (contentBlock) {
-        return new ToolResultBlock({
-          toolUseId,
-          status: 'success',
-          content: [contentBlock],
-        })
-      }
-
-      // Handle primitives (strings, numbers, booleans) as text content
-      // Bedrock doesn't accept primitives as JSON content, so we convert all to strings
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        return new ToolResultBlock({
-          toolUseId,
-          status: 'success',
-          content: [new TextBlock(String(value))],
-        })
-      }
-
-      // Handle arrays
-      if (Array.isArray(value)) {
-        // Check if array contains only content blocks (class instances or plain data objects)
-        if (value.length > 0) {
-          const converted = value.map((item) => this._asToolResultContent(item))
-          if (converted.every((item): item is ToolResultContent => item !== undefined)) {
-            return new ToolResultBlock({
-              toolUseId,
-              status: 'success',
-              content: converted,
-            })
-          }
-        }
-
-        // Otherwise wrap in object { $value: array }
-        const copiedValue = deepCopy(value)
-        return new ToolResultBlock({
-          toolUseId,
-          status: 'success',
-          content: [new JsonBlock({ json: { $value: copiedValue } })],
-        })
-      }
-
-      // Handle objects as JSON content with deep copy
-      const copiedValue = deepCopy(value)
-      return new ToolResultBlock({
-        toolUseId,
-        status: 'success',
-        content: [new JsonBlock({ json: copiedValue })],
-      })
-    } catch (error) {
-      // If deep copy fails (circular references, non-serializable values), return error result
-      return createErrorResult(error, toolUseId)
-    }
-  }
-
-  /**
-   * Converts a value to a ToolResultContent instance if it matches a known content type.
-   * Accepts both class instances and plain data objects.
-   *
-   * @param value - Value to check and convert
-   * @returns ToolResultContent instance, or undefined if not a recognized content type
-   */
-  private _asToolResultContent(value: unknown): ToolResultContent | undefined {
-    if (typeof value !== 'object') return undefined
-
-    // Class instances — pass through
-    if (
-      value instanceof TextBlock ||
-      value instanceof JsonBlock ||
-      value instanceof ImageBlock ||
-      value instanceof VideoBlock ||
-      value instanceof DocumentBlock
-    ) {
-      return value
-    }
-
-    // Plain data objects — require exactly one key to match the discriminated
-    // union shape; multi-key objects fall through to JsonBlock instead.
-    try {
-      if (Object.keys(value as object).length !== 1) return undefined
-      return toolResultContentFromData(value as ToolResultContentData)
-    } catch {
-      return undefined
-    }
   }
 }

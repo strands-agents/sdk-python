@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { FunctionTool } from '../function-tool.js'
-import { Tool, ToolStreamEvent, isValidToolName } from '../tool.js'
+import { Tool, ToolStreamEvent, createSuccessResult, isValidToolName } from '../tool.js'
+import { JsonBlock, TextBlock, ToolResultBlock } from '../../types/messages.js'
+import { DocumentBlock, ImageBlock, VideoBlock } from '../../types/media.js'
+import { createMockContext } from '../../__fixtures__/tool-helpers.js'
+import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 import type { ToolContext } from '../tool.js'
 import type { JSONValue } from '../../types/json.js'
-import { createMockContext } from '../../__fixtures__/tool-helpers.js'
-
-import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 
 describe('isValidToolName', () => {
   it.each([
@@ -29,6 +30,68 @@ describe('isValidToolName', () => {
     ['emoji🚀', 'non-ascii'],
   ])('rejects %s (%s)', (name) => {
     expect(isValidToolName(name)).toBe(false)
+  })
+})
+
+describe('createSuccessResult', () => {
+  it('converts plain serialized content blocks', () => {
+    expect([
+      createSuccessResult({ text: 'hello' }, 'text-id'),
+      createSuccessResult({ json: { answer: 42 } }, 'json-id'),
+    ]).toEqual([
+      new ToolResultBlock({
+        toolUseId: 'text-id',
+        status: 'success',
+        content: [new TextBlock('hello')],
+      }),
+      new ToolResultBlock({
+        toolUseId: 'json-id',
+        status: 'success',
+        content: [new JsonBlock({ json: { answer: 42 } })],
+      }),
+    ])
+  })
+
+  it('preserves media block instances', () => {
+    const mediaBlocks = [
+      new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1]) } }),
+      new VideoBlock({ format: 'mp4', source: { bytes: new Uint8Array([2]) } }),
+      new DocumentBlock({ name: 'notes', format: 'txt', source: { text: 'hello' } }),
+    ]
+
+    const results = mediaBlocks.map((block, index) => createSuccessResult(block, `media-${index}`))
+
+    expect(results).toEqual([
+      new ToolResultBlock({ toolUseId: 'media-0', status: 'success', content: [mediaBlocks[0]!] }),
+      new ToolResultBlock({ toolUseId: 'media-1', status: 'success', content: [mediaBlocks[1]!] }),
+      new ToolResultBlock({ toolUseId: 'media-2', status: 'success', content: [mediaBlocks[2]!] }),
+    ])
+    expect(results.map((result, index) => result.content[0] === mediaBlocks[index])).toEqual([true, true, true])
+  })
+
+  it('uses arrays of content blocks directly as result content', () => {
+    const text = new TextBlock('hello')
+    const image = new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1]) } })
+
+    const result = createSuccessResult([text, image], 'content-array')
+
+    expect(result).toEqual(
+      new ToolResultBlock({
+        toolUseId: 'content-array',
+        status: 'success',
+        content: [text, image],
+      })
+    )
+  })
+
+  it('wraps an empty array as JSON content', () => {
+    expect(createSuccessResult([], 'empty-array')).toEqual(
+      new ToolResultBlock({
+        toolUseId: 'empty-array',
+        status: 'success',
+        content: [new JsonBlock({ json: { $value: [] } })],
+      })
+    )
   })
 })
 

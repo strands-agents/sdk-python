@@ -1,6 +1,15 @@
 import type { ToolSpec, ToolUse } from './types.js'
-import { TextBlock, ToolResultBlock } from '../types/messages.js'
+import {
+  JsonBlock,
+  TextBlock,
+  ToolResultBlock,
+  toolResultContentFromData,
+  type ToolResultContent,
+  type ToolResultContentData,
+} from '../types/messages.js'
+import { DocumentBlock, ImageBlock, VideoBlock } from '../types/media.js'
 import type { InvocationState, LocalAgent } from '../types/agent.js'
+import { deepCopy } from '../types/json.js'
 import { normalizeError } from '../errors.js'
 import type { Interruptible } from '../interrupt.js'
 
@@ -201,6 +210,90 @@ export function createErrorResult(error: unknown, toolUseId: string): ToolResult
     content: [new TextBlock(`Error: ${errorObject.message}`)],
     error: errorObject,
   })
+}
+
+/**
+ * Creates a ToolResultBlock from a successful raw tool return value.
+ * Applies FunctionTool's established value-to-content conversion rules.
+ * Returns an error ToolResultBlock if the value cannot be serialized.
+ *
+ * @internal
+ * @param value - The raw tool return value
+ * @param toolUseId - The associated tool use ID
+ * @returns The converted ToolResultBlock
+ */
+export function createSuccessResult(value: unknown, toolUseId: string): ToolResultBlock {
+  try {
+    // Represent null/undefined as the JSON literal "null" for parity with the Python SDK
+    if (value === null || value === undefined) {
+      return new ToolResultBlock({ toolUseId, status: 'success', content: [new TextBlock('null')] })
+    }
+
+    // Content blocks — class instances or plain data objects
+    const contentBlock = asToolResultContent(value)
+    if (contentBlock) {
+      return new ToolResultBlock({ toolUseId, status: 'success', content: [contentBlock] })
+    }
+
+    // Not all providers accept primitive JSON tool-result content, so represent primitives as text.
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return new ToolResultBlock({ toolUseId, status: 'success', content: [new TextBlock(String(value))] })
+    }
+
+    // Arrays
+    if (Array.isArray(value)) {
+      // Arrays of content blocks are used directly as the content array
+      if (value.length > 0) {
+        const converted = value.map((item) => asToolResultContent(item))
+        if (converted.every((item): item is ToolResultContent => item !== undefined)) {
+          return new ToolResultBlock({ toolUseId, status: 'success', content: converted })
+        }
+      }
+      // Otherwise wrap in an object { $value: array }
+      return new ToolResultBlock({
+        toolUseId,
+        status: 'success',
+        content: [new JsonBlock({ json: { $value: deepCopy(value) } })],
+      })
+    }
+
+    // Objects as JSON content with deep copy
+    return new ToolResultBlock({ toolUseId, status: 'success', content: [new JsonBlock({ json: deepCopy(value) })] })
+  } catch (error) {
+    // If deep copy fails (circular references, non-serializable values), return an error result
+    return createErrorResult(error, toolUseId)
+  }
+}
+
+/**
+ * Converts a value to a ToolResultContent instance if it matches a known content type,
+ * accepting both class instances and single-key plain data objects.
+ *
+ * @param value - Value to check and convert
+ * @returns ToolResultContent instance, or undefined if not a recognized content type
+ */
+function asToolResultContent(value: unknown): ToolResultContent | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+
+  // Class instances — pass through
+  if (
+    value instanceof TextBlock ||
+    value instanceof JsonBlock ||
+    value instanceof ImageBlock ||
+    value instanceof VideoBlock ||
+    value instanceof DocumentBlock
+  ) {
+    return value
+  }
+
+  // Plain data objects — require exactly one key to match the discriminated union shape;
+  // multi-key objects fall through to JsonBlock instead.
+  try {
+    if (Object.keys(value as object).length !== 1) return undefined
+    return toolResultContentFromData(value as ToolResultContentData)
+  } catch {
+    return undefined
+  }
 }
 
 const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]+$/

@@ -121,8 +121,8 @@ function decodeStoredContent(content: Uint8Array, contentType: string, reference
     }
   }
   // Return native content blocks for binary types so the agent sees the actual content.
-  // FunctionTool._wrapInToolResult passes ImageBlock/VideoBlock/DocumentBlock through as-is
-  // at runtime, even though the callback type signature only accepts JSONValue.
+  // createSuccessResult passes ImageBlock/VideoBlock/DocumentBlock through as-is at runtime,
+  // even though the callback type signature only accepts JSONValue.
   if (contentType.startsWith('image/')) {
     const format = contentType.split('/').pop()!
     return new ImageBlock({
