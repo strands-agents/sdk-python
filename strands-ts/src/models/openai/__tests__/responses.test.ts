@@ -730,6 +730,77 @@ describe("OpenAIModel (api: 'responses')", () => {
   })
 
   describe('error mapping', () => {
+    it('throws response.failed instead of finalizing an empty successful response', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield {
+          type: 'response.failed',
+          response: {
+            error: {
+              code: 'server_error',
+              message: 'The model failed while processing the request.',
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toMatchObject({
+        message: 'The model failed while processing the request.',
+        code: 'server_error',
+      })
+    })
+
+    it('wraps a response.failed context limit as ContextWindowOverflowError', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'response.failed',
+          response: {
+            error: {
+              code: 'invalid_prompt',
+              message: 'prompt tokens (320666) exceed customer model maximum (278528) for model-id',
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toBeInstanceOf(ContextWindowOverflowError)
+    })
+
+    it('throws the fallback message when response.failed has no error details', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'response.failed',
+          response: { error: null },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toThrow('OpenAI Responses API response failed')
+    })
+
+    it('maps a Responses error event through the existing error classifier', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'error',
+          code: 'rate_limit_exceeded',
+          message: 'Rate limit exceeded while streaming.',
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toBeInstanceOf(ModelThrottledError)
+    })
+
     it('wraps 429 as ModelThrottledError', async () => {
       const client: any = {
         responses: {
