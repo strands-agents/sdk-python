@@ -1,5 +1,5 @@
 name: strands-agt
-description: Microsoft Agent Governance Toolkit integration for Strands Agents that enforces YAML-defined allow/deny/steer policies on tool calls deterministically without model judgment.
+description: Microsoft Agent Governance Toolkit integration that deterministically enforces YAML-defined allow/deny/steer policies on tool calls.
 integrationType: intervention
 languages:
   python:

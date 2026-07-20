@@ -1,5 +1,5 @@
 name: s3-vectors-memory
-description: Plugin that gives Strands Agents long-term semantic memory via Amazon S3 Vectors, summarizing and storing each conversation as a searchable vector and injecting relevant past summaries on subsequent runs.
+description: Long-term semantic memory for Strands Agents via Amazon S3 Vectors, storing conversation summaries as vectors and recalling them on later runs.
 integrationType: plugin
 languages:
   python:

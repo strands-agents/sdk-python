@@ -1,5 +1,5 @@
 name: agent-control
-description: Open-source runtime control plane for Strands Agents that evaluates every agent input and output against configurable policies to block prompt injection, PII leakage, and disallowed tool calls without modifying agent code.
+description: Runtime control plane that evaluates every agent input and output against configurable policies to block prompt injection, PII leakage, and rogue tool calls.
 integrationType: plugin
 languages:
   python:

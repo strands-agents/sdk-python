@@ -1,5 +1,5 @@
 name: agentcore-payments
-description: Amazon Bedrock AgentCore plugin for Strands Agents that intercepts HTTP 402 responses and automatically processes x402 micropayment transactions to access paid APIs and MCP servers.
+description: Amazon Bedrock AgentCore plugin that intercepts HTTP 402 responses and processes x402 micropayments to access paid APIs and MCP servers.
 integrationType: plugin
 languages:
   python:

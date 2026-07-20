@@ -1,5 +1,5 @@
 name: agentcore-tool-search
-description: Amazon Bedrock AgentCore Gateway plugin for Strands Agents that dynamically loads only the tools relevant to each invocation via semantic search over hundreds of registered tools.
+description: Amazon Bedrock AgentCore Gateway plugin that loads only the tools relevant to each invocation via semantic search over hundreds of registered tools.
 integrationType: plugin
 languages:
   python:

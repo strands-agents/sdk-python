@@ -1,5 +1,5 @@
 name: temporal
-description: Durable execution for Strands agents via Temporal workflows, routing model calls and tool invocations through Temporal Activities so every agent step survives crashes and restarts.
+description: Durable execution for Strands agents via Temporal workflows, so every model call and tool invocation survives crashes and restarts.
 integrationType: integration
 languages:
   python:

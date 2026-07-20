@@ -1,5 +1,5 @@
 name: agentcore-rl-toolkit
-description: AWS SDK for running reinforcement learning training loops on Amazon Bedrock AgentCore with async rollout collection and reward-based training, with built-in Strands Agents support via a decorator swap.
+description: AWS SDK for reinforcement learning training loops on Amazon Bedrock AgentCore, with built-in Strands Agents support via a decorator swap.
 integrationType: integration
 languages:
   python:

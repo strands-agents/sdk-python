@@ -1,5 +1,5 @@
 name: strands-telegram
-description: Comprehensive Telegram Bot API integration for Strands Agents covering 60+ bot methods for sending messages, media, managing groups, and handling inline queries.
+description: Telegram Bot API integration for Strands Agents covering 60+ methods for messages, media, group management, and inline queries.
 integrationType: tool
 languages:
   python:

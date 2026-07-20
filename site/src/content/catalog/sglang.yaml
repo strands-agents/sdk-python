@@ -1,5 +1,5 @@
 name: sglang
-description: SGLang high-performance inference server as a Strands Agents model provider with Token-In/Token-Out (TITO) support for on-policy RL training rollouts without retokenization drift.
+description: SGLang high-performance inference server as a Strands Agents model provider, with Token-In/Token-Out support for on-policy RL rollouts.
 integrationType: model-provider
 languages:
   python:

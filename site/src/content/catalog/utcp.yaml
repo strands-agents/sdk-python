@@ -1,5 +1,5 @@
 name: utcp
-description: Universal Tool Calling Protocol (UTCP) adapter for Strands Agents that enables tool discovery and invocation across HTTP, WebSocket, and other transports without wrapper servers.
+description: Universal Tool Calling Protocol adapter enabling tool discovery and invocation across HTTP, WebSocket, and other transports without wrapper servers.
 integrationType: tool
 languages:
   python:

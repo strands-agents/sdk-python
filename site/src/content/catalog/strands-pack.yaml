@@ -1,5 +1,5 @@
 name: strands-pack
-description: Collection of 54 ready-to-use tools for Strands Agents spanning AI media generation, Google Workspace, AWS services, social media, databases, and smart home integration.
+description: Collection of 54 ready-to-use Strands tools spanning AI media generation, Google Workspace, AWS services, social media, and smart home.
 integrationType: tool
 languages:
   python:

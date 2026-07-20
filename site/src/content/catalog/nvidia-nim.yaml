@@ -1,5 +1,5 @@
 name: nvidia-nim
-description: NVIDIA NIM inference microservices as a Strands Agents model provider, handling message format conversion between Strands and NIM APIs with full tool support and streaming.
+description: NVIDIA NIM inference microservices as a Strands Agents model provider with full tool support and streaming.
 integrationType: model-provider
 featured: true
 languages:
