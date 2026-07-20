@@ -1,16 +1,45 @@
 ## Catalog submission
 
-<!-- Adding your integration to the community catalog at strandsagents.com/catalog -->
+<!-- This template is for adding or updating an entry in the community catalog at strandsagents.com/catalog.
+     Full submission guide and YAML field reference: https://strandsagents.com/community/get-featured/
+     The site build validates your YAML against the schema automatically — a CI failure here is a schema error in your entry file. -->
 
 **Package name:**
 **Integration type:** <!-- tool | model-provider | session-manager | memory-store | integration | plugin | agent-extension | intervention -->
+**Languages published:** <!-- PyPI: <url>  /  npm: <url>  — at least one required -->
+**GitHub repo:**
+**What it does:** <!-- 1–2 sentences -->
+**Relationship to service:** <!-- official vendor integration / community-built -->
+**Docs link included:** <!-- docsPage (on-site page) / docsUrl (external link) / none — card will link to GitHub repo -->
 
-### Checklist
+### Submitter checklist
 
-- [ ] The package is published to PyPI and/or npm, and the `registry` links in my entry resolve
-- [ ] The GitHub repository is public and includes a license
-- [ ] The description accurately states what the package does in one sentence
-- [ ] The `integrationType` matches what the package actually is
-- [ ] I am the package's maintainer, or I have the maintainer's consent to list it
-- [ ] I left `featured` and `badges` unset (granted by the Strands team)
-- [ ] (If adding a docs page) The usage example works against the current SDK release
+#### Package
+- [ ] Published to PyPI and/or npm; the `registry` URLs in my entry resolve to the package
+- [ ] GitHub repository is public and includes a license
+
+#### Entry
+- [ ] Description accurately states what the package does in one sentence
+- [ ] `integrationType` matches what the package actually is
+- [ ] All URLs are working (`github`, `registry`, and `docsUrl` if set)
+- [ ] `addedDate` is set to today (the date I opened this PR)
+- [ ] `featured` and `badges` are left unset — those are granted by the Strands team
+
+#### Docs (only if adding a docs page or `docsUrl`)
+- [ ] Usage example runs against the current SDK release
+- [ ] Code follows the site's language-tab conventions where both Python and TypeScript are supported
+
+#### Conduct
+- [ ] I am the package maintainer, or I have the maintainer's explicit consent to list it
+- [ ] Entry uses the package's real name with no trademark misuse
+
+---
+
+### For reviewers
+
+- Package installs cleanly and imports without error against the current SDK release
+- Description matches what the package's README says it does
+- No existing catalog entry for this package (`site/src/content/catalog/`)
+- All URLs are reachable and resolve to the expected destinations
+- `addedDate` matches the submission date and `featured`/`badges` are unset
+- Docs example (if present) is accurate and follows site conventions
