@@ -1,11 +1,11 @@
 ---
 /**
- * Search input + filter controls for the catalog, following the changelog
+ * Search trigger + facet controls for the catalog, following the changelog
  * page's control language (segmented groups, chip rail). Renders static
- * controls with data-cat-* hooks; the page script owns all behavior. The SDK
- * facet only renders when the catalog contains evals entries.
+ * controls with data-cat-* hooks; the page script owns all behavior. Facets
+ * are shared with the search dialog via CatalogFacets.
  */
-import { TYPE_ICONS, LANG_ICONS } from './icons'
+import CatalogFacets from './CatalogFacets.astro'
 
 interface FacetOption {
   value: string
@@ -19,11 +19,6 @@ interface Props {
 }
 
 const { types, showSdkFacet } = Astro.props
-
-const LANGUAGES = [
-  { value: 'python', label: 'Python' },
-  { value: 'typescript', label: 'TypeScript' },
-] as const
 ---
 
 <form class="cat-filters" role="search" aria-label="Filter catalog" onsubmit="return false">
@@ -38,53 +33,6 @@ const LANGUAGES = [
       <span class="cat-search-label" data-cat-search-label>Search integrations…</span>
       <kbd class="cat-search-kbd">/</kbd>
     </button>
-    {
-      showSdkFacet && (
-        <div class="cat-seg" role="radiogroup" aria-label="SDK">
-          <button class="cat-seg-btn" type="button" role="radio" aria-checked="true" data-cat-sdk="agents">
-            Agents
-          </button>
-          <button class="cat-seg-btn" type="button" role="radio" aria-checked="false" data-cat-sdk="evals">
-            Evals
-          </button>
-        </div>
-      )
-    }
-    <div class="cat-seg" role="group" aria-label="Language">
-      {
-        LANGUAGES.map((l) => (
-          <button class="cat-seg-btn" type="button" data-cat-lang={l.value} aria-pressed="false">
-            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-              {LANG_ICONS[l.value].map((p) => (
-                <path fill="currentColor" d={p} />
-              ))}
-            </svg>
-            {l.label}
-          </button>
-        ))
-      }
-    </div>
-    <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
-      <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1.5 15L7 12.5 8.4 11l2.1 2.1 5.1-5.1L17 9.4 10.5 16z"
-        />
-      </svg>
-      Verified
-    </button>
   </div>
-  <div class="cat-type-rail" role="group" aria-label="Type">
-    {
-      types.map((t) => (
-        <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
-          <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d={TYPE_ICONS[t.value]} />
-          </svg>
-          {t.label}
-          <span class="cat-count">{t.count}</span>
-        </button>
-      ))
-    }
-  </div>
+  <CatalogFacets types={types} showSdkFacet={showSdkFacet} />
 </form>

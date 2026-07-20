@@ -9,6 +9,7 @@ import { getCollection } from 'astro:content'
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
+import CatalogFacets from '../components/catalog/CatalogFacets.astro'
 import { toCardModel, sortEntries, hasEvalsEntries, type CatalogStatsFile } from '../util/catalog'
 import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
@@ -75,10 +76,17 @@ const description = 'Community-built tools, model providers, plugins, and integr
         />
         <button class="cat-dialog-close" type="button" data-cat-dialog-close aria-label="Close search">Esc</button>
       </div>
+      <div class="cat-dialog-facets">
+        <CatalogFacets types={typeFacets} showSdkFacet={showSdkFacet} />
+      </div>
       <ul class="cat-dialog-list" data-cat-dialog-list>
         {cards.map((card) => (
           <li
             class="cat-dialog-item"
+            data-type={card.integrationType}
+            data-langs={card.languages.join(' ')}
+            data-badges={card.badges.join(' ')}
+            data-sdk={card.sdk}
             data-search={`${card.name} ${card.description}`.toLowerCase()}
           >
             <a href={card.external ? card.href : pathWithBase(card.href)} rel={card.external ? 'noopener' : undefined}>
@@ -145,12 +153,11 @@ const description = 'Community-built tools, model providers, plugins, and integr
     if (searchLabel) searchLabel.textContent = state.search.trim() || 'Search integrations…'
     if (searchOpenBtn) searchOpenBtn.classList.toggle('cat-search-trigger--active', Boolean(state.search.trim()))
 
-    // Mirror the search into the dialog's result list (dialog matches on
-    // search text only; the grid behind it applies the full facet state).
-    const q = state.search.trim().toLowerCase()
+    // The dialog's result list applies the same full facet state as the grid;
+    // its facet controls are bound document-wide alongside the filter bar's.
     let dialogVisible = 0
     for (const item of dialogItems) {
-      const show = !q || (item.dataset.search || '').includes(q)
+      const show = matchesFilters(cardData(item), state)
       item.hidden = !show
       if (show) dialogVisible++
     }

@@ -33,6 +33,26 @@ describe('toCardModel', () => {
     expect(card.external).toBe(true)
   })
 
+  it('prefers the external docsUrl over github, but the on-site docsPage over both', () => {
+    const withDocsUrl = toCardModel(
+      'strands-example',
+      entry({ docsUrl: 'https://example.com/docs/strands' }),
+      undefined,
+      BUILD_DATE
+    )
+    expect(withDocsUrl.href).toBe('https://example.com/docs/strands')
+    expect(withDocsUrl.external).toBe(true)
+
+    const withBoth = toCardModel(
+      'strands-example',
+      entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/community/tools/strands-example' }),
+      undefined,
+      BUILD_DATE
+    )
+    expect(withBoth.href).toBe('/docs/community/tools/strands-example/')
+    expect(withBoth.external).toBe(false)
+  })
+
   it('derives language list and registry links', () => {
     const card = toCardModel(
       'strands-example',

@@ -56,6 +56,8 @@ export function toCardModel(
   const ageDays = (buildDate.getTime() - data.addedDate.getTime()) / 86_400_000
   if (ageDays >= 0 && ageDays < NEW_BADGE_DAYS) badges.push('new')
 
+  // Primary link priority: on-site docs page, then the integration's own
+  // Strands instructions page, then the bare GitHub repo.
   const docsHref = data.docsPage ? `/${data.docsPage}/` : undefined
 
   const pythonDownloads = stats?.downloads?.python ?? 0
@@ -69,7 +71,7 @@ export function toCardModel(
     integrationType: data.integrationType,
     sdk: data.sdk,
     languages,
-    href: docsHref ?? data.github,
+    href: docsHref ?? data.docsUrl ?? data.github,
     external: !docsHref,
     github: data.github,
     registryLinks,

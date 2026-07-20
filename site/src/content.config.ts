@@ -108,6 +108,11 @@ export const catalogEntrySchema = z
     // Docs collection id of the detail page (e.g. 'docs/community/tools/strands-deepgram').
     // Optional: entries without one link out to their GitHub repo instead.
     docsPage: z.string().optional(),
+    // External URL of the integration's own Strands setup/instructions page
+    // (e.g. Temporal's docs for its Strands integration). When there is no
+    // on-site docsPage, the card's primary link prefers this over the bare
+    // GitHub repo so users land on usage instructions.
+    docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
     // Editorial fields — maintainer-granted only; submitters leave them unset.
     featured: z.boolean().default(false),
     badges: z.array(z.enum(['verified'])).default([]),

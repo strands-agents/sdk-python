@@ -33,8 +33,15 @@
 }
 
 /* Reset Starlight markdown spacing on our subtree (same trick as .cl-page). */
-.cat-page :where(h1, h2, h3, p, div, button, ul, li, section, form) {
+.cat-page :where(h1, h2, h3, p, div, button, ul, li, section, form, article, dialog, a, span, kbd) {
   margin-top: 0;
+}
+/* Starlight's sibling margin-top rule outranks the :where reset for grid items
+   (its :not() arguments carry element specificity). Cards must never carry
+   external margins: with grid-auto-rows: 1fr, a margin on all-but-the-first
+   card makes the first card render taller than the rest of its row. */
+.cat-grid > .cat-card {
+  margin: 0;
 }
 .cat-page :where(svg) {
   margin: 0;
@@ -289,7 +296,8 @@
 .cat-filters {
   margin-bottom: 1.1rem;
 }
-.cat-filters-row {
+.cat-filters-row,
+.cat-facet-row {
   display: flex;
   align-items: center;
   gap: 0.6rem;
@@ -388,11 +396,21 @@
 .cat-dialog-close:hover {
   color: var(--sl-color-white);
 }
+.cat-dialog-facets {
+  padding: 0.6rem 1rem 0.2rem;
+  border-bottom: 1px solid var(--sl-color-gray-5);
+}
+.cat-dialog-facets .cat-facet-row {
+  margin-bottom: 0.55rem;
+}
+.cat-dialog-facets .cat-type-rail {
+  margin-bottom: 0.55rem;
+}
 .cat-dialog-list {
   list-style: none;
   margin: 0;
   padding: 0.4rem;
-  max-height: 55vh;
+  max-height: 45vh;
   overflow: auto;
 }
 .cat-dialog-item {
