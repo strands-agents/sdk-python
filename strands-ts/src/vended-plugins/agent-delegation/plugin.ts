@@ -5,17 +5,25 @@
  * 1. The delegation tool is the only tool called in the turn (single-call constraint)
  * 2. The agent loop exits immediately after a successful delegation (via stopEventLoop)
  * 3. The AgentResult is transformed with `stopReason: 'delegated'` and the tool's content
+ * 4. Streaming events from the delegate agent are surfaced natively in the parent stream
  */
 
 import type { Plugin } from '../../plugins/plugin.js'
 import { AgentResult } from '../../types/agent.js'
 import type { LocalAgent, AgentStreamEvent } from '../../types/agent.js'
 import type { ContentBlock } from '../../types/messages.js'
-import { AfterToolCallEvent, BeforeToolsEvent } from '../../hooks/events.js'
-import { AgentStreamStage } from '../../middleware/index.js'
-import type { AgentStreamContext, AgentStreamResult, MiddlewareNext } from '../../middleware/index.js'
+import { AfterToolCallEvent, BeforeToolsEvent, ToolStreamUpdateEvent } from '../../hooks/events.js'
+import { AgentStreamStage, ExecuteToolStage } from '../../middleware/index.js'
+import type {
+  AgentStreamContext,
+  AgentStreamResult,
+  ExecuteToolContext,
+  ExecuteToolResult,
+  MiddlewareNext,
+} from '../../middleware/index.js'
 import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 import { AgentAsTool } from '../../agent/agent-as-tool.js'
+import { StreamEvent } from '../../hooks/events.js'
 
 /**
  * Checks whether a tool registered on the agent is a delegation AgentAsTool.
@@ -64,6 +72,21 @@ export class AgentDelegation implements Plugin {
   private readonly _delegationResult = new WeakMap<LocalAgent, ToolResultBlock>()
 
   initAgent(agent: LocalAgent): void {
+    // Fail fast: delegation is incompatible with stateful models
+    // Stateful models manage conversation state server-side. Delegation's early
+    // exit would leave an unclosed function call on the server, corrupting the
+    // next request.
+    if (agent.model.stateful) {
+      const hasDelegationTool = agent.toolRegistry.list().some((tool) => tool instanceof AgentAsTool && tool.delegate)
+      if (hasDelegationTool) {
+        throw new Error(
+          'Delegation tools (delegate: true) are not supported with stateful models. ' +
+            "Stateful models manage conversation state server-side, and delegation's early loop exit " +
+            'would leave unclosed function calls on the server.'
+        )
+      }
+    }
+
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
     agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
 
@@ -79,6 +102,18 @@ export class AgentDelegation implements Plugin {
         return yield* self._handleStream(context, next)
       }
     )
+
+    // ExecuteToolStage middleware: unwraps inner agent streaming events for delegation tools
+    // so they appear as native events in the parent agent's stream.
+    agent.addMiddleware(
+      ExecuteToolStage,
+      async function* (
+        context: ExecuteToolContext,
+        next: MiddlewareNext<ExecuteToolContext, ExecuteToolResult, AgentStreamEvent>
+      ): AsyncGenerator<AgentStreamEvent, ExecuteToolResult, undefined> {
+        return yield* self._handleToolExecution(context, next, agent)
+      }
+    )
   }
 
   /**
@@ -87,9 +122,8 @@ export class AgentDelegation implements Plugin {
    * If a delegation tool is present alongside other tools, cancel all.
    */
   private _onBeforeTools(event: BeforeToolsEvent): void {
-    // Stateful models manage conversation state server-side. Delegation's early
-    // exit would leave an unclosed function call on the server, corrupting the
-    // next request. Skip all delegation logic and let the tool run normally.
+    // This runtime guard covers delegation tools added after initialization
+    // (e.g., via toolRegistry.add()), complementing the init-time check.
     if (event.agent.model.stateful) return
 
     const toolUseBlocks = event.message.content.filter((block): block is ToolUseBlock => block.type === 'toolUseBlock')
@@ -121,6 +155,8 @@ export class AgentDelegation implements Plugin {
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
     // Skip for stateful models — delegation semantics are disabled.
+    // This runtime guard covers delegation tools added after initialization
+    // (e.g., via toolRegistry.add()), complementing the init-time check.
     if (event.agent.model.stateful) return
 
     // Only trigger if the effective tool is a delegation AgentAsTool
@@ -134,6 +170,60 @@ export class AgentDelegation implements Plugin {
 
     // Stash the result for the stream middleware to transform into the AgentResult.
     this._delegationResult.set(event.agent, event.result)
+  }
+
+  /**
+   * ExecuteToolStage middleware: surfaces delegate agent streaming events natively.
+   *
+   * Only activates for delegation tools (AgentAsTool with `delegate: true`).
+   * Non-delegation agent tools yield their events as normal ToolStreamUpdateEvents —
+   * their results are standard tool results and should not be translated.
+   *
+   * For delegation specifically, the inner agent's events (model streaming, content
+   * blocks, tool calls, etc.) are unwrapped from `ToolStreamEvent.data` and yielded
+   * directly as native AgentStreamEvents, making the delegation transparent to
+   * stream consumers.
+   */
+  private async *_handleToolExecution(
+    context: ExecuteToolContext,
+    next: MiddlewareNext<ExecuteToolContext, ExecuteToolResult, AgentStreamEvent>,
+    agent: LocalAgent
+  ): AsyncGenerator<AgentStreamEvent, ExecuteToolResult, undefined> {
+    // Only translate streaming events for delegation tools. Non-delegation
+    // AgentAsTools produce normal tool results — no event unwrapping needed.
+    if (!(context.tool instanceof AgentAsTool) || !context.tool.delegate) {
+      return yield* next(context)
+    }
+
+    // Stateful models skip delegation semantics entirely — runtime guard for
+    // delegation tools added after initialization.
+    if (agent.model.stateful) {
+      return yield* next(context)
+    }
+
+    // Iterate the inner pipeline manually so we can transform events
+    const gen = next(context)
+    let result = await gen.next()
+    while (!result.done) {
+      const event = result.value
+
+      // ToolStreamUpdateEvents from a delegation tool may contain wrapped inner agent events.
+      // Unwrap them: if the data is a StreamEvent instance, yield it as a native event.
+      if (event.type === 'toolStreamUpdateEvent') {
+        const innerData = (event as ToolStreamUpdateEvent).event.data
+        if (innerData instanceof StreamEvent) {
+          yield innerData as AgentStreamEvent
+        } else {
+          // Regular tool stream events (e.g., from the inner agent's own tools) pass through
+          yield event
+        }
+      } else {
+        yield event
+      }
+
+      result = await gen.next()
+    }
+    return result.value
   }
 
   /**
@@ -152,12 +242,14 @@ export class AgentDelegation implements Plugin {
 
     const streamResult = yield* next(context)
 
-    // Only transform when stopEventLoop was set (delegation or otherwise)
+    // Only transform when stopEventLoop was set
     if (streamResult.result.invocationState.stopEventLoop !== true) return streamResult
 
     // Consume the result stashed during this invocation by _onAfterToolCall.
     const delegationBlock = this._delegationResult.get(context.agent)
     this._delegationResult.delete(context.agent)
+
+    // Only transform when delegationBlock was set
     if (!delegationBlock) return streamResult
 
     // Replace AgentResult with the delegation tool's content

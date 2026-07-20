@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { Agent } from '../../../agent/agent.js'
-import { AfterToolsEvent } from '../../../hooks/events.js'
+import { AfterToolsEvent, StreamEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 import { AgentAsTool } from '../../../agent/agent-as-tool.js'
@@ -304,7 +304,7 @@ describe('AgentDelegation integration', () => {
   })
 
   describe('stateful model bypass', () => {
-    it('skips delegation logic when model is stateful — tool runs as a normal tool', async () => {
+    it('skips delegation logic for delegation tools added after init — tool runs normally', async () => {
       class StatefulModel extends MockMessageModel {
         override get stateful(): boolean {
           return true
@@ -325,12 +325,18 @@ describe('AgentDelegation integration', () => {
         })
         .addTurn({ type: 'textBlock', text: 'Got the sub-agent response, done.' })
 
+      // Create agent WITHOUT delegation tools so init-time check passes
       const orchestrator = new Agent({
         model: statefulModel,
         name: 'Orchestrator',
-        tools: [subAgent.asTool({ delegate: true })],
+        tools: [],
         printer: false,
       })
+
+      // Add delegation tool after initialization to bypass init-time check
+      // (exercises the runtime guard path)
+      await orchestrator.initialize()
+      orchestrator.toolRegistry.add(subAgent.asTool({ delegate: true }))
 
       const result = await orchestrator.invoke('Do something')
 
@@ -340,7 +346,7 @@ describe('AgentDelegation integration', () => {
       expect((textBlocks[0] as { text: string }).text).toBe('Got the sub-agent response, done.')
     })
 
-    it('does not enforce single-call constraint for stateful models', async () => {
+    it('does not enforce single-call constraint for stateful models with runtime-added tools', async () => {
       class StatefulModel extends MockMessageModel {
         override get stateful(): boolean {
           return true
@@ -361,12 +367,17 @@ describe('AgentDelegation integration', () => {
         ])
         .addTurn({ type: 'textBlock', text: 'Both tools ran successfully.' })
 
+      // Create agent with only the regular tool so init-time check passes
       const orchestrator = new Agent({
         model: statefulModel,
         name: 'Orchestrator',
-        tools: [calculator, subAgent.asTool({ delegate: true })],
+        tools: [calculator],
         printer: false,
       })
+
+      // Add delegation tool after initialization
+      await orchestrator.initialize()
+      orchestrator.toolRegistry.add(subAgent.asTool({ delegate: true }))
 
       const result = await orchestrator.invoke('Do both')
 
@@ -429,6 +440,92 @@ describe('AgentDelegation integration', () => {
       const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
       expect(textBlocks).toHaveLength(1)
       expect(JSON.parse((textBlocks[0] as { text: string }).text)).toEqual(jsonPayload)
+    })
+  })
+
+  describe('init-time validation', () => {
+    it('throws when delegation tools are present on a stateful model', async () => {
+      class StatefulModel extends MockMessageModel {
+        override get stateful(): boolean {
+          return true
+        }
+      }
+
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      const statefulModel = new StatefulModel().addTurn({ type: 'textBlock', text: 'Hi' })
+
+      const orchestrator = new Agent({
+        model: statefulModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      await expect(orchestrator.initialize()).rejects.toThrow(/not supported with stateful models/)
+    })
+
+    it('does not throw for stateful models without delegation tools', async () => {
+      class StatefulModel extends MockMessageModel {
+        override get stateful(): boolean {
+          return true
+        }
+      }
+
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      const statefulModel = new StatefulModel().addTurn({ type: 'textBlock', text: 'Hi' })
+
+      const orchestrator = new Agent({
+        model: statefulModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool()], // delegate: false (default)
+        printer: false,
+      })
+
+      await expect(orchestrator.initialize()).resolves.toBeUndefined()
+    })
+  })
+
+  describe('event streaming', () => {
+    it('unwraps inner agent stream events as native events in the parent stream', async () => {
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Delegated response' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      const orchestratorModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'Sub',
+        toolUseId: 'del-1',
+        input: { input: 'handle this' },
+      })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      const events: StreamEvent[] = []
+      const stream = orchestrator.stream('handle this')
+      let next = await stream.next()
+      while (!next.done) {
+        events.push(next.value)
+        next = await stream.next()
+      }
+
+      // All events should be native StreamEvent instances (not raw ToolStreamEvent wrappers)
+      expect(events.length).toBeGreaterThan(0)
+      for (const event of events) {
+        expect(event).toBeInstanceOf(StreamEvent)
+      }
+
+      // Inner agent's model streaming and content blocks should surface natively
+      const eventTypes = events.map((e) => (e as { type: string }).type)
+      expect(eventTypes).toContain('modelStreamUpdateEvent')
+      expect(eventTypes).toContain('contentBlockEvent')
     })
   })
 })
