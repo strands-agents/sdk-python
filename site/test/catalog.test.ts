@@ -21,19 +21,13 @@ function entry(overrides: Partial<CatalogEntryData> = {}): CatalogEntryData {
 }
 
 describe('toCardModel', () => {
-  it('links to the docs page when docsPage is set', () => {
-    const card = toCardModel('strands-example', entry({ docsPage: 'docs/community/tools/strands-example' }), undefined, BUILD_DATE)
-    expect(card.href).toBe('/docs/community/tools/strands-example/')
-    expect(card.external).toBe(false)
-  })
+  it('card link priority: docsPage (internal) > docsUrl (external) > github fallback', () => {
+    // github fallback when no docs link is set
+    const githubOnly = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
+    expect(githubOnly.href).toBe('https://github.com/example/strands-example')
+    expect(githubOnly.external).toBe(true)
 
-  it('links out to github when there is no docs page', () => {
-    const card = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
-    expect(card.href).toBe('https://github.com/example/strands-example')
-    expect(card.external).toBe(true)
-  })
-
-  it('prefers the external docsUrl over github, but the on-site docsPage over both', () => {
+    // docsUrl wins over github
     const withDocsUrl = toCardModel(
       'strands-example',
       entry({ docsUrl: 'https://example.com/docs/strands' }),
@@ -43,6 +37,7 @@ describe('toCardModel', () => {
     expect(withDocsUrl.href).toBe('https://example.com/docs/strands')
     expect(withDocsUrl.external).toBe(true)
 
+    // docsPage wins over both docsUrl and github
     const withBoth = toCardModel(
       'strands-example',
       entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/community/tools/strands-example' }),

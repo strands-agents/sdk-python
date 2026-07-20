@@ -68,31 +68,19 @@ describe('candidateToYaml', () => {
 })
 
 describe('mergeCandidates – malformed github URLs', () => {
-  it('excludes candidates with a prefixed github URL ("See https://...") without throwing', () => {
-    const pypi: RegistryCandidate[] = [
-      {
-        source: 'pypi',
-        name: 'bad-url-pkg',
-        description: 'Has bad url',
-        github: 'See https://github.com/x/bad-url-pkg',
-        registry: 'https://pypi.org/project/bad-url-pkg/',
-      },
+  it('excludes candidates with malformed github URLs without throwing', () => {
+    // Prefixed URL ("See https://...")
+    const withPrefix: RegistryCandidate[] = [
+      { source: 'pypi', name: 'bad-url-pkg', description: 'Has bad url', github: 'See https://github.com/x/bad-url-pkg', registry: 'https://pypi.org/project/bad-url-pkg/' },
     ]
-    expect(() => mergeCandidates(pypi, [], [])).not.toThrow()
-    expect(mergeCandidates(pypi, [], [])).toHaveLength(0)
-  })
+    expect(() => mergeCandidates(withPrefix, [], [])).not.toThrow()
+    expect(mergeCandidates(withPrefix, [], [])).toHaveLength(0)
 
-  it('excludes candidates with a scheme-less github URL without throwing', () => {
-    const pypi: RegistryCandidate[] = [
-      {
-        source: 'pypi',
-        name: 'no-scheme-pkg',
-        description: 'Has no scheme',
-        github: 'github.com/x/no-scheme-pkg',
-        registry: 'https://pypi.org/project/no-scheme-pkg/',
-      },
+    // Scheme-less URL
+    const noScheme: RegistryCandidate[] = [
+      { source: 'pypi', name: 'no-scheme-pkg', description: 'Has no scheme', github: 'github.com/x/no-scheme-pkg', registry: 'https://pypi.org/project/no-scheme-pkg/' },
     ]
-    expect(() => mergeCandidates(pypi, [], [])).not.toThrow()
-    expect(mergeCandidates(pypi, [], [])).toHaveLength(0)
+    expect(() => mergeCandidates(noScheme, [], [])).not.toThrow()
+    expect(mergeCandidates(noScheme, [], [])).toHaveLength(0)
   })
 })
