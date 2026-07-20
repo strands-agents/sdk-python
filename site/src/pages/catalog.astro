@@ -198,7 +198,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
   document.addEventListener('keydown', (e) => {
     const target = e.target as HTMLElement
     const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target.isContentEditable
-    if (e.key === '/' && !typing && dialog && !dialog.open) {
+    if (e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey && dialog && !dialog.open) {
       e.preventDefault()
       openSearch()
     }
