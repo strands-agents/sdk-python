@@ -46,7 +46,13 @@ export async function buildStats(
       try {
         const repo = await fetchers.githubRepo(entry.github)
         stats.stars = repo.stars
-        if (repo.lastRelease) stats.lastRelease = repo.lastRelease
+        if (repo.lastRelease) {
+          stats.lastRelease = repo.lastRelease
+        } else if (prev?.lastRelease !== undefined) {
+          // A missing lastRelease can be a transient releases-API failure, not
+          // proof the release disappeared — keep the previously stored date.
+          stats.lastRelease = prev.lastRelease
+        }
       } catch (err) {
         // Keep the previous values so a transient outage doesn't regress stats.
         console.warn(`entry=${entry.id}, source=github | fetch failed, keeping previous value`, err)

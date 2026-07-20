@@ -76,6 +76,18 @@ describe('buildStats', () => {
     })
   })
 
+  it('keeps the previous lastRelease when the repo fetch succeeds without a release date', async () => {
+    const previous = {
+      'strands-example': { stars: 40, lastRelease: '2026-06-01', downloads: { python: 90 } },
+    }
+    const stats = await buildStats([entries[0]!], fetchers({ githubRepo: async () => ({ stars: 42 }) }), previous)
+    expect(stats['strands-example']).toEqual({
+      stars: 42,
+      lastRelease: '2026-06-01',
+      downloads: { python: 100, typescript: 50 },
+    })
+  })
+
   it('keeps previous github stats when the github fetch fails', async () => {
     const previous = {
       'strands-example': { stars: 40, lastRelease: '2026-06-01', downloads: { python: 90 } },

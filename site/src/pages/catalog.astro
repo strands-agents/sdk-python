@@ -122,6 +122,9 @@ const description = 'Community-built tools, model providers, plugins, and integr
   const searchLabel = document.querySelector<HTMLElement>('[data-cat-search-label]')
 
   const state = queryToState(location.search)
+  // Without the SDK facet rendered (no evals entries), a ?sdk=evals URL would
+  // show an empty grid with no visible control to reset it.
+  if (sdkBtns.length === 0) state.sdk = 'agents'
 
   function cardData(el: HTMLElement): CardFilterData {
     return {

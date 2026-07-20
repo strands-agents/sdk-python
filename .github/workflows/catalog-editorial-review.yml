@@ -40,8 +40,18 @@ jobs:
 
             const pr = context.payload.pull_request;
             const label = process.env.EDITORIAL_LABEL;
+            const marker = '<!-- catalog-editorial-review -->';
             const maintainerRoles = process.env.MAINTAINER_ROLES
               .split(',').map(r => r.trim()).filter(Boolean);
+
+            async function findStickyComment() {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+              });
+              return comments.find(c => c.body && c.body.includes(marker));
+            }
 
             // --- Does the diff touch editorial fields? --------------------
             const files = await github.paginate(github.rest.pulls.listFiles, {
@@ -50,9 +60,10 @@ jobs:
               pull_number: pr.number,
             });
 
-            // YAML boolean spellings the schema coerces to true (js-yaml also
-            // accepts yes/on variants).
-            const featuredRe = /^\+\s*featured:\s*(true|True|TRUE|yes|Yes|on|On)\b/;
+            // YAML 1.2 (Astro's content loader) parses yes/on as strings, which
+            // the schema's z.boolean() rejects at the build gate — only the
+            // true spellings can reach main.
+            const featuredRe = /^\+\s*featured:\s*(true|True|TRUE)\b/;
             // Inline non-empty value: `badges: [x]` or `badges: verified` —
             // but not an explicitly empty `badges: []`.
             const badgesInlineRe = /^\+\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
@@ -88,6 +99,32 @@ jobs:
 
             if (flagged.length === 0) {
               console.log('No editorial fields (featured/badges) added — nothing to flag.');
+              // A previous push may have flagged this PR; clear the stale
+              // label and comment so reviewers aren't misled.
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              const stale = await findStickyComment();
+              if (stale) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: stale.id,
+                  body: [
+                    marker,
+                    '### Editorial catalog fields detected',
+                    '',
+                    '~~Resolved~~ — a later push removed the `featured`/`badges` changes, so this no longer applies.',
+                  ].join('\n'),
+                });
+              }
               return;
             }
 
@@ -122,7 +159,6 @@ jobs:
             });
 
             // --- Sticky comment: update in place so pushes don't spam -----
-            const marker = '<!-- catalog-editorial-review -->';
             const body = [
               marker,
               '### Editorial catalog fields detected',
@@ -137,12 +173,7 @@ jobs:
               '_This is a heads-up for reviewers — it does not block merging._',
             ].join('\n');
 
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-            });
-            const existing = comments.find(c => c.body && c.body.includes(marker));
+            const existing = await findStickyComment();
             if (existing) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,

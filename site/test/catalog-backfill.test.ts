@@ -81,4 +81,13 @@ describe('mergeCandidates – malformed github URLs', () => {
     ]
     expect(mergeCandidates(noScheme, [], [])).toHaveLength(0)
   })
+
+  it('excludes candidates whose repository is not on github.com', () => {
+    // The catalog schema requires a https://github.com/ repo URL; registry
+    // metadata pointing elsewhere would generate an entry the build rejects.
+    const gitlab: RegistryCandidate[] = [
+      { source: 'pypi', name: 'gitlab-pkg', description: 'Hosted on GitLab', github: 'https://gitlab.com/x/gitlab-pkg', registry: 'https://pypi.org/project/gitlab-pkg/' },
+    ]
+    expect(mergeCandidates(gitlab, [], [])).toHaveLength(0)
+  })
 })

@@ -37,10 +37,18 @@ export interface MergedCandidate {
 // Official packages are documented in the SDK docs, not the community catalog.
 const OFFICIAL_ORGS = ['strands-agents', 'strands-labs']
 
-/** Parse the GitHub org from a URL string, returning undefined if the URL is invalid. */
+/**
+ * Parse the org from a GitHub repo URL. Returns undefined for anything that
+ * isn't an https github.com URL with owner and repo segments (GitLab, custom
+ * hosts, profile-only URLs) — the catalog schema requires a
+ * `https://github.com/` repo, so those candidates must be skipped.
+ */
 function parseRepoOrg(url: string): string | undefined {
   try {
-    return new URL(url).pathname.split('/')[1] || undefined
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com') return undefined
+    const [owner, repo] = parsed.pathname.split('/').filter(Boolean)
+    return owner && repo ? owner : undefined
   } catch {
     return undefined
   }
@@ -153,10 +161,9 @@ async function discoverPypi(): Promise<RegistryCandidate[]> {
   const search = (await fetchJson('https://pypi.org/search/?q=strands&format=json').catch(() => null)) as {
     results?: { name: string }[]
   } | null
-  const names: string[] =
-    search?.results?.map((r) => r.name) ??
-    // Fallback: GitHub code-search-derived names handled in main(); return empty here.
-    []
+  // No fallback when the search endpoint fails or changes shape — this pass
+  // just yields no PyPI candidates (GitHub/npm discovery still run).
+  const names: string[] = search?.results?.map((r) => r.name) ?? []
   for (const name of names) {
     try {
       const meta = (await fetchJson(`https://pypi.org/pypi/${name}/json`)) as { info: any }
