@@ -10,6 +10,7 @@ import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
 import CatalogFacets from '../components/catalog/CatalogFacets.astro'
+import { CATALOG_TYPES } from '../components/catalog/types'
 import { toCardModel, sortEntries, hasEvalsEntries, type CatalogStatsFile } from '../util/catalog'
 import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
@@ -23,19 +24,11 @@ const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.i
 const featured = cards.filter((c) => c.featured)
 const showSdkFacet = hasEvalsEntries(cards)
 
-const TYPE_LABELS: Record<string, string> = {
-  'model-provider': 'Model Providers',
-  tool: 'Tools',
-  'session-manager': 'Session Managers',
-  'memory-store': 'Memory Stores',
-  integration: 'Integrations',
-  plugin: 'Plugins',
-  'agent-extension': 'Agent Extensions',
-  intervention: 'Interventions',
-}
-const typeFacets = Object.entries(TYPE_LABELS)
-  .map(([value, label]) => ({ value, label, count: cards.filter((c) => c.integrationType === value).length }))
-  .filter((t) => t.count > 0)
+const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
+  value,
+  label: labelPlural,
+  count: cards.filter((c) => c.integrationType === value).length,
+})).filter((t) => t.count > 0)
 
 const title = 'Community Catalog'
 const description = 'Community-built tools, model providers, plugins, and integrations for Strands Agents.'

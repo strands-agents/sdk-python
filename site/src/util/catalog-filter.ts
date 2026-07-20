@@ -3,6 +3,8 @@
  * DOM access so the page script can import it and vitest can test it directly.
  */
 
+import { CATALOG_TYPES } from '../components/catalog/types'
+
 export interface CatalogFilterState {
   search: string
   types: Set<string>
@@ -19,16 +21,7 @@ export interface CardFilterData {
   sdk: string
 }
 
-const KNOWN_TYPES = new Set([
-  'model-provider',
-  'tool',
-  'session-manager',
-  'memory-store',
-  'integration',
-  'plugin',
-  'agent-extension',
-  'intervention',
-])
+const KNOWN_TYPES = new Set<string>(CATALOG_TYPES.map((t) => t.value))
 const KNOWN_LANGUAGES = new Set(['python', 'typescript'])
 const KNOWN_BADGES = new Set(['verified'])
 const KNOWN_SDKS = new Set(['agents', 'evals'])

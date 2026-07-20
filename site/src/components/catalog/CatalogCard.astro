@@ -12,7 +12,8 @@
  */
 import type { CatalogCardModel } from '../../util/catalog'
 import { pathWithBase } from '../../util/links'
-import { TYPE_ICONS, tileHue } from './icons'
+import { tileHue } from './icons'
+import { TYPE_ICONS, TYPE_LABELS } from './types'
 
 interface Props {
   card: CatalogCardModel
@@ -20,17 +21,6 @@ interface Props {
 }
 
 const { card, featured = false } = Astro.props
-
-const TYPE_LABELS: Record<string, string> = {
-  'model-provider': 'Model Provider',
-  tool: 'Tool',
-  'session-manager': 'Session Manager',
-  'memory-store': 'Memory Store',
-  integration: 'Integration',
-  plugin: 'Plugin',
-  'agent-extension': 'Agent Extension',
-  intervention: 'Intervention',
-}
 
 const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
 

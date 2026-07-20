@@ -85,7 +85,9 @@ export const catalogEntrySchema = z
   .object({
     name: z.string(),
     description: z.string(),
-    // Shared enum with the docs frontmatter integrationType below — keep in sync
+    // Keep in sync with the docs frontmatter integrationType below and the
+    // display registry in src/components/catalog/types.ts (this schema can't
+    // import from components without tangling content config into the UI).
     integrationType: z.enum([
       'model-provider',
       'tool',
