@@ -684,6 +684,7 @@ def _make_invoke_model_terminal(
                     invocation_state=ctx.invocation_state,
                     model_state=model_state,
                     cancel_signal=agent._cancel_signal,
+                    agent=agent,
                 ):
                     yield event
 
