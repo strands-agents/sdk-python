@@ -242,19 +242,19 @@
   border: 1px solid;
   border-radius: 0.25rem;
 }
-/* Featured/Verified use the tip variant — the same one the sidebar's New
-   badges use — so team-endorsed flags carry the familiar docs treatment. */
-.cat-flag--verified,
-.cat-flag--featured {
+/* New uses the tip variant — identical to the docs sidebar's New badge. */
+.cat-flag--new {
   color: var(--sl-badge-tip-text);
   background: var(--sl-badge-tip-bg);
   border-color: var(--sl-badge-tip-border);
 }
-/* New uses the caution (orange) variant to stay distinct from tip. */
-.cat-flag--new {
-  color: var(--sl-badge-caution-text);
-  background: var(--sl-badge-caution-bg);
-  border-color: var(--sl-badge-caution-border);
+/* Featured/Verified are maintainer-granted: success (brand green) variant
+   keeps them distinct from the informational New. */
+.cat-flag--verified,
+.cat-flag--featured {
+  color: var(--sl-badge-success-text);
+  background: var(--sl-badge-success-bg);
+  border-color: var(--sl-badge-success-border);
 }
 
 .cat-card-desc {
