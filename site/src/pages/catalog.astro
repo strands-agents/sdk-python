@@ -21,7 +21,6 @@ const entries = await getCollection('catalog')
 const buildDate = new Date()
 const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.id], buildDate)))
 
-const featured = cards.filter((c) => c.featured)
 const showSdkFacet = hasEvalsEntries(cards)
 
 const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
