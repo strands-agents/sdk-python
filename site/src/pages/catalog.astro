@@ -79,7 +79,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
             data-langs={card.languages.join(' ')}
             data-badges={card.badges.join(' ')}
             data-sdk={card.sdk}
-            data-search={`${card.name} ${card.description}`.toLowerCase()}
+            data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
           >
             <a href={card.external ? card.href : pathWithBase(card.href)} rel={card.external ? 'noopener' : undefined}>
               <span class="cat-dialog-name">{card.name}</span>

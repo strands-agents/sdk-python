@@ -37,7 +37,7 @@ const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
   data-langs={card.languages.join(' ')}
   data-badges={card.badges.join(' ')}
   data-sdk={card.sdk}
-  data-search={`${card.name} ${card.description}`.toLowerCase()}
+  data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
 >
   <span class="cat-tile" aria-hidden="true">{monogram}</span>
   <div class="cat-card-main">
@@ -77,7 +77,9 @@ const monogram = card.name.replace(/^@[^/]+\//, '').charAt(0).toUpperCase()
           </svg>
           {TYPE_LABELS[card.integrationType]}
         </span>
-        <span class="cat-langs">{card.languages.map((l) => (l === 'python' ? 'Python' : 'TypeScript')).join(' · ')}</span>
+        <span class="cat-langs">
+          {card.languages.map((l) => (l === 'python' ? 'Python' : 'TypeScript')).join(' · ')} · by {card.maintainer}
+        </span>
       </span>
       <span class="cat-links">
         <a class="cat-link" href={card.github} rel="noopener" aria-label={`${card.name} on GitHub`}>GitHub</a>
