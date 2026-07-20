@@ -45,7 +45,7 @@ import { Card, CardGrid } from '@astrojs/starlight/components';
 
 ## Snippet Inclusion
 
-Code lives in runnable source files; the MDX page references named regions of those files. **Imports go in a sibling `*_imports.ts` file**; the body lives in the main `.ts` file. The MDX block pulls both — imports first, then body — so a single rendered code block shows imports + usage.
+Code lives in runnable source files; the MDX page references named regions of those files. Snippet source files live alongside the page that includes them, with the same base name (`agent-loop.mdx` pulls from `agent-loop.ts`). **Imports go in a sibling `*_imports.ts` file**; the body lives in the main `.ts` file. The MDX block pulls both — imports first, then body — so a single rendered code block shows imports + usage.
 
 Snippet names use `snake_case` (build-time identifiers, not source code) and follow `<feature>_<variant>` for bodies, plus `_imports` suffix for the matching import set.
 
@@ -192,6 +192,16 @@ Link to generated API docs without fragile relative paths:
 ## Line Length
 
 90 characters maximum for files under `site/src/content/docs/`. Template literal contents in snippet files must also stay under 90 characters. Prettier does not enforce this automatically.
+
+## Validating Changes
+
+Run from `site/`:
+
+- `npm run typecheck:snippets` type-checks snippet files under `src/content/docs/`
+- `npm run typecheck` type-checks other TypeScript
+- `npm run format` applies Prettier formatting to doc snippet files
+- `npm test` runs the site's unit tests
+- `npm run dev` previews at http://localhost:4321/ to confirm snippets render
 
 ## Gotchas
 
