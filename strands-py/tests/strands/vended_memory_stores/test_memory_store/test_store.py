@@ -1,9 +1,8 @@
 """Tests for ``TestMemoryStore``.
 
 Test scaffolding:
-- ``tmp_path`` roots every persistent backend, so tests never touch the real ``~/.strands`` or ``./.strands``.
-- ``make_store`` builds a store backed by a ``LocalFileStorage`` rooted under ``tmp_path``.
-- ``storage_file`` is the on-disk location that backend writes for the store's ``memory/<name>.json`` key.
+- ``tmp_path`` backs every persistent store, so tests never touch the real ``~/.strands/memory``.
+- ``make_store`` builds a store rooted at a unique file under ``tmp_path``.
 - ``_FakeAgent`` / ``_invoke_all`` mirror the extraction wiring in the Bedrock store tests.
 """
 
@@ -25,7 +24,7 @@ from strands.hooks.registry import HookOrder
 from strands.memory.extraction.triggers import InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig, ExtractionResult
 from strands.memory.memory_manager import MemoryManager
-from strands.storage import LocalFileStorage
+from strands.storage import Storage
 from strands.types.exceptions import StorageError
 from strands.vended_memory_stores.test_memory_store import (
     TestMemoryAddResult,
@@ -42,7 +41,7 @@ class _YieldingStorage:
     loop-bound lock instead of passing by luck.
     """
 
-    def __init__(self, inner: LocalFileStorage) -> None:
+    def __init__(self, inner: Storage) -> None:
         self._inner = inner
 
     async def write(self, key: str, data: bytes) -> None:
@@ -63,17 +62,17 @@ class _YieldingStorage:
 
 
 @pytest.fixture
-def storage_file(tmp_path: Path) -> Path:
-    """The on-disk location a ``LocalFileStorage(tmp_path)`` writes for the store's ``memory/notes.json`` key."""
-    return tmp_path / "memory" / "notes.json"
+def store_path(tmp_path: Path) -> str:
+    """A unique backing-file path under the test's temp dir."""
+    return str(tmp_path / "notes.json")
 
 
 @pytest.fixture
-def make_store(tmp_path: Path):
-    """Factory building a store backed by a ``LocalFileStorage`` under ``tmp_path`` with overridable config."""
+def make_store(store_path: str):
+    """Factory building a persistent store at ``store_path`` with overridable config."""
 
     def _make(**overrides: Any) -> TestMemoryStore:
-        config: dict[str, Any] = {"name": "notes", "storage": LocalFileStorage(str(tmp_path))}
+        config: dict[str, Any] = {"name": "notes", "path": store_path}
         config.update(overrides)
         return TestMemoryStore(**config)
 
@@ -123,9 +122,24 @@ class TestConstructor:
         with pytest.raises(ValueError, match="name must not be empty"):
             make_store(name="   ")
 
-    def test_does_no_filesystem_io_on_construction(self, make_store, storage_file):
+    def test_raises_when_explicit_path_is_empty(self):
+        with pytest.raises(ValueError, match="path must not be empty"):
+            TestMemoryStore(name="notes", path="   ")
+
+    def test_does_no_filesystem_io_on_construction(self, make_store, store_path):
         make_store()
-        assert not storage_file.exists()
+        assert not Path(store_path).exists()
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_a_sanitized_path_under_the_home_memory_dir(self, tmp_path, monkeypatch):
+        # No explicit path: the store derives ~/.strands/memory/<sanitized-store-name>.json. Home is
+        # redirected to tmp_path so the test never touches the real home dir, and the unsafe name
+        # exercises sanitization.
+        monkeypatch.setattr(store_module.Path, "home", classmethod(lambda cls: tmp_path))
+        store = TestMemoryStore(name="../weird/name")
+        await store.add("a fact worth keeping")
+        expected = tmp_path / ".strands" / "memory" / "__weird_name.json"
+        assert expected.is_file()
 
 
 class TestAdd:
@@ -162,10 +176,10 @@ class TestAdd:
         assert len(await store.search("dark mode preferences")) == 1
 
     @pytest.mark.asyncio
-    async def test_persists_human_readable_json(self, make_store, storage_file):
+    async def test_persists_human_readable_json(self, make_store, store_path):
         store = make_store()
         await store.add("user prefers dark mode", {"source": "user"})
-        raw = storage_file.read_text(encoding="utf-8")
+        raw = Path(store_path).read_text(encoding="utf-8")
         assert "\n  " in raw  # pretty-printed
         parsed = json.loads(raw)
         assert len(parsed) == 1
@@ -243,124 +257,111 @@ class TestSearch:
 
 class TestPersistence:
     @pytest.mark.asyncio
-    async def test_survives_restart(self, make_store, tmp_path):
+    async def test_survives_restart(self, make_store):
         first = make_store()
         await first.add("user lives in Berlin")
 
-        second = TestMemoryStore(name="notes", storage=LocalFileStorage(str(tmp_path)))
-        results = await second.search("Berlin")
+        second = make_store()
+        results = await second.search("where does the user live")
         assert len(results) == 1
         assert results[0].content == "user lives in Berlin"
 
     @pytest.mark.asyncio
-    async def test_ephemeral_by_default_a_fresh_instance_forgets(self):
-        # The default in-memory backend is per-instance: a fresh store sees nothing the first wrote.
-        first = TestMemoryStore(name="notes")
-        await first.add("only in first")
+    async def test_ephemeral_writes_no_file_and_forgets(self, make_store, store_path):
+        first = make_store(persist=False)
+        await first.add("ephemeral fact")
+        assert not Path(store_path).exists()
 
-        second = TestMemoryStore(name="notes")
-        assert await second.search("only in first") == []
-        assert len(await first.search("only in first")) == 1
+        second = make_store(persist=False)
+        assert await second.search("ephemeral fact") == []
 
     @pytest.mark.asyncio
-    async def test_starts_empty_when_backing_store_missing(self, make_store):
+    async def test_starts_empty_when_file_missing(self, make_store):
         assert await make_store().search("anything") == []
 
     @pytest.mark.asyncio
-    async def test_scopes_a_shared_backend_under_the_memory_prefix(self, tmp_path):
-        # An unnamespaced backend is scoped under `memory/`, so the on-disk key is `memory/<name>.json`.
-        store = TestMemoryStore(name="notes", storage=LocalFileStorage(str(tmp_path)))
-        await store.add("a fact worth keeping")
-        assert (tmp_path / "memory" / "notes.json").is_file()
-
-    @pytest.mark.asyncio
-    async def test_does_not_double_prefix_an_already_namespaced_view(self, tmp_path):
-        # A caller who passes an already-`memory/`-namespaced view must not be re-scoped to
-        # `memory/memory/...`; the store detects the namespaced view and uses it as-is.
-        pre_scoped = LocalFileStorage(str(tmp_path)).namespace("memory")
-        store = TestMemoryStore(name="notes", storage=pre_scoped)
-        await store.add("a fact worth keeping")
-        assert (tmp_path / "memory" / "notes.json").is_file()
-        assert not (tmp_path / "memory" / "memory").exists()
-
-    @pytest.mark.asyncio
-    async def test_sanitizes_an_unsafe_name_into_a_single_key(self, tmp_path):
-        store = TestMemoryStore(name="../weird/name", storage=LocalFileStorage(str(tmp_path)))
-        await store.add("a fact worth keeping")
-        assert (tmp_path / "memory" / "__weird_name.json").is_file()
-
-    @pytest.mark.asyncio
-    async def test_raises_clear_error_on_corrupt_backing_store(self, make_store, tmp_path):
-        await LocalFileStorage(str(tmp_path)).write("memory/notes.json", b"not json{")
+    async def test_raises_clear_error_on_corrupt_file(self, make_store, store_path):
+        Path(store_path).write_text("not json{", encoding="utf-8")
         store = make_store()
         with pytest.raises(ValueError, match="invalid JSON"):
             await store.search("anything")
 
     @pytest.mark.asyncio
-    async def test_raises_clear_error_on_wrong_shape_backing_store(self, make_store, tmp_path):
+    async def test_raises_clear_error_on_wrong_shape_file(self, make_store, store_path):
         # Valid JSON that is not an array of records (e.g. a hand-edited object) must fail fast with
         # a clear message rather than crashing opaquely deeper in search/add.
-        await LocalFileStorage(str(tmp_path)).write("memory/notes.json", b"{}")
+        Path(store_path).write_text("{}", encoding="utf-8")
         store = make_store()
         with pytest.raises(ValueError, match="expected a JSON array"):
             await store.search("anything")
 
     @pytest.mark.asyncio
-    async def test_raises_clear_error_on_malformed_record(self, make_store, tmp_path):
+    async def test_raises_clear_error_on_malformed_record(self, make_store, store_path):
         # A valid JSON array whose elements lack the required fields must also fail fast with a clear
         # message rather than raising a bare KeyError deeper in search/add.
-        await LocalFileStorage(str(tmp_path)).write("memory/notes.json", json.dumps([{"foo": "bar"}]).encode("utf-8"))
+        Path(store_path).write_text(json.dumps([{"foo": "bar"}]), encoding="utf-8")
         store = make_store()
         with pytest.raises(ValueError, match="each record must have string"):
             await store.search("anything")
 
     @pytest.mark.asyncio
-    async def test_raises_clear_error_on_non_object_metadata(self, make_store, tmp_path):
-        # A present-but-non-object metadata (e.g. a hand-edited or cross-SDK blob) must fail fast
+    async def test_raises_clear_error_on_non_object_metadata(self, make_store, store_path):
+        # A present-but-non-object metadata (e.g. a hand-edited or cross-SDK file) must fail fast
         # rather than crashing opaquely when search spreads it into the result.
         record = [{"id": "a", "content": "hi", "createdAt": "2026-01-01T00:00:00.000Z", "metadata": "oops"}]
-        await LocalFileStorage(str(tmp_path)).write("memory/notes.json", json.dumps(record).encode("utf-8"))
+        Path(store_path).write_text(json.dumps(record), encoding="utf-8")
         store = make_store()
         with pytest.raises(ValueError, match="'metadata', when present, must be a JSON object"):
             await store.search("hi")
 
     @pytest.mark.asyncio
-    async def test_keeps_all_entries_under_concurrent_writes(self, make_store, storage_file):
+    async def test_accepts_null_metadata_as_absent(self, make_store, store_path):
+        # A record with null metadata is accepted and treated as absent, matching the TS store.
+        record = [{"id": "a", "content": "hi there", "createdAt": "2026-01-01T00:00:00.000Z", "metadata": None}]
+        Path(store_path).write_text(json.dumps(record), encoding="utf-8")
+        store = make_store()
+        results = await store.search("hi")
+        assert len(results) == 1
+        assert results[0].metadata == {"_relevanceScore": 1}
+
+    @pytest.mark.asyncio
+    async def test_keeps_all_entries_under_concurrent_writes(self, make_store, store_path):
         store = make_store()
         await asyncio.gather(*(store.add(f"fact number {index}") for index in range(10)))
-        assert len(json.loads(storage_file.read_text(encoding="utf-8"))) == 10
+        assert len(json.loads(Path(store_path).read_text(encoding="utf-8"))) == 10
 
-    def test_reused_across_separate_event_loops(self, tmp_path, storage_file):
+    def test_reused_across_separate_event_loops(self, make_store, store_path):
         # A synchronous Agent runs each invocation on a fresh event loop, so a store reused across
         # invocations acquires its write lock on a different loop each time. A loop-bound lock created
-        # once would raise "bound to a different event loop"; the lock must rebind per loop. The
-        # yielding backend forces the lock to actually suspend under contention, which is what binds a
-        # waiter to a loop, so a regression surfaces rather than passing by luck.
-        store = TestMemoryStore(name="notes", storage=_YieldingStorage(LocalFileStorage(str(tmp_path))))
+        # once would raise "bound to a different event loop"; the lock must rebind per loop. Wrapping
+        # the backend so each op suspends forces the lock to actually bind a waiter to the loop, so a
+        # regression surfaces rather than passing by luck.
+        store = make_store()
+        store._storage = _YieldingStorage(store._storage)
 
         async def batch(tag: str) -> None:
             await asyncio.gather(store.add(f"{tag} one"), store.add(f"{tag} two"))
 
         asyncio.run(batch("first"))
         asyncio.run(batch("second"))
-        assert len(json.loads(storage_file.read_text(encoding="utf-8"))) == 4
+        assert len(json.loads(Path(store_path).read_text(encoding="utf-8"))) == 4
 
     @pytest.mark.asyncio
-    async def test_surfaces_storage_error_when_backend_is_unreachable(self, tmp_path):
-        # Point the backend's base dir at an existing FILE, so writes under it hit a not-a-directory
-        # error — the backend raises a StorageError naming the key rather than a bare OSError.
+    async def test_raises_clear_error_when_path_is_unreachable(self, tmp_path):
+        # Point the store under an existing FILE, so the backing path can't be reached — the backend
+        # raises a StorageError naming the key rather than a bare OSError.
         blocker = tmp_path / "blocker"
         blocker.write_text("not a directory", encoding="utf-8")
-        store = TestMemoryStore(name="notes", storage=LocalFileStorage(str(blocker)))
+        store = TestMemoryStore(name="notes", path=str(blocker / "notes.json"))
         with pytest.raises(StorageError, match="Failed to write"):
             await store.add("user prefers dark mode")
 
 
 class TestCrossSdkInterop:
-    """The serialized record format is shared with the TypeScript SDK; a store written by either loads in both."""
+    """The on-disk format is shared with the TypeScript SDK; a file written by either loads in both."""
 
     @pytest.mark.asyncio
-    async def test_loads_a_record_written_in_the_shared_camelcase_format(self, make_store, tmp_path):
+    async def test_loads_a_file_written_in_the_shared_camelcase_format(self, make_store, store_path):
         # A record shaped exactly as the TypeScript SDK writes it: camelCase keys and a millisecond,
         # Z-suffixed timestamp. The Python store must read it without translation.
         ts_written = [
@@ -371,7 +372,7 @@ class TestCrossSdkInterop:
                 "createdAt": "2026-01-02T00:00:00.000Z",
             }
         ]
-        await LocalFileStorage(str(tmp_path)).write("memory/notes.json", json.dumps(ts_written).encode("utf-8"))
+        Path(store_path).write_text(json.dumps(ts_written), encoding="utf-8")
 
         store = make_store()
         results = await store.search("dark mode preference")
@@ -432,14 +433,14 @@ class TestMemoryManagerIntegration:
         assert results[0].store_name == "notes"
 
     @pytest.mark.asyncio
-    async def test_manager_add_writes_to_store(self, make_store, storage_file):
+    async def test_manager_add_writes_to_store(self, make_store, store_path):
         store = make_store()
         mm = MemoryManager(stores=[store], add_tool_config=True)
         await mm.add("user likes coffee")
-        assert len(json.loads(storage_file.read_text(encoding="utf-8"))) == 1
+        assert len(json.loads(Path(store_path).read_text(encoding="utf-8"))) == 1
 
     @pytest.mark.asyncio
-    async def test_ingests_extracted_facts_through_add(self, make_store, storage_file):
+    async def test_ingests_extracted_facts_through_add(self, make_store, store_path):
         extractor = MagicMock()
 
         async def _extract(messages, context=None):
@@ -458,6 +459,6 @@ class TestMemoryManagerIntegration:
         await mm.flush()
 
         extractor.extract.assert_called_once()
-        parsed = json.loads(storage_file.read_text(encoding="utf-8"))
+        parsed = json.loads(Path(store_path).read_text(encoding="utf-8"))
         assert len(parsed) == 1
         assert parsed[0]["content"] == "user prefers dark mode"

@@ -1,15 +1,13 @@
-"""A :class:`~strands.memory.types.MemoryStore` that persists its records through a storage backend.
+"""A :class:`~strands.memory.types.MemoryStore` that persists to a local JSON file.
 
 A zero-infrastructure store for prototyping and offline use: no cloud account or provisioned
-resources required. Ephemeral by default; pass a persistent :class:`~strands.storage.Storage` to
-keep memories across restarts.
+resources required. Persists to disk by default so an agent remembers across restarts.
 
 Example:
     ```python
     from strands.vended_memory_stores.test_memory_store import TestMemoryStore
-    from strands.storage import LocalFileStorage
 
-    store = TestMemoryStore(name="notes", storage=LocalFileStorage())
+    store = TestMemoryStore(name="notes")
     ```
 """
 

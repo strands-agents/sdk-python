@@ -1,7 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
 import { InMemoryStorage } from '../../storage/in-memory-storage.js'
-import { NAMESPACED, namespace } from '../../storage/storage.js'
+import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
@@ -15,7 +15,7 @@ const DEFAULT_MAX_SEARCH_RESULTS = 10
 const RELEVANCE_SCORE_KEY = '_relevanceScore'
 
 /**
- * A stored memory, as it is serialized into the record blob.
+ * A stored memory, as it is persisted on disk.
  */
 interface TestMemoryRecord {
   id: string
@@ -26,17 +26,24 @@ interface TestMemoryRecord {
 
 /**
  * Configuration for {@link TestMemoryStore}.
+ *
+ * The store persists to disk by default so the memory records persist across restarts. Set
+ * {@link persist} to `false` for an ephemeral, single session store (useful for e.g. testing).
  */
 export interface TestMemoryStoreConfig extends MemoryStoreConfig {
   /**
-   * Storage backend the records are persisted through. Records are held as a single JSON blob
-   * under the key `memory/<sanitized-store-name>.json`.
+   * Whether to persist entries to disk so they survive across sessions.
+   * - `true` (default): writes are flushed to {@link path} (or the default location).
+   * - `false`: entries live only in memory and are lost when the process exits.
    *
-   * Defaults to an ephemeral {@link InMemoryStorage} — entries live only in memory and are lost
-   * when the process exits. Pass a `LocalFileStorage` (or any {@link Storage}) to persist across
-   * restarts, e.g. `new LocalFileStorage()` to write under `./.strands/`.
+   * @defaultValue true
    */
-  storage?: Storage
+  persist?: boolean
+  /**
+   * Full path to the JSON file backing this store. Defaults to
+   * `~/.strands/memory/<sanitized-store-name>.json`. Ignored when {@link persist} is `false`.
+   */
+  path?: string
 }
 
 /** Result returned by {@link TestMemoryStore.add}. */
@@ -46,8 +53,9 @@ export interface TestMemoryAddResult {
 }
 
 /**
- * Sanitizes a store name into a safe single storage-key segment, guarding against a name that
- * would escape the `memory/` prefix. Ensures cross-SDK consistent sanitization.
+ * Sanitizes a store name into a safe single-path-segment filename.
+ * Guards the default-path branch against a name that would escape the memory directory.
+ * Ensures cross-SDK consistent sanitization.
  */
 function sanitizeName(name: string): string {
   return name
@@ -84,31 +92,29 @@ function tokenOverlapScore(queryTokens: Set<string>, content: string): number {
 }
 
 /**
- * A zero-infrastructure {@link MemoryStore} that persists its records through a {@link Storage}
- * backend. Use for prototyping and testing.
+ * A zero-infrastructure store {@link MemoryStore} that keeps entries in memory and by default
+ * persists them to a local JSON file. Use for prototyping and testing.
  *
  * Recall is lexical: results are ranked by how many query tokens overlap an entry's content, with
  * the most recent entry winning ties. This is keyword matching, not the semantic search a managed
  * vector store (e.g. {@link BedrockKnowledgeBaseStore}) provides.
  *
- * Each {@link add} rewrites the whole record blob, so this fits modest volumes, not high-volume
+ * Each {@link add} rewrites the whole file, so this fits modest volumes, not fit for high volume
  * production workloads. Use a managed store like {@link BedrockKnowledgeBaseStore} for that.
  *
- * The store defaults to an ephemeral {@link InMemoryStorage}: entries are lost when the process
- * exits. Pass a persistent {@link Storage} (e.g. `new LocalFileStorage()`) to keep them across
- * restarts.
+ * Persistence is backed by the unified `Storage` interface: `persist: true` (the default) uses a
+ * `LocalFileStorage`, `persist: false` an ephemeral `InMemoryStorage`.
  *
- * The serialized record format is shared with the Python SDK's `TestMemoryStore`: records use the
- * same camelCase keys (`id`, `content`, `metadata`, `createdAt`) and the same timestamp shape, so
- * a backing store written by either SDK can be read by the other.
+ * The on-disk format is shared with the Python SDK's `TestMemoryStore`: records use the same
+ * camelCase keys (`id`, `content`, `metadata`, `createdAt`) and the same timestamp shape, so a
+ * backing file written by either SDK can be read by the other.
  *
  * @example
  * ```typescript
  * import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/test-memory-store'
- * import { LocalFileStorage } from '@strands-agents/sdk/storage'
  *
- * // Ephemeral by default; pass a LocalFileStorage to persist under ./.strands/memory/notes.json.
- * const store = new TestMemoryStore({ name: 'notes', storage: new LocalFileStorage() })
+ * // Persists to ~/.strands/memory/notes.json by default.
+ * const store = new TestMemoryStore({ name: 'notes' })
  *
  * const { id } = await store.add('User prefers dark mode')
  * const results = await store.search('what theme does the user like?')
@@ -121,15 +127,20 @@ export class TestMemoryStore implements MemoryStore {
   readonly writable: boolean
   readonly extraction?: boolean | ExtractionConfig
 
-  /** Storage backend the records are persisted through, scoped under the `memory/` namespace. */
-  private readonly _storage: Storage
-  /** Key within the backend the record blob is stored under: `<sanitized-store-name>.json`. */
-  private readonly _key: string
+  private readonly _persist: boolean
+  /** Explicit `path` override from config, if any; the default path is resolved lazily in {@link _resolve}. */
+  private readonly _explicitPath: string | undefined
+  /**
+   * The resolved `(storage, key)` pair, memoized on first use. Resolution is lazy because the
+   * default-path branch needs `node:os`/`node:path`, and deferring those dynamic imports keeps the
+   * module safe to bundle for the browser and construction free of filesystem I/O.
+   */
+  private _resolved: { storage: Storage; key: string } | undefined
   /** Serializes writes so concurrent `add`s never interleave the read-modify-write cycle. */
   private _writeChain: Promise<unknown> = Promise.resolve()
 
   constructor(options: TestMemoryStoreConfig) {
-    const { name, description, maxSearchResults, writable, extraction, storage } = options
+    const { name, description, maxSearchResults, writable, extraction, persist, path } = options
 
     if (!name.trim()) {
       throw new Error('TestMemoryStore: name must not be empty.')
@@ -146,10 +157,11 @@ export class TestMemoryStore implements MemoryStore {
     this.writable = writable ?? true
     if (extraction !== undefined) this.extraction = extraction
 
-    // Ephemeral by default. Scope every backend under `memory/`, unless the caller already namespaced it.
-    const backend = storage ?? new InMemoryStorage()
-    this._storage = NAMESPACED in backend ? backend : namespace(backend, 'memory')
-    this._key = `${sanitizeName(name)}.json`
+    if (path !== undefined && !path.trim()) {
+      throw new Error('TestMemoryStore: path must not be empty.')
+    }
+    this._persist = persist ?? true
+    this._explicitPath = path
   }
 
   /**
@@ -215,9 +227,10 @@ export class TestMemoryStore implements MemoryStore {
       throw new Error('TestMemoryStore: content must not be empty.')
     }
 
-    // Serialize the whole read-modify-write cycle behind any in-flight write so concurrent `add`s
-    // don't each read the same snapshot and clobber one another (last-write-wins). Reading inside
-    // the chained callback guarantees add #N sees add #N-1's write.
+    // Serialize the whole read-modify-write cycle behind any in-flight write so concurrent `add`s on
+    // this instance don't each read the same snapshot and clobber one another. Reading inside the
+    // chained callback guarantees add #N sees add #N-1's write. Serialization is per instance; adds
+    // from separate instances/processes against a shared file remain last-write-wins.
     const run = this._writeChain.then(async () => {
       const records = await this._read()
 
@@ -240,15 +253,43 @@ export class TestMemoryStore implements MemoryStore {
   }
 
   /**
-   * Reads and parses the record blob from storage; a missing key (or empty store) starts empty.
+   * Resolves (and memoizes) the `(storage, key)` pair whose on-disk location matches the
+   * pre-`Storage` behavior exactly: `persist: false` → an in-memory backend; an explicit `path` →
+   * the file at `path` (backend rooted at its parent); the default → `~/.strands/memory/<name>.json`.
+   * The `node:os`/`node:path` imports are dynamic so the module stays safe to bundle for the browser.
+   */
+  private async _resolve(): Promise<{ storage: Storage; key: string }> {
+    if (this._resolved !== undefined) return this._resolved
+    if (!this._persist) {
+      this._resolved = { storage: new InMemoryStorage(), key: `${sanitizeName(this.name)}.json` }
+    } else if (this._explicitPath !== undefined) {
+      const path = await import('node:path')
+      this._resolved = {
+        storage: new LocalFileStorage(path.dirname(this._explicitPath)),
+        key: path.basename(this._explicitPath),
+      }
+    } else {
+      const os = await import('node:os')
+      const path = await import('node:path')
+      this._resolved = {
+        storage: new LocalFileStorage(path.join(os.homedir(), '.strands', 'memory')),
+        key: `${sanitizeName(this.name)}.json`,
+      }
+    }
+    return this._resolved
+  }
+
+  /**
+   * Reads and parses the backing file from storage; a missing key (or empty store) starts empty.
    * Reads fresh on every call — there is no in-memory cache, so a search always reflects the
-   * latest write (including from another writer sharing the backend).
+   * latest write.
    *
-   * @throws An `Error` if the stored blob is not valid JSON, is not an array, or holds a record
+   * @throws An `Error` if the stored file is not valid JSON, is not an array, or holds a record
    *   missing the required string fields. A backend I/O failure surfaces as its own `StorageError`.
    */
   private async _read(): Promise<TestMemoryRecord[]> {
-    const bytes = await this._storage.read(this._key)
+    const { storage, key } = await this._resolve()
+    const bytes = await storage.read(key)
     if (bytes === null) return []
 
     const rawContent = new TextDecoder().decode(bytes)
@@ -256,10 +297,10 @@ export class TestMemoryStore implements MemoryStore {
     try {
       parsedBlob = JSON.parse(rawContent)
     } catch (error: unknown) {
-      throw new Error(`TestMemoryStore: invalid JSON in ${this._key}`, { cause: error })
+      throw new Error(`TestMemoryStore: invalid JSON in ${key}`, { cause: error })
     }
     if (!Array.isArray(parsedBlob)) {
-      throw new Error(`TestMemoryStore: invalid backing store ${this._key}: expected a JSON array of records`)
+      throw new Error(`TestMemoryStore: invalid backing file ${key}: expected a JSON array of records`)
     }
     for (const record of parsedBlob) {
       if (
@@ -270,16 +311,19 @@ export class TestMemoryStore implements MemoryStore {
         typeof record.createdAt !== 'string'
       ) {
         throw new Error(
-          `TestMemoryStore: invalid backing store ${this._key}: ` +
+          `TestMemoryStore: invalid backing file ${key}: ` +
             "each record must have string 'id', 'content', and 'createdAt' fields"
         )
       }
+      // A present, non-null metadata must be a plain object. `null` is accepted and treated as
+      // absent, matching the Python store (which maps JSON null to None and skips the check).
       if (
         record.metadata !== undefined &&
-        (record.metadata === null || typeof record.metadata !== 'object' || Array.isArray(record.metadata))
+        record.metadata !== null &&
+        (typeof record.metadata !== 'object' || Array.isArray(record.metadata))
       ) {
         throw new Error(
-          `TestMemoryStore: invalid backing store ${this._key}: ` +
+          `TestMemoryStore: invalid backing file ${key}: ` +
             "a record's 'metadata', when present, must be a JSON object"
         )
       }
@@ -288,12 +332,13 @@ export class TestMemoryStore implements MemoryStore {
   }
 
   /**
-   * Persists `records` as a single JSON blob through the storage backend. Callers serialize
+   * Persists `records` as a single JSON file through the storage backend. Callers serialize
    * invocations via {@link _writeChain}; atomicity is the backend's responsibility. A backend I/O
    * failure surfaces as its own `StorageError`, naming the key.
    */
   private async _write(records: TestMemoryRecord[]): Promise<void> {
+    const { storage, key } = await this._resolve()
     const bytes = new TextEncoder().encode(JSON.stringify(records, null, 2))
-    await this._storage.write(this._key, bytes)
+    await storage.write(key, bytes)
   }
 }
