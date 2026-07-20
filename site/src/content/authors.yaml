@@ -187,3 +187,8 @@
   name: Panpan Xu
   role: "Principal Applied Scientist, AWS"
   bio: Panpan Xu is a Principal Applied Scientist at AWS Agentic AI working on agent optimization.
+
+- id: sundar-raghavan
+  name: Sundar Raghavan
+  role: "Sr Solutions Architect, AWS"
+  bio: Sundar Raghavan is a Sr Solutions Architect at AWS on the Agentic AI Foundations team. He focuses on how developers build, deploy, and scale production AI agents on AWS, and is extending that into physical AI through Strands Robots.
