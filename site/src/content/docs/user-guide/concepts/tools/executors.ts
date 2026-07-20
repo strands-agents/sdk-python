@@ -1,4 +1,9 @@
-import { Agent, tool } from '@strands-agents/sdk'
+import {
+  Agent,
+  ConcurrentToolExecutor,
+  SequentialToolExecutor,
+  tool,
+} from '@strands-agents/sdk'
 import { z } from 'zod'
 
 const weatherTool = tool({
@@ -39,9 +44,9 @@ const emailTool = tool({
   // --8<-- [start:concurrent]
   const agent = new Agent({
     tools: [weatherTool, timeTool],
-    toolExecutor: 'concurrent',
+    toolExecutor: new ConcurrentToolExecutor(),
   })
-  // or simply: new Agent({ tools: [weatherTool, timeTool] })
+  // Omit toolExecutor to use concurrent execution by default.
 
   await agent.invoke('What is the weather and time in New York?')
   // --8<-- [end:concurrent]
@@ -51,7 +56,7 @@ const emailTool = tool({
   // --8<-- [start:sequential]
   const agent = new Agent({
     tools: [screenshotTool, emailTool],
-    toolExecutor: 'sequential',
+    toolExecutor: new SequentialToolExecutor(),
   })
 
   await agent.invoke('Take a screenshot and email it to my friend')
