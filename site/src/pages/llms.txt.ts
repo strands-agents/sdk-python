@@ -12,10 +12,13 @@ const SIDEBAR_SECTIONS = ['Docs', 'Examples', 'Community']
 
 /**
  * Format a llms.txt link line: `- [title](url): description`, omitting the
- * `: description` suffix when no description is available.
+ * `: description` suffix when no description is available. Internal whitespace
+ * (including newlines from folded YAML) collapses to single spaces so an entry
+ * can never span multiple lines of this machine-parsed format.
  */
 function linkLine(label: string, url: string, description?: string, indent: string = ''): string {
-  const suffix = description?.trim() ? `: ${description.trim()}` : ''
+  const normalized = description?.replace(/\s+/g, ' ').trim()
+  const suffix = normalized ? `: ${normalized}` : ''
   return `${indent}- [${label}](${url})${suffix}`
 }
 
