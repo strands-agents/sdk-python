@@ -33,6 +33,11 @@ import { pathToDocsSlug } from './links'
 /**
  * Extract frontmatter from a markdown/MDX file. Returns an empty object when
  * the file has no frontmatter block.
+ *
+ * This must stay compatible with the frontmatter parsing Astro's content
+ * loader does (gray-matter): both treat the first `---`-fenced block as YAML.
+ * A divergence would produce a wrong target slug here, which the build-time
+ * "has no content file" validation below then catches.
  */
 function readFrontmatter(filePath: string): Record<string, unknown> {
   const source = fs.readFileSync(filePath, 'utf-8')
@@ -108,6 +113,19 @@ export function buildStaticRedirects(
   staticRedirects: Record<string, string> = STATIC_SLUG_REDIRECTS
 ): Record<string, string> {
   const { slugs, redirectFromEntries } = scanContent(contentDir)
+
+  // A redirectFrom entry that collides with a rename rule but points elsewhere
+  // is an authoring mistake — the rename rule would silently win. Same
+  // fail-fast treatment as duplicate redirectFrom entries.
+  for (const [source, target] of Object.entries(redirectFromEntries)) {
+    const staticTarget = staticRedirects[source]
+    if (staticTarget !== undefined && staticTarget !== target) {
+      throw new Error(
+        `[redirect.static] redirectFrom slug "${source}" conflicts with a static rename rule ` +
+          `("${target}" vs "${staticTarget}")`
+      )
+    }
+  }
 
   const slugMap: Record<string, string> = {
     ...redirectFromEntries,

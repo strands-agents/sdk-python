@@ -98,6 +98,23 @@ describe('buildStaticRedirects', () => {
     )
   })
 
+  it('throws when a redirectFrom entry conflicts with a static rename rule', () => {
+    writeDoc(contentDir, 'docs/user-guide/state.mdx', 'title: State\nredirectFrom:\n  - docs/old/page')
+    writeDoc(contentDir, 'docs/user-guide/other.mdx', 'title: Other')
+
+    expect(() =>
+      buildStaticRedirects(contentDir, '/', { 'docs/old/page': 'docs/user-guide/other' })
+    ).toThrow(/conflicts with a static rename rule/)
+  })
+
+  it('allows a redirectFrom entry that agrees with a static rename rule', () => {
+    writeDoc(contentDir, 'docs/user-guide/state.mdx', 'title: State\nredirectFrom:\n  - docs/old/page')
+
+    const redirects = buildStaticRedirects(contentDir, '/', { 'docs/old/page': 'docs/user-guide/state' })
+
+    expect(redirects).toEqual({ '/docs/old/page': '/docs/user-guide/state/' })
+  })
+
   it('validates the production redirect map against the real content dir', () => {
     // The same invocation astro.config.mjs makes — catches a production rename
     // rule whose target page was deleted or moved, without pinning any
