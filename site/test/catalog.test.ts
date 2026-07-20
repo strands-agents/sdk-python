@@ -21,31 +21,32 @@ function entry(overrides: Partial<CatalogEntryData> = {}): CatalogEntryData {
 }
 
 describe('toCardModel', () => {
-  it('card link priority: docsPage (internal) > docsUrl (external) > github fallback', () => {
-    // github fallback when no docs link is set
-    const githubOnly = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
-    expect(githubOnly.href).toBe('https://github.com/example/strands-example')
-    expect(githubOnly.external).toBe(true)
+  it('links to the github repo when no docs link is set', () => {
+    const card = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
+    expect(card.href).toBe('https://github.com/example/strands-example')
+    expect(card.external).toBe(true)
+  })
 
-    // docsUrl wins over github
-    const withDocsUrl = toCardModel(
+  it('prefers docsUrl over the github repo', () => {
+    const card = toCardModel(
       'strands-example',
       entry({ docsUrl: 'https://example.com/docs/strands' }),
       undefined,
       BUILD_DATE
     )
-    expect(withDocsUrl.href).toBe('https://example.com/docs/strands')
-    expect(withDocsUrl.external).toBe(true)
+    expect(card.href).toBe('https://example.com/docs/strands')
+    expect(card.external).toBe(true)
+  })
 
-    // docsPage wins over both docsUrl and github
-    const withBoth = toCardModel(
+  it('prefers an on-site docsPage over both docsUrl and github', () => {
+    const card = toCardModel(
       'strands-example',
       entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/community/tools/strands-example' }),
       undefined,
       BUILD_DATE
     )
-    expect(withBoth.href).toBe('/docs/community/tools/strands-example/')
-    expect(withBoth.external).toBe(false)
+    expect(card.href).toBe('/docs/community/tools/strands-example/')
+    expect(card.external).toBe(false)
   })
 
   it('derives language list and registry links', () => {
@@ -69,7 +70,12 @@ describe('toCardModel', () => {
 
   it('adds the new badge when addedDate is within the window', () => {
     const recent = new Date(BUILD_DATE.getTime() - (NEW_BADGE_DAYS - 1) * 86_400_000)
-    const card = toCardModel('strands-example', entry({ addedDate: recent, badges: ['verified'] }), undefined, BUILD_DATE)
+    const card = toCardModel(
+      'strands-example',
+      entry({ addedDate: recent, badges: ['verified'] }),
+      undefined,
+      BUILD_DATE
+    )
     expect(card.badges).toEqual(['verified', 'new'])
   })
 
@@ -79,7 +85,12 @@ describe('toCardModel', () => {
   })
 
   it('joins stats and sums downloads, tolerating missing stats', () => {
-    const withStats = toCardModel('strands-example', entry(), { stars: 42, downloads: { python: 100, typescript: 50 } }, BUILD_DATE)
+    const withStats = toCardModel(
+      'strands-example',
+      entry(),
+      { stars: 42, downloads: { python: 100, typescript: 50 } },
+      BUILD_DATE
+    )
     expect(withStats.stars).toBe(42)
     expect(withStats.downloads).toBe(150)
 
