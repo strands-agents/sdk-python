@@ -24,6 +24,7 @@ const fileEditorInputSchema = z.object({
     .describe('Line range to view [start, end]. 1-indexed. End can be -1 for end of file.'),
   old_str: z
     .string()
+    .min(1, 'old_str must not be empty')
     .optional()
     .describe(
       'String to find and replace (required for str_replace). Must resolve to exactly one location. Copy it verbatim from a `view` of the file, including indentation. Matching is exact first; if that finds nothing it falls back to a whitespace-tolerant match (line endings, trailing whitespace, tabs) and only proceeds when a single location matches.'
@@ -222,7 +223,9 @@ function normalizeLine(line: string): string {
 }
 
 type TolerantResult =
-  { kind: 'unique'; start: number; end: number } | { kind: 'ambiguous'; lines: number[] } | { kind: 'none' }
+  | { kind: 'unique'; start: number; end: number; crlf: boolean }
+  | { kind: 'ambiguous'; lines: number[] }
+  | { kind: 'none' }
 
 /** Line-oriented whitespace-tolerant search used only when the exact match
  * finds nothing. Tolerates CRLF/LF, trailing whitespace, and tab-vs-8-spaces.
@@ -234,19 +237,36 @@ function tolerantMatch(content: string, oldStr: string): TolerantResult {
   const k = normOld.length
   if (k === 0 || k > normOrig.length) return { kind: 'none' }
 
+  // Linear in-place scan: index into `normOrig` directly instead of allocating a
+  // `slice(i, i + k)` per candidate, and early-exit on the first mismatching
+  // line. This keeps a near-miss window (one that agrees until its final line)
+  // from doing O(candidates * k) allocation+comparison work on the event loop.
   const starts: number[] = []
   const lastStart = normOrig.length - k
   for (let i = 0; i <= lastStart; i++) {
-    if (normOrig.slice(i, i + k).every((line, j) => line === normOld[j])) starts.push(i)
+    let matched = true
+    for (let j = 0; j < k; j++) {
+      if (normOrig[i + j] !== normOld[j]) {
+        matched = false
+        break
+      }
+    }
+    if (matched) starts.push(i)
   }
 
   if (starts.length === 0) return { kind: 'none' }
   if (starts.length > 1) return { kind: 'ambiguous', lines: starts.map((i) => i + 1) }
   const matchStart = starts[0]
-  const first = matchStart === undefined ? undefined : records[matchStart]
-  const last = matchStart === undefined ? undefined : records[matchStart + k - 1]
+  if (matchStart === undefined) return { kind: 'none' }
+  const first = records[matchStart]
+  const last = records[matchStart + k - 1]
   if (!first || !last) return { kind: 'none' }
-  return { kind: 'unique', start: first.start, end: last.contentEnd }
+  // Derive the CRLF convention from the matched line records' own terminators. A
+  // single-line match ends before its `\r` (contentEnd excludes it), so the
+  // sliced region can omit the `\r\n` even though the file is CRLF — the records
+  // still carry each line's trailing `\r`.
+  const crlf = records.slice(matchStart, matchStart + k).some((r) => r.raw.endsWith('\r'))
+  return { kind: 'unique', start: first.start, end: last.contentEnd, crlf }
 }
 
 /** Builds an actionable hint pointing at lines that match the first line of
@@ -277,11 +297,20 @@ function buildStrReplaceResult(
   newStr: string | undefined,
   filePath: string
 ): { newContent: string; snippet: string; startLine: number } {
+  // Fail safe on an empty search string before any matching. `tolerantMatch`
+  // would otherwise treat `''` as a single empty line and "match" a blank line,
+  // silently appending/inserting. The schema also enforces `.min(1)`; this guard
+  // covers any direct/future call path that bypasses the schema.
+  if (oldStr === '') {
+    throw new Error('No replacement was performed: old_str must not be empty.')
+  }
+
   let replacement = newStr ?? ''
 
   let start: number
   let end: number
   let resolvedViaTolerant = false
+  let matchedRegionIsCRLF = false
 
   const exact = exactMatchIndices(originalContent, oldStr)
   if (exact.length > 1) {
@@ -294,6 +323,18 @@ function buildStrReplaceResult(
 
   const [firstExact] = exact
   if (firstExact !== undefined) {
+    // A single byte-exact hit still must honor the "never guess on ambiguity"
+    // contract: `view` renders tabs as spaces, so another line can be
+    // view-equivalent to old_str even when only one location matches
+    // byte-for-byte. Run the same view-normalized scan and reject when it
+    // resolves to more than one candidate instead of silently editing the
+    // byte-exact one.
+    const tolerant = tolerantMatch(originalContent, oldStr)
+    if (tolerant.kind === 'ambiguous') {
+      throw new Error(
+        `No replacement was performed. old_str \`${oldStr}\` matched one location exactly, but a whitespace-insensitive search found multiple view-equivalent candidates at lines ${JSON.stringify(tolerant.lines)}. Re-copy the exact text with more surrounding context so exactly one location matches.`
+      )
+    }
     start = firstExact
     end = firstExact + oldStr.length
   } else {
@@ -310,17 +351,18 @@ function buildStrReplaceResult(
     }
     start = tolerant.start
     end = tolerant.end
+    matchedRegionIsCRLF = tolerant.crlf
     resolvedViaTolerant = true
   }
 
   // When the tolerant fallback matched a CRLF region but new_str uses LF (the
   // common case — models emit LF), splice in CRLF so the edited span keeps the
-  // matched region's convention instead of leaving a mixed-ending region.
-  if (resolvedViaTolerant) {
-    const matchedRegionIsCRLF = originalContent.slice(start, end).includes('\r\n')
-    if (matchedRegionIsCRLF) {
-      replacement = replacement.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
-    }
+  // matched region's convention instead of leaving a mixed-ending region. The
+  // convention comes from the matched line records' terminators (see
+  // tolerantMatch), because a single-line match ends before its `\r` and the
+  // sliced region would otherwise appear to contain no CRLF.
+  if (resolvedViaTolerant && matchedRegionIsCRLF) {
+    replacement = replacement.replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
   }
 
   const newContent = originalContent.slice(0, start) + replacement + originalContent.slice(end)

@@ -476,6 +476,74 @@ describe('fileEditor tool', () => {
       expect(err?.message).toContain('did not appear')
       expect(err?.message).toMatch(/similar line was found at line 2/)
     })
+
+    // S1: a single byte-exact hit that is view-equivalent to another line must NOT be
+    // silently edited. `view` renders a tab as 8 spaces, so a tab-indented line and an
+    // 8-space-indented line look identical; rejecting as ambiguous honors "never guess".
+    it('rejects an exact match that is view-equivalent to another line (does not silently edit)', async () => {
+      const content = '\tTARGET\n        TARGET\n'
+      const filePath = await createTestFile('view-ambig.txt', content)
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: '        TARGET', new_str: 'X' }, context)
+      ).rejects.toThrow(/candidates/)
+      // Nothing was written: the file is byte-for-byte unchanged.
+      const unchanged = await fs.readFile(filePath, 'utf-8')
+      expect(unchanged).toBe(content)
+    })
+
+    // S2: an empty old_str must fail safe. The schema enforces `.min(1)` and a runtime
+    // guard backs it up, so `''` can never reach the empty-line-tolerant match path.
+    it('rejects an empty old_str and does not write', async () => {
+      const filePath = await createTestFile('empty-old.txt', 'alpha\n')
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: '', new_str: 'APPENDED' }, context)
+      ).rejects.toThrow(/must not be empty/)
+      // No append/insert happened.
+      const unchanged = await fs.readFile(filePath, 'utf-8')
+      expect(unchanged).toBe('alpha\n')
+    })
+
+    // S3: the tolerant scan must stay linear. A large file whose first half nearly matches
+    // old_str (differing only at the final line) previously triggered an O(candidates * k)
+    // slice-per-candidate blowup that blocked the event loop for seconds. The linearized
+    // in-place scan with early-exit returns promptly.
+    it('does not block the event loop on a large near-miss (linear tolerant scan)', async () => {
+      const lines = Array.from({ length: 2048 }, (_, i) => `const v${i} = ${i}; // ${'x'.repeat(20)}`)
+      const content = `${lines.join('\n')}\n`
+      const filePath = await createTestFile('perf.ts', content)
+      // ~half the file as old_str, differing only at its final line so it never matches.
+      const nearMiss = lines.slice(0, 1024)
+      nearMiss[nearMiss.length - 1] = `${nearMiss[nearMiss.length - 1]} NEVER_MATCHES`
+      const oldStr = nearMiss.join('\n')
+
+      const startedAt = Date.now()
+      const err = await fileEditor
+        .invoke({ command: 'str_replace', path: filePath, old_str: oldStr, new_str: 'x' }, context)
+        .then(
+          () => null,
+          (e: unknown) => e as Error
+        )
+      const elapsedMs = Date.now() - startedAt
+      expect(err).toBeInstanceOf(Error)
+      expect(err?.message).toContain('did not appear')
+      // The old quadratic scan took ~5s on this input; the linear scan is well under a second.
+      expect(elapsedMs).toBeLessThan(1000)
+    })
+
+    // S4: a single-line tolerant match ends before its `\r` (contentEnd excludes the
+    // terminator), so the sliced region contains no CRLF. Deriving the convention from the
+    // matched line record's terminator keeps the edited span all-CRLF (no bare LF).
+    it('preserves CRLF for a single-line tolerant match (byte-exact boundary)', async () => {
+      const filePath = await createTestFile('single-crlf.txt', '\told\r\nkeep\r\n')
+      await fileEditor.invoke(
+        { command: 'str_replace', path: filePath, old_str: '        old', new_str: 'first\nsecond' },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      expect(updated).toBe('first\r\nsecond\r\nkeep\r\n')
+      // No bare LF: every LF is part of a CRLF pair.
+      expect(updated.replace(/\r\n/g, '')).not.toContain('\n')
+    })
   })
 
   describe('insert command', () => {
