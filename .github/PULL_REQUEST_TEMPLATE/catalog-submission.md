@@ -41,5 +41,5 @@
 - Description matches what the package's README says it does
 - No existing catalog entry for this package (`site/src/content/catalog/`)
 - All URLs are reachable and resolve to the expected destinations
-- `addedDate` matches the submission date and `featured`/`badges` are unset
+- `addedDate` matches the submission date and `featured`/`badges` are unset (CI labels the PR `catalog: editorial-review` if a non-maintainer sets them)
 - Docs example (if present) is accurate and follows site conventions

@@ -1,0 +1,155 @@
+name: "Catalog: Editorial Review Flag"
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - site/src/content/catalog/**
+
+# pull_request_target runs in the base-repo context so the job can label and
+# comment on fork PRs. It never checks out or executes PR head code — the
+# diff is read via the REST API only.
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  flag-editorial-fields:
+    name: Flag editorial catalog fields
+    runs-on: ubuntu-latest
+    steps:
+      - name: Flag featured/badges set by non-maintainers
+        uses: actions/github-script@v9
+        env:
+          EDITORIAL_LABEL: 'catalog: editorial-review'
+          # Roles that may grant featured/badges. Matches the collaborator
+          # permission model used by bot-pr-review-gate.yml.
+          MAINTAINER_ROLES: 'write,maintain,admin'
+        with:
+          script: |
+            // ┌──────────────────────────────────────────────────────────────┐
+            // │ WHAT THIS DOES                                                │
+            // │ `featured` and `badges` on catalog entries are granted by     │
+            // │ the Strands team. When a PR from someone without write        │
+            // │ access adds or changes them, this job applies a label and a   │
+            // │ sticky comment so reviewers notice — it never fails, so it    │
+            // │ is an indicator, not a merge gate.                            │
+            // └──────────────────────────────────────────────────────────────┘
+
+            const pr = context.payload.pull_request;
+            const label = process.env.EDITORIAL_LABEL;
+            const maintainerRoles = process.env.MAINTAINER_ROLES
+              .split(',').map(r => r.trim()).filter(Boolean);
+
+            // --- Does the diff touch editorial fields? --------------------
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+            });
+
+            const featuredRe = /^\+\s*featured:\s*true\b/;
+            // Inline non-empty value: `badges: [x]` or `badges: verified` —
+            // but not an explicitly empty `badges: []`.
+            const badgesInlineRe = /^\+\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
+            const badgesBlockRe = /^\+\s*badges:\s*(#.*)?$/;
+            const listItemRe = /^\+\s*-\s*\S/;
+
+            const flagged = [];
+            for (const file of files) {
+              if (!file.filename.startsWith('site/src/content/catalog/')) continue;
+              if (!/\.ya?ml$/.test(file.filename)) continue;
+              // Catalog entries are small, so a patch is always present;
+              // a missing one means no reviewable text diff — skip.
+              const lines = (file.patch || '').split('\n');
+              let editorial = false;
+              for (let i = 0; i < lines.length; i++) {
+                if (featuredRe.test(lines[i]) || badgesInlineRe.test(lines[i])) {
+                  editorial = true;
+                  break;
+                }
+                // Block-style list: `badges:` is only editorial when list
+                // items are actually added under it.
+                if (badgesBlockRe.test(lines[i]) &&
+                    lines.slice(i + 1).some(l => listItemRe.test(l))) {
+                  editorial = true;
+                  break;
+                }
+              }
+              if (editorial) flagged.push(file.filename);
+            }
+
+            if (flagged.length === 0) {
+              console.log('No editorial fields (featured/badges) added — nothing to flag.');
+              return;
+            }
+
+            // --- Is the author core team? ---------------------------------
+            // Collaborator permission is the proxy for "core team": checking
+            // org membership would need extra token scopes.
+            const author = pr.user.login;
+            let role = 'none';
+            try {
+              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: author,
+              });
+              role = data.permission;
+            } catch (error) {
+              console.log(`Permission lookup for ${author} failed (${error.message}) — treating as non-maintainer.`);
+            }
+            if (maintainerRoles.includes(role)) {
+              console.log(`Author "${author}" has ${role} access — editorial fields are theirs to grant.`);
+              return;
+            }
+
+            console.log(`Editorial fields set by non-maintainer "${author}" in: ${flagged.join(', ')}`);
+
+            // --- Label (auto-created on first use) ------------------------
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: [label],
+            });
+
+            // --- Sticky comment: update in place so pushes don't spam -----
+            const marker = '<!-- catalog-editorial-review -->';
+            const body = [
+              marker,
+              '### Editorial catalog fields detected',
+              '',
+              `This PR sets \`featured\` and/or \`badges\` on: ${flagged.map(f => `\`${f}\``).join(', ')}.`,
+              '',
+              'Those fields are granted by the Strands team, not set by submitters',
+              '(see the [submission guide](https://strandsagents.com/community/get-featured/)).',
+              'A maintainer should either **confirm the featured/badge grant** or',
+              '**ask the submitter to remove the fields** before merging.',
+              '',
+              '_This is a heads-up for reviewers — it does not block merging._',
+            ].join('\n');
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body,
+              });
+            }
