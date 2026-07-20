@@ -64,7 +64,7 @@ agent = Agent(session_manager=session_manager)
 agent("Hello!")  # This conversation is persisted
 ```
 
-`SnapshotSessionManager` captures the whole agent as a single versioned snapshot on each turn. It replaces the message-log managers (`FileSessionManager`, `S3SessionManager`), which are deprecated. See [Migrating from the message-log managers](#migrating-from-the-message-log-managers).
+`SnapshotSessionManager` captures the whole agent as a single versioned snapshot on each turn, and persists Graph/Swarm orchestrators too. It supersedes the message-log managers (`FileSessionManager`, `S3SessionManager`), which are deprecated. See [Migrating from the message-log managers](#migrating-from-the-message-log-managers).
 </Tab>
 <Tab label="TypeScript">
 
@@ -94,26 +94,27 @@ Multi-agent systems (Graph/Swarm) can also use session management to persist the
 Agents inside a multi-agent system must not have their own session manager: only the orchestrator should have one. Python raises a `ValueError` if an agent with a session manager is added to a Graph or Swarm.
 :::
 
-Multi-agent orchestrators still use the message-log managers. `SnapshotSessionManager` covers single agents today; snapshot-based multi-agent persistence is not yet available, so `FileSessionManager` and `S3SessionManager` remain the path for Graph and Swarm.
+:::caution
+Give each orchestrator a distinct id when more than one persists to the same session and storage. The orchestrator's id is its storage key, and a Graph defaults to `default_graph` while a Swarm defaults to `default_swarm` — so two orchestrators left on the default id overwrite each other's state. Set an explicit id with `GraphBuilder.set_graph_id(...)` or `Swarm(id=...)`.
+:::
+
+`SnapshotSessionManager` persists Graph and Swarm orchestrators as well as single agents: attach one to the orchestrator and its state (completed nodes, results, handoffs, and any in-flight interrupt) is saved after each node and restored on the next run. Orchestrator state is latest-only — checkpointing/time-travel applies to single agents.
 
 ```python
 from strands.multiagent import GraphBuilder
-from strands.session.file_session_manager import FileSessionManager
+from strands.session import SnapshotSessionManager
+from strands.storage import LocalFileStorage
 
-# Create agents
-agent1 = Agent(name="researcher")
-agent2 = Agent(name="writer")
+storage = LocalFileStorage()
 
-# Create a session manager for the graph
-session_manager = FileSessionManager(session_id="multi-agent-session")
+builder = GraphBuilder()
+builder.add_node(Agent(name="researcher"), "researcher")
+builder.add_node(Agent(name="writer"), "writer")
+builder.add_edge("researcher", "writer")
+builder.set_session_manager(SnapshotSessionManager("multi-agent-session", storage=storage))
+graph = builder.build()
 
-# Create graph with session management
-graph = Graph(
-    agents={"researcher": agent1, "writer": agent2},
-    session_manager=session_manager
-)
-
-# Use the graph - all orchestrator state is persisted
+# Use the graph - all orchestrator state is persisted and restored across runs
 result = graph("Research and write about AI")
 ```
 
@@ -122,6 +123,10 @@ result = graph("Research and write about AI")
 
 :::caution
 Agents inside a multi-agent system must not have their own session manager — only the orchestrator should have one. The orchestrator snapshots and restores each agent node's state on every execution, so an agent-level session manager would conflict with the orchestrator's persistence.
+:::
+
+:::caution
+Give each orchestrator a distinct id when more than one persists to the same session and storage. The orchestrator's id is its storage key, and a Graph defaults to `graph` while a Swarm defaults to `swarm` — so two orchestrators left on the default id overwrite each other's state. Set an explicit id with `new Graph({ id, ... })` or `new Swarm({ id, ... })`.
 :::
 
 ```typescript
@@ -187,7 +192,7 @@ agent = Agent(session_manager=session_manager)
 agent("Hello, I'm a new user!")
 ```
 
-`SnapshotSessionManager` covers single-agent sessions. For multi-agent orchestrators, use a message-log manager (see the multi-agent caveat above).
+`SnapshotSessionManager` covers both single agents and multi-agent orchestrators (see [Multi-Agent Sessions](#multi-agent-sessions)).
 
 </Tab>
 

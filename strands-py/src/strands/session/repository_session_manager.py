@@ -28,9 +28,10 @@ logger = logging.getLogger(__name__)
 
 
 @deprecated(
-    "RepositorySessionManager is deprecated and will be removed in Strands SDK 2.0. "
-    "Use SnapshotSessionManager with a Storage backend instead. "
-    "See migration guide: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
+    "RepositorySessionManager is deprecated and will be removed in Strands SDK 2.0. Use "
+    "SnapshotSessionManager with a Storage backend instead (single- and multi-agent). "
+    "See migration guide: "
+    "https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
 )
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""

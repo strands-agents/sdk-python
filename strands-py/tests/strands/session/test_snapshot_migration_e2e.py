@@ -380,7 +380,7 @@ def test_empty_legacy_is_noop_and_writes_nothing(temp_dirs):
     agent = Agent(model=_model(), session_manager=migrating, agent_id="agent")
 
     assert agent.messages == []
-    assert asyncio.run(snap.read(_snapshot_key("sess", "agent", snapshot_id=None))) is None
+    assert asyncio.run(snap.read(f"session/{_snapshot_key('sess', 'agent', snapshot_id=None)}")) is None
 
 
 def test_migration_leaves_legacy_store_on_disk_untouched(temp_dirs):

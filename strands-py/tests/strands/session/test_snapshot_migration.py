@@ -214,7 +214,7 @@ def test_migration_writes_snapshot_on_first_run(storage):
     manager = SnapshotSessionManager("sess", storage=storage, migrate_from=_legacy_manager(repository, "sess"))
     Agent(model=_model("x"), session_manager=manager, agent_id="a1")
 
-    assert asyncio.run(storage.read(_snapshot_key("sess", "a1", snapshot_id=None))) is not None
+    assert asyncio.run(storage.read(f"session/{_snapshot_key('sess', 'a1', snapshot_id=None)}")) is not None
 
 
 def test_second_run_restores_from_snapshot_not_legacy(storage):
@@ -246,7 +246,7 @@ def test_empty_legacy_session_is_noop(storage):
     agent = Agent(model=_model("x"), session_manager=manager, agent_id="a1")
 
     assert agent.messages == []
-    assert asyncio.run(storage.read(_snapshot_key("sess", "a1", snapshot_id=None))) is None
+    assert asyncio.run(storage.read(f"session/{_snapshot_key('sess', 'a1', snapshot_id=None)}")) is None
     # The read-only guard means no agent record was created in the legacy store.
     assert repository.read_agent("sess", "a1") is None
 

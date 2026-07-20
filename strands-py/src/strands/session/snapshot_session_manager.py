@@ -22,24 +22,33 @@ import asyncio
 import json
 import logging
 import re
-import time
-import uuid
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, get_args, runtime_checkable
 
 from .._async import run_async
 from .._identifier import Identifier
 from .._identifier import validate as validate_identifier
-from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
+from ..hooks.events import (
+    AfterInvocationEvent,
+    AfterMultiAgentInvocationEvent,
+    AfterNodeCallEvent,
+    AgentInitializedEvent,
+    MessageAddedEvent,
+    MultiAgentInitializedEvent,
+)
 from ..hooks.registry import HookRegistry
-from ..storage.storage import Storage
+from ..storage.storage import _NAMESPACED, Storage, _NamespacedStorage
 from ..types._snapshot import Snapshot
 from ..types.content import Message
+from ..types.exceptions import SnapshotException
 from ..types.session import decode_bytes_values, encode_bytes_values
+from ._snapshot_id import new_snapshot_id as _new_snapshot_id
+from ._snapshot_id import validate_snapshot_id as _validate_snapshot_id
 from .repository_session_manager import RepositorySessionManager
 from .session_manager import SessionManager
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +64,15 @@ so pre-redaction content never sits at rest. This diverges from the TypeScript S
 does not flush redactions under ``"trigger"``; see :meth:`SnapshotSessionManager.redact_latest_message`.
 """
 
-# Top-level storage-key prefix for all session data. Byte-identical to the TypeScript SDK,
+# Derived from the Literal above so the accepted runtime values cannot drift from the type.
+_SAVE_LATEST_STRATEGIES = get_args(SaveLatestStrategy)
+
+# Top-level storage namespace for all session data. Byte-identical to the TypeScript SDK,
 # which namespaces its unified storage under "session" (singular) before the session id, so
-# the on-disk key layout is shared across SDKs. Centralized here as the single source of truth.
-_SESSIONS_PREFIX = "session"
+# the on-disk key layout is shared across SDKs. The manager applies this namespace once (unless
+# the caller passed an already-namespaced view) and builds keys relative to it, so a caller who
+# pre-namespaces under "session" does not get a doubled "session/session/..." prefix.
+_SESSIONS_NAMESPACE = "session"
 
 _SNAPSHOT_LATEST = "snapshot_latest.json"
 _IMMUTABLE_HISTORY = "immutable_history"
@@ -68,50 +82,37 @@ _SNAPSHOT_REGEX = re.compile(r"snapshot_([\w-]+)\.json\Z")
 # of simultaneous blocking storage calls (e.g. S3's per-object delete via asyncio.to_thread).
 _DELETE_CONCURRENCY = 100
 
-# Immutable snapshot ids are a zero-padded millisecond timestamp joined to a uuid4 hex.
-# The timestamp prefix makes lexicographic order equal creation order (so listing returns
-# oldest-first without a separate index); the uuid4 suffix keeps ids unique within a
-# millisecond. Ids are opaque handles: callers get them from list_snapshot_ids and never
-# construct them. The fixed shape also guards the immutable-history key against traversal.
-# \A...\Z (not ^...$) so a trailing newline cannot slip past validation.
-_SNAPSHOT_ID_PATTERN = re.compile(r"\A\d{13}_[0-9a-f]{32}\Z")
-
-
-def _new_snapshot_id() -> str:
-    """Return a fresh, time-ordered immutable snapshot id."""
-    return f"{int(time.time() * 1000):013d}_{uuid.uuid4().hex}"
-
-
-def _validate_snapshot_id(snapshot_id: str) -> None:
-    """Validate that a string is an SDK-vended snapshot id.
-
-    Args:
-        snapshot_id: The string to validate.
-
-    Raises:
-        ValueError: If the string is not a valid snapshot id.
-    """
-    if not _SNAPSHOT_ID_PATTERN.match(snapshot_id):
-        raise ValueError(f"'{snapshot_id}' is not a valid snapshot id")
-
-
-# -- Key layout (byte-identical to the TypeScript SDK convention) --
+# -- Key layout, relative to the "session" storage namespace applied in __init__ --
 #
-#   session/<session_id>/scopes/agent/<agent_id>/snapshots/
+#   <session_id>/scopes/agent/<agent_id>/snapshots/
 #     snapshot_latest.json
 #     immutable_history/snapshot_<id>.json
 #
-# These are module-level so the migration utility builds the same keys the manager reads.
+# The namespaced storage view prepends "session/", so the full on-disk key is
+# session/<session_id>/... — byte-identical to the TypeScript SDK. These are module-level so the
+# migration utility builds the same keys the manager reads.
+
+
+def _resolve_storage(storage: Storage) -> Storage:
+    """Namespace raw storage under ``"session"``; pass an already-namespaced view through.
+
+    Mirrors the TypeScript SDK: a view the caller already scoped (marked with ``_NAMESPACED``)
+    is used as-is so its prefix is not doubled, otherwise raw storage is wrapped under the
+    ``"session"`` namespace. Manager keys are built relative to the result.
+    """
+    if getattr(storage, "_namespaced", None) is _NAMESPACED:
+        return storage
+    return _NamespacedStorage(storage, _SESSIONS_NAMESPACE)
 
 
 def _session_prefix(session_id: str) -> str:
-    """Return the storage-key prefix covering an entire session."""
+    """Return the namespace-relative key prefix covering an entire session."""
     session_id = validate_identifier(session_id, Identifier.SESSION)
-    return f"{_SESSIONS_PREFIX}/{session_id}/"
+    return f"{session_id}/"
 
 
 def _snapshots_prefix(session_id: str, agent_id: str) -> str:
-    """Return the storage-key prefix for an agent's snapshots directory."""
+    """Return the namespace-relative key prefix for an agent's snapshots directory."""
     agent_id = validate_identifier(agent_id, Identifier.AGENT)
     return f"{_session_prefix(session_id)}scopes/agent/{agent_id}/snapshots/"
 
@@ -125,14 +126,97 @@ def _snapshot_key(session_id: str, agent_id: str, *, snapshot_id: str | None) ->
     return f"{prefix}{_IMMUTABLE_HISTORY}/snapshot_{snapshot_id}.json"
 
 
+def _multi_agent_key(session_id: str, orchestrator_id: str) -> str:
+    """Return the storage key for a multi-agent orchestrator's latest snapshot.
+
+    Under the ``multiAgent`` scope, byte-identical to the TypeScript SDK. Orchestrators persist
+    latest-only (no immutable-history / time-travel), matching TS.
+    """
+    session_id = validate_identifier(session_id, Identifier.SESSION)
+    orchestrator_id = validate_identifier(orchestrator_id, Identifier.AGENT)
+    return f"{session_id}/scopes/multiAgent/{orchestrator_id}/snapshots/{_SNAPSHOT_LATEST}"
+
+
+def _encode_json(obj: dict[str, Any]) -> bytes:
+    """JSON-encode a dict to UTF-8 bytes, base64-encoding any bytes values."""
+    return json.dumps(encode_bytes_values(obj), ensure_ascii=False).encode("utf-8")
+
+
+def _decode_json_object(data: bytes, *, description: str) -> dict[str, Any]:
+    """Decode JSON bytes into a dict, base64-decoding any bytes values.
+
+    Args:
+        data: The stored bytes.
+        description: What the blob is, interpolated into error messages (e.g. ``"snapshot"``).
+
+    Raises:
+        SnapshotException: If the bytes are not a JSON object (malformed JSON, wrong encoding, or a
+            non-object top-level value). Translating here keeps a corrupt or truncated stored blob
+            from surfacing a raw decode error out of the agent constructor's restore-on-init path.
+    """
+    try:
+        decoded = decode_bytes_values(json.loads(data))
+    except (ValueError, UnicodeDecodeError) as error:
+        raise SnapshotException(f"Failed to deserialize {description}: {error}") from error
+    if not isinstance(decoded, dict):
+        raise SnapshotException(f"{description} is not an object: got {type(decoded).__name__}")
+    return decoded
+
+
 def _serialize_snapshot(snapshot: Snapshot) -> bytes:
     """Serialize a snapshot to JSON bytes, base64-encoding any bytes content."""
-    return json.dumps(encode_bytes_values(snapshot.to_dict()), ensure_ascii=False).encode("utf-8")
+    return _encode_json(snapshot.to_dict())
 
 
 def _deserialize_snapshot(data: bytes) -> Snapshot:
-    """Deserialize JSON bytes into a snapshot, decoding any base64 bytes content."""
-    return Snapshot.from_dict(decode_bytes_values(json.loads(data)))
+    """Deserialize JSON bytes into a snapshot, decoding any base64 bytes content.
+
+    Raises:
+        SnapshotException: If the bytes are not a valid, current-schema snapshot (malformed
+            JSON, wrong encoding, wrong shape, or an unsupported schema/scope).
+    """
+    decoded = _decode_json_object(data, description="snapshot")
+    try:
+        return Snapshot.from_dict(decoded)
+    except (KeyError, TypeError, AttributeError) as error:
+        raise SnapshotException(f"Failed to deserialize snapshot: {error}") from error
+
+
+def _serialize_multi_agent(orchestrator_id: str, state: dict[str, Any]) -> bytes:
+    """Serialize an orchestrator's ``serialize_state()`` dict to JSON bytes, base64-encoding bytes.
+
+    The orchestrator id is stamped alongside the state (mirroring the TypeScript SDK) so restore
+    can reject a snapshot that belongs to a different orchestrator; see
+    :func:`_deserialize_multi_agent`. Stamping at this boundary — rather than trusting an id inside
+    the subclass's ``serialize_state()`` — guards every ``MultiAgentBase`` subclass uniformly.
+    """
+    return _encode_json({"orchestrator_id": orchestrator_id, "state": state})
+
+
+def _deserialize_multi_agent(data: bytes, *, expected_orchestrator_id: str) -> dict[str, Any]:
+    """Deserialize orchestrator-state JSON bytes back into a state dict, decoding base64 bytes.
+
+    Args:
+        data: The stored snapshot bytes.
+        expected_orchestrator_id: The id of the orchestrator being restored into. A snapshot whose
+            stamped id differs is rejected so state is never loaded into the wrong orchestrator.
+
+    Raises:
+        SnapshotException: If the bytes are not valid orchestrator-state JSON (malformed, wrong
+            encoding, or wrong shape), or the stamped orchestrator id does not match
+            ``expected_orchestrator_id``.
+    """
+    decoded = _decode_json_object(data, description="multi-agent snapshot")
+    stored_orchestrator_id = decoded.get("orchestrator_id")
+    if stored_orchestrator_id != expected_orchestrator_id:
+        raise SnapshotException(
+            "Multi-agent snapshot orchestrator id mismatch: "
+            f"expected {expected_orchestrator_id!r}, got {stored_orchestrator_id!r}"
+        )
+    state = decoded.get("state")
+    if not isinstance(state, dict):
+        raise SnapshotException(f"Multi-agent snapshot state is not an object: got {type(state).__name__}")
+    return state
 
 
 @runtime_checkable
@@ -199,10 +283,21 @@ class SnapshotSessionManager(SessionManager):
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
-            ValueError: If ``session_id`` contains a path separator.
+            ValueError: If ``session_id`` is empty, is a relative-path segment (``.`` or ``..``),
+                normalizes to empty, or contains a path separator; or if ``save_latest_on`` is
+                not a recognized strategy.
         """
         self.session_id = validate_identifier(session_id, Identifier.SESSION)
-        self._storage = storage
+        # validate_identifier permits "."/".."/whitespace, which either collapse the session
+        # prefix (silently writing to a shared/wrong key on which delete_session then no-ops)
+        # or explode deep in the storage layer. Reject anything that isn't a usable id here.
+        if not self.session_id.strip() or self.session_id in (".", ".."):
+            raise ValueError(f"session_id is not a valid session identifier: {session_id!r}")
+        if save_latest_on not in _SAVE_LATEST_STRATEGIES:
+            # Silently accepting an unknown value would register no save hooks — the session
+            # would persist nothing with no error.
+            raise ValueError(f"save_latest_on must be one of {_SAVE_LATEST_STRATEGIES}, got {save_latest_on!r}")
+        self._storage = _resolve_storage(storage)
         self._save_latest_on: SaveLatestStrategy = save_latest_on
         self._snapshot_trigger = snapshot_trigger
         self._migrate_from = migrate_from
@@ -221,6 +316,13 @@ class SnapshotSessionManager(SessionManager):
         if self._save_latest_on == "message":
             registry.add_callback(MessageAddedEvent, self._on_message_added)
         registry.add_callback(AfterInvocationEvent, self._on_after_invocation)
+
+        # Multi-agent (Graph/Swarm): restore the orchestrator once on init, persist its state
+        # after each node and after the invocation. Latest-only (no immutable checkpoints),
+        # matching the TypeScript SDK's multi-agent path.
+        registry.add_callback(MultiAgentInitializedEvent, self._on_multi_agent_initialized)
+        registry.add_callback(AfterNodeCallEvent, self._on_after_node_call)
+        registry.add_callback(AfterMultiAgentInvocationEvent, self._on_after_multi_agent_invocation)
 
     # -- ABC methods (invoked synchronously by the Agent; bridge to async storage) --
 
@@ -271,6 +373,26 @@ class SnapshotSessionManager(SessionManager):
             agent: The agent the message was appended to (unused).
             **kwargs: Additional keyword arguments for future extensibility.
         """
+
+    # -- Multi-agent ABC methods (Graph/Swarm orchestrators; latest-only, no time travel) --
+
+    def initialize_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
+        """Restore an orchestrator's state from its latest snapshot, if one exists.
+
+        Args:
+            source: The Graph/Swarm orchestrator to restore.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        run_async(lambda: self._restore_multi_agent(source))
+
+    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
+        """Capture the orchestrator's state and overwrite its latest snapshot.
+
+        Args:
+            source: The Graph/Swarm orchestrator to persist.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        run_async(lambda: self._save_multi_agent(source))
 
     # -- Public time-travel API --
 
@@ -417,6 +539,30 @@ class SnapshotSessionManager(SessionManager):
         await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=_new_snapshot_id()), data)
         await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
 
+    async def _restore_multi_agent(self, source: "MultiAgentBase") -> None:
+        """Load an orchestrator's latest snapshot into it, if one exists."""
+        data = await self._storage.read(_multi_agent_key(self.session_id, source.id))
+        if data is None:
+            return
+        source.deserialize_state(_deserialize_multi_agent(data, expected_orchestrator_id=source.id))
+
+    async def _save_multi_agent(self, source: "MultiAgentBase") -> None:
+        """Capture the orchestrator's state and overwrite its latest snapshot."""
+        data = _serialize_multi_agent(source.id, source.serialize_state())
+        await self._storage.write(_multi_agent_key(self.session_id, source.id), data)
+
+    async def _on_multi_agent_initialized(self, event: MultiAgentInitializedEvent) -> None:
+        """Restore the orchestrator on construction (fires once per orchestrator)."""
+        await self._restore_multi_agent(event.source)
+
+    async def _on_after_node_call(self, event: AfterNodeCallEvent) -> None:
+        """Persist the orchestrator after each node completes."""
+        await self._save_multi_agent(event.source)
+
+    async def _on_after_multi_agent_invocation(self, event: AfterMultiAgentInvocationEvent) -> None:
+        """Persist the orchestrator after the invocation completes."""
+        await self._save_multi_agent(event.source)
+
     async def _on_message_added(self, event: MessageAddedEvent) -> None:
         """Save latest after each message under the ``"message"`` strategy."""
         await self._save_latest(event.agent)
@@ -426,10 +572,27 @@ class SnapshotSessionManager(SessionManager):
 
         When the trigger fires, the immutable+latest write subsumes the invocation save, so the
         agent is captured only once even under ``save_latest_on="invocation"``.
+
+        ``"message"`` also saves here, not just per message: the Agent runs
+        ``conversation_manager.apply_management`` (trimming/summarizing) after the last
+        ``MessageAddedEvent`` but before this event, so the per-message saves would otherwise
+        persist pre-management messages and a stale ``removed_message_count``.
         """
-        if self._snapshot_trigger is not None and self._snapshot_trigger(agent=event.agent):
+        triggered = False
+        if self._snapshot_trigger is not None:
+            try:
+                triggered = self._snapshot_trigger(agent=event.agent)
+            except Exception:
+                # A caller's trigger raising must not discard the completed turn's latest save;
+                # log and fall through to the normal save below.
+                logger.exception(
+                    "agent_id=<%s>, session_id=<%s> | snapshot_trigger raised; skipping immutable checkpoint",
+                    event.agent.agent_id,
+                    self.session_id,
+                )
+        if triggered:
             await self._save_immutable_and_latest(event.agent)
-        elif self._save_latest_on == "invocation":
+        elif self._save_latest_on in ("invocation", "message"):
             await self._save_latest(event.agent)
 
     def _capture(self, agent: "Agent") -> Snapshot:

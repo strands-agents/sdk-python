@@ -30,9 +30,10 @@ MULTI_AGENT_PREFIX = "multi_agent_"
 
 
 @deprecated(
-    "S3SessionManager is deprecated and will be removed in Strands SDK 2.0. "
-    "Use SnapshotSessionManager with an S3Storage instead. "
-    "See migration guide: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
+    "S3SessionManager is deprecated and will be removed in Strands SDK 2.0. Use "
+    "SnapshotSessionManager with an S3Storage instead (single- and multi-agent). "
+    "See migration guide: "
+    "https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
 )
 class S3SessionManager(RepositorySessionManager, SessionRepository):
     """S3-based session manager for cloud storage.

@@ -27,9 +27,10 @@ MULTI_AGENT_PREFIX = "multi_agent_"
 
 
 @deprecated(
-    "FileSessionManager is deprecated and will be removed in Strands SDK 2.0. "
-    "Use SnapshotSessionManager with a LocalFileStorage instead. "
-    "See migration guide: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
+    "FileSessionManager is deprecated and will be removed in Strands SDK 2.0. Use "
+    "SnapshotSessionManager with a LocalFileStorage instead (single- and multi-agent). "
+    "See migration guide: "
+    "https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
 )
 class FileSessionManager(RepositorySessionManager, SessionRepository):
     """File-based session manager for local filesystem storage.

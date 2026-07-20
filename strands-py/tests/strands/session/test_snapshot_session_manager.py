@@ -1,21 +1,27 @@
 """Tests for SnapshotSessionManager."""
 
+import asyncio
 import tempfile
+import uuid
 from unittest.mock import AsyncMock
 
 import pytest
 
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.multiagent import GraphBuilder, Swarm
 from strands.session.snapshot_session_manager import (
     SnapshotSessionManager,
+    _deserialize_multi_agent,
+    _multi_agent_key,
     _new_snapshot_id,
+    _serialize_multi_agent,
     _session_prefix,
     _snapshot_key,
 )
 from strands.storage import LocalFileStorage
 from strands.types.content import ContentBlock
-from strands.types.exceptions import ContextWindowOverflowException
+from strands.types.exceptions import ContextWindowOverflowException, SnapshotException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -37,12 +43,144 @@ def _model(*texts):
     return MockedModelProvider([{"role": "assistant", "content": [{"text": text}]} for text in texts])
 
 
+def _on_disk_key(session_id: str, agent_id: str) -> str:
+    """The full raw-storage key for a session's latest snapshot (namespace + relative key)."""
+    return f"session/{_snapshot_key(session_id, agent_id, snapshot_id=None)}"
+
+
 def test_new_session_starts_empty(storage):
     """A brand-new session leaves a fresh agent's messages untouched."""
     manager = SnapshotSessionManager("s1", storage=storage)
     agent = Agent(model=_model("hi"), session_manager=manager, agent_id="a1")
 
     assert agent.messages == []
+
+
+def test_empty_session_id_is_rejected(storage):
+    """An empty session id is rejected; otherwise its prefix would broaden to all sessions."""
+    with pytest.raises(ValueError, match="not a valid session identifier"):
+        SnapshotSessionManager("", storage=storage)
+
+
+@pytest.mark.parametrize("bad_id", [".", "..", "   "])
+def test_relative_or_blank_session_id_is_rejected(storage, bad_id):
+    """'.'/'..'/whitespace pass validate_identifier but collapse or explode the key — reject them."""
+    with pytest.raises(ValueError, match="not a valid session identifier"):
+        SnapshotSessionManager(bad_id, storage=storage)
+
+
+def test_unknown_save_latest_on_is_rejected(storage):
+    """A mistyped save_latest_on is rejected, rather than silently persisting nothing."""
+    with pytest.raises(ValueError, match="save_latest_on must be one of"):
+        SnapshotSessionManager("s1", storage=storage, save_latest_on="Invocation")  # type: ignore[arg-type]
+
+
+def _build_graph(session_manager, *, node_reply):
+    """Build a single-node Graph wired to the given session manager."""
+    builder = GraphBuilder()
+    builder.add_node(Agent(model=_model(node_reply), agent_id="n1"), "n1")
+    builder.set_session_manager(session_manager)
+    return builder.build()
+
+
+@pytest.mark.asyncio
+async def test_graph_persists_under_multi_agent_scope(temp_dir):
+    """A Graph orchestrator persists its state under the multiAgent scope, not the agent scope."""
+    storage = LocalFileStorage(temp_dir)
+    graph = _build_graph(SnapshotSessionManager("g1", storage=storage), node_reply="done")
+    graph("do the task")
+
+    keys = await storage.list("")
+    assert keys == [f"session/{_multi_agent_key('g1', graph.id)}"]
+    assert "scopes/multiAgent/" in keys[0]
+
+
+@pytest.mark.asyncio
+async def test_graph_state_round_trips_through_storage(temp_dir):
+    """The orchestrator state written to storage round-trips losslessly via serialize/deserialize.
+
+    A completed graph has no pending nodes, so Graph.deserialize_state intentionally resets
+    rather than replaying (nothing to resume) — mid-execution resume-across-a-session-boundary
+    is exercised by the integ suite. Here we pin that the manager persists the orchestrator's
+    own serialize_state() output verbatim.
+    """
+    storage = LocalFileStorage(temp_dir)
+    graph = _build_graph(SnapshotSessionManager("g1", storage=storage), node_reply="first")
+    graph("run once")
+
+    blob = await storage.read(f"session/{_multi_agent_key('g1', graph.id)}")
+    restored_state = _deserialize_multi_agent(blob, expected_orchestrator_id=graph.id)
+    assert restored_state == graph.serialize_state()
+
+
+def test_swarm_persists_under_multi_agent_scope(temp_dir):
+    """A Swarm orchestrator persists its state under the multiAgent scope."""
+    storage = LocalFileStorage(temp_dir)
+    swarm = Swarm(
+        nodes=[Agent(model=_model("done"), agent_id="n1")],
+        session_manager=SnapshotSessionManager("sw1", storage=storage),
+    )
+    swarm("do the task")
+
+    keys = asyncio.run(storage.list(""))
+    assert keys == [f"session/{_multi_agent_key('sw1', swarm.id)}"]
+
+
+def test_child_agent_session_manager_still_blocked(storage):
+    """Child agents inside a Graph still may not carry their own session manager."""
+    builder = GraphBuilder()
+    child = Agent(model=_model("hi"), agent_id="n1", session_manager=SnapshotSessionManager("child", storage=storage))
+    with pytest.raises(ValueError, match="not supported for Graph"):
+        builder.add_node(child, "n1")
+
+
+def test_multi_agent_snapshot_id_mismatch_is_rejected():
+    """A snapshot stamped for one orchestrator is not loaded into another under the same key."""
+    blob = _serialize_multi_agent("graph-a", {"type": "graph", "id": "graph-a"})
+    with pytest.raises(SnapshotException, match="orchestrator id mismatch"):
+        _deserialize_multi_agent(blob, expected_orchestrator_id="graph-b")
+
+
+def test_multi_agent_snapshot_round_trips_with_matching_id():
+    """The id stamp is transparent on the happy path: matching id yields the original state."""
+    exp_state = {"type": "graph", "id": "graph-a", "completed_nodes": ["n1"]}
+    blob = _serialize_multi_agent("graph-a", exp_state)
+    tru_state = _deserialize_multi_agent(blob, expected_orchestrator_id="graph-a")
+    assert tru_state == exp_state
+
+
+def test_raising_snapshot_trigger_still_saves_latest(storage):
+    """A snapshot_trigger that raises does not discard the completed turn's latest save."""
+
+    def boom(*, agent, **kwargs):
+        raise RuntimeError("trigger blew up")
+
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=boom)
+    agent = Agent(model=_model("saved"), session_manager=manager, agent_id="a1")
+    agent("go")  # trigger raises here, but the invocation-end latest save must still happen
+
+    manager_2 = SnapshotSessionManager("s1", storage=storage)
+    agent_2 = Agent(model=_model("x"), session_manager=manager_2, agent_id="a1")
+    tru_texts = [content["text"] for message in agent_2.messages for content in message["content"] if "text" in content]
+    assert "go" in tru_texts  # the turn survived despite the raising trigger
+
+
+@pytest.mark.asyncio
+async def test_empty_session_id_cannot_delete_other_sessions(temp_dir):
+    """Guard against the destructive prefix broadening: an empty id must not reach delete_session."""
+    storage = LocalFileStorage(temp_dir)
+    # Populate an unrelated, real session.
+    other = SnapshotSessionManager("real-session", storage=storage)
+    Agent(model=_model("hi"), session_manager=other, agent_id="a1")("keep me")
+    assert await storage.read(_on_disk_key("real-session", "a1")) is not None
+
+    # Constructing with an empty id must fail rather than yield a manager whose delete_session
+    # would list/delete the whole "session/" namespace (every session).
+    with pytest.raises(ValueError, match="not a valid session identifier"):
+        SnapshotSessionManager("", storage=storage)
+
+    # The unrelated session is untouched.
+    assert await storage.read(_on_disk_key("real-session", "a1")) is not None
 
 
 def test_restore_across_instances(storage):
@@ -136,10 +274,48 @@ async def test_save_latest_on_message_writes_each_message(temp_dir):
     save_keys.clear()
     await agent.invoke_async("hello")
 
-    # Exactly two messages were added (user + assistant); each triggered one latest save, and
-    # the "message" strategy adds no extra invocation-end save.
-    assert len(save_keys) == 2
+    # Two messages added (user + assistant) each trigger a per-message save, plus one final
+    # invocation-end save that captures post-conversation-management state.
+    assert len(save_keys) == 3
     assert all(key.endswith("snapshot_latest.json") for key in save_keys)
+
+
+@pytest.mark.asyncio
+async def test_message_mode_persists_post_management_state(temp_dir):
+    """``message`` mode restores the trimmed conversation, not the pre-management one.
+
+    The Agent runs conversation management after the last MessageAddedEvent but before the
+    AfterInvocationEvent, so per-message saves alone would persist untrimmed messages and a
+    stale removed_message_count.
+    """
+    storage = LocalFileStorage(temp_dir)
+    manager = SnapshotSessionManager("s1", storage=storage, save_latest_on="message")
+    agent = Agent(
+        model=_model("a1", "a2"),
+        session_manager=manager,
+        agent_id="a1",
+        conversation_manager=SlidingWindowConversationManager(window_size=2),
+    )
+    agent("u1")
+    agent("u2")
+
+    # The live agent has been trimmed to the window and tracks the removed count.
+    assert agent.conversation_manager.removed_message_count > 0
+    live_texts = [content["text"] for message in agent.messages for content in message["content"] if "text" in content]
+
+    manager_2 = SnapshotSessionManager("s1", storage=storage, save_latest_on="message")
+    agent_2 = Agent(
+        model=_model("x"),
+        session_manager=manager_2,
+        agent_id="a1",
+        conversation_manager=SlidingWindowConversationManager(window_size=2),
+    )
+    restored_texts = [
+        content["text"] for message in agent_2.messages for content in message["content"] if "text" in content
+    ]
+
+    assert restored_texts == live_texts
+    assert agent_2.conversation_manager.removed_message_count == agent.conversation_manager.removed_message_count
 
 
 @pytest.mark.asyncio
@@ -171,8 +347,6 @@ def test_snapshot_trigger_creates_immutable(storage):
     manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
     agent = Agent(model=_model("turn one"), session_manager=manager, agent_id="a1")
     agent("go")
-
-    import asyncio
 
     ids = asyncio.run(manager.list_snapshot_ids(agent))
     assert len(ids) == 1
@@ -210,8 +384,6 @@ def test_time_travel_restore(storage):
     agent = Agent(model=_model("first", "second"), session_manager=manager, agent_id="a1")
     agent("turn 1")
     agent("turn 2")
-
-    import asyncio
 
     ids = asyncio.run(manager.list_snapshot_ids(agent))
     assert len(ids) == 2
@@ -277,18 +449,19 @@ async def test_delete_session_removes_snapshots(storage):
     agent = Agent(model=_model("hi"), session_manager=manager, agent_id="a1")
     agent("go")
 
+    # Seed a key under the session's namespace to confirm delete clears the whole subtree.
+    assert await storage.read(_on_disk_key("s1", "a1")) is not None
+
     await manager.delete_session()
 
-    assert await storage.read(_snapshot_key("s1", "a1", snapshot_id=None)) is None
-    assert await storage.list(_session_prefix("s1")) == []
+    assert await storage.read(_on_disk_key("s1", "a1")) is None
+    assert await storage.list(f"session/{_session_prefix('s1')}") == []
 
 
 def test_restore_by_id_missing_returns_false(storage):
     """Restoring a non-existent immutable snapshot returns False."""
     manager = SnapshotSessionManager("s1", storage=storage)
     agent = Agent(model=_model("hi"), session_manager=manager, agent_id="a1")
-
-    import asyncio
 
     assert asyncio.run(manager.restore_snapshot(agent, snapshot_id=_new_snapshot_id())) is False
 
@@ -432,8 +605,6 @@ def test_snapshot_trigger_returning_false_appends_nothing(storage):
     agent = Agent(model=_model("hi"), session_manager=manager, agent_id="a1")
     agent("go")
 
-    import asyncio
-
     assert asyncio.run(manager.list_snapshot_ids(agent)) == []
     # The trigger was invoked with the agent as a keyword argument.
     assert seen_agents and seen_agents[0] is agent
@@ -484,8 +655,8 @@ async def test_delete_session_is_scoped_to_its_own_session(temp_dir):
 
     await manager_a.delete_session()
 
-    assert await storage.read(_snapshot_key("sess-a", "a1", snapshot_id=None)) is None
-    assert await storage.read(_snapshot_key("sess-b", "a1", snapshot_id=None)) is not None
+    assert await storage.read(_on_disk_key("sess-a", "a1")) is None
+    assert await storage.read(_on_disk_key("sess-b", "a1")) is not None
     assert await storage.read("memory/note.json") == b"keep me"
 
 
@@ -506,3 +677,79 @@ def test_stateful_model_restore_keeps_model_state(storage):
         assert agent_2._model_state == {"response_id": "resp-123"}  # but model_state survives
     finally:
         del type(original).stateful
+
+
+@pytest.mark.asyncio
+async def test_raw_storage_is_namespaced_under_session(temp_dir):
+    """Raw storage is auto-namespaced under 'session/', matching the TS key layout."""
+    storage = LocalFileStorage(temp_dir)
+    manager = SnapshotSessionManager("sid", storage=storage)
+    Agent(model=_model("hi"), session_manager=manager, agent_id="a1")("go")
+
+    keys = await storage.list("")
+    assert keys == ["session/sid/scopes/agent/a1/snapshots/snapshot_latest.json"]
+
+
+@pytest.mark.asyncio
+async def test_prenamespaced_storage_is_not_double_prefixed(temp_dir):
+    """A caller-namespaced view is used as-is; its 'session' prefix is not doubled."""
+    storage = LocalFileStorage(temp_dir)
+    scoped = storage.namespace("session")  # caller pre-namespaces under the same prefix
+    manager = SnapshotSessionManager("sid", storage=scoped)
+    Agent(model=_model("hi"), session_manager=manager, agent_id="a1")("go")
+
+    # On raw storage the key is session/sid/... — a single "session/", not session/session/...
+    keys = await storage.list("")
+    assert keys == ["session/sid/scopes/agent/a1/snapshots/snapshot_latest.json"]
+
+
+def test_snapshot_ids_are_monotonic_uuidv7(storage):
+    """Immutable ids are UUIDv7 and sort in creation order even within one millisecond."""
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    agent = Agent(model=_model(*[f"t{index}" for index in range(6)]), session_manager=manager, agent_id="a1")
+    for index in range(6):
+        agent(f"turn {index}")
+
+    ids = asyncio.run(manager.list_snapshot_ids(agent))
+    assert len(ids) == 6
+    assert all(uuid.UUID(snapshot_id).version == 7 for snapshot_id in ids)
+    # list_snapshot_ids sorts lexicographically; that must equal creation order.
+    assert ids == sorted(ids)
+
+
+@pytest.mark.asyncio
+async def test_corrupt_snapshot_raises_typed_error_on_restore(temp_dir):
+    """A corrupt/truncated stored snapshot surfaces a typed SnapshotException, not a raw decode error.
+
+    Restore runs in the agent constructor, so a partially written or tampered blob would
+    otherwise crash construction with a JSONDecodeError leaking out of the session manager.
+    """
+    storage = LocalFileStorage(temp_dir)
+    await storage.write(f"session/{_snapshot_key('s1', 'a1', snapshot_id=None)}", b'{"scope": "agent", "data": {')
+
+    with pytest.raises(SnapshotException, match="Failed to deserialize snapshot"):
+        Agent(model=_model("hi"), session_manager=SnapshotSessionManager("s1", storage=storage), agent_id="a1")
+
+
+@pytest.mark.parametrize(
+    "blob",
+    [
+        b"{}",  # object missing required keys -> KeyError in Snapshot.from_dict
+        b"42",  # non-object scalar -> would AttributeError on .get()
+        b'"a string"',
+        b"[]",
+        b"null",
+    ],
+)
+@pytest.mark.asyncio
+async def test_wrong_shape_snapshot_raises_typed_error_on_restore(temp_dir, blob):
+    """A valid-JSON but wrong-shape stored snapshot surfaces a typed SnapshotException.
+
+    Valid JSON that is not a well-formed snapshot (missing keys, or a non-object scalar/array)
+    must not leak a raw KeyError/AttributeError out of the agent constructor's restore path.
+    """
+    storage = LocalFileStorage(temp_dir)
+    await storage.write(f"session/{_snapshot_key('s1', 'a1', snapshot_id=None)}", blob)
+
+    with pytest.raises(SnapshotException):
+        Agent(model=_model("hi"), session_manager=SnapshotSessionManager("s1", storage=storage), agent_id="a1")
