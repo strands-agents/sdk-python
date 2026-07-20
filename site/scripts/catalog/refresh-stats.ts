@@ -153,6 +153,11 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
       }
       if (languages.python?.package === 'strands-agents') {
         console.warn(`entry=${id}, source=pypi | package is the sdk itself, skipping stats`)
+      } else if (languages.python?.package.endsWith(']')) {
+        // An extras-qualified package (`temporalio[strands-agents]`) 404s on
+        // pypistats, and the base package's downloads would overstate the
+        // integration's popularity — so no download stats at all.
+        console.warn(`entry=${id}, source=pypi | extras-qualified package, skipping download stats`)
       } else {
         entry.python = languages.python?.package
       }

@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, it, expect } from 'vitest'
-import { buildStats, type StatsFetchers, type StatsEntry } from '../scripts/catalog/refresh-stats'
+import { buildStats, loadEntries, type StatsFetchers, type StatsEntry } from '../scripts/catalog/refresh-stats'
 
 const entries: StatsEntry[] = [
   {
@@ -91,5 +94,26 @@ describe('buildStats', () => {
       lastRelease: '2026-06-01',
       downloads: { python: 100, typescript: 50 },
     })
+  })
+})
+
+describe('loadEntries', () => {
+  it('skips download stats for extras-qualified pypi packages but keeps the github repo', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'catalog-'))
+    try {
+      writeFileSync(
+        path.join(dir, 'temporal.yaml'),
+        [
+          'name: temporal',
+          'github: https://github.com/temporalio/sdk-python',
+          'languages:',
+          '  python:',
+          '    package: temporalio[strands-agents]',
+        ].join('\n')
+      )
+      expect(loadEntries(dir)).toEqual([{ id: 'temporal', github: 'https://github.com/temporalio/sdk-python' }])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
