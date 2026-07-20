@@ -6,5 +6,6 @@ languages:
     package: strands-sapiens
     registry: https://pypi.org/project/strands-sapiens/
 github: https://github.com/cagataycali/strands-sapiens
+docsUrl: https://cagataycali.github.io/strands-sapiens/
 maintainer: cagataycali
 addedDate: 2026-07-19

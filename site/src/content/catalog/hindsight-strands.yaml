@@ -6,5 +6,6 @@ languages:
     package: hindsight-strands
     registry: https://pypi.org/project/hindsight-strands/
 github: https://github.com/vectorize-io/hindsight
+docsUrl: https://github.com/vectorize-io/hindsight/tree/main/hindsight-integrations/strands
 maintainer: vectorize-io
 addedDate: 2026-07-19

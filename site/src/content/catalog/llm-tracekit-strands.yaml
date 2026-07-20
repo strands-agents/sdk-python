@@ -6,5 +6,6 @@ languages:
     package: llm-tracekit-strands
     registry: https://pypi.org/project/llm-tracekit-strands/
 github: https://github.com/coralogix/llm-tracekit
+docsUrl: https://coralogix.com/docs/llm-tracekit-strands/
 maintainer: coralogix
 addedDate: 2026-07-19

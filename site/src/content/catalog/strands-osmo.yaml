@@ -6,5 +6,6 @@ languages:
     package: strands-osmo
     registry: https://pypi.org/project/strands-osmo/
 github: https://github.com/cagataycali/strands-osmo
+docsUrl: https://cagataycali.github.io/strands-osmo/
 maintainer: cagataycali
 addedDate: 2026-07-19

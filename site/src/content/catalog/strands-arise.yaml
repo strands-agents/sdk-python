@@ -6,5 +6,6 @@ languages:
     package: strands-arise
     registry: https://pypi.org/project/strands-arise/
 github: https://github.com/abekek/strands-arise
+docsUrl: https://arise-ai.dev
 maintainer: abekek
 addedDate: 2026-07-19
