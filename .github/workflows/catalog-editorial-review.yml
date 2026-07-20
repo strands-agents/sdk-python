@@ -29,14 +29,11 @@ jobs:
           MAINTAINER_ROLES: 'write,maintain,admin'
         with:
           script: |
-            // ┌──────────────────────────────────────────────────────────────┐
-            // │ WHAT THIS DOES                                                │
-            // │ `featured` and `badges` on catalog entries are granted by     │
-            // │ the Strands team. When a PR from someone without write        │
-            // │ access adds or changes them, this job applies a label and a   │
-            // │ sticky comment so reviewers notice — it never fails, so it    │
-            // │ is an indicator, not a merge gate.                            │
-            // └──────────────────────────────────────────────────────────────┘
+            // `featured` and `badges` on catalog entries are granted by the
+            // Strands team. When a PR from someone without write access adds
+            // or changes them, this job applies a label and a sticky comment
+            // so reviewers notice — it never fails, so it is an indicator,
+            // not a merge gate.
 
             const pr = context.payload.pull_request;
             const label = process.env.EDITORIAL_LABEL;

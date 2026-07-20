@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toCardModel, sortEntries, hasEvalsEntries, NEW_BADGE_DAYS } from '../src/util/catalog'
+import { toCardModel, sortEntries, NEW_BADGE_DAYS } from '../src/util/catalog'
 import type { CatalogEntryData } from '../src/content.config'
 
 const BUILD_DATE = new Date('2026-07-17')
@@ -108,14 +108,5 @@ describe('sortEntries', () => {
       toCardModel('feat', entry({ name: 'feat', featured: true }), undefined, BUILD_DATE),
     ]
     expect(sortEntries(cards).map((c) => c.name)).toEqual(['feat', 'alpha', 'zeta'])
-  })
-})
-
-describe('hasEvalsEntries', () => {
-  it('detects evals entries', () => {
-    const agents = toCardModel('a', entry(), undefined, BUILD_DATE)
-    const evals = toCardModel('b', entry({ sdk: 'evals' }), undefined, BUILD_DATE)
-    expect(hasEvalsEntries([agents])).toBe(false)
-    expect(hasEvalsEntries([agents, evals])).toBe(true)
   })
 })

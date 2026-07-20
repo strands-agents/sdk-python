@@ -11,7 +11,7 @@ import CatalogCard from '../components/catalog/CatalogCard.astro'
 import CatalogFilterBar from '../components/catalog/CatalogFilterBar.astro'
 import CatalogFacets from '../components/catalog/CatalogFacets.astro'
 import { CATALOG_TYPES } from '../components/catalog/types'
-import { toCardModel, sortEntries, hasEvalsEntries, type CatalogStatsFile } from '../util/catalog'
+import { toCardModel, sortEntries, type CatalogStatsFile } from '../util/catalog'
 import { pathWithBase } from '../util/links'
 import statsFile from '../data/catalog-stats.json'
 import '../styles/catalog.css'
@@ -21,7 +21,8 @@ const entries = await getCollection('catalog')
 const buildDate = new Date()
 const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.id], buildDate)))
 
-const showSdkFacet = hasEvalsEntries(cards)
+// The SDK facet renders only when the catalog actually has evals entries.
+const showSdkFacet = cards.some((c) => c.sdk === 'evals')
 
 const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
   value,

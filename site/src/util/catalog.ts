@@ -88,8 +88,3 @@ export function sortEntries(cards: CatalogCardModel[]): CatalogCardModel[] {
     return a.name.localeCompare(b.name)
   })
 }
-
-/** The SDK facet renders only when the catalog actually has evals entries. */
-export function hasEvalsEntries(cards: CatalogCardModel[]): boolean {
-  return cards.some((c) => c.sdk === 'evals')
-}
