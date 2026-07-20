@@ -106,7 +106,7 @@ export abstract class HookableEvent extends StreamEvent {
  */
 export interface ToolUseData {
   name: string
-  readonly toolUseId: string
+  toolUseId: string
   input: JSONValue
 }
 

@@ -41,7 +41,7 @@ agent("What is the weather and time in New York?")
 --8<-- "user-guide/concepts/tools/executors.ts:concurrent"
 ```
 
-`toolExecutor: 'concurrent'` remains supported as shorthand.
+The `'concurrent'` string shorthand keeps your imports minimal. Passing `new ConcurrentToolExecutor()` is equivalent if you prefer to be explicit.
 
 </Tab>
 </Tabs>
@@ -80,7 +80,7 @@ agent("Please take a screenshot and then email the screenshot to my friend")
 --8<-- "user-guide/concepts/tools/executors.ts:sequential"
 ```
 
-`toolExecutor: 'sequential'` remains supported as shorthand.
+The `'sequential'` string shorthand keeps your imports minimal. Passing `new SequentialToolExecutor()` is equivalent if you prefer to be explicit.
 
 </Tab>
 </Tabs>

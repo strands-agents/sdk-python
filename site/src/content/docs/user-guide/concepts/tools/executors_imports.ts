@@ -2,9 +2,9 @@
 // Imports for executors page snippets
 
 // --8<-- [start:concurrent_imports]
-import { Agent, ConcurrentToolExecutor } from '@strands-agents/sdk'
+import { Agent } from '@strands-agents/sdk'
 // --8<-- [end:concurrent_imports]
 
 // --8<-- [start:sequential_imports]
-import { Agent, SequentialToolExecutor } from '@strands-agents/sdk'
+import { Agent } from '@strands-agents/sdk'
 // --8<-- [end:sequential_imports]

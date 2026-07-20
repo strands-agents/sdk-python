@@ -18,9 +18,11 @@ type ExecutionStep =
  * ```typescript
  * import { Agent, ConcurrentToolExecutor } from '@strands-agents/sdk'
  *
- * const agent = new Agent({
- *   toolExecutor: new ConcurrentToolExecutor(),
- * })
+ * // The string shorthand keeps imports minimal (concurrent is also the default).
+ * const agent = new Agent({ toolExecutor: 'concurrent' })
+ *
+ * // Passing an instance is equivalent if you prefer to be explicit.
+ * const explicitAgent = new Agent({ toolExecutor: new ConcurrentToolExecutor() })
  * ```
  */
 export class ConcurrentToolExecutor extends ToolExecutor {

@@ -13,9 +13,11 @@ import type { ToolExecutionInput, ToolExecutorOptions } from './executor.js'
  * ```typescript
  * import { Agent, SequentialToolExecutor } from '@strands-agents/sdk'
  *
- * const agent = new Agent({
- *   toolExecutor: new SequentialToolExecutor(),
- * })
+ * // The string shorthand keeps imports minimal.
+ * const agent = new Agent({ toolExecutor: 'sequential' })
+ *
+ * // Passing an instance is equivalent if you prefer to be explicit.
+ * const explicitAgent = new Agent({ toolExecutor: new SequentialToolExecutor() })
  * ```
  */
 export class SequentialToolExecutor extends ToolExecutor {
