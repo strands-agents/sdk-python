@@ -27,6 +27,9 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
 import { GoogleModel } from '@strands-agents/sdk/models/google'
 
+// Verify AgentCore Harness subpath export
+import { AgentCoreHarnessAgent } from '@strands-agents/sdk/agentcore-harness'
+
 import { z } from 'zod'
 
 console.log('✓ Import from main entry point successful')
@@ -126,6 +129,15 @@ if (BedrockFromSubpath !== BedrockModel) {
   throw new Error('BedrockModel from subpath should match main export')
 }
 console.log('✓ Model subpath exports verified')
+
+const harnessAgent = new AgentCoreHarnessAgent({
+  harnessArn: 'arn:aws:bedrock-agentcore:us-east-1:123456789012:harness/TestHarness-abcdefghij',
+  runtimeSessionId: 'session-id-padded-to-thirty-three',
+})
+if (typeof harnessAgent.invoke !== 'function') {
+  throw new Error('AgentCoreHarnessAgent subpath export is not constructible')
+}
+console.log('✓ AgentCore Harness subpath export verified')
 
 // Verify barrel exports match individual subpath exports
 if (
