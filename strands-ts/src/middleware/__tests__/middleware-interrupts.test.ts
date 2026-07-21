@@ -75,6 +75,45 @@ describe('Middleware interrupts', () => {
       expect(toolExecuted).toBe(true)
     })
 
+    it('uses interrupt state restored after executor construction', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'dangerousTool', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('dangerousTool', () => {
+        toolExecuted = true
+        return 'executed'
+      })
+      const agent = new Agent({ model, tools: [tool], printer: false })
+
+      agent.addMiddleware(ExecuteToolStage, async function* (context, next) {
+        context.interrupt({ name: 'approve_tool', reason: 'Confirm?' })
+        return yield* next(context)
+      })
+
+      const snapshot = agent.takeSnapshot({ include: ['interrupts'] })
+      agent.loadSnapshot(snapshot)
+
+      const interruptResult = await agent.invoke('Do it')
+      const finalResult = await agent.invoke([
+        new InterruptResponseContent({
+          interruptId: interruptResult.interrupts![0]!.id,
+          response: 'yes',
+        }),
+      ])
+
+      expect({
+        interruptStopReason: interruptResult.stopReason,
+        finalStopReason: finalResult.stopReason,
+        toolExecuted,
+      }).toEqual({
+        interruptStopReason: 'interrupt',
+        finalStopReason: 'endTurn',
+        toolExecuted: true,
+      })
+    })
+
     it('interrupt ID includes toolUseId for disambiguation', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'myTool', toolUseId: 'unique-tool-id', input: {} })

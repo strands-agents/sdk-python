@@ -17,6 +17,23 @@ describe('index', () => {
       expect(provider.getConfig()).toBeDefined()
     })
 
+    it('exports zero-argument tool executors', () => {
+      const concurrent = new SDK.ConcurrentToolExecutor()
+      const sequential = new SDK.SequentialToolExecutor()
+
+      expect({
+        concurrent: concurrent instanceof SDK.ConcurrentToolExecutor,
+        sequential: sequential instanceof SDK.SequentialToolExecutor,
+      }).toEqual({
+        concurrent: true,
+        sequential: true,
+      })
+    })
+
+    it('does not export the internal ToolExecutor base', () => {
+      expect(SDK).not.toHaveProperty('ToolExecutor')
+    })
+
     it('exports all required types', () => {
       // This test ensures all type exports compile correctly
       // If any exports are missing, TypeScript will error

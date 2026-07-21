@@ -6,7 +6,8 @@ tags: [tool-execution, event-loop]
 sourceLinks:
   - path: strands-py/src/strands/tools/executors/concurrent.py
   - path: strands-py/src/strands/tools/executors/sequential.py
-  - path: strands-ts/src/agent/agent.ts
+  - path: strands-ts/src/tools/executors/concurrent.ts
+  - path: strands-ts/src/tools/executors/sequential.ts
 ---
 
 Tool executors control whether tools from a single assistant turn run concurrently or sequentially. Both SDKs default to concurrent execution.
@@ -39,6 +40,8 @@ agent("What is the weather and time in New York?")
 
 --8<-- "user-guide/concepts/tools/executors.ts:concurrent"
 ```
+
+The `'concurrent'` string shorthand keeps your imports minimal. Passing `new ConcurrentToolExecutor()` is equivalent if you prefer to be explicit.
 
 </Tab>
 </Tabs>
@@ -76,6 +79,8 @@ agent("Please take a screenshot and then email the screenshot to my friend")
 
 --8<-- "user-guide/concepts/tools/executors.ts:sequential"
 ```
+
+The `'sequential'` string shorthand keeps your imports minimal. Passing `new SequentialToolExecutor()` is equivalent if you prefer to be explicit.
 
 </Tab>
 </Tabs>
