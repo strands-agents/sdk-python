@@ -35,3 +35,8 @@ import { bash } from '@strands-agents/sdk/vended-tools/bash'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:combined_import]
+
+// --8<-- [start:handoff_to_user_import]
+import { Agent, InterruptResponseContent } from '@strands-agents/sdk'
+import { handoffToUser } from '@strands-agents/sdk/vended-tools/handoff-to-user'
+// --8<-- [end:handoff_to_user_import]

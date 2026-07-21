@@ -5,7 +5,12 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
-import { SessionManager, FileStorage } from '@strands-agents/sdk'
+import {
+  SessionManager,
+  FileStorage,
+  InterruptResponseContent,
+} from '@strands-agents/sdk'
+import { handoffToUser } from '@strands-agents/sdk/vended-tools/handoff-to-user'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {
@@ -108,6 +113,25 @@ async function notebookStatePersistenceExample() {
   const restoredAgent = new Agent({ tools: [notebook], sessionManager: session })
   await restoredAgent.invoke('Read the ideas notebook')
   // --8<-- [end:notebook_state_persistence]
+}
+
+// Handoff-to-user tool example
+async function handoffToUserExample() {
+  // --8<-- [start:handoff_to_user_example]
+  const agent = new Agent({ tools: [handoffToUser] })
+  const result = await agent.invoke('Ask me which environment to deploy to.')
+
+  if (result.stopReason === 'interrupt') {
+    const interrupt = result.interrupts[0]
+    // interrupt.reason = { question, options, allow_free_text }
+    const resumed = await agent.invoke([
+      new InterruptResponseContent({
+        interruptId: interrupt.id,
+        response: { answer: 'prod', chose: 'prod' },
+      }),
+    ])
+  }
+  // --8<-- [end:handoff_to_user_example]
 }
 
 // Combined tools example - development workflow
