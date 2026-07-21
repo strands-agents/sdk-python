@@ -100,28 +100,48 @@ Alternatives are in [Alternatives Considered](#alternatives-considered).
 
 ## Developer Experience
 
-Routing is opt-in through `model=`. Pass a `Model` for today's behavior, or a `ModelRouter` to route. Candidates are primarily `Model` objects; model-id strings remain convenience shorthand. A single list may contain models backed by different providers. `strategy` is an object because strategies carry configuration and form the extension point.
+Routing is opt-in through `model=`. Pass a `Model` for today's behavior, or a `ModelRouter` to route. Models, routes, and strategies are configured once, then reused across invocations. A router may also be shared by multiple agents because its topology is immutable and all selection state lives in invocation or agent state.
+
+A configured `Model` remains the source of provider, model id, region, inference parameters, and context capacity. Routing does not duplicate those dimensions. `ModelRoute` adds only the stable name and task description that a semantic strategy needs. Plain `Model` objects and model-id strings remain shorthand for strategies such as fallback and context-fit that do not need route descriptions.
 
 ```python
 haiku  = BedrockModel(model_id="anthropic.claude-3-5-haiku-20241022-v1:0")
 sonnet = BedrockModel(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
 opus   = AnthropicModel(model_id="claude-opus-4-1")
+judge  = BedrockModel(model_id="amazon.nova-micro-v1:0")
 
-# Fallback: try in order, advance only after retries are exhausted.
-agent = Agent(model=ModelRouter(models=[sonnet, opus], strategy=FallbackStrategy()))
+# Fallback: configure once, then reuse for every invocation.
+fallback = ModelRouter(models=[sonnet, opus], strategy=FallbackStrategy())
+agent = Agent(model=fallback)
 
-# Context-fit: pick the smallest known context window that fits the request.
-agent = Agent(model=ModelRouter(models=[haiku, sonnet, opus], strategy=ContextFitStrategy()))
+# Context-fit: local selection with no additional model call.
+context_fit = ModelRouter(models=[haiku, sonnet, opus], strategy=ContextFitStrategy())
+agent = Agent(model=context_fit)
 
-# Model-driven: a small judge model names the candidate to use.
-agent = Agent(model=ModelRouter(
-    models={"cheap": haiku, "strong": opus},
-    strategy=ModelDrivenStrategy(judge=haiku),
-))
+# Model-driven: the judge picks a named route from reusable descriptions.
+model_driven = ModelRouter(
+    models=[
+        ModelRoute(
+            name="routine",
+            model=haiku,
+            description="Direct questions, extraction, summarization, and simple tool use.",
+        ),
+        ModelRoute(
+            name="complex",
+            model=opus,
+            description="Ambiguous requests or multi-step reasoning requiring higher capability.",
+        ),
+    ],
+    strategy=ModelDrivenStrategy(judge=judge),
+)
+support_agent = Agent(model=model_driven)
+research_agent = Agent(model=model_driven)  # the same profile can serve another agent
 
 # Single-model usage is unchanged.
 agent = Agent(model=sonnet)
 ```
+
+The judge runs only for initial selection and the result is cached for the invocation, so tool-loop calls do not pay another routing call. Applications that do not want a judge call use a local strategy such as context-fit or provide their own `RoutingStrategy`.
 
 Routers can nest when each level has a different responsibility. Resolution is recursive and always produces a concrete model before the terminal runs:
 
@@ -141,7 +161,13 @@ class RoutingStrategy(Protocol):
     async def select(self, context: RoutingContext) -> str: ...
     async def next_after_failure(self, context: RoutingContext) -> str | None: ...
 
-Candidate = Union[Model, str, "ModelRouter"]
+@dataclass(frozen=True)
+class ModelRoute:
+    name: str
+    model: Model | str | "ModelRouter"
+    description: str
+
+Candidate = Union[Model, str, "ModelRouter", ModelRoute]
 
 class ModelRouter(Plugin):
     def __init__(self, models: list[Candidate] | dict[str, Candidate],
@@ -150,10 +176,11 @@ class ModelRouter(Plugin):
 Agent(model: Model | str | ModelRouter = ...)
 ```
 
+- `ModelRoute` is reusable routing metadata, not another model configuration. Model-driven selection requires named, described routes so the judge has an explicit classification contract.
+- `ModelRouter` topology and strategy configuration are immutable after construction. The same router can be attached to multiple agents; selections and fallback position live in `invocation_state`, and future session affinity lives in the receiving agent's state.
 - `RoutingContext` exposes existing request data and the candidate models. Context-fit can call each candidate's `count_tokens` and compare the result with that candidate's `context_window_limit`.
 - Built-in proactive strategies share ordered failure behavior; `FallbackStrategy.select` simply chooses the first candidate.
 - `InvokeModelContext.model` always contains a concrete `Model` when the terminal runs.
-- Routing selections and fallback position live in `invocation_state`, not mutable router fields.
 - A model is a candidate only when it appears in a router. `agent.model` resolves to the router's explicit default, or its first concrete candidate when no default is given.
 - Routing rejects stateful candidates in v1.
 - Agent invocations using `structured_output_model` pass through `InvokeModelStage` and reuse the invocation's selection. The deprecated direct `Agent.structured_output()` path bypasses this stage and uses the default candidate.
@@ -162,8 +189,8 @@ Agent(model: Model | str | ModelRouter = ...)
 
 ## Work Plan
 
-- **P0, router core and fallback.** Add `ModelRouter`, widen `model=`, recognize the router as a plugin during agent initialization, add `model` to `InvokeModelContext`, cache selection in invocation state, resolve nested routers, and make the terminal call the context model. Register routing before model-dependent invoke middleware, order fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates.
-- **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection. Record the selected candidate on the existing model-invoke span.
+- **P0, router core and fallback.** Add immutable, reusable `ModelRouter` and `ModelRoute` configuration; widen `model=`; recognize the router as a plugin during agent initialization; add `model` to `InvokeModelContext`; cache selection in invocation state; resolve nested routers; and make the terminal call the context model. Register routing before model-dependent invoke middleware, order fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates.
+- **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection over named route descriptions. Run the judge once per invocation and record the selected candidate on the existing model-invoke span.
 - **P1, cost-aware routing.** Add a pricing source of truth, then rank context-fit survivors by price.
 - **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
 - **P1, classifier, semantic routing, and quality cascades.** Add learned or embedding selection without a decision-model call, and result-aware escalation once the SDK exposes a suitable quality signal.
