@@ -152,18 +152,20 @@ export function candidateToYaml(c: MergedCandidate): string {
 // ── Discovery (live) ─────────────────────────────────────────────────────────
 
 async function discoverPypi(): Promise<RegistryCandidate[]> {
-  // PyPI's XML-RPC search is dead; use the simple JSON search on pypi.org via
-  // the public search page API is unstable — query the JSON metadata of known
-  // naming-convention candidates from the GitHub discovery pass instead, plus
-  // packages whose name matches strands-*. libraries.io is an alternative if
-  // this misses too much.
+  // PyPI has no supported search API (XML-RPC search is dead and /search/ is
+  // HTML-only), so fetch the PEP 691 simple index — the full package name
+  // list (~500k names, ~20MB JSON) — and filter for names containing
+  // 'strands'. Heavy, but reliable and unauthenticated, which is fine for a
+  // one-time script. Official strands-agents* packages are excluded here;
+  // mergeCandidates would drop them by repo org anyway.
   const results: RegistryCandidate[] = []
-  const search = (await fetchJson('https://pypi.org/search/?q=strands&format=json').catch(() => null)) as {
-    results?: { name: string }[]
-  } | null
-  // No fallback when the search endpoint fails or changes shape — this pass
-  // just yields no PyPI candidates (GitHub/npm discovery still run).
-  const names: string[] = search?.results?.map((r) => r.name) ?? []
+  const index = (await fetchJson('https://pypi.org/simple/', {
+    accept: 'application/vnd.pypi.simple.v1+json',
+  })) as { projects: { name: string }[] }
+  const names = index.projects
+    .map((p) => p.name)
+    .filter((name) => name.includes('strands') && !name.startsWith('strands-agents'))
+  console.log(`matched=${names.length} | pypi simple index filtered`)
   for (const name of names) {
     try {
       const meta = (await fetchJson(`https://pypi.org/pypi/${name}/json`)) as { info: any }

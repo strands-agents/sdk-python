@@ -30,10 +30,10 @@ jobs:
         with:
           script: |
             // `featured` and `badges` on catalog entries are granted by the
-            // Strands team. When a PR from someone without write access adds
-            // or changes them, this job applies a label and a sticky comment
-            // so reviewers notice — it never fails, so it is an indicator,
-            // not a merge gate.
+            // Strands team. When a PR from someone without write access adds,
+            // changes, or removes them, this job applies a label and a sticky
+            // comment so reviewers notice — it never fails, so it is an
+            // indicator, not a merge gate.
 
             const pr = context.payload.pull_request;
             const label = process.env.EDITORIAL_LABEL;
@@ -57,18 +57,29 @@ jobs:
               pull_number: pr.number,
             });
 
+            // Both directions are editorial: adding a grant a submitter isn't
+            // entitled to, and removing one that a maintainer made. A change
+            // like `featured: true` → `featured: false` appears in the diff
+            // as a removal plus an addition, so the removal patterns cover it.
+            //
             // YAML 1.2 (Astro's content loader) parses yes/on as strings, which
             // the schema's z.boolean() rejects at the build gate — only the
             // true spellings can reach main.
-            const featuredRe = /^\+\s*featured:\s*(true|True|TRUE)\b/;
+            const addedFeaturedRe = /^\+\s*featured:\s*(true|True|TRUE)\b/;
+            const removedFeaturedRe = /^-\s*featured:\s*(true|True|TRUE)\b/;
             // Inline non-empty value: `badges: [x]` or `badges: verified` —
             // but not an explicitly empty `badges: []`.
-            const badgesInlineRe = /^\+\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
-            const badgesBlockRe = /^\+\s*badges:\s*(#.*)?$/;
+            const addedBadgesInlineRe = /^\+\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
+            const removedBadgesInlineRe = /^-\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
+            const addedBadgesBlockRe = /^\+\s*badges:\s*(#.*)?$/;
             // `verified` is the only badge value the schema accepts, so match
             // it exactly rather than any added list item in the rest of the
             // patch (which could belong to a different block-style field).
-            const listItemRe = /^\+\s*-\s*['"]?verified['"]?\s*$/;
+            const addedListItemRe = /^\+\s*-\s*['"]?verified['"]?\s*$/;
+            // A removed `- verified` list item can only be a badge, so match
+            // it directly without requiring a `badges:` line in the diff (the
+            // header often survives as context when only items are removed).
+            const removedListItemRe = /^-\s*-\s*['"]?verified['"]?\s*$/;
 
             const flagged = [];
             for (const file of files) {
@@ -79,14 +90,18 @@ jobs:
               const lines = (file.patch || '').split('\n');
               let editorial = false;
               for (let i = 0; i < lines.length; i++) {
-                if (featuredRe.test(lines[i]) || badgesInlineRe.test(lines[i])) {
+                if (addedFeaturedRe.test(lines[i]) ||
+                    removedFeaturedRe.test(lines[i]) ||
+                    addedBadgesInlineRe.test(lines[i]) ||
+                    removedBadgesInlineRe.test(lines[i]) ||
+                    removedListItemRe.test(lines[i])) {
                   editorial = true;
                   break;
                 }
-                // Block-style list: `badges:` is only editorial when list
-                // items are actually added under it.
-                if (badgesBlockRe.test(lines[i]) &&
-                    lines.slice(i + 1).some(l => listItemRe.test(l))) {
+                // Block-style list: an added `badges:` is only editorial when
+                // list items are actually added under it.
+                if (addedBadgesBlockRe.test(lines[i]) &&
+                    lines.slice(i + 1).some(l => addedListItemRe.test(l))) {
                   editorial = true;
                   break;
                 }
@@ -95,7 +110,7 @@ jobs:
             }
 
             if (flagged.length === 0) {
-              console.log('No editorial fields (featured/badges) added — nothing to flag.');
+              console.log('No editorial fields (featured/badges) changed — nothing to flag.');
               // A previous push may have flagged this PR; clear the stale
               // label and comment so reviewers aren't misled.
               try {
@@ -145,27 +160,51 @@ jobs:
               return;
             }
 
-            console.log(`Editorial fields set by non-maintainer "${author}" in: ${flagged.join(', ')}`);
+            console.log(`Editorial fields changed by non-maintainer "${author}" in: ${flagged.join(', ')}`);
 
-            // --- Label (auto-created on first use) ------------------------
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              labels: [label],
-            });
+            // --- Label ----------------------------------------------------
+            // addLabels 422s on a label that doesn't exist in the repo, so
+            // create it on first use. A label failure must not prevent the
+            // sticky comment below — the comment is the primary signal.
+            try {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                  color: 'fbca04',
+                  description: 'Editorial catalog fields changed by a non-maintainer',
+                });
+              }
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: [label],
+              });
+            } catch (error) {
+              console.log(`Applying label "${label}" failed (${error.message}) — continuing with the comment.`);
+            }
 
             // --- Sticky comment: update in place so pushes don't spam -----
             const body = [
               marker,
               '### Editorial catalog fields detected',
               '',
-              `This PR sets \`featured\` and/or \`badges\` on: ${flagged.map(f => `\`${f}\``).join(', ')}.`,
+              `This PR changes \`featured\` and/or \`badges\` on: ${flagged.map(f => `\`${f}\``).join(', ')}.`,
               '',
               'Those fields are granted by the Strands team, not set by submitters',
               '(see the [submission guide](https://strandsagents.com/community/get-featured/)).',
-              'A maintainer should either **confirm the featured/badge grant** or',
-              '**ask the submitter to remove the fields** before merging.',
+              'Both granting and removing them needs maintainer confirmation — a',
+              'maintainer should either **confirm the change** or **ask the',
+              'submitter to revert it** before merging.',
               '',
               '_This is a heads-up for reviewers — it does not block merging._',
             ].join('\n');
