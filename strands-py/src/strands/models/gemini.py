@@ -584,14 +584,23 @@ class GeminiModel(Model):
                             },
                         )
 
-                        if data_type == "reasoning_content" and part.thought_signature:
-                            yield self._format_chunk(
-                                {
-                                    "chunk_type": "content_delta",
-                                    "data_type": "reasoning_signature",
-                                    "data": part,
-                                },
-                            )
+                    # A thought signature can arrive on a part carrying no text of its own (Gemini
+                    # attaches it to a trailing empty part), so emit it independently of part.text;
+                    # gating on part.text drops those signatures during aggregation. Function-call
+                    # parts carry their signature on the tool-use block start instead (see above).
+                    if part.thought_signature and not part.function_call:
+                        if data_type != "reasoning_content":
+                            if data_type is not None:
+                                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
+                            yield self._format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
+                            data_type = "reasoning_content"
+                        yield self._format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "reasoning_signature",
+                                "data": part,
+                            },
+                        )
 
             if data_type is not None:
                 yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})

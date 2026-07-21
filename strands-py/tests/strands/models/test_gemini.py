@@ -806,6 +806,51 @@ async def test_stream_response_reasoning_signature_survives_aggregation(
 
 
 @pytest.mark.asyncio
+async def test_stream_response_reasoning_signature_on_empty_text_part_survives(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that a signature arriving on a separate empty-text part still round-trips.
+
+    Gemini can attach the thought signature to a trailing part that carries no text of its own.
+    Gating the signature emission on part.text drops it, so the signature the model requires on a
+    subsequent turn is lost.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(text="test reason", thought=True),
+                                genai.types.Part(thought=True, thought_signature=b"abc"),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    stream = strands.event_loop.streaming.process_stream(model.stream(messages))
+    events = await alist(stream)
+    message = events[-1]["stop"][1]
+
+    tru_reasoning = message["content"][0]["reasoningContent"]["reasoningText"]
+    exp_reasoning = {"text": "test reason", "signature": "YWJj"}
+    assert tru_reasoning == exp_reasoning
+
+    # Feeding the aggregated message back must reproduce the original signature bytes.
+    tru_part = model._format_request_content_part(message["content"][0], {})
+    assert tru_part.thought_signature == b"abc"
+
+
+@pytest.mark.asyncio
 async def test_stream_response_reasoning_and_text(gemini_client, model, messages, agenerator, alist):
     """Test that both reasoning and text content are captured in separate blocks."""
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
