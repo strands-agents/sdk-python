@@ -6,6 +6,7 @@ import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
 import { SessionManager, FileStorage } from '@strands-agents/sdk'
+import { makeMcpClient } from '@strands-agents/sdk/vended-tools/mcp-client'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {
@@ -108,6 +109,17 @@ async function notebookStatePersistenceExample() {
   const restoredAgent = new Agent({ tools: [notebook], sessionManager: session })
   await restoredAgent.invoke('Read the ideas notebook')
   // --8<-- [end:notebook_state_persistence]
+}
+
+// MCP client tool example - connect to an allowlisted server, discover tools, and invoke one
+async function mcpClientExample() {
+  // --8<-- [start:mcp_client_example]
+  const mcpClient = makeMcpClient({
+    allowedUrls: ['https://mcp.example.com/mcp'],
+  })
+  const agent = new Agent({ tools: [mcpClient] })
+  await agent.invoke('Connect to the MCP server and list its tools.')
+  // --8<-- [end:mcp_client_example]
 }
 
 // Combined tools example - development workflow
