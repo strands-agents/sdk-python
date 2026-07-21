@@ -68,7 +68,7 @@
     "pino-pretty": "^13.0.0",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
-    "satteri": "^0.9.4",
+    "satteri": "^0.9.5",
     "sitemapper": "^4.1.4",
     "tsx": "^4.21.0",
     "typedoc": "^0.28.20",
