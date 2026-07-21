@@ -1,17 +1,19 @@
 {
   "ag-ui": {
     "downloads": {},
-    "stars": 14802,
+    "stars": 14837,
     "lastRelease": "2026-07-15"
   },
   "agent-control": {
-    "downloads": {},
-    "stars": 278,
+    "downloads": {
+      "python": 1688
+    },
+    "stars": 280,
     "lastRelease": "2026-07-13"
   },
   "agent402": {
     "downloads": {
-      "typescript": 355
+      "typescript": 507
     },
     "stars": 6,
     "lastRelease": "2026-07-14"
@@ -30,6 +32,16 @@
     "stars": 744,
     "lastRelease": "2026-07-17"
   },
+  "agentcore-push": {
+    "downloads": {},
+    "stars": 5,
+    "lastRelease": "2026-05-14"
+  },
+  "agentcore-rl-toolkit": {
+    "downloads": {},
+    "stars": 46,
+    "lastRelease": "2026-07-01"
+  },
   "agentcore-tool-search": {
     "downloads": {
       "python": 7736670
@@ -39,7 +51,7 @@
   },
   "clawskills-strands": {
     "downloads": {
-      "typescript": 76
+      "typescript": 74
     },
     "stars": 8
   },
@@ -51,6 +63,10 @@
   },
   "cohere": {
     "downloads": {}
+  },
+  "coinbase-agentkit": {
+    "downloads": {},
+    "stars": 1273
   },
   "datadog-ai-guard": {
     "downloads": {
@@ -64,19 +80,48 @@
   },
   "grantex": {
     "downloads": {
-      "typescript": 145
+      "typescript": 76
     },
     "stars": 31,
     "lastRelease": "2026-06-14"
   },
+  "headroom": {
+    "downloads": {},
+    "stars": 60934,
+    "lastRelease": "2026-07-17"
+  },
+  "hiddenlayer-strands": {
+    "downloads": {},
+    "stars": 0,
+    "lastRelease": "2026-04-01"
+  },
+  "hindsight-strands": {
+    "downloads": {
+      "python": 40
+    },
+    "stars": 18650,
+    "lastRelease": "2026-07-01"
+  },
+  "llm-tracekit-strands": {
+    "downloads": {
+      "python": 1584
+    },
+    "stars": 12,
+    "lastRelease": "2026-07-07"
+  },
   "mlx": {
     "downloads": {
-      "python": 93
+      "python": 91
     },
     "stars": 37
   },
   "nebius-token-factory": {
     "downloads": {}
+  },
+  "nvidia-nat-strands": {
+    "downloads": {},
+    "stars": 2511,
+    "lastRelease": "2026-06-16"
   },
   "nvidia-nim": {
     "downloads": {
@@ -84,19 +129,27 @@
     },
     "stars": 2
   },
+  "openinference-instrumentation-strands-agents": {
+    "downloads": {
+      "python": 14972
+    },
+    "stars": 1105,
+    "lastRelease": "2026-07-01"
+  },
   "ovhcloud-ai-endpoints": {
     "downloads": {}
   },
   "respan": {
     "downloads": {
-      "typescript": 76
+      "typescript": 77
     },
-    "stars": 41
+    "stars": 42
   },
   "s3-vectors-memory": {
     "downloads": {
       "python": 573
-    }
+    },
+    "stars": 61
   },
   "sglang": {
     "downloads": {
@@ -105,16 +158,31 @@
     "stars": 74,
     "lastRelease": "2026-07-04"
   },
+  "sigil-sdk-strands": {
+    "downloads": {
+      "python": 547
+    },
+    "stars": 53,
+    "lastRelease": "2026-07-21"
+  },
   "strands-acp": {
     "downloads": {
-      "typescript": 27
+      "typescript": 25
     },
     "stars": 1,
     "lastRelease": "2026-05-21"
   },
+  "strands-adb": {
+    "downloads": {},
+    "stars": 2
+  },
+  "strands-agentcore-tools": {
+    "downloads": {},
+    "stars": 6
+  },
   "strands-agt": {
     "downloads": {
-      "python": 129
+      "python": 134
     },
     "stars": 0
   },
@@ -125,6 +193,10 @@
     "stars": 1,
     "lastRelease": "2026-05-28"
   },
+  "strands-arise": {
+    "downloads": {},
+    "stars": 0
+  },
   "strands-code-agent": {
     "downloads": {
       "python": 1800
@@ -132,12 +204,29 @@
     "stars": 10,
     "lastRelease": "2026-06-29"
   },
+  "strands-compose-agentcore": {
+    "downloads": {
+      "python": 1932
+    },
+    "stars": 0,
+    "lastRelease": "2026-06-29"
+  },
+  "strands-cosmos": {
+    "downloads": {},
+    "stars": 5,
+    "lastRelease": "2026-06-05"
+  },
   "strands-deepgram": {
     "downloads": {
-      "python": 63
+      "python": 62
     },
     "stars": 3,
     "lastRelease": "2025-10-15"
+  },
+  "strands-fun-tools": {
+    "downloads": {},
+    "stars": 0,
+    "lastRelease": "2026-04-22"
   },
   "strands-google": {
     "downloads": {
@@ -152,12 +241,43 @@
     "stars": 3,
     "lastRelease": "2025-10-15"
   },
+  "strands-mcp-server": {
+    "downloads": {
+      "python": 420
+    },
+    "stars": 7
+  },
+  "strands-osmo": {
+    "downloads": {},
+    "stars": 3,
+    "lastRelease": "2026-05-14"
+  },
+  "strands-pack": {
+    "downloads": {},
+    "stars": 1
+  },
   "strands-perplexity": {
     "downloads": {
-      "python": 708
+      "python": 704
     },
     "stars": 1,
     "lastRelease": "2026-01-26"
+  },
+  "strands-postgresql-session-manager": {
+    "downloads": {},
+    "stars": 1,
+    "lastRelease": "2025-12-02"
+  },
+  "strands-rendercv": {
+    "downloads": {},
+    "stars": 3
+  },
+  "strands-sapiens": {
+    "downloads": {
+      "python": 21
+    },
+    "stars": 1,
+    "lastRelease": "2026-05-04"
   },
   "strands-spraay": {
     "downloads": {
@@ -170,6 +290,12 @@
       "python": 45
     },
     "stars": 2
+  },
+  "strands-swarms": {
+    "downloads": {
+      "python": 23
+    },
+    "stars": 1
   },
   "strands-teams": {
     "downloads": {
@@ -190,16 +316,32 @@
     "stars": 5,
     "lastRelease": "2025-10-21"
   },
+  "strands-token-telemetry": {
+    "downloads": {},
+    "stars": 0,
+    "lastRelease": "2026-02-20"
+  },
   "strands-valkey-session-manager": {
     "downloads": {
-      "python": 1452
+      "python": 1466
     },
     "stars": 3,
     "lastRelease": "2025-10-16"
   },
+  "supabase-strands": {
+    "downloads": {
+      "python": 18
+    },
+    "stars": 4
+  },
+  "temporal": {
+    "downloads": {},
+    "stars": 1137,
+    "lastRelease": "2026-07-02"
+  },
   "traceai": {
     "downloads": {
-      "typescript": 17
+      "typescript": 15
     },
     "stars": 204,
     "lastRelease": "2026-03-11"
@@ -209,6 +351,10 @@
       "python": 545
     },
     "stars": 645
+  },
+  "valyu-agentcore": {
+    "downloads": {},
+    "stars": 4
   },
   "vllm": {
     "downloads": {
