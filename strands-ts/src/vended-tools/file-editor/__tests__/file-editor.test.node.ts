@@ -544,6 +544,92 @@ describe('fileEditor tool', () => {
       // No bare LF: every LF is part of a CRLF pair.
       expect(updated.replace(/\r\n/g, '')).not.toContain('\n')
     })
+
+    // The exact path must reject a PARTIAL-line target that renders view-equivalent to the
+    // start of another line. `old_str` byte-matches exactly one place, but once tabs render as
+    // 8 spaces (as `view` does) its indentation equals another line's leading text; the
+    // whole-line scan only compares full lines, so a line-start-anchored view check catches it.
+    it('rejects a partial-line exact match that is view-equivalent to another span', async () => {
+      const content = '\tTARGET suffix\n        TARGET suffix\n'
+      const filePath = await createTestFile('view-span-ambig.txt', content)
+      await expect(
+        fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: '        TARGET', new_str: 'X' }, context)
+      ).rejects.toThrow(/candidates/)
+      // Nothing was written: the file is byte-for-byte unchanged.
+      const unchanged = await fs.readFile(filePath, 'utf-8')
+      expect(unchanged).toBe(content)
+    })
+
+    it('edits a unique partial-line target even when a more-indented line contains it mid-line', async () => {
+      const content = '\t    foo\n        foo\n'
+      const filePath = await createTestFile('view-span-unique.txt', content)
+      const result = await fileEditor.invoke(
+        { command: 'str_replace', path: filePath, old_str: '        foo', new_str: '        BAR' },
+        context
+      )
+      expect(result).toContain('has been edited')
+      const updated = await fs.readFile(filePath, 'utf-8')
+      // Line 1 (tab + 4 spaces) renders to 12 spaces in `view`, so the 8-space target only
+      // starts line 2 — it is unique despite appearing mid-line in the rendered line 1.
+      expect(updated).toBe('\t    foo\n        BAR\n')
+    })
+
+    // The tolerant scan must stay linear even on highly repetitive input. When every line is
+    // identical, each candidate window agrees on all but its final line; KMP resumes after a
+    // mismatch without re-scanning the shared prefix, keeping the search O(n + k). The timing
+    // assertion guards against a regression to O(n * k), which would block the event loop.
+    it('stays linear on a repetitive-prefix near-miss (KMP tolerant scan)', async () => {
+      const line = '    doWork();'
+      const total = 32768
+      const content = `${Array.from({ length: total }, () => line).join('\n')}\n`
+      const filePath = await createTestFile('perf-repetitive.ts', content)
+      // The first half is the search target with its final line mutated, so every window agrees
+      // on all lines but the last — the worst case for a prefix-agreeing multi-line match.
+      const prefix = Array.from({ length: total / 2 }, () => line)
+      prefix[prefix.length - 1] = `${line} NEVER_MATCHES`
+      const oldStr = prefix.join('\n')
+
+      const startedAt = Date.now()
+      const err = await fileEditor
+        .invoke({ command: 'str_replace', path: filePath, old_str: oldStr, new_str: 'x' }, context)
+        .then(
+          () => null,
+          (e: unknown) => e as Error
+        )
+      const elapsedMs = Date.now() - startedAt
+      expect(err).toBeInstanceOf(Error)
+      expect(err?.message).toContain('did not appear')
+      // Linear-time search returns in milliseconds regardless of how repetitive the input is.
+      expect(elapsedMs).toBeLessThan(500)
+    })
+
+    // A match on the UNTERMINATED final line has no `\r` of its own, so the CRLF convention is
+    // inherited from the preceding line. Otherwise an EOF edit that splits into multiple lines
+    // would splice a bare LF into an otherwise all-CRLF file.
+    it('inherits CRLF for an unterminated final matched line at EOF', async () => {
+      const filePath = await createTestFile('eof-crlf.txt', 'before\r\n\told')
+      await fileEditor.invoke(
+        { command: 'str_replace', path: filePath, old_str: '        old', new_str: 'first\nsecond' },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      expect(updated).toBe('before\r\nfirst\r\nsecond')
+      // No bare LF: every LF is part of a CRLF pair.
+      expect(updated.replace(/\r\n/g, '')).not.toContain('\n')
+    })
+
+    it('does not force CRLF for a lone unterminated line with no preceding line', async () => {
+      const filePath = await createTestFile('eof-lf-only.txt', '\told')
+      await fileEditor.invoke(
+        { command: 'str_replace', path: filePath, old_str: '        old', new_str: 'first\nsecond' },
+        context
+      )
+      const updated = await fs.readFile(filePath, 'utf-8')
+      // No preceding line, so the records[matchStart - 1] fallback stays safe at index 0 and
+      // infers no CRLF — the edit keeps LF.
+      expect(updated).toBe('first\nsecond')
+      expect(updated).not.toContain('\r')
+    })
   })
 
   describe('insert command', () => {

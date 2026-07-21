@@ -222,6 +222,51 @@ function normalizeLine(line: string): string {
     .replace(/[ \t]+$/, '')
 }
 
+/** Computes the Knuth-Morris-Pratt prefix function ("longest proper prefix that
+ * is also a suffix") for a token pattern. `lps[i]` is the length of the longest
+ * proper prefix of `pattern[0..i]` that is also a suffix of it. */
+function computeLps(pattern: string[]): number[] {
+  const lps = new Array<number>(pattern.length).fill(0)
+  let prefixLen = 0
+  for (let patternIndex = 1; patternIndex < pattern.length; patternIndex++) {
+    while (prefixLen > 0 && pattern[patternIndex] !== pattern[prefixLen]) {
+      prefixLen = lps[prefixLen - 1] ?? 0
+    }
+    if (pattern[patternIndex] === pattern[prefixLen]) {
+      prefixLen++
+    }
+    lps[patternIndex] = prefixLen
+  }
+  return lps
+}
+
+/** Finds every start index (overlapping occurrences included) at which the
+ * non-empty token sequence `pattern` occurs in `text`, in linear
+ * O(text + pattern) time using Knuth-Morris-Pratt. Matches are returned in
+ * ascending order, so tolerant ambiguity detection (none / unique / multiple)
+ * sees the full, correctly-ordered set; for a non-empty pattern this is exactly
+ * the set a naive scan would find. An empty pattern yields no matches. */
+function kmpFindAll(text: string[], pattern: string[]): number[] {
+  const starts: number[] = []
+  const k = pattern.length
+  if (k === 0 || k > text.length) return starts
+  const lps = computeLps(pattern)
+  let patternPos = 0
+  for (let textIndex = 0; textIndex < text.length; textIndex++) {
+    while (patternPos > 0 && text[textIndex] !== pattern[patternPos]) {
+      patternPos = lps[patternPos - 1] ?? 0
+    }
+    if (text[textIndex] === pattern[patternPos]) {
+      patternPos++
+    }
+    if (patternPos === k) {
+      starts.push(textIndex - k + 1)
+      patternPos = lps[patternPos - 1] ?? 0
+    }
+  }
+  return starts
+}
+
 type TolerantResult =
   | { kind: 'unique'; start: number; end: number; crlf: boolean }
   | { kind: 'ambiguous'; lines: number[] }
@@ -237,22 +282,12 @@ function tolerantMatch(content: string, oldStr: string): TolerantResult {
   const k = normOld.length
   if (k === 0 || k > normOrig.length) return { kind: 'none' }
 
-  // Linear in-place scan: index into `normOrig` directly instead of allocating a
-  // `slice(i, i + k)` per candidate, and early-exit on the first mismatching
-  // line. This keeps a near-miss window (one that agrees until its final line)
-  // from doing O(candidates * k) allocation+comparison work on the event loop.
-  const starts: number[] = []
-  const lastStart = normOrig.length - k
-  for (let i = 0; i <= lastStart; i++) {
-    let matched = true
-    for (let j = 0; j < k; j++) {
-      if (normOrig[i + j] !== normOld[j]) {
-        matched = false
-        break
-      }
-    }
-    if (matched) starts.push(i)
-  }
+  // Match multi-line old_str by treating each normalized line as a token and
+  // running Knuth-Morris-Pratt over the token sequences. After a mismatch KMP
+  // resumes without re-comparing the shared prefix, so finding ALL occurrences
+  // (overlaps included) stays O(n + k) even when a repetitive prefix agrees up
+  // to its final line.
+  const starts = kmpFindAll(normOrig, normOld)
 
   if (starts.length === 0) return { kind: 'none' }
   if (starts.length > 1) return { kind: 'ambiguous', lines: starts.map((i) => i + 1) }
@@ -264,8 +299,12 @@ function tolerantMatch(content: string, oldStr: string): TolerantResult {
   // Derive the CRLF convention from the matched line records' own terminators. A
   // single-line match ends before its `\r` (contentEnd excludes it), so the
   // sliced region can omit the `\r\n` even though the file is CRLF — the records
-  // still carry each line's trailing `\r`.
-  const crlf = records.slice(matchStart, matchStart + k).some((r) => r.raw.endsWith('\r'))
+  // still carry each line's trailing `\r`. When the match ends at the
+  // unterminated final line (which has no `\r` of its own), inherit the CRLF
+  // convention from the preceding line so an EOF edit never introduces a bare LF.
+  const crlf =
+    records.slice(matchStart, matchStart + k).some((r) => r.raw.endsWith('\r')) ||
+    (last.contentEnd === content.length && records[matchStart - 1]?.raw.endsWith('\r') === true)
   return { kind: 'unique', start: first.start, end: last.contentEnd, crlf }
 }
 
@@ -334,6 +373,27 @@ function buildStrReplaceResult(
       throw new Error(
         `No replacement was performed. old_str \`${oldStr}\` matched one location exactly, but a whitespace-insensitive search found multiple view-equivalent candidates at lines ${JSON.stringify(tolerant.lines)}. Re-copy the exact text with more surrounding context so exactly one location matches.`
       )
+    }
+    // The whole-line scan above only compares full normalized lines. A single-line
+    // target can also be view-equivalent to the START of another line: once tabs
+    // render as 8 spaces (as `view`/`makeOutput` do), a tab-indented line and a
+    // space-indented line can share the same leading text. Count only rendered
+    // lines whose start equals `viewOld`. Anchoring to line starts (rather than a
+    // flat substring scan) avoids rejecting a target that merely appears mid-line
+    // in a more-indented line, which the model can already tell apart in `view`.
+    // Multi-line targets stay with the whole-line tolerant/KMP path above.
+    if (!oldStr.includes('\n')) {
+      const viewFile = originalContent.replace(/\t/g, TAB_AS_SPACES)
+      const viewOld = oldStr.replace(/\t/g, TAB_AS_SPACES)
+      const lineStartHits = exactMatchIndices(viewFile, viewOld).filter(
+        (idx) => idx === 0 || viewFile[idx - 1] === '\n'
+      )
+      if (lineStartHits.length > 1) {
+        const candidateLines = lineStartHits.map((idx) => lineNumberAt(viewFile, idx))
+        throw new Error(
+          `No replacement was performed. old_str \`${oldStr}\` matched one location exactly, but rendering tabs as spaces (as \`view\` does) makes it view-equivalent to the start of ${lineStartHits.length} candidates at lines ${JSON.stringify(candidateLines)}. Re-copy the exact text with more surrounding context so exactly one location matches.`
+        )
+      }
     }
     start = firstExact
     end = firstExact + oldStr.length
