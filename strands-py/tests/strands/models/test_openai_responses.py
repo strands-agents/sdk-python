@@ -1,3 +1,4 @@
+import logging
 import os
 import unittest.mock
 
@@ -371,7 +372,7 @@ def test_format_request_messages_assistant_multiple_text_blocks_join_with_newlin
     assert result == [{"role": "assistant", "content": "First.\nSecond."}]
 
 
-def test_format_request_messages_assistant_non_text_content_dropped():
+def test_format_request_messages_assistant_non_text_content_dropped(caplog):
     """Assistant media has no valid Responses input shape and is dropped with a warning."""
     messages = [
         {
@@ -383,9 +384,27 @@ def test_format_request_messages_assistant_non_text_content_dropped():
         },
     ]
 
-    result = OpenAIResponsesModel._format_request_messages(messages)
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
 
     assert result == [{"role": "assistant", "content": "Here is the image."}]
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_only_non_text_content_dropped_entirely(caplog):
+    """An assistant turn with only non-text content collapses to nothing and is omitted."""
+    messages = [
+        {
+            "content": [{"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}}],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == []
+    assert "content_type=<input_image>" in caplog.text
 
 
 def test_format_request_messages_assistant_history_items_are_valid_input_items():

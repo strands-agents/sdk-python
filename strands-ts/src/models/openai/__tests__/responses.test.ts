@@ -6,6 +6,7 @@ import { ContextWindowOverflowError, ModelThrottledError } from '../../../errors
 import { collectIterator } from '../../../__fixtures__/model-test-helpers.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../../types/messages.js'
 import { ImageBlock, DocumentBlock } from '../../../types/media.js'
+import { CitationsBlock } from '../../../types/citations.js'
 import { StateStore } from '../../../state-store.js'
 import { logger } from '../../../logging/logger.js'
 
@@ -428,7 +429,47 @@ describe("OpenAIModel (api: 'responses')", () => {
       const req = await runOnce({}, messages)
       expect(req.input[1]).toEqual({ role: 'assistant', content: 'Here it is.' })
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no valid responses api input shape'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('content_type=<input_image>'))
       warnSpy.mockRestore()
+    })
+
+    it('omits an assistant history turn whose content is entirely non-text', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('draw something')] }),
+        new Message({
+          role: 'assistant',
+          content: [new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } })],
+        }),
+        new Message({ role: 'user', content: [new TextBlock('nice')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input.filter((i: any) => i.role === 'assistant')).toEqual([])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('content_type=<input_image>'))
+      warnSpy.mockRestore()
+    })
+
+    it('serializes user-role citations content as input_text', async () => {
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new CitationsBlock({
+              citations: [
+                {
+                  location: { type: 'documentChar', documentIndex: 0, start: 0, end: 10 },
+                  source: 'doc-0',
+                  sourceContent: [{ text: 'source' }],
+                  title: 'Test',
+                },
+              ],
+              content: [{ text: 'quoted passage' }],
+            }),
+          ],
+        }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[0]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'quoted passage' }] })
     })
   })
 
