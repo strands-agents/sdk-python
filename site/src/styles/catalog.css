@@ -116,7 +116,7 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0;
 }
 .cat-rail-item {
   margin: 0;
@@ -125,6 +125,8 @@
 .cat-rail .cat-chip {
   width: 100%;
   text-align: left;
+  padding-top: 0.22rem;
+  padding-bottom: 0.22rem;
 }
 .cat-rail .cat-count {
   margin-left: auto;
@@ -254,19 +256,20 @@
   border: 1px solid;
   border-radius: 0.25rem;
 }
-/* New uses the tip variant — identical to the docs sidebar's New badge. */
+/* Variant colors follow the docs sidebar badges but lightened: outline-only
+   (no fill) so the flags read as quiet metadata rather than solid chips. */
 .cat-flag--new {
   color: var(--sl-badge-tip-text);
-  background: var(--sl-badge-tip-bg);
-  border-color: var(--sl-badge-tip-border);
+  background: color-mix(in srgb, var(--sl-badge-tip-bg) 35%, transparent);
+  border-color: color-mix(in srgb, var(--sl-badge-tip-border) 55%, transparent);
 }
-/* Featured/Verified are maintainer-granted: success (brand green) variant
-   keeps them distinct from the informational New. */
+/* Featured/Verified are maintainer-granted: brand-green outline keeps them
+   distinct from the informational New without a solid fill. */
 .cat-flag--verified,
 .cat-flag--featured {
-  color: var(--sl-badge-success-text);
-  background: var(--sl-badge-success-bg);
-  border-color: var(--sl-badge-success-border);
+  color: var(--cat-accent-text);
+  background: color-mix(in srgb, var(--sl-color-accent) 7%, transparent);
+  border-color: color-mix(in srgb, var(--sl-color-accent) 40%, transparent);
 }
 
 .cat-card-desc {

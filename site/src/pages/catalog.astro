@@ -25,6 +25,8 @@ const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.i
 // the Verified filter only when at least one entry is actually verified.
 const showSdkFacet = cards.some((c) => c.sdk === 'evals')
 const hasVerified = cards.some((c) => c.badges.includes('verified'))
+const hasFeatured = cards.some((c) => c.featured)
+const hasNew = cards.some((c) => c.badges.includes('new'))
 
 const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
   value,
@@ -49,7 +51,13 @@ const description = 'Community-built tools, model providers, plugins, and integr
       </div>
     </div>
 
-    <CatalogFilterBar types={typeFacets} showSdkFacet={showSdkFacet} hasVerified={hasVerified} />
+    <CatalogFilterBar
+      types={typeFacets}
+      showSdkFacet={showSdkFacet}
+      hasVerified={hasVerified}
+      hasFeatured={hasFeatured}
+      hasNew={hasNew}
+    />
     <div class="cat-body">
       <nav class="cat-rail" aria-label="Filter by type">
         <p class="cat-rail-label" id="cat-type-label">Type</p>
@@ -98,7 +106,13 @@ const description = 'Community-built tools, model providers, plugins, and integr
         <button class="cat-dialog-close" type="button" data-cat-dialog-close aria-label="Close search">Esc</button>
       </div>
       <div class="cat-dialog-facets">
-        <CatalogFacets types={typeFacets} showSdkFacet={showSdkFacet} hasVerified={hasVerified} />
+        <CatalogFacets
+          types={typeFacets}
+          showSdkFacet={showSdkFacet}
+          hasVerified={hasVerified}
+          hasFeatured={hasFeatured}
+          hasNew={hasNew}
+        />
       </div>
       <ul class="cat-dialog-list" data-cat-dialog-list>
         {cards.map((card) => (
@@ -106,7 +120,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
             class="cat-dialog-item"
             data-type={card.integrationType}
             data-langs={card.languages.join(' ')}
-            data-badges={card.badges.join(' ')}
+            data-badges={[...card.badges, ...(card.featured ? ['featured'] : [])].join(' ')}
             data-sdk={card.sdk}
             data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
           >
@@ -146,11 +160,12 @@ const description = 'Community-built tools, model providers, plugins, and integr
   const searchLabel = document.querySelector<HTMLElement>('[data-cat-search-label]')
 
   const state = queryToState(location.search)
-  // Without the SDK facet rendered (no evals entries), a ?sdk=evals URL would
-  // show an empty grid with no visible control to reset it. Same for a
-  // ?badge=verified URL when no entry is verified (Verified button hidden).
+  // A URL facet with no rendered control would show an empty grid with no
+  // visible way to reset it: ?sdk=evals with no SDK toggle, or a badge value
+  // whose button is hidden because no entry carries it.
   if (sdkBtns.length === 0) state.sdk = 'agents'
-  if (badgeBtns.length === 0) state.badges.clear()
+  const renderedBadges = new Set(badgeBtns.map((btn) => btn.dataset.catBadge))
+  for (const badge of state.badges) if (!renderedBadges.has(badge)) state.badges.delete(badge)
 
   function cardData(el: HTMLElement): CardFilterData {
     return {

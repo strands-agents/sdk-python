@@ -37,7 +37,7 @@ const href = card.external ? card.href : pathWithBase(card.href)
   data-name={card.name}
   data-type={card.integrationType}
   data-langs={card.languages.join(' ')}
-  data-badges={card.badges.join(' ')}
+  data-badges={[...card.badges, ...(featured ? ['featured'] : [])].join(' ')}
   data-sdk={card.sdk}
   data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
 >

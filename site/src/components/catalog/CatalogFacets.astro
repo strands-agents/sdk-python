@@ -14,10 +14,12 @@ interface Props {
   types: FacetOption[]
   showSdkFacet: boolean
   hasVerified: boolean
+  hasFeatured: boolean
+  hasNew: boolean
   showTypes?: boolean
 }
 
-const { types, showSdkFacet, hasVerified, showTypes = true } = Astro.props
+const { types, showSdkFacet, hasVerified, hasFeatured, hasNew, showTypes = true } = Astro.props
 
 const LANGUAGES = [
   { value: 'python', label: 'Python' },
@@ -52,6 +54,20 @@ const LANGUAGES = [
       ))
     }
   </div>
+  {
+    hasFeatured && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="featured" aria-pressed="false">
+        Featured
+      </button>
+    )
+  }
+  {
+    hasNew && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="new" aria-pressed="false">
+        New
+      </button>
+    )
+  }
   {
     hasVerified && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
