@@ -4,7 +4,7 @@
  * When a tool is configured with `delegate: true`, this plugin ensures:
  * 1. The delegation tool is the only tool called in the turn (single-call constraint)
  * 2. The agent loop exits immediately after a successful delegation (via stopEventLoop)
- * 3. The AgentResult is transformed with `stopReason: 'toolUse'` and the tool's content
+ * 3. The AgentResult is transformed with `stopReason: 'endTurn'` and the tool's content
  * 4. Streaming events from the delegate agent are surfaced natively in the parent stream
  */
 
@@ -17,6 +17,7 @@ import {
   AfterToolsEvent,
   BeforeToolCallEvent,
   BeforeToolsEvent,
+  MessageAddedEvent,
   StreamEvent,
   ToolStreamUpdateEvent,
 } from '../../hooks/events.js'
@@ -55,6 +56,16 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
   })
 }
 
+/** Per-agent state tracked across the delegation lifecycle within a single invocation. */
+interface DelegationState {
+  /** Number of tool use blocks in the current batch (from BeforeToolsEvent). */
+  toolUseCount: number
+  /** Tool use ID of the delegation tool that succeeded (set by AfterToolCallEvent). */
+  toolUseId?: string
+  /** Final delegation result (set by AfterToolsEvent from the post-hook tool-result message). */
+  result?: ToolResultBlock
+}
+
 /**
  * Plugin that enforces delegation semantics for tool routing.
  *
@@ -75,11 +86,8 @@ function toContentBlocks(block: ToolResultBlock): ContentBlock[] {
 export class AgentDelegation implements Plugin {
   readonly name = 'strands:agent-delegation'
 
-  /** Stores the delegation tool result per agent, consumed by the stream middleware. */
-  private readonly _delegationResult = new WeakMap<LocalAgent, ToolResultBlock>()
-
-  /** Tracks the number of tool use blocks in the current batch per agent. */
-  private readonly _toolUseCount = new WeakMap<LocalAgent, number>()
+  /** Per-agent delegation state, created in _onBeforeTools and consumed in _handleStream. */
+  private readonly _state = new WeakMap<LocalAgent, DelegationState>()
 
   initAgent(agent: LocalAgent): void {
     // Fail fast: delegation is incompatible with stateful models
@@ -130,19 +138,15 @@ export class AgentDelegation implements Plugin {
 
   /**
    * BeforeToolsEvent hook: enforces single-call constraint against registry names
-   * and tracks batch size for post-hook enforcement.
+   * and initializes per-batch delegation state.
    */
   private _onBeforeTools(event: BeforeToolsEvent): void {
-    // Skip for stateful models — delegation semantics are disabled.
-    // This runtime guard covers delegation tools added after initialization
-    // (e.g., via toolRegistry.add()), complementing the init-time check.
     if (event.agent.model.stateful) return
 
     const toolUseBlocks = event.message.content.filter((block): block is ToolUseBlock => block.type === 'toolUseBlock')
 
-    // Track batch size so _onAfterToolCall can enforce the single-call
-    // constraint even when BeforeToolCallEvent hooks replace the effective tool.
-    this._toolUseCount.set(event.agent, toolUseBlocks.length)
+    // Initialize state for this batch.
+    this._state.set(event.agent, { toolUseCount: toolUseBlocks.length })
 
     // Cancel the batch if a delegation tool is present alongside other tools.
     const hasDelegation = toolUseBlocks.some((block) => isDelegationTool(event.agent, block.name))
@@ -160,19 +164,19 @@ export class AgentDelegation implements Plugin {
    *
    * Runs after all user hooks have resolved, so it sees the final effective
    * tool. If a hook replaced a non-delegation tool with a delegation AgentAsTool
-   * and the batch has multiple tools, cancels this tool before execution —
-   * preventing the delegate from running rather than rejecting it after the fact.
+   * and the batch has multiple tools, cancels this tool before execution.
    */
   private _onBeforeToolCall(event: BeforeToolCallEvent): void {
     if (event.agent.model.stateful) return
 
-    const toolUseCount = this._toolUseCount.get(event.agent) ?? 1
-    if (toolUseCount <= 1) return
+    const state = this._state.get(event.agent)
+    if (!state || state.toolUseCount <= 1) return
 
     // Resolve the effective tool: selectedTool wins, otherwise re-resolve
     // from registry if the name was rewritten, otherwise use the original.
     const effectiveTool =
-      event.selectedTool ?? (event.toolUse.name !== event.tool?.name ? event.agent.toolRegistry.get(event.toolUse.name) : event.tool)
+      event.selectedTool ??
+      (event.toolUse.name !== event.tool?.name ? event.agent.toolRegistry.get(event.toolUse.name) : event.tool)
 
     if (!(effectiveTool instanceof AgentAsTool) || !effectiveTool.delegate) return
 
@@ -183,42 +187,45 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
-   * AfterToolCallEvent hook: tracks successful delegation results.
-   *
-   * Checks the *effective* tool (after BeforeToolCallEvent hooks may have
-   * rewritten selectedTool, toolUse.name, or toolUse.toolUseId) to determine
-   * whether this is a delegation call. If the effective tool has `delegate: true`
-   * and the result is successful, provisionally stashes the result. The actual
-   * stopEventLoop signal is deferred to AfterToolsEvent so that hook-requested
-   * retries can settle first.
+   * AfterToolCallEvent hook: marks the delegation tool use ID on success.
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
     if (event.agent.model.stateful || !(event.tool instanceof AgentAsTool) || !event.tool.delegate) return
 
-    // If the delegation tool errored, clear any prior stash (e.g., from a
-    // retried attempt that succeeded previously) — let the model recover.
+    const state = this._state.get(event.agent)
+    if (!state) return
+
+    // If the delegation tool errored, clear any prior marker.
     if (event.result.status === 'error') {
-      this._delegationResult.delete(event.agent)
+      delete state.toolUseId
       return
     }
 
-    // Provisionally stash the result. If a retry is requested, executeTool
-    // loops back and this hook fires again with the new result, overwriting
-    // the stash. Only the final post-retry result survives to AfterToolsEvent.
-    this._delegationResult.set(event.agent, event.result)
+    state.toolUseId = event.toolUse.toolUseId
   }
 
   /**
-   * AfterToolsEvent hook: finalizes delegation by signaling the agent loop to stop.
+   * AfterToolsEvent hook: finalizes delegation by reading the settled result
+   * and signaling the agent loop to stop.
    *
-   * Fires after all tools in the batch have completed.
-   * If a delegation result was stashed by _onAfterToolCall, this is where
-   * stopEventLoop is set, guaranteeing that retries have fully settled
-   * before the loop-exit decision is made.
+   * Fires after all tools in the batch have completed (including retries).
+   * Reads the final ToolResultBlock from the tool-result message.
    */
   private _onAfterTools(event: AfterToolsEvent): void {
-    if (!this._delegationResult.has(event.agent)) return
+    const state = this._state.get(event.agent)
+    if (!state?.toolUseId) return
 
+    // Find the final ToolResultBlock from the tool-result message.
+    const resultBlock = event.message.content.find(
+      (block): block is ToolResultBlock => block instanceof ToolResultBlock && block.toolUseId === state.toolUseId
+    )
+
+    if (!resultBlock || resultBlock.status === 'error') {
+      delete state.toolUseId
+      return
+    }
+
+    state.result = resultBlock
     event.invocationState.stopEventLoop = true
   }
 
@@ -276,39 +283,51 @@ export class AgentDelegation implements Plugin {
    *
    * When a delegation result was stashed (indicating successful delegation),
    * consumes it and replaces the AgentResult with `stopReason: 'endTurn'`
-   * and the tool's content as `lastMessage`. Also appends the delegation
-   * message to `agent.messages` so that downstream hooks (e.g. GoalLoop)
-   * reading `lastAssistantMessage(agent.messages)` see the delegated content
-   * rather than the raw toolUseBlock.
+   * and the tool's content as `lastMessage`.
    */
   private async *_handleStream(
     context: AgentStreamContext,
     next: MiddlewareNext<AgentStreamContext, AgentStreamResult, AgentStreamEvent>
   ): AsyncGenerator<AgentStreamEvent, AgentStreamResult, undefined> {
-    // Clear any stale entry from a prior failed invocation before the loop runs.
-    this._delegationResult.delete(context.agent)
+    // Clear any stale state from a prior failed invocation.
+    this._state.delete(context.agent)
 
-    const streamResult = yield* next(context)
+    let streamResult: AgentStreamResult
+    try {
+      streamResult = yield* next(context)
+    } catch (error) {
+      // If the inner loop threw (e.g., an AfterToolsEvent hook threw after
+      // _onAfterTools set stopEventLoop), clean up both the plugin state and
+      // the shared invocationState flag so it doesn't leak to ancestor agent
+      // frames via the shared invocationState.
+      this._state.delete(context.agent)
+      const invocationState = context.options?.invocationState
+      if (invocationState?.stopEventLoop === true) {
+        invocationState.stopEventLoop = false
+      }
+      throw error
+    }
 
-    // Consume the result stashed during this invocation by _onAfterToolCall.
-    // The presence of a stashed result is the authoritative signal that
-    // delegation occurred — stopEventLoop is consumed (cleared) by the agent
-    // loop to prevent leaking across nested agent frames.
-    const delegationBlock = this._delegationResult.get(context.agent)
-    this._delegationResult.delete(context.agent)
+    // Consume the delegation result. Its presence is the authoritative signal
+    // that delegation occurred.
+    const state = this._state.get(context.agent)
+    this._state.delete(context.agent)
 
-    // No delegation result stashed — pass through unchanged
-    if (!delegationBlock) return streamResult
+    if (!state?.result) return streamResult
 
     const delegationMessage = new Message({
       role: 'assistant',
-      content: toContentBlocks(delegationBlock),
+      content: toContentBlocks(state.result),
     })
 
-    // Append the delegation message to agent.messages so downstream consumers
-    // (GoalLoop, session managers, etc.) see the delegated answer as the last
-    // assistant message rather than the raw toolUseBlock.
+    // Append the delegation message and emit MessageAddedEvent so session
+    // managers and other message-triggered hooks persist it.
     context.agent.messages.push(delegationMessage)
+    yield new MessageAddedEvent({
+      agent: context.agent,
+      message: delegationMessage,
+      invocationState: streamResult.result.invocationState,
+    })
 
     // Replace AgentResult with the delegation tool's content
     return {

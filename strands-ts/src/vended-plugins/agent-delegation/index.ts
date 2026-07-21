@@ -1,6 +1,6 @@
 /**
  * Agent delegation plugin for Strands Agents — enforces delegation semantics
- * for tool routing scenarios where a tool's response should reach the caller verbatim
+ * for tool routing scenarios where a tool's response should reach the caller
  * without additional model processing.
  *
  * @example
@@ -14,7 +14,7 @@
  * })
  *
  * const result = await orchestrator.invoke('Help me with billing')
- * console.log(result.stopReason) // 'toolUse'
+ * console.log(result.stopReason) // 'endTurn'
  * ```
  */
 export { AgentDelegation } from './plugin.js'
