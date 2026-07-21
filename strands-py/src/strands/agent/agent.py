@@ -428,12 +428,10 @@ class Agent(AgentBase):
 
         self._concurrency = _ConcurrencyController(concurrent_invocation_mode)
 
-        # In the future, we'll have a RetryStrategy base class but until
-        # that API is determined we only allow ModelRetryStrategy
         if (
             retry_strategy is not None
             and not isinstance(retry_strategy, _DefaultRetryStrategySentinel)
-            and type(retry_strategy) is not ModelRetryStrategy
+            and not isinstance(retry_strategy, ModelRetryStrategy)
         ):
             raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
 

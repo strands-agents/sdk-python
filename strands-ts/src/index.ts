@@ -144,6 +144,10 @@ export type { ZodToolConfig } from './tools/zod-tool.js'
 // Tool factory function
 export { tool } from './tools/tool-factory.js'
 
+// Tool executors
+export { ConcurrentToolExecutor } from './tools/executors/concurrent.js'
+export { SequentialToolExecutor } from './tools/executors/sequential.js'
+
 // Streaming event types
 export type {
   Usage,
