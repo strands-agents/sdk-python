@@ -75,7 +75,7 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 ### HTTP Request
 
-Lets your agent call external APIs and fetch web content. Supports all HTTP methods, custom headers, and request bodies. Default timeout is 30 seconds.
+Lets your agent call external APIs and fetch web content over HTTP or HTTPS. Supports GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS, along with custom headers and request bodies. The default timeout is 30 seconds.
 
 _Supported in: Python, Node.js 20+, modern browsers._
 
@@ -107,7 +107,14 @@ from strands.vended_tools import http_request
 </Tab>
 </Tabs>
 
-📖 API Reference: [Python](@api/python/strands.vended_tools.http_request.http_request) | [TypeScript](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md)
+Python direct calls are asynchronous. `await http_request(...)` returns a dictionary containing `status`, `status_text`, `headers`, and `body`. It raises `ValueError` for invalid inputs, `TimeoutError` when the deadline expires, and `RuntimeError` for network failures or non-2xx responses.
+
+```python
+response = await http_request(method="GET", url="https://api.example.com/users")
+print(response["status"], response["body"])
+```
+
+📖 API Reference: [Python function](@api/python/strands.vended_tools.http_request.http_request) and [Python output type](@api/python/strands.vended_tools.http_request.types#HttpRequestOutput) | [TypeScript](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md)
 
 ---
 

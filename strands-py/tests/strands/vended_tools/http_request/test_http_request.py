@@ -1,10 +1,13 @@
 """Tests for the HTTP request tool."""
 
 import asyncio
+import traceback
 from unittest.mock import AsyncMock, patch
 
 import httpx
+import jsonschema
 import pytest
+from pydantic import AnyHttpUrl, TypeAdapter
 
 from strands.vended_tools import http_request
 
@@ -69,7 +72,7 @@ async def test_sends_custom_headers_and_body():
 
     request.assert_awaited_once_with(
         "POST",
-        "https://api.example.com/users",
+        httpx.URL("https://api.example.com/users"),
         headers={"Content-Type": "application/json"},
         content='{"name":"test"}',
     )
@@ -82,7 +85,7 @@ async def test_uses_none_for_unset_headers_and_body():
     with patch("httpx.AsyncClient.request", new=request):
         await http_request(method="GET", url=_URL)
 
-    request.assert_awaited_once_with("GET", _URL, headers=None, content=None)
+    request.assert_awaited_once_with("GET", httpx.URL(_URL), headers=None, content=None)
 
 
 @pytest.mark.parametrize(("content", "expected"), [(b"", ""), (b"Plain text response", "Plain text response")])
@@ -141,18 +144,134 @@ async def test_wraps_network_failures():
     assert caught.value.__cause__ is error
 
 
-@pytest.mark.parametrize("url", ["not-a-url", "/relative"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "not-a-url",
+        "/relative",
+        "ftp://example.com/resource",
+        "mailto:user@example.com",
+        "file:///tmp/resource",
+        "http:///path",
+        "http:example.com",
+        "https:/example.com",
+        "http://example.com\nfoo",
+        "http://example.com: ",
+        "http://user:pass@example.com/resource",
+        r"http://good.example\user:secret@evil.example/resource",
+        r"http://example.com\@evil.com",
+        r"http://127.0.0.1:8000\@127.0.0.1:8001/private",
+    ],
+)
 @pytest.mark.asyncio
-async def test_rejects_invalid_http_urls(url):
-    with pytest.raises(ValueError, match="^Invalid URL"):
+async def test_rejects_non_http_urls_without_request(url):
+    with patch("httpx.AsyncClient") as client:
+        with pytest.raises(ValueError, match="^Invalid URL"):
+            await http_request(method="GET", url=url)
+
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://example.com/resource",
+        "https://example.com/resource",
+        "http://[::1]/health",
+        "http://[0:0:0:0:0:0:0:1]/health",
+        "http://[::FFFF:127.0.0.1]/health",
+        "http://[2001:0db8:0000:0000:0000:ff00:0042:8329]/health",
+        "https://éxample.com/resource",
+        "https://xn--xample-9ua.com/resource",
+    ],
+)
+@pytest.mark.asyncio
+async def test_accepts_http_and_https_urls(url):
+    request = AsyncMock(return_value=_response())
+
+    with patch("httpx.AsyncClient.request", new=request):
         await http_request(method="GET", url=url)
 
+    request.assert_awaited_once()
+    called_url = request.await_args.args[1]
+    assert isinstance(called_url, httpx.URL)
+    assert called_url == httpx.URL(str(TypeAdapter(AnyHttpUrl).validate_python(url)))
 
-@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("-inf"), float("nan")])
+
+@pytest.mark.parametrize(
+    ("url", "expected_url"),
+    [("HTTP://EXAMPLE.COM/a b", "http://example.com/a%20b")],
+)
+@pytest.mark.asyncio
+async def test_uses_validated_url_for_request_destination(url, expected_url):
+    request = AsyncMock(return_value=_response())
+
+    with patch("httpx.AsyncClient.request", new=request):
+        await http_request(method="GET", url=url)
+
+    request.assert_awaited_once_with(
+        "GET",
+        httpx.URL(expected_url),
+        headers=None,
+        content=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_rejects_credentials_without_disclosing_them():
+    url = r"https://secret-user:secret-password\@example.com/resource"
+
+    with patch("httpx.AsyncClient") as client:
+        with pytest.raises(ValueError) as caught:
+            await http_request(method="GET", url=url)
+
+    assert "secret-user" not in str(caught.value)
+    assert "secret-password" not in str(caught.value)
+    assert "without embedded credentials" in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is not None
+    assert caught.value.__suppress_context__ is True
+    formatted = "".join(traceback.format_exception(caught.value))
+    assert "secret-user" not in formatted
+    assert "secret-password" not in formatted
+    client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_tool_error_does_not_disclose_url_credentials():
+    url = r"https://secret-user:secret-password\\@example.com/resource"
+
+    with patch("httpx.AsyncClient") as client:
+        events = [
+            event
+            async for event in http_request.stream(
+                {"toolUseId": "test", "name": "http_request", "input": {"method": "GET", "url": url}},
+                {},
+            )
+        ]
+
+    result = events[-1].tool_result
+    assert result["status"] == "error"
+    assert "secret-user" not in str(result)
+    assert "secret-password" not in str(result)
+    exception = events[-1].exception
+    assert isinstance(exception, ValueError)
+    assert exception.__cause__ is None
+    assert exception.__suppress_context__ is True
+    formatted = "".join(traceback.format_exception(exception))
+    assert "secret-user" not in formatted
+    assert "secret-password" not in formatted
+    client.assert_not_called()
+
+
+@pytest.mark.parametrize("timeout", [0, -1, 10**309, float("inf"), float("-inf"), float("nan")])
 @pytest.mark.asyncio
 async def test_rejects_non_positive_timeout(timeout):
-    with pytest.raises(ValueError, match="timeout must be a finite number greater than 0"):
-        await http_request(method="GET", url=_URL, timeout=timeout)
+    with patch("httpx.AsyncClient") as client:
+        with pytest.raises(ValueError, match="timeout must be a finite number greater than 0"):
+            await http_request(method="GET", url=_URL, timeout=timeout)
+
+    client.assert_not_called()
 
 
 @pytest.mark.parametrize("timeout", ["1", True, False])
@@ -210,6 +329,11 @@ def test_tool_metadata():
         "OPTIONS",
     }
     assert schema["properties"]["url"]["format"] == "uri"
+    assert schema["properties"]["url"]["pattern"] == r"^[hH][tT][tT][pP][sS]?://[^/]"
+    for url in ("ftp://example.com", "mailto:user@example.com", "file:///tmp/resource"):
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate({"method": "GET", "url": url}, schema)
+    jsonschema.validate({"method": "GET", "url": "https://example.com"}, schema)
     assert schema["properties"]["timeout"]["exclusiveMinimum"] == 0
     assert schema["properties"]["timeout"]["default"] == 30
 
