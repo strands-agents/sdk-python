@@ -3244,20 +3244,32 @@ class TestResumeInFlightSibling:
         snapshot is captured mid-flight, then resumed into a fresh graph. join must run exactly once
         with both parents' outputs present.
         """
+        right_executing = asyncio.Event()
         release_right = asyncio.Event()
 
+        agent_left = create_mock_agent("left", "left done")
         agent_right = create_mock_agent("right", "right done")
 
         async def blocking_right_stream(*args, **kwargs):
-            # Block right so the snapshot is captured while it is genuinely in-flight.
+            # right has entered execution (status EXECUTING) by the time its stream runs; signal
+            # that, then block so the snapshot is captured while right is genuinely in-flight.
             yield {"agent_start": True}
+            right_executing.set()
             await release_right.wait()
             yield {"result": agent_right.return_value}
 
+        async def left_stream_after_right_executing(*args, **kwargs):
+            # Gate left's completion on right being in-flight, so the snapshot is deterministic
+            # regardless of the order the parallel entry-point tasks are scheduled.
+            yield {"agent_start": True}
+            await right_executing.wait()
+            yield {"result": agent_left.return_value}
+
+        agent_left.stream_async = Mock(side_effect=left_stream_after_right_executing)
         agent_right.stream_async = Mock(side_effect=blocking_right_stream)
 
         builder = GraphBuilder()
-        builder.add_node(create_mock_agent("left", "left done"), "left")
+        builder.add_node(agent_left, "left")
         builder.add_node(agent_right, "right")
         builder.add_node(create_mock_agent("join", "join done"), "join")
         builder.set_entry_point("left")
