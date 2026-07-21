@@ -15,10 +15,12 @@ import type { ContentBlock } from '../../types/messages.js'
 import {
   AfterToolCallEvent,
   AfterToolsEvent,
+  BeforeToolCallEvent,
   BeforeToolsEvent,
   StreamEvent,
   ToolStreamUpdateEvent,
 } from '../../hooks/events.js'
+import { HookOrder } from '../../hooks/types.js'
 import { AgentStreamStage, ExecuteToolStage } from '../../middleware/index.js'
 import type {
   AgentStreamContext,
@@ -96,6 +98,7 @@ export class AgentDelegation implements Plugin {
     }
 
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
+    agent.addHook(BeforeToolCallEvent, (event) => this._onBeforeToolCall(event), { order: HookOrder.SDK_LAST })
     agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
     agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event))
 
@@ -152,46 +155,45 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
+   * BeforeToolCallEvent hook (SDK_LAST): cancels delegation tools that were
+   * injected via selectedTool replacement in a multi-tool batch.
+   *
+   * Runs after all user hooks have resolved, so it sees the final effective
+   * tool. If a hook replaced a non-delegation tool with a delegation AgentAsTool
+   * and the batch has multiple tools, cancels this tool before execution —
+   * preventing the delegate from running rather than rejecting it after the fact.
+   */
+  private _onBeforeToolCall(event: BeforeToolCallEvent): void {
+    if (event.agent.model.stateful) return
+
+    const toolUseCount = this._toolUseCount.get(event.agent) ?? 1
+    if (toolUseCount <= 1) return
+
+    // Resolve the effective tool: selectedTool wins, otherwise re-resolve
+    // from registry if the name was rewritten, otherwise use the original.
+    const effectiveTool =
+      event.selectedTool ?? (event.toolUse.name !== event.tool?.name ? event.agent.toolRegistry.get(event.toolUse.name) : event.tool)
+
+    if (!(effectiveTool instanceof AgentAsTool) || !effectiveTool.delegate) return
+
+    event.cancel =
+      'Delegation failed: a delegation tool must be the only tool called in a turn. ' +
+      'The tool was redirected to a delegation agent in a multi-tool batch, which is not allowed. ' +
+      'Retry with a single delegation tool call.'
+  }
+
+  /**
    * AfterToolCallEvent hook: tracks successful delegation results.
    *
    * Checks the *effective* tool (after BeforeToolCallEvent hooks may have
    * rewritten selectedTool, toolUse.name, or toolUse.toolUseId) to determine
    * whether this is a delegation call. If the effective tool has `delegate: true`
-   * and the result is successful, provisionally stashes the result.
-   *
-   * Also enforces the single-call constraint against the effective tool: if a
-   * BeforeToolCallEvent hook replaced a non-delegation tool with a delegation
-   * AgentAsTool (via selectedTool) in a multi-tool batch, this treats the
-   * result as an error — the delegation is not honored.
+   * and the result is successful, provisionally stashes the result. The actual
+   * stopEventLoop signal is deferred to AfterToolsEvent so that hook-requested
+   * retries can settle first.
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
-    // Skip for stateful models — delegation semantics are disabled.
-    if (event.agent.model.stateful) return
-
-    // Only trigger if the effective tool is a delegation AgentAsTool
-    if (!(event.tool instanceof AgentAsTool) || !event.tool.delegate) return
-
-    // Enforce single-call constraint against the effective (post-hook) tool.
-    // If the batch has multiple tools and a BeforeToolCallEvent hook replaced
-    // one with a delegation tool, reject the delegation
-    const toolUseCount = this._toolUseCount.get(event.agent) ?? 1
-    if (toolUseCount > 1) {
-      // Overwrite the result to an error so the model sees the constraint violation
-      event.result = new ToolResultBlock({
-        toolUseId: event.toolUse.toolUseId,
-        status: 'error',
-        content: [
-          new TextBlock(
-            'Delegation failed: a delegation tool must be the only tool called in a turn. ' +
-              'The tool was redirected to a delegation agent in a multi-tool batch, which is not allowed. ' +
-              'Retry with a single delegation tool call.'
-          ),
-        ],
-      })
-      // Clear any prior stash
-      this._delegationResult.delete(event.agent)
-      return
-    }
+    if (event.agent.model.stateful || !(event.tool instanceof AgentAsTool) || !event.tool.delegate) return
 
     // If the delegation tool errored, clear any prior stash (e.g., from a
     // retried attempt that succeeded previously) — let the model recover.
@@ -215,9 +217,6 @@ export class AgentDelegation implements Plugin {
    * before the loop-exit decision is made.
    */
   private _onAfterTools(event: AfterToolsEvent): void {
-    if (event.agent.model.stateful) return
-
-    // Only signal stop if a delegation result was successfully stashed
     if (!this._delegationResult.has(event.agent)) return
 
     event.invocationState.stopEventLoop = true
