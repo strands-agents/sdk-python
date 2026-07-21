@@ -6,6 +6,7 @@ import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
 import { SessionManager, FileStorage } from '@strands-agents/sdk'
+import { useAgent } from '@strands-agents/sdk/vended-tools/use-agent'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {
@@ -108,6 +109,20 @@ async function notebookStatePersistenceExample() {
   const restoredAgent = new Agent({ tools: [notebook], sessionManager: session })
   await restoredAgent.invoke('Read the ideas notebook')
   // --8<-- [end:notebook_state_persistence]
+}
+
+// use_agent tool example
+async function useAgentExample() {
+  // --8<-- [start:use_agent_example]
+  const agent = new Agent({
+    tools: [httpRequest, useAgent],
+  })
+
+  // The agent decides at runtime to construct a scoped child agent for one sub-task
+  await agent.invoke(
+    'Delegate a sub-task to a researcher agent that has access to http_request.'
+  )
+  // --8<-- [end:use_agent_example]
 }
 
 // Combined tools example - development workflow
