@@ -65,6 +65,46 @@ updates:
           - 'patch'
       # Major production updates aren't matched by any group, so they get individual
       # PRs — gated by the 30-day semver-major cooldown above for manual review.
+  # MCP server (strands-mcp). Same batching strategy as the Python SDK.
+  - package-ecosystem: 'pip'
+    directory: '/strands-mcp'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 100
+    labels:
+      - 'dependencies'
+      - 'python'
+    commit-message:
+      prefix: 'ci(mcp)'
+    versioning-strategy: increase-if-necessary
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+    groups:
+      # Dev tooling in one PR, matched by name (see the strands-py block for why
+      # pip needs name patterns instead of dependency-type). Keep in sync with
+      # the dev extras in strands-mcp/pyproject.toml.
+      development-dependencies:
+        applies-to: version-updates
+        patterns:
+          - 'commitizen'
+          - 'hatch'
+          - 'mypy'
+          - 'pre-commit'
+          - 'pytest*'
+          - 'ruff'
+      # Everything else: minor + patch bumps in one PR.
+      production-minor:
+        applies-to: version-updates
+        patterns:
+          - '*'
+        update-types:
+          - 'minor'
+          - 'patch'
+      # Major production updates aren't matched by any group, so they get individual
+      # PRs — gated by the 30-day semver-major cooldown above for manual review.
   # TypeScript SDK at the repo root. Same batching strategy as the Python SDK.
   - package-ecosystem: 'npm'
     directory: '/'
