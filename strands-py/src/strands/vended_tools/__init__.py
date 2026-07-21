@@ -1,4 +1,4 @@
-"""Built-in tools for executing commands and editing files.
+"""Built-in tools for commands, file editing, and HTTP requests.
 
 The :data:`bash` tool runs a
 persistent shell on the host; the :func:`make_bash` and :func:`make_file_editor`
@@ -17,10 +17,12 @@ Example Usage:
 
 from .bash import bash, make_bash
 from .file_editor import file_editor, make_file_editor
+from .http_request import http_request
 
 __all__ = [
     "bash",
     "file_editor",
+    "http_request",
     "make_bash",
     "make_file_editor",
 ]
