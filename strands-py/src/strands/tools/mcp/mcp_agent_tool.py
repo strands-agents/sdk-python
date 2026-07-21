@@ -115,6 +115,6 @@ class MCPAgentTool(AgentTool):
             name=self.mcp_tool.name,  # Use original MCP name for server communication
             arguments=tool_use["input"],
             read_timeout_seconds=self.timeout,
-            cancel_signal=invocation_state["agent"]._cancel_signal,
+            cancel_signal=getattr(invocation_state["agent"], "_cancel_signal", None),
         )
         yield ToolResultEvent(result)

@@ -130,3 +130,19 @@ async def test_stream_with_timeout(mock_mcp_tool, mock_mcp_client, alist):
         read_timeout_seconds=timeout,
         cancel_signal=cancel_signal,
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_without_agent_cancel_signal(mcp_agent_tool, mock_mcp_client, alist):
+    """Test MCP tools remain compatible with agent implementations without cancellation."""
+    tool_use = {"toolUseId": "test-789", "name": "test_tool", "input": {}}
+
+    await alist(mcp_agent_tool.stream(tool_use, {"agent": MagicMock(spec=[])}))
+
+    mock_mcp_client.call_tool_async.assert_called_once_with(
+        tool_use_id="test-789",
+        name="test_tool",
+        arguments={},
+        read_timeout_seconds=None,
+        cancel_signal=None,
+    )

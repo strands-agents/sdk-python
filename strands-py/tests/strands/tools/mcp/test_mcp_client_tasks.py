@@ -293,6 +293,38 @@ class TestTaskExecution:
         mock_session.experimental.cancel_task.assert_awaited_once_with("delayed-task-id")
 
     @pytest.mark.asyncio
+    async def test_task_creation_cancellation_does_not_guess_shared_request_id(self, mock_transport, mock_session):
+        """Test task creation cancellation waits for the task ID instead of guessing a request ID."""
+        import threading
+
+        self._setup_task_tool(mock_session, "slow_tool")
+        creation_started = threading.Event()
+        cancel_signal = threading.Event()
+
+        async def blocked_creation(**kwargs):
+            creation_started.set()
+            await asyncio.Event().wait()
+
+        mock_session.experimental.call_tool_as_task = blocked_creation
+        mock_session.experimental.cancel_task = AsyncMock()
+        mock_session._request_id = 42
+
+        with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
+            client.list_tools_sync()
+            call = asyncio.create_task(
+                client.call_tool_async(
+                    tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+                )
+            )
+            assert await asyncio.to_thread(creation_started.wait, 1)
+            cancel_signal.set()
+            result = await asyncio.wait_for(call, timeout=2)
+
+        assert result["status"] == "error"
+        mock_session.send_notification.assert_not_awaited()
+        mock_session.experimental.cancel_task.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_remote_task_cancellation_timeout_does_not_block_local_result(self, mock_transport, mock_session):
         """Test an unresponsive tasks/cancel request cannot hang local cancellation."""
         import threading

@@ -1234,9 +1234,8 @@ class MCPClient(ToolProvider):
                 if cancel_signal is not None and cancel_signal.is_set():
                     self._log_debug_with_thread("cancellation detected during MCP invocation")
                     invoke_event.cancel()
-                    try:
-                        await asyncio.wait_for(asyncio.gather(invoke_event, return_exceptions=True), timeout=1)
-                    except asyncio.TimeoutError:
+                    _, pending = await asyncio.wait({invoke_event}, timeout=1)
+                    if pending:
                         self._log_debug_with_thread("timed out cleaning up cancelled MCP invocation")
                     if cancellation_state is not None:
                         await self._cancel_tool_call(cancellation_state)
@@ -1246,12 +1245,14 @@ class MCPClient(ToolProvider):
 
                 self._log_debug_with_thread("event loop for the server closed before the invoke completed")
                 invoke_event.cancel()
-                await asyncio.gather(invoke_event, return_exceptions=True)
+                await asyncio.wait({invoke_event}, timeout=1)
                 raise RuntimeError("Connection to the MCP server was closed")
             finally:
                 if not invoke_event.done():
                     invoke_event.cancel()
-                    await asyncio.gather(invoke_event, return_exceptions=True)
+                    _, pending = await asyncio.wait({invoke_event}, timeout=1)
+                    if pending:
+                        invoke_event.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
                     if cancellation_state is not None:
                         await self._cancel_tool_call(cancellation_state)
                 if cancel_event is not None and not cancel_event.done():
@@ -1436,7 +1437,6 @@ class MCPClient(ToolProvider):
         self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl_ms)
         if cancellation_state is not None:
             cancellation_state["session"] = session
-            cancellation_state["request_id"] = session._request_id
         create_task = asyncio.create_task(
             session.experimental.call_tool_as_task(
                 name=name,
