@@ -170,8 +170,9 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
 
         case 'citationsBlock': {
           const citBlock = block as { content: Array<{ text: string }> }
+          const textType = role === 'assistant' ? 'output_text' : 'input_text'
           for (const c of citBlock.content) {
-            contentItems.push({ type: 'output_text', text: c.text })
+            contentItems.push({ type: textType, text: c.text })
           }
           break
         }
@@ -214,15 +215,30 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
       }
     }
 
-    // Cast is needed because assistant messages here use `output_text` content
-    // blocks, which the SDK's input types model as `ResponseOutputMessage` —
-    // a response-shaped type that requires `id`/`status`/`annotations`. The API
-    // accepts these fields as omitted on input, but the SDK types don't reflect that.
     if (contentItems.length > 0) {
-      input.push({
-        role,
-        content: contentItems,
-      } as unknown as ResponseInputItem)
+      if (role === 'assistant') {
+        // The string `EasyInputMessage` form is the only valid assistant *input*
+        // shape without the full `ResponseOutputMessage` metadata
+        // (`id`/`status`/`annotations`), which the adapter does not retain.
+        // Non-text assistant history has no valid input shape either; verbatim
+        // output-item round-tripping is tracked in
+        // https://github.com/strands-agents/harness-sdk/issues/3389.
+        if (contentItems.some((item) => item.type !== 'output_text')) {
+          logger.warn('non-text assistant history content has no valid responses api input shape | dropping')
+        }
+        const text = contentItems
+          .filter((item) => item.type === 'output_text')
+          .map((item) => item.text as string)
+          .join('\n')
+        if (text) {
+          input.push({ role: 'assistant', content: text })
+        }
+      } else {
+        // Cast bridges the loosely-typed accumulator array; every user content
+        // item pushed above is a valid `ResponseInputContent` shape
+        // (input_text/input_image/input_file).
+        input.push({ role, content: contentItems } as unknown as ResponseInputItem)
+      }
     }
 
     input.push(...toolCallItems)

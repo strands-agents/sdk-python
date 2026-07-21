@@ -294,6 +294,35 @@ describe("OpenAIModel (api: 'responses')", () => {
       })
     })
 
+    it('serializes text-only assistant history as a string EasyInputMessage', async () => {
+      // Regression test: strict Responses backends (Bedrock Mantle) reject the
+      // bare `{ role: 'assistant', content: [{ type: 'output_text', ... }] }`
+      // shape, which is not a valid input item (a full ResponseOutputMessage
+      // requires id/status/annotations).
+      // See: https://github.com/strands-agents/harness-sdk/issues/3388
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('What is 2+2?')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('4')] }),
+        new Message({ role: 'user', content: [new TextBlock('What about 3+3?')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input).toEqual([
+        { role: 'user', content: [{ type: 'input_text', text: 'What is 2+2?' }] },
+        { role: 'assistant', content: '4' },
+        { role: 'user', content: [{ type: 'input_text', text: 'What about 3+3?' }] },
+      ])
+    })
+
+    it('joins multiple assistant text blocks with newlines', async () => {
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('hi')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('first'), new TextBlock('second')] }),
+        new Message({ role: 'user', content: [new TextBlock('go on')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: 'first\nsecond' })
+    })
+
     it('prefixes errored tool results with [ERROR]', async () => {
       const messages = [
         new Message({ role: 'user', content: [new TextBlock('x')] }),

@@ -634,12 +634,27 @@ class OpenAIResponsesModel(Model):
             ]
 
             if formatted_contents:
-                formatted_messages.append(
-                    {
-                        "role": role,  # "user" | "assistant"
-                        "content": formatted_contents,
-                    }
-                )
+                if role == "assistant":
+                    # The string EasyInputMessage form is the only valid assistant *input*
+                    # shape without the full ResponseOutputMessage metadata
+                    # (id/status/annotations), which the adapter does not retain.
+                    # Non-text assistant history has no valid input shape either; verbatim
+                    # output-item round-tripping is tracked in
+                    # https://github.com/strands-agents/harness-sdk/issues/3389.
+                    if any(part.get("type") != "output_text" for part in formatted_contents):
+                        logger.warning(
+                            "non-text assistant history content has no valid responses api input shape | dropping"
+                        )
+                    text = "\n".join(part["text"] for part in formatted_contents if part.get("type") == "output_text")
+                    if text:
+                        formatted_messages.append({"role": "assistant", "content": text})
+                else:
+                    formatted_messages.append(
+                        {
+                            "role": role,
+                            "content": formatted_contents,
+                        }
+                    )
 
             formatted_messages.extend(formatted_tool_calls)
             formatted_messages.extend(formatted_tool_messages)
