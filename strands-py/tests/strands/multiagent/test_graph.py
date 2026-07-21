@@ -2047,12 +2047,11 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
 
 
 def test_graph_serialize_deserialize_serialize_preserves_cumulative_state():
-    """Resuming then re-serializing must not lose cumulative accounting.
+    """serialize -> deserialize -> serialize is value-preserving on the resume path.
 
-    Guards the serialize -> deserialize -> serialize round-trip on the resume path: the second
-    serialize must equal the first for accumulated_usage / accumulated_metrics / execution_count /
-    execution_time. Before the fix these were never persisted, so a resumed graph reset them to zero,
-    corrupting the timeout budget (should_continue) and the totals reported in GraphResult.
+    Guarantees that a resumed graph re-serializes the same cumulative accounting (accumulated_usage /
+    accumulated_metrics / execution_count / execution_time) it was restored with, so the timeout
+    budget (should_continue) and the totals reported in GraphResult reflect the whole run.
     """
     builder = GraphBuilder()
     builder.add_node(create_mock_agent("test_agent"), "test_node")

@@ -1213,13 +1213,11 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
 
 
 def test_swarm_serialize_deserialize_serialize_preserves_state():
-    """Resuming then re-serializing must not lose shared context or cumulative accounting.
+    """serialize -> deserialize -> serialize is value-preserving on the resume path.
 
-    Guards the serialize -> deserialize -> serialize round-trip on the resume path: the second
-    serialize must equal the first for shared_context and the cumulative fields. Before the fix,
-    deserialize restored shared_context onto self.shared_context while serialize read
-    self.state.shared_context, so the next serialize emitted {}; and execution_time /
-    accumulated_usage / accumulated_metrics were never persisted, resetting to zero on resume.
+    Guarantees that a resumed swarm re-serializes the same shared_context and cumulative
+    accounting (execution_time / accumulated_usage / accumulated_metrics) it was restored with,
+    and that the restored SwarmState and Swarm share the same shared_context object.
     """
     agent = create_mock_agent("first")
     swarm = Swarm([agent])

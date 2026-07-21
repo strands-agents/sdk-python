@@ -1010,14 +1010,14 @@ class Swarm(MultiAgentBase):
         """Restore swarm state from a session dict and prepare for execution.
 
         This method handles two scenarios:
-        1. If the persisted status is COMPLETED, FAILED resets all nodes and graph state
-           to allow re-execution from the beginning.
+        1. If the payload omits next_nodes_to_execute (a terminal or fresh state), resets all
+           nodes and swarm state to allow re-execution from the beginning.
         2. Otherwise, restores the persisted state and prepares to resume execution
-           from the next ready nodes.
+           from the next node.
 
         Args:
             payload: Dictionary containing persisted state data including status,
-                    completed nodes, results, and next nodes to execute.
+                    node history, results, and next nodes to execute.
         """
         if "_internal_state" in payload:
             internal_state = payload["_internal_state"]
