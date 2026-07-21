@@ -68,6 +68,10 @@
       "types": "./dist/src/vended-tools/bash/index.d.ts",
       "default": "./dist/src/vended-tools/bash/index.js"
     },
+    "./vended-tools/a2a-client": {
+      "types": "./dist/src/vended-tools/a2a-client/index.d.ts",
+      "default": "./dist/src/vended-tools/a2a-client/index.js"
+    },
     "./a2a": {
       "types": "./dist/src/a2a/index.d.ts",
       "default": "./dist/src/a2a/index.js"

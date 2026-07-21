@@ -35,3 +35,12 @@ import { bash } from '@strands-agents/sdk/vended-tools/bash'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:combined_import]
+
+// --8<-- [start:a2a_client_import]
+import { Agent } from '@strands-agents/sdk'
+import { a2aClient } from '@strands-agents/sdk/vended-tools/a2a-client'
+// --8<-- [end:a2a_client_import]
+
+// --8<-- [start:a2a_client_bounded_import]
+import { makeA2AClient } from '@strands-agents/sdk/vended-tools/a2a-client'
+// --8<-- [end:a2a_client_bounded_import]

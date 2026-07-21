@@ -9,7 +9,7 @@
 
 import type { AgentCard, Part } from '@a2a-js/sdk'
 import type { Client as A2AClientSdk, ClientFactory as ClientFactoryType } from '@a2a-js/sdk/client'
-import { ClientFactory } from '@a2a-js/sdk/client'
+import { ClientFactory, DefaultAgentCardResolver, JsonRpcTransportFactory } from '@a2a-js/sdk/client'
 import type { InvocationState, InvokableAgent, InvokeArgs, InvokeOptions } from '../types/agent.js'
 import { AgentResult } from '../types/agent.js'
 import { Message, TextBlock, type ContentBlock, type ContentBlockData, type MessageData } from '../types/messages.js'
@@ -33,6 +33,13 @@ export interface A2AAgentConfig {
   description?: string
   /** Optional custom A2A ClientFactory for authenticating requests (e.g. SigV4, bearer token). */
   clientFactory?: ClientFactoryType
+  /**
+   * Optional custom `fetch` implementation for both agent-card discovery and
+   * message transport. Ignored when `clientFactory` is set (the developer is
+   * expected to have wired their own fetch into the factory). Useful for
+   * tools that need to interpose SSRF/redirect guards on every hop.
+   */
+  fetchImpl?: typeof globalThis.fetch
 }
 
 /**
@@ -164,6 +171,45 @@ export class A2AAgent implements InvokableAgent {
   }
 
   /**
+   * Resolves and caches the remote agent card.
+   *
+   * Opens the underlying A2A client (lazily on first use) which fetches the
+   * agent card from the well-known path and caches it. Tools that need to
+   * inspect the card *before* sending a message (SSRF re-check of
+   * `card.url`, for example) should call this first.
+   *
+   * @returns The resolved agent card.
+   */
+  async getAgentCard(): Promise<AgentCard> {
+    await this._getClient()
+    // `_getClient` populates `_agentCard` from `client.getAgentCard()`; if it
+    // came back undefined the underlying SDK contract has been broken.
+    if (!this._agentCard) {
+      throw new Error(`A2AAgent failed to resolve an agent card at ${this._config.url}`)
+    }
+    return this._agentCard
+  }
+
+  /**
+   * Builds the default `ClientFactory` for this agent, threading the
+   * developer-supplied `fetchImpl` (if any) into both the card resolver and
+   * the JSON-RPC transport so every outbound request goes through the same
+   * hook. Called only when `clientFactory` was not supplied.
+   *
+   * @returns A ClientFactory configured for this agent.
+   */
+  private _buildDefaultClientFactory(): ClientFactoryType {
+    const fetchImpl = this._config.fetchImpl
+    if (!fetchImpl) {
+      return new ClientFactory()
+    }
+    return new ClientFactory({
+      transports: [new JsonRpcTransportFactory({ fetchImpl })],
+      cardResolver: new DefaultAgentCardResolver({ fetchImpl }),
+    })
+  }
+
+  /**
    * Returns the cached A2A SDK client, creating one lazily on first use.
    * Also fetches and caches the agent card for name/description.
    *
@@ -176,7 +222,7 @@ export class A2AAgent implements InvokableAgent {
 
     logExperimentalWarning()
 
-    const factory = this._config.clientFactory ?? new ClientFactory()
+    const factory = this._config.clientFactory ?? this._buildDefaultClientFactory()
     const client = await factory.createFromUrl(this._config.url, this._config.agentCardPath)
     this._agentCard = await client.getAgentCard()
     if (this.name === undefined && this._agentCard?.name) {
