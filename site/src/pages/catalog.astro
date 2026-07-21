@@ -59,7 +59,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
       hasNew={hasNew}
     />
     <div class="cat-body">
-      <nav class="cat-rail" aria-label="Filter by type">
+      <nav class="cat-rail" aria-label="Filter catalog">
         <p class="cat-rail-label" id="cat-type-label">Type</p>
         <ul class="cat-rail-list" aria-labelledby="cat-type-label">
           {
@@ -76,6 +76,39 @@ const description = 'Community-built tools, model providers, plugins, and integr
             ))
           }
         </ul>
+        {
+          (hasFeatured || hasNew || hasVerified) && (
+            <>
+              <p class="cat-rail-label" id="cat-highlight-label">Highlights</p>
+              <ul class="cat-rail-list" aria-labelledby="cat-highlight-label">
+                {hasFeatured && (
+                  <li class="cat-rail-item">
+                    <button class="cat-chip" type="button" data-cat-badge="featured" aria-pressed="false">
+                      Featured
+                      <span class="cat-count">{cards.filter((c) => c.featured).length}</span>
+                    </button>
+                  </li>
+                )}
+                {hasNew && (
+                  <li class="cat-rail-item">
+                    <button class="cat-chip" type="button" data-cat-badge="new" aria-pressed="false">
+                      New
+                      <span class="cat-count">{cards.filter((c) => c.badges.includes('new')).length}</span>
+                    </button>
+                  </li>
+                )}
+                {hasVerified && (
+                  <li class="cat-rail-item">
+                    <button class="cat-chip" type="button" data-cat-badge="verified" aria-pressed="false">
+                      Verified
+                      <span class="cat-count">{cards.filter((c) => c.badges.includes('verified')).length}</span>
+                    </button>
+                  </li>
+                )}
+              </ul>
+            </>
+          )
+        }
       </nav>
       <div class="cat-grid" data-cat-grid>
         {cards.map((card) => <CatalogCard card={card} featured={card.featured} />)}

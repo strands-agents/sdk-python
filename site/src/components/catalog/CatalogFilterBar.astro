@@ -33,6 +33,7 @@ const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
       <kbd class="cat-search-kbd">/</kbd>
     </button>
   </div>
+  {/* Badge filters render in the page's left rail alongside the type chips. */}
   <CatalogFacets
     types={types}
     showSdkFacet={showSdkFacet}
@@ -40,5 +41,6 @@ const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
     hasFeatured={hasFeatured}
     hasNew={hasNew}
     showTypes={false}
+    showBadges={false}
   />
 </form>

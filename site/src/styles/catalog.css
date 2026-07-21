@@ -108,7 +108,12 @@
   text-transform: uppercase;
   color: var(--sl-color-gray-3);
   font-weight: 700;
-  margin: 0 0 0.55rem;
+  margin: 0 0 0.25rem;
+  padding-left: 0.65rem;
+}
+/* Space between rail sections (Type, Highlights). */
+.cat-rail-list + .cat-rail-label {
+  margin-top: 1.1rem;
 }
 .cat-rail-list {
   list-style: none;

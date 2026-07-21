@@ -17,9 +17,18 @@ interface Props {
   hasFeatured: boolean
   hasNew: boolean
   showTypes?: boolean
+  showBadges?: boolean
 }
 
-const { types, showSdkFacet, hasVerified, hasFeatured, hasNew, showTypes = true } = Astro.props
+const {
+  types,
+  showSdkFacet,
+  hasVerified,
+  hasFeatured,
+  hasNew,
+  showTypes = true,
+  showBadges = true,
+} = Astro.props
 
 const LANGUAGES = [
   { value: 'python', label: 'Python' },
@@ -55,21 +64,21 @@ const LANGUAGES = [
     }
   </div>
   {
-    hasFeatured && (
+    showBadges && hasFeatured && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="featured" aria-pressed="false">
         Featured
       </button>
     )
   }
   {
-    hasNew && (
+    showBadges && hasNew && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="new" aria-pressed="false">
         New
       </button>
     )
   }
   {
-    hasVerified && (
+    showBadges && hasVerified && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
         <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
           <path fill="currentColor" d={VERIFIED_ICON} />
