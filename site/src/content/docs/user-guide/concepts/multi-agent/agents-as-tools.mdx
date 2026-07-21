@@ -7,7 +7,6 @@ tags: [multi-agent, tool-authoring, tool-execution]
 sourceLinks:
   - path: strands-py/src/strands/agent/_agent_as_tool.py
   - path: strands-ts/src/agent/agent-as-tool.ts
-  - path: strands-ts/src/vended-plugins/agent-delegation/plugin.ts
 ---
 
 ## The Concept: Agents as Tools
@@ -333,37 +332,6 @@ response = orchestrator(customer_query)
 </Tabs>
 
 This example demonstrates how Strands Agents SDK enables specialized experts to collaborate on complex queries requiring multiple domains of knowledge. The orchestrator intelligently routes different aspects of the query to the appropriate specialized agents, then synthesizes their responses into a comprehensive answer.
-
-## Delegation: Direct Response Routing
-
-In many routing scenarios, the orchestrator's only job is to pick the right specialist — once the specialist responds, there's nothing for the orchestrator to add. By default, the orchestrator makes an additional model call to post-process the sub-agent's response, which adds latency, token cost, and risks paraphrasing structured output.
-
-The `delegate` option solves this. When you mark an agent tool with `delegate: true`, the orchestrator returns the sub-agent's response directly to the caller without an additional model call.
-
-```mermaid
-flowchart LR
-    User([User]) --> Orchestrator["Orchestrator Agent"]
-    Orchestrator -->|delegate| Billing["Billing Agent"]
-    Orchestrator -->|delegate| TechSupport["Tech Support Agent"]
-    Billing -->|direct response| User
-    TechSupport -->|direct response| User
-```
-
-### Basic Delegation
-
-```typescript
---8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:delegation_basic"
-```
-
-When the orchestrator calls a delegation tool and it succeeds, the agent loop exits immediately with `stopReason: 'toolUse'`. The sub-agent's response reaches the caller verbatim without reformatting.
-
-### Mixing Delegation and Regular Tools
-
-Delegation tools coexist with regular tools on the same orchestrator. Regular tool results feed back into the orchestrator for further reasoning; delegation results short-circuit the loop.
-
-```typescript
---8<-- "user-guide/concepts/multi-agent/agents-as-tools.ts:delegation_mixed"
-```
 
 ## Remote Agents with A2A
 
