@@ -42,6 +42,7 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
+    from .._middleware.stages import AgentStreamContext
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -1191,8 +1192,18 @@ class Agent(AgentBase):
 
             with trace_api.use_span(self.trace_span):
                 try:
-                    events = self._run_loop(
-                        messages, merged_state, structured_output_model, structured_output_prompt, limits
+                    from .._middleware.stages import AgentStreamContext, AgentStreamStage
+
+                    middleware_context = AgentStreamContext(
+                        agent=self,
+                        messages=messages,
+                        invocation_state=merged_state,
+                    )
+
+                    events = self._middleware_registry.invoke(
+                        AgentStreamStage,
+                        middleware_context,
+                        _make_agent_stream_terminal(self, structured_output_model, structured_output_prompt, limits),
                     )
 
                     async for event in events:
@@ -1634,3 +1645,27 @@ class Agent(AgentBase):
             redacted_content = [{"text": redact_message}]
 
         return redacted_content
+
+
+def _make_agent_stream_terminal(
+    agent: Agent,
+    structured_output_model: "type[BaseModel] | None",
+    structured_output_prompt: str | None,
+    limits: "Limits | None",
+) -> "Callable[[AgentStreamContext], AsyncGenerator[TypedEvent, None]]":
+    """Create the terminal function for AgentStreamStage middleware.
+
+    The terminal delegates to ``agent._run_loop``, threading through the context fields
+    that middleware may have transformed (messages, invocation_state). Structured output
+    and limits are captured from the enclosing invocation — middleware cannot influence
+    them (they are configuration, not per-request data).
+    """
+    from .._middleware.stages import AgentStreamContext
+
+    async def terminal(ctx: AgentStreamContext) -> AsyncGenerator[TypedEvent, None]:
+        async for event in agent._run_loop(
+            ctx.messages, ctx.invocation_state, structured_output_model, structured_output_prompt, limits
+        ):
+            yield event
+
+    return terminal

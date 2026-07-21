@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ..agent.agent import Agent
     from ..experimental.bidi import BidiAgent
     from ..interrupt import _InterruptState
-    from ..types._events import ModelStopReason, ToolResultEvent, TypedEvent
+    from ..types._events import EventLoopStopEvent, ModelStopReason, ToolResultEvent, TypedEvent
     from ..types.content import Messages, SystemPrompt
     from ..types.tools import AgentTool, ToolChoice, ToolSpec, ToolUse
 
@@ -138,3 +138,25 @@ or gate execution behind a human-in-the-loop interrupt. The result event is the
 ``ToolResultEvent`` produced by the tool (matching the "last event is the result"
 convention used across the SDK).
 """
+
+
+@dataclass
+class AgentStreamContext:
+    """Context passed to AgentStreamStage middleware.
+
+    Wraps the entire agent output stream at the outermost interception point.
+    Middleware registered for this stage can filter, transform, or inject events
+    across the full agent invocation.
+
+    The ``invocation_state`` is shared by reference — mutations are visible to hooks,
+    tools, and the final AgentResult.
+    """
+
+    agent: Agent
+    messages: Messages
+    invocation_state: dict[str, Any]
+
+
+AgentStreamStage: MiddlewareStage[AgentStreamContext, EventLoopStopEvent, TypedEvent] = MiddlewareStage(
+    name="agentStream"
+)

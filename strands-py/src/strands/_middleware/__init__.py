@@ -3,6 +3,8 @@
 from .registry import MiddlewareRegistry as MiddlewareRegistry
 from .stages import ExecuteToolContext as ExecuteToolContext
 from .stages import ExecuteToolStage as ExecuteToolStage
+from .stages import AgentStreamContext as AgentStreamContext
+from .stages import AgentStreamStage as AgentStreamStage
 from .stages import InvokeModelContext as InvokeModelContext
 from .stages import InvokeModelStage as InvokeModelStage
 from .stages import MiddlewareInterruptResult as MiddlewareInterruptResult

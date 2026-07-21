@@ -4,7 +4,7 @@ This implementation follows the behavioral spec defined in `strands-ts/src/middl
 
 ## Scope
 
-`InvokeModelStage` and `ExecuteToolStage` are implemented. `AgentStreamStage` will be added as needed.
+`InvokeModelStage`, `ExecuteToolStage`, and `AgentStreamStage` are implemented.
 
 ## Result encoding
 
