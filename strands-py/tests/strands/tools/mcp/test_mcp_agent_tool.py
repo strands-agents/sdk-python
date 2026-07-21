@@ -137,7 +137,7 @@ async def test_stream_without_agent_cancel_signal(mcp_agent_tool, mock_mcp_clien
     """Test MCP tools remain compatible with agent implementations without cancellation."""
     tool_use = {"toolUseId": "test-789", "name": "test_tool", "input": {}}
 
-    await alist(mcp_agent_tool.stream(tool_use, {"agent": MagicMock(spec=[])}))
+    await alist(mcp_agent_tool.stream(tool_use, {}))
 
     mock_mcp_client.call_tool_async.assert_called_once_with(
         tool_use_id="test-789",

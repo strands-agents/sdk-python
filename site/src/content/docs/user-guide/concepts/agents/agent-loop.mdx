@@ -114,12 +114,13 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
 <Tabs>
   <Tab label="Python">
 
-  The agent checks for cancellation at two checkpoints:
+  The agent checks for cancellation at three checkpoints:
 
   | Checkpoint | Behavior | Note |
   |---|---|---|
   | Model response streaming | Partial output is discarded | Usage metrics may be inaccurate since the stream is closed before the model sends its final metadata event |
   | Before tool execution | Tool calls are skipped with error results added to maintain valid conversation state | |
+  | During MCP tool execution | The in-flight MCP request is cancelled without closing the shared MCP session | Remote cancellation is best-effort; the agent stops locally even if the server does not acknowledge cancellation |
 
   The agent returns a result with `stop_reason="cancelled"`. `cancel()` is thread-safe and idempotent. Calling it multiple times or from different threads is safe.
 
@@ -148,6 +149,41 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
   if result.stop_reason == "cancelled":
       print("Agent was cancelled due to timeout")
   ```
+
+  #### Per-call MCP cancellation
+
+  `MCPClient.call_tool_sync()` and `MCPClient.call_tool_async()` also accept a caller-owned
+  `threading.Event` through the keyword-only `cancel_signal` parameter. Setting the event cancels
+  only that call; the MCP session remains available for later calls. A locally observed cancellation
+  returns an error result with `cancelled=True`. This marker does not guarantee that remote execution
+  stopped, because protocol cancellation is best-effort.
+
+  ```python
+  import asyncio
+  import threading
+
+  from strands.tools.mcp import MCPClient
+
+  cancel_signal = threading.Event()
+
+  # Inside an active MCPClient context:
+  sync_result = client.call_tool_sync(
+      tool_use_id="sync-call",
+      name="long_running_tool",
+      arguments={},
+      cancel_signal=cancel_signal,
+  )
+
+  async_result = await client.call_tool_async(
+      tool_use_id="async-call",
+      name="long_running_tool",
+      arguments={},
+      cancel_signal=cancel_signal,
+  )
+  ```
+
+  The event is not cleared by `MCPClient`; clear it before reusing it for another call. Cancelling the
+  outer asyncio task is separate from setting `cancel_signal` and raises `asyncio.CancelledError`.
 
   Cancellation differs from [interrupts](../interrupts.mdx) in that it stops the agent entirely rather than pausing for human input. Interrupts allow the agent to resume from where it left off; cancellation does not.
   </Tab>

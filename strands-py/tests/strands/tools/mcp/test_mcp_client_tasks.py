@@ -252,6 +252,7 @@ class TestTaskExecution:
 
         assert cancelled_result["status"] == "error"
         assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+        assert cancelled_result["cancelled"] is True
         mock_session.experimental.cancel_task.assert_awaited_once_with("test-task-id")
         assert second_result["status"] == "success"
 
@@ -404,6 +405,7 @@ class TestTaskExecution:
 
         assert result["status"] == "error"
         assert result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+        assert result["cancelled"] is True
 
     def test_logs_warning_when_task_execution_ignores_progress_callback(self, mock_transport, mock_session, caplog):
         """Test warning is logged when task execution ignores progress callbacks."""

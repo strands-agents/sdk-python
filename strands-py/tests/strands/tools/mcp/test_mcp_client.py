@@ -279,6 +279,7 @@ def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport
         "status": "error",
         "toolUseId": "cancelled",
         "content": [{"text": "Tool execution failed: Tool execution cancelled"}],
+        "cancelled": True,
     }
     assert first_call_cancelled.wait(timeout=1)
     mock_session.send_notification.assert_awaited_once()
@@ -327,6 +328,7 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
 
     assert cancelled_result["status"] == "error"
     assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+    assert cancelled_result["cancelled"] is True
     assert slow_call_cancelled.is_set()
     mock_session.send_notification.assert_awaited_once()
     notification = mock_session.send_notification.await_args.args[0].root
@@ -355,6 +357,7 @@ async def test_call_tool_async_cancel_wins_when_result_and_signal_are_ready(mock
 
     assert result["status"] == "error"
     assert result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+    assert result["cancelled"] is True
 
 
 @pytest.mark.asyncio
@@ -618,6 +621,11 @@ def test_mcp_tool_result_type():
         status="error", toolUseId="test-789", content=[{"text": "Tool failed"}], isError=True
     )
     assert result_with_is_error["isError"] is True
+
+    result_with_cancelled = MCPToolResult(
+        status="error", toolUseId="test-789", content=[{"text": "cancelled"}], cancelled=True
+    )
+    assert result_with_cancelled["cancelled"] is True
 
 
 def test_call_tool_sync_without_structured_content(mock_transport, mock_session):
