@@ -1188,7 +1188,11 @@ class MCPClient(ToolProvider):
                 )
             else:
                 return
-            await asyncio.wait_for(cancellation, timeout=1)
+            cancellation_task = asyncio.create_task(cancellation)
+            _, pending = await asyncio.wait({cancellation_task}, timeout=1)
+            if pending:
+                cancellation_task.cancel()
+                cancellation_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
         except Exception as error:
             self._log_debug_with_thread("error=<%s> | failed to notify MCP server of cancellation", str(error))
 
@@ -1214,6 +1218,7 @@ class MCPClient(ToolProvider):
                 raise RuntimeError("Tool execution cancelled")
 
             invoke_event = asyncio.create_task(coro)
+            invoke_cancel_requested = False
             cancel_event: asyncio.Task[None] | None = None
 
             if cancel_signal is not None:
@@ -1233,6 +1238,7 @@ class MCPClient(ToolProvider):
 
                 if cancel_signal is not None and cancel_signal.is_set():
                     self._log_debug_with_thread("cancellation detected during MCP invocation")
+                    invoke_cancel_requested = True
                     invoke_event.cancel()
                     _, pending = await asyncio.wait({invoke_event}, timeout=1)
                     if pending:
@@ -1248,13 +1254,15 @@ class MCPClient(ToolProvider):
                 await asyncio.wait({invoke_event}, timeout=1)
                 raise RuntimeError("Connection to the MCP server was closed")
             finally:
-                if not invoke_event.done():
+                if not invoke_event.done() and not invoke_cancel_requested:
                     invoke_event.cancel()
                     _, pending = await asyncio.wait({invoke_event}, timeout=1)
-                    if pending:
-                        invoke_event.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
                     if cancellation_state is not None:
                         await self._cancel_tool_call(cancellation_state)
+                else:
+                    pending = {invoke_event} if not invoke_event.done() else set()
+                if pending:
+                    invoke_event.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
                 if cancel_event is not None and not cancel_event.done():
                     cancel_event.cancel()
                     await asyncio.gather(cancel_event, return_exceptions=True)
@@ -1448,13 +1456,25 @@ class MCPClient(ToolProvider):
         try:
             create_result = await asyncio.shield(create_task)
         except asyncio.CancelledError:
-            try:
-                create_result = await asyncio.wait_for(asyncio.shield(create_task), timeout=1)
+            done, _ = await asyncio.wait({create_task}, timeout=1)
+            if done:
+                create_result = create_task.result()
                 if cancellation_state is not None:
                     cancellation_state["task_id"] = create_result.task.taskId
-            except asyncio.TimeoutError:
-                create_task.cancel()
-                await asyncio.gather(create_task, return_exceptions=True)
+            else:
+
+                def cancel_delayed_task(task: asyncio.Task[Any]) -> None:
+                    if task.cancelled():
+                        return
+                    try:
+                        result = task.result()
+                    except Exception:
+                        return
+                    if cancellation_state is not None:
+                        cancellation_state["task_id"] = result.task.taskId
+                        asyncio.create_task(self._cancel_tool_call(cancellation_state))
+
+                create_task.add_done_callback(cancel_delayed_task)
             raise
         task_id = create_result.task.taskId
         if cancellation_state is not None:
