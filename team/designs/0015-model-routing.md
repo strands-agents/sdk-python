@@ -44,15 +44,20 @@ The intersection worth taking is small: client-side model selection with fallbac
 
 Routing decides among concrete **`Model` instances** in the SDK. Selection defaults to once per agent invocation: the first model call stores the chosen candidate in invocation-scoped state, and later model calls reuse it unless fallback advances the route. V1 rejects routers containing stateful models because switching would break provider-managed conversation state.
 
-**The unit of routing is a `Model`.** Concrete model implementations encapsulate their provider-specific model id, region, and configuration. Candidates can therefore represent models on one provider (`BedrockModel("haiku")`, `BedrockModel("sonnet")`), the same model through different providers (`BedrockModel("sonnet")`, `AnthropicModel("sonnet")`), regional copies, or configuration variants. A server-routed endpoint such as Bedrock intelligent prompt routing is likewise one candidate `Model`. Traffic-aware load balancing across a deployment pool remains gateway territory because it needs a fleet-wide view.
+**The unit of routing is a `Model`.** A concrete `Model` is already the amalgamation of provider and model: it encapsulates the provider, its model id, region, and configuration, which is the typed-SDK equivalent of the `provider/model` string that LiteLLM and OpenRouter route over. Candidates can therefore represent models on one provider (`BedrockModel("haiku")`, `BedrockModel("sonnet")`), the same model through different providers (`BedrockModel("sonnet")`, `AnthropicModel("sonnet")`), regional copies, or configuration variants. A server-routed endpoint such as Bedrock intelligent prompt routing is likewise one candidate `Model`. The router does not parse `provider/model` strings itself; resolving such a string to a `Model` is a model-construction concern that the router consumes as a candidate. Traffic-aware load balancing across a deployment pool remains gateway territory because it needs a fleet-wide view.
 
-Three strategies ship in v1:
+Three strategies ship in v1, chosen so each of the objectives the SDK can act on today has a working strategy:
 
-| Strategy | Trigger | Basis |
-|---|---|---|
-| Fallback | reactive | ordered candidates; retry the selected model, then advance. Reuses `ModelRetryStrategy` |
-| Context-fit | proactive | `count_tokens` and `context_window_limit`; local, with no extra model call |
-| Model-driven | proactive | a small decision model classifies the request and names a candidate |
+| Strategy | Objective | Trigger | Basis |
+|---|---|---|---|
+| Fallback | availability/reliability | reactive | ordered candidates; retry the selected model, then advance. Reuses `ModelRetryStrategy` |
+| Context-fit | capacity | proactive | `count_tokens` and `context_window_limit`; local, with no extra model call |
+| Model-driven | quality/accuracy | proactive | a small decision model classifies the request and names a candidate |
+
+The remaining objectives are covered by candidate selection or deferred for a missing signal, not left unaddressed:
+- **Compliance/residency** is expressed by which models a caller lists (for example, only models in an approved region), so it needs no dedicated strategy.
+- **Cost** is a proactive strategy blocked on per-model pricing, which the SDK does not carry yet (P1).
+- **Latency** needs runtime latency measurement or shared state, which is closer to the gateway load-balancing case the SDK delegates (P1).
 
 Proactive selection and fallback compose. A strategy chooses the first candidate, while its failure path can advance to another candidate after retries are exhausted.
 
@@ -160,6 +165,7 @@ Agent(model: Model | str | ModelRouter = ...)
 - **P0, router core and fallback.** Add `ModelRouter`, widen `model=`, recognize the router as a plugin during agent initialization, add `model` to `InvokeModelContext`, cache selection in invocation state, resolve nested routers, and make the terminal call the context model. Register routing before model-dependent invoke middleware, order fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates.
 - **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection. Record the selected candidate on the existing model-invoke span.
 - **P1, cost-aware routing.** Add a pricing source of truth, then rank context-fit survivors by price.
+- **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
 - **P1, classifier, semantic routing, and quality cascades.** Add learned or embedding selection without a decision-model call, and result-aware escalation once the SDK exposes a suitable quality signal.
 
 ## Alternatives Considered
@@ -184,7 +190,7 @@ Needs attention:
 - Routing input must run before invoke middleware that reads model capabilities; those consumers use `context.model` rather than capturing `agent.model`.
 - `BeforeModelCallEvent` and its projected token estimate run before `InvokeModelStage`, so they continue to use the concrete default in v1. Strategies that need candidate-specific token counts compute them from the candidates directly.
 - The router forwards canonical Strands messages without additional cross-provider normalization. Each candidate model remains responsible for validating and translating supported content.
-- Routing provides no cache-affinity signal in v1. Choosing another model on a later invocation or during fallback can lose a provider prompt-cache hit.
+- Per-invocation selection preserves a provider prompt-cache hit within one invocation, but v1 re-decides on the next invocation and during fallback, so a later call can miss the cache. Cache-affinity (sticky) routing is the P1 that closes this gap.
 - Cost-aware routing needs a pricing source of truth and remains a follow-up.
 
 Migration: none. `model=` continues to accept a `Model` or model-id string, and routing is opt-in by passing a `ModelRouter`.
