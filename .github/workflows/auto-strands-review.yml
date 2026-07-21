@@ -7,8 +7,12 @@ on:
 
 jobs:
   authorization-check:
+    # Authors who opt out of auto-review. They can still trigger it manually
+    # by commenting ``/strands review`` on the PR.
+    if: ${{ !contains(fromJSON('["chaynabors"]'), github.event.pull_request.user.login) }}
     name: Check access
-    permissions: read-all
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       approval-env: ${{ steps.auth.outputs.approval-env }}
@@ -19,19 +23,21 @@ jobs:
         with:
           skip-check: false
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
-          allowed-roles: 'triage,write,admin'
+          allowed-roles: 'triage,write,maintain,admin'
 
   trigger-review:
     name: Trigger Strands Review
     needs: authorization-check
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       actions: write
       contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Strands Command Workflow
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

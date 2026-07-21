@@ -1,0 +1,59 @@
+/**
+ * Strands Agents Documentation Theme
+ * 
+ * Color scheme from strandsagents.com theme-overrides.css:
+ * - Logo green: #00cc5f
+ * - Bright green: #00FF77
+ * - Dark bg: #0E0E0E
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap');
+
+/* Dark mode colors. */
+:root {
+	--sl-color-accent-low: #0a2e12;
+	--sl-color-accent: #00cc5f;
+	--sl-color-accent-high: #00FF77;
+	--sl-color-white: #ffffff;
+	--sl-color-gray-1: #E0E0E0;
+	--sl-color-gray-2: #c8d0d8;
+	--sl-color-gray-3: #a0a8b0;
+	--sl-color-gray-4: #777777;
+	--sl-color-gray-5: #333333;
+	--sl-color-gray-6: #1F1F1F;
+	--sl-color-black: #0E0E0E;
+	/* Link hover color - same in light & dark mode */
+	--sl-color-link-hover: #00cc5f;
+}
+
+/* Light mode colors. */
+:root[data-theme='light'] {
+	--sl-color-accent-low: #d4f5e0;
+	--sl-color-accent: #00cc5f;
+	--sl-color-accent-high: #00B353;
+	--sl-color-white: #0E0E0E;
+	--sl-color-gray-1: #1F1F1F;
+	--sl-color-gray-2: #3d4349;
+	--sl-color-gray-3: #555555;
+	--sl-color-gray-4: #777777;
+	--sl-color-gray-5: #d0d7de;
+	--sl-color-gray-6: #E0E0E0;
+	--sl-color-gray-7: #F9F9F9;
+	--sl-color-black: #ffffff;
+}
+
+/* Link hover - green text color (uses same color in light & dark mode) */
+a:hover {
+	color: var(--sl-color-link-hover);
+}
+
+/* Don't change color on hover for selected sidebar items (has green background) */
+a[aria-current="page"]:hover {
+	color: var(--sl-color-text-invert);
+}
+
+
+/* Layout */
+:root {
+	--sl-content-width: 50rem;
+}

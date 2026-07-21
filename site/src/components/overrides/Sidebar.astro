@@ -1,0 +1,19 @@
+---
+/**
+ * Custom Sidebar component that mimics MkDocs Material theme's navigation.sections behavior.
+ * Includes an API language switcher (Python/TypeScript) that only appears on API pages.
+ */
+import MobileMenuFooter from 'virtual:starlight/components/MobileMenuFooter';
+import SidebarPersister from '@astrojs/starlight/components/SidebarPersister.astro';
+import SidebarSublist from './SidebarSublist.astro';
+const { sidebar } = Astro.locals.starlightRoute;
+---
+
+<SidebarPersister>
+  <SidebarSublist sublist={sidebar} />
+</SidebarPersister>
+
+<div class="md:sl-hidden">
+  <MobileMenuFooter />
+</div>
+
