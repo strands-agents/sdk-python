@@ -130,7 +130,9 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
     try {
       const data = yaml.load(readFileSync(path.join(catalogDir, f), 'utf-8')) as {
         github?: string
-        languages?: { python?: { package: string }; typescript?: { package: string } }
+        // package is absent for guide-only language blocks (`python: {}`) —
+        // those entries get no download stats for that language.
+        languages?: { python?: { package?: string }; typescript?: { package?: string } }
       }
       if (!data?.github || typeof data.github !== 'string') {
         console.warn(`entry=${id} | malformed yaml, skipping`)
@@ -148,7 +150,7 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
       }
       if (languages.python?.package === 'strands-agents') {
         console.warn(`entry=${id}, source=pypi | package is the sdk itself, skipping stats`)
-      } else if (languages.python?.package.endsWith(']')) {
+      } else if (languages.python?.package?.endsWith(']')) {
         // An extras-qualified package (`temporalio[strands-agents]`) 404s on
         // pypistats, and the base package's downloads would overstate the
         // integration's popularity — so no download stats at all.

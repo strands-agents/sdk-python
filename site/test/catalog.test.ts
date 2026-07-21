@@ -68,6 +68,18 @@ describe('toCardModel', () => {
     ])
   })
 
+  it('derives the language facet without registry links for an empty language block', () => {
+    const card = toCardModel(
+      'guide-entry',
+      entry({ languages: { python: {} }, docsUrl: 'https://example.com/docs/strands' }),
+      undefined,
+      BUILD_DATE
+    )
+    expect(card.languages).toEqual(['python'])
+    expect(card.registryLinks).toEqual([])
+    expect(card.href).toBe('https://example.com/docs/strands')
+  })
+
   it('adds the new badge when addedDate is within the window', () => {
     const recent = new Date(BUILD_DATE.getTime() - (NEW_BADGE_DAYS - 1) * 86_400_000)
     const card = toCardModel(

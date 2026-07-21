@@ -43,13 +43,17 @@ export function toCardModel(
 ): CatalogCardModel {
   const languages: ('python' | 'typescript')[] = []
   const registryLinks: CatalogCardModel['registryLinks'] = []
+  // A language block without a registry is a guide-only integration: it
+  // counts toward the language facet but has no registry link to render.
   if (data.languages.python) {
     languages.push('python')
-    registryLinks.push({ label: 'PyPI', href: data.languages.python.registry })
+    if (data.languages.python.registry) registryLinks.push({ label: 'PyPI', href: data.languages.python.registry })
   }
   if (data.languages.typescript) {
     languages.push('typescript')
-    registryLinks.push({ label: 'npm', href: data.languages.typescript.registry })
+    if (data.languages.typescript.registry) {
+      registryLinks.push({ label: 'npm', href: data.languages.typescript.registry })
+    }
   }
 
   const badges: string[] = [...data.badges]

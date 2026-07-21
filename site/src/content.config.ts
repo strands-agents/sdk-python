@@ -73,12 +73,17 @@ export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
 // Catalog URLs render as hrefs, so constrain them to the expected host —
 // a bare .url() would accept javascript: and other unsafe schemes.
+// package + registry are optional as a pair: an empty block (`python: {}`)
+// marks a guide-only integration (documented by a vendor dev-guide, no
+// Strands-specific installable package) as covering that language, so it
+// still participates in the language facet. The superRefine on the entry
+// rejects a block that sets one of the two without the other.
 const catalogLanguageSchema = (registryPrefix: string) =>
   z.object({
     // Package name as published on the registry
-    package: z.string(),
+    package: z.string().optional(),
     // Full registry URL (PyPI project page or npm package page)
-    registry: z.string().url().startsWith(registryPrefix, `registry must start with ${registryPrefix}`),
+    registry: z.string().url().startsWith(registryPrefix, `registry must start with ${registryPrefix}`).optional(),
   })
 
 export const catalogEntrySchema = z
@@ -128,6 +133,16 @@ export const catalogEntrySchema = z
         path: ['languages'],
         message: 'at least one language block (python or typescript) is required',
       })
+    }
+    for (const lang of ['python', 'typescript'] as const) {
+      const block = d.languages[lang]
+      if (block && (block.package === undefined) !== (block.registry === undefined)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['languages', lang],
+          message: 'package and registry must be set together (or both omitted for guide-only integrations)',
+        })
+      }
     }
   })
 export type CatalogEntryData = z.infer<typeof catalogEntrySchema>

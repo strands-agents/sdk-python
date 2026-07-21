@@ -31,6 +31,43 @@ describe('catalog content collection', () => {
     expect(result.success).toBe(false)
   })
 
+  it('accepts an empty language block for guide-only integrations', () => {
+    const result = catalogEntrySchema.safeParse({
+      name: 'guide-entry',
+      description: 'vendor-guide integration without a package',
+      integrationType: 'plugin',
+      languages: { python: {} },
+      github: 'https://github.com/example/guide-entry',
+      docsUrl: 'https://example.com/docs/strands',
+      maintainer: 'example',
+      addedDate: '2026-07-21',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a language block with package but no registry, and vice versa', () => {
+    const base = {
+      name: 'half-entry',
+      description: 'package and registry must travel together',
+      integrationType: 'tool',
+      github: 'https://github.com/example/half-entry',
+      maintainer: 'example',
+      addedDate: '2026-07-21',
+    }
+    expect(catalogEntrySchema.safeParse({ ...base, languages: { python: { package: 'x' } } }).success).toBe(false)
+    expect(
+      catalogEntrySchema.safeParse({ ...base, languages: { python: { registry: 'https://pypi.org/project/x/' } } })
+        .success
+    ).toBe(false)
+    expect(catalogEntrySchema.safeParse({ ...base, languages: { typescript: { package: 'x' } } }).success).toBe(false)
+    expect(
+      catalogEntrySchema.safeParse({
+        ...base,
+        languages: { typescript: { registry: 'https://www.npmjs.com/package/x' } },
+      }).success
+    ).toBe(false)
+  })
+
   it('rejects urls outside the expected hosts', () => {
     const base = {
       name: 'bad-urls',
