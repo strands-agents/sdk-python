@@ -1,4 +1,6 @@
+import asyncio
 import base64
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -241,6 +243,87 @@ def test_call_tool_sync_no_progress_callback_by_default(mock_transport, mock_ses
         client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
 
         mock_session.call_tool.assert_called_once_with("test_tool", {}, None, progress_callback=None, meta=None)
+
+
+def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport, mock_session):
+    """Test cancellation stops one call without closing the MCP session."""
+    first_call_started = threading.Event()
+    first_call_cancelled = threading.Event()
+    cancel_signal = threading.Event()
+    mock_content = MCPTextContent(type="text", text="done")
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        if name == "slow_tool":
+            first_call_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                first_call_cancelled.set()
+                raise
+        return MCPCallToolResult(isError=False, content=[mock_content])
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        cancellation_thread = threading.Thread(target=lambda: (first_call_started.wait(timeout=1), cancel_signal.set()))
+        cancellation_thread.start()
+        cancelled_result = client.call_tool_sync(
+            tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+        )
+        cancellation_thread.join(timeout=1)
+
+        second_result = client.call_tool_sync(tool_use_id="completed", name="fast_tool", arguments={})
+
+    assert cancelled_result == {
+        "status": "error",
+        "toolUseId": "cancelled",
+        "content": [{"text": "Tool execution failed: Tool execution cancelled"}],
+    }
+    assert first_call_cancelled.wait(timeout=1)
+    assert second_result["status"] == "success"
+    assert mock_session.call_tool.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_transport, mock_session):
+    """Test each concurrent call observes only its own cancellation signal."""
+    slow_call_started = asyncio.Event()
+    slow_call_cancelled = asyncio.Event()
+    cancel_signal = threading.Event()
+    other_signal = threading.Event()
+    mock_content = MCPTextContent(type="text", text="done")
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        if name == "slow_tool":
+            slow_call_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                slow_call_cancelled.set()
+                raise
+        return MCPCallToolResult(isError=False, content=[mock_content])
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        cancelled_call = asyncio.create_task(
+            client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal)
+        )
+        completed_call = asyncio.create_task(
+            client.call_tool_async(tool_use_id="completed", name="fast_tool", arguments={}, cancel_signal=other_signal)
+        )
+
+        await asyncio.wait_for(slow_call_started.wait(), timeout=1)
+        cancel_signal.set()
+        cancelled_result, completed_result = await asyncio.wait_for(
+            asyncio.gather(cancelled_call, completed_call), timeout=1
+        )
+
+    assert cancelled_result["status"] == "error"
+    assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+    assert slow_call_cancelled.is_set()
+    assert completed_result["status"] == "success"
+    assert not other_signal.is_set()
 
 
 @pytest.mark.asyncio
