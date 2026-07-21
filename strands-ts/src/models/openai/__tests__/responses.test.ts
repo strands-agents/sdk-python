@@ -386,6 +386,50 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(typeof out.output).toBe('string')
       expect(out.output).toBe('pong')
     })
+
+    it('serializes assistant history as a string EasyInputMessage', async () => {
+      // A bare `{ role: 'assistant', content: [output_text] }` is not a valid
+      // Responses input item and is rejected by strict backends (Bedrock Mantle).
+      // See https://github.com/strands-agents/harness-sdk/issues/3388
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('What is 2+2?')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('4')] }),
+        new Message({ role: 'user', content: [new TextBlock('What about 3+3?')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: '4' })
+      expect(req.input[0]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'What is 2+2?' }] })
+      expect(req.input[2]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'What about 3+3?' }] })
+    })
+
+    it('joins multiple assistant text blocks with newlines', async () => {
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('list two words')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('First.'), new TextBlock('Second.')] }),
+        new Message({ role: 'user', content: [new TextBlock('thanks')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: 'First.\nSecond.' })
+    })
+
+    it('drops non-text assistant history content with a warning', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('draw something')] }),
+        new Message({
+          role: 'assistant',
+          content: [
+            new TextBlock('Here it is.'),
+            new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } }),
+          ],
+        }),
+        new Message({ role: 'user', content: [new TextBlock('nice')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: 'Here it is.' })
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no valid responses api input shape'))
+      warnSpy.mockRestore()
+    })
   })
 
   describe('stream event mapping', () => {
