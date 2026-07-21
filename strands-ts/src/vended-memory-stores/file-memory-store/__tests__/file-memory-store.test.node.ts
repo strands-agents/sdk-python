@@ -183,6 +183,37 @@ describe('FileMemoryStore', () => {
       expect(first).not.toContain('GIL')
     })
 
+    it('avoids collisions on a case-insensitive backend', async () => {
+      // A case-insensitive filesystem treats Topic.md and topic.md as one file. The probe
+      // must delegate to the backend rather than compare exact key spellings in memory.
+      const files = new Map<string, Uint8Array>()
+      const caseInsensitiveStorage: Storage = {
+        async write(key: string, data: Uint8Array): Promise<void> {
+          const existing = [...files.keys()].find((k) => k.toLowerCase() === key.toLowerCase())
+          files.set(existing ?? key, data)
+        },
+        async read(key: string): Promise<Uint8Array | null> {
+          const existing = [...files.keys()].find((k) => k.toLowerCase() === key.toLowerCase())
+          return existing ? files.get(existing)! : null
+        },
+        async delete(key: string): Promise<void> {
+          const existing = [...files.keys()].find((k) => k.toLowerCase() === key.toLowerCase())
+          if (existing) files.delete(existing)
+        },
+        async list(prefix: string): Promise<string[]> {
+          return [...files.keys()].filter((k) => k.startsWith(prefix)).sort()
+        },
+      }
+      files.set('knowledge/facts/Topic.md', encoder.encode('---\ndescription: "x"\n---\n\npreexisting fact'))
+      const caseStore = new FileMemoryStore({ name: 'case-store', storage: caseInsensitiveStorage })
+
+      await caseStore.add('New fact', { title: 'topic' })
+
+      expect(files.size).toBe(2)
+      expect(decoder.decode(files.get('knowledge/facts/Topic.md')!)).toContain('preexisting fact')
+      expect(decoder.decode(files.get('knowledge/facts/topic-1.md')!)).toContain('New fact')
+    })
+
     it('uses Date.now fallback when content produces empty slug', async () => {
       await store.add('!!!???')
       const keys = await storage.list('knowledge/facts/')
@@ -194,6 +225,31 @@ describe('FileMemoryStore', () => {
       await store.add("User's #1 testing rule!", { title: "User's #1 testing rule!" })
       const keys = await storage.list('knowledge/facts/')
       expect(keys[0]).toBe('knowledge/facts/users-1-testing-rule.md')
+    })
+
+    it('returns the key for a default facts/ path', async () => {
+      const key = await store.add('User prefers dark mode', { title: 'dark-mode' })
+      expect(key).toBe('knowledge/facts/dark-mode.md')
+    })
+
+    it('returns the key for a custom path', async () => {
+      const key = await store.add('Deploy steps', { path: 'operations/deploy', description: 'Deploy process' })
+      expect(key).toBe('knowledge/operations/deploy.md')
+    })
+
+    it('returns the collision-suffixed key when slugs collide', async () => {
+      await store.add('Python is great')
+      const key = await store.add('Python is great. But has a GIL.')
+      expect(key).toBe('knowledge/facts/python-is-great-1.md')
+    })
+
+    it('returns the canonical key search and list report, not the pre-normalized path', async () => {
+      const key = await store.add('Rollback runbook', { path: 'operations//deploy' })
+      expect(key).toBe('knowledge/operations/deploy.md')
+      // The returned receipt must match what the backend actually stored under.
+      const keys = await storage.list('knowledge/')
+      expect(keys).toContain(key)
+      expect(await storage.read(key)).not.toBeNull()
     })
   })
 
@@ -405,6 +461,45 @@ describe('FileMemoryStore', () => {
           },
         },
       ])
+    })
+
+    it('bounds concurrent reads so a capacity-limited backend returns every match', async () => {
+      // A backend that throws once more than MAX_ACTIVE reads overlap. An unbounded fan-out
+      // (one read per key) would trip this on a large corpus and silently drop those matches.
+      // MAX_ACTIVE matches the store's internal SEARCH_READ_CONCURRENCY cap.
+      const MAX_ACTIVE = 8
+      const keys = Array.from({ length: 30 }, (_, index) => `knowledge/facts/fact-${index}.md`)
+      let active = 0
+      let peak = 0
+      const boundedStorage: Storage = {
+        async write(): Promise<void> {},
+        async read(): Promise<Uint8Array | null> {
+          active++
+          peak = Math.max(peak, active)
+          if (active > MAX_ACTIVE) {
+            active--
+            throw new Error('TooManyConcurrentReads')
+          }
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 1))
+            return encoder.encode('---\ndescription: "A fact"\n---\n\nfact about deploy')
+          } finally {
+            active--
+          }
+        },
+        async delete(): Promise<void> {},
+        async list(): Promise<string[]> {
+          return keys
+        },
+      }
+      const boundedStore = new FileMemoryStore({
+        name: 'bounded-store',
+        storage: boundedStorage,
+        maxSearchResults: keys.length,
+      })
+      const results = await boundedStore.search('deploy')
+      expect(results).toHaveLength(keys.length)
+      expect(peak).toBeLessThanOrEqual(MAX_ACTIVE)
     })
   })
 })

@@ -11,10 +11,19 @@ import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { Storage } from '../../storage/storage.js'
 import type { FileMemoryStoreConfig } from './types.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
+import { normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 
 const KNOWLEDGE_PREFIX = 'knowledge/'
 const FACTS_PREFIX = `${KNOWLEDGE_PREFIX}facts/`
+
+/**
+ * Cap on concurrent storage reads during search. The Storage contract makes no guarantee
+ * about concurrent-read capacity, so an unbounded fan-out (one read per key) can exhaust a
+ * backend's connection pool or trip throttling on a large corpus. Reads still run in parallel,
+ * just no more than this many at once.
+ */
+const SEARCH_READ_CONCURRENCY = 8
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -43,6 +52,24 @@ function parseFrontmatter(content: string): { description: string; body: string 
 function basename(key: string): string {
   const filename = key.split('/').pop() ?? key
   return filename.replace(/\.md$/, '')
+}
+
+/**
+ * Map `items` through `fn` running at most `limit` calls concurrently, preserving input order.
+ * A worker pool pulls from a shared cursor so a slow item never blocks others in its batch.
+ */
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor++
+      results[index] = await fn(items[index]!)
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  await Promise.all(workers)
+  return results
 }
 
 /** Convert text to a URL-safe kebab-case slug, truncated to 50 characters. */
@@ -110,30 +137,28 @@ export class FileMemoryStore implements MemoryStore {
     const allKeys = await this._storage.list(KNOWLEDGE_PREFIX)
 
     const scored = (
-      await Promise.all(
-        allKeys.map(async (key) => {
-          try {
-            const bytes = await this._storage.read(key)
-            if (!bytes) return null
+      await mapWithConcurrency(allKeys, SEARCH_READ_CONCURRENCY, async (key) => {
+        try {
+          const bytes = await this._storage.read(key)
+          if (!bytes) return null
 
-            const content = decoder.decode(bytes)
-            const { description, body } = parseFrontmatter(content)
-            const searchable = `${basename(key)} ${description} ${body}`
+          const content = decoder.decode(bytes)
+          const { description, body } = parseFrontmatter(content)
+          const searchable = `${basename(key)} ${description} ${body}`
 
-            const relevanceScore = tokenOverlapScore(queryTokens, searchable)
-            if (relevanceScore === 0) return null
-            return {
-              entry: {
-                content: body.trim(),
-                metadata: { path: key, description, _relevanceScore: relevanceScore },
-              } as MemoryEntry,
-              relevanceScore,
-            }
-          } catch {
-            return null
+          const relevanceScore = tokenOverlapScore(queryTokens, searchable)
+          if (relevanceScore === 0) return null
+          return {
+            entry: {
+              content: body.trim(),
+              metadata: { path: key, description, _relevanceScore: relevanceScore },
+            } as MemoryEntry,
+            relevanceScore,
           }
-        })
-      )
+        } catch {
+          return null
+        }
+      })
     ).filter((s): s is { entry: MemoryEntry; relevanceScore: number } => s !== null)
 
     scored.sort((a, b) => b.relevanceScore - a.relevanceScore)
@@ -148,6 +173,9 @@ export class FileMemoryStore implements MemoryStore {
    *
    * @param content - The knowledge content to store
    * @param metadata - Optional metadata: `title`, `description`, and `path` (custom target path)
+   * @returns The canonical storage-relative key the entry was written under, normalized to
+   *   match what {@link search} and the backend's `list` report (slash runs collapsed, leading
+   *   and trailing slashes stripped)
    */
   async add(content: string, metadata?: Record<string, JSONValue>): Promise<string> {
     const customPath = metadata?.['path'] as string | undefined
@@ -163,17 +191,23 @@ export class FileMemoryStore implements MemoryStore {
       const slug = slugify(title) || `entry-${Date.now()}`
       key = `${FACTS_PREFIX}${slug}.md`
 
-      // Best-effort collision avoidance for a single-writer local store (TOCTOU is acceptable).
-      const existingKeys = new Set(await this._storage.list(FACTS_PREFIX))
+      // Probe with read() so the backend resolves key identity: a case-insensitive
+      // filesystem treats Topic.md and topic.md as the same file, which comparing
+      // against list()'s exact key spellings in memory would miss. A miss returns null
+      // without transferring a body, so the only full reads are on genuine collisions.
+      // Best-effort for a single-writer local store (TOCTOU is acceptable).
       let suffix = 1
-      while (existingKeys.has(key)) {
+      while (await this._storage.read(key)) {
         key = `${FACTS_PREFIX}${slug}-${suffix}.md`
         suffix++
       }
     }
 
+    // Canonicalize with the same helper the shipped backends apply internally, so the
+    // returned receipt matches the key search() and the backend's list() report.
+    const canonicalKey = normalizeKey(key)
     const fileContent = `---\ndescription: ${JSON.stringify(description)}\n---\n\n${content}\n`
-    await this._storage.write(key, encoder.encode(fileContent))
-    return key
+    await this._storage.write(canonicalKey, encoder.encode(fileContent))
+    return canonicalKey
   }
 }
