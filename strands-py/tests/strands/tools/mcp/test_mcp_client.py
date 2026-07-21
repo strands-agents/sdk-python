@@ -263,6 +263,7 @@ def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport
         return MCPCallToolResult(isError=False, content=[mock_content])
 
     mock_session.call_tool.side_effect = call_tool
+    mock_session._request_id = 0
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         cancellation_thread = threading.Thread(target=lambda: (first_call_started.wait(timeout=1), cancel_signal.set()))
@@ -280,6 +281,10 @@ def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport
         "content": [{"text": "Tool execution failed: Tool execution cancelled"}],
     }
     assert first_call_cancelled.wait(timeout=1)
+    mock_session.send_notification.assert_awaited_once()
+    notification = mock_session.send_notification.await_args.args[0].root
+    assert notification.method == "notifications/cancelled"
+    assert notification.params.requestId == 0
     assert second_result["status"] == "success"
     assert mock_session.call_tool.call_count == 2
 
@@ -304,6 +309,7 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
         return MCPCallToolResult(isError=False, content=[mock_content])
 
     mock_session.call_tool.side_effect = call_tool
+    mock_session._request_id = 0
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         cancelled_call = asyncio.create_task(
@@ -322,8 +328,33 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
     assert cancelled_result["status"] == "error"
     assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
     assert slow_call_cancelled.is_set()
+    mock_session.send_notification.assert_awaited_once()
+    notification = mock_session.send_notification.await_args.args[0].root
+    assert notification.method == "notifications/cancelled"
+    assert notification.params.requestId == 0
     assert completed_result["status"] == "success"
     assert not other_signal.is_set()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_cancel_wins_when_result_and_signal_are_ready(mock_transport, mock_session):
+    """Test a set cancellation signal takes precedence over a concurrently ready result."""
+    cancel_signal = threading.Event()
+    mock_content = MCPTextContent(type="text", text="late result")
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        cancel_signal.set()
+        return MCPCallToolResult(isError=False, content=[mock_content])
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = await client.call_tool_async(
+            tool_use_id="cancelled", name="racing_tool", arguments={}, cancel_signal=cancel_signal
+        )
+
+    assert result["status"] == "error"
+    assert result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
 
 
 @pytest.mark.asyncio

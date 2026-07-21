@@ -215,6 +215,46 @@ class TestTaskExecution:
             assert result["status"] == "success"
             assert "Done" in result["content"][0].get("text", "")
 
+    @pytest.mark.asyncio
+    async def test_cancellation_cancels_remote_task_and_preserves_session(self, mock_transport, mock_session):
+        """Test per-call cancellation stops the remote task without closing the session."""
+        import threading
+
+        self._setup_task_tool(mock_session, "slow_tool")
+        poll_started = asyncio.Event()
+        cancel_signal = threading.Event()
+
+        async def infinite_poll(task_id):
+            poll_started.set()
+            while True:
+                await asyncio.sleep(1)
+                yield MagicMock(status="running")
+
+        mock_session.experimental.poll_task = infinite_poll
+        mock_session.experimental.cancel_task = AsyncMock()
+
+        with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
+            client.list_tools_sync()
+            cancelled_call = asyncio.create_task(
+                client.call_tool_async(
+                    tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+                )
+            )
+            await asyncio.wait_for(poll_started.wait(), timeout=1)
+            cancel_signal.set()
+            cancelled_result = await asyncio.wait_for(cancelled_call, timeout=1)
+
+            client._tool_task_support_cache["fast_tool"] = None
+            mock_session.call_tool.return_value = MCPCallToolResult(
+                isError=False, content=[MCPTextContent(type="text", text="done")]
+            )
+            second_result = await client.call_tool_async(tool_use_id="completed", name="fast_tool", arguments={})
+
+        assert cancelled_result["status"] == "error"
+        assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+        mock_session.experimental.cancel_task.assert_awaited_once_with("test-task-id")
+        assert second_result["status"] == "success"
+
     def test_logs_warning_when_task_execution_ignores_progress_callback(self, mock_transport, mock_session, caplog):
         """Test warning is logged when task execution ignores progress callbacks."""
         self._setup_task_tool(mock_session, "task_tool")
