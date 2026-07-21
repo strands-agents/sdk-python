@@ -297,6 +297,35 @@ def test_multi_agent_result_str_empty():
     assert str(result) == ""
 
 
+def test_multi_agent_result_str_skips_empty_node_strings():
+    """Test MultiAgentResult.__str__ skips nodes whose string representation is empty."""
+    # Create an AgentResult with empty content to produce empty string
+    empty_ar = AgentResult(
+        message={"role": "assistant", "content": []},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    non_empty_ar = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Has content"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    result = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={
+            "empty_node": NodeResult(result=empty_ar),
+            "content_node": NodeResult(result=non_empty_ar),
+        },
+    )
+    output = str(result)
+    # The empty node should be skipped
+    assert "empty_node" not in output
+    # The non-empty node should appear
+    assert "content_node: Has content" in output
+
+
 def test_multi_agent_result_str_multiple_nodes():
     """Test MultiAgentResult.__str__ with multiple nodes."""
     ar1 = AgentResult(
