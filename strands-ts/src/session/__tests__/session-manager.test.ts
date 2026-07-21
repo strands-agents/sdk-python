@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { SessionManager } from '../session-manager.js'
+import { SessionError } from '../../errors.js'
 import { MockSnapshotStorage, createTestSnapshot } from '../../__fixtures__/mock-storage-provider.js'
 import {
   InitializedEvent,
@@ -106,6 +107,24 @@ describe('SessionManager', () => {
         location: { sessionId: 'test-default', scope: 'agent', scopeId: 'agent' },
       })
       expect(snapshot).not.toBeNull()
+    })
+  })
+
+  describe('duplicate agent id guard', () => {
+    it('throws when two agents share an id in the same session', () => {
+      sessionManager = new SessionManager({ sessionId: 'test-session', storage: { snapshot: storage } })
+      sessionManager.initAgent(createMockAgentWithHooks({ extra: { id: 'shared-id' } }))
+
+      expect(() => sessionManager.initAgent(createMockAgentWithHooks({ extra: { id: 'shared-id' } }))).toThrow(
+        SessionError
+      )
+    })
+
+    it('allows distinct agent ids in the same session', () => {
+      sessionManager = new SessionManager({ sessionId: 'test-session', storage: { snapshot: storage } })
+      sessionManager.initAgent(createMockAgentWithHooks({ extra: { id: 'agent-a' } }))
+
+      expect(() => sessionManager.initAgent(createMockAgentWithHooks({ extra: { id: 'agent-b' } }))).not.toThrow()
     })
   })
 

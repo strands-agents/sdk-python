@@ -3,6 +3,7 @@ import type { Storage } from '../storage/storage.js'
 import { NAMESPACED, namespace } from '../storage/storage.js'
 import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
 import { validateIdentifier } from './validation.js'
+import { SessionError } from '../errors.js'
 import type { SnapshotTriggerCallback } from './types.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
@@ -103,6 +104,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
   private _multiAgentRestoredIds = new Set<string>()
+  private _initializedAgentIds = new Set<string>()
 
   /**
    * Unique identifier for this plugin.
@@ -131,6 +133,15 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
   /** Initializes the plugin by registering lifecycle hook callbacks. */
   public initAgent(agent: LocalAgent): void {
+    // Agents share a session storage path keyed by `agent.id` (`scopeId`), so two agents with the
+    // same id in one session would silently overwrite each other's snapshots. Guard against that
+    // in-process; the cross-process case (same sessionId across processes) needs storage-level
+    // uniqueness and is out of scope here.
+    if (this._initializedAgentIds.has(agent.id)) {
+      throw new SessionError(`The agent id '${agent.id}' must be unique within a session.`)
+    }
+    this._initializedAgentIds.add(agent.id)
+
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
