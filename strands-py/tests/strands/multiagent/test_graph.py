@@ -2046,6 +2046,55 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "test_node" in final_state["node_results"]
 
 
+def test_graph_serialize_deserialize_serialize_preserves_cumulative_state():
+    """Resuming then re-serializing must not lose cumulative accounting.
+
+    Guards the serialize -> deserialize -> serialize round-trip on the resume path: the second
+    serialize must equal the first for accumulated_usage / accumulated_metrics / execution_count /
+    execution_time. Before the fix these were never persisted, so a resumed graph reset them to zero,
+    corrupting the timeout budget (should_continue) and the totals reported in GraphResult.
+    """
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    payload = {
+        "type": "graph",
+        "id": "default_graph",
+        "status": "executing",
+        "completed_nodes": [],
+        "failed_nodes": [],
+        "interrupted_nodes": [],
+        "node_results": {},
+        "next_nodes_to_execute": ["test_node"],
+        "current_task": "resume me",
+        "execution_order": [],
+        "accumulated_usage": {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33},
+        "accumulated_metrics": {"latencyMs": 44},
+        "execution_count": 3,
+        "execution_time": 555,
+        "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+    }
+
+    graph.deserialize_state(payload)
+
+    # Cumulative accounting is restored, not reset to zero.
+    assert graph.state.accumulated_usage == {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33}
+    assert graph.state.accumulated_metrics == {"latencyMs": 44}
+    assert graph.state.execution_count == 3
+    assert graph.state.execution_time == 555
+
+    serialize1 = graph.serialize_state()
+    graph.deserialize_state(serialize1)
+    serialize2 = graph.serialize_state()
+
+    assert serialize2["accumulated_usage"] == serialize1["accumulated_usage"]
+    assert serialize2["accumulated_metrics"] == serialize1["accumulated_metrics"]
+    assert serialize2["execution_count"] == serialize1["execution_count"]
+    assert serialize2["execution_time"] == serialize1["execution_time"]
+
+
 @pytest.mark.parametrize(
     ("cancel_node", "cancel_message"),
     [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],

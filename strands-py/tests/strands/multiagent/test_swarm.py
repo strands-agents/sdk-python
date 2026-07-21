@@ -1212,6 +1212,60 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     assert "test_agent" in final_state["node_results"]
 
 
+def test_swarm_serialize_deserialize_serialize_preserves_state():
+    """Resuming then re-serializing must not lose shared context or cumulative accounting.
+
+    Guards the serialize -> deserialize -> serialize round-trip on the resume path: the second
+    serialize must equal the first for shared_context and the cumulative fields. Before the fix,
+    deserialize restored shared_context onto self.shared_context while serialize read
+    self.state.shared_context, so the next serialize emitted {}; and execution_time /
+    accumulated_usage / accumulated_metrics were never persisted, resetting to zero on resume.
+    """
+    agent = create_mock_agent("first")
+    swarm = Swarm([agent])
+
+    payload = {
+        "type": "swarm",
+        "id": "default_swarm",
+        "status": "executing",
+        "node_history": [],
+        "node_results": {},
+        "next_nodes_to_execute": ["first"],
+        "current_task": "resume me",
+        "accumulated_usage": {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33},
+        "accumulated_metrics": {"latencyMs": 44},
+        "execution_time": 555,
+        "context": {
+            "shared_context": {"first": {"fact": "persist-me"}},
+            "handoff_node": None,
+            "handoff_message": None,
+        },
+        "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+    }
+
+    swarm.deserialize_state(payload)
+
+    # The swarm-owned and state-owned shared contexts must be the same restored object.
+    assert swarm.shared_context.context == {"first": {"fact": "persist-me"}}
+    assert swarm.state.shared_context.context == {"first": {"fact": "persist-me"}}
+    assert swarm.state.shared_context is swarm.shared_context
+
+    # Cumulative accounting is restored, not reset to zero.
+    assert swarm.state.accumulated_usage == {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33}
+    assert swarm.state.accumulated_metrics == {"latencyMs": 44}
+    assert swarm.state.execution_time == 555
+
+    serialize1 = swarm.serialize_state()
+    swarm.deserialize_state(serialize1)
+    serialize2 = swarm.serialize_state()
+
+    assert serialize2["context"]["shared_context"] == serialize1["context"]["shared_context"]
+    assert serialize2["context"]["shared_context"] == {"first": {"fact": "persist-me"}}
+    assert serialize2["accumulated_usage"] == serialize1["accumulated_usage"]
+    assert serialize2["accumulated_metrics"] == serialize1["accumulated_metrics"]
+    assert serialize2["execution_time"] == serialize1["execution_time"]
+
+
 @pytest.mark.asyncio
 async def test_swarm_handle_handoff():
     first_agent = create_mock_agent("first")

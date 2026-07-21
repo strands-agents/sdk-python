@@ -56,7 +56,7 @@ from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, _parse_metrics, _parse_usage
 
 logger = logging.getLogger(__name__)
 
@@ -1275,6 +1275,10 @@ class Graph(MultiAgentBase):
             "next_nodes_to_execute": next_nodes,
             "current_task": encode_bytes_values(self.state.task),
             "execution_order": [n.node_id for n in self.state.execution_order],
+            "accumulated_usage": self.state.accumulated_usage,
+            "accumulated_metrics": self.state.accumulated_metrics,
+            "execution_count": self.state.execution_count,
+            "execution_time": self.state.execution_time,
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
             },
@@ -1414,6 +1418,13 @@ class Graph(MultiAgentBase):
 
         # Task
         self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
+
+        # Cumulative accounting: restore so the timeout budget (should_continue) and the reported
+        # totals stay correct across a resume, rather than resetting to zero.
+        self.state.accumulated_usage = _parse_usage(payload.get("accumulated_usage") or {})
+        self.state.accumulated_metrics = _parse_metrics(payload.get("accumulated_metrics") or {})
+        self.state.execution_count = int(payload.get("execution_count") or 0)
+        self.state.execution_time = int(payload.get("execution_time") or 0)
 
         # next nodes to execute
         next_nodes = [self.nodes[nid] for nid in (payload.get("next_nodes_to_execute") or []) if nid in self.nodes]
