@@ -276,7 +276,7 @@ export class AgentDelegation implements Plugin {
    * AgentStreamStage middleware: transforms the AgentResult on delegation.
    *
    * When a delegation result was stashed (indicating successful delegation),
-   * consumes it and replaces the AgentResult with `stopReason: 'toolUse'`
+   * consumes it and replaces the AgentResult with `stopReason: 'endTurn'`
    * and the tool's content as `lastMessage`. Also appends the delegation
    * message to `agent.messages` so that downstream hooks (e.g. GoalLoop)
    * reading `lastAssistantMessage(agent.messages)` see the delegated content
@@ -314,7 +314,7 @@ export class AgentDelegation implements Plugin {
     // Replace AgentResult with the delegation tool's content
     return {
       result: new AgentResult({
-        stopReason: 'toolUse',
+        stopReason: 'endTurn',
         lastMessage: delegationMessage,
         invocationState: streamResult.result.invocationState,
         ...(streamResult.result.metrics !== undefined && { metrics: streamResult.result.metrics }),
