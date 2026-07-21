@@ -1173,10 +1173,11 @@ class MCPClient(ToolProvider):
             return
 
         try:
+            cancellation: Coroutine[Any, Any, Any]
             if task_id := cancellation_state.get("task_id"):
-                await session.experimental.cancel_task(task_id)
+                cancellation = session.experimental.cancel_task(task_id)
             elif (request_id := cancellation_state.get("request_id")) is not None:
-                await session.send_notification(
+                cancellation = session.send_notification(
                     ClientNotification(
                         CancelledNotification(
                             params=CancelledNotificationParams(
@@ -1185,6 +1186,9 @@ class MCPClient(ToolProvider):
                         )
                     )
                 )
+            else:
+                return
+            await asyncio.wait_for(cancellation, timeout=1)
         except Exception as error:
             self._log_debug_with_thread("error=<%s> | failed to notify MCP server of cancellation", str(error))
 
@@ -1229,10 +1233,13 @@ class MCPClient(ToolProvider):
 
                 if cancel_signal is not None and cancel_signal.is_set():
                     self._log_debug_with_thread("cancellation detected during MCP invocation")
+                    invoke_event.cancel()
+                    try:
+                        await asyncio.wait_for(asyncio.gather(invoke_event, return_exceptions=True), timeout=1)
+                    except asyncio.TimeoutError:
+                        self._log_debug_with_thread("timed out cleaning up cancelled MCP invocation")
                     if cancellation_state is not None:
                         await self._cancel_tool_call(cancellation_state)
-                    invoke_event.cancel()
-                    await asyncio.gather(invoke_event, return_exceptions=True)
                     raise RuntimeError("Tool execution cancelled")
                 if invoke_event in done:
                     return await invoke_event
@@ -1242,6 +1249,11 @@ class MCPClient(ToolProvider):
                 await asyncio.gather(invoke_event, return_exceptions=True)
                 raise RuntimeError("Connection to the MCP server was closed")
             finally:
+                if not invoke_event.done():
+                    invoke_event.cancel()
+                    await asyncio.gather(invoke_event, return_exceptions=True)
+                    if cancellation_state is not None:
+                        await self._cancel_tool_call(cancellation_state)
                 if cancel_event is not None and not cancel_event.done():
                     cancel_event.cancel()
                     await asyncio.gather(cancel_event, return_exceptions=True)
@@ -1425,12 +1437,25 @@ class MCPClient(ToolProvider):
         if cancellation_state is not None:
             cancellation_state["session"] = session
             cancellation_state["request_id"] = session._request_id
-        create_result = await session.experimental.call_tool_as_task(
-            name=name,
-            arguments=arguments,
-            ttl=ttl_ms,
-            meta=meta,
+        create_task = asyncio.create_task(
+            session.experimental.call_tool_as_task(
+                name=name,
+                arguments=arguments,
+                ttl=ttl_ms,
+                meta=meta,
+            )
         )
+        try:
+            create_result = await asyncio.shield(create_task)
+        except asyncio.CancelledError:
+            try:
+                create_result = await asyncio.wait_for(asyncio.shield(create_task), timeout=1)
+                if cancellation_state is not None:
+                    cancellation_state["task_id"] = create_result.task.taskId
+            except asyncio.TimeoutError:
+                create_task.cancel()
+                await asyncio.gather(create_task, return_exceptions=True)
+            raise
         task_id = create_result.task.taskId
         if cancellation_state is not None:
             cancellation_state["task_id"] = task_id

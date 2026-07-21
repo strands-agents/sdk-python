@@ -358,6 +358,41 @@ async def test_call_tool_async_cancel_wins_when_result_and_signal_are_ready(mock
 
 
 @pytest.mark.asyncio
+async def test_call_tool_async_caller_cancellation_cleans_up_background_call(mock_transport, mock_session):
+    """Test cancelling the caller also cancels the background invocation."""
+    call_started = asyncio.Event()
+    call_cancelled = asyncio.Event()
+    mock_session._request_id = 0
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        call_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            call_cancelled.set()
+            raise
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        caller = asyncio.create_task(client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={}))
+        await asyncio.wait_for(call_started.wait(), timeout=1)
+        caller.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await caller
+
+        mock_session.call_tool.side_effect = None
+        mock_session.call_tool.return_value = MCPCallToolResult(
+            isError=False, content=[MCPTextContent(type="text", text="done")]
+        )
+        second_result = await client.call_tool_async(tool_use_id="completed", name="fast_tool", arguments={})
+
+    assert call_cancelled.is_set()
+    mock_session.send_notification.assert_awaited_once()
+    assert second_result["status"] == "success"
+
+
+@pytest.mark.asyncio
 async def test_call_tool_async_forwards_meta(mock_transport, mock_session):
     """Test that call_tool_async forwards meta to ClientSession.call_tool."""
     mock_content = MCPTextContent(type="text", text="Test message")

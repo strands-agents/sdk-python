@@ -255,6 +255,78 @@ class TestTaskExecution:
         mock_session.experimental.cancel_task.assert_awaited_once_with("test-task-id")
         assert second_result["status"] == "success"
 
+    @pytest.mark.asyncio
+    async def test_cancellation_reconciles_delayed_task_creation_response(self, mock_transport, mock_session):
+        """Test cancellation discovers and stops a task whose creation response is delayed."""
+        import threading
+
+        self._setup_task_tool(mock_session, "slow_tool")
+        creation_started = threading.Event()
+        release_response = threading.Event()
+        cancel_signal = threading.Event()
+        create_result = MagicMock()
+        create_result.task.taskId = "delayed-task-id"
+
+        async def delayed_creation(**kwargs):
+            creation_started.set()
+            while not release_response.is_set():
+                await asyncio.sleep(0.01)
+            return create_result
+
+        mock_session.experimental.call_tool_as_task = delayed_creation
+        mock_session.experimental.cancel_task = AsyncMock()
+
+        with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
+            client.list_tools_sync()
+            call = asyncio.create_task(
+                client.call_tool_async(
+                    tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+                )
+            )
+            assert await asyncio.to_thread(creation_started.wait, 1)
+            cancel_signal.set()
+            await asyncio.sleep(0.1)
+            release_response.set()
+            result = await asyncio.wait_for(call, timeout=2)
+
+        assert result["status"] == "error"
+        mock_session.experimental.cancel_task.assert_awaited_once_with("delayed-task-id")
+
+    @pytest.mark.asyncio
+    async def test_remote_task_cancellation_timeout_does_not_block_local_result(self, mock_transport, mock_session):
+        """Test an unresponsive tasks/cancel request cannot hang local cancellation."""
+        import threading
+
+        self._setup_task_tool(mock_session, "slow_tool")
+        poll_started = asyncio.Event()
+        cancel_signal = threading.Event()
+
+        async def infinite_poll(task_id):
+            poll_started.set()
+            while True:
+                await asyncio.sleep(1)
+                yield MagicMock(status="running")
+
+        async def hanging_cancel(task_id):
+            await asyncio.Event().wait()
+
+        mock_session.experimental.poll_task = infinite_poll
+        mock_session.experimental.cancel_task = hanging_cancel
+
+        with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
+            client.list_tools_sync()
+            call = asyncio.create_task(
+                client.call_tool_async(
+                    tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+                )
+            )
+            await asyncio.wait_for(poll_started.wait(), timeout=1)
+            cancel_signal.set()
+            result = await asyncio.wait_for(call, timeout=2)
+
+        assert result["status"] == "error"
+        assert result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+
     def test_logs_warning_when_task_execution_ignores_progress_callback(self, mock_transport, mock_session, caplog):
         """Test warning is logged when task execution ignores progress callbacks."""
         self._setup_task_tool(mock_session, "task_tool")
