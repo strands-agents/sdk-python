@@ -158,15 +158,23 @@ async def test_rejects_non_positive_timeout(timeout):
 @pytest.mark.parametrize("timeout", ["1", True, False])
 @pytest.mark.asyncio
 async def test_tool_validation_rejects_coercible_timeout_values(timeout):
-    events = [
-        event
-        async for event in http_request.stream(
-            {"toolUseId": "test", "name": "http_request", "input": {"method": "GET", "url": _URL, "timeout": timeout}},
-            {},
-        )
-    ]
+    request = AsyncMock(return_value=_response())
+
+    with patch("httpx.AsyncClient.request", new=request):
+        events = [
+            event
+            async for event in http_request.stream(
+                {
+                    "toolUseId": "test",
+                    "name": "http_request",
+                    "input": {"method": "GET", "url": _URL, "timeout": timeout},
+                },
+                {},
+            )
+        ]
 
     assert events[-1].tool_result["status"] == "error"
+    request.assert_not_awaited()
 
 
 @pytest.mark.parametrize("timeout", ["1", True, False])

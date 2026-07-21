@@ -4,19 +4,30 @@ from __future__ import annotations
 
 import asyncio
 import math
-from typing import Annotated, Literal
+from typing import Any, Literal
 
 import httpx
-from pydantic import AnyUrl, Strict, TypeAdapter, ValidationError
+from pydantic import AnyUrl, TypeAdapter, ValidationError
+from pydantic_core import core_schema
 
 from ...tools.decorator import tool
 from ...types.tools import JSONSchema
 from .types import HttpRequestOutput
 
 HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
-Timeout = Annotated[float, Strict()]
+
+
+class Timeout(float):
+    """Strict, finite, positive request timeout in seconds."""
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> core_schema.CoreSchema:
+        """Return the validation schema used by the tool decorator."""
+        return core_schema.float_schema(strict=True, allow_inf_nan=False, gt=0)
+
 
 _DEFAULT_TIMEOUT = 30
+_DEFAULT_TIMEOUT_VALUE = Timeout(_DEFAULT_TIMEOUT)
 _HTTP_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 _HTTP_URL_ADAPTER = TypeAdapter(AnyUrl)
 _HTTP_REQUEST_INPUT_SCHEMA: JSONSchema = {
@@ -60,7 +71,7 @@ async def http_request(
     url: str,
     headers: dict[str, str] | None = None,
     body: str | None = None,
-    timeout: Timeout = _DEFAULT_TIMEOUT,
+    timeout: Timeout = _DEFAULT_TIMEOUT_VALUE,
 ) -> HttpRequestOutput:
     """Make an HTTP request to an external API.
 
@@ -84,9 +95,10 @@ async def http_request(
     """
     if method not in _HTTP_METHODS:
         raise ValueError(f"Unsupported HTTP method: {method}")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+    timeout_value: object = timeout
+    if isinstance(timeout_value, bool) or not isinstance(timeout_value, (int, float)):
         raise ValueError("timeout must be a number")
-    if not math.isfinite(timeout) or timeout <= 0:
+    if not math.isfinite(timeout_value) or timeout_value <= 0:
         raise ValueError("timeout must be a finite number greater than 0")
 
     try:
