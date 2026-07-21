@@ -84,6 +84,8 @@ async def http_request(
     """
     if method not in _HTTP_METHODS:
         raise ValueError(f"Unsupported HTTP method: {method}")
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+        raise ValueError("timeout must be a number")
     if not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be a finite number greater than 0")
 
