@@ -1,0 +1,10 @@
+name: strands-transformers
+description: HuggingFace Transformers integration for Strands Agents providing universal local inference across all tasks and modalities without hardcoding.
+integrationType: model-provider
+languages:
+  python:
+    package: strands-transformers
+    registry: https://pypi.org/project/strands-transformers/
+github: https://github.com/cagataycali/strands-transformers
+maintainer: cagataycali
+addedDate: 2026-07-21

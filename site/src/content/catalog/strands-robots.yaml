@@ -1,0 +1,10 @@
+name: strands-robots
+description: AI-powered robot control, simulation, and training tools for Strands Agents integrating with MuJoCo, Isaac Sim, Newton, and robotics learning frameworks.
+integrationType: tool
+languages:
+  python:
+    package: strands-robots
+    registry: https://pypi.org/project/strands-robots/
+github: https://github.com/cagataycali/strands-robots
+maintainer: cagataycali
+addedDate: 2026-07-21

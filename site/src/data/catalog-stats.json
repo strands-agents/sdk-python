@@ -1,14 +1,14 @@
 {
   "ag-ui": {
     "downloads": {},
-    "stars": 14837,
+    "stars": 14844,
     "lastRelease": "2026-07-15"
   },
   "agent-control": {
     "downloads": {
       "python": 1688
     },
-    "stars": 280,
+    "stars": 281,
     "lastRelease": "2026-07-13"
   },
   "agent402": {
@@ -44,7 +44,7 @@
   },
   "agentcore-tool-search": {
     "downloads": {
-      "python": 7736670
+      "python": 7766689
     },
     "stars": 744,
     "lastRelease": "2026-07-17"
@@ -65,12 +65,14 @@
     "downloads": {}
   },
   "coinbase-agentkit": {
-    "downloads": {},
+    "downloads": {
+      "python": 55
+    },
     "stars": 1273
   },
   "datadog-ai-guard": {
     "downloads": {
-      "python": 38505054
+      "python": 39386044
     },
     "stars": 647,
     "lastRelease": "2026-07-17"
@@ -86,12 +88,16 @@
     "lastRelease": "2026-06-14"
   },
   "headroom": {
-    "downloads": {},
-    "stars": 60934,
+    "downloads": {
+      "python": 974225
+    },
+    "stars": 60986,
     "lastRelease": "2026-07-17"
   },
   "hiddenlayer-strands": {
-    "downloads": {},
+    "downloads": {
+      "python": 30
+    },
     "stars": 0,
     "lastRelease": "2026-04-01"
   },
@@ -99,8 +105,13 @@
     "downloads": {
       "python": 40
     },
-    "stars": 18650,
+    "stars": 18655,
     "lastRelease": "2026-07-01"
+  },
+  "langfuse": {
+    "downloads": {},
+    "stars": 31588,
+    "lastRelease": "2026-07-21"
   },
   "llm-tracekit-strands": {
     "downloads": {
@@ -120,7 +131,7 @@
   },
   "nvidia-nat-strands": {
     "downloads": {},
-    "stars": 2511,
+    "stars": 2513,
     "lastRelease": "2026-06-16"
   },
   "nvidia-nim": {
@@ -133,11 +144,16 @@
     "downloads": {
       "python": 14972
     },
-    "stars": 1105,
+    "stars": 1106,
     "lastRelease": "2026-07-01"
   },
   "ovhcloud-ai-endpoints": {
     "downloads": {}
+  },
+  "portkey": {
+    "downloads": {},
+    "stars": 12493,
+    "lastRelease": "2026-01-12"
   },
   "respan": {
     "downloads": {
@@ -153,7 +169,7 @@
   },
   "sglang": {
     "downloads": {
-      "python": 3140
+      "python": 2911
     },
     "stars": 74,
     "lastRelease": "2026-07-04"
@@ -173,11 +189,15 @@
     "lastRelease": "2026-05-21"
   },
   "strands-adb": {
-    "downloads": {},
+    "downloads": {
+      "python": 39
+    },
     "stars": 2
   },
   "strands-agentcore-tools": {
-    "downloads": {},
+    "downloads": {
+      "python": 108
+    },
     "stars": 6
   },
   "strands-agt": {
@@ -188,7 +208,7 @@
   },
   "strands-apify": {
     "downloads": {
-      "python": 23
+      "python": 24
     },
     "stars": 1,
     "lastRelease": "2026-05-28"
@@ -196,6 +216,22 @@
   "strands-arise": {
     "downloads": {},
     "stars": 0
+  },
+  "strands-bitchat": {
+    "downloads": {
+      "python": 36
+    },
+    "stars": 8
+  },
+  "strands-ccxt": {
+    "downloads": {},
+    "stars": 9,
+    "lastRelease": "2026-01-18"
+  },
+  "strands-cloudflare": {
+    "downloads": {},
+    "stars": 4,
+    "lastRelease": "2026-01-22"
   },
   "strands-code-agent": {
     "downloads": {
@@ -223,6 +259,11 @@
     "stars": 3,
     "lastRelease": "2025-10-15"
   },
+  "strands-erc8004": {
+    "downloads": {},
+    "stars": 5,
+    "lastRelease": "2026-02-10"
+  },
   "strands-fun-tools": {
     "downloads": {},
     "stars": 0,
@@ -234,9 +275,14 @@
     },
     "stars": 7
   },
+  "strands-hackerone": {
+    "downloads": {},
+    "stars": 4,
+    "lastRelease": "2026-01-08"
+  },
   "strands-hubspot": {
     "downloads": {
-      "python": 85
+      "python": 84
     },
     "stars": 3,
     "lastRelease": "2025-10-15"
@@ -264,13 +310,21 @@
     "lastRelease": "2026-01-26"
   },
   "strands-postgresql-session-manager": {
-    "downloads": {},
+    "downloads": {
+      "python": 24
+    },
     "stars": 1,
     "lastRelease": "2025-12-02"
   },
   "strands-rendercv": {
-    "downloads": {},
+    "downloads": {
+      "python": 20
+    },
     "stars": 3
+  },
+  "strands-robots": {
+    "downloads": {},
+    "stars": 23
   },
   "strands-sapiens": {
     "downloads": {
@@ -281,7 +335,7 @@
   },
   "strands-spraay": {
     "downloads": {
-      "python": 24
+      "python": 22
     },
     "stars": 0
   },
@@ -311,15 +365,22 @@
   },
   "strands-telegram": {
     "downloads": {
-      "python": 36
+      "python": 28
     },
     "stars": 5,
     "lastRelease": "2025-10-21"
   },
   "strands-token-telemetry": {
-    "downloads": {},
+    "downloads": {
+      "python": 87
+    },
     "stars": 0,
     "lastRelease": "2026-02-20"
+  },
+  "strands-transformers": {
+    "downloads": {},
+    "stars": 5,
+    "lastRelease": "2026-06-15"
   },
   "strands-valkey-session-manager": {
     "downloads": {
@@ -348,7 +409,7 @@
   },
   "utcp": {
     "downloads": {
-      "python": 545
+      "python": 515
     },
     "stars": 645
   },
