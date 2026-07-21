@@ -179,16 +179,17 @@ function getFirstLink(entries: any[]): string | null {
       color: var(--sl-color-text-invert);
     }
     
-    a > *:not(:last-child), .group-label > *:not(:last-child) { margin-inline-end: 0.25em; }
-    
     @media (min-width: 50rem) { 
       .top-level > li + li { margin-top: 0.5rem; } 
       .large { font-size: var(--sl-text-base); } 
       a:not(.group-link) { font-size: var(--sl-text-sm); }
     }
 
+    /* Badge carries its own leading gap so spacing is identical for links,
+       section headers, and group labels, regardless of label whitespace */
     .sl-badge {
       font-size: .75em !important;
+      margin-inline-start: 0.375em;
     }
   }
 </style>

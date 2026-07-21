@@ -378,6 +378,17 @@ function mapResponsesUsage(usage: ResponseUsage): NonNullable<ResponsesStreamSta
   return mapped
 }
 
+function createResponsesStreamError(
+  message: string | undefined,
+  code: string | null | undefined
+): Error & { code?: string } {
+  const error = new Error(message || 'OpenAI Responses API response failed') as Error & { code?: string }
+  if (code) {
+    error.code = code
+  }
+  return error
+}
+
 /**
  * Maps a single Responses API stream event to zero or more SDK events. Mutates
  * `state` and, when `stateful` is `true`, writes `responseId` into `modelState`.
@@ -499,6 +510,15 @@ export function mapResponsesEventToSDK(
         state.stopReason = 'maxTokens'
       }
       break
+    }
+
+    case 'response.failed': {
+      const error = event.response.error
+      throw createResponsesStreamError(error?.message, error?.code)
+    }
+
+    case 'error': {
+      throw createResponsesStreamError(event.message, event.code)
     }
 
     case 'response.completed': {
