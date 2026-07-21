@@ -14,6 +14,7 @@ import type { JSONValue } from '../../types/json.js'
 import { FileStorage, InMemoryStorage as LegacyInMemoryStorage, type Storage as OffloaderStorage } from './storage.js'
 import { NAMESPACED, namespace, type Storage } from '../../storage/storage.js'
 import { isSearchableContent, searchContent } from './search.js'
+import { AgentAsTool } from '../../agent/agent-as-tool.js'
 
 function isOffloaderStorage(storage: Storage | OffloaderStorage): storage is OffloaderStorage {
   return 'store' in storage && 'retrieve' in storage
@@ -434,6 +435,12 @@ export class ContextOffloader implements Plugin {
 
   private async _handleToolResult(event: AfterToolCallEvent): Promise<void> {
     if (event.result.status === 'error') return
+
+    // Skip delegation tool results — their content is the final delegated answer
+    // and must not be truncated/offloaded. The delegation plugin transforms this
+    // result into the AgentResult.lastMessage, so offloading would replace the
+    // final answer with an unrecoverable placeholder.
+    if (event.tool instanceof AgentAsTool && event.tool.delegate) return
 
     // Skip results from the retrieval tool to prevent circular offloading
     if (this._includeRetrievalTool && event.toolUse.name === RETRIEVAL_TOOL_NAME) return

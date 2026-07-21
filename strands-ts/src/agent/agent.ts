@@ -1631,7 +1631,13 @@ export class Agent implements LocalAgent, InvokableAgent {
           // to signal that its result is the final answer and no further model call
           // is needed. Preserves the model's stop reason of 'toolUse' here
           // since we only reach this point when the model requested tool execution.
+          //
+          // Consume-once: clear the flag immediately so that when invocationState is
+          // shared across nested agent frames (AgentAsTool forwards the parent's
+          // invocationState to children), a child's stop signal does not leak to
+          // ancestor loops. Each agent frame consumes the signal exactly once.
           if (invocationState.stopEventLoop === true) {
+            invocationState.stopEventLoop = false
             result = new AgentResult({
               stopReason: 'toolUse',
               lastMessage: assistantMessage,

@@ -79,7 +79,7 @@ export type InvokeArgs =
  *
  * | Key | Type | Description |
  * |-----|------|-------------|
- * | `stopEventLoop` | `boolean` | When set to `true` by a tool during execution, the agent loop exits immediately after that tool batch completes — no further model call is made. The returned {@link AgentResult} carries the model's original `stopReason` (typically `'toolUse'`). Equivalent to Python SDK's `request_state["stop_event_loop"]`. |
+ * | `stopEventLoop` | `boolean` | When set to `true` by a tool during execution, the agent loop exits immediately after that tool batch completes — no further model call is made. The returned {@link AgentResult} carries the model's original `stopReason` (typically `'toolUse'`). |
  *
  * Distinct from {@link LocalAgent.appState}: `appState` is durable across
  * invocations, JSON-serializable, and deep-copied. `invocationState` is
