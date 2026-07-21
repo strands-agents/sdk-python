@@ -10,6 +10,8 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/code-execution/code-execution.ts
+  - path: strands-py/src/strands/vended_tools/code_execution/code_execution.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -34,6 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [Code Execution](#code-execution) | Run source code through a configured sandbox | Python, TypeScript (Node.js) |
 
 ### File Editor
 
@@ -160,6 +163,78 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### Code Execution
+
+Runs source code through a configured sandbox and returns stdout, stderr, the interpreter exit code, and wall-clock elapsed milliseconds. Each call is a fresh interpreter invocation; state does not persist across calls.
+
+_Supported in: Node.js (TypeScript); all platforms (Python)._
+
+The tool refuses to execute against the host default sandbox, which provides no isolation. An isolating sandbox — for example a DockerSandbox or an SshSandbox — must be configured on the agent, or the tool raises immediately. Language selection is fixed at factory time and is not exposed to the model. Inputs are capped in bytes for both the submitted code and the returned stdout and stderr, and execution is bounded by a configurable timeout.
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:code_execution_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:code_execution_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.sandbox.docker import DockerSandbox
+from strands.vended_tools import code_execution
+
+agent = Agent(
+    sandbox=DockerSandbox(container="my-python-container"),
+    tools=[code_execution],
+)
+agent("Compute the sum of primes below one hundred and print the result.")
+```
+
+</Tab>
+</Tabs>
+
+**Custom factory:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:code_execution_custom_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:code_execution_custom_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import make_code_execution
+
+tool = make_code_execution(
+    sandbox=sandbox,
+    name="sandbox_code",
+    max_code_bytes=50_000,
+    max_output_bytes=200_000,
+    default_timeout=30,
+)
+agent = Agent(tools=[tool])
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/code-execution/README.md)
 
 ---
 
