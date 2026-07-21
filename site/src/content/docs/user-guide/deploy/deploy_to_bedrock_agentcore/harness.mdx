@@ -1,0 +1,119 @@
+---
+title: Invoke an Amazon Bedrock AgentCore Harness
+description: >-
+  Invoke a deployed Amazon Bedrock AgentCore Harness from TypeScript, stream
+  events and metrics, continue sessions, and use it in a graph.
+languages: TypeScript
+integrationType: integration
+sidebar:
+  label: "Invoke a Harness"
+tags: [deployment, aws, bedrock, agentcore, multi-agent]
+sourceLinks:
+  - path: strands-ts/src/agentcore-harness/agentcore-harness-agent.ts
+  - path: strands-ts/src/agentcore-harness/events.ts
+  - path: strands-ts/src/agentcore-harness/stream-decoder.ts
+---
+
+Use `AgentCoreHarnessAgent` to invoke a deployed
+[Amazon Bedrock AgentCore Harness][Harness]
+through the Strands Agents TypeScript SDK. The adapter supports the same `invoke()` and
+`stream()` methods as a local Strands `Agent`, so you can call it directly or add it to a
+[graph](../../concepts/multi-agent/graph.md).
+
+The deployed Harness owns its model, system prompt, tools, skills, limits, memory,
+and agent loop. The local adapter sends messages and translates the Harness response
+into Strands messages and stream events.
+
+## Prerequisites
+
+Before you invoke a Harness, prepare:
+
+- Node.js 20 or later
+- A deployed AgentCore Harness and its ARN
+- AWS credentials with permission to invoke the Harness
+- An AWS region that matches the Harness ARN
+
+Install the Strands Agents SDK and the optional AgentCore client:
+
+```bash
+npm install @strands-agents/sdk @aws-sdk/client-bedrock-agentcore
+```
+
+## Invoke a Harness Session
+
+To continue a conversation, reuse the same runtime session ID across calls. A UUID
+satisfies the AgentCore session ID format and gives each new conversation an isolated
+session.
+
+```typescript
+--8<-- "user-guide/deploy/deploy_to_bedrock_agentcore/harness_imports.ts:session_imports"
+
+--8<-- "user-guide/deploy/deploy_to_bedrock_agentcore/harness.ts:session"
+```
+
+Create a new adapter with a new runtime session ID for each unrelated conversation.
+The adapter sends only the current message because the deployed Harness owns the
+conversation history.
+
+## Configure the AWS Client
+
+To use the default AWS credential and region resolution, omit client configuration.
+The adapter makes one AWS request attempt by default. Set `maxAttempts` explicitly when
+the client should retry a request.
+
+Pass `clientConfig` to set AWS SDK options such as `region`, `credentials`, or
+`maxAttempts`. To manage the client lifecycle yourself, pass a
+`BedrockAgentCoreClient` as `client`; it takes precedence over `clientConfig`.
+
+## Stream Responses and Metrics
+
+To process Harness output as it arrives, iterate over `stream()`. Stream update events
+contain the raw, non-error `InvokeHarness` events. The final result event contains the
+translated Strands `AgentResult`.
+
+```typescript
+--8<-- "user-guide/deploy/deploy_to_bedrock_agentcore/harness_imports.ts:stream_imports"
+
+--8<-- "user-guide/deploy/deploy_to_bedrock_agentcore/harness.ts:stream"
+```
+
+Token usage and latency remain available on the raw Harness metadata event. The adapter
+does not copy them into `AgentResult.metrics`.
+
+## Add a Harness to a Graph
+
+To combine a remote Harness with local agents, add the adapter directly to a graph.
+Set a short `id` so edges can refer to the Harness node clearly.
+
+```typescript
+--8<-- "user-guide/deploy/deploy_to_bedrock_agentcore/harness_imports.ts:graph_imports"
+
+--8<-- "user-guide/deploy/deploy_to_bedrock_agentcore/harness.ts:graph"
+```
+
+The graph passes predecessor output to the Harness as text. The runtime session ID
+still controls remote conversation state, so create a new adapter and session ID for
+each graph run that requires isolation.
+
+## Current Boundaries
+
+Use the adapter when the deployed Harness should remain the authority for execution:
+
+- **Input:** The adapter accepts non-empty strings, text blocks, or message history. It
+  rejects non-text content, interrupt responses, and checkpoint resumes.
+- **Invocation options:** Cancellation and invocation state are supported. Structured
+  output schemas and local execution limits are not supported.
+- **Request overrides:** The adapter sends the Harness ARN, runtime session ID, and
+  messages. It does not expose qualifiers, runtime user IDs, trace headers, model
+  configuration, system prompts, tools, or Harness configuration per call.
+- **Tool execution:** The deployed Harness must execute and continue its tool calls.
+  The adapter does not execute Harness tool calls locally.
+- **Composition:** Graph nodes are supported. Swarm requires structured output from
+  each node, so `AgentCoreHarnessAgent` is not a Swarm node.
+
+One adapter instance processes one invocation at a time. Wait for the active
+`invoke()` or `stream()` call to finish, or create another adapter for concurrent work.
+Use the AWS SDK's `InvokeHarness` command directly when you need request fields that
+the adapter does not expose.
+
+[Harness]: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/harness.html
