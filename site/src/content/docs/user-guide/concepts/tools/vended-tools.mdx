@@ -10,6 +10,8 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/graph/graph.ts
+  - path: strands-py/src/strands/vended_tools/graph/graph.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -34,6 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [Graph](#graph) | Run a deterministic directed acyclic graph of sub-agents | Python, TypeScript |
 
 ### File Editor
 
@@ -160,6 +163,49 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### Graph
+
+Runs a deterministic directed acyclic graph of sub-agents. The caller describes the nodes (each with an optional system prompt and a tool allow-list drawn from the parent agent's registry) and the edges (dependency order); the tool builds a sub-agent per node, wires them into a Graph, executes it, and returns per-node text keyed by node id. Use it when a task has a fixed pipeline shape with clear dependencies; use plain tool calls for single-step work.
+
+Sub-agents inherit the parent's model instance, so model configuration is never accepted from the caller. Tool names must resolve in the parent's registry, wildcards are refused, and cycles are rejected before any sub-agent is built. The tool participates in the shared multi-agent recursion depth counter (default cap of three) so chains that cross tool boundaries stay bounded.
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { graph } from '@strands-agents/sdk/vended-tools/graph'
+
+const agent = new Agent({ tools: [graph] })
+await agent.invoke(
+  'Research the top three JS frameworks and summarise them. ' +
+    'Use the graph tool with a researcher and a summariser node.'
+)
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import graph
+
+agent = Agent(tools=[graph])
+agent(
+    "Research the top three JS frameworks and summarise them. "
+    "Use the graph tool with a researcher and a summariser node."
+)
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/graph/README.md)
 
 ---
 

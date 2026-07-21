@@ -17,10 +17,13 @@ Example Usage:
 
 from .bash import bash, make_bash
 from .file_editor import file_editor, make_file_editor
+from .graph import graph, make_graph
 
 __all__ = [
     "bash",
     "file_editor",
+    "graph",
     "make_bash",
     "make_file_editor",
+    "make_graph",
 ]
