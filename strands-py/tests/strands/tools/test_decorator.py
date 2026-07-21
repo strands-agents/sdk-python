@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, Strict
 
 import strands
 from strands import Agent
@@ -1803,6 +1803,22 @@ def test_tool_decorator_annotated_string_description():
 
     # Verify all are required
     assert set(schema["required"]) == {"name", "age", "city"}
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_preserves_annotated_validation_metadata(alist):
+    """Annotated validation metadata applies to tool-stream inputs."""
+
+    @strands.tool
+    def strict_tool(value: Annotated[float, Strict()]) -> float:
+        """Return a strictly validated number."""
+        return value
+
+    valid_result = (await alist(strict_tool.stream({"toolUseId": "valid", "input": {"value": 1}}, {})))[-1]
+    invalid_result = (await alist(strict_tool.stream({"toolUseId": "invalid", "input": {"value": "1"}}, {})))[-1]
+
+    assert valid_result["tool_result"]["status"] == "success"
+    assert invalid_result["tool_result"]["status"] == "error"
 
 
 def test_tool_decorator_annotated_pydantic_field_constraints():

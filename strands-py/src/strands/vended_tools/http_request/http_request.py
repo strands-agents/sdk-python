@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import math
-from typing import Any, Literal
+from typing import Annotated, Literal
 
 import httpx
-from pydantic import AnyUrl, TypeAdapter, ValidationError
-from pydantic_core import core_schema
+from pydantic import AnyUrl, Strict, TypeAdapter, ValidationError
 
 from ...tools.decorator import tool
 from ...types.tools import JSONSchema
@@ -17,17 +16,9 @@ from .types import HttpRequestOutput
 HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 
-class Timeout(float):
-    """Strict, finite, positive request timeout in seconds."""
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source_type: Any, handler: Any) -> core_schema.CoreSchema:
-        """Return the validation schema used by the tool decorator."""
-        return core_schema.float_schema(strict=True, allow_inf_nan=False, gt=0)
-
+Timeout = Annotated[float, Strict()]
 
 _DEFAULT_TIMEOUT = 30
-_DEFAULT_TIMEOUT_VALUE = Timeout(_DEFAULT_TIMEOUT)
 _HTTP_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
 _HTTP_URL_ADAPTER = TypeAdapter(AnyUrl)
 _HTTP_REQUEST_INPUT_SCHEMA: JSONSchema = {
@@ -71,7 +62,7 @@ async def http_request(
     url: str,
     headers: dict[str, str] | None = None,
     body: str | None = None,
-    timeout: Timeout = _DEFAULT_TIMEOUT_VALUE,
+    timeout: Timeout = _DEFAULT_TIMEOUT,
 ) -> HttpRequestOutput:
     """Make an HTTP request to an external API.
 

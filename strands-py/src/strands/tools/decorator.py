@@ -129,7 +129,9 @@ class FunctionToolMetadata:
 
         if get_origin(annotation) is Annotated:
             args = get_args(annotation)
-            actual_type = args[0]
+            # Preserve validation metadata such as pydantic.Strict while extracting
+            # tool descriptions from the same annotation.
+            actual_type = annotation
 
             # Look through metadata for a string description or a FieldInfo object
             for meta in args[1:]:
