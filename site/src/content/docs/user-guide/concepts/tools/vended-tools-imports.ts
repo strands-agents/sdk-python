@@ -35,3 +35,8 @@ import { bash } from '@strands-agents/sdk/vended-tools/bash'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:combined_import]
+
+// --8<-- [start:swarm_import]
+import { Agent } from '@strands-agents/sdk'
+import { swarm } from '@strands-agents/sdk/vended-tools/swarm'
+// --8<-- [end:swarm_import]

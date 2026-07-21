@@ -6,6 +6,7 @@ import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
 import { SessionManager, FileStorage } from '@strands-agents/sdk'
+import { swarm } from '@strands-agents/sdk/vended-tools/swarm'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {
@@ -108,6 +109,18 @@ async function notebookStatePersistenceExample() {
   const restoredAgent = new Agent({ tools: [notebook], sessionManager: session })
   await restoredAgent.invoke('Read the ideas notebook')
   // --8<-- [end:notebook_state_persistence]
+}
+
+// Swarm tool example
+async function swarmExample() {
+  // --8<-- [start:swarm_example]
+  const agent = new Agent({
+    tools: [swarm],
+  })
+
+  // The agent decides at runtime to spin up a small handoff-based team of sub-agents
+  await agent.invoke('Use a swarm to research and summarize recent octopus news.')
+  // --8<-- [end:swarm_example]
 }
 
 // Combined tools example - development workflow
