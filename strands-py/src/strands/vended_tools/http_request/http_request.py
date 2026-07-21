@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+import math
+from typing import Annotated, Literal
 
 import httpx
-from pydantic import AnyUrl, TypeAdapter, ValidationError
+from pydantic import AnyUrl, Strict, TypeAdapter, ValidationError
 
 from ...tools.decorator import tool
 from ...types.tools import JSONSchema
 from .types import HttpRequestOutput
 
 HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+Timeout = Annotated[float, Strict()]
 
 _DEFAULT_TIMEOUT = 30
 _HTTP_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
@@ -58,7 +60,7 @@ async def http_request(
     url: str,
     headers: dict[str, str] | None = None,
     body: str | None = None,
-    timeout: float = _DEFAULT_TIMEOUT,
+    timeout: Timeout = _DEFAULT_TIMEOUT,
 ) -> HttpRequestOutput:
     """Make an HTTP request to an external API.
 
@@ -82,8 +84,8 @@ async def http_request(
     """
     if method not in _HTTP_METHODS:
         raise ValueError(f"Unsupported HTTP method: {method}")
-    if timeout <= 0:
-        raise ValueError("timeout must be greater than 0")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be a finite number greater than 0")
 
     try:
         _HTTP_URL_ADAPTER.validate_python(url)
@@ -96,7 +98,7 @@ async def http_request(
                 client.request(method, url, headers=headers, content=body),
                 timeout=timeout,
             )
-    except (TimeoutError, httpx.TimeoutException) as error:
+    except (asyncio.TimeoutError, httpx.TimeoutException) as error:
         raise TimeoutError(f"Request timed out after {timeout} seconds: {method} {url}") from error
     except httpx.RequestError as error:
         raise RuntimeError(str(error)) from error

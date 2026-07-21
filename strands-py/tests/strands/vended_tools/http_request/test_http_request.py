@@ -148,11 +148,25 @@ async def test_rejects_invalid_http_urls(url):
         await http_request(method="GET", url=url)
 
 
-@pytest.mark.parametrize("timeout", [0, -1])
+@pytest.mark.parametrize("timeout", [0, -1, float("inf"), float("-inf"), float("nan")])
 @pytest.mark.asyncio
 async def test_rejects_non_positive_timeout(timeout):
-    with pytest.raises(ValueError, match="timeout must be greater than 0"):
+    with pytest.raises(ValueError, match="timeout must be a finite number greater than 0"):
         await http_request(method="GET", url=_URL, timeout=timeout)
+
+
+@pytest.mark.parametrize("timeout", ["1", True])
+@pytest.mark.asyncio
+async def test_tool_validation_rejects_coercible_timeout_values(timeout):
+    events = [
+        event
+        async for event in http_request.stream(
+            {"toolUseId": "test", "name": "http_request", "input": {"method": "GET", "url": _URL, "timeout": timeout}},
+            {},
+        )
+    ]
+
+    assert events[-1].tool_result["status"] == "error"
 
 
 @pytest.mark.asyncio
