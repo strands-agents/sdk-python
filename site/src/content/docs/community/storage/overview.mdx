@@ -1,7 +1,6 @@
 ---
 title: Community Storage Backends
 description: Community-built storage backends for persisting raw bytes under string keys.
-tags: [storage]
 sidebar:
   label: "Overview"
 ---
@@ -13,10 +12,10 @@ key-value persistence. Any class that implements the four-method
 `Storage` protocol (`write`, `read`, `delete`, `list`) can plug in.
 
 The SDK ships reference backends:
-[`InMemoryStorage`](../../user-guide/concepts/plugins/context-offloader.md),
-[`LocalFileStorage`](../../user-guide/concepts/agents/session-management.md),
+[`InMemoryStorage`](../../user-guide/concepts/storage.mdx),
+[`LocalFileStorage`](../../user-guide/concepts/storage.mdx),
 and
-[`S3Storage`](../../user-guide/concepts/agents/session-management.md).
+[`S3Storage`](../../user-guide/concepts/storage.mdx).
 The packages below are **community-built** storage backends you can
 install and use wherever a `Storage` instance is accepted.
 
