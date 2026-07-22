@@ -578,7 +578,6 @@ describe('AgentDelegation integration', () => {
       const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Leaf response' })
       const leafAgent = new Agent({ model: subModel, name: 'Leaf', printer: false })
 
-      // Orchestrator model: calls the delegation tool
       const orchestratorModel = new MockMessageModel().addTurn({
         type: 'toolUseBlock',
         name: 'Leaf',
@@ -593,14 +592,24 @@ describe('AgentDelegation integration', () => {
         printer: false,
       })
 
-      // Pre-set stopEventLoop to simulate a parent/sibling owning the signal.
-      // The delegation plugin's _onAfterTools should NOT claim ownership since
-      // the flag is already true.
-      const invocationState = { stopEventLoop: true }
-      const result = await orchestrator.invoke('handle this', { invocationState })
+      // Register a hook that throws AFTER the delegation plugin's SDK_LAST AfterToolsEvent.
+      // This simulates a child-hook error after stopEventLoop was set.
+      orchestrator.addHook(
+        AfterToolsEvent,
+        () => {
+          throw new Error('CHILD_HOOK_BOOM')
+        },
+        { order: 101 } // > SDK_LAST (100)
+      )
 
-      expect(result.stopReason).toBe('endTurn')
-      expect(invocationState.stopEventLoop).toBe(false) // consumed by the agent loop
+      // Pre-set stopEventLoop to simulate a parent owning the signal.
+      const invocationState = { stopEventLoop: true }
+
+      // The child throws — but it must NOT clear the parent's signal.
+      await expect(orchestrator.invoke('handle this', { invocationState })).rejects.toThrow('CHILD_HOOK_BOOM')
+
+      // The parent's signal must survive the child's error cleanup.
+      expect(invocationState.stopEventLoop).toBe(true)
     })
   })
 })
