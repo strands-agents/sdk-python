@@ -103,12 +103,18 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
   private _multiAgentRestoredIds = new Set<string>()
+  private readonly _registeredAgentIds = new Set<string>()
 
   /**
    * Unique identifier for this plugin.
    */
   get name(): string {
     return 'strands:session-manager'
+  }
+
+  /** The session identifier for this session manager. */
+  get sessionId(): string {
+    return this._sessionId
   }
 
   constructor(config: SessionManagerConfig) {
@@ -127,6 +133,21 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     if ('snapshot' in storage) return storage.snapshot
     const scoped = NAMESPACED in storage ? storage : namespace(storage, 'session')
     return new SnapshotStorageAdapter(scoped)
+  }
+
+  /**
+   * Registers an agent id with this session, throwing if the id is already taken.
+   *
+   * @param agentId - The agent identifier to register
+   * @throws Error if an agent with the same id has already been registered on this session.
+   */
+  public registerAgentId(agentId: string): void {
+    if (this._registeredAgentIds.has(agentId)) {
+      throw new Error(
+        `agent_id=<${agentId}>, session_id=<${this._sessionId}> | an agent with this id already exists in this session`
+      )
+    }
+    this._registeredAgentIds.add(agentId)
   }
 
   /** Initializes the plugin by registering lifecycle hook callbacks. */

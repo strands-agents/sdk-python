@@ -95,6 +95,7 @@ import { ToolCaller } from './tool-caller.js'
 import type { ToolCallerProxy } from './tool-caller.js'
 
 import type { z } from 'zod'
+import { v7 as uuidV7 } from 'uuid'
 import { MemoryManager } from '../memory/memory-manager.js'
 import type { MemoryManagerConfig } from '../memory/index.js'
 import { SessionManager } from '../session/session-manager.js'
@@ -286,6 +287,12 @@ export type AgentConfig = {
    */
   id?: string
   /**
+   * Optional session identifier for scoping storage paths.
+   * If provided, it's the source of truth. If not provided but SessionManager is configured,
+   * inherits from SessionManager. If neither, auto-generates a UUID.
+   */
+  sessionId?: string
+  /**
    * Executor for tool calls from a single assistant turn.
    *
    * Accepts a {@link ConcurrentToolExecutor}, a {@link SequentialToolExecutor},
@@ -435,6 +442,11 @@ export class Agent implements LocalAgent, InvokableAgent {
   public readonly id: string
 
   /**
+   * The session identifier used for scoping storage paths.
+   */
+  public readonly sessionId: string
+
+  /**
    * Optional description of what the agent does.
    */
   public readonly description?: string
@@ -496,8 +508,10 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.modelState = new StateStore(config?.modelState)
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
+    this.sessionId = config?.sessionId ?? config?.sessionManager?.sessionId ?? uuidV7()
     if (config?.description !== undefined) this.description = config.description
     this.sessionManager = config?.sessionManager
+    this.sessionManager?.registerAgentId(this.id)
     this.memoryManager =
       config?.memoryManager instanceof MemoryManager
         ? config.memoryManager
