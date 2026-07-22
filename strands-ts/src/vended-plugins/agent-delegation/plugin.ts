@@ -62,8 +62,6 @@ interface DelegationState {
   toolUseCount: number
   /** Tool use ID of the delegation tool that succeeded (set by AfterToolCallEvent). */
   toolUseId?: string
-  /** Whether this frame's _onAfterTools set stopEventLoop (for cleanup ownership). */
-  ownsStopSignal?: boolean
 }
 
 /**
@@ -215,11 +213,7 @@ export class AgentDelegation implements Plugin {
       return
     }
 
-    // Only claim ownership if this frame transitions the flag from false to true.
-    if (event.invocationState.stopEventLoop !== true) {
-      event.invocationState.stopEventLoop = true
-      state.ownsStopSignal = true
-    }
+    event.invocationState.stopEventLoop = true
   }
 
   /**
@@ -289,15 +283,6 @@ export class AgentDelegation implements Plugin {
     try {
       streamResult = yield* next(context)
     } catch (error) {
-      // If the inner loop threw after _onAfterTools set stopEventLoop, clean up
-      // only the signal this frame owns — don't clear a flag set by an ancestor.
-      const state = this._state.get(context.agent)
-      if (state?.ownsStopSignal) {
-        const invocationState = context.options?.invocationState
-        if (invocationState?.stopEventLoop === true) {
-          invocationState.stopEventLoop = false
-        }
-      }
       this._state.delete(context.agent)
       throw error
     }

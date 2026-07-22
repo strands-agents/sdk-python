@@ -574,42 +574,34 @@ describe('AgentDelegation integration', () => {
   })
 
   describe('nested-shared-signal', () => {
-    it('child error cleanup does not clear a parent-owned stopEventLoop', async () => {
-      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Leaf response' })
-      const leafAgent = new Agent({ model: subModel, name: 'Leaf', printer: false })
+    it('child delegation stopEventLoop does not leak to the parent agent', async () => {
+      // Middle delegates to Leaf (sets stopEventLoop). Parent calls Middle as a
+      // non-delegation tool. Without save/restore, parent stops after one call.
+      const leafModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Leaf response' })
+      const leafAgent = new Agent({ model: leafModel, name: 'Leaf', printer: false })
 
-      const orchestratorModel = new MockMessageModel().addTurn({
+      const middleModel = new MockMessageModel().addTurn({
         type: 'toolUseBlock',
         name: 'Leaf',
         toolUseId: 'leaf-1',
-        input: { input: 'handle this' },
+        input: { input: 'go' },
       })
-
-      const orchestrator = new Agent({
-        model: orchestratorModel,
-        name: 'Orchestrator',
+      const middleAgent = new Agent({
+        model: middleModel,
+        name: 'Middle',
         tools: [leafAgent.asTool({ delegate: true })],
         printer: false,
       })
 
-      // Register a hook that throws AFTER the delegation plugin's SDK_LAST AfterToolsEvent.
-      // This simulates a child-hook error after stopEventLoop was set.
-      orchestrator.addHook(
-        AfterToolsEvent,
-        () => {
-          throw new Error('CHILD_HOOK_BOOM')
-        },
-        { order: 101 } // > SDK_LAST (100)
-      )
+      const parentModel = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'Middle', toolUseId: 'mid-1', input: { input: 'go' } })
+        .addTurn({ type: 'textBlock', text: 'PARENT_FINAL' })
 
-      // Pre-set stopEventLoop to simulate a parent owning the signal.
-      const invocationState = { stopEventLoop: true }
+      const parent = new Agent({ model: parentModel, name: 'Parent', tools: [middleAgent.asTool()], printer: false })
+      const result = await parent.invoke('go')
 
-      // The child throws — but it must NOT clear the parent's signal.
-      await expect(orchestrator.invoke('handle this', { invocationState })).rejects.toThrow('CHILD_HOOK_BOOM')
-
-      // The parent's signal must survive the child's error cleanup.
-      expect(invocationState.stopEventLoop).toBe(true)
+      expect(result.stopReason).toBe('endTurn')
+      expect((result.lastMessage.content[0] as { text: string }).text).toBe('PARENT_FINAL')
     })
   })
 })
