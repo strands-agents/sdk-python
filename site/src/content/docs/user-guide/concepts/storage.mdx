@@ -22,8 +22,8 @@ Plugins like [Context Offloader](./plugins/context-offloader.mdx)
 and [Session Management](./agents/session-management.mdx) need
 somewhere to persist data — offloaded tool results, conversation
 snapshots, agent state. `Storage` is the minimal interface they
-write to: four async methods over raw bytes, keyed by
-`/`-separated strings.
+write to: four async methods over raw bytes, keyed by opaque
+strings.
 
 You choose the backend once and hand it to the plugins that need
 it. The SDK ships three built-in backends (in-memory, local
@@ -40,10 +40,12 @@ All Storage implementations share the same contract:
 | <Syntax py="delete(key)" ts="delete(key)" /> | Delete the value. No-op if the key does not exist |
 | <Syntax py="list(query)" ts="list(query)" /> | List keys matching a prefix, sorted ascending |
 
-Keys are opaque, `/`-separated strings (like
-`session/abc/snapshot.json`). Storage normalizes keys
-automatically — collapsing repeated slashes, stripping leading
-and trailing slashes, and rejecting `..` segments.
+Keys are opaque strings — the interface imposes no format. The
+shipped backends (InMemoryStorage, LocalFileStorage, S3Storage)
+use `/`-separated path-like keys and normalize them (collapsing
+repeated slashes, stripping leading/trailing slashes, rejecting
+`..` segments), but custom backends may use any key format they
+choose.
 
 All methods are async. Data is raw bytes (`bytes` in Python,
 `Uint8Array` in TypeScript) with no content-type or metadata
@@ -174,14 +176,15 @@ don't pay the import cost.
 
 ## Keys and namespacing
 
-Storage keys are `/`-separated strings that you define. Plugins
-auto-scope their keys to avoid collisions — Context Offloader
-writes under `offloader/`, Session Manager writes under
-`session/`. You don't need to include these prefixes yourself.
+The shipped backends use `/`-separated keys. Plugins auto-scope
+their keys to avoid collisions — Context Offloader writes under
+`offloader/`, Session Manager writes under `session/`. You don't
+need to include these prefixes yourself.
 
-For your own use, you can create a namespaced view of any
-storage instance. A namespaced storage prepends a prefix to every
-key transparently:
+The SDK provides a `namespace()` helper that prepends a
+`/`-separated prefix to every key transparently. This is a
+convenience for the shipped path-based backends — custom backends
+with a different key scheme can implement their own namespacing:
 
 <Tabs>
 <Tab label="Python">
