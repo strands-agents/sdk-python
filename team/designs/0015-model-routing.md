@@ -18,7 +18,7 @@ Model routing lets an agent choose *which model handles a call* at runtime, base
 
 Goals:
 - Make model choice a runtime decision, opt-in, with single-model usage unchanged.
-- Provide a small strategy interface for proactive selection and reactive fallback.
+- Provide a small strategy interface for proactive selection that composes with ordered fallback.
 - Route among `Model` instances, including models backed by different providers.
 - Ship failure-driven fallback, a local heuristic, and one model-driven strategy in v1, so the feature is useful on its own.
 
@@ -42,7 +42,7 @@ The intersection worth taking is small: client-side model selection with fallbac
 
 ## Scope
 
-Routing decides among concrete **`Model` instances** in the SDK. Selection defaults to once per agent invocation: the first model call stores the chosen candidate in invocation-scoped state, and later model calls reuse it unless fallback advances the route. V1 rejects routers containing stateful models because switching would break provider-managed conversation state.
+Routing decides among concrete **`Model` instances** in the SDK. Selection defaults to once per agent invocation: the first model call stores the chosen candidate in invocation-scoped state, and later model calls reuse it unless fallback advances the route. During construction, a router normalizes its candidates and recursively rejects any model with `stateful=True`, raising `ValueError` before an agent can use an invalid topology. Switching stateful models would break provider-managed conversation state.
 
 **The unit of routing is a `Model`.** A concrete `Model` is already the amalgamation of provider and model: it encapsulates the provider, its model id, region, and configuration, which is the typed-SDK equivalent of the `provider/model` string that LiteLLM and OpenRouter route over. Candidates can therefore represent models on one provider (`BedrockModel("haiku")`, `BedrockModel("sonnet")`), the same model through different providers (`BedrockModel("sonnet")`, `AnthropicModel("sonnet")`), regional copies, or configuration variants. A server-routed endpoint such as Bedrock intelligent prompt routing is likewise one candidate `Model`. The router does not parse `provider/model` strings itself; resolving such a string to a `Model` is a model-construction concern that the router consumes as a candidate. Traffic-aware load balancing across a deployment pool remains gateway territory because it needs a fleet-wide view.
 
@@ -50,7 +50,7 @@ Three strategies ship in v1, chosen so each of the objectives the SDK can act on
 
 | Strategy | Objective | Trigger | Basis |
 |---|---|---|---|
-| Fallback | availability/reliability | reactive | ordered candidates; retry the selected model, then advance. Reuses `ModelRetryStrategy` |
+| Fallback | availability/reliability | reactive | router-owned ordered candidates; retry the selected model, then advance. Reuses `ModelRetryStrategy` |
 | Context-fit | capacity | proactive | `count_tokens` and `context_window_limit`; local, with no extra model call |
 | Model-driven | quality/accuracy | proactive | a small decision model classifies the request and names a candidate |
 
@@ -59,19 +59,19 @@ The remaining objectives are covered by candidate selection or deferred for a mi
 - **Cost** is a proactive strategy blocked on per-model pricing, which the SDK does not carry yet (P1).
 - **Latency** needs runtime latency measurement or shared state, which is closer to the gateway load-balancing case the SDK delegates (P1).
 
-Proactive selection and fallback compose. A strategy chooses the first candidate, while its failure path can advance to another candidate after retries are exhausted.
+Proactive selection and fallback compose without requiring every strategy to implement failure handling. A strategy chooses the initial candidate. After that candidate's retries are exhausted, `ModelRouter` tries each untried candidate in declaration order.
 
 ## Proposal
 
 An `Agent` receives its model through `model=`, and every inference call currently reaches that model through `InvokeModelStage`. Routing belongs in this existing stage because it prepares and owns the model invocation. A separate routing stage would split one operation across two lifecycle boundaries without adding a useful interception point.
 
-**Recommended: widen `model=` to `Model | ModelRouter`, and select through `InvokeModelStage` middleware.** `ModelRouter` is its own type, not a `Model`, and implements `Plugin`. During initialization, `Agent` recognizes a router passed through `model=`, registers the plugin, and resolves `agent.model` to the router's concrete default candidate. Plain `Model` initialization remains unchanged.
+**Recommended: widen `model=` to `Model | ModelRouter`, and select through `InvokeModelStage` middleware.** `ModelRouter` is its own type, not a `Model`, and implements `Plugin`. During initialization, `Agent` recognizes a router passed through `model=`, registers the plugin, and resolves `agent.model` to the router's first concrete candidate. Plain `Model` initialization remains unchanged.
 
 ```python
 agent = Agent(model=ModelRouter(models=[...], strategy=...))
 ```
 
-`InvokeModelContext` gains a `model: Model` field initialized from `agent.model`. The router's input middleware selects a candidate on the first call, stores its name in `invocation_state`, and replaces `context.model`. Later calls in the same invocation reuse that selection. If a candidate is another router, resolution continues until the context contains a concrete `Model`.
+`InvokeModelContext` gains a `model: Model` field initialized from `agent.model`. The router's input middleware selects a candidate on the first call, stores the selected candidate in `invocation_state`, and replaces `context.model`. Later calls in the same invocation reuse that selection. If a candidate is another router, resolution continues until the context contains a concrete `Model`.
 
 The existing invoke terminal reads `context.model` instead of `agent.model`, then performs the model call exactly as it does today. It retains ownership of streaming, model state, tracing, and errors. The selected model is therefore known before the model-invoke span starts, without creating a second call site or mutating shared agent state.
 
@@ -86,7 +86,7 @@ sequenceDiagram
     EL->>MW: InvokeModelContext
     alt no selection cached
         MW->>S: select(routing context)
-        S-->>MW: candidate name
+        S-->>MW: configured candidate
         MW->>MW: cache selection in invocation state
     end
     MW->>T: context.model = concrete model
@@ -94,7 +94,7 @@ sequenceDiagram
     M-->>EL: stream events or exception
 ```
 
-**Reactive fallback** uses the existing retry path. The router registers its fallback callback after `ModelRetryStrategy` in hook priority. While the retry strategy sets `event.retry`, the router keeps the selected candidate. Once that model's retries are exhausted, the router records the next candidate in invocation-scoped state, resets the retry budget for the new candidate, and requests another attempt. When the event loop re-enters `InvokeModelStage`, middleware resolves the updated candidate rather than running initial selection again. Per-invocation routing state keeps concurrent invocations independent.
+**Reactive fallback** uses the existing retry path and is owned by `ModelRouter`, not individual selection strategies. The router registers its fallback callback after `ModelRetryStrategy` in hook priority. While the retry strategy sets `event.retry`, the router keeps the selected candidate. Once that model's retries are exhausted, the router records the next untried candidate in declaration order, resets the retry budget, and requests another attempt. When the event loop re-enters `InvokeModelStage`, middleware resolves the updated candidate rather than running initial selection again. Per-invocation routing state keeps concurrent invocations independent.
 
 Alternatives are in [Alternatives Considered](#alternatives-considered).
 
@@ -141,7 +141,7 @@ research_agent = Agent(model=model_driven)  # the same profile can serve another
 agent = Agent(model=sonnet)
 ```
 
-The judge runs only for initial selection and the result is cached for the invocation, so tool-loop calls do not pay another routing call. Applications that do not want a judge call use a local strategy such as context-fit or provide their own `RoutingStrategy`.
+The judge runs only for initial selection and the result is cached for the invocation, so tool-loop calls do not pay another routing call. Model-driven routers require unique, non-empty candidate names and descriptions. The strategy validates the judge's output against that set. An unknown or malformed result, parse failure, or judge-call failure selects the router's first candidate and records the routing failure in tracing. Ordered fallback still applies if that candidate later fails. Applications that do not want a judge call use a local strategy such as context-fit or provide their own `RoutingStrategy`.
 
 Routers can nest when each level has a different responsibility. Resolution is recursive and always produces a concrete model before the terminal runs:
 
@@ -157,53 +157,61 @@ In v1, a strategy that depends on model metadata ranks concrete models only. An 
 The public names in this section are provisional and subject to change during API review. The responsibilities and boundaries are the proposal.
 
 ```python
+@dataclass(frozen=True)
+class RoutingCandidate:
+    model: Model | str | "ModelRouter"
+    name: str | None = None
+    description: str | None = None
+
+CandidateInput = Union[Model, str, "ModelRouter", RoutingCandidate]
+
+@dataclass(frozen=True)
+class RoutingContext:
+    messages: Messages
+    system_prompt: SystemPrompt
+    tool_specs: tuple[ToolSpec, ...]
+    candidates: tuple[RoutingCandidate, ...]
+    invocation_state: Mapping[str, Any]
+
 class RoutingStrategy(Protocol):
     name: str
 
-    async def select(self, context: RoutingContext) -> str: ...
-    async def next_after_failure(self, context: RoutingContext) -> str | None: ...
-
-@dataclass(frozen=True)
-class RoutingCandidate:
-    name: str
-    model: Model | str | "ModelRouter"
-    description: str
-
-Candidate = Union[Model, str, "ModelRouter", RoutingCandidate]
+    async def select(self, context: RoutingContext) -> RoutingCandidate: ...
 
 class ModelRouter(Plugin):
-    def __init__(self, models: list[Candidate] | dict[str, Candidate],
-                 strategy: RoutingStrategy, *, default: str | None = None): ...
+    def __init__(self, models: Sequence[CandidateInput],
+                 strategy: RoutingStrategy): ...
 
 Agent(model: Model | str | ModelRouter = ...)
 ```
 
-- `RoutingCandidate` is reusable selection metadata, not another model configuration. Model-driven selection requires named, described candidates so the judge has an explicit classification contract.
+- `ModelRouter` normalizes each input into a `RoutingCandidate`. Bare models, model-id strings, and nested routers need no public name because strategies return one of the candidate objects in `RoutingContext`, not a string identifier.
+- `RoutingCandidate` adds optional selection metadata, not another model configuration. `ModelDrivenStrategy` requires explicit unique names and descriptions so the judge has a classification contract; fallback and context-fit do not.
+- The first declared candidate is the concrete default. This removes string-based default resolution and makes fallback order visible in the constructor call.
+- A strategy must return one of `context.candidates`; the router raises a clear `ValueError` for any other result. The strategy remains a domain `Protocol` rather than a `HookProvider` because `ModelRouter` owns lifecycle registration and the strategy has one decision point.
+- `RoutingContext` exposes immutable views of the request data and normalized candidates needed for selection. Context-fit calls each concrete candidate's `count_tokens` and compares the result with that candidate's `context_window_limit`.
 - `ModelRouter` topology and strategy configuration are immutable after construction. The same router can be attached to multiple agents; selections and fallback position live in `invocation_state`, and future session affinity lives in the receiving agent's state.
-- `RoutingContext` exposes existing request data and the candidate models. Context-fit can call each candidate's `count_tokens` and compare the result with that candidate's `context_window_limit`.
-- Built-in proactive strategies share ordered failure behavior; `FallbackStrategy.select` simply chooses the first candidate.
 - `InvokeModelContext.model` always contains a concrete `Model` when the terminal runs.
-- A model is a candidate only when it appears in a router. `agent.model` resolves to the router's explicit default, or its first concrete candidate when no default is given.
-- Routing rejects stateful candidates in v1.
-- Agent invocations using `structured_output_model` pass through `InvokeModelStage` and reuse the invocation's selection. The deprecated direct `Agent.structured_output()` path bypasses this stage and uses the default candidate.
+- Candidate normalization recursively rejects stateful models during `ModelRouter` construction with an actionable `ValueError`.
+- Agent invocations using `structured_output_model` pass through `InvokeModelStage` and reuse the invocation's selection. The deprecated direct `Agent.structured_output()` path bypasses this stage and uses the first candidate.
 
 `ContextFitStrategy` uses context capacity only. It chooses the smallest known context window that fits that candidate's token count and falls back to the largest known window when none fit. It does not depend on cost metadata.
 
 ## Work Plan
 
-- **P0, router core and fallback.** Add immutable, reusable `ModelRouter` and `RoutingCandidate` configuration; widen `model=`; recognize the router as a plugin during agent initialization; add `model` to `InvokeModelContext`; cache selection in invocation state; resolve nested routers; and make the terminal call the context model. Register routing before model-dependent invoke middleware, order fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates.
-- **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection over named candidate descriptions. Run the judge once per invocation and record the selected candidate on the existing model-invoke span.
+- **P0, router core and fallback.** Add immutable, reusable `ModelRouter` and `RoutingCandidate` configuration; normalize candidate inputs; widen `model=`; recognize the router as a plugin during agent initialization; add `model` to `InvokeModelContext`; cache selection in invocation state; resolve nested routers; and make the terminal call the context model. Register routing before model-dependent invoke middleware, provide router-owned ordered fallback after `ModelRetryStrategy`, reset retry state when advancing, and reject stateful candidates during construction.
+- **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection over named candidate descriptions. Run the judge once per invocation, fall back to the first candidate when the judge fails or returns an invalid result, and record the outcome on the existing model-invoke span.
 - **P1, cost-aware routing.** Add a pricing source of truth, then rank context-fit survivors by price.
 - **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
 - **P1, classifier, semantic routing, and quality cascades.** Add learned or embedding selection without a decision-model call, and result-aware escalation once the SDK exposes a suitable quality signal.
 
 ## Alternatives Considered
 
-- **Router is a `Model`, passed as `model=`.** A router could implement the `Model` interface and forward calls. Rejected: it would have to re-expose model capabilities that do not describe a router, and invocation middleware already provides the required call boundary.
-- **A dedicated `model_router=` argument.** A separate slot beside `model=`. Rejected: two model-related arguments need precedence rules and expand the public surface. Accepting either value through `model=` is smaller.
-- **A before-call hook that swaps `agent.model`.** Rejected: `agent.model` is shared, so concurrent invocations can race. A model field on the per-call context avoids shared mutation.
-- **A separate model-routing stage.** Rejected: selection exists only to prepare a model invocation. `InvokeModelStage` already provides middleware phases around that operation and keeps tracing and streaming in one terminal.
-- **A provider-list `Model`, `Model(provider=[...])`.** Rejected for v1: concrete model instances already express provider and deployment differences. Adding provider selection to the model layer is a larger refactor that overlaps with gateway responsibilities.
+- **Router is a `Model`, passed as `model=`.** This keeps `Agent` unchanged and makes routing look like any other model call. Rejected: the router would have to re-expose model capabilities that do not describe it, while invocation middleware already provides the required call boundary.
+- **A dedicated `model_router=` argument.** This makes routing explicit at the call site and keeps the existing `model` type narrow. Rejected: two model-related arguments need precedence rules and expand the public surface. Accepting either value through `model=` is smaller.
+- **A before-call hook that swaps `agent.model`.** This needs no invoke-terminal change and is easy to prototype. Rejected: `agent.model` is shared, so concurrent invocations can race. A model field on the per-call context avoids shared mutation.
+- **A separate model-routing stage.** This gives routing its own explicit interception point. Rejected: selection exists only to prepare a model invocation. `InvokeModelStage` already provides middleware phases around that operation and keeps tracing and streaming in one terminal.
+- **A provider-list `Model`, `Model(provider=[...])`.** This could centralize provider and model selection behind one model abstraction. Rejected for v1: concrete model instances already express provider and deployment differences. Adding provider selection to the model layer is a larger refactor that overlaps with gateway responsibilities.
 
 ## Consequences
 
