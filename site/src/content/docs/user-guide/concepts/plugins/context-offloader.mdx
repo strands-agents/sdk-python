@@ -122,7 +122,15 @@ Choose a storage backend based on your needs:
 | `FileStorage` | Disk | Local development, debugging, inspecting stored artifacts |
 | `S3Storage` | Amazon S3 | Production workloads, shared or durable artifact retention |
 
-All backends implement the `Storage` protocol and preserve content type metadata, so you can also build your own.
+All backends implement the `Storage` protocol and preserve
+content type metadata, so you can also build your own.
+
+:::note[Storage keys]
+The Context Offloader's storage backends use the unified
+[Storage](../storage.mdx) interface. Keys are opaque strings —
+the shipped backends use `/`-separated path-like keys, but
+custom backends may use any key format they choose.
+:::
 
 **In-memory storage**: stores content in process memory. Entries not accessed within `evict_after_turns` agent loop cycles are automatically evicted to prevent unbounded memory growth. The default is 20 cycles. Retrieving content resets the counter for that entry, so frequently accessed content stays alive. To disable eviction and manage memory manually, pass `None`/`null` and call `clear()` when entries are no longer needed.
 

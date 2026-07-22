@@ -141,10 +141,20 @@ Strands offers two built-in session managers for persisting agent sessions:
 </Tab>
 <Tab label="TypeScript">
 
-The TypeScript SDK uses a single `SessionManager` class paired with a pluggable storage backend:
+The TypeScript SDK uses a single `SessionManager` class paired
+with a pluggable storage backend:
 
 1. **`FileStorage`**: Stores snapshots on the local filesystem
 2. **`S3Storage`**: Stores snapshots in Amazon S3
+
+:::note[Unified Storage]
+`SessionManager` also accepts a unified
+[Storage](../storage.mdx) instance directly — the legacy
+`FileStorage`/`S3Storage` from `@strands-agents/sdk/session`
+still work but are deprecated. Keys are opaque strings; the
+shipped backends use `/`-separated paths, but custom backends
+may use any key format.
+:::
 
 </Tab>
 </Tabs>
