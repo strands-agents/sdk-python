@@ -2025,6 +2025,26 @@ class TestOpenAIModelBedrockMantleConfig:
         assert resolved["base_url"] == "https://bedrock-mantle.eu-west-1.api.aws/v1"
         mock_provide_token.assert_called_once_with(region="eu-west-1")
 
+    @pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n", "us-east-1/"])
+    def test_bedrock_mantle_config_rejects_malformed_region(self, openai_client, mock_provide_token, region):
+        """A malformed region is rejected before a token is minted or a URL is built."""
+        _ = openai_client
+        model = OpenAIModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": region})
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            model._resolve_client_args()
+        # Validation must precede token minting so no bearer token is ever sent toward the host.
+        mock_provide_token.assert_not_called()
+
+    def test_bedrock_mantle_config_rejects_malformed_region_from_boto3_default(self, openai_client, mock_provide_token):
+        """A malformed region resolved from the boto3 default chain is also rejected."""
+        _ = openai_client
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "x@attacker.com:443/#"
+            model = OpenAIModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={})
+            with pytest.raises(ValueError, match="invalid AWS region"):
+                model._resolve_client_args()
+        mock_provide_token.assert_not_called()
+
     def test_bedrock_mantle_config_region_resolved_from_boto_session(self, openai_client, mock_provide_token):
         """An explicit ``boto_session`` supplies the region when ``region`` is omitted."""
         _ = openai_client
