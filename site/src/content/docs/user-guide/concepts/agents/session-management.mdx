@@ -7,8 +7,6 @@ sourceLinks:
   - path: strands-py/src/strands/session/file_session_manager.py
   - path: strands-py/src/strands/session/s3_session_manager.py
   - path: strands-ts/src/session/session-manager.ts
-  - path: strands-ts/src/session/file-storage.ts
-  - path: strands-ts/src/session/s3-storage.ts
 ---
 
 Session management in Strands Agents provides a robust mechanism for persisting agent state and conversation history across multiple interactions. This enables agents to maintain context and continuity even when the application restarts or when deployed in distributed environments.
@@ -142,24 +140,17 @@ Strands offers two built-in session managers for persisting agent sessions:
 <Tab label="TypeScript">
 
 The TypeScript SDK uses a single `SessionManager` class paired
-with a pluggable storage backend:
+with a [Storage](../storage.mdx) backend:
 
-1. **`FileStorage`**: Stores snapshots on the local filesystem
+1. **`LocalFileStorage`**: Stores snapshots on the local
+   filesystem
 2. **`S3Storage`**: Stores snapshots in Amazon S3
 
-:::note[Unified Storage]
-`SessionManager` also accepts a unified
-[Storage](../storage.mdx) instance directly — the legacy
-`FileStorage`/`S3Storage` from `@strands-agents/sdk/session`
-still work but are deprecated. Keys are opaque strings; the
-shipped backends use `/`-separated paths, but custom backends
-may use any key format.
-:::
 
 </Tab>
 </Tabs>
 
-### FileSessionManager / FileStorage
+### FileSessionManager / LocalFileStorage
 
 <Tabs>
 <Tab label="Python">
@@ -197,10 +188,10 @@ graph = Graph(
 
 <Tab label="TypeScript">
 
-`FileStorage` persists snapshots to the local filesystem. Pass it to `SessionManager` via the `storage.snapshot` config:
+Pass a `LocalFileStorage` to `SessionManager`:
 
 ```typescript
---8<-- "user-guide/concepts/agents/session-manager.ts:file_storage"
+--8<-- "user-guide/concepts/agents/session-manager.ts:local_file_storage"
 ```
 
 </Tab>
@@ -293,7 +284,7 @@ result = swarm("Coordinate the task across agents")
 </Tab>
 <Tab label="TypeScript">
 
-`S3Storage` persists snapshots to an S3 bucket. You can provide a pre-configured `S3Client` or let the SDK create one from a `region`:
+Pass an `S3Storage` to `SessionManager`:
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:s3_storage"
@@ -446,7 +437,10 @@ Use the `snapshotTrigger` callback to control when an immutable snapshot is crea
 
 ### Listing and Restoring Snapshots
 
-Snapshot IDs are UUID v7, so they sort lexicographically in chronological order. Use `listSnapshotIds` on the storage backend to retrieve them, then pass a `snapshotId` to `restoreSnapshot` on the `SessionManager`:
+Snapshot IDs are UUID v7, so they sort lexicographically in
+chronological order. Use `listSnapshotIds` on the
+`SessionManager` to retrieve them, then pass a `snapshotId` to
+`restoreSnapshot`:
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:list_and_restore"
@@ -593,7 +587,10 @@ agent = Agent(session_manager=session_manager)
 </Tab>
 <Tab label="TypeScript">
 
-Create a custom storage backend by implementing the `SnapshotStorage` interface:
+The simplest approach is to pass any
+[Storage](../storage.mdx) backend directly — the
+`SessionManager` wraps it automatically. For full control, you
+can implement the `SnapshotStorage` interface:
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:custom_storage"
