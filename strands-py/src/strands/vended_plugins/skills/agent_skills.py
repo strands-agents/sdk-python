@@ -220,13 +220,16 @@ class AgentSkills(Plugin):
         # instance can serve multiple agents without leaking references once an agent is collected.
         self._agent_skills: weakref.WeakKeyDictionary[Agent, dict[str, Skill]] = weakref.WeakKeyDictionary()
         super().__init__()
-        # Both modes surface a single tool named ``skills``; only the variant matching the
-        # active injection mode is exposed. ``tool`` mode uses the activate-and-return variant
-        # (the ``skills`` method); ``system_prompt`` mode uses the action-based toggle variant
-        # (the ``manage_skills`` method, published under the ``skills`` tool name). The variants
-        # share a tool name, so filtering is by the defining method's name.
-        wanted_method = self._tool_method_for_mode()
-        self._tools = [t for t in self._tools if t.__name__ == wanted_method]
+        # Both modes surface a single tool named ``skills``; only the built-in variant matching
+        # the active injection mode is exposed. ``tool`` mode uses the activate-and-return
+        # variant (the ``skills`` method); ``system_prompt`` mode uses the action-based toggle
+        # variant (the ``manage_skills`` method, published under the ``skills`` tool name).
+        # Only the *inactive* built-in variant is removed from the discovered collection, so
+        # ``@tool``-decorated methods contributed by subclasses are preserved. ``getattr`` is
+        # used because ``DecoratedFunctionTool`` gains ``__name__`` at runtime through
+        # ``functools.update_wrapper``, which the static type does not declare.
+        inactive_variant = "skills" if self._injection_mode == "system_prompt" else "manage_skills"
+        self._tools = [t for t in self._tools if getattr(t, "__name__", None) != inactive_variant]
         # In system_prompt mode the skills block reaches the model through the injection
         # primitive rather than by mutating agent.system_prompt: an internal ContextInjector
         # appends the block to the per-call system prompt on every model call
@@ -313,8 +316,12 @@ class AgentSkills(Plugin):
             tool_context: Injected by the framework. Not user-facing.
         """
         agent = tool_context.agent
+        # The tool schema publishes ``action`` as an enum, but runtime input is not guaranteed
+        # to honour it (a direct method call bypasses schema validation), so compare against an
+        # open ``str`` and keep the graceful unknown-action error reachable.
+        action_value: str = action
 
-        if action == "activate":
+        if action_value == "activate":
             skills = self._skills_for(agent)
 
             if not skill_name:
@@ -342,7 +349,7 @@ class AgentSkills(Plugin):
                     parts.append("Available resources:\n" + "\n".join(f"  {r}" for r in resources))
             return "\n".join(parts)
 
-        if action == "deactivate":
+        if action_value == "deactivate":
             if not skill_name:
                 active = ", ".join(self.get_activated_skills(agent))
                 return f"Error: skill_name is required. Active skills: {active}"
@@ -355,7 +362,7 @@ class AgentSkills(Plugin):
             logger.debug("skill_name=<%s> | skill deactivated (system_prompt mode)", skill_name)
             return f"Skill '{skill_name}' deactivated. Its instructions were removed from your system prompt."
 
-        return f"Error: unknown action '{action}'. Valid actions: activate, deactivate"
+        return f"Error: unknown action '{action_value}'. Valid actions: activate, deactivate"
 
     @hook
     async def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
@@ -658,8 +665,9 @@ class AgentSkills(Plugin):
         In ``system_prompt`` mode, the block opens with a ``<usage>`` hint that tells the
         model how to toggle skills with the ``skills`` tool, and skills activated by the
         agent additionally carry an
-        ``active="true"`` attribute and an ``<instructions>`` element with their full
-        body, so the model can follow them directly from the system prompt. Instruction
+        ``active="true"`` attribute, an ``<allowed_tools>`` element mirroring the tool
+        guidance that ``tool`` mode returns, and an ``<instructions>`` element with their
+        full body, so the model can follow them directly from the system prompt. Instruction
         bodies are injected verbatim (matching what ``tool`` mode returns) with only the
         closing delimiters neutralized. In ``tool`` mode the output is the plain metadata
         listing, byte-identical to previous releases.
@@ -676,8 +684,12 @@ class AgentSkills(Plugin):
         if not skills:
             return "<available_skills>\nNo skills are currently available.\n</available_skills>"
 
-        embed_instructions = self._injection_mode == "system_prompt" and agent is not None
-        active = set(self.get_activated_skills(agent)) if embed_instructions else set()
+        if self._injection_mode == "system_prompt" and agent is not None:
+            embed_instructions = True
+            active = set(self.get_activated_skills(agent))
+        else:
+            embed_instructions = False
+            active = set()
 
         lines: list[str] = ["<available_skills>"]
         if embed_instructions:
@@ -694,24 +706,14 @@ class AgentSkills(Plugin):
             lines.append(f"<description>{escape(skill.description)}</description>")
             if skill.path is not None:
                 lines.append(f"<location>{escape(str(skill.path / 'SKILL.md'))}</location>")
+            if is_active and skill.allowed_tools:
+                lines.append(f"<allowed_tools>{escape(', '.join(skill.allowed_tools))}</allowed_tools>")
             if is_active and skill.instructions:
                 lines.append(f"<instructions>\n{_neutralize_delimiters(skill.instructions)}\n</instructions>")
             lines.append("</skill>")
 
         lines.append("</available_skills>")
         return "\n".join(lines)
-
-    def _tool_method_for_mode(self) -> str:
-        """Return the name of the method backing the ``skills`` tool for the active mode.
-
-        Returns:
-            ``"skills"`` (activate-and-return) for ``tool`` mode, or ``"manage_skills"``
-            (action-based activate/deactivate) for ``system_prompt`` mode. Both are
-            published under the ``skills`` tool name.
-        """
-        if self._injection_mode == "system_prompt":
-            return "manage_skills"
-        return "skills"
 
     def activate_skill_for(self, agent: Agent, skill_name: str) -> None:
         """Activate a skill for an agent, persisting it in the activation list.

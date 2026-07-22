@@ -106,12 +106,34 @@ injector = ContextInjector(
 </Tab>
 </Tabs>
 
+## Where to Inject
+
+:::note[Python only]
+The `location` option is currently available in the Python SDK. TypeScript support is planned as a follow-up.
+:::
+
+By default the text is folded into the latest user message — the right place for per-ask context such as retrieved memories or a timestamp. Pass `location="systemPrompt"` to append the text to the per-call system prompt instead — the right place for standing guidance (skill instructions, policies) that belongs with the agent's directives:
+
+```python
+from strands.vended_plugins.context_injector import ContextInjector
+
+policy = ContextInjector(
+    lambda context: render_active_policies(context.state),
+    name="policies",
+    trigger="everyTurn",       # guidance should be present on tool-result turns too
+    location="systemPrompt",   # append to the per-call system prompt
+)
+```
+
+Both locations are ephemeral: the model sees the augmented input for that one call while the agent's durable system prompt and history are never touched. For structured prompts (block lists) the text is appended *after* existing blocks — including any `cachePoint` — so the static prefix stays cacheable. Pair `location="systemPrompt"` with `trigger="everyTurn"` when the guidance must be present on every model call.
+
 ## Configuration
 
 | Field | Purpose |
 |-------|---------|
 | <Syntax py="render_content" ts="renderContent" /> | Returns the text to inject for this call, or <Syntax py="None / empty string" ts="undefined / empty string" /> to skip. Required, and the only positional argument. |
 | `trigger` | `'userTurn'` (default), `'everyTurn'`, or a predicate over the injection context. |
+| `location` | `'lastUserMessage'` (default) folds the text into the latest user message; `'systemPrompt'` appends it to the per-call system prompt. Python only. |
 | `name` | Plugin name for logging and duplicate detection. Defaults to `'strands:context-injector'`. Set a distinct name when registering more than one. |
 
 :::caution[Injected text reaches the model verbatim]

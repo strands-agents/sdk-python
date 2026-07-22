@@ -96,10 +96,55 @@ def _create_injection_middleware(
             return context
 
         if location == "systemPrompt":
-            return replace(context, system_prompt=_fold_into_system_prompt(context.system_prompt, text))
-        return replace(context, messages=_fold_into_last_user_message(context.messages, text))
+            folded = replace(context, system_prompt=_fold_into_system_prompt(context.system_prompt, text))
+        else:
+            folded = replace(context, messages=_fold_into_last_user_message(context.messages, text))
+        return await _account_for_injected_text(folded, text)
 
     return handler
+
+
+async def _account_for_injected_text(context: InvokeModelContext, text: str) -> InvokeModelContext:
+    """Fold the injected text's estimated tokens into the per-call projection.
+
+    ``projected_input_tokens`` is computed by the event loop from the agent's durable state
+    *before* input middleware runs, so it cannot see injected text. Without this correction,
+    downstream consumers of the projection (the context-status middleware, window-enforcement
+    middleware) would undercount the request actually sent to the provider by the size of the
+    injected content. Counting failures fail open: the injection stands and the projection is
+    left unchanged. When the corrected projection exceeds the model's context window limit, a
+    warning is logged deterministically — the injected content is standing guidance that cannot
+    be recovered by trimming durable history, so the call is allowed to proceed and surface the
+    provider's error rather than silently dropping the injection.
+
+    Args:
+        context: The middleware context with the injected text already folded in.
+        text: The text that was injected.
+
+    Returns:
+        The context with ``projected_input_tokens`` increased by the injected text's estimated
+        token count, or the context unchanged when no projection is available or counting fails.
+    """
+    if context.projected_input_tokens is None:
+        return context
+
+    try:
+        probe: Message = {"role": "user", "content": [{"text": text}]}
+        injected_tokens = await context.agent.model.count_tokens([probe])
+    except Exception as error:  # noqa: BLE001 - fail open: accounting must not abort the model call.
+        logger.warning("reason=<%s> | token accounting for injected text failed | projection left unchanged", error)
+        return context
+
+    projected = context.projected_input_tokens + injected_tokens
+    limit = context.agent.model.context_window_limit
+    if limit is not None and projected > limit:
+        logger.warning(
+            "projected_input_tokens=<%d>, context_window_limit=<%d> | injected context pushes the projected"
+            " input past the model's context window | the provider may reject this request",
+            projected,
+            limit,
+        )
+    return replace(context, projected_input_tokens=projected)
 
 
 def _resolve_trigger(trigger: InjectionTriggerPredicate | None) -> Callable[[InjectionContext], bool]:

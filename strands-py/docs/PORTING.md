@@ -15,7 +15,7 @@ A single TypeScript `interface` covers roles that Python expresses with distinct
 2. **Any data shape (fields, constructed and passed around)** maps to a `@dataclass`. `readonly` fields map to `@dataclass(frozen=True)`.
    - `interface ExtractionResult` to `@dataclass class ExtractionResult`
 3. **Pure constructor config (destructured once to build an object, never kept as a unit)** maps to explicit `__init__` parameters, no type at all; the fields become attributes. A required field (especially a required callback) is a positional parameter; optional fields go after a bare `*,` as keyword-only.
-   - `interface ContextInjectorConfig` to `__init__(self, render_content, *, name=None, trigger=None)`
+   - `interface ContextInjectorConfig` to `__init__(self, render_content, *, name=None, trigger=None, location=None)`
 
 ## A tagged object-literal union member maps to a frozen dataclass
 

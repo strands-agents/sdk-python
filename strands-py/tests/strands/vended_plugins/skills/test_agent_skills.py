@@ -20,6 +20,7 @@ from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
 from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
+from strands.tools.decorator import tool
 from strands.types.tools import ToolContext
 from strands.vended_plugins.skills.agent_skills import AgentSkills
 from strands.vended_plugins.skills.skill import Skill
@@ -1427,3 +1428,90 @@ class TestSystemPromptModeInjection:
         assert "STEPS" in rendered[-1]["text"]
         # Durable prompt untouched.
         assert agent.system_prompt_content == [{"text": "Base."}, {"cachePoint": {"type": "default"}}]
+
+
+class TestSubclassToolPreservation:
+    """Mode selection removes only the inactive built-in variant of the ``skills`` tool.
+
+    ``@tool``-decorated methods contributed by subclasses must survive in both modes —
+    filtering the discovered collection down to a single method would silently delete them.
+    """
+
+    class _ExtendedSkills(AgentSkills):
+        @tool
+        def inspect_skill_state(self) -> str:
+            """Report internal skill state."""
+            return "state"
+
+    def test_tool_mode_preserves_subclass_tools(self):
+        plugin = self._ExtendedSkills(skills=[_make_skill()])
+        names = sorted(t.tool_name for t in plugin.tools)
+        assert names == ["inspect_skill_state", "skills"]
+
+    def test_system_prompt_mode_preserves_subclass_tools(self):
+        plugin = self._ExtendedSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        names = sorted(t.tool_name for t in plugin.tools)
+        assert names == ["inspect_skill_state", "skills"]
+
+    def test_tool_mode_keeps_the_activate_and_return_variant(self):
+        plugin = self._ExtendedSkills(skills=[_make_skill()])
+        skills_tool = next(t for t in plugin.tools if t.tool_name == "skills")
+        assert "action" not in skills_tool.tool_spec["inputSchema"]["json"]["properties"]
+
+    def test_system_prompt_mode_keeps_the_action_variant(self):
+        plugin = self._ExtendedSkills(skills=[_make_skill()], injection_mode="system_prompt")
+        skills_tool = next(t for t in plugin.tools if t.tool_name == "skills")
+        assert "action" in skills_tool.tool_spec["inputSchema"]["json"]["properties"]
+
+
+class TestAllowedToolsInSystemPromptMode:
+    """Active skills render an ``<allowed_tools>`` element mirroring tool-mode guidance."""
+
+    @pytest.mark.asyncio
+    async def test_active_skill_renders_allowed_tools(self):
+        skill = _make_skill(instructions="STEPS")
+        skill.allowed_tools = ["Bash", "Read"]
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        await plugin.init_agent(agent)
+        await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
+        prompt = _prompt_text(await _injected_prompt(agent))
+
+        assert "<allowed_tools>Bash, Read</allowed_tools>" in prompt
+
+    @pytest.mark.asyncio
+    async def test_inactive_skill_omits_allowed_tools(self):
+        skill = _make_skill(instructions="STEPS")
+        skill.allowed_tools = ["Bash"]
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+
+        await plugin.init_agent(agent)
+        prompt = _prompt_text(await _injected_prompt(agent))
+
+        assert "<allowed_tools>" not in prompt
+
+    @pytest.mark.asyncio
+    async def test_active_skill_without_allowed_tools_omits_element(self):
+        skill = _make_skill(instructions="STEPS")
+        plugin = AgentSkills(skills=[skill], injection_mode="system_prompt")
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        await plugin.init_agent(agent)
+        await plugin.manage_skills(action="activate", skill_name="test-skill", tool_context=tool_context)
+        prompt = _prompt_text(await _injected_prompt(agent))
+
+        assert "<allowed_tools>" not in prompt
+
+    def test_tool_mode_xml_never_renders_allowed_tools(self):
+        """Tool mode stays byte-identical: allowed_tools guidance arrives via the tool result."""
+        skill = _make_skill()
+        skill.allowed_tools = ["Bash"]
+        plugin = AgentSkills(skills=[skill])
+
+        xml = plugin._generate_skills_xml()
+
+        assert "<allowed_tools>" not in xml
