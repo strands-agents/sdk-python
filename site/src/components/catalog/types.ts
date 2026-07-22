@@ -57,8 +57,8 @@ export const CATALOG_TYPES = [
     value: 'intervention',
     label: 'Intervention',
     labelPlural: 'Interventions',
-    // shield check
-    icon: 'M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4zm-1.5 15L7 12.5 8.4 11l2.1 2.1 5.1-5.1L17 9.4 10.5 16z',
+    // plain shield — the shield-check variant is reserved for the Verified badge
+    icon: 'M12 1 3 5v6c0 5.6 3.8 10.7 9 12 5.2-1.3 9-6.4 9-12V5l-9-4z',
   },
 ] as const
 

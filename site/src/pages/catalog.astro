@@ -53,13 +53,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
       </div>
     </div>
 
-    <CatalogFilterBar
-      types={typeFacets}
-      showSdkFacet={showSdkFacet}
-      hasVerified={hasVerified}
-      hasFeatured={hasFeatured}
-      hasNew={hasNew}
-    />
+    <CatalogFilterBar showSdkFacet={showSdkFacet} />
     <div class="cat-body">
       <nav class="cat-rail" aria-label="Filter catalog">
         <p class="cat-rail-label" id="cat-type-label">Type</p>
@@ -113,7 +107,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
         }
       </nav>
       <div class="cat-grid" data-cat-grid>
-        {cards.map((card) => <CatalogCard card={card} featured={card.featured} />)}
+        {cards.map((card) => <CatalogCard card={card} />)}
         {/* Not a .cat-card: the filter script must never hide this tile. */}
         <div class="cat-cta">
           <h2 class="cat-cta-title">Add your integration</h2>

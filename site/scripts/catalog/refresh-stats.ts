@@ -1,6 +1,6 @@
 /**
- * Refreshes site/src/data/catalog-stats.json with GitHub stars, release dates,
- * and registry download counts for every catalog entry. Run by the
+ * Refreshes site/src/data/catalog-stats.json with GitHub stars and registry
+ * download counts for every catalog entry. Run by the
  * catalog-stats.yml scheduled workflow; per-source failures are logged and the
  * previous committed value is kept, so one broken upstream can neither block
  * the whole refresh nor regress the stats it can't fetch.
@@ -22,14 +22,13 @@ export interface StatsEntry {
 }
 
 export interface StatsFetchers {
-  githubRepo(repoUrl: string): Promise<{ stars: number; lastRelease?: string }>
+  githubRepo(repoUrl: string): Promise<{ stars: number }>
   pypiDownloads(pkg: string): Promise<number>
   npmDownloads(pkg: string): Promise<number>
 }
 
 export interface EntryStats {
   stars?: number
-  lastRelease?: string
   downloads: { python?: number; typescript?: number }
 }
 
@@ -46,18 +45,10 @@ export async function buildStats(
       try {
         const repo = await fetchers.githubRepo(entry.github)
         stats.stars = repo.stars
-        if (repo.lastRelease) {
-          stats.lastRelease = repo.lastRelease
-        } else if (prev?.lastRelease !== undefined) {
-          // A missing lastRelease can be a transient releases-API failure, not
-          // proof the release disappeared — keep the previously stored date.
-          stats.lastRelease = prev.lastRelease
-        }
       } catch (err) {
-        // Keep the previous values so a transient outage doesn't regress stats.
+        // Keep the previous value so a transient outage doesn't regress stats.
         console.warn(`entry=${entry.id}, source=github | fetch failed, keeping previous value`, err)
         if (prev?.stars !== undefined) stats.stars = prev.stars
-        if (prev?.lastRelease !== undefined) stats.lastRelease = prev.lastRelease
       }
     }
     if (entry.python) {
@@ -94,16 +85,7 @@ export const liveFetchers: StatsFetchers = {
     const repo = (await fetchJson(`https://api.github.com/repos/${slug}`, githubApiHeaders())) as {
       stargazers_count: number
     }
-    let lastRelease: string | undefined
-    try {
-      const release = (await fetchJson(`https://api.github.com/repos/${slug}/releases/latest`, githubApiHeaders())) as {
-        published_at?: string
-      }
-      lastRelease = release.published_at?.slice(0, 10)
-    } catch {
-      // Repos without releases 404 here; stars alone are still useful.
-    }
-    return { stars: repo.stargazers_count, lastRelease }
+    return { stars: repo.stargazers_count }
   },
   async pypiDownloads(pkg) {
     // pypistats.org: last-month downloads for the package.

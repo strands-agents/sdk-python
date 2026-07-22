@@ -16,7 +16,7 @@ const entries: StatsEntry[] = [
 
 function fetchers(overrides: Partial<StatsFetchers> = {}): StatsFetchers {
   return {
-    githubRepo: async () => ({ stars: 42, lastRelease: '2026-07-01' }),
+    githubRepo: async () => ({ stars: 42 }),
     pypiDownloads: async () => 100,
     npmDownloads: async () => 50,
     ...overrides,
@@ -28,10 +28,9 @@ describe('buildStats', () => {
     const stats = await buildStats(entries, fetchers())
     expect(stats['strands-example']).toEqual({
       stars: 42,
-      lastRelease: '2026-07-01',
       downloads: { python: 100, typescript: 50 },
     })
-    expect(stats['strands-broken']).toEqual({ stars: 42, lastRelease: '2026-07-01', downloads: { python: 100 } })
+    expect(stats['strands-broken']).toEqual({ stars: 42, downloads: { python: 100 } })
   })
 
   it('skips failing sources without failing the run', async () => {
@@ -40,7 +39,7 @@ describe('buildStats', () => {
       fetchers({
         githubRepo: async (repo) => {
           if (repo.includes('broken')) throw new Error('boom')
-          return { stars: 42, lastRelease: '2026-07-01' }
+          return { stars: 42 }
         },
         pypiDownloads: async (pkg) => {
           if (pkg === 'strands-broken') throw new Error('boom')
@@ -56,7 +55,6 @@ describe('buildStats', () => {
     const previous = {
       'strands-example': {
         stars: 40,
-        lastRelease: '2026-06-01',
         downloads: { python: 90, typescript: 45 },
       },
     }
@@ -71,26 +69,13 @@ describe('buildStats', () => {
     )
     expect(stats['strands-example']).toEqual({
       stars: 42,
-      lastRelease: '2026-07-01',
       downloads: { python: 90, typescript: 50 },
-    })
-  })
-
-  it('keeps the previous lastRelease when the repo fetch succeeds without a release date', async () => {
-    const previous = {
-      'strands-example': { stars: 40, lastRelease: '2026-06-01', downloads: { python: 90 } },
-    }
-    const stats = await buildStats([entries[0]!], fetchers({ githubRepo: async () => ({ stars: 42 }) }), previous)
-    expect(stats['strands-example']).toEqual({
-      stars: 42,
-      lastRelease: '2026-06-01',
-      downloads: { python: 100, typescript: 50 },
     })
   })
 
   it('keeps previous github stats when the github fetch fails', async () => {
     const previous = {
-      'strands-example': { stars: 40, lastRelease: '2026-06-01', downloads: { python: 90 } },
+      'strands-example': { stars: 40, downloads: { python: 90 } },
     }
     const stats = await buildStats(
       [entries[0]!],
@@ -103,7 +88,6 @@ describe('buildStats', () => {
     )
     expect(stats['strands-example']).toEqual({
       stars: 40,
-      lastRelease: '2026-06-01',
       downloads: { python: 100, typescript: 50 },
     })
   })
@@ -134,12 +118,9 @@ describe('loadEntries', () => {
     try {
       writeFileSync(
         path.join(dir, 'vendor-guide.yaml'),
-        [
-          'name: vendor-guide',
-          'github: https://github.com/example/vendor-product',
-          'languages:',
-          '  python: {}',
-        ].join('\n')
+        ['name: vendor-guide', 'github: https://github.com/example/vendor-product', 'languages:', '  python: {}'].join(
+          '\n'
+        )
       )
       expect(loadEntries(dir)).toEqual([{ id: 'vendor-guide' }])
     } finally {

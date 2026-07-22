@@ -8,7 +8,6 @@ import type { CatalogEntryData } from '../content.config'
 export interface CatalogStats {
   stars?: number
   downloads?: { python?: number; typescript?: number }
-  lastRelease?: string
 }
 
 /** Shape of src/data/catalog-stats.json — keyed by entry id (filename without .yaml). */

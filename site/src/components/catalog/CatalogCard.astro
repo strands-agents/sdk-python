@@ -17,10 +17,9 @@ import { TYPE_ICONS, TYPE_LABELS, VERIFIED_ICON } from './types'
 
 interface Props {
   card: CatalogCardModel
-  featured?: boolean
 }
 
-const { card, featured = false } = Astro.props
+const { card } = Astro.props
 
 const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
 
@@ -33,11 +32,10 @@ const href = card.external ? card.href : pathWithBase(card.href)
 ---
 
 <article
-  class:list={['cat-card', { 'cat-card--featured': featured }]}
-  data-name={card.name}
+  class:list={['cat-card', { 'cat-card--featured': card.featured }]}
   data-type={card.integrationType}
   data-langs={card.languages.join(' ')}
-  data-badges={[...card.badges, ...(featured ? ['featured'] : [])].join(' ')}
+  data-badges={[...card.badges, ...(card.featured ? ['featured'] : [])].join(' ')}
   data-sdk={card.sdk}
   data-search={`${card.name} ${card.description} by ${card.maintainer}`.toLowerCase()}
 >
@@ -52,7 +50,7 @@ const href = card.external ? card.href : pathWithBase(card.href)
         {card.name}
       </a>
       {card.external && <span class="cat-external" aria-hidden="true">↗</span>}
-      {featured && <span class="cat-flag cat-flag--featured" title="Featured by the Strands team">Featured</span>}
+      {card.featured && <span class="cat-flag cat-flag--featured" title="Featured by the Strands team">Featured</span>}
       {
         card.badges.includes('verified') && (
           <span class="cat-flag cat-flag--verified" title="Verified by the Strands team">

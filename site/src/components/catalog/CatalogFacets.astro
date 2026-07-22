@@ -1,11 +1,9 @@
 ---
 /**
- * Facet controls (SDK, language, verified, type chips) shared by the filter
- * bar and the search dialog. Static markup with data-cat-* hooks; the page
- * script binds every instance document-wide, so multiple copies stay in sync.
- *
- * The filter bar hides the type chips (they live in the page's left rail);
- * the dialog keeps them inline because its space is constrained.
+ * Facet controls (SDK, language, verified, type chips) for the search dialog.
+ * Static markup with data-cat-* hooks; the page script binds every instance
+ * document-wide, so these stay in sync with the filter bar's language/SDK
+ * segments and the left rail's type/badge chips.
  */
 import { LANG_ICONS } from './icons'
 import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
@@ -16,19 +14,9 @@ interface Props {
   hasVerified: boolean
   hasFeatured: boolean
   hasNew: boolean
-  showTypes?: boolean
-  showBadges?: boolean
 }
 
-const {
-  types,
-  showSdkFacet,
-  hasVerified,
-  hasFeatured,
-  hasNew,
-  showTypes = true,
-  showBadges = true,
-} = Astro.props
+const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
 
 const LANGUAGES = [
   { value: 'python', label: 'Python' },
@@ -64,21 +52,21 @@ const LANGUAGES = [
     }
   </div>
   {
-    showBadges && hasFeatured && (
+    hasFeatured && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="featured" aria-pressed="false">
         Featured
       </button>
     )
   }
   {
-    showBadges && hasNew && (
+    hasNew && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="new" aria-pressed="false">
         New
       </button>
     )
   }
   {
-    showBadges && hasVerified && (
+    hasVerified && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="verified" aria-pressed="false">
         <svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
           <path fill="currentColor" d={VERIFIED_ICON} />
@@ -88,18 +76,16 @@ const LANGUAGES = [
     )
   }
 </div>
-{
-  showTypes && (
-    <div class="cat-type-rail" role="group" aria-label="Type">
-      {types.map((t) => (
-        <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
-          <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-            <path fill="currentColor" d={TYPE_ICONS[t.value]} />
-          </svg>
-          {t.label}
-          <span class="cat-count">{t.count}</span>
-        </button>
-      ))}
-    </div>
-  )
-}
+<div class="cat-type-rail" role="group" aria-label="Type">
+  {
+    types.map((t) => (
+      <button class="cat-chip" type="button" data-cat-type={t.value} aria-pressed="false">
+        <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d={TYPE_ICONS[t.value]} />
+        </svg>
+        {t.label}
+        <span class="cat-count">{t.count}</span>
+      </button>
+    ))
+  }
+</div>

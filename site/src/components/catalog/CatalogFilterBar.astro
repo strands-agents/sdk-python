@@ -1,23 +1,24 @@
 ---
 /**
- * Search trigger + facet controls for the catalog, following the changelog
- * page's control language (segmented groups). Renders static controls with
- * data-cat-* hooks; the page script owns all behavior. Facets are shared
- * with the search dialog via CatalogFacets; the type chips render in the
- * page's left rail instead of here.
+ * Search trigger + language/SDK segments for the catalog, following the
+ * changelog page's control language (segmented groups). Renders static
+ * controls with data-cat-* hooks; the page script owns all behavior and
+ * binds document-wide, so these controls stay in sync with the search
+ * dialog's copies. Type chips and badge filters render in the page's left
+ * rail instead of here.
  */
-import CatalogFacets from './CatalogFacets.astro'
-import type { FacetOption } from './types'
+import { LANG_ICONS } from './icons'
 
 interface Props {
-  types: FacetOption[]
   showSdkFacet: boolean
-  hasVerified: boolean
-  hasFeatured: boolean
-  hasNew: boolean
 }
 
-const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
+const { showSdkFacet } = Astro.props
+
+const LANGUAGES = [
+  { value: 'python', label: 'Python' },
+  { value: 'typescript', label: 'TypeScript' },
+] as const
 ---
 
 <form class="cat-filters" role="search" aria-label="Filter catalog" onsubmit="return false">
@@ -33,14 +34,32 @@ const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
       <kbd class="cat-search-kbd">/</kbd>
     </button>
   </div>
-  {/* Badge filters render in the page's left rail alongside the type chips. */}
-  <CatalogFacets
-    types={types}
-    showSdkFacet={showSdkFacet}
-    hasVerified={hasVerified}
-    hasFeatured={hasFeatured}
-    hasNew={hasNew}
-    showTypes={false}
-    showBadges={false}
-  />
+  <div class="cat-facet-row">
+    {
+      showSdkFacet && (
+        <div class="cat-seg" role="radiogroup" aria-label="SDK">
+          <button class="cat-seg-btn" type="button" role="radio" aria-checked="true" data-cat-sdk="agents">
+            Agents
+          </button>
+          <button class="cat-seg-btn" type="button" role="radio" aria-checked="false" data-cat-sdk="evals">
+            Evals
+          </button>
+        </div>
+      )
+    }
+    <div class="cat-seg" role="group" aria-label="Language">
+      {
+        LANGUAGES.map((l) => (
+          <button class="cat-seg-btn" type="button" data-cat-lang={l.value} aria-pressed="false">
+            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+              {LANG_ICONS[l.value].map((p) => (
+                <path fill="currentColor" d={p} />
+              ))}
+            </svg>
+            {l.label}
+          </button>
+        ))
+      }
+    </div>
+  </div>
 </form>

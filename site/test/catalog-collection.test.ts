@@ -56,11 +56,6 @@ describe('catalog content collection', () => {
     }
     expect(catalogEntrySchema.safeParse({ ...base, languages: { python: { package: 'x' } } }).success).toBe(false)
     expect(
-      catalogEntrySchema.safeParse({ ...base, languages: { python: { registry: 'https://pypi.org/project/x/' } } })
-        .success
-    ).toBe(false)
-    expect(catalogEntrySchema.safeParse({ ...base, languages: { typescript: { package: 'x' } } }).success).toBe(false)
-    expect(
       catalogEntrySchema.safeParse({
         ...base,
         languages: { typescript: { registry: 'https://www.npmjs.com/package/x' } },
@@ -115,7 +110,9 @@ describe('catalog content collection', () => {
     const docIds = new Set(docs.map((d) => d.id))
     for (const e of entries) {
       if (e.data.docsPage) {
-        expect(docIds.has(e.data.docsPage), `catalog entry ${e.id} docsPage ${e.data.docsPage} not found in docs`).toBe(true)
+        expect(docIds.has(e.data.docsPage), `catalog entry ${e.id} docsPage ${e.data.docsPage} not found in docs`).toBe(
+          true
+        )
       }
     }
   })

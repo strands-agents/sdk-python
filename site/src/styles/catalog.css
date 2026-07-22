@@ -80,9 +80,6 @@
   font-size: 1rem;
   margin: 0.4rem 0 0;
 }
-.cat-subtitle a {
-  color: var(--cat-accent-text);
-}
 .cat-note {
   color: var(--sl-color-gray-3);
   font-size: var(--cat-text-meta);
