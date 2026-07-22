@@ -67,6 +67,8 @@ An `Agent` receives its model through `model=`, and every inference call current
 
 **Recommended: widen `model=` to `Model | ModelRouter`, and select through `InvokeModelStage` middleware.** `ModelRouter` is its own type, not a `Model`, and implements `Plugin`. During initialization, `Agent` recognizes a router passed through `model=`, registers the plugin, and resolves `agent.model` to the router's first concrete candidate. Plain `Model` initialization remains unchanged.
 
+`Plugin` is the attachment lifecycle, not the routing mechanism. It does not auto-register middleware; the router registers its `InvokeModelStage.Input` handler from `init_agent()`, the same way the built-in `ContextInjector` and memory injection register their input middleware today. Selection is middleware, fallback is a hook, and both are installed by the one plugin.
+
 ```python
 agent = Agent(model=ModelRouter(models=[...], strategy=...))
 ```
@@ -224,7 +226,7 @@ Easier:
 Needs attention:
 - Agent initialization must distinguish a router input from the concrete default exposed as `agent.model`.
 - The invoke context and terminal gain a model field; plain-model calls otherwise follow the existing path.
-- Routing input must run before invoke middleware that reads model capabilities; those consumers use `context.model` rather than capturing `agent.model`.
+- Input handlers run in registration order, so routing must be registered before any invoke middleware that reads model capabilities. This is a hard requirement: a token-sizing or injection handler that runs before routing would observe the default model, not the selected one. Those consumers read `context.model` rather than capturing `agent.model`.
 - `BeforeModelCallEvent` and its projected token estimate run before `InvokeModelStage`, so they continue to use the concrete default in v1. Strategies that need candidate-specific token counts compute them from the candidates directly.
 - The router forwards canonical Strands messages without additional cross-provider normalization. Each candidate model remains responsible for validating and translating supported content.
 - Per-invocation selection preserves a provider prompt-cache hit within one invocation, but v1 re-decides on the next invocation and during fallback, so a later call can miss the cache. Cache-affinity (sticky) routing is the P1 that closes this gap.
