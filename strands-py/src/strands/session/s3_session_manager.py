@@ -87,27 +87,13 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         self.prefix = prefix
 
         if s3_client is not None:
-            # Fail fast: a pre-built client is mutually exclusive with the args used to
-            # build one. Silently ignoring them hides caller mistakes (e.g. a region_name
-            # that never takes effect), so reject the combination instead.
-            conflicting = [
-                name
-                for name, value in (
-                    ("boto_session", boto_session),
-                    ("boto_client_config", boto_client_config),
-                    ("region_name", region_name),
-                    ("endpoint_url", endpoint_url),
-                )
-                if value is not None
-            ]
-            if conflicting:
+            if any(arg is not None for arg in (boto_session, boto_client_config, region_name, endpoint_url)):
                 raise ValueError(
-                    f"s3_client is mutually exclusive with {', '.join(conflicting)}; "
-                    "pass either a pre-built s3_client or the arguments to build one, not both"
+                    "Cannot specify both 's3_client' and 'boto_session'/'boto_client_config'/"
+                    "'region_name'/'endpoint_url'"
                 )
 
-            # Reuse the caller's pre-built client. We deliberately do not modify
-            # its user_agent_extra; the caller owns the client's configuration.
+            # Reuse the caller's pre-built client; the caller owns its configuration.
             logger.debug("bucket=<%s> | reusing caller-supplied s3 client", bucket)
             self.client = s3_client
         else:
