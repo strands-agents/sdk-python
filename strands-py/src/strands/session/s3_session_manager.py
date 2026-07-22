@@ -65,24 +65,47 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 ID is not allowed to contain path separators (e.g., a/b).
             bucket: S3 bucket name (required)
             prefix: S3 key prefix for storage organization
-            boto_session: Optional boto3 session. Ignored if ``s3_client`` is supplied.
-            boto_client_config: Optional boto3 client configuration. Ignored if ``s3_client`` is supplied.
-            region_name: AWS region for S3 storage. Ignored if ``s3_client`` is supplied.
+            boto_session: Optional boto3 session. Mutually exclusive with ``s3_client``.
+            boto_client_config: Optional boto3 client configuration. Mutually exclusive with ``s3_client``.
+            region_name: AWS region for S3 storage. Mutually exclusive with ``s3_client``.
             endpoint_url: Custom endpoint URL for S3-compatible storage backends (e.g., MinIO, LocalStack)
-                or VPC endpoints (PrivateLink). Ignored if ``s3_client`` is supplied.
+                or VPC endpoints (PrivateLink). Mutually exclusive with ``s3_client``.
             s3_client: Optional pre-built boto3 S3 client. When provided, S3SessionManager
                 reuses it directly instead of constructing a new boto3.Session and S3 client.
                 This avoids per-instance boto initialization overhead (HTTP connection pool,
                 endpoint discovery) when many managers are created in the same process, and
                 gives callers full control over the underlying client (credentials, retry
-                config, custom endpoints). When ``s3_client`` is provided, ``boto_session``,
-                ``boto_client_config``, ``region_name``, and ``endpoint_url`` are ignored.
+                config, custom endpoints). Mutually exclusive with ``boto_session``,
+                ``boto_client_config``, ``region_name``, and ``endpoint_url``.
             **kwargs: Additional keyword arguments for future extensibility.
+
+        Raises:
+            ValueError: If ``s3_client`` is supplied together with any of ``boto_session``,
+                ``boto_client_config``, ``region_name``, or ``endpoint_url``.
         """
         self.bucket = bucket
         self.prefix = prefix
 
         if s3_client is not None:
+            # Fail fast: a pre-built client is mutually exclusive with the args used to
+            # build one. Silently ignoring them hides caller mistakes (e.g. a region_name
+            # that never takes effect), so reject the combination instead.
+            conflicting = [
+                name
+                for name, value in (
+                    ("boto_session", boto_session),
+                    ("boto_client_config", boto_client_config),
+                    ("region_name", region_name),
+                    ("endpoint_url", endpoint_url),
+                )
+                if value is not None
+            ]
+            if conflicting:
+                raise ValueError(
+                    f"s3_client is mutually exclusive with {', '.join(conflicting)}; "
+                    "pass either a pre-built s3_client or the arguments to build one, not both"
+                )
+
             # Reuse the caller's pre-built client. We deliberately do not modify
             # its user_agent_extra; the caller owns the client's configuration.
             logger.debug("bucket=<%s> | reusing caller-supplied s3 client", bucket)

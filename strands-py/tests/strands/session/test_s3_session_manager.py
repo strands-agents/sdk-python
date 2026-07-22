@@ -536,27 +536,29 @@ def test_s3_client_kwarg_reuses_supplied_client(mocked_aws, s3_bucket):
     assert manager.client is supplied
 
 
-def test_s3_client_kwarg_ignores_session_and_config(mocked_aws, s3_bucket):
-    """When ``s3_client`` is supplied, boto_session / boto_client_config /
-    region_name are ignored. We assert by checking that no extra boto3.Session
-    is constructed when those args are also passed.
+@pytest.mark.parametrize(
+    "conflicting_kwargs",
+    [
+        {"boto_session": Mock(spec=boto3.Session)},
+        {"boto_client_config": BotocoreConfig(retries={"max_attempts": 99})},
+        {"region_name": "us-east-1"},
+        {"endpoint_url": "http://localhost:9000"},
+    ],
+)
+def test_s3_client_kwarg_rejects_conflicting_args(mocked_aws, s3_bucket, conflicting_kwargs):
+    """s3_client is mutually exclusive with the args used to build a client;
+    supplying both must fail fast rather than silently ignore the extra args.
     """
     supplied = boto3.client("s3", region_name="us-west-2")
-
-    # boto_session is the sentinel that would otherwise become self.client;
-    # supplying it together with s3_client should NOT override s3_client.
-    bogus_session = Mock(spec=boto3.Session)
-    manager = S3SessionManager(
-        session_id="test-reuse-2",
-        bucket=s3_bucket,
-        prefix="sessions/",
-        boto_session=bogus_session,
-        boto_client_config=BotocoreConfig(retries={"max_attempts": 99}),
-        region_name="us-east-1",
-        s3_client=supplied,
-    )
-    assert manager.client is supplied
-    bogus_session.client.assert_not_called()
+    (conflicting_name,) = conflicting_kwargs
+    with pytest.raises(ValueError, match=conflicting_name):
+        S3SessionManager(
+            session_id="test-conflict",
+            bucket=s3_bucket,
+            prefix="sessions/",
+            s3_client=supplied,
+            **conflicting_kwargs,
+        )
 
 
 def test_s3_client_kwarg_supports_session_round_trip(mocked_aws, s3_bucket, sample_session):
