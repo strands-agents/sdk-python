@@ -69,7 +69,7 @@ interface DelegationState {
 /**
  * Plugin that enforces delegation semantics for tool routing.
  *
- * Automatically registered when any tool in the agent's tool list has `delegate: true`.
+ * Automatically registered on every agent. Acts as a no-op when no delegation tools fire.
  * Implements single-call constraint, early loop exit, and result transformation.
  *
  * @example
@@ -108,7 +108,7 @@ export class AgentDelegation implements Plugin {
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
     agent.addHook(BeforeToolCallEvent, (event) => this._onBeforeToolCall(event), { order: HookOrder.SDK_LAST })
     agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
-    agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event))
+    agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event), { order: HookOrder.SDK_LAST })
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -205,14 +205,20 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
-   * AfterToolsEvent hook: signals the agent loop to stop when delegation succeeded.
+   * AfterToolsEvent hook (SDK_LAST): signals the agent loop to stop when
+   * delegation succeeded and the result is still valid after all hooks settled.
    */
   private _onAfterTools(event: AfterToolsEvent): void {
     const state = this._state.get(event.agent)
     if (!state?.toolUseId) return
 
-    event.invocationState.stopEventLoop = true
-    state.ownsStopSignal = true
+    // Only claim ownership if this frame transitions the flag from false to true.
+    // If already true (e.g., set by a sibling tool), we don't own it and must
+    // not clear it on error.
+    if (event.invocationState.stopEventLoop !== true) {
+      event.invocationState.stopEventLoop = true
+      state.ownsStopSignal = true
+    }
   }
 
   /**
