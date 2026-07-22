@@ -75,13 +75,15 @@ Pass a Storage instance to a plugin that needs persistence:
 </Tabs>
 
 Storage is not passed directly to the `Agent` constructor — it
-is consumed by plugins. The two primary consumers are:
+is consumed by plugins. The primary consumers are:
 
 - **[Context Offloader](./plugins/context-offloader.mdx)** —
   stores large tool results that would otherwise overwhelm the
   context window
 - **[Session Management](./agents/session-management.mdx)** —
   persists conversation history and agent state across restarts
+- **[Memory](./memory/overview.mdx)** — persists long-term
+  knowledge and retrieval data across conversations
 
 ## Built-in backends
 
