@@ -288,6 +288,8 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self.server_instructions: str | None = None
         self._consumers: set[Any] = set()
+        # Keep detached cleanup tasks alive until they finish; asyncio only retains weak references.
+        self._background_cleanup_tasks: set[asyncio.Task[Any]] = set()
 
         # Task support configuration and caching
         self._tasks_config = tasks_config
@@ -798,7 +800,12 @@ class MCPClient(ToolProvider):
                 session = cast(ClientSession, self._background_thread_session)
                 if cancellation_state is not None:
                     cancellation_state["session"] = session
-                    cancellation_state["request_id"] = session._request_id
+                    # MCP assigns the captured private ID synchronously at the start of
+                    # send_request(). If that invariant changes, omit remote notification rather
+                    # than risk cancelling a different request; local cancellation still works.
+                    request_id = getattr(session, "_request_id", None)
+                    if isinstance(request_id, int):
+                        cancellation_state["request_id"] = request_id
                 return await session.call_tool(
                     name, arguments, read_timeout_seconds, progress_callback=effective_callback, meta=meta
                 )
@@ -946,13 +953,19 @@ class MCPClient(ToolProvider):
             except Exception:
                 logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
 
-        result = MCPToolResult(
-            status="error",
-            toolUseId=tool_use_id,
-            content=[{"text": f"Tool execution failed: {str(exception)}"}],
-        )
         if isinstance(exception, _MCPCallCancelledError):
-            result["cancelled"] = True
+            result = MCPToolResult(
+                status="error",
+                toolUseId=tool_use_id,
+                content=[{"text": "Tool execution cancelled locally; remote execution may have continued"}],
+                cancelled=True,
+            )
+        else:
+            result = MCPToolResult(
+                status="error",
+                toolUseId=tool_use_id,
+                content=[{"text": f"Tool execution failed: {str(exception)}"}],
+            )
         return result
 
     def _handle_tool_result(self, tool_use_id: str, call_tool_result: MCPCallToolResult) -> MCPToolResult:
@@ -1247,6 +1260,8 @@ class MCPClient(ToolProvider):
             if cancel_signal is not None:
 
                 async def wait_for_cancel() -> None:
+                    # Polling avoids blocking the loop. Running Event.wait() in an executor would
+                    # leave its worker thread blocked when this watcher is cancelled after success.
                     while not cancel_signal.is_set():
                         await asyncio.sleep(0.05)
 
@@ -1496,7 +1511,9 @@ class MCPClient(ToolProvider):
                         return
                     if cancellation_state is not None:
                         cancellation_state["task_id"] = result.task.taskId
-                        asyncio.create_task(self._cancel_tool_call(cancellation_state))
+                        cleanup_task = asyncio.create_task(self._cancel_tool_call(cancellation_state))
+                        self._background_cleanup_tasks.add(cleanup_task)
+                        cleanup_task.add_done_callback(self._background_cleanup_tasks.discard)
 
                 create_task.add_done_callback(cancel_delayed_task)
             raise

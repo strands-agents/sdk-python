@@ -251,7 +251,9 @@ class TestTaskExecution:
             second_result = await client.call_tool_async(tool_use_id="completed", name="fast_tool", arguments={})
 
         assert cancelled_result["status"] == "error"
-        assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+        assert cancelled_result["content"] == [
+            {"text": "Tool execution cancelled locally; remote execution may have continued"}
+        ]
         assert cancelled_result["cancelled"] is True
         mock_session.experimental.cancel_task.assert_awaited_once_with("test-task-id")
         assert second_result["status"] == "success"
@@ -303,6 +305,8 @@ class TestTaskExecution:
         self._setup_task_tool(mock_session, "slow_tool")
         creation_started = threading.Event()
         release_response = threading.Event()
+        cancellation_started = threading.Event()
+        release_cancellation = threading.Event()
         cancel_signal = threading.Event()
         create_result = MagicMock()
         create_result.task.taskId = "late-task-id"
@@ -317,8 +321,13 @@ class TestTaskExecution:
                     await asyncio.sleep(0.01)
             return create_result
 
+        async def resistant_cancellation(task_id):
+            cancellation_started.set()
+            while not release_cancellation.is_set():
+                await asyncio.sleep(0.01)
+
         mock_session.experimental.call_tool_as_task = resistant_creation
-        mock_session.experimental.cancel_task = AsyncMock()
+        mock_session.experimental.cancel_task = resistant_cancellation
 
         with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
             client.list_tools_sync()
@@ -331,10 +340,13 @@ class TestTaskExecution:
             cancel_signal.set()
             result = await asyncio.wait_for(call, timeout=2)
             release_response.set()
+            assert await asyncio.to_thread(cancellation_started.wait, 1)
+            assert len(client._background_cleanup_tasks) == 1
+            release_cancellation.set()
             await asyncio.sleep(0.1)
+            assert not client._background_cleanup_tasks
 
         assert result["status"] == "error"
-        mock_session.experimental.cancel_task.assert_awaited_once_with("late-task-id")
 
     @pytest.mark.asyncio
     async def test_task_creation_cancellation_does_not_guess_shared_request_id(self, mock_transport, mock_session):
@@ -404,7 +416,7 @@ class TestTaskExecution:
             result = await asyncio.wait_for(call, timeout=2)
 
         assert result["status"] == "error"
-        assert result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+        assert result["content"] == [{"text": "Tool execution cancelled locally; remote execution may have continued"}]
         assert result["cancelled"] is True
 
     def test_logs_warning_when_task_execution_ignores_progress_callback(self, mock_transport, mock_session, caplog):

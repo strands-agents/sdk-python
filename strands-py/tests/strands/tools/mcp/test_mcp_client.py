@@ -245,6 +245,26 @@ def test_call_tool_sync_no_progress_callback_by_default(mock_transport, mock_ses
         mock_session.call_tool.assert_called_once_with("test_tool", {}, None, progress_callback=None, meta=None)
 
 
+def test_call_tool_sync_pre_set_cancel_signal_skips_request(mock_transport, mock_session):
+    """Test a pre-set cancellation signal short-circuits before sending a request."""
+    cancel_signal = threading.Event()
+    cancel_signal.set()
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(
+            tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+        )
+
+    assert result == {
+        "status": "error",
+        "toolUseId": "cancelled",
+        "content": [{"text": "Tool execution cancelled locally; remote execution may have continued"}],
+        "cancelled": True,
+    }
+    mock_session.call_tool.assert_not_awaited()
+    mock_session.send_notification.assert_not_awaited()
+
+
 def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport, mock_session):
     """Test cancellation stops one call without closing the MCP session."""
     first_call_started = threading.Event()
@@ -278,7 +298,7 @@ def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport
     assert cancelled_result == {
         "status": "error",
         "toolUseId": "cancelled",
-        "content": [{"text": "Tool execution failed: Tool execution cancelled"}],
+        "content": [{"text": "Tool execution cancelled locally; remote execution may have continued"}],
         "cancelled": True,
     }
     assert first_call_cancelled.wait(timeout=1)
@@ -299,7 +319,12 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
     other_signal = threading.Event()
     mock_content = MCPTextContent(type="text", text="done")
 
+    assigned_request_ids = {}
+
     async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        request_id = mock_session._request_id
+        mock_session._request_id += 1
+        assigned_request_ids[name] = request_id
         if name == "slow_tool":
             slow_call_started.set()
             try:
@@ -327,15 +352,43 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
         )
 
     assert cancelled_result["status"] == "error"
-    assert cancelled_result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+    assert cancelled_result["content"] == [
+        {"text": "Tool execution cancelled locally; remote execution may have continued"}
+    ]
     assert cancelled_result["cancelled"] is True
     assert slow_call_cancelled.is_set()
     mock_session.send_notification.assert_awaited_once()
     notification = mock_session.send_notification.await_args.args[0].root
     assert notification.method == "notifications/cancelled"
-    assert notification.params.requestId == 0
+    assert notification.params.requestId == assigned_request_ids["slow_tool"]
+    assert assigned_request_ids["slow_tool"] != assigned_request_ids["fast_tool"]
     assert completed_result["status"] == "success"
     assert not other_signal.is_set()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_cancel_without_sdk_request_id_still_cancels_locally(mock_transport, mock_session):
+    """Test an MCP SDK private-field change degrades to local-only cancellation."""
+    call_started = asyncio.Event()
+    cancel_signal = threading.Event()
+    del mock_session._request_id
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        call_started.set()
+        await asyncio.Event().wait()
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        call = asyncio.create_task(
+            client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal)
+        )
+        await asyncio.wait_for(call_started.wait(), timeout=1)
+        cancel_signal.set()
+        result = await asyncio.wait_for(call, timeout=1)
+
+    assert result["cancelled"] is True
+    mock_session.send_notification.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -356,7 +409,7 @@ async def test_call_tool_async_cancel_wins_when_result_and_signal_are_ready(mock
         )
 
     assert result["status"] == "error"
-    assert result["content"] == [{"text": "Tool execution failed: Tool execution cancelled"}]
+    assert result["content"] == [{"text": "Tool execution cancelled locally; remote execution may have continued"}]
     assert result["cancelled"] is True
 
 

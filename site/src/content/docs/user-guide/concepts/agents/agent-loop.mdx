@@ -158,28 +158,42 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
   returns an error result with `cancelled=True`. This marker does not guarantee that remote execution
   stopped, because protocol cancellation is best-effort.
 
+  Synchronous call:
+
   ```python
-  import asyncio
   import threading
 
   from strands.tools.mcp import MCPClient
 
-  cancel_signal = threading.Event()
 
-  # Inside an active MCPClient context:
-  sync_result = client.call_tool_sync(
-      tool_use_id="sync-call",
-      name="long_running_tool",
-      arguments={},
-      cancel_signal=cancel_signal,
-  )
+  def call_tool(client: MCPClient) -> None:
+      """Call a tool while the client context is active."""
+      cancel_signal = threading.Event()
+      result = client.call_tool_sync(
+          tool_use_id="sync-call",
+          name="long_running_tool",
+          arguments={},
+          cancel_signal=cancel_signal,
+      )
+  ```
 
-  async_result = await client.call_tool_async(
-      tool_use_id="async-call",
-      name="long_running_tool",
-      arguments={},
-      cancel_signal=cancel_signal,
-  )
+  Asynchronous call:
+
+  ```python
+  import threading
+
+  from strands.tools.mcp import MCPClient
+
+
+  async def call_tool(client: MCPClient) -> None:
+      """Call a tool while the client context is active."""
+      cancel_signal = threading.Event()
+      result = await client.call_tool_async(
+          tool_use_id="async-call",
+          name="long_running_tool",
+          arguments={},
+          cancel_signal=cancel_signal,
+      )
   ```
 
   The event is not cleared by `MCPClient`; clear it before reusing it for another call. Cancelling the
