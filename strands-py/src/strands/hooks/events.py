@@ -269,7 +269,7 @@ class AfterModelCallEvent(HookEvent):
     Note: This event is not fired for invocations to structured_output.
 
     Model Retrying:
-        When ``retry_model`` is set to True by a hook callback, the agent will discard
+        When ``retry`` is set to True by a hook callback, the agent will discard
         the current model response and invoke the model again. This has important
         implications for streaming consumers:
 

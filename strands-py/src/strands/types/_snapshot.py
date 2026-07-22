@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 from .exceptions import SnapshotException
 
@@ -35,15 +35,6 @@ SNAPSHOT_SCHEMA_VERSION = "1.0"
 SNAPSHOT_PRESETS: dict[str, tuple[SnapshotField, ...]] = {
     "session": ("messages", "state", "conversation_manager_state", "interrupt_state", "model_state"),
 }
-
-
-class TakeSnapshotOptions(TypedDict, total=False):
-    """Internal options for take_snapshot. Not exported publicly."""
-
-    preset: SnapshotPreset
-    include: list[SnapshotField]
-    exclude: list[SnapshotField]
-    app_data: dict[str, Any]
 
 
 @dataclass

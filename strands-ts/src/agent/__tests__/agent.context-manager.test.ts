@@ -5,7 +5,7 @@ import { SlidingWindowConversationManager } from '../../conversation-manager/sli
 import { SummarizingConversationManager } from '../../conversation-manager/summarizing-conversation-manager.js'
 import { ContextOffloader } from '../../vended-plugins/context-offloader/plugin.js'
 import { InMemoryStorage as LegacyInMemoryStorage } from '../../vended-plugins/context-offloader/storage.js'
-import { InMemoryStorage } from '../../storage/in-memory-storage.js'
+import { NAMESPACED } from '../../storage/storage.js'
 import type { ConversationManager } from '../../conversation-manager/conversation-manager.js'
 
 function internals(agent: Agent): any {
@@ -65,7 +65,7 @@ describe('Agent contextManager', () => {
       expect(offloader).toBeDefined()
       expect(offloader._maxResultTokens).toBe(1500)
       expect(offloader._previewTokens).toBe(750)
-      expect(offloader._storage).toBeInstanceOf(InMemoryStorage)
+      expect(NAMESPACED in offloader._storage).toBe(true)
     })
   })
 
