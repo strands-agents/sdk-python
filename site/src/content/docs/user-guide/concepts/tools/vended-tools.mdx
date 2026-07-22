@@ -10,6 +10,8 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/web-fetch/web-fetch.ts
+  - path: strands-py/src/strands/vended_tools/web_fetch/web_fetch.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -34,6 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [Web Fetch](#web-fetch) | Fetch a URL and return cleaned markdown for a model to read | Python, TypeScript (Node.js) |
 
 ### File Editor
 
@@ -160,6 +163,47 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### Web Fetch
+
+Fetches an HTTP(S) URL and returns its readable content as markdown suitable for a model to read. Scripts, styles, and other non-content noise are stripped from the extracted markdown. Distinct from the HTTP Request tool, which returns raw response bodies for API calls.
+
+_Supported in: Node.js (TypeScript); all platforms (Python)._
+
+:::caution[Security Warning]
+The model chooses the fetched URL, so the tool is intentionally strict at that boundary. Only http and https schemes are accepted. Every host is DNS-resolved and every returned address is required to be publicly routable, so private, loopback, link-local, cloud metadata, CGNAT, multicast, and reserved ranges are refused. Redirects are re-validated against the same rules and the tool connects to a specific already-validated IP address so a DNS rebinder cannot substitute a private address between validation and connect. Response bodies are capped at five mebibytes.
+:::
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { webFetch } from '@strands-agents/sdk/vended-tools/web-fetch'
+
+const agent = new Agent({ tools: [webFetch] })
+await agent.invoke('Summarize https://example.com/blog/post')
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import web_fetch
+
+agent = Agent(tools=[web_fetch])
+agent("Summarize https://example.com/blog/post")
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/web-fetch/README.md)
 
 ---
 
