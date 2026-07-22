@@ -446,6 +446,30 @@ class TestS3Storage:
             await storage.retrieve("s3://wrong-bucket/artifacts/some_key")
 
     @pytest.mark.asyncio
+    async def test_retrieve_rejects_raw_key_outside_prefix(self, storage, mock_s3_client):
+        # Regression for report 3858663: a raw key pointing outside the configured
+        # prefix must not be readable, even when the object exists in the same bucket.
+        mock_s3_client.put_object(Bucket="test-bucket", Key="private/secret.txt", Body=b"SECRET")
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve("private/secret.txt")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_s3_uri_outside_prefix(self, storage, mock_s3_client):
+        # Regression for report 3858663: a same-bucket s3:// URI outside the configured
+        # prefix must be rejected, not silently read.
+        mock_s3_client.put_object(Bucket="test-bucket", Key="private/secret.txt", Body=b"SECRET")
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve("s3://test-bucket/private/secret.txt")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_sibling_prefix_key(self, storage, mock_s3_client):
+        # Regression for report 3858663: the trailing-slash normalization must make
+        # prefix "artifacts/" reject "artifactsX/...", not just fully-disjoint keys.
+        mock_s3_client.put_object(Bucket="test-bucket", Key="artifactsX/secret.txt", Body=b"SECRET")
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve("artifactsX/secret.txt")
+
+    @pytest.mark.asyncio
     async def test_put_object_called_with_correct_params(self, storage, mock_s3_client):
         await storage.store("key_1", b"test content", "application/json")
 
@@ -462,7 +486,7 @@ class TestS3Storage:
         mock_s3_client.get_object.side_effect = ClientError(error_response, "GetObject")
 
         with pytest.raises(ClientError, match="Forbidden"):
-            await storage.retrieve("some_key")
+            await storage.retrieve("artifacts/some_key")
 
 
 class TestFileStorageWithSandbox:
