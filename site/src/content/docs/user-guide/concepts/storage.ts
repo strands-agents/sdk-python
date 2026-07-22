@@ -43,12 +43,18 @@ async function namespaceExample() {
 }
 
 // --8<-- [start:custom_backend]
-class RedisStorage implements Storage {
-  private client: import('ioredis').default
+interface RedisClient {
+  set(key: string, value: Buffer): Promise<unknown>
+  getBuffer(key: string): Promise<Buffer | null>
+  del(key: string): Promise<number>
+  keys(pattern: string): Promise<string[]>
+}
 
-  constructor(url: string = 'redis://localhost:6379') {
-    const Redis = require('ioredis')
-    this.client = new Redis(url)
+class RedisStorage implements Storage {
+  private client: RedisClient
+
+  constructor(client: RedisClient) {
+    this.client = client
   }
 
   async write(key: string, data: Uint8Array): Promise<void> {
