@@ -28,6 +28,8 @@ const hasVerified = cards.some((c) => c.badges.includes('verified'))
 const hasFeatured = cards.some((c) => c.featured)
 const hasNew = cards.some((c) => c.badges.includes('new'))
 
+// Counts span both SDKs while filtering is per-SDK; with no evals entries the
+// two coincide, so if/when evals entries land these need client-side recompute.
 const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
   value,
   label: labelPlural,
@@ -199,6 +201,8 @@ const description = 'Community-built tools, model providers, plugins, and integr
   if (sdkBtns.length === 0) state.sdk = 'agents'
   const renderedBadges = new Set(badgeBtns.map((btn) => btn.dataset.catBadge))
   for (const badge of state.badges) if (!renderedBadges.has(badge)) state.badges.delete(badge)
+  const renderedTypes = new Set(typeBtns.map((btn) => btn.dataset.catType))
+  for (const t of state.types) if (!renderedTypes.has(t)) state.types.delete(t)
 
   function cardData(el: HTMLElement): CardFilterData {
     return {

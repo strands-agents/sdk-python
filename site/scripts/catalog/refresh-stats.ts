@@ -143,8 +143,14 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
       // Entries anchored to the SDK itself (no dedicated package or repo) must
       // not display the SDK's own downloads/stars as their popularity.
       const repoSlug = new URL(data.github).pathname.replace(/^\//, '')
+      // A guide-only entry (no package in any language block) points its
+      // github at the vendor's main repo — that repo's stars measure the
+      // vendor's product, not the Strands integration, so skip them.
+      const hasPackage = Boolean(languages.python?.package || languages.typescript?.package)
       if (repoSlug.startsWith('strands-agents/')) {
         console.warn(`entry=${id}, source=github | repo is the sdk itself, skipping stats`)
+      } else if (!hasPackage) {
+        console.warn(`entry=${id} | guide-only entry, skipping github stats`)
       } else {
         entry.github = data.github
       }

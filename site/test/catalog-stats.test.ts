@@ -128,4 +128,22 @@ describe('loadEntries', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('skips github stats for guide-only entries whose repo is the vendor product', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'catalog-'))
+    try {
+      writeFileSync(
+        path.join(dir, 'vendor-guide.yaml'),
+        [
+          'name: vendor-guide',
+          'github: https://github.com/example/vendor-product',
+          'languages:',
+          '  python: {}',
+        ].join('\n')
+      )
+      expect(loadEntries(dir)).toEqual([{ id: 'vendor-guide' }])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })

@@ -1,11 +1,12 @@
 name: "Catalog: Editorial Review Flag"
 
+# No paths filter: a push that removes every catalog change must still run so
+# the stale label/comment from an earlier push gets cleared. The script
+# early-exits cheaply when the PR touches no catalog files.
 on:
   pull_request_target:
     branches: [main]
     types: [opened, synchronize, reopened]
-    paths:
-      - site/src/content/catalog/**
 
 # pull_request_target runs in the base-repo context so the job can label and
 # comment on fork PRs. It never checks out or executes PR head code — the
@@ -50,12 +51,48 @@ jobs:
               return comments.find(c => c.body && c.body.includes(marker));
             }
 
+            // A previous push may have flagged this PR; clear the stale
+            // label and comment so reviewers aren't misled.
+            async function clearStaleFlag() {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              const stale = await findStickyComment();
+              if (stale) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: stale.id,
+                  body: [
+                    marker,
+                    '### Editorial catalog fields detected',
+                    '',
+                    '~~Resolved~~ — a later push removed the `featured`/`badges` changes, so this no longer applies.',
+                  ].join('\n'),
+                });
+              }
+            }
+
             // --- Does the diff touch editorial fields? --------------------
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: pr.number,
             });
+
+            const catalogFiles = files.filter(f => f.filename.startsWith('site/src/content/catalog/'));
+            if (catalogFiles.length === 0) {
+              console.log('PR touches no catalog files — clearing any stale flag.');
+              await clearStaleFlag();
+              return;
+            }
 
             // Both directions are editorial: adding a grant a submitter isn't
             // entitled to, and removing one that a maintainer made. A change
@@ -82,8 +119,7 @@ jobs:
             const removedListItemRe = /^-\s*-\s*['"]?verified['"]?\s*$/;
 
             const flagged = [];
-            for (const file of files) {
-              if (!file.filename.startsWith('site/src/content/catalog/')) continue;
+            for (const file of catalogFiles) {
               if (!/\.ya?ml$/.test(file.filename)) continue;
               // Catalog entries are small, so a patch is always present;
               // a missing one means no reviewable text diff — skip.
@@ -111,32 +147,7 @@ jobs:
 
             if (flagged.length === 0) {
               console.log('No editorial fields (featured/badges) changed — nothing to flag.');
-              // A previous push may have flagged this PR; clear the stale
-              // label and comment so reviewers aren't misled.
-              try {
-                await github.rest.issues.removeLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number,
-                  name: label,
-                });
-              } catch (error) {
-                if (error.status !== 404) throw error;
-              }
-              const stale = await findStickyComment();
-              if (stale) {
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: stale.id,
-                  body: [
-                    marker,
-                    '### Editorial catalog fields detected',
-                    '',
-                    '~~Resolved~~ — a later push removed the `featured`/`badges` changes, so this no longer applies.',
-                  ].join('\n'),
-                });
-              }
+              await clearStaleFlag();
               return;
             }
 
@@ -201,7 +212,7 @@ jobs:
               `This PR changes \`featured\` and/or \`badges\` on: ${flagged.map(f => `\`${f}\``).join(', ')}.`,
               '',
               'Those fields are granted by the Strands team, not set by submitters',
-              '(see the [submission guide](https://strandsagents.com/community/get-featured/)).',
+              '(see the [submission guide](https://strandsagents.com/docs/community/get-featured/)).',
               'Both granting and removing them needs maintainer confirmation — a',
               'maintainer should either **confirm the change** or **ask the',
               'submitter to revert it** before merging.',
