@@ -62,8 +62,8 @@ interface DelegationState {
   toolUseCount: number
   /** Tool use ID of the delegation tool that succeeded (set by AfterToolCallEvent). */
   toolUseId?: string
-  /** Final delegation result (set by AfterToolsEvent from the post-hook tool-result message). */
-  result?: ToolResultBlock
+  /** Whether this frame's _onAfterTools set stopEventLoop (for cleanup ownership). */
+  ownsStopSignal?: boolean
 }
 
 /**
@@ -205,28 +205,14 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
-   * AfterToolsEvent hook: finalizes delegation by reading the settled result
-   * and signaling the agent loop to stop.
-   *
-   * Fires after all tools in the batch have completed (including retries).
-   * Reads the final ToolResultBlock from the tool-result message.
+   * AfterToolsEvent hook: signals the agent loop to stop when delegation succeeded.
    */
   private _onAfterTools(event: AfterToolsEvent): void {
     const state = this._state.get(event.agent)
     if (!state?.toolUseId) return
 
-    // Find the final ToolResultBlock from the tool-result message.
-    const resultBlock = event.message.content.find(
-      (block): block is ToolResultBlock => block instanceof ToolResultBlock && block.toolUseId === state.toolUseId
-    )
-
-    if (!resultBlock || resultBlock.status === 'error') {
-      delete state.toolUseId
-      return
-    }
-
-    state.result = resultBlock
     event.invocationState.stopEventLoop = true
+    state.ownsStopSignal = true
   }
 
   /**
@@ -296,28 +282,42 @@ export class AgentDelegation implements Plugin {
     try {
       streamResult = yield* next(context)
     } catch (error) {
-      // If the inner loop threw (e.g., an AfterToolsEvent hook threw after
-      // _onAfterTools set stopEventLoop), clean up both the plugin state and
-      // the shared invocationState flag so it doesn't leak to ancestor agent
-      // frames via the shared invocationState.
-      this._state.delete(context.agent)
-      const invocationState = context.options?.invocationState
-      if (invocationState?.stopEventLoop === true) {
-        invocationState.stopEventLoop = false
+      // If the inner loop threw after _onAfterTools set stopEventLoop, clean up
+      // only the signal this frame owns — don't clear a flag set by an ancestor.
+      const state = this._state.get(context.agent)
+      if (state?.ownsStopSignal) {
+        const invocationState = context.options?.invocationState
+        if (invocationState?.stopEventLoop === true) {
+          invocationState.stopEventLoop = false
+        }
       }
+      this._state.delete(context.agent)
       throw error
     }
 
-    // Consume the delegation result. Its presence is the authoritative signal
-    // that delegation occurred.
+    // Look up the delegation result. The toolUseId was marked by _onAfterToolCall;
+    // we read the actual ToolResultBlock from agent.messages here — after all hooks
+    // (AfterToolCallEvent, AfterToolsEvent) have fully settled and messages have been
+    // appended. This is the true post-hook value.
     const state = this._state.get(context.agent)
     this._state.delete(context.agent)
 
-    if (!state?.result) return streamResult
+    if (!state?.toolUseId) return streamResult
+
+    // Search the last user message (tool-result message) for the matching block.
+    const toolResultMessage = context.agent.messages[context.agent.messages.length - 1]
+    const resultBlock =
+      toolResultMessage?.role === 'user'
+        ? toolResultMessage.content.find(
+            (block): block is ToolResultBlock => block instanceof ToolResultBlock && block.toolUseId === state.toolUseId
+          )
+        : undefined
+
+    if (!resultBlock || resultBlock.status === 'error') return streamResult
 
     const delegationMessage = new Message({
       role: 'assistant',
-      content: toContentBlocks(state.result),
+      content: toContentBlocks(resultBlock),
     })
 
     // Append the delegation message and emit MessageAddedEvent so session
