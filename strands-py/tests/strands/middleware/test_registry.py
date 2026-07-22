@@ -419,6 +419,81 @@ async def test_output_handler_not_called_when_chain_yields_nothing(registry, sta
     assert not called
 
 
+class _FakeInterruptEvent:
+    """Minimal InterruptControlEvent: a control-flow signal, never a stage result."""
+
+    is_interrupt = True
+
+
+@pytest.mark.asyncio
+async def test_output_handler_skipped_when_chain_halts_on_interrupt(registry, stage, alist):
+    """An interrupt control event means no result — the Output handler must not run."""
+    called = False
+
+    def output_handler(result):
+        nonlocal called
+        called = True
+        return result
+
+    interrupt = _FakeInterruptEvent()
+
+    async def terminal(context):
+        yield interrupt  # halts immediately; no result event
+
+    registry.add_middleware(stage.Output, output_handler)
+    events = await alist(registry.invoke(stage, {}, terminal))
+
+    assert events == [interrupt]
+    assert not called
+
+
+@pytest.mark.asyncio
+async def test_output_handler_not_fed_buffered_event_when_halting_on_interrupt(registry, stage, alist):
+    """A non-result event buffered before an interrupt is forwarded, never treated as the result."""
+    received: list[Any] = []
+
+    def output_handler(result):
+        received.append(result.value)
+        return result
+
+    interrupt = _FakeInterruptEvent()
+
+    async def terminal(context):
+        yield "stream_chunk"  # a non-result event buffered by the Output adapter
+        yield interrupt  # then the chain halts
+
+    registry.add_middleware(stage.Output, output_handler)
+    events = await alist(registry.invoke(stage, {}, terminal))
+
+    # Both events flow through in order; the buffered chunk is never handed to the handler.
+    assert events == ["stream_chunk", interrupt]
+    assert received == []
+
+
+@pytest.mark.asyncio
+async def test_output_forwards_trailing_event_after_interrupt_without_transforming(registry, stage, alist):
+    """An event trailing an interrupt is forwarded untransformed, never treated as the result."""
+    received: list[Any] = []
+
+    def output_handler(result):
+        received.append(result.value)
+        return result
+
+    interrupt = _FakeInterruptEvent()
+
+    async def terminal(context):
+        yield "before"  # buffered
+        yield interrupt  # halts; buffered "before" is flushed
+        yield "after"  # trailing event once already interrupted
+
+    registry.add_middleware(stage.Output, output_handler)
+    events = await alist(registry.invoke(stage, {}, terminal))
+
+    # All three flow through in order; the Output handler never runs (no result to transform).
+    assert events == ["before", interrupt, "after"]
+    assert received == []
+
+
 # --- error propagation ---
 
 
