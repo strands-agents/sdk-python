@@ -3,7 +3,7 @@ description: Runtime control plane that evaluates every agent input and output a
 integrationType: plugin
 languages:
   python:
-    package: agent-control-sdk
+    package: agent-control-sdk[strands-agents]
     registry: https://pypi.org/project/agent-control-sdk/
 github: https://github.com/agentcontrol/agent-control
 maintainer: agentcontrol

@@ -2,9 +2,7 @@ name: ovhcloud-ai-endpoints
 description: OVHcloud AI Endpoints, a European OpenAI-compatible inference service for Strands Agents with GDPR-compliant data sovereignty.
 integrationType: model-provider
 languages:
-  python:
-    package: strands-agents
-    registry: https://pypi.org/project/strands-agents/
+  python: {}
 github: https://github.com/strands-agents/harness-sdk
 maintainer: strands-agents
 docsPage: docs/community/model-providers/ovhcloud-ai-endpoints

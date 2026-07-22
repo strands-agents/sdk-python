@@ -4,7 +4,7 @@ integrationType: session-manager
 featured: true
 languages:
   python:
-    package: bedrock-agentcore
+    package: bedrock-agentcore[strands-agents]
     registry: https://pypi.org/project/bedrock-agentcore/
 github: https://github.com/aws/bedrock-agentcore-sdk-python
 maintainer: aws

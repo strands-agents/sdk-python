@@ -3,7 +3,7 @@ description: Amazon Bedrock AgentCore Gateway plugin that loads only the tools r
 integrationType: plugin
 languages:
   python:
-    package: bedrock-agentcore
+    package: bedrock-agentcore[strands-agents]
     registry: https://pypi.org/project/bedrock-agentcore/
 github: https://github.com/aws/bedrock-agentcore-sdk-python
 maintainer: aws
