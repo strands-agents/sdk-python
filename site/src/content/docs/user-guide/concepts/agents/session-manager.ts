@@ -187,13 +187,7 @@ async function snapshotTriggerExample() {
 async function listAndRestoreExample() {
   // --8<-- [start:list_and_restore]
   const storage = new LocalFileStorage('./sessions/')
-  const location = {
-    sessionId: 'my-session',
-    scope: 'agent' as const,
-    scopeId: 'default',
-  }
 
-  // Create a session manager and use its storage adapter
   const session = new SessionManager({
     sessionId: 'my-session',
     storage,
@@ -203,8 +197,7 @@ async function listAndRestoreExample() {
 
   // List all immutable snapshot IDs (chronological order)
   const snapshotIds = await session.listSnapshotIds({
-    scope: 'agent',
-    scopeId: 'default',
+    target: agent,
   })
 
   // Restore agent to a specific checkpoint
