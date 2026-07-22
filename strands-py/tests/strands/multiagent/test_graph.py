@@ -2171,6 +2171,32 @@ async def test_graph_checkpoint_persists_in_flight_execution_time(mock_strands_t
     assert checkpoint["execution_time"] == 400
 
 
+@pytest.mark.asyncio
+async def test_graph_tracing_setup_failure_does_not_leak_timer(mock_strands_tracer, mock_use_span):
+    """A tracing setup failure must not leave the invocation timer running.
+
+    The timer starts inside the span context so its clearing finally is guaranteed to run. If span
+    setup raises before then, no interval is started, and a later serialize_state must not accrue
+    wall time against an abandoned invocation.
+    """
+    clock = {"now": 1000.0}
+    mock_strands_tracer.start_multiagent_span.side_effect = RuntimeError("span setup failed")
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        with pytest.raises(RuntimeError, match="span setup failed"):
+            await graph.invoke_async("go")
+        clock["now"] = 1000.5  # 500ms later
+        checkpoint = graph.serialize_state()
+
+    assert graph._invocation_start_time is None
+    assert checkpoint["execution_time"] == 0
+
+
 @pytest.mark.parametrize(
     ("cancel_node", "cancel_message"),
     [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],

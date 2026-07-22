@@ -646,7 +646,6 @@ class Graph(MultiAgentBase):
 
         # Initialize state
         start_time = time.time()
-        self._invocation_start_time = start_time
         if not self._resume_from_session and not self._interrupt_state.activated:
             # Initialize state
             self.state = GraphState(
@@ -664,6 +663,8 @@ class Graph(MultiAgentBase):
         span = self.tracer.start_multiagent_span(task, "graph", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
+
+            self._invocation_start_time = start_time
 
             try:
                 logger.debug(

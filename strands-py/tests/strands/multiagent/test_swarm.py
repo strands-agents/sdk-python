@@ -1286,6 +1286,29 @@ def test_swarm_checkpoint_persists_in_flight_execution_time():
 
 
 @pytest.mark.asyncio
+async def test_swarm_tracing_setup_failure_does_not_leak_timer(mock_strands_tracer, mock_use_span):
+    """A tracing setup failure must not leave the invocation timer running.
+
+    The timer starts inside the span context so its clearing finally is guaranteed to run. If span
+    setup raises before then, no interval is started, and a later serialize_state must not accrue
+    wall time against an abandoned invocation.
+    """
+    clock = {"now": 2000.0}
+    mock_strands_tracer.start_multiagent_span.side_effect = RuntimeError("span setup failed")
+
+    swarm = Swarm([create_mock_agent("first")])
+
+    with patch("strands.multiagent.swarm.time.time", lambda: clock["now"]):
+        with pytest.raises(RuntimeError, match="span setup failed"):
+            await swarm.invoke_async("go")
+        clock["now"] = 2000.5  # 500ms later
+        checkpoint = swarm.serialize_state()
+
+    assert swarm._invocation_start_time is None
+    assert checkpoint["execution_time"] == 0
+
+
+@pytest.mark.asyncio
 async def test_swarm_handle_handoff():
     first_agent = create_mock_agent("first")
     second_agent = create_mock_agent("second")

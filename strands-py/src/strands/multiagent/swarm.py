@@ -410,11 +410,11 @@ class Swarm(MultiAgentBase):
                 shared_context=self.shared_context,
             )
 
-        self._invocation_start_time = self.state.start_time
-
         span = self.tracer.start_multiagent_span(task, "swarm", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
+
+            self._invocation_start_time = self.state.start_time
 
             try:
                 current_node = cast(SwarmNode, self.state.current_node)
