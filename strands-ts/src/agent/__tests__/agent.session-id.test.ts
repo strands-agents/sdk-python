@@ -50,7 +50,7 @@ describe('Agent', () => {
       )
     })
 
-    it('allows different agent ids in the same session', () => {
+    it('allows different agent ids on the same SessionManager', () => {
       const sessionManager = new SessionManager({ sessionId: 'shared-session', storage: new InMemoryStorage() })
       new Agent({ model: new MockMessageModel(), id: 'researcher', sessionManager })
 
@@ -58,13 +58,11 @@ describe('Agent', () => {
     })
 
     it('allows same agent id across different SessionManager instances', () => {
-      const sessionManager1 = new SessionManager({ sessionId: 'session-1', storage: new InMemoryStorage() })
-      const sessionManager2 = new SessionManager({ sessionId: 'session-2', storage: new InMemoryStorage() })
-      new Agent({ model: new MockMessageModel(), id: 'researcher', sessionManager: sessionManager1 })
+      const sm1 = new SessionManager({ sessionId: 'session-1', storage: new InMemoryStorage() })
+      const sm2 = new SessionManager({ sessionId: 'session-2', storage: new InMemoryStorage() })
+      new Agent({ model: new MockMessageModel(), id: 'researcher', sessionManager: sm1 })
 
-      expect(
-        () => new Agent({ model: new MockMessageModel(), id: 'researcher', sessionManager: sessionManager2 })
-      ).not.toThrow()
+      expect(() => new Agent({ model: new MockMessageModel(), id: 'researcher', sessionManager: sm2 })).not.toThrow()
     })
 
     it('does not check when no SessionManager is configured', () => {
