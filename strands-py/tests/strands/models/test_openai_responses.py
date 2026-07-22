@@ -1,3 +1,4 @@
+import logging
 import os
 import unittest.mock
 
@@ -300,7 +301,7 @@ def test_format_request_messages(system_prompt):
         },
         {
             "role": "assistant",
-            "content": [{"type": "output_text", "text": "call tool"}],
+            "content": "call tool",
         },
         {
             "type": "function_call",
@@ -317,12 +318,14 @@ def test_format_request_messages(system_prompt):
     assert tru_result == exp_result
 
 
-def test_format_request_messages_assistant_text_uses_output_text():
-    """Assistant text content must use output_text, not input_text.
+def test_format_request_messages_assistant_text_uses_string_content():
+    """Assistant history must use the string EasyInputMessage form.
 
-    Regression test for multi-turn conversations failing because the OpenAI
-    Responses API rejects input_text in assistant messages.
-    See: https://github.com/strands-agents/harness-sdk/issues/1850
+    A bare ``{"role": "assistant", "content": [{"type": "output_text", ...}]}``
+    is not a valid Responses API input item (it is neither a string-content
+    EasyInputMessage nor a complete ResponseOutputMessage) and is rejected by
+    strict backends such as Bedrock Mantle.
+    See: https://github.com/strands-agents/harness-sdk/issues/3388
     """
     messages = [
         {
@@ -347,12 +350,79 @@ def test_format_request_messages_assistant_text_uses_output_text():
     }
     assert result[1] == {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "Hello!"}],
+        "content": "Hello!",
     }
     assert result[2] == {
         "role": "user",
         "content": [{"type": "input_text", "text": "Say goodbye"}],
     }
+
+
+def test_format_request_messages_assistant_multiple_text_blocks_join_with_newline():
+    """Multiple assistant text blocks collapse into one newline-joined string."""
+    messages = [
+        {
+            "content": [{"text": "First."}, {"text": "Second."}],
+            "role": "assistant",
+        },
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "assistant", "content": "First.\nSecond."}]
+
+
+def test_format_request_messages_assistant_non_text_content_dropped(caplog):
+    """Assistant media has no valid Responses input shape and is dropped with a warning."""
+    messages = [
+        {
+            "content": [
+                {"text": "Here is the image."},
+                {"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}},
+            ],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "assistant", "content": "Here is the image."}]
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_only_non_text_content_dropped_entirely(caplog):
+    """An assistant turn with only non-text content collapses to nothing and is omitted."""
+    messages = [
+        {
+            "content": [{"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}}],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == []
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_history_items_are_valid_input_items():
+    """Formatted assistant history validates against the OpenAI input item schema."""
+    import openai
+
+    messages = [
+        {"content": [{"text": "What is 2+2?"}], "role": "user"},
+        {"content": [{"text": "4"}], "role": "assistant"},
+        {"content": [{"text": "What about 3+3?"}], "role": "user"},
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assistant_item = result[1]
+    easy_message_fields = set(openai.types.responses.EasyInputMessageParam.__annotations__)
+    assert set(assistant_item) <= easy_message_fields
+    assert isinstance(assistant_item["content"], str)
 
 
 def test_format_request_message_content_role_assistant():
@@ -624,9 +694,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -737,9 +805,7 @@ async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -774,9 +840,7 @@ async def test_stream_with_tool_calls_done_event(openai_client, model, agenerato
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -835,9 +899,7 @@ async def test_stream_reasoning_content(openai_client, model, agenerator, alist,
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None)
         ),
     )
 
@@ -883,9 +945,7 @@ async def test_stream_citation_annotations(openai_client, model, agenerator, ali
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -923,9 +983,7 @@ async def test_stream_unsupported_annotation_type(openai_client, model, agenerat
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -1311,7 +1369,7 @@ def test_format_request_messages_with_citations_content():
     assistant_msg = [m for m in formatted if m.get("role") == "assistant"][0]
     assert assistant_msg == {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "The answer with citations."}],
+        "content": "The answer with citations.",
     }
 
 
@@ -1462,7 +1520,7 @@ def test_format_request_messages_excludes_reasoning_content(caplog):
 
     assert result == [
         {"role": "user", "content": [{"type": "input_text", "text": "Hello"}]},
-        {"role": "assistant", "content": [{"type": "output_text", "text": "The answer is 42"}]},
+        {"role": "assistant", "content": "The answer is 42"},
         {"role": "user", "content": [{"type": "input_text", "text": "Thanks"}]},
     ]
     assert "reasoningContent is not yet supported" in caplog.text

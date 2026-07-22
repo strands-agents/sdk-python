@@ -41,7 +41,7 @@ const emailTool = tool({
     tools: [weatherTool, timeTool],
     toolExecutor: 'concurrent',
   })
-  // or simply: new Agent({ tools: [weatherTool, timeTool] })
+  // Omit toolExecutor to use concurrent execution by default.
 
   await agent.invoke('What is the weather and time in New York?')
   // --8<-- [end:concurrent]
