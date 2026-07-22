@@ -114,13 +114,14 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
 <Tabs>
   <Tab label="Python">
 
-  The agent checks for cancellation at three checkpoints:
+  The agent checks for cancellation at four checkpoints:
 
   | Checkpoint | Behavior | Note |
   |---|---|---|
   | Model response streaming | Partial output is discarded | Usage metrics may be inaccurate since the stream is closed before the model sends its final metadata event |
   | Before tool execution | Tool calls are skipped with error results added to maintain valid conversation state | |
   | During MCP tool execution | The in-flight MCP request is cancelled without closing the shared MCP session | Remote cancellation is best-effort; the agent stops locally even if the server does not acknowledge cancellation |
+  | After tool execution | The agent stops before the next model call | Non-MCP tools finish before cancellation is observed |
 
   The agent returns a result with `stop_reason="cancelled"`. `cancel()` is thread-safe and idempotent. Calling it multiple times or from different threads is safe.
 
@@ -167,33 +168,44 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
 
 
   def call_tool(client: MCPClient) -> None:
-      """Call a tool while the client context is active."""
+      """Cancel a tool after one second while the client context is active."""
       cancel_signal = threading.Event()
-      result = client.call_tool_sync(
-          tool_use_id="sync-call",
-          name="long_running_tool",
-          arguments={},
-          cancel_signal=cancel_signal,
-      )
+      timer = threading.Timer(1, cancel_signal.set)
+      timer.start()
+      try:
+          result = client.call_tool_sync(
+              tool_use_id="sync-call",
+              name="long_running_tool",
+              arguments={},
+              cancel_signal=cancel_signal,
+          )
+      finally:
+          timer.cancel()
   ```
 
   Asynchronous call:
 
   ```python
+  import asyncio
   import threading
 
   from strands.tools.mcp import MCPClient
 
 
   async def call_tool(client: MCPClient) -> None:
-      """Call a tool while the client context is active."""
+      """Cancel a tool after one second while the client context is active."""
       cancel_signal = threading.Event()
-      result = await client.call_tool_async(
-          tool_use_id="async-call",
-          name="long_running_tool",
-          arguments={},
-          cancel_signal=cancel_signal,
-      )
+      loop = asyncio.get_running_loop()
+      timer = loop.call_later(1, cancel_signal.set)
+      try:
+          result = await client.call_tool_async(
+              tool_use_id="async-call",
+              name="long_running_tool",
+              arguments={},
+              cancel_signal=cancel_signal,
+          )
+      finally:
+          timer.cancel()
   ```
 
   The event is not cleared by `MCPClient`; clear it before reusing it for another call. Cancelling the

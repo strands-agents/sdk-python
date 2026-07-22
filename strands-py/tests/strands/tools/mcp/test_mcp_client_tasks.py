@@ -349,6 +349,49 @@ class TestTaskExecution:
         assert result["status"] == "error"
 
     @pytest.mark.asyncio
+    async def test_context_exit_drains_delayed_task_cancellation(self, mock_transport, mock_session):
+        """Test session shutdown waits for delayed task creation and remote cancellation."""
+        import threading
+
+        self._setup_task_tool(mock_session, "slow_tool")
+        creation_started = threading.Event()
+        release_response = threading.Event()
+        cancel_signal = threading.Event()
+        create_result = MagicMock()
+        create_result.task.taskId = "shutdown-task-id"
+
+        async def resistant_creation(**kwargs):
+            creation_started.set()
+            try:
+                while not release_response.is_set():
+                    await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                while not release_response.is_set():
+                    await asyncio.sleep(0.01)
+            return create_result
+
+        mock_session.experimental.call_tool_as_task = resistant_creation
+        mock_session.experimental.cancel_task = AsyncMock()
+
+        with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
+            client.list_tools_sync()
+            call = asyncio.create_task(
+                client.call_tool_async(
+                    tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal
+                )
+            )
+            assert await asyncio.to_thread(creation_started.wait, 1)
+            cancel_signal.set()
+            result = await asyncio.wait_for(call, timeout=2)
+            release_timer = threading.Timer(0.1, release_response.set)
+            release_timer.start()
+
+        release_timer.join(timeout=1)
+        assert result["status"] == "error"
+        mock_session.experimental.cancel_task.assert_awaited_once_with("shutdown-task-id")
+        assert not client._background_cleanup_tasks
+
+    @pytest.mark.asyncio
     async def test_task_creation_cancellation_does_not_guess_shared_request_id(self, mock_transport, mock_session):
         """Test task creation cancellation waits for the task ID instead of guessing a request ID."""
         import threading

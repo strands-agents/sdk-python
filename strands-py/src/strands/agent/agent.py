@@ -596,6 +596,7 @@ class Agent(AgentBase):
         - During model response streaming
         - Before tool execution
         - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 

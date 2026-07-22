@@ -554,6 +554,7 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self._connection_failed = False
         self._consumers = set()
+        self._background_cleanup_tasks.clear()
         self._server_task_capable = None
         self._tool_task_support_cache = {}
 
@@ -1067,6 +1068,7 @@ class MCPClient(ToolProvider):
                     await self._close_future
 
                     self._log_debug_with_thread("close signal received")
+                    await self._drain_background_cleanup_tasks()
         except Exception as e:
             # If we encounter an exception and the future is still running,
             # it means it was encountered during the initialization phase.
@@ -1201,6 +1203,20 @@ class MCPClient(ToolProvider):
             "[Thread: %s, Session: %s] %s", threading.current_thread().name, self._session_id, formatted_msg, **kwargs
         )
 
+    async def _drain_background_cleanup_tasks(self) -> None:
+        """Give detached MCP cancellation cleanup a bounded window before session shutdown."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 1
+        while self._background_cleanup_tasks and loop.time() < deadline:
+            timeout = max(0, deadline - loop.time())
+            await asyncio.wait(set(self._background_cleanup_tasks), timeout=timeout)
+
+        pending = set(self._background_cleanup_tasks)
+        self._background_cleanup_tasks.clear()
+        for task in pending:
+            task.cancel()
+            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+
     async def _cancel_tool_call(self, cancellation_state: _CallCancellationState) -> None:
         """Cancel the exact MCP task or request represented by the per-call state."""
         session = cancellation_state.get("session")
@@ -1225,8 +1241,10 @@ class MCPClient(ToolProvider):
                 return
             cancellation_state["notification_sent"] = True
             cancellation_task = asyncio.create_task(cancellation)
-            _, pending = await asyncio.wait({cancellation_task}, timeout=1)
-            if pending:
+            done, pending = await asyncio.wait({cancellation_task}, timeout=1)
+            if done:
+                await cancellation_task
+            else:
                 cancellation_task.cancel()
                 cancellation_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
         except Exception as error:
@@ -1515,7 +1533,9 @@ class MCPClient(ToolProvider):
                         self._background_cleanup_tasks.add(cleanup_task)
                         cleanup_task.add_done_callback(self._background_cleanup_tasks.discard)
 
+                self._background_cleanup_tasks.add(create_task)
                 create_task.add_done_callback(cancel_delayed_task)
+                create_task.add_done_callback(self._background_cleanup_tasks.discard)
             raise
         task_id = create_result.task.taskId
         if cancellation_state is not None:

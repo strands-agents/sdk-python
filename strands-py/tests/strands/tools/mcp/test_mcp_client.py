@@ -335,7 +335,7 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
         return MCPCallToolResult(isError=False, content=[mock_content])
 
     mock_session.call_tool.side_effect = call_tool
-    mock_session._request_id = 0
+    mock_session._request_id = 41
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         cancelled_call = asyncio.create_task(
@@ -361,6 +361,7 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
     notification = mock_session.send_notification.await_args.args[0].root
     assert notification.method == "notifications/cancelled"
     assert notification.params.requestId == assigned_request_ids["slow_tool"]
+    assert notification.params.requestId >= 41
     assert assigned_request_ids["slow_tool"] != assigned_request_ids["fast_tool"]
     assert completed_result["status"] == "success"
     assert not other_signal.is_set()
@@ -389,6 +390,33 @@ async def test_call_tool_async_cancel_without_sdk_request_id_still_cancels_local
 
     assert result["cancelled"] is True
     mock_session.send_notification.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_logs_remote_cancellation_failure(mock_transport, mock_session, caplog):
+    """Test an immediate remote notification failure is observed and logged."""
+    call_started = asyncio.Event()
+    cancel_signal = threading.Event()
+    mock_session._request_id = 7
+    mock_session.send_notification.side_effect = RuntimeError("notification failed")
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        call_started.set()
+        await asyncio.Event().wait()
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        call = asyncio.create_task(
+            client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal)
+        )
+        await asyncio.wait_for(call_started.wait(), timeout=1)
+        cancel_signal.set()
+        with caplog.at_level("DEBUG", logger="strands.tools.mcp.mcp_client"):
+            result = await asyncio.wait_for(call, timeout=1)
+
+    assert result["cancelled"] is True
+    assert "failed to notify MCP server of cancellation" in caplog.text
 
 
 @pytest.mark.asyncio
