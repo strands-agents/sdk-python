@@ -248,8 +248,6 @@ describe('S3Storage', () => {
     })
 
     it('rejects a raw key outside the configured prefix', async () => {
-      // Regression for report 3858663: a raw key outside the configured prefix
-      // must be rejected without reading the object, even in the same bucket.
       const storage = new S3Storage('b', { prefix: 'artifacts', s3Client: mockS3Client as never })
 
       await expect(storage.retrieve('private/secret.txt')).rejects.toThrow('Reference not found')
@@ -257,8 +255,6 @@ describe('S3Storage', () => {
     })
 
     it('rejects a same-bucket s3:// URI outside the configured prefix', async () => {
-      // Regression for report 3858663: a same-bucket URI outside the configured
-      // prefix must be rejected, not silently read.
       const storage = new S3Storage('b', { prefix: 'artifacts', s3Client: mockS3Client as never })
 
       await expect(storage.retrieve('s3://b/private/secret.txt')).rejects.toThrow('Reference not found')
@@ -266,28 +262,23 @@ describe('S3Storage', () => {
     })
 
     it('rejects a sibling-prefix key that shares a string prefix but not a path segment', async () => {
-      // Regression for report 3858663: the trailing-slash normalization must make
-      // prefix 'artifacts/' reject 'artifactsX/...', not just fully-disjoint keys.
       const storage = new S3Storage('b', { prefix: 'artifacts', s3Client: mockS3Client as never })
 
       await expect(storage.retrieve('artifactsX/secret.txt')).rejects.toThrow('Reference not found')
       expect(mockSend).not.toHaveBeenCalled()
     })
 
-    it('normalizes a leading-slash prefix so in-prefix raw keys are accepted', async () => {
+    it('preserves a leading-slash prefix so legacy references remain retrievable', async () => {
       mockSend.mockResolvedValue({
         Body: { transformToByteArray: () => Promise.resolve(new TextEncoder().encode('hello')) },
         ContentType: 'text/plain',
       })
-
-      // A leading slash on the prefix must be stripped (parity with Python's strip("/")),
-      // so a raw key under the normalized prefix still resolves.
       const storage = new S3Storage('b', { prefix: '/artifacts', s3Client: mockS3Client as never })
-      const result = await storage.retrieve('artifacts/foo')
+      const result = await storage.retrieve('s3://b//artifacts/foo')
 
       expect(new TextDecoder().decode(result.content)).toBe('hello')
       const command = mockSend.mock.calls[0]![0]
-      expect(command.input.Key).toBe('artifacts/foo')
+      expect(command.input.Key).toBe('/artifacts/foo')
     })
 
     it('throws on NoSuchKey error', async () => {

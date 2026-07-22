@@ -48,22 +48,17 @@ function sanitizeId(rawId: string): string {
 }
 
 /**
- * Remove any leading and trailing `/` characters from a path-like string.
+ * Remove any trailing `/` characters from a path-like string.
  *
- * Matches Python's `prefix.strip("/")` so the two SDKs normalize an S3 prefix
- * identically. Implemented as a linear scan rather than a `/^\/+|\/+$/g`
- * replacement so that inputs with long runs of slashes are handled in linear time.
+ * Implemented as a linear scan rather than a `/\/+$/` replacement so that
+ * inputs with long runs of slashes are handled in linear time.
  */
-function stripSurroundingSlashes(value: string): string {
-  let start = 0
+function stripTrailingSlashes(value: string): string {
   let end = value.length
-  while (start < end && value[start] === '/') {
-    start++
-  }
-  while (end > start && value[end - 1] === '/') {
+  while (end > 0 && value[end - 1] === '/') {
     end--
   }
-  return value.slice(start, end)
+  return value.slice(0, end)
 }
 
 /**
@@ -383,8 +378,7 @@ export class S3Storage implements Storage {
     options?: { prefix?: string; region?: string; s3Client?: import('@aws-sdk/client-s3').S3Client }
   ) {
     this._bucket = bucket
-    const normalizedPrefix = options?.prefix ? stripSurroundingSlashes(options.prefix) : ''
-    this._prefix = normalizedPrefix ? normalizedPrefix + '/' : ''
+    this._prefix = options?.prefix ? stripTrailingSlashes(options.prefix) + '/' : ''
     this._client = options?.s3Client
     this._region = options?.region ?? 'us-east-1'
   }
