@@ -514,7 +514,10 @@ class S3Storage:
         """Retrieve content from an S3 object.
 
         Accepts both ``s3://`` URIs (as returned by ``store()``) and raw
-        S3 keys for backward compatibility.
+        S3 keys for backward compatibility. References are constrained to the
+        configured ``bucket`` and ``prefix``: a reference that resolves to a key
+        outside the prefix (or to a different bucket) is rejected, mirroring the
+        scope that ``store()`` enforces.
 
         Args:
             reference: The S3 URI or object key returned by store().
@@ -523,7 +526,8 @@ class S3Storage:
             A tuple of (content bytes, content type).
 
         Raises:
-            KeyError: If the object does not exist.
+            KeyError: If the object does not exist or the reference resolves
+                outside the configured bucket and prefix.
         """
         s3_key = reference
         if reference.startswith("s3://"):
@@ -531,6 +535,8 @@ class S3Storage:
             if not reference.startswith(expected_prefix):
                 raise KeyError(f"Reference not found: {reference}")
             s3_key = reference[len(expected_prefix) :]
+        if self._prefix and not s3_key.startswith(self._prefix):
+            raise KeyError(f"Reference not found: {reference}")
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=s3_key)
             content: bytes = response["Body"].read()
