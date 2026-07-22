@@ -634,12 +634,30 @@ class OpenAIResponsesModel(Model):
             ]
 
             if formatted_contents:
-                formatted_messages.append(
-                    {
-                        "role": role,  # "user" | "assistant"
-                        "content": formatted_contents,
-                    }
-                )
+                if role == "assistant":
+                    # Only the string EasyInputMessage form is a valid assistant *input* shape
+                    # without the full output-item metadata (id/status/annotations) that has
+                    # already been discarded by this point. Replaying verbatim output items is
+                    # tracked in https://github.com/strands-agents/harness-sdk/issues/3389.
+                    dropped_types = [
+                        part.get("type", "unknown") for part in formatted_contents if part.get("type") != "output_text"
+                    ]
+                    if dropped_types:
+                        logger.warning(
+                            "content_type=<%s> | non-text assistant history content has no valid "
+                            "Responses API input shape | dropping",
+                            ", ".join(dropped_types),
+                        )
+                    text = "\n".join(part["text"] for part in formatted_contents if part.get("type") == "output_text")
+                    if text:
+                        formatted_messages.append({"role": "assistant", "content": text})
+                else:
+                    formatted_messages.append(
+                        {
+                            "role": role,  # "user"
+                            "content": formatted_contents,
+                        }
+                    )
 
             formatted_messages.extend(formatted_tool_calls)
             formatted_messages.extend(formatted_tool_messages)
