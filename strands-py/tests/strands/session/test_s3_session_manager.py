@@ -519,7 +519,7 @@ def test_update_nonexistent_multi_agent(s3_manager, sample_session):
         s3_manager.update_multi_agent(sample_session.session_id, nonexistent_mock)
 
 
-# --- s3_client reuse (issue #1163) ---
+# --- s3_client reuse ---
 
 
 def test_s3_client_kwarg_reuses_supplied_client(mocked_aws, s3_bucket):
@@ -573,13 +573,15 @@ def test_s3_client_kwarg_supports_session_round_trip(mocked_aws, s3_bucket, samp
     assert fetched.session_id == sample_session.session_id
 
 
-def test_default_path_still_works(mocked_aws, s3_bucket):
-    """Sanity: omitting s3_client still goes through the boto3.Session path."""
+def test_s3_client_none_builds_tagged_client(mocked_aws, s3_bucket):
+    """Explicitly passing s3_client=None still goes through the boto3.Session path
+    and applies the strands-agents user-agent tag.
+    """
     manager = S3SessionManager(
         session_id="test-default",
         bucket=s3_bucket,
         prefix="sessions/",
         region_name="us-west-2",
+        s3_client=None,
     )
-    # client is built by session.client("s3", ...); only check it's there
-    assert manager.client is not None
+    assert "strands-agents" in manager.client.meta.config.user_agent_extra

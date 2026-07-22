@@ -16,6 +16,7 @@ from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
+    from mypy_boto3_s3 import S3Client
     from mypy_boto3_s3.type_defs import ObjectIdentifierTypeDef
 
     from ..multiagent.base import MultiAgentBase
@@ -54,7 +55,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_client_config: BotocoreConfig | None = None,
         region_name: str | None = None,
         endpoint_url: str | None = None,
-        s3_client: Any = None,
+        s3_client: "S3Client | None" = None,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -84,6 +85,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         if s3_client is not None:
             # Reuse the caller's pre-built client. We deliberately do not modify
             # its user_agent_extra; the caller owns the client's configuration.
+            logger.debug("bucket=<%s> | reusing caller-supplied s3 client", bucket)
             self.client = s3_client
         else:
             session = boto_session or boto3.Session(region_name=region_name)
