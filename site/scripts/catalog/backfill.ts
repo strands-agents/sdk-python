@@ -1,7 +1,8 @@
 /**
- * ONE-TIME backfill: discovers community Strands integrations on PyPI, npm,
- * and GitHub and writes draft catalog YAML entries for human review. Not part
- * of any recurring pipeline — ongoing additions come through submission PRs.
+ * On-demand discovery sweep for maintainers: finds community Strands
+ * integrations on PyPI, npm, and GitHub and writes draft catalog YAML entries
+ * for human review. Run whenever the catalog needs a refresh from the
+ * registries; day-to-day additions come through submission PRs.
  *
  * Usage: npm run catalog:backfill   (requires GITHUB_TOKEN)
  * Output: draft YAML files in src/content/catalog/ (existing files never overwritten).
@@ -155,8 +156,8 @@ async function discoverPypi(): Promise<RegistryCandidate[]> {
   // PyPI has no supported search API (XML-RPC search is dead and /search/ is
   // HTML-only), so fetch the PEP 691 simple index — the full package name
   // list (~500k names, ~20MB JSON) — and filter for names containing
-  // 'strands'. Heavy, but reliable and unauthenticated, which is fine for a
-  // one-time script. Official strands-agents* packages are excluded here;
+  // 'strands'. Heavy, but reliable and unauthenticated, which is fine for an
+  // occasional sweep. Official strands-agents* packages are excluded here;
   // mergeCandidates would drop them by repo org anyway.
   const results: RegistryCandidate[] = []
   const index = (await fetchJson('https://pypi.org/simple/', {
