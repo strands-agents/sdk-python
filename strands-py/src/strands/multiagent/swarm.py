@@ -410,6 +410,8 @@ class Swarm(MultiAgentBase):
                 shared_context=self.shared_context,
             )
 
+        self._invocation_start_time = self.state.start_time
+
         span = self.tracer.start_multiagent_span(task, "swarm", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
@@ -435,7 +437,7 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time += round((time.time() - self.state.start_time) * 1000)
+                self.state.execution_time = self._commit_active_interval(self.state.execution_time)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
@@ -995,7 +997,7 @@ class Swarm(MultiAgentBase):
             "current_task": encode_bytes_values(self.state.task),
             "accumulated_usage": self.state.accumulated_usage,
             "accumulated_metrics": self.state.accumulated_metrics,
-            "execution_time": self.state.execution_time,
+            "execution_time": self._execution_time_with_active_interval(self.state.execution_time),
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
                 "handoff_node": self.state.handoff_node.node_id if self.state.handoff_node else None,

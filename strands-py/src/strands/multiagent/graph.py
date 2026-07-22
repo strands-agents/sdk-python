@@ -646,6 +646,7 @@ class Graph(MultiAgentBase):
 
         # Initialize state
         start_time = time.time()
+        self._invocation_start_time = start_time
         if not self._resume_from_session and not self._interrupt_state.activated:
             # Initialize state
             self.state = GraphState(
@@ -697,7 +698,7 @@ class Graph(MultiAgentBase):
                 self.state.status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time += round((time.time() - start_time) * 1000)
+                self.state.execution_time = self._commit_active_interval(self.state.execution_time)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self))
                 self._resume_from_session = False
                 self._resume_next_nodes.clear()
@@ -1249,7 +1250,7 @@ class Graph(MultiAgentBase):
             accumulated_usage=self.state.accumulated_usage,
             accumulated_metrics=self.state.accumulated_metrics,
             execution_count=self.state.execution_count,
-            execution_time=self.state.execution_time,
+            execution_time=self._execution_time_with_active_interval(self.state.execution_time),
             total_nodes=self.state.total_nodes,
             completed_nodes=len(self.state.completed_nodes),
             failed_nodes=len(self.state.failed_nodes),
@@ -1278,7 +1279,7 @@ class Graph(MultiAgentBase):
             "accumulated_usage": self.state.accumulated_usage,
             "accumulated_metrics": self.state.accumulated_metrics,
             "execution_count": self.state.execution_count,
-            "execution_time": self.state.execution_time,
+            "execution_time": self._execution_time_with_active_interval(self.state.execution_time),
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
             },

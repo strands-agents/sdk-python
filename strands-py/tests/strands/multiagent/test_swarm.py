@@ -1264,6 +1264,27 @@ def test_swarm_serialize_deserialize_serialize_preserves_state():
     assert serialize2["execution_time"] == serialize1["execution_time"]
 
 
+def test_swarm_checkpoint_persists_in_flight_execution_time():
+    """A mid-run per-node checkpoint persists elapsed time so a resumed swarm keeps its timeout budget.
+
+    Guards the crash-restart path: the AfterNodeCall session sync serializes before the invocation's
+    finally commits the interval, so serialize_state must fold the in-flight interval into
+    execution_time rather than persisting the stale pre-invocation value (which would reset the budget).
+    """
+    clock = {"now": 3000.6}
+
+    swarm = Swarm([create_mock_agent("first")])
+
+    with patch("strands.multiagent.swarm.time.time", lambda: clock["now"]):
+        # Marker set at invocation start; a checkpoint taken 600ms in must reflect that interval.
+        swarm._invocation_start_time = 3000.0
+        swarm.state.completion_status = Status.EXECUTING
+        swarm.state.current_node = swarm.nodes["first"]
+        checkpoint = swarm.serialize_state()
+
+    assert checkpoint["execution_time"] == 600
+
+
 @pytest.mark.asyncio
 async def test_swarm_handle_handoff():
     first_agent = create_mock_agent("first")
