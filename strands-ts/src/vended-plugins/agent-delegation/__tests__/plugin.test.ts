@@ -14,6 +14,7 @@ import { AfterToolsEvent, StreamEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 import { AgentAsTool } from '../../../agent/agent-as-tool.js'
+import { ToolResultBlock, TextBlock } from '../../../types/messages.js'
 
 describe('AgentDelegation integration', () => {
   describe('basic routing', () => {
@@ -526,6 +527,80 @@ describe('AgentDelegation integration', () => {
       const eventTypes = events.map((e) => (e as { type: string }).type)
       expect(eventTypes).toContain('modelStreamUpdateEvent')
       expect(eventTypes).toContain('contentBlockEvent')
+    })
+  })
+
+  describe('late-error-flip', () => {
+    it('does not stop the loop when a later AfterToolsEvent hook changes the result to error', async () => {
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'SECRET_RAW' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      // Turn 1: model calls the delegation tool (which a later hook will flip to error)
+      // Turn 2: model produces a recovery response
+      const orchestratorModel = new MockMessageModel()
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'Sub',
+          toolUseId: 'del-1',
+          input: { input: 'do something' },
+        })
+        .addTurn({ type: 'textBlock', text: 'RECOVERED_AFTER_ERROR' })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      // Register an AfterToolsEvent hook at DEFAULT priority (fires before the
+      // delegation plugin's SDK_LAST hook) that flips the result to error.
+      orchestrator.addHook(AfterToolsEvent, (event) => {
+        for (const block of event.message.content) {
+          if (block instanceof ToolResultBlock && block.toolUseId === 'del-1') {
+            ;(block as { status: string }).status = 'error'
+            block.content.splice(0, block.content.length, new TextBlock('REDACTED'))
+          }
+        }
+      })
+
+      const result = await orchestrator.invoke('do something')
+
+      // Delegation must NOT trigger — model should recover with a second turn
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('RECOVERED_AFTER_ERROR')
+    })
+  })
+
+  describe('nested-shared-signal', () => {
+    it('child error cleanup does not clear a parent-owned stopEventLoop', async () => {
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Leaf response' })
+      const leafAgent = new Agent({ model: subModel, name: 'Leaf', printer: false })
+
+      // Orchestrator model: calls the delegation tool
+      const orchestratorModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'Leaf',
+        toolUseId: 'leaf-1',
+        input: { input: 'handle this' },
+      })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [leafAgent.asTool({ delegate: true })],
+        printer: false,
+      })
+
+      // Pre-set stopEventLoop to simulate a parent/sibling owning the signal.
+      // The delegation plugin's _onAfterTools should NOT claim ownership since
+      // the flag is already true.
+      const invocationState = { stopEventLoop: true }
+      const result = await orchestrator.invoke('handle this', { invocationState })
+
+      expect(result.stopReason).toBe('endTurn')
+      expect(invocationState.stopEventLoop).toBe(false) // consumed by the agent loop
     })
   })
 })

@@ -187,19 +187,13 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
-   * AfterToolCallEvent hook: marks the delegation tool use ID on success.
+   * AfterToolCallEvent hook: marks the delegation tool use ID.
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
     if (event.agent.model.stateful || !(event.tool instanceof AgentAsTool) || !event.tool.delegate) return
 
     const state = this._state.get(event.agent)
     if (!state) return
-
-    // If the delegation tool errored, clear any prior marker.
-    if (event.result.status === 'error') {
-      delete state.toolUseId
-      return
-    }
 
     state.toolUseId = event.toolUse.toolUseId
   }
@@ -212,9 +206,16 @@ export class AgentDelegation implements Plugin {
     const state = this._state.get(event.agent)
     if (!state?.toolUseId) return
 
+    // Verify tool result did not error
+    const resultBlock = event.message.content.find(
+      (block): block is ToolResultBlock => block instanceof ToolResultBlock && block.toolUseId === state.toolUseId
+    )
+    if (!resultBlock || resultBlock.status === 'error') {
+      delete state.toolUseId
+      return
+    }
+
     // Only claim ownership if this frame transitions the flag from false to true.
-    // If already true (e.g., set by a sibling tool), we don't own it and must
-    // not clear it on error.
     if (event.invocationState.stopEventLoop !== true) {
       event.invocationState.stopEventLoop = true
       state.ownsStopSignal = true
