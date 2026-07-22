@@ -1,5 +1,6 @@
 """Configuration validation utilities for model providers."""
 
+import re
 import warnings
 from collections.abc import Mapping
 from typing import Any
@@ -8,6 +9,34 @@ from typing_extensions import get_type_hints
 
 from ..types.content import ContentBlock
 from ..types.tools import ToolChoice
+
+# Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
+# ``\A``/``\Z`` anchor the whole string (``$`` would allow a trailing newline) and ``[0-9]``
+# keeps digits ASCII (``\d`` also matches Unicode digits), so the pattern is self-anchored
+# and safe regardless of which match method a caller uses.
+_VALID_REGION = re.compile(r"\A[a-z]{2}(-[a-z]+)+-[0-9]+\Z")
+
+
+def validate_region(region: str) -> str:
+    """Validate an AWS region before it is interpolated into a service endpoint URL.
+
+    Providers that build an endpoint URL by interpolating a region (e.g.
+    ``https://bedrock-mantle.{region}.api.aws``) must call this first. Without it, a
+    malformed region containing URL control characters (``@``, ``:``, ``/``, ``#``) can
+    re-point a signed request to a non-AWS host, exfiltrating credentials.
+
+    Args:
+        region: The AWS region identifier to validate.
+
+    Returns:
+        The validated region, so callers can validate and assign in one expression.
+
+    Raises:
+        ValueError: If ``region`` is not a well-formed AWS region identifier.
+    """
+    if not isinstance(region, str) or not _VALID_REGION.fullmatch(region):
+        raise ValueError(f"invalid AWS region: {region!r}")
+    return region
 
 
 def validate_config_keys(config_dict: Mapping[str, Any], config_class: type) -> None:
