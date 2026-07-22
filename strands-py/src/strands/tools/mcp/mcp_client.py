@@ -290,6 +290,7 @@ class MCPClient(ToolProvider):
         self._consumers: set[Any] = set()
         # Keep detached cleanup tasks alive until they finish; asyncio only retains weak references.
         self._background_cleanup_tasks: set[asyncio.Task[Any]] = set()
+        self._accept_background_cleanup_tasks = True
 
         # Task support configuration and caching
         self._tasks_config = tasks_config
@@ -334,6 +335,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session is currently running")
 
         self._log_debug_with_thread("entering MCPClient context")
+        self._accept_background_cleanup_tasks = True
         # Copy context vars to propagate to the background thread
         # This ensures that context set in the main thread is accessible in the background thread
         # See: https://github.com/strands-agents/harness-sdk/issues/1440
@@ -1203,6 +1205,15 @@ class MCPClient(ToolProvider):
             "[Thread: %s, Session: %s] %s", threading.current_thread().name, self._session_id, formatted_msg, **kwargs
         )
 
+    def _track_background_cleanup_task(self, task: asyncio.Task[Any]) -> None:
+        """Retain a detached cleanup task while the MCP session can still service it."""
+        if not self._accept_background_cleanup_tasks:
+            task.cancel()
+            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+            return
+        self._background_cleanup_tasks.add(task)
+        task.add_done_callback(self._background_cleanup_tasks.discard)
+
     async def _drain_background_cleanup_tasks(self) -> None:
         """Give detached MCP cancellation cleanup a bounded window before session shutdown."""
         loop = asyncio.get_running_loop()
@@ -1211,11 +1222,19 @@ class MCPClient(ToolProvider):
             timeout = max(0, deadline - loop.time())
             await asyncio.wait(set(self._background_cleanup_tasks), timeout=timeout)
 
+        # Stop delayed callbacks from enqueueing work after the session has started closing.
+        self._accept_background_cleanup_tasks = False
         pending = set(self._background_cleanup_tasks)
-        self._background_cleanup_tasks.clear()
         for task in pending:
             task.cancel()
-            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        if pending:
+            done, still_pending = await asyncio.wait(pending, timeout=0.1)
+            for task in done:
+                if not task.cancelled():
+                    task.exception()
+            for task in still_pending:
+                task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        self._background_cleanup_tasks.clear()
 
     async def _cancel_tool_call(self, cancellation_state: _CallCancellationState) -> None:
         """Cancel the exact MCP task or request represented by the per-call state."""
@@ -1241,6 +1260,7 @@ class MCPClient(ToolProvider):
                 return
             cancellation_state["notification_sent"] = True
             cancellation_task = asyncio.create_task(cancellation)
+            self._track_background_cleanup_task(cancellation_task)
             done, pending = await asyncio.wait({cancellation_task}, timeout=1)
             if done:
                 await cancellation_task
@@ -1530,12 +1550,10 @@ class MCPClient(ToolProvider):
                     if cancellation_state is not None:
                         cancellation_state["task_id"] = result.task.taskId
                         cleanup_task = asyncio.create_task(self._cancel_tool_call(cancellation_state))
-                        self._background_cleanup_tasks.add(cleanup_task)
-                        cleanup_task.add_done_callback(self._background_cleanup_tasks.discard)
+                        self._track_background_cleanup_task(cleanup_task)
 
-                self._background_cleanup_tasks.add(create_task)
+                self._track_background_cleanup_task(create_task)
                 create_task.add_done_callback(cancel_delayed_task)
-                create_task.add_done_callback(self._background_cleanup_tasks.discard)
             raise
         task_id = create_result.task.taskId
         if cancellation_state is not None:

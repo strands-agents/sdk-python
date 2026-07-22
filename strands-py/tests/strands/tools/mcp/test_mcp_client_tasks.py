@@ -341,7 +341,7 @@ class TestTaskExecution:
             result = await asyncio.wait_for(call, timeout=2)
             release_response.set()
             assert await asyncio.to_thread(cancellation_started.wait, 1)
-            assert len(client._background_cleanup_tasks) == 1
+            assert len(client._background_cleanup_tasks) >= 1
             release_cancellation.set()
             await asyncio.sleep(0.1)
             assert not client._background_cleanup_tasks

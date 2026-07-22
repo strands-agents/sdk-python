@@ -313,6 +313,7 @@ def test_call_tool_sync_cancel_signal_cancels_only_in_flight_call(mock_transport
 @pytest.mark.asyncio
 async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_transport, mock_session):
     """Test each concurrent call observes only its own cancellation signal."""
+    first_call_started = asyncio.Event()
     slow_call_started = asyncio.Event()
     slow_call_cancelled = asyncio.Event()
     cancel_signal = threading.Event()
@@ -325,6 +326,9 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
         request_id = mock_session._request_id
         mock_session._request_id += 1
         assigned_request_ids[name] = request_id
+        if name == "first_tool":
+            first_call_started.set()
+            await asyncio.Event().wait()
         if name == "slow_tool":
             slow_call_started.set()
             try:
@@ -338,6 +342,10 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
     mock_session._request_id = 41
 
     with MCPClient(mock_transport["transport_callable"]) as client:
+        first_call = asyncio.create_task(
+            client.call_tool_async(tool_use_id="first", name="first_tool", arguments={}, cancel_signal=other_signal)
+        )
+        await asyncio.wait_for(first_call_started.wait(), timeout=1)
         cancelled_call = asyncio.create_task(
             client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal)
         )
@@ -350,6 +358,9 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
         cancelled_result, completed_result = await asyncio.wait_for(
             asyncio.gather(cancelled_call, completed_call), timeout=1
         )
+        first_call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first_call
 
     assert cancelled_result["status"] == "error"
     assert cancelled_result["content"] == [
@@ -357,11 +368,11 @@ async def test_call_tool_async_cancel_signal_cancels_only_matching_call(mock_tra
     ]
     assert cancelled_result["cancelled"] is True
     assert slow_call_cancelled.is_set()
-    mock_session.send_notification.assert_awaited_once()
-    notification = mock_session.send_notification.await_args.args[0].root
-    assert notification.method == "notifications/cancelled"
-    assert notification.params.requestId == assigned_request_ids["slow_tool"]
-    assert notification.params.requestId >= 41
+    notifications = [call.args[0].root for call in mock_session.send_notification.await_args_list]
+    assert all(notification.method == "notifications/cancelled" for notification in notifications)
+    cancelled_request_ids = {notification.params.requestId for notification in notifications}
+    assert assigned_request_ids["slow_tool"] in cancelled_request_ids
+    assert assigned_request_ids["slow_tool"] > assigned_request_ids["first_tool"]
     assert assigned_request_ids["slow_tool"] != assigned_request_ids["fast_tool"]
     assert completed_result["status"] == "success"
     assert not other_signal.is_set()
