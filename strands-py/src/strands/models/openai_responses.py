@@ -74,7 +74,17 @@ _MAX_MEDIA_SIZE_LABEL = "20MB"
 _DEFAULT_MIME_TYPE = "application/octet-stream"
 _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overflow error"
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
-_CONTEXT_WINDOW_OVERFLOW_PATTERNS = ("exceed customer model maximum",)
+_CONTEXT_WINDOW_OVERFLOW_PATTERNS = (
+    "maximum context length",
+    "context_length_exceeded",
+    "too many tokens",
+    "context length",
+    "input is too long for requested model",
+    "input length and `max_tokens` exceed context limit",
+    "too many total text bytes",
+    "exceed customer model maximum",
+)
+_RATE_LIMIT_PATTERNS = ("rate_limit_exceeded", "rate limit", "too many requests")
 
 
 class _OpenAIResponsesStreamError(RuntimeError):
@@ -451,14 +461,19 @@ class OpenAIResponsesModel(Model):
                 error_message = str(e)
                 error_code = getattr(e, "code", None)
                 normalized_code = error_code.lower() if isinstance(error_code, str) else ""
+                normalized_message = error_message.lower()
+                if (
+                    isinstance(e, openai.RateLimitError)
+                    or normalized_code == "rate_limit_exceeded"
+                    or any(pattern in normalized_message for pattern in _RATE_LIMIT_PATTERNS)
+                ):
+                    logger.warning(_RATE_LIMIT_MSG)
+                    raise ModelThrottledException(error_message) from e
                 if normalized_code == "context_length_exceeded" or any(
-                    pattern in error_message.lower() for pattern in _CONTEXT_WINDOW_OVERFLOW_PATTERNS
+                    pattern in normalized_message for pattern in _CONTEXT_WINDOW_OVERFLOW_PATTERNS
                 ):
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
                     raise ContextWindowOverflowException(error_message) from e
-                if isinstance(e, openai.RateLimitError) or normalized_code == "rate_limit_exceeded":
-                    logger.warning(_RATE_LIMIT_MSG)
-                    raise ModelThrottledException(error_message) from e
                 raise
 
             # Close current content block if we had any
