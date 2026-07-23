@@ -338,8 +338,9 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             }
         }
 
-        if "signature" in state:
-            content_block["reasoningContent"]["reasoningText"]["signature"] = state["signature"]
+        # Consume the signature so it cannot leak into the next reasoning block
+        if (signature := state.pop("signature", None)) is not None:
+            content_block["reasoningContent"]["reasoningText"]["signature"] = signature
 
         content.append(content_block)
         state["reasoningText"] = ""

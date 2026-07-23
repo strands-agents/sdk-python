@@ -475,7 +475,6 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
-                "signature": "123",
                 "citationsContent": [],
                 "redactedContent": b"",
             },
@@ -515,7 +514,6 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
-                "signature": "123",
                 "citationsContent": [],
                 "redactedContent": b"",
             },
@@ -1153,6 +1151,59 @@ async def test_process_stream_with_signature(agenerator, alist):
 
     assert message["content"][0]["reasoningContent"]["reasoningText"]["signature"] == "test-signature"
     assert message["content"][1]["text"] == "Sure! Let’s do it"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_with_multiple_signed_reasoning_blocks(agenerator, alist):
+    """Each reasoning block keeps its own signature — no cross-block leakage.
+
+    Providers verify thinking signatures byte-identical per block when the
+    conversation is sent back (e.g. Anthropic extended thinking across tool
+    loops). A leaked signature accumulator turns the second block's signature
+    into "SIG1SIG2" and the follow-up request is rejected with a 400.
+    """
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": "first thought"}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"signature": "SIG1"}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": "second thought"}},
+                "contentBlockIndex": 1,
+            }
+        },
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"signature": "SIG2"}},
+                "contentBlockIndex": 1,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 1}},
+        {"contentBlockDelta": {"delta": {"text": "answer"}, "contentBlockIndex": 2}},
+        {"contentBlockStop": {"contentBlockIndex": 2}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert message["content"][0]["reasoningContent"]["reasoningText"]["signature"] == "SIG1"
+    assert message["content"][1]["reasoningContent"]["reasoningText"]["signature"] == "SIG2"
+    assert message["content"][2]["text"] == "answer"
 
 
 @pytest.mark.asyncio
