@@ -49,7 +49,7 @@ async function searchAndAdd() {
   // add returns the id of the stored (or already-present, on dedup) record.
   const { id } = await store.add('User prefers aisle seats', { category: 'travel' })
 
-  const results = await store.search('what seat does the user prefer?')
+  const results = await store.search('which seats does the user prefer?')
   for (const entry of results) {
     console.log(entry.content, entry.metadata?._relevanceScore)
   }

@@ -12,8 +12,8 @@ sidebar:
     variant: tip
 ---
 
-`TestMemoryStore` is a [`MemoryStore`](./overview#stores) backed by a JSON file. 
-It requires no setup and no provisioned resources, so you can give an agent memory 
+`TestMemoryStore` is a [`MemoryStore`](./overview#stores) backed by a JSON file.
+It requires no setup and no provisioned resources, so you can give an agent memory
 in one line and try recall, injection, and extraction for prototyping or writing tests.
 
 It persists to disk by default, so an agent remembers across restarts with no setup. Point
@@ -138,7 +138,7 @@ store = TestMemoryStore(name="notes")
 result = await store.add("User prefers aisle seats", {"category": "travel"})
 print(result.id)
 
-results = await store.search("what seat does the user prefer?")
+results = await store.search("which seats does the user prefer?")
 for entry in results:
     print(entry.content, entry.metadata.get("_relevanceScore"))
 ```
@@ -155,7 +155,7 @@ for entry in results:
 
 Writing to a store constructed with <Syntax py="writable=False" ts="writable: false" />,
 or adding empty content, raises. When the backing directory is unreachable or not
-writable, the write raises with the target path.
+writable, the write raises, naming the backing file.
 
 ## Extraction
 
