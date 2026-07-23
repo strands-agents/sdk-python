@@ -1338,7 +1338,7 @@ class MCPClient(ToolProvider):
                 else:
                     pending = {invoke_event} if not invoke_event.done() else set()
                 if pending:
-                    invoke_event.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+                    self._track_background_cleanup_task(invoke_event)
                 if cancel_event is not None and not cancel_event.done():
                     cancel_event.cancel()
                     await asyncio.gather(cancel_event, return_exceptions=True)

@@ -453,6 +453,41 @@ async def test_call_tool_async_cancel_wins_when_result_and_signal_are_ready(mock
 
 
 @pytest.mark.asyncio
+async def test_call_tool_async_tracks_cancellation_resistant_invocation(mock_transport, mock_session):
+    """Test a resistant invocation remains owned until bounded session shutdown."""
+    call_started = asyncio.Event()
+    release_call = threading.Event()
+    cancel_signal = threading.Event()
+    mock_session._request_id = 0
+
+    async def call_tool(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        call_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            while not release_call.is_set():
+                await asyncio.sleep(0.01)
+        return MCPCallToolResult(isError=False, content=[MCPTextContent(type="text", text="late")])
+
+    mock_session.call_tool.side_effect = call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        call = asyncio.create_task(
+            client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={}, cancel_signal=cancel_signal)
+        )
+        await asyncio.wait_for(call_started.wait(), timeout=1)
+        cancel_signal.set()
+        result = await asyncio.wait_for(call, timeout=2)
+        assert client._background_cleanup_tasks
+        release_timer = threading.Timer(0.1, release_call.set)
+        release_timer.start()
+
+    release_timer.join(timeout=1)
+    assert result["cancelled"] is True
+    assert not client._background_cleanup_tasks
+
+
+@pytest.mark.asyncio
 async def test_call_tool_async_caller_cancellation_cleans_up_background_call(mock_transport, mock_session):
     """Test cancelling the caller also cancels the background invocation."""
     call_started = asyncio.Event()
