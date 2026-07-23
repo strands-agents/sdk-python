@@ -134,12 +134,12 @@ describe('S3Storage', () => {
     it('paginates until IsTruncated is false', async () => {
       mockSend
         .mockResolvedValueOnce({
-          Contents: [{ Key: 'a' }],
+          Contents: [{ Key: 'strands/a' }],
           IsTruncated: true,
           NextContinuationToken: 'token1',
         })
         .mockResolvedValueOnce({
-          Contents: [{ Key: 'b' }],
+          Contents: [{ Key: 'strands/b' }],
           IsTruncated: false,
         })
       const storage = new S3Storage('my-bucket')

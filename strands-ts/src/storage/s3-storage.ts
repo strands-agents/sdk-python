@@ -5,7 +5,7 @@ import { namespace, normalizeKey, normalizePrefix } from './storage.js'
 
 /** Configuration for {@link S3Storage}. */
 export interface S3StorageConfig {
-  /** Optional key prefix prepended to every key (a leading namespace within the bucket). */
+  /** Key prefix prepended to every key (a leading namespace within the bucket). Defaults to `'strands'`. */
   prefix?: string
   /** AWS region override. When omitted, the SDK's standard resolution chain applies. Cannot be combined with `s3Client`. */
   region?: string
@@ -46,7 +46,9 @@ export class S3Storage implements Storage {
       throw new StorageError('Cannot specify both s3Client and region. Configure the region on the S3Client instead.')
     }
     this._bucket = bucket
-    this._prefix = config?.prefix ? config.prefix.split('/').filter(Boolean).join('/') + '/' : ''
+    const rawPrefix = config?.prefix ?? 'strands'
+    const segments = rawPrefix.split('/').filter(Boolean)
+    this._prefix = segments.length > 0 ? segments.join('/') + '/' : ''
     this._region = config?.region
     this._client = config?.s3Client
   }
