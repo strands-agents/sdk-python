@@ -268,6 +268,28 @@ describe('OpenAIModel bedrockMantleConfig', () => {
         expect(getTokenProviderMock).toHaveBeenCalledWith({ region: 'us-east-1' })
       })
     }
+
+    it.each(['x@attacker.com/', 'us-east-1\n', 'us-east-1/', 'US-EAST-1', 'useast1', 'us-east-١', 'us-éast-1'])(
+      'rejects a malformed region %j before building the endpoint URL',
+      (region) => {
+        expect(() => new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: { region } })).toThrow(
+          /invalid AWS region/
+        )
+        // Validation must precede token minting so no bearer token is ever sent toward the host.
+        expect(getTokenProviderMock).not.toHaveBeenCalled()
+      }
+    )
+
+    it.each(['us-east-1', 'ap-southeast-1', 'us-gov-east-1'])('accepts the well-formed region %j', (region) => {
+      expect(() => new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: { region } })).not.toThrow()
+    })
+
+    if (isNode) {
+      it('rejects a malformed region supplied via AWS_REGION', () => {
+        vi.stubEnv('AWS_REGION', 'x@attacker.com/')
+        expect(() => new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: {} })).toThrow(/invalid AWS region/)
+      })
+    }
   })
 
   describe('token minting errors', () => {

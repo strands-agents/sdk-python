@@ -5,11 +5,27 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 TContext = TypeVar("TContext")
 TResult = TypeVar("TResult")
 TEvent = TypeVar("TEvent")
+
+
+@runtime_checkable
+class InterruptControlEvent(Protocol):
+    """Structural type for events that are control-flow signals, never a stage result.
+
+    The middleware registry is stage-agnostic — it must not import tool- or model-specific
+    event classes. Any event that declares ``is_interrupt`` (e.g. ``ToolInterruptEvent``)
+    matches this protocol, so the Output-phase adapter can recognize an interrupt and keep
+    it out of the positional "last event is the result" selection without a coupling import.
+    """
+
+    @property
+    def is_interrupt(self) -> bool:
+        """True when the event halts the stage rather than producing a result."""
+        ...
 
 
 @dataclass

@@ -1314,30 +1314,99 @@ class Graph(MultiAgentBase):
             return []
         ready_nodes: list[GraphNode] = []
         completed_nodes = set(self.state.completed_nodes)
+        pending_sources = self._compute_pending_sources(completed_nodes)
         for node in self.nodes.values():
             if node in completed_nodes:
                 continue
-            incoming = [e for e in self.edges if e.to_node is node]
+            incoming = [edge for edge in self.edges if edge.to_node is node]
             if not incoming:
                 ready_nodes.append(node)
-            elif self._is_node_ready_for_resume(node, incoming, completed_nodes):
+            elif self._is_node_ready_for_resume(node, incoming, completed_nodes, pending_sources):
                 ready_nodes.append(node)
 
         return ready_nodes
+
+    def _is_edge_traversable(self, edge: GraphEdge) -> bool:
+        """Return whether an edge should be followed under the in-memory invocation state.
+
+        Short-circuits unconditional edges to skip the signature inspection and cache lookup
+        that ``should_traverse`` performs for context-aware conditions.
+        """
+        return edge.condition is None or edge.should_traverse(
+            self.state, invocation_state=self._current_invocation_state
+        )
+
+    def _compute_pending_sources(self, completed_nodes: set[GraphNode]) -> set[GraphNode]:
+        """Compute the set of not-yet-completed nodes that will run when execution resumes.
+
+        This is the discriminator between a *live pending parent* and a genuinely *bypassed dead
+        branch*, so a fan-in node stays not-ready while any parent that will still produce a result
+        is outstanding. It has two seeds:
+
+        - In-flight nodes (``execution_status == EXECUTING``): serialize runs from the per-node
+          ``AfterNodeCallEvent`` while sibling nodes in the same parallel batch are still executing.
+          Their partial progress is not persisted, so they re-run on resume. This is the
+          authoritative in-flight signal, and it catches siblings with no completed ancestor (e.g.
+          two concurrent entry points feeding one join) that forward reachability alone would miss.
+        - Completed nodes: their traversable outgoing edges lead to nodes that will be scheduled
+          next on resume.
+
+        From those seeds the walk follows *traversable* outgoing edges (unconditional, or whose
+        condition is True under the in-memory ``_current_invocation_state``) and collects every
+        reached not-yet-completed node. A bypassed dead branch is never reached because the only
+        edge into it has a condition that evaluates to False, so the traversal never crosses it.
+
+        The traversal is transitive so a deep pending chain (e.g. ``root -> mid -> right -> join``
+        with ``mid`` still executing) marks every node below the frontier as pending, not just the
+        immediate children. A ``visited`` set makes it terminate on cyclic graphs.
+
+        Args:
+            completed_nodes: Nodes that have already completed execution.
+
+        Returns:
+            The set of not-yet-completed nodes that will execute on resume — in-flight nodes plus
+            everything reachable from the completed or in-flight frontier via traversable edges.
+        """
+        executing_nodes = {node for node in self.nodes.values() if node.execution_status == Status.EXECUTING}
+        pending: set[GraphNode] = set(executing_nodes)
+        visited = completed_nodes | executing_nodes
+        frontier = list(visited)
+        while frontier:
+            source = frontier.pop()
+            for edge in self.edges:
+                if edge.from_node is not source:
+                    continue
+                target = edge.to_node
+                # A visited target is already decided; skip before evaluating the (user-supplied)
+                # condition so it is not re-invoked for edges into the completed/in-flight region.
+                if target in visited or not self._is_edge_traversable(edge):
+                    continue
+                visited.add(target)
+                pending.add(target)
+                frontier.append(target)
+        return pending
 
     def _is_node_ready_for_resume(
         self,
         node: GraphNode,
         incoming: list[GraphEdge],
         completed_nodes: set[GraphNode],
+        pending_sources: set[GraphNode],
     ) -> bool:
         """Check if a node is ready for resume, accounting for conditional edges.
 
-        A node is ready if all TRAVERSABLE incoming edges from *touched* nodes
-        have their source completed. Edges whose condition evaluates to False are
-        excluded (paths intentionally not taken). Edges whose source was *bypassed*
-        (never scheduled — not in completed, interrupted, or failed sets) are also
-        excluded, as they represent dead branches that will never fire.
+        A node is ready if all TRAVERSABLE incoming edges from *live* sources have their
+        source completed. Edges whose condition evaluates to False are excluded (paths
+        intentionally not taken). Edges whose source is a *bypassed dead branch* — never
+        scheduled and outside the resume frontier — are also excluded, as they will never fire.
+
+        A source is *live* if it is touched (completed, interrupted, or failed) or *pending*
+        (in ``pending_sources``: a not-yet-completed node that will still run on resume — see
+        ``_compute_pending_sources``). Keeping edges from pending sources in the AND-join is what
+        distinguishes an in-flight parallel sibling from a bypassed dead branch: a fan-in node
+        whose sibling parent is still executing at serialize time stays not-ready, so resume runs
+        the fan-in exactly once with all inputs present rather than off its already-completed
+        parent alone.
 
         Note: this method is called at serialize time (before persisting) using the
         invocation_state that is in memory at that moment. The resulting node IDs are
@@ -1346,34 +1415,33 @@ class Graph(MultiAgentBase):
         (after those initial nodes complete) re-evaluate conditions with whatever
         invocation_state the caller passes on the resume invocation.
 
-        Uses AND-join semantics for edges from touched nodes (all must have completed
+        Uses AND-join semantics for edges from live sources (all must have completed
         sources), preserving the original behavior for parallel fan-in patterns.
-        Edges from bypassed nodes are excluded from the join so that conditional
-        edge patterns (node skipping) work correctly with resume.
+
+        Args:
+            node: The candidate node to evaluate.
+            incoming: The node's incoming edges.
+            completed_nodes: Nodes that have already completed execution.
+            pending_sources: Not-yet-completed nodes that will still run on resume (see
+                ``_compute_pending_sources``).
         """
-        traversable_edges = [
-            e
-            for e in incoming
-            # Short-circuit: skip signature inspection + cache lookup for unconditional edges.
-            if e.condition is None or e.should_traverse(self.state, invocation_state=self._current_invocation_state)
-        ]
+        traversable_edges = [edge for edge in incoming if self._is_edge_traversable(edge)]
 
         if not traversable_edges:
             return False
 
-        # Exclude edges from bypassed nodes — nodes that were never touched
-        # during execution (not completed, not interrupted, not failed).
-        # These represent dead branches from conditional routing where the
-        # source node was intentionally skipped.
-        all_touched = completed_nodes | self.state.interrupted_nodes | self.state.failed_nodes
-        relevant_edges = [e for e in traversable_edges if e.from_node in all_touched]
+        # Keep edges from live sources — touched nodes (completed, interrupted, failed) plus
+        # pending nodes that will run on resume. Edges from bypassed dead branches (untouched
+        # and unreachable from any completed node) are dropped, since they will never fire.
+        live_sources = completed_nodes | self.state.interrupted_nodes | self.state.failed_nodes | pending_sources
+        relevant_edges = [edge for edge in traversable_edges if edge.from_node in live_sources]
 
         # If no relevant edges remain (all sources are bypassed), the node
         # is not ready — it has no valid path from executed nodes.
         if not relevant_edges:
             return False
 
-        return all(e.from_node in completed_nodes for e in relevant_edges)
+        return all(edge.from_node in completed_nodes for edge in relevant_edges)
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         self.state.status = Status(payload["status"])

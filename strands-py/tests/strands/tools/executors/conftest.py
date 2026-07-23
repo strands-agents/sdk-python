@@ -6,6 +6,7 @@ import pytest
 
 import strands
 from strands import Agent
+from strands._middleware import MiddlewareRegistry
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, HookRegistry
 from strands.interrupt import _InterruptState
 from strands.tools.registry import ToolRegistry
@@ -119,6 +120,7 @@ def agent(tool_registry, hook_registry):
     mock_agent.tool_registry = tool_registry
     mock_agent.hooks = hook_registry
     mock_agent._interrupt_state = _InterruptState()
+    mock_agent._middleware_registry = MiddlewareRegistry()
     mock_agent.trace_attributes = {}
     return mock_agent
 
