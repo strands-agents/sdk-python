@@ -1,27 +1,20 @@
 """Storage backends for offloaded tool result content.
 
-This module defines the Storage protocol and provides three built-in
-implementations: file-based, in-memory, and S3 storage. Each content block
-from a tool result is stored individually with its content type preserved.
+.. deprecated::
+    The storage classes in this module (``InMemoryStorage``, ``FileStorage``,
+    ``S3Storage``) are deprecated. Use the unified storage backends from
+    :mod:`strands.storage` instead::
+
+        from strands.storage import InMemoryStorage, LocalFileStorage, S3Storage
 
 Example:
     ```python
-    from strands.vended_plugins.context_offloader import (
-        FileStorage,
-        InMemoryStorage,
-        S3Storage,
-    )
+    from strands.storage import InMemoryStorage, LocalFileStorage, S3Storage
 
-    # File-based storage
-    storage = FileStorage(artifact_dir="./artifacts")
-    ref = storage.store("tool_123_0", b"large output content...", "text/plain")
-    content, content_type = storage.retrieve(ref)
-
-    # In-memory storage (useful for testing and serverless)
+    # Unified storage backends
+    storage = LocalFileStorage("./artifacts")
     storage = InMemoryStorage()
-
-    # S3 storage
-    storage = S3Storage(bucket="my-bucket", prefix="artifacts/")
+    storage = S3Storage("my-bucket", prefix="artifacts/")
     ```
 """
 
@@ -30,6 +23,7 @@ import logging
 import re
 import threading
 import time
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -131,6 +125,11 @@ class FileStorage:
             artifact_dir: Directory path where artifact files will be stored.
             sandbox: Optional sandbox to route file I/O through.
         """
+        warnings.warn(
+            "FileStorage is deprecated. Use strands.storage.LocalFileStorage instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._artifact_dir = Path(artifact_dir)
         self._sandbox = sandbox
         self._counter: int = 0
@@ -323,6 +322,11 @@ class InMemoryStorage:
         Raises:
             ValueError: If evict_after_turns is not a positive integer.
         """
+        warnings.warn(
+            "InMemoryStorage is deprecated. Use strands.storage.InMemoryStorage instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if evict_after_turns is not None and evict_after_turns < 1:
             raise ValueError("evict_after_turns must be a positive integer")
 
@@ -461,6 +465,11 @@ class S3Storage:
             boto_client_config: Optional botocore client configuration.
             region_name: AWS region. Used only when boto_session is not provided.
         """
+        warnings.warn(
+            "S3Storage is deprecated. Use strands.storage.S3Storage instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._bucket = bucket
         self._prefix = prefix.strip("/")
         if self._prefix:
