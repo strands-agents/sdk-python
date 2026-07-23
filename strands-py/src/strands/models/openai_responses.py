@@ -76,6 +76,33 @@ _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overfl
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
 _ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
 _OPENAI_RESPONSES_OUTPUT_FIELD = "openaiResponsesOutput"
+_RESPONSE_OUTPUT_ITEM_TYPES = {
+    "message",
+    "file_search_call",
+    "function_call",
+    "function_call_output",
+    "web_search_call",
+    "computer_call",
+    "computer_call_output",
+    "reasoning",
+    "tool_search_call",
+    "tool_search_output",
+    "image_generation_call",
+    "code_interpreter_call",
+    "local_shell_call",
+    "local_shell_call_output",
+    "shell_call",
+    "shell_call_output",
+    "apply_patch_call",
+    "apply_patch_call_output",
+    "mcp_call",
+    "mcp_list_tools",
+    "mcp_approval_request",
+    "mcp_approval_response",
+    "custom_tool_call",
+    "custom_tool_call_output",
+    "compaction",
+}
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -643,6 +670,12 @@ class OpenAIResponsesModel(Model):
             output_items = cls._get_responses_output_items(message)
             if replay_output_items and role == "assistant" and output_items:
                 formatted_messages.extend(output_items)
+                # Max-token recovery may retain only safe reasoning items after removing an
+                # incomplete tool call. Preserve the recovered visible text in that case.
+                if not any(item.get("type") == "message" for item in output_items):
+                    text = "\n".join(content["text"] for content in contents if "text" in content)
+                    if text:
+                        formatted_messages.append({"role": "assistant", "content": text})
                 continue
 
             if any("reasoningContent" in content for content in contents):
@@ -697,22 +730,45 @@ class OpenAIResponsesModel(Model):
             formatted_messages.extend(formatted_tool_calls)
             formatted_messages.extend(formatted_tool_messages)
 
-        return [
-            message
-            for message in formatted_messages
-            if message.get("content")
-            or message.get("type") in ["function_call", "function_call_output", "reasoning", "message"]
-        ]
+        return formatted_messages
 
-    @staticmethod
-    def _get_responses_output_items(message: Message) -> list[dict[str, Any]] | None:
+    @classmethod
+    def _get_responses_output_items(cls, message: Message) -> list[dict[str, Any]] | None:
         fields = message.get("additionalModelResponseFields")
         if not isinstance(fields, dict):
             return None
         output = fields.get(_OPENAI_RESPONSES_OUTPUT_FIELD)
-        if not isinstance(output, list) or not output or not all(isinstance(item, dict) for item in output):
+        if (
+            not isinstance(output, list)
+            or not output
+            or not all(cls._is_responses_output_item(item) for item in output)
+        ):
+            logger.warning(
+                "field=<%s> | invalid Responses output items | using legacy assistant history",
+                _OPENAI_RESPONSES_OUTPUT_FIELD,
+            )
             return None
-        return output
+        return cast(list[dict[str, Any]], output)
+
+    @staticmethod
+    def _is_responses_output_item(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        item_id = value.get("id")
+        item_type = value.get("type")
+        if not isinstance(item_id, str) or item_type not in _RESPONSE_OUTPUT_ITEM_TYPES:
+            return False
+        if item_type == "message":
+            return (
+                value.get("role") == "assistant"
+                and isinstance(value.get("status"), str)
+                and isinstance(value.get("content"), list)
+            )
+        if item_type == "reasoning":
+            return isinstance(value.get("summary"), list)
+        if item_type == "function_call":
+            return all(isinstance(value.get(field), str) for field in ("call_id", "name", "arguments"))
+        return True
 
     @classmethod
     def _format_request_message_content(cls, content: ContentBlock, *, role: Role = "user") -> dict[str, Any]:

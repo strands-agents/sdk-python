@@ -465,6 +465,22 @@ describe("OpenAIModel (api: 'responses')", () => {
       ])
     })
 
+    it('falls back to assistant text when captured output items are invalid', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new TextBlock('answer')],
+          additionalModelResponseFields: { openaiResponsesOutput: [null] },
+        }),
+      ]
+
+      const req = await runOnce({}, messages)
+      expect(req.input).toEqual([{ role: 'assistant', content: 'answer' }])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('invalid responses output items'))
+      warnSpy.mockRestore()
+    })
+
     it('does not replay captured output items in stateful mode', async () => {
       const messages = [
         new Message({

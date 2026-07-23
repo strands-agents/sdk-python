@@ -386,6 +386,42 @@ def test_format_request_messages_replays_captured_output_items_verbatim():
     ]
 
 
+def test_format_request_messages_replays_builtin_tool_items_verbatim():
+    output = [
+        {
+            "id": "ws_1",
+            "type": "web_search_call",
+            "status": "completed",
+            "action": {"type": "search", "query": "weather"},
+        }
+    ]
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"text": "recovered"}],
+            "additionalModelResponseFields": {"openaiResponsesOutput": output},
+        }
+    ]
+
+    assert OpenAIResponsesModel._format_request_messages(messages) == [
+        *output,
+        {"role": "assistant", "content": "recovered"},
+    ]
+
+
+def test_format_request_messages_falls_back_when_output_items_are_invalid(caplog):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"text": "answer"}],
+            "additionalModelResponseFields": {"openaiResponsesOutput": [{}]},
+        }
+    ]
+
+    assert OpenAIResponsesModel._format_request_messages(messages) == [{"role": "assistant", "content": "answer"}]
+    assert "invalid Responses output items" in caplog.text
+
+
 def test_format_request_does_not_replay_output_items_in_stateful_mode(model_id):
     model = OpenAIResponsesModel(model_id=model_id, stateful=True)
     output = [{"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "encrypted"}]

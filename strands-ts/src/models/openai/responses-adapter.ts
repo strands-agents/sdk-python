@@ -42,6 +42,33 @@ export const DEFAULT_RESPONSES_MODEL_ID = MODEL_DEFAULTS.openai.modelId
 const MANAGED_PARAMS: ReadonlySet<string> = new Set(['model', 'input', 'stream', 'store'])
 const ENCRYPTED_REASONING_INCLUDE: ResponseIncludable = 'reasoning.encrypted_content'
 const OPENAI_RESPONSES_OUTPUT_FIELD = 'openaiResponsesOutput'
+const RESPONSE_OUTPUT_ITEM_TYPES = new Set([
+  'message',
+  'file_search_call',
+  'function_call',
+  'function_call_output',
+  'web_search_call',
+  'computer_call',
+  'computer_call_output',
+  'reasoning',
+  'tool_search_call',
+  'tool_search_output',
+  'image_generation_call',
+  'code_interpreter_call',
+  'local_shell_call',
+  'local_shell_call_output',
+  'shell_call',
+  'shell_call_output',
+  'apply_patch_call',
+  'apply_patch_call_output',
+  'mcp_call',
+  'mcp_list_tools',
+  'mcp_approval_request',
+  'mcp_approval_response',
+  'custom_tool_call',
+  'custom_tool_call_output',
+  'compaction',
+])
 
 /**
  * Logs a warning for each responses-managed key present in `params`.
@@ -156,6 +183,11 @@ function formatResponsesMessages(messages: Message[], replayOutputItems: boolean
     const outputItems = getResponsesOutputItems(message)
     if (replayOutputItems && role === 'assistant' && outputItems) {
       input.push(...outputItems)
+      // Max-token recovery may retain only safe reasoning items after removing an
+      // incomplete tool call. Preserve the recovered visible text in that case.
+      if (!outputItems.some((item) => item.type === 'message')) {
+        appendAssistantTextFallback(input, message)
+      }
       continue
     }
     const contentItems: Array<Record<string, unknown>> = []
@@ -272,7 +304,35 @@ function getResponsesOutputItems(message: Message): ResponseInputItem[] | undefi
   if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return undefined
   const output = (fields as Record<string, JSONValue>)[OPENAI_RESPONSES_OUTPUT_FIELD]
   if (!Array.isArray(output) || output.length === 0) return undefined
+  if (!output.every(isResponsesOutputItem)) {
+    logger.warn('field=<openaiResponsesOutput> | invalid responses output items | using legacy assistant history')
+    return undefined
+  }
   return output as unknown as ResponseInputItem[]
+}
+
+function isResponsesOutputItem(value: JSONValue): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const item = value as Record<string, JSONValue>
+  if (typeof item.id !== 'string' || typeof item.type !== 'string' || !RESPONSE_OUTPUT_ITEM_TYPES.has(item.type)) {
+    return false
+  }
+  if (item.type === 'message') {
+    return item.role === 'assistant' && typeof item.status === 'string' && Array.isArray(item.content)
+  }
+  if (item.type === 'reasoning') return Array.isArray(item.summary)
+  if (item.type === 'function_call') {
+    return typeof item.call_id === 'string' && typeof item.name === 'string' && typeof item.arguments === 'string'
+  }
+  return true
+}
+
+function appendAssistantTextFallback(input: ResponseInputItem[], message: Message): void {
+  const text = message.content
+    .filter((block) => block.type === 'textBlock')
+    .map((block) => block.text)
+    .join('\n')
+  if (text) input.push({ role: 'assistant', content: text })
 }
 
 /**
