@@ -481,8 +481,8 @@ describe("OpenAIModel (api: 'responses')", () => {
       warnSpy.mockRestore()
     })
 
-    it('replays additional_tools output items', async () => {
-      const output = [{ id: 'tools_1', type: 'additional_tools', role: 'assistant', tools: [] }]
+    it('replays input-compatible additional_tools output items', async () => {
+      const output = [{ id: 'tools_1', type: 'additional_tools', role: 'developer', tools: [] }]
       const messages = [
         new Message({
           role: 'assistant',
@@ -493,6 +493,21 @@ describe("OpenAIModel (api: 'responses')", () => {
 
       const req = await runOnce({}, messages)
       expect(req.input).toEqual([...output, { role: 'assistant', content: 'answer' }])
+    })
+
+    it('falls back when output items are not input-compatible', async () => {
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new TextBlock('answer')],
+          additionalModelResponseFields: {
+            openaiResponsesOutput: [{ id: 'tools_1', type: 'additional_tools', role: 'assistant', tools: [] }],
+          },
+        }),
+      ]
+
+      const req = await runOnce({}, messages)
+      expect(req.input).toEqual([{ role: 'assistant', content: 'answer' }])
     })
 
     it('does not replay captured output items in stateful mode', async () => {

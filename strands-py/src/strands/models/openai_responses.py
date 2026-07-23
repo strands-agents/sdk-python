@@ -52,7 +52,7 @@ except Exception as e:
     ) from e
 
 import openai  # noqa: E402 - must import after version check
-from openai.types.responses.response_output_item import ResponseOutputItem  # noqa: E402
+from openai.types.responses.response_input_item import ResponseInputItem  # noqa: E402
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Message, Messages, Role, SystemContentBlock  # noqa: E402
@@ -77,7 +77,7 @@ _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overfl
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
 _ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
 _OPENAI_RESPONSES_OUTPUT_FIELD = "openaiResponsesOutput"
-_RESPONSE_OUTPUT_ITEM_ADAPTER: TypeAdapter[ResponseOutputItem] = TypeAdapter(ResponseOutputItem)
+_RESPONSE_INPUT_ITEM_ADAPTER: TypeAdapter[ResponseInputItem] = TypeAdapter(ResponseInputItem)
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -730,7 +730,7 @@ class OpenAIResponsesModel(Model):
         if not isinstance(value, dict):
             return False
         try:
-            _RESPONSE_OUTPUT_ITEM_ADAPTER.validate_python(value)
+            _RESPONSE_INPUT_ITEM_ADAPTER.validate_python(value)
         except ValidationError:
             return False
         return True

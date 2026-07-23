@@ -429,6 +429,23 @@ def test_format_request_messages_falls_back_when_output_items_are_invalid(caplog
     assert "invalid Responses output items" in caplog.text
 
 
+def test_format_request_messages_falls_back_when_output_is_not_input_compatible(caplog):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"text": "answer"}],
+            "additionalModelResponseFields": {
+                "openaiResponsesOutput": [
+                    {"id": "tools_1", "type": "additional_tools", "role": "assistant", "tools": []}
+                ]
+            },
+        }
+    ]
+
+    assert OpenAIResponsesModel._format_request_messages(messages) == [{"role": "assistant", "content": "answer"}]
+    assert "invalid Responses output items" in caplog.text
+
+
 def test_format_request_does_not_replay_output_items_in_stateful_mode(model_id):
     model = OpenAIResponsesModel(model_id=model_id, stateful=True)
     output = [{"id": "rs_1", "type": "reasoning", "summary": [], "encrypted_content": "encrypted"}]

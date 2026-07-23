@@ -334,7 +334,9 @@ function isResponsesOutputItem(value: JSONValue): boolean {
     if (typeof item.call_id !== 'string' || typeof item.name !== 'string' || typeof item.arguments !== 'string')
       return false
   } else if (item.type === 'additional_tools') {
-    if (!Array.isArray(item.tools) || typeof item.role !== 'string') return false
+    if (!Array.isArray(item.tools) || item.role !== 'developer') return false
+  } else if (item.type === 'compaction') {
+    if (typeof item.encrypted_content !== 'string') return false
   }
   return true
 }
