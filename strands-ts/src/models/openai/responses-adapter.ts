@@ -21,8 +21,11 @@ import type {
   ResponseFunctionCallOutputItem,
   ResponseCreateParamsStreaming,
   ResponseUsage,
+  ResponseOutputItem,
+  ResponseIncludable,
 } from 'openai/resources/responses/responses'
 import type { Message, StopReason, ToolResultBlock } from '../../types/messages.js'
+import type { JSONValue } from '../../types/json.js'
 import type { ImageBlock, DocumentBlock } from '../../types/media.js'
 import { encodeBase64 } from '../../types/media.js'
 import { toMimeType } from '../../mime.js'
@@ -37,6 +40,8 @@ import type { OpenAIResponsesConfig } from './types.js'
 export const DEFAULT_RESPONSES_MODEL_ID = MODEL_DEFAULTS.openai.modelId
 
 const MANAGED_PARAMS: ReadonlySet<string> = new Set(['model', 'input', 'stream', 'store'])
+const ENCRYPTED_REASONING_INCLUDE: ResponseIncludable = 'reasoning.encrypted_content'
+const OPENAI_RESPONSES_OUTPUT_FIELD = 'openaiResponsesOutput'
 
 /**
  * Logs a warning for each responses-managed key present in `params`.
@@ -58,7 +63,7 @@ export function formatResponsesRequest(
   options: StreamOptions | undefined,
   stateful: boolean
 ): ResponseCreateParamsStreaming {
-  const input = formatResponsesMessages(messages)
+  const input = formatResponsesMessages(messages, !stateful)
 
   // User `params` are spread first so provider-managed fields (asserted
   // required by `ResponseCreateParamsStreaming` below) always win. The
@@ -70,6 +75,13 @@ export function formatResponsesRequest(
     stream: true as const,
     store: stateful,
   } as ResponseCreateParamsStreaming
+
+  if (!stateful) {
+    const configuredInclude = request.include ?? []
+    request.include = configuredInclude.includes(ENCRYPTED_REASONING_INCLUDE)
+      ? configuredInclude
+      : [...configuredInclude, ENCRYPTED_REASONING_INCLUDE]
+  }
 
   if (stateful) {
     const responseId = options?.modelState?.get('responseId') as string | undefined
@@ -136,11 +148,16 @@ export function formatResponsesRequest(
  * - Tool calls → separate `{ type: 'function_call', ... }` items
  * - Tool results → separate `{ type: 'function_call_output', ... }` items
  */
-function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
+function formatResponsesMessages(messages: Message[], replayOutputItems: boolean): ResponseInputItem[] {
   const input: ResponseInputItem[] = []
 
   for (const message of messages) {
     const role = message.role === 'assistant' ? 'assistant' : 'user'
+    const outputItems = getResponsesOutputItems(message)
+    if (replayOutputItems && role === 'assistant' && outputItems) {
+      input.push(...outputItems)
+      continue
+    }
     const contentItems: Array<Record<string, unknown>> = []
     const toolCallItems: ResponseInputItem[] = []
     const toolResultItems: ResponseInputItem[] = []
@@ -250,6 +267,14 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
   return input
 }
 
+function getResponsesOutputItems(message: Message): ResponseInputItem[] | undefined {
+  const fields = message.additionalModelResponseFields
+  if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return undefined
+  const output = (fields as Record<string, JSONValue>)[OPENAI_RESPONSES_OUTPUT_FIELD]
+  if (!Array.isArray(output) || output.length === 0) return undefined
+  return output as unknown as ResponseInputItem[]
+}
+
 /**
  * Builds a Responses API `function_call_output.output` value from a SDK
  * `toolResultBlock`. Returns a plain string for text-only results (joined with
@@ -350,6 +375,7 @@ function formatDocumentInput(docBlock: DocumentBlock): Record<string, unknown> |
 export interface ResponsesStreamState {
   dataType: string | null
   toolCalls: Map<string, { name: string; arguments: string; callId: string; itemId: string }>
+  outputItems: Map<number, ResponseOutputItem>
   finalUsage: {
     inputTokens: number
     outputTokens: number
@@ -368,6 +394,7 @@ export function createResponsesStreamState(): ResponsesStreamState {
   return {
     dataType: null,
     toolCalls: new Map(),
+    outputItems: new Map(),
     finalUsage: null,
     stopReason: 'endTurn',
   }
@@ -503,6 +530,11 @@ export function mapResponsesEventToSDK(
       break
     }
 
+    case 'response.output_item.done': {
+      if (!stateful) state.outputItems.set(event.output_index, event.item)
+      break
+    }
+
     case 'response.function_call_arguments.delta': {
       const tc = state.toolCalls.get(event.item_id)
       if (tc) {
@@ -521,6 +553,7 @@ export function mapResponsesEventToSDK(
 
     case 'response.incomplete': {
       const resp = event.response
+      if (!stateful) captureResponseOutput(resp.output, state)
       if (resp.usage) {
         state.finalUsage = mapResponsesUsage(resp.usage)
       }
@@ -541,6 +574,7 @@ export function mapResponsesEventToSDK(
 
     case 'response.completed': {
       const resp = event.response
+      if (!stateful) captureResponseOutput(resp.output, state)
       if (resp.usage) {
         state.finalUsage = mapResponsesUsage(resp.usage)
       }
@@ -561,6 +595,12 @@ export function mapResponsesEventToSDK(
  *
  * @internal
  */
+function captureResponseOutput(output: ResponseOutputItem[] | undefined, state: ResponsesStreamState): void {
+  if (!output || output.length === 0) return
+  state.outputItems.clear()
+  output.forEach((item, index) => state.outputItems.set(index, item))
+}
+
 export function finalizeResponsesStream(state: ResponsesStreamState): ModelStreamEvent[] {
   const events: ModelStreamEvent[] = []
 
@@ -589,7 +629,14 @@ export function finalizeResponsesStream(state: ResponsesStreamState): ModelStrea
     events.push({ type: 'modelMetadataEvent', usage: state.finalUsage })
   }
 
-  events.push({ type: 'modelMessageStopEvent', stopReason })
+  const outputItems = [...state.outputItems.entries()].sort(([left], [right]) => left - right).map(([, item]) => item)
+  events.push({
+    type: 'modelMessageStopEvent',
+    stopReason,
+    ...(outputItems.length > 0 && {
+      additionalModelResponseFields: { [OPENAI_RESPONSES_OUTPUT_FIELD]: outputItems } as unknown as JSONValue,
+    }),
+  })
 
   return events
 }
