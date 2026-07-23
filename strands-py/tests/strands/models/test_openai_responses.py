@@ -2,6 +2,7 @@ import logging
 import os
 import unittest.mock
 
+import httpx
 import openai
 import pydantic
 import pytest
@@ -1169,6 +1170,20 @@ async def test_stream_context_overflow_exception_api_error_type(openai_client, m
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_http_429_as_throttle(openai_client, model, messages):
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(429, request=request)
+    error = openai.APIStatusError("opaque provider failure", response=response, body=None)
+    openai_client.responses.create.side_effect = error
+
+    with pytest.raises(ModelThrottledException, match="opaque provider failure") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is error
 
 
 @pytest.mark.asyncio

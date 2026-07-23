@@ -464,6 +464,7 @@ class OpenAIResponsesModel(Model):
                 normalized_message = error_message.lower()
                 if (
                     isinstance(e, openai.RateLimitError)
+                    or getattr(e, "status_code", None) == 429
                     or normalized_code == "rate_limit_exceeded"
                     or any(pattern in normalized_message for pattern in _RATE_LIMIT_PATTERNS)
                 ):
