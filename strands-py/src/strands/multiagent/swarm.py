@@ -56,7 +56,7 @@ from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, _parse_metrics, _parse_usage
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +414,8 @@ class Swarm(MultiAgentBase):
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
 
+            self._invocation_start_time = self.state.start_time
+
             try:
                 current_node = cast(SwarmNode, self.state.current_node)
                 logger.debug("current_node=<%s> | starting swarm execution with node", current_node.node_id)
@@ -435,7 +437,7 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time += round((time.time() - self.state.start_time) * 1000)
+                self.state.execution_time = self._commit_active_interval(self.state.execution_time)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
@@ -993,6 +995,9 @@ class Swarm(MultiAgentBase):
             "node_results": {k: v.to_dict() for k, v in self.state.results.items()},
             "next_nodes_to_execute": next_nodes,
             "current_task": encode_bytes_values(self.state.task),
+            "accumulated_usage": self.state.accumulated_usage,
+            "accumulated_metrics": self.state.accumulated_metrics,
+            "execution_time": self._execution_time_with_active_interval(self.state.execution_time),
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
                 "handoff_node": self.state.handoff_node.node_id if self.state.handoff_node else None,
@@ -1007,14 +1012,14 @@ class Swarm(MultiAgentBase):
         """Restore swarm state from a session dict and prepare for execution.
 
         This method handles two scenarios:
-        1. If the persisted status is COMPLETED, FAILED resets all nodes and graph state
-           to allow re-execution from the beginning.
+        1. If the payload omits next_nodes_to_execute (a terminal or fresh state), resets all
+           nodes and swarm state to allow re-execution from the beginning.
         2. Otherwise, restores the persisted state and prepares to resume execution
-           from the next ready nodes.
+           from the next node.
 
         Args:
             payload: Dictionary containing persisted state data including status,
-                    completed nodes, results, and next nodes to execute.
+                    node history, results, and next nodes to execute.
         """
         if "_internal_state" in payload:
             internal_state = payload["_internal_state"]
@@ -1036,11 +1041,19 @@ class Swarm(MultiAgentBase):
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         self.state.completion_status = Status(payload["status"])
+        # Point the state's shared context at the swarm-owned object, matching the identity a fresh run
+        # establishes in stream_async, so the serialize path (reads self.state.shared_context) and the
+        # node-input builder (reads self.shared_context) stay in sync after resume.
+        self.state.shared_context = self.shared_context
         # Hydrate completed nodes & results
         context = payload["context"] or {}
         self.shared_context.context = context.get("shared_context") or {}
         self.state.handoff_message = context.get("handoff_message")
         self.state.handoff_node = self.nodes[context["handoff_node"]] if context.get("handoff_node") else None
+
+        self.state.accumulated_usage = _parse_usage(payload.get("accumulated_usage") or {})
+        self.state.accumulated_metrics = _parse_metrics(payload.get("accumulated_metrics") or {})
+        self.state.execution_time = int(payload.get("execution_time") or 0)
 
         self.state.node_history = [self.nodes[nid] for nid in (payload.get("node_history") or []) if nid in self.nodes]
 
