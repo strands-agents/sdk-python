@@ -18,9 +18,9 @@ function makeEvent(
   content: InstanceType<
     typeof TextBlock | typeof JsonBlock | typeof ImageBlock | typeof VideoBlock | typeof DocumentBlock
   >[],
-  overrides?: { status?: 'success' | 'error'; toolName?: string }
+  overrides?: { status?: 'success' | 'error'; toolName?: string; agent?: ReturnType<typeof makeMockAgent> }
 ) {
-  const agent = makeMockAgent()
+  const agent = overrides?.agent ?? makeMockAgent()
   const result = new ToolResultBlock({
     toolUseId: 'tool-123',
     status: overrides?.status ?? 'success',
@@ -749,10 +749,10 @@ describe('ContextOffloader', () => {
         previewTokens: 5,
         includeRetrievalTool: true,
       })
-      const agent = createMockAgent()
+      const agent = createMockAgent({ extra: { model: mockModel } as never })
       plugin.initAgent(agent)
 
-      const event = makeEvent([new TextBlock('hello world '.repeat(100))])
+      const event = makeEvent([new TextBlock('hello world '.repeat(100))], { agent })
       await invokeTrackedHook(agent, event)
 
       const preview = (event.result.content[0] as TextBlock).text
@@ -782,10 +782,10 @@ describe('ContextOffloader', () => {
         maxResultTokens: 10,
         previewTokens: 5,
       })
-      const agent = createMockAgent()
+      const agent = createMockAgent({ extra: { model: mockModel } as never })
       plugin.initAgent(agent)
 
-      const event = makeEvent([new TextBlock('x'.repeat(1000))])
+      const event = makeEvent([new TextBlock('x'.repeat(1000))], { agent })
       await invokeTrackedHook(agent, event)
 
       const keys = await unifiedStorage.list('')
@@ -803,10 +803,10 @@ describe('ContextOffloader', () => {
         maxResultTokens: 10,
         previewTokens: 5,
       })
-      const agent = createMockAgent()
+      const agent = createMockAgent({ extra: { model: mockModel } as never })
       plugin.initAgent(agent)
 
-      const event = makeEvent([new TextBlock('x'.repeat(1000))])
+      const event = makeEvent([new TextBlock('x'.repeat(1000))], { agent })
       await invokeTrackedHook(agent, event)
 
       const keys = await unifiedStorage.list('')
@@ -828,6 +828,38 @@ describe('ContextOffloader', () => {
 
       const preview = (event.result.content[0] as TextBlock).text
       expect(preview).not.toContain('offloader/')
+    })
+
+    it('throws on duplicate agent id within the same session', async () => {
+      const { InMemoryStorage: UnifiedInMemoryStorage } = await import('../../../storage/in-memory-storage.js')
+      const unifiedStorage = new UnifiedInMemoryStorage()
+
+      const plugin = new ContextOffloader({
+        storage: unifiedStorage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+      })
+      const agent1 = createMockAgent()
+      plugin.initAgent(agent1)
+
+      const agent2 = createMockAgent()
+      expect(() => plugin.initAgent(agent2)).toThrow('an agent with this id already exists in this session')
+    })
+
+    it('allows the same agent id on different sessions', async () => {
+      const { InMemoryStorage: UnifiedInMemoryStorage } = await import('../../../storage/in-memory-storage.js')
+      const unifiedStorage = new UnifiedInMemoryStorage()
+
+      const plugin = new ContextOffloader({
+        storage: unifiedStorage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+      })
+      const agent1 = createMockAgent({ extra: { sessionId: 'session-a' } as never })
+      plugin.initAgent(agent1)
+
+      const agent2 = createMockAgent({ extra: { sessionId: 'session-b' } as never })
+      expect(() => plugin.initAgent(agent2)).not.toThrow()
     })
   })
 

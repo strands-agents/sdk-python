@@ -215,6 +215,7 @@ export class ContextOffloader implements Plugin {
   private readonly _includeRetrievalTool: boolean
   private readonly _evictAfterCycles: number | null
   private readonly _storageByAgent = new WeakMap<LocalAgent, Storage | OffloaderStorage>()
+  private readonly _registeredAgentIds = new Set<string>()
   private readonly _keyStoredAt = new Map<string, number>()
   private _retrievalTool: Tool | undefined
 
@@ -300,6 +301,13 @@ export class ContextOffloader implements Plugin {
     } else if (this._storage instanceof FileStorage) {
       storage = (this._storage as FileStorage).forSandbox(agent.sandbox)
     } else if (!isOffloaderStorage(this._storage)) {
+      const compositeKey = `${agent.sessionId}/${agent.id}`
+      if (this._registeredAgentIds.has(compositeKey)) {
+        throw new Error(
+          `agent_id=<${agent.id}>, session_id=<${agent.sessionId}> | an agent with this id already exists in this session`
+        )
+      }
+      this._registeredAgentIds.add(compositeKey)
       storage = namespace(this._storage, `${agent.sessionId}/scopes/agent/${agent.id}`)
     } else {
       return this._storage
