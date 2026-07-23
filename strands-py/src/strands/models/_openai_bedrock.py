@@ -20,6 +20,8 @@ from typing import Any, TypedDict
 import boto3
 from botocore.credentials import CredentialProvider
 
+from ._validation import validate_region
+
 _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws{path}"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
@@ -67,24 +69,28 @@ class BedrockMantleConfig(TypedDict, total=False):
 def _resolve_region(config: BedrockMantleConfig) -> str:
     """Resolve the AWS region, preferring explicit config then falling back to boto3.
 
+    The resolved region is validated before it is returned, since it is interpolated
+    into the Mantle endpoint URL by the caller.
+
     Raises:
         ValueError: If no region can be resolved from the config, an attached session,
-            or the standard boto3 credential chain.
+            or the standard boto3 credential chain, or if the resolved region is not a
+            well-formed AWS region identifier.
     """
     region = config.get("region")
     if region:
-        return region
+        return validate_region(region)
 
     session = config.get("boto_session")
     if session is not None and session.region_name:
-        return str(session.region_name)
+        return validate_region(str(session.region_name))
 
     # ``boto3.Session()`` with no args reads ``AWS_REGION`` / ``AWS_DEFAULT_REGION``,
     # the active profile, and falls back to EC2 instance metadata — the same chain
     # :class:`BedrockModel` uses.
     default_region = boto3.Session().region_name
     if default_region:
-        return str(default_region)
+        return validate_region(str(default_region))
 
     raise ValueError(
         "Could not resolve an AWS region for Bedrock Mantle. Pass 'region' in "

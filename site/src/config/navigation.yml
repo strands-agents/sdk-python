@@ -344,6 +344,8 @@ sidebar:
       - label: Memory Stores
         items:
           - docs/community/memory-stores/overview
+          - docs/community/memory-stores/agentcore-memory-store
+          - docs/community/memory-stores/strands-dakera
       - label: Session Managers
         items:
           - docs/community/session-managers/agentcore-memory

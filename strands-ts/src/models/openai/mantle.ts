@@ -26,6 +26,12 @@ const MANTLE_DOCS_URL = 'https://docs.aws.amazon.com/bedrock/latest/userguide/in
  */
 const OPENAI_PATH_MODEL_PREFIXES = ['openai.gpt-5.'] as const
 
+// Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
+// Anchored so a malformed region (e.g. one containing '@', ':', '/', '#') cannot re-point
+// the Mantle endpoint URL to a non-AWS host. Mirrors the Python SDK's validate_region
+// (`[0-9]` rather than `\d` keeps the two patterns character-identical).
+const VALID_REGION = /^[a-z]{2}(-[a-z]+)+-[0-9]+$/
+
 /**
  * Async function that returns a freshly minted Bedrock Mantle bearer token.
  * Matches the shape returned by `@aws/bedrock-token-generator`'s
@@ -70,19 +76,36 @@ export interface BedrockMantleConfig {
 }
 
 /**
+ * Validates an AWS region before it is interpolated into the Mantle endpoint URL.
+ *
+ * Guards against a malformed region (containing URL control characters such as
+ * `@`, `:`, `/`, `#`) re-pointing a signed request to a non-AWS host, which would
+ * exfiltrate the minted bearer token.
+ *
+ * @internal
+ */
+function validateRegion(region: string): string {
+  if (!VALID_REGION.test(region)) {
+    throw new Error(`invalid AWS region: '${region}'`)
+  }
+  return region
+}
+
+/**
  * Resolves the AWS region for Mantle, preferring explicit config and falling
- * back to the standard AWS env vars.
+ * back to the standard AWS env vars. The resolved region is validated before it
+ * is returned, since it is interpolated into the Mantle endpoint URL.
  *
  * @internal
  */
 export function resolveMantleRegion(config: BedrockMantleConfig): string {
   if (config.region) {
-    return config.region
+    return validateRegion(config.region)
   }
 
   const envRegion = globalThis?.process?.env?.AWS_REGION || globalThis?.process?.env?.AWS_DEFAULT_REGION
   if (envRegion) {
-    return envRegion
+    return validateRegion(envRegion)
   }
 
   throw new Error(
