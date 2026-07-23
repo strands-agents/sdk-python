@@ -1,5 +1,5 @@
 /**
- * HTTP helpers shared by the catalog scripts (refresh-stats, backfill).
+ * HTTP helpers for the catalog scripts.
  */
 
 export function githubApiHeaders(): Record<string, string> {

@@ -21,7 +21,6 @@
     "routes:update": "tsx scripts/update-known-routes.ts",
     "changelog:sync": "tsx scripts/changelog/sync.ts",
     "catalog:stats": "tsx scripts/catalog/refresh-stats.ts",
-    "catalog:backfill": "tsx scripts/catalog/backfill.ts",
     "astro": "astro"
   },
   "author": "",
