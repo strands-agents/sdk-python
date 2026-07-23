@@ -62,17 +62,9 @@ interface DelegationState {
   toolUseCount: number
   /** Tool use ID of the delegation tool that succeeded (set by AfterToolCallEvent). */
   toolUseId?: string
+  /** Set by _onAfterTools when delegation triggers endTurn. Used by _handleStream to detect delegation. */
+  endTurnViaDelegation?: boolean
 }
-
-/**
- * Sentinel value used as the `endTurn` string to signal that delegation (not a
- * plain stop) caused the loop halt. The _handleStream middleware recognizes this
- * marker and replaces the default endTurn AgentResult with the delegation-
- * transformed one.
- *
- * @internal
- */
-const DELEGATION_END_TURN_MARKER = '__strands:delegation'
 
 /**
  * Plugin that enforces delegation semantics for tool routing.
@@ -239,7 +231,8 @@ export class AgentDelegation implements Plugin {
       return
     }
 
-    event.endTurn = DELEGATION_END_TURN_MARKER
+    event.endTurn = true
+    state.endTurnViaDelegation = true
   }
 
   /**
@@ -293,9 +286,9 @@ export class AgentDelegation implements Plugin {
    * AgentStreamStage middleware: transforms the AgentResult on delegation.
    *
    * When the main loop exits via endTurn triggered by delegation (identified by
-   * the sentinel marker), this middleware replaces the default endTurn result
-   * (which contains a TextBlock of the marker string) with the proper delegation
-   * result: the sub-agent's content from the tool-result message.
+   * the `endTurnViaDelegation` flag on DelegationState), this middleware replaces
+   * the default endTurn result with the proper delegation result: the sub-agent's
+   * content from the tool-result message.
    */
   private async *_handleStream(
     context: AgentStreamContext,
@@ -315,10 +308,10 @@ export class AgentDelegation implements Plugin {
     const state = this._state.get(context.agent)
     this._state.delete(context.agent)
 
-    if (!state?.toolUseId) return streamResult
+    if (!state?.toolUseId || !state.endTurnViaDelegation) return streamResult
 
-    // Only transform if the result was triggered by our delegation marker.
-    // Other endTurn sources (stop tool, user hooks) pass through unchanged.
+    // Only transform if the result stopped via endTurn.
+    // Other stop reasons pass through unchanged.
     if (streamResult.result.stopReason !== 'endTurn') return streamResult
 
     // Find the delegation tool's result in agent.messages. The tool-result
@@ -342,19 +335,11 @@ export class AgentDelegation implements Plugin {
       content: toContentBlocks(resultBlock),
     })
 
-    // Replace the marker message the main loop appended with the delegation content.
-    // The main loop appended a TextBlock(DELEGATION_END_TURN_MARKER) as lastMessage —
-    // we pop it and replace with the actual delegation message.
+    // Replace the endTurn message the main loop appended with the delegation content.
     const lastMessage = messages[messages.length - 1]
-    if (
-      lastMessage?.role === 'assistant' &&
-      lastMessage.content.length === 1 &&
-      lastMessage.content[0]?.type === 'textBlock' &&
-      (lastMessage.content[0] as TextBlock).text === DELEGATION_END_TURN_MARKER
-    ) {
+    if (lastMessage?.role === 'assistant') {
       messages[messages.length - 1] = delegationMessage
     } else {
-      // Fallback: append if the expected marker message wasn't found
       messages.push(delegationMessage)
     }
 
