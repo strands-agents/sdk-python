@@ -172,6 +172,12 @@ and pass your class anywhere a `Storage` is accepted. In Python,
 TypeScript, implement the
 [interface](@api/typescript/Storage#Storage).
 
+Community backends can add methods beyond the core four (e.g.
+`search` for vector similarity, or structured queries for
+databases like DynamoDB). Plugins that only need basic persistence
+use the four standard methods; plugins that need richer access
+can check for and use the extra surface your backend provides.
+
 Plugins scope their own keys automatically, so you don't need to
 worry about collisions between session data and offloaded content.
 
