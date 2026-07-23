@@ -56,7 +56,7 @@ from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, _parse_metrics, _parse_usage
 
 logger = logging.getLogger(__name__)
 
@@ -664,6 +664,8 @@ class Graph(MultiAgentBase):
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
 
+            self._invocation_start_time = start_time
+
             try:
                 logger.debug(
                     "max_node_executions=<%s>, execution_timeout=<%s>s, node_timeout=<%s>s | graph execution config",
@@ -697,7 +699,7 @@ class Graph(MultiAgentBase):
                 self.state.status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time += round((time.time() - start_time) * 1000)
+                self.state.execution_time = self._commit_active_interval(self.state.execution_time)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self))
                 self._resume_from_session = False
                 self._resume_next_nodes.clear()
@@ -1249,7 +1251,7 @@ class Graph(MultiAgentBase):
             accumulated_usage=self.state.accumulated_usage,
             accumulated_metrics=self.state.accumulated_metrics,
             execution_count=self.state.execution_count,
-            execution_time=self.state.execution_time,
+            execution_time=self._execution_time_with_active_interval(self.state.execution_time),
             total_nodes=self.state.total_nodes,
             completed_nodes=len(self.state.completed_nodes),
             failed_nodes=len(self.state.failed_nodes),
@@ -1275,6 +1277,10 @@ class Graph(MultiAgentBase):
             "next_nodes_to_execute": next_nodes,
             "current_task": encode_bytes_values(self.state.task),
             "execution_order": [n.node_id for n in self.state.execution_order],
+            "accumulated_usage": self.state.accumulated_usage,
+            "accumulated_metrics": self.state.accumulated_metrics,
+            "execution_count": self.state.execution_count,
+            "execution_time": self._execution_time_with_active_interval(self.state.execution_time),
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
             },
@@ -1482,6 +1488,13 @@ class Graph(MultiAgentBase):
 
         # Task
         self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
+
+        # Cumulative accounting: restore so the timeout budget (should_continue) and the reported
+        # totals stay correct across a resume, rather than resetting to zero.
+        self.state.accumulated_usage = _parse_usage(payload.get("accumulated_usage") or {})
+        self.state.accumulated_metrics = _parse_metrics(payload.get("accumulated_metrics") or {})
+        self.state.execution_count = int(payload.get("execution_count") or 0)
+        self.state.execution_time = int(payload.get("execution_time") or 0)
 
         # next nodes to execute
         next_nodes = [self.nodes[nid] for nid in (payload.get("next_nodes_to_execute") or []) if nid in self.nodes]

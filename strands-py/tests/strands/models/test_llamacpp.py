@@ -98,11 +98,12 @@ def test_format_request_with_llamacpp_params() -> None:
     # Grammar and json_schema go directly in request for llama.cpp
     assert request["grammar"] == "root ::= 'yes' | 'no'"
 
-    # Other llama.cpp specific params should be in extra_body
-    assert "extra_body" in request
-    assert request["extra_body"]["repeat_penalty"] == 1.1
-    assert request["extra_body"]["top_k"] == 40
-    assert request["extra_body"]["min_p"] == 0.05
+    # Other llama.cpp specific params go directly in the request body (the server
+    # reads them at the top level; there is no OpenAI SDK to flatten extra_body).
+    assert "extra_body" not in request
+    assert request["repeat_penalty"] == 1.1
+    assert request["top_k"] == 40
+    assert request["min_p"] == 0.05
 
 
 def test_format_request_with_all_new_params() -> None:
@@ -150,26 +151,48 @@ def test_format_request_with_all_new_params() -> None:
     assert request["grammar"] == "root ::= answer"
     assert request["json_schema"] == {"type": "object"}
 
-    # Check all other llama.cpp params are in extra_body
-    assert "extra_body" in request
-    extra = request["extra_body"]
-    assert extra["repeat_penalty"] == 1.1
-    assert extra["top_k"] == 40
-    assert extra["min_p"] == 0.05
-    assert extra["typical_p"] == 0.95
-    assert extra["tfs_z"] == 0.97
-    assert extra["top_a"] == 0.1
-    assert extra["mirostat"] == 2
-    assert extra["mirostat_lr"] == 0.1
-    assert extra["mirostat_ent"] == 5.0
-    assert extra["penalty_last_n"] == 256
-    assert extra["n_probs"] == 5
-    assert extra["min_keep"] == 1
-    assert extra["ignore_eos"] is False
-    assert extra["logit_bias"] == {100: 5.0, 200: -5.0}
-    assert extra["cache_prompt"] is True
-    assert extra["slot_id"] == 1
-    assert extra["samplers"] == ["top_k", "tfs_z", "typical_p"]
+    # All other llama.cpp params go directly in the request body, not nested under
+    # an OpenAI-SDK-only extra_body object.
+    assert "extra_body" not in request
+    assert request["repeat_penalty"] == 1.1
+    assert request["top_k"] == 40
+    assert request["min_p"] == 0.05
+    assert request["typical_p"] == 0.95
+    assert request["tfs_z"] == 0.97
+    assert request["top_a"] == 0.1
+    assert request["mirostat"] == 2
+    assert request["mirostat_lr"] == 0.1
+    assert request["mirostat_ent"] == 5.0
+    assert request["penalty_last_n"] == 256
+    assert request["n_probs"] == 5
+    assert request["min_keep"] == 1
+    assert request["ignore_eos"] is False
+    assert request["logit_bias"] == {100: 5.0, 200: -5.0}
+    assert request["cache_prompt"] is True
+    assert request["slot_id"] == 1
+    assert request["samplers"] == ["top_k", "tfs_z", "typical_p"]
+
+
+def test_format_request_llamacpp_params_are_top_level_not_extra_body() -> None:
+    """llama.cpp sampling params are placed at the top level of the request body,
+    not under extra_body. Regression test for #3422.
+    """
+    model = LlamaCppModel(
+        params={
+            "top_k": 40,
+            "repeat_penalty": 1.1,
+            "mirostat": 2,
+            "samplers": ["top_k", "min_p"],
+        }
+    )
+
+    request = model._format_request([{"role": "user", "content": [{"text": "hi"}]}])
+
+    assert "extra_body" not in request
+    assert request["top_k"] == 40
+    assert request["repeat_penalty"] == 1.1
+    assert request["mirostat"] == 2
+    assert request["samplers"] == ["top_k", "min_p"]
 
 
 def test_format_tool_call_preserves_non_ascii() -> None:
