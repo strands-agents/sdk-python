@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-hackerone
-    registry: https://pypi.org/project/strands-hackerone/
 github: https://github.com/cagataycali/strands-hackerone
-maintainer: cagataycali
 addedDate: 2026-07-21

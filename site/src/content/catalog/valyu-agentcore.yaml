@@ -4,8 +4,6 @@ integrationType: tool
 languages:
   python:
     package: valyu-agentcore
-    registry: https://pypi.org/project/valyu-agentcore/
 github: https://github.com/valyu-network/valyu-agentcore
 docsUrl: https://docs.valyu.ai/integrations/aws-agentcore
-maintainer: valyu-network
 addedDate: 2026-07-19

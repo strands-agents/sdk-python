@@ -4,8 +4,6 @@ integrationType: model-provider
 languages:
   python:
     package: strands-mlx
-    registry: https://pypi.org/project/strands-mlx/
 github: https://github.com/cagataycali/strands-mlx
-maintainer: cagataycali
 docsPage: docs/community/model-providers/mlx
 addedDate: 2026-01-01

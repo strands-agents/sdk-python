@@ -4,8 +4,6 @@ integrationType: plugin
 languages:
   python:
     package: headroom-ai[strands]
-    registry: https://pypi.org/project/headroom-ai/
 github: https://github.com/chopratejas/headroom
 docsUrl: https://headroom-docs.vercel.app/docs/strands
-maintainer: chopratejas
 addedDate: 2026-07-19

@@ -4,8 +4,6 @@ integrationType: tool
 languages:
   python:
     package: strands-deepgram
-    registry: https://pypi.org/project/strands-deepgram/
 github: https://github.com/eraykeskinmac/strands-deepgram
-maintainer: eraykeskinmac
 docsPage: docs/community/tools/strands-deepgram
 addedDate: 2026-01-01

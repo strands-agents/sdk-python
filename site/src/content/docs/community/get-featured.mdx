@@ -29,13 +29,10 @@ integrationType: tool        # tool | model-provider | session-manager | memory-
 languages:
   python:                    # include the languages you publish for
     package: your-package-name
-    registry: https://pypi.org/project/your-package-name/
   typescript:
     package: "@your-scope/your-package"
-    registry: https://www.npmjs.com/package/@your-scope/your-package
 github: https://github.com/your-org/your-repo
 docsUrl: https://your-docs-site.example.com/strands   # optional — see below
-maintainer: your-github-username
 addedDate: 2026-07-17        # the date you open the PR
 ```
 
@@ -44,12 +41,13 @@ addedDate: 2026-07-17        # the date you open the PR
 | `name` | ✅ | Display name in the catalog |
 | `description` | ✅ | One sentence, ~160 characters max — the card clamps longer text |
 | `integrationType` | ✅ | One of the eight types above |
-| `languages` | ✅ | At least one of `python` / `typescript`, each with `package` + `registry` (a `https://pypi.org/` URL for Python, `https://www.npmjs.com/` for TypeScript). For a vendor-guide integration with no Strands-specific package, leave the block empty (`python: {}`) and set `docsUrl` to your guide. |
+| `languages` | ✅ | At least one of `python` / `typescript`, each with the `package` name as published on PyPI / npm. For a vendor-guide integration with no Strands-specific package, leave the block empty (`python: {}`) and set `docsUrl` to your guide. |
 | `github` | ✅ | Public repository URL, starting with `https://github.com/` |
-| `maintainer` | ✅ | Your GitHub username or org |
 | `addedDate` | ✅ | Date of submission (drives the "New" badge) |
 | `docsUrl` | Optional | Link to your own docs page about the Strands integration; used as the card link when you don't add an on-site docs page. Must start with `https://`. |
 | `docsPage` | Optional | Set only if you also add a docs page (below) |
+
+The maintainer shown on your card and the PyPI/npm links are derived automatically — the maintainer from your `github` URL's owner, the registry links from your `package` names. Don't declare `maintainer` or `registry` fields; the build rejects them.
 
 Leave `featured` and `badges` unset — the Strands team grants those, and CI flags submissions that set them for maintainer review.
 

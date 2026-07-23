@@ -4,8 +4,6 @@ integrationType: tool
 languages:
   python:
     package: strands-teams
-    registry: https://pypi.org/project/strands-teams/
 github: https://github.com/eraykeskinmac/strands-teams
-maintainer: eraykeskinmac
 docsPage: docs/community/tools/strands-teams
 addedDate: 2026-01-01

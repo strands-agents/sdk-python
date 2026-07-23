@@ -42,18 +42,31 @@ export function toCardModel(
 ): CatalogCardModel {
   const languages: ('python' | 'typescript')[] = []
   const registryLinks: CatalogCardModel['registryLinks'] = []
-  // A language block without a registry is a guide-only integration: it
-  // counts toward the language facet but has no registry link to render.
+  // Registry links derive from the package name so an entry can't point its
+  // PyPI/npm icon at a different (or malicious) page than the package it
+  // names. A language block without a package is a guide-only integration:
+  // it counts toward the language facet but has no registry link to render.
   if (data.languages.python) {
     languages.push('python')
-    if (data.languages.python.registry) registryLinks.push({ label: 'PyPI', href: data.languages.python.registry })
+    const pkg = data.languages.python.package
+    if (pkg) {
+      // An extras-qualified package (`temporalio[strands-agents]`) lives on
+      // PyPI under its base name.
+      registryLinks.push({ label: 'PyPI', href: `https://pypi.org/project/${pkg.replace(/\[.*\]$/, '')}/` })
+    }
   }
   if (data.languages.typescript) {
     languages.push('typescript')
-    if (data.languages.typescript.registry) {
-      registryLinks.push({ label: 'npm', href: data.languages.typescript.registry })
+    const pkg = data.languages.typescript.package
+    if (pkg) {
+      // Scoped names (@scope/name) work unencoded in npm package URLs.
+      registryLinks.push({ label: 'npm', href: `https://www.npmjs.com/package/${pkg}` })
     }
   }
+
+  // The displayed maintainer derives from the GitHub URL's owner segment —
+  // the repo the entry links to is the source of truth for ownership.
+  const maintainer = new URL(data.github).pathname.split('/')[1] ?? ''
 
   const badges: string[] = [...data.badges]
   const ageDays = (buildDate.getTime() - data.addedDate.getTime()) / 86_400_000
@@ -76,7 +89,7 @@ export function toCardModel(
     external: !docsHref,
     github: data.github,
     registryLinks,
-    maintainer: data.maintainer,
+    maintainer,
     featured: data.featured,
     badges,
     ...(stats?.stars !== undefined && { stars: stats.stars }),

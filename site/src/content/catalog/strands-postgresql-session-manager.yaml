@@ -4,7 +4,5 @@ integrationType: session-manager
 languages:
   python:
     package: strands-postgresql-session-manager
-    registry: https://pypi.org/project/strands-postgresql-session-manager/
 github: https://github.com/macuartin/strands-postgresql-session-manager
-maintainer: macuartin
 addedDate: 2026-07-19

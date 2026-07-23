@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-fun-tools
-    registry: https://pypi.org/project/strands-fun-tools/
 github: https://github.com/cagataycali/strands-fun-tools
-maintainer: cagataycali
 addedDate: 2026-07-19

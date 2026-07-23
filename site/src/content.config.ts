@@ -71,20 +71,20 @@ export const changelogFrontmatterSchema = z
   })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
-// Catalog URLs render as hrefs, so constrain them to the expected host —
-// a bare .url() would accept javascript: and other unsafe schemes.
-// package + registry are optional as a pair: an empty block (`python: {}`)
-// marks a guide-only integration (documented by a vendor dev-guide, no
-// Strands-specific installable package) as covering that language, so it
-// still participates in the language facet. The superRefine on the entry
-// rejects a block that sets one of the two without the other.
-const catalogLanguageSchema = (registryPrefix: string) =>
-  z.object({
-    // Package name as published on the registry
+// `package` is optional: an empty block (`python: {}`) marks a guide-only
+// integration (documented by a vendor dev-guide, no Strands-specific
+// installable package) as covering that language, so it still participates
+// in the language facet. The registry link derives from the package name at
+// build time (see toCardModel in util/catalog.ts), so entries never declare
+// registry URLs. `.strict()` makes a submitted `registry:` (or any other
+// stray key) fail the build with a clear error instead of being silently
+// ignored.
+const catalogLanguageSchema = z
+  .object({
+    // Package name as published on the registry (PyPI or npm)
     package: z.string().optional(),
-    // Full registry URL (PyPI project page or npm package page)
-    registry: z.string().url().startsWith(registryPrefix, `registry must start with ${registryPrefix}`).optional(),
   })
+  .strict()
 
 export const catalogEntrySchema = z
   .object({
@@ -107,11 +107,13 @@ export const catalogEntrySchema = z
     // hidden until at least one evals entry exists.
     sdk: z.enum(['agents', 'evals']).default('agents'),
     languages: z.object({
-      python: catalogLanguageSchema('https://pypi.org/').optional(),
-      typescript: catalogLanguageSchema('https://www.npmjs.com/').optional(),
+      python: catalogLanguageSchema.optional(),
+      typescript: catalogLanguageSchema.optional(),
     }),
+    // The single self-declared link: the maintainer shown on the card derives
+    // from this URL's owner segment, and registry links derive from the
+    // package names — submitters can't point them somewhere else.
     github: z.string().url().startsWith('https://github.com/', 'github must start with https://github.com/'),
-    maintainer: z.string(),
     // Docs collection id of the detail page (e.g. 'docs/community/tools/strands-deepgram').
     // Optional: entries without one link out to their GitHub repo instead.
     docsPage: z.string().optional(),
@@ -126,6 +128,9 @@ export const catalogEntrySchema = z
     // Drives the "New" badge on the catalog card.
     addedDate: z.coerce.date(),
   })
+  // A stray key (e.g. a self-declared `maintainer:`) fails the build with a
+  // clear error instead of being silently dropped.
+  .strict()
   .superRefine((d, ctx) => {
     if (!d.languages.python && !d.languages.typescript) {
       ctx.addIssue({
@@ -133,16 +138,6 @@ export const catalogEntrySchema = z
         path: ['languages'],
         message: 'at least one language block (python or typescript) is required',
       })
-    }
-    for (const lang of ['python', 'typescript'] as const) {
-      const block = d.languages[lang]
-      if (block && (block.package === undefined) !== (block.registry === undefined)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['languages', lang],
-          message: 'package and registry must be set together (or both omitted for guide-only integrations)',
-        })
-      }
     }
   })
 export type CatalogEntryData = z.infer<typeof catalogEntrySchema>

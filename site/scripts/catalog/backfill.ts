@@ -19,17 +19,14 @@ export interface RegistryCandidate {
   name: string
   description: string
   github?: string
-  registry?: string
-  maintainer?: string
 }
 
 export interface MergedCandidate {
   name: string
   description: string
   github: string
-  maintainer: string
-  python?: { package: string; registry: string }
-  typescript?: { package: string; registry: string }
+  python?: { package: string }
+  typescript?: { package: string }
   inferredType: string
   typeUncertain: boolean
   addedDate: string
@@ -102,7 +99,6 @@ export function mergeCandidates(
         name: key.split('/').pop() || c.name,
         description: c.description,
         github: c.github,
-        maintainer: c.maintainer || repoOrg || 'unknown',
         inferredType,
         typeUncertain: inferredType === 'tool',
         addedDate: today,
@@ -114,11 +110,11 @@ export function mergeCandidates(
 
   for (const c of pypi) {
     const m = upsert(c)
-    if (m && c.registry) m.python = { package: c.name, registry: c.registry }
+    if (m) m.python = { package: c.name }
   }
   for (const c of npm) {
     const m = upsert(c)
-    if (m && c.registry) m.typescript = { package: c.name, registry: c.registry }
+    if (m) m.typescript = { package: c.name }
   }
   for (const c of github) upsert(c)
 
@@ -137,15 +133,14 @@ export function candidateToYaml(c: MergedCandidate): string {
   if (c.python) {
     lines.push('  python:')
     lines.push(`    package: ${JSON.stringify(c.python.package)}`)
-    lines.push(`    registry: ${c.python.registry}`)
   }
   if (c.typescript) {
     lines.push('  typescript:')
     lines.push(`    package: ${JSON.stringify(c.typescript.package)}`)
-    lines.push(`    registry: ${c.typescript.registry}`)
   }
+  // maintainer and registry links are derived at build time from the github
+  // owner segment and the package names, so the entry never declares them.
   lines.push(`github: ${c.github}`)
-  lines.push(`maintainer: ${JSON.stringify(c.maintainer)}`)
   lines.push(`addedDate: ${c.addedDate}`)
   return lines.join('\n') + '\n'
 }
@@ -179,8 +174,6 @@ async function discoverPypi(): Promise<RegistryCandidate[]> {
         name: info.name,
         description: info.summary || '',
         github: repoUrl,
-        registry: `https://pypi.org/project/${info.name}/`,
-        maintainer: info.author || undefined,
       })
     } catch {
       // Package metadata unavailable — skip.
@@ -201,8 +194,6 @@ async function discoverNpm(): Promise<RegistryCandidate[]> {
       name: p.name as string,
       description: (p.description as string) || '',
       github: (p.links?.repository as string | undefined)?.replace(/^git\+|\.git$/g, ''),
-      registry: `https://www.npmjs.com/package/${p.name}`,
-      maintainer: p.publisher?.username as string | undefined,
     }))
 }
 
@@ -216,7 +207,6 @@ async function discoverGithub(): Promise<RegistryCandidate[]> {
     name: r.name as string,
     description: (r.description as string) || '',
     github: r.html_url as string,
-    maintainer: r.owner?.login as string | undefined,
   }))
 }
 

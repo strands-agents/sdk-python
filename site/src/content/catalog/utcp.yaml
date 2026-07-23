@@ -4,8 +4,6 @@ integrationType: tool
 languages:
   python:
     package: strands-utcp
-    registry: https://pypi.org/project/strands-utcp/
 github: https://github.com/universal-tool-calling-protocol/python-utcp
-maintainer: universal-tool-calling-protocol
 docsPage: docs/community/tools/utcp
 addedDate: 2026-01-01

@@ -4,7 +4,5 @@ integrationType: plugin
 languages:
   typescript:
     package: "@respan/instrumentation-strands-agents"
-    registry: https://www.npmjs.com/package/@respan/instrumentation-strands-agents
 github: https://github.com/respanai/respan
-maintainer: "fran3cc"
 addedDate: 2026-07-18

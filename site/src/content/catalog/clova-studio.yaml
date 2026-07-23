@@ -4,8 +4,6 @@ integrationType: model-provider
 languages:
   python:
     package: strands-clova
-    registry: https://pypi.org/project/strands-clova/
 github: https://github.com/aidendef/strands-clova
-maintainer: aidendef
 docsPage: docs/community/model-providers/clova-studio
 addedDate: 2026-01-01

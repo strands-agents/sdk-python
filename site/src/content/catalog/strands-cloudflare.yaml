@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-cloudflare
-    registry: https://pypi.org/project/strands-cloudflare/
 github: https://github.com/mertozbas/strands-cloudflare
-maintainer: mertozbas
 addedDate: 2026-07-21

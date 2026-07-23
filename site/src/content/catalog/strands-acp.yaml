@@ -4,7 +4,5 @@ integrationType: integration
 languages:
   typescript:
     package: "@ryancormack/strands-acp"
-    registry: https://www.npmjs.com/package/@ryancormack/strands-acp
 github: https://github.com/ryancormack/strands-acp
-maintainer: "ryancormack"
 addedDate: 2026-07-18

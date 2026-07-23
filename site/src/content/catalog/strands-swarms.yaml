@@ -4,7 +4,5 @@ integrationType: agent-extension
 languages:
   python:
     package: strands-swarms
-    registry: https://pypi.org/project/strands-swarms/
 github: https://github.com/JackXu0/strands-swarms
-maintainer: JackXu0
 addedDate: 2026-07-19

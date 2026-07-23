@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-agentcore-tools
-    registry: https://pypi.org/project/strands-agentcore-tools/
 github: https://github.com/cagataycali/strands-agentcore-tools
-maintainer: cagataycali
 addedDate: 2026-07-21

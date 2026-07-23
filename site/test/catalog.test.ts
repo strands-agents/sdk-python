@@ -10,9 +10,8 @@ function entry(overrides: Partial<CatalogEntryData> = {}): CatalogEntryData {
     description: 'Example integration',
     integrationType: 'tool',
     sdk: 'agents',
-    languages: { python: { package: 'strands-example', registry: 'https://pypi.org/project/strands-example/' } },
+    languages: { python: { package: 'strands-example' } },
     github: 'https://github.com/example/strands-example',
-    maintainer: 'example',
     featured: false,
     badges: [],
     addedDate: new Date('2026-01-01'),
@@ -49,13 +48,13 @@ describe('toCardModel', () => {
     expect(card.external).toBe(false)
   })
 
-  it('derives language list and registry links', () => {
+  it('derives language list and registry links from package names', () => {
     const card = toCardModel(
       'strands-example',
       entry({
         languages: {
-          python: { package: 'strands-example', registry: 'https://pypi.org/project/strands-example/' },
-          typescript: { package: '@example/strands', registry: 'https://www.npmjs.com/package/@example/strands' },
+          python: { package: 'strands-example' },
+          typescript: { package: '@example/strands' },
         },
       }),
       undefined,
@@ -66,6 +65,26 @@ describe('toCardModel', () => {
       { label: 'PyPI', href: 'https://pypi.org/project/strands-example/' },
       { label: 'npm', href: 'https://www.npmjs.com/package/@example/strands' },
     ])
+  })
+
+  it('strips extras qualifiers when deriving the PyPI link', () => {
+    const card = toCardModel(
+      'temporal',
+      entry({ languages: { python: { package: 'temporalio[strands-agents]' } } }),
+      undefined,
+      BUILD_DATE
+    )
+    expect(card.registryLinks).toEqual([{ label: 'PyPI', href: 'https://pypi.org/project/temporalio/' }])
+  })
+
+  it('derives the maintainer from the github URL owner segment', () => {
+    const card = toCardModel(
+      'strands-example',
+      entry({ github: 'https://github.com/SomeOrg/strands-example' }),
+      undefined,
+      BUILD_DATE
+    )
+    expect(card.maintainer).toBe('SomeOrg')
   })
 
   it('derives the language facet without registry links for an empty language block', () => {

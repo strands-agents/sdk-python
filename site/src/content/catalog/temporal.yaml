@@ -4,9 +4,7 @@ integrationType: integration
 languages:
   python:
     package: temporalio[strands-agents]
-    registry: https://pypi.org/project/temporalio/
 github: https://github.com/temporalio/sdk-python
 docsUrl: https://docs.temporal.io/develop/python/integrations/strands-agents
-maintainer: temporalio
 featured: true
 addedDate: 2026-07-19

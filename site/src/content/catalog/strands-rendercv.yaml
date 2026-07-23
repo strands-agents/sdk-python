@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-rendercv
-    registry: https://pypi.org/project/strands-rendercv/
 github: https://github.com/cagataycali/strands-rendercv
-maintainer: cagataycali
 addedDate: 2026-07-19

@@ -4,8 +4,6 @@ integrationType: plugin
 languages:
   python:
     package: agent-control-sdk[strands-agents]
-    registry: https://pypi.org/project/agent-control-sdk/
 github: https://github.com/agentcontrol/agent-control
-maintainer: agentcontrol
 docsPage: docs/community/plugins/agent-control
 addedDate: 2026-01-01

@@ -4,8 +4,6 @@ integrationType: plugin
 languages:
   python:
     package: ddtrace
-    registry: https://pypi.org/project/ddtrace/
 github: https://github.com/DataDog/dd-trace-py
-maintainer: DataDog
 docsPage: docs/community/plugins/datadog-ai-guard
 addedDate: 2026-01-01

@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-erc8004
-    registry: https://pypi.org/project/strands-erc8004/
 github: https://github.com/cagataycali/strands-erc8004
-maintainer: cagataycali
 addedDate: 2026-07-21

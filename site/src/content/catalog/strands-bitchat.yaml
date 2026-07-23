@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-bitchat
-    registry: https://pypi.org/project/strands-bitchat/
 github: https://github.com/cagataycali/strands-bitchat
-maintainer: cagataycali
 addedDate: 2026-07-21

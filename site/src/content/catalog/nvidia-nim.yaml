@@ -5,8 +5,6 @@ featured: true
 languages:
   python:
     package: strands-nvidia-nim
-    registry: https://pypi.org/project/strands-nvidia-nim/
 github: https://github.com/thiago4go/strands-nvidia-nim
-maintainer: thiago4go
 docsPage: docs/community/model-providers/nvidia-nim
 addedDate: 2026-01-01

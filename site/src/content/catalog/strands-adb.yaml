@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-adb
-    registry: https://pypi.org/project/strands-adb/
 github: https://github.com/cagataycali/strands-adb
-maintainer: cagataycali
 addedDate: 2026-07-19

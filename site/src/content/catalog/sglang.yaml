@@ -4,8 +4,6 @@ integrationType: model-provider
 languages:
   python:
     package: strands-sglang
-    registry: https://pypi.org/project/strands-sglang/
 github: https://github.com/horizon-rl/strands-sglang
-maintainer: horizon-rl
 docsPage: docs/community/model-providers/sglang
 addedDate: 2026-01-01

@@ -6,8 +6,8 @@
 
 **Package name:**
 **Integration type:** <!-- tool | model-provider | session-manager | memory-store | integration | plugin | agent-extension | intervention -->
-**Languages published:** <!-- PyPI: <url>  /  npm: <url>  — at least one required -->
-**GitHub repo:**
+**Languages published:** <!-- Python / TypeScript — at least one required -->
+**GitHub repo:** <!-- source of truth for the maintainer shown on your card (the URL's owner/org) -->
 **What it does:** <!-- 1–2 sentences -->
 **Relationship to service:** <!-- official vendor integration / community-built -->
 **Docs link included:** <!-- docsPage (on-site page) / docsUrl (external link) / none — card will link to GitHub repo -->
@@ -15,13 +15,13 @@
 ### Submitter checklist
 
 #### Package
-- [ ] Published to PyPI and/or npm; the `registry` URLs in my entry resolve to the package
+- [ ] Published to PyPI and/or npm under the exact `package` name in my entry (registry links are derived from it)
 - [ ] GitHub repository is public and includes a license
 
 #### Entry
 - [ ] Description accurately states what the package does in one sentence
 - [ ] `integrationType` matches what the package actually is
-- [ ] All URLs are working (`github`, `registry`, and `docsUrl` if set)
+- [ ] All URLs are working (`github`, and `docsUrl` if set)
 - [ ] `addedDate` is set to today (the date I opened this PR)
 - [ ] `featured` and `badges` are left unset — those are granted by the Strands team
 

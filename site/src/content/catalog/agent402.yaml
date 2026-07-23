@@ -4,7 +4,5 @@ integrationType: integration
 languages:
   typescript:
     package: "agent402-strands"
-    registry: https://www.npmjs.com/package/agent402-strands
 github: https://github.com/MikeyPetrillo/Agent402
-maintainer: "agenttools1775"
 addedDate: 2026-07-18

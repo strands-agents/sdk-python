@@ -4,7 +4,5 @@ integrationType: plugin
 languages:
   typescript:
     package: "@traceai/strands"
-    registry: https://www.npmjs.com/package/@traceai/strands
 github: https://github.com/future-agi/traceAI
-maintainer: "future-agi"
 addedDate: 2026-07-18

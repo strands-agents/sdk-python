@@ -4,8 +4,6 @@ integrationType: plugin
 languages:
   python:
     package: strands-s3-vectors-memory
-    registry: https://pypi.org/project/strands-s3-vectors-memory/
 github: https://github.com/aws-samples/data-for-saas-patterns/tree/main/samples/multi-tenant-strands-s3-vectors-memory
-maintainer: aws-samples
 docsPage: docs/community/plugins/s3-vectors-memory
 addedDate: 2026-01-01

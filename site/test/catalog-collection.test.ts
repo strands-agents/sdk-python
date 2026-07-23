@@ -25,7 +25,6 @@ describe('catalog content collection', () => {
       integrationType: 'tool',
       languages: {},
       github: 'https://github.com/example/bad-entry',
-      maintainer: 'example',
       addedDate: '2026-07-17',
     })
     expect(result.success).toBe(false)
@@ -39,57 +38,64 @@ describe('catalog content collection', () => {
       languages: { python: {} },
       github: 'https://github.com/example/guide-entry',
       docsUrl: 'https://example.com/docs/strands',
-      maintainer: 'example',
       addedDate: '2026-07-21',
     })
     expect(result.success).toBe(true)
   })
 
-  it('rejects a language block with package but no registry, and vice versa', () => {
+  it('rejects a language block that declares a registry URL', () => {
+    // Registry links derive from the package name at build time. The block is
+    // .strict() so a submitted registry (or any stray key) fails the build
+    // loudly instead of being silently ignored.
     const base = {
-      name: 'half-entry',
-      description: 'package and registry must travel together',
+      name: 'declared-registry',
+      description: 'registry links derive from the package name',
       integrationType: 'tool',
-      github: 'https://github.com/example/half-entry',
-      maintainer: 'example',
+      github: 'https://github.com/example/declared-registry',
       addedDate: '2026-07-21',
     }
-    expect(catalogEntrySchema.safeParse({ ...base, languages: { python: { package: 'x' } } }).success).toBe(false)
     expect(
       catalogEntrySchema.safeParse({
         ...base,
-        languages: { typescript: { registry: 'https://www.npmjs.com/package/x' } },
+        languages: { python: { package: 'x', registry: 'https://pypi.org/project/x/' } },
+      }).success
+    ).toBe(false)
+    expect(
+      catalogEntrySchema.safeParse({
+        ...base,
+        languages: { typescript: { package: 'x', registry: 'https://www.npmjs.com/package/x' } },
       }).success
     ).toBe(false)
   })
 
-  it('rejects urls outside the expected hosts', () => {
+  it('rejects an entry that declares a maintainer', () => {
+    // The displayed maintainer derives from the github URL's owner segment;
+    // a self-declared maintainer field fails the build loudly.
+    const result = catalogEntrySchema.safeParse({
+      name: 'declared-maintainer',
+      description: 'maintainer derives from the github owner',
+      integrationType: 'tool',
+      languages: { python: { package: 'x' } },
+      github: 'https://github.com/example/x',
+      maintainer: 'someone-else',
+      addedDate: '2026-07-21',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects github urls outside the expected host', () => {
     const base = {
       name: 'bad-urls',
       description: 'url smuggling',
       integrationType: 'tool',
-      languages: { python: { package: 'x', registry: 'https://pypi.org/project/x/' } },
+      languages: { python: { package: 'x' } },
       github: 'https://github.com/example/x',
-      maintainer: 'example',
       addedDate: '2026-07-17',
     }
     // javascript: scheme in github
     expect(catalogEntrySchema.safeParse({ ...base, github: 'javascript:alert(1)' }).success).toBe(false)
     // https but wrong host
     expect(catalogEntrySchema.safeParse({ ...base, github: 'https://evil.example/x' }).success).toBe(false)
-    // registry on the wrong host for the language
-    expect(
-      catalogEntrySchema.safeParse({
-        ...base,
-        languages: { python: { package: 'x', registry: 'https://www.npmjs.com/package/x' } },
-      }).success
-    ).toBe(false)
-    expect(
-      catalogEntrySchema.safeParse({
-        ...base,
-        languages: { typescript: { package: 'x', registry: 'https://pypi.org/project/x/' } },
-      }).success
-    ).toBe(false)
   })
 
   it('rejects an unknown integrationType', () => {
@@ -97,9 +103,8 @@ describe('catalog content collection', () => {
       name: 'bad-type',
       description: 'bad type',
       integrationType: 'widget',
-      languages: { python: { package: 'x', registry: 'https://pypi.org/project/x/' } },
+      languages: { python: { package: 'x' } },
       github: 'https://github.com/example/x',
-      maintainer: 'example',
       addedDate: '2026-07-17',
     })
     expect(result.success).toBe(false)

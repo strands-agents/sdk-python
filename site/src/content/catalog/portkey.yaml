@@ -5,5 +5,4 @@ languages:
   python: {}
 github: https://github.com/Portkey-AI/gateway
 docsUrl: https://portkey.ai/docs/integrations/agents/strands
-maintainer: portkey-ai
 addedDate: 2026-07-21

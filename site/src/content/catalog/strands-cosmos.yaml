@@ -4,7 +4,5 @@ integrationType: model-provider
 languages:
   python:
     package: strands-cosmos
-    registry: https://pypi.org/project/strands-cosmos/
 github: https://github.com/cagataycali/strands-cosmos
-maintainer: cagataycali
 addedDate: 2026-07-19

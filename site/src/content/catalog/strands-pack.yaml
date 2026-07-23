@@ -4,7 +4,5 @@ integrationType: tool
 languages:
   python:
     package: strands-pack
-    registry: https://pypi.org/project/strands-pack/
 github: https://github.com/labeveryday/strands-pack
-maintainer: labeveryday
 addedDate: 2026-07-19

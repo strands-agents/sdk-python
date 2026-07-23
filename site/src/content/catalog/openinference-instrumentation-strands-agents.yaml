@@ -4,8 +4,6 @@ integrationType: plugin
 languages:
   python:
     package: openinference-instrumentation-strands-agents
-    registry: https://pypi.org/project/openinference-instrumentation-strands-agents/
 github: https://github.com/Arize-ai/openinference/tree/main/python/instrumentation/openinference-instrumentation-strands-agents
 docsUrl: https://arize.com/docs/ax/integrations/python-agent-frameworks/aws
-maintainer: Arize-ai
 addedDate: 2026-07-21

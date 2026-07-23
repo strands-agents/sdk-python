@@ -4,8 +4,6 @@ integrationType: intervention
 languages:
   python:
     package: strands-agt
-    registry: https://pypi.org/project/strands-agt/
 github: https://github.com/lizradway/strands-agt
-maintainer: lizradway
 docsPage: docs/community/interventions/strands-agt
 addedDate: 2026-01-01

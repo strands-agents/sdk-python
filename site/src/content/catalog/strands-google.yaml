@@ -4,8 +4,6 @@ integrationType: tool
 languages:
   python:
     package: strands-google
-    registry: https://pypi.org/project/strands-google/
 github: https://github.com/cagataycali/strands-google
-maintainer: cagataycali
 docsPage: docs/community/tools/strands-google
 addedDate: 2026-01-01

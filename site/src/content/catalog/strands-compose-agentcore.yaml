@@ -4,7 +4,5 @@ integrationType: integration
 languages:
   python:
     package: strands-compose-agentcore
-    registry: https://pypi.org/project/strands-compose-agentcore/
 github: https://github.com/strands-compose/bedrock-agentcore
-maintainer: strands-compose
 addedDate: 2026-07-19

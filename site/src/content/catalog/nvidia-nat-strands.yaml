@@ -4,8 +4,6 @@ integrationType: integration
 languages:
   python:
     package: nvidia-nat-strands
-    registry: https://pypi.org/project/nvidia-nat-strands/
 github: https://github.com/NVIDIA/NeMo-Agent-Toolkit
 docsUrl: https://docs.nvidia.com/nemo/agent-toolkit/latest/components/integrations/frameworks.html
-maintainer: NVIDIA
 addedDate: 2026-07-19

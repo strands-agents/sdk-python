@@ -4,8 +4,6 @@ integrationType: agent-extension
 languages:
   python:
     package: strands-code-agent
-    registry: https://pypi.org/project/strands-code-agent/
 github: https://github.com/aws-samples/sample-strands-code-agent
-maintainer: aws-samples
 docsPage: docs/community/agent-extensions/strands-code-agent
 addedDate: 2026-01-01

@@ -4,8 +4,6 @@ integrationType: plugin
 languages:
   python:
     package: bedrock-agentcore[strands-agents]
-    registry: https://pypi.org/project/bedrock-agentcore/
 github: https://github.com/aws/bedrock-agentcore-sdk-python
-maintainer: aws
 docsPage: docs/community/plugins/agentcore-tool-search
 addedDate: 2026-01-01

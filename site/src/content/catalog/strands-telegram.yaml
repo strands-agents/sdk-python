@@ -4,8 +4,6 @@ integrationType: tool
 languages:
   python:
     package: strands-telegram
-    registry: https://pypi.org/project/strands-telegram/
 github: https://github.com/eraykeskinmac/strands-telegram
-maintainer: eraykeskinmac
 docsPage: docs/community/tools/strands-telegram
 addedDate: 2026-01-01

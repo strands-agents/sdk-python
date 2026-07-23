@@ -5,5 +5,4 @@ languages:
   python: {}
 github: https://github.com/langfuse/langfuse
 docsUrl: https://langfuse.com/integrations/frameworks/strands-agents
-maintainer: langfuse
 addedDate: 2026-07-21

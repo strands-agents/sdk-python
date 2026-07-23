@@ -5,8 +5,6 @@ featured: true
 languages:
   python:
     package: ag-ui-strands
-    registry: https://pypi.org/project/ag-ui-strands/
 github: https://github.com/ag-ui-protocol/ag-ui
-maintainer: ag-ui-protocol
 docsPage: docs/community/integrations/ag-ui
 addedDate: 2026-01-01

@@ -4,7 +4,5 @@ integrationType: integration
 languages:
   python:
     package: strands-mcp-server
-    registry: https://pypi.org/project/strands-mcp-server/
 github: https://github.com/cagataycali/strands-mcp-server
-maintainer: cagataycali
 addedDate: 2026-07-19

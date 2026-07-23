@@ -4,7 +4,5 @@ integrationType: intervention
 languages:
   python:
     package: hiddenlayer-strands
-    registry: https://pypi.org/project/hiddenlayer-strands/
 github: https://github.com/hiddenlayerai/hiddenlayer-strands
-maintainer: hiddenlayerai
 addedDate: 2026-07-19
