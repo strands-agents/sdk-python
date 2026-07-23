@@ -45,8 +45,8 @@ This layout also unblocks rapid experimentation on context strategies, which is 
 1. **One-liner preserved**: `contextManager: "auto"` still works, same defaults. 80% of users never see the class.
 2. **No cliff**: override one axis (threshold, method, storage, content-type rules) without restating everything else.
 3. **Pluggable**: 3P compressors (Headroom, enterprise) slot in with ~15 lines. No adapter layer.
-4. **One mental model**: compression, injection, eviction, and protection are one system with strategies that fire at any point in the loop.
-5. **Recoverable**: content is stashed, not destroyed. The agent retrieves on demand. Lossy compression is a choice.
+4. **One mental model**: compression, injection, and protection are one system with declarative strategies evaluated before each model call.
+5. **Recoverable**: L1 stores every message on arrival. Offload compresses L0 but never destroys originals. The agent retrieves on demand.
 6. **Agent autonomy**: the agent pins, offloads, and searches its own context. Static rules are a safety net, not the only path.
 7. **Observable**: stream events, OTEL spans, lifecycle hooks. Operators know when compression fires and what it freed.
 8. **Session-durable**: stash content persists with the session and survives restore.
@@ -55,12 +55,14 @@ This layout also unblocks rapid experimentation on context strategies, which is 
 
 ## 2. Core Model
 
-The ContextManager operates across two layers: **L0** (the context window the model sees) and **L1** (the stash, session-scoped recoverable storage). It does two things:
+The ContextManager operates across two layers: **L0** (the context window — `agent.messages`) and **L1** (the stash — a durable message store). Every message is written to L1 immediately on arrival. L1 is the source of truth; L0 is a compressed working set derived from it.
 
-1. **Offload**: take content OUT of what the model sees (L0 → L1)
+The ContextManager does two things:
+
+1. **Offload**: compress content in L0 (the original always remains in L1)
 2. **Inject**: put content IN to what the model sees (→ L0)
 
-Both follow the same mental model: **choose a representation for content in the context window**. Offload replaces expensive representations with cheaper ones. Inject adds cheaper representations of expensive external content. The API shape is unified:
+Both follow the same mental model: **choose a representation for content in the context window**. Offload replaces expensive representations with cheaper ones (the original is never lost — it's in L1). Inject adds cheaper representations of external content. The API shape is unified:
 
 ```
 {Direction}.{representation}({target/source}, {options?})
@@ -68,22 +70,21 @@ Both follow the same mental model: **choose a representation for content in the 
 
 ### 2.1 Strategy API
 
+Strategies declare **what** to transform and **under what conditions** — never *when*. The engine evaluates all strategies once before each model call.
+
 ```typescript
-import {
-  ContextManager, Offload, Inject,
-  BeforeModelCallEvent,
-} from '@strands-agents/sdk'
+import { ContextManager, Offload, Inject } from '@strands-agents/sdk'
 
 new ContextManager({
   strategies: [
-    // Offload: replace expensive content with cheaper representations
+    // Offload: compress L0 representations (originals always in L1)
     Offload.truncate("toolResults", { previewTokens: 750 })
       .when({ threshold: 1500, skipRecent: 3 }),
     Offload.truncate(["bash", "list_files"], { previewTokens: 200 })
       .when({ threshold: 500 }),
     Offload.summarize({ ratio: 0.3 })
-      .when(BeforeModelCallEvent, { utilization: 0.85 }),
-    Offload("toolResultErrors"),                    // move entirely to L1
+      .when({ utilization: 0.85 }),
+    Offload("toolResultErrors"),                    // drop from L0 entirely (still in L1)
 
     // Inject: fires before each model call
     Inject.skeleton("stash"),                       // stash manifest as refs/metadata
@@ -168,34 +169,25 @@ See **Appendix D** for future condition fields and events that may extend inject
 
 ### 2.5 Triggers (`.when()`)
 
-**Offload** strategies use `.when(event?, conditions?)` to declare when they fire.
-
-Without an event param, a strategy evaluates on every lifecycle event and fires whenever its target matches and conditions are met. Passing an event restricts it to only that hook (e.g. `BeforeModelCallEvent` for summarization, so it doesn't fire after every tool call).
+**Offload** strategies use `.when(conditions?)` to declare *under what conditions* they fire. The engine evaluates all strategies once before each model call — there is no event param. The model is the only consumer of L0, so that's the only decision point that matters.
 
 ```typescript
-// Event implicit: tool results only arrive after tool calls
+// Only fire when a tool result exceeds 1500 tokens (skip 3 most recent)
 Offload.truncate("toolResults", { previewTokens: 750 })
   .when({ threshold: 1500, skipRecent: 3 })
 
-Offload("toolResultErrors")  // no .when() needed: fires on every tool error
+Offload("toolResultErrors")  // no .when() needed: always drop errors from L0
 
-// Event required: summarization is global, timing matters
+// Only fire when context utilization exceeds 85%
 Offload.summarize({ ratio: 0.3 })
-  .when(BeforeModelCallEvent, { utilization: 0.85 })
+  .when({ utilization: 0.85 })
 ```
 
-**Inject** strategies fire before each model call: no `.when()` needed. They are ephemeral (stripped and re-injected fresh each time).
+**Inject** strategies also fire before each model call: no `.when()` needed. They are ephemeral (stripped and re-injected fresh each time).
 
-**Lifecycle events** (from `@strands-agents/sdk`):
+**Overflow handling**: if a model call returns `ContextWindowOverflowError`, the engine re-runs all offload strategies with conditions relaxed (ignoring `utilization` and `skipRecent` thresholds) to free enough space, then retries.
 
-| Event | Fires when | Typical use |
-|-------|-----------|-------------|
-| `AfterToolCallEvent` | After each tool execution completes | Per-message offload (truncate oversized results immediately) |
-| `BeforeModelCallEvent` | Before each LLM call in the loop | Global offload (summarize when utilization is high) |
-| `AfterInvocationEvent` | At the end of each `agent.invoke()` | Post-turn cleanup offload |
-| `AfterModelCallEvent` | After model responds (internal) | Overflow handler: if `ContextWindowOverflowError`, run all offload strategies regardless of conditions |
-
-**Condition fields** (second arg to `.when()`, optional):
+**Condition fields** (arg to `.when()`, optional):
 
 | Condition | Type | Meaning |
 |-----------|------|---------|
@@ -213,65 +205,73 @@ All of these extension points (lifecycle events, strategies, representations, co
 
 When `Offload` or `Inject` is called without a representation method:
 
-- **`Offload("toolResults")`**: move entirely to L1 (stash). Nothing remains in L0.
+- **`Offload("toolResults")`**: drop from L0 entirely. Nothing remains in the context window. (The original is always in L1.)
 - **`Inject("clock")`**: inject the source as-is with no transformation.
 
 The full offload spectrum:
 
-| Call | L0 result | L1 result |
+| Call | L0 result | L1 |
 |------|-----------|-----------|
-| `Offload.truncate(target)` | Preview (head/tail) | Full original |
-| `Offload.summarize(target)` | LLM summary | Full original |
-| `Offload(target)` | Nothing | Full original |
+| `Offload.truncate(target)` | Preview (head/tail) | Full original (always) |
+| `Offload.summarize(target)` | LLM summary | Full original (always) |
+| `Offload(target)` | Nothing | Full original (always) |
 
-The content is always recoverable via the stash manifest and `get_context` (which returns bounded pages, not the full block; see §3 and §5.3).
+Since L1 writes happen on message arrival (not on offload), the original is always recoverable via the stash manifest and `get_context` (which returns bounded pages, not the full block; see §3 and §5.3).
 
 ---
 
 ## 3. The Stash (L1)
 
-A mutable, ContextManager-owned store for recoverable content. When an offload strategy fires, the ContextManager writes the original to the stash before transforming L0.
+The stash is a durable message store that the ContextManager owns. **Every message is written to L1 immediately on arrival** — not on offload. L1 is the source of truth for the full, unmodified conversation. L0 (`agent.messages`) is a compressed working set derived from it.
 
 ```
-offload fires: write original to stash, compress L0, leave preview + ref in L0
+message arrives: write to L1 immediately
+before model call: engine evaluates strategies, compresses L0, injects context
 ```
 
-The stash manifest (injected via `Inject.skeleton("stash")`) tells the agent what's available:
+The stash manifest (injected via `Inject.skeleton("stash")`) tells the agent what content exists beyond what's in L0:
 
 ```xml
 <stash count="3" budget="82%">
   <entry ref="msg-a1b2c3d4" type="tool_result" tool="read_file" tokens="2400" age="4 turns" />
   <entry ref="msg-e5f6g7h8" type="tool_result" tool="fetch" tokens="1800" age="7 turns" />
-  <entry ref="msg-i9j0k1l2" type="summary" tokens="900" age="12 turns" />
+  <entry ref="msg-i9j0k1l2" type="tool_result" tool="bash" tokens="900" age="12 turns" />
 </stash>
 ```
 
-The agent sees what's stashed and can retrieve full content on demand via `get_context` / `search_context` tools. This two-step pattern avoids speculative tool calls.
+The agent sees what's available and can retrieve full content on demand via `get_context` / `search_context` tools. This two-step pattern avoids speculative tool calls.
 
-**Key paths**:
+**Key paths** (mirrors the session snapshot layout for lifecycle cleanup, per-agent isolation, and cross-agent discoverability):
 
 | Key pattern | Contents |
 |-------------|----------|
-| `context/<sessionId>/<tracking_id>` | Full original content of an offloaded message |
-| `context/<sessionId>/_manifest` | Stash index (entry metadata, token counts, ages) |
+| `context/<sessionId>/scopes/<scope>/<scopeId>/<tracking_id>` | Full original message content |
+| `context/<sessionId>/scopes/<scope>/<scopeId>/_manifest` | Stash index (entry metadata, token counts, ages) |
 
-**Message refs** use the durable `tracking_id` UUID on each Message ([PR #2836](https://github.com/strands-agents/harness-sdk/pull/2836)). This ID survives snapshot/restore and never shifts when messages are offloaded.
+Where `<scope>` is `agent` or `multiAgent` and `<scopeId>` is the agent's ID. This gives us:
+- **Lifecycle cleanup**: deleting a session cleans up all associated L1 content
+- **Per-agent isolation**: two agents sharing storage + session don't pollute each other
+- **Cross-agent discoverability**: an orchestrator can `list("context/<sessionId>/scopes/agent/<peerId>/")` to browse a peer agent's stored content
+
+**Message refs** use the durable `tracking_id` UUID on each Message ([PR #2836](https://github.com/strands-agents/harness-sdk/pull/2836)). This ID survives snapshot/restore and never shifts when messages are compressed in L0.
 
 ### 3.1 Enabling/disabling
 
 - **Default**: enabled when any offload strategy is configured.
-- **`stash: false`**: disable (offload strategies still fire but originals are destroyed, same as today's behavior)
-- **`stash: { maxEntries: 50 }`**: enable with a cap
+- **`stash: false`**: disable (messages are not written to L1; offload strategies fire destructively, same as today's behavior). Only valid for ephemeral sessions.
+- **`stash: { maxEntries: 50 }`**: enable with a cap on manifest entries
+
+When `stash: false` is set and a session manager is configured, emit a warning: session restore will have no backing content for compressed previews.
 
 ### 3.2 Eviction (P2)
 
-The stash is not an audit log: it's mutable. Once content is removed, it's gone unless something else recorded it first.
+The stash is not an audit log: it's mutable. Once content is removed from L1, it's gone unless something else recorded it first (e.g., an OpenContext adapter emitting Snapshots).
 
-For v1, the stash grows until the session ends or storage is cleaned up externally. Eviction policies are a follow-up once we have data on real-world stash sizes. See §7 (Future Work).
+For v1, L1 grows until the session ends or storage is cleaned up externally. Eviction policies are a follow-up once we have data on real-world stash sizes. See §7 (Future Work).
 
 ### 3.3 Relationship to MemoryManager
 
-ContextManager owns L0 (context window) and L1 (stash). MemoryManager owns L2 (cross-session knowledge) and can read from the stash for extraction. They share the token budget but don't reference each other.
+ContextManager owns L0 (context window) and L1 (stash). MemoryManager owns L2 (cross-session knowledge) and can read from L1 for memory extraction. They share the token budget but don't reference each other.
 
 ---
 
@@ -296,7 +296,7 @@ agent = Agent(
     context_manager=ContextManager(
         strategies=[
             Offload.summarize(ratio=0.3, preserve_recent=10)
-                .when(BeforeModelCallEvent, utilization=0.7),
+                .when(utilization=0.7),
         ],
         stash=False,  # no stash: destructive, same as today (no storage needed)
     )
@@ -318,7 +318,7 @@ ContextManager(
         Offload.truncate("toolResults", preview_tokens=750)
             .when(threshold=1500, skip_recent=3),
         Offload.summarize(ratio=0.3)
-            .when(BeforeModelCallEvent, utilization=0.85),
+            .when(utilization=0.85),
         Inject.skeleton("stash"),
     ],
 )
@@ -353,7 +353,7 @@ agent = Agent(
 
             # Summarize conversation when utilization gets high
             Offload.summarize(ratio=0.3)
-                .when(BeforeModelCallEvent, utilization=0.8),
+                .when(utilization=0.8),
 
             # Inject stash manifest + budget so agent can self-manage
             Inject.skeleton("stash"),
@@ -544,12 +544,12 @@ This allows external plugins (logging, analytics, custom UX) to react to context
 | Item | Priority | Estimate | Depends on | Description |
 |------|----------|----------|-----------|-------------|
 | Constructor & plugin lifecycle | **P0** | 3 days | (none) | Config parsing, validation, hook registration, `InitializedEvent` wiring, `storage` resolution, `NullConversationManager` swap when `contextManager` is set, deprecation warnings for `conversationManager`/`ContextOffloader` co-use |
-| Strategy execution engine | **P0** | 1.5 weeks | Constructor | Event subscription, target matching (content types + tool name arrays + `!` exclusions), condition evaluation, multi-strategy composition on same message, idempotency |
+| Strategy execution engine | **P0** | 1.5 weeks | Constructor | BeforeModelCall evaluation pass, target matching (content types + tool name arrays + `!` exclusions), condition evaluation, multi-strategy composition on same message, idempotency, overflow retry with relaxed conditions |
 | `Offload.truncate` | **P0** | 3 days | Strategy engine | All three modes (`"head"`, `"tail"`, `"head-tail"`), per-tool targeting, preview token slicing |
 | `Offload.summarize` | **P0** | 4 days | Strategy engine | `"cache-aligned"` mode (default), custom prompt string support, wrap existing `ConversationManager` summarization in the strategy interface, expose `ratio`/`preserve_recent` params |
 | Inject system | **P1** | 4 days | Strategy engine | Middleware that strips + re-injects before each model call. Built-in sources: `Inject.skeleton("stash")`, `Inject("budget")`, `Inject("clock")`. Custom `render` function support. |
 | TokenBudget | **P1** | 2 days | Constructor | Read `model.context_window_limit` + `projected_input_tokens`, expose as typed `TokenBudget` object, wire to condition evaluation and inject render context |
-| Stash (L1) | **P1** | 1.5 weeks | Strategy engine, Inject | Write-on-offload, manifest generation, `get_context` tool (bounded retrieval with offset/limit/grep), `search_context` tool (unified L0+L1 search with query/tool/type/scope filters), in-memory fallback when no storage configured |
+| Stash (L1) | **P1** | 1.5 weeks | Strategy engine, Inject | Write-on-arrival (every message → L1 immediately), manifest generation, `get_context` tool (bounded retrieval with offset/limit/grep), `search_context` tool (unified L0+L1 search with query/tool/type/scope filters), in-memory fallback when no storage configured |
 | Agentic mode (`.as_tool()`) | **P1** | 3 days | Stash, `.as_tool()` primitive | `offload_context`, `pin_context`, `unpin_context`, `context_status` per [`.as_tool()` design](https://gist.github.com/lizradway/82dea3e7832c2d336595d77a8f9e42f1). Depends on `.as_tool()` being implemented on the Plugin interface. |
 | Mode presets | **P1** | 2 days | All above | `"auto"`, `"minimal"` resolution, storage passthrough from Agent config |
 | Telemetry & stream events | **P1** | 1 week | Strategy engine | `contextManagement` stream event (started/completed), OTEL spans per strategy execution, `ContextOffloadEvent` and `ContextInjectEvent` lifecycle events |
@@ -574,7 +574,7 @@ This allows external plugins (logging, analytics, custom UX) to react to context
 | `Offload.skeleton` | 2 weeks | Tree-sitter / parsing infra | Two modes: `"signatures"` (default, function signatures + class names + imports) and `"outline"` (structural hierarchy). Requires language-aware parsing. |
 | Additional truncation modes | 1.5 weeks | `Offload.truncate` | `"middle"` (keep center), `"regex"` (lines matching a pattern), `"semantic"` (LLM picks relevant lines) |
 | Additional conditions | 1.5 weeks | Strategy engine | `count` (max N messages of type), `cumulativeTokens` (category budget), `stale` (unreferenced for N turns), `never` (only on overflow) |
-| Additional lifecycle events | 3 days | Strategy engine | `AfterInvocationEvent` (end of turn cleanup), `MessageAddedEvent` (per-message, granular) |
+| Additional evaluation points | 3 days | Strategy engine | Post-turn evaluation (end of turn cleanup), on-eviction evaluation (when L0 eviction fires) |
 | Additional offload methods | 2 weeks | Strategy engine | `"schema-only"` (keep JSON structure, drop values), `"collapse-pairs"` (tool_use + result to one line), `"deduplicate"` (merge near-duplicates) |
 | Additional mode presets | 1 week | Strategy engine, benchmarking | `"accuracy"` (aggressive retention, high skip_recent, late summarization, stash + retrieval tools), `"cost"` (aggressive offloading, low thresholds, early summarization, no stash), `"long-running"` (tiered decay: recent intact, older summarized, oldest skeletonized), `"coding"` (head-tail truncation on tool results, preserve recent reads, evict errors; validated by ContextBench) |
 
@@ -585,6 +585,8 @@ This allows external plugins (logging, analytics, custom UX) to react to context
 
 | Item | Depends on | Description |
 |------|-----------|-------------|
+| Middleware projection | V1 strategy engine, InvokeModelStage middleware | Instead of modifying `agent.messages` directly, strategies produce an ephemeral projected view at BeforeModelCall via middleware. `agent.messages` becomes a bounded "warm cache" that eviction keeps small, and the middleware projects what the model sees from it. Same user-facing strategy API, different execution model under the hood. |
+| L0 eviction | Middleware projection | Drop permanently irrelevant content from `agent.messages` (RAM management). Since L1 has everything, this is lossless. Runs at turn boundaries or on a memory threshold. Separate concern from per-call projection. |
 | Adaptive compression | Feedback signal infrastructure | Observe agent behavior (frequent stash retrievals = too aggressive, re-asked questions = summaries too lossy) and adjust thresholds dynamically. Research territory. |
 | Multi-agent context sharing | Multi-agent primitives | Child agent sees parent's stash but has its own L0. Prevents re-exploration in delegation patterns. |
 | Context strategy routing | ModelRouter ([#3217](https://github.com/strands-agents/harness-sdk/pull/3217)), `.as_tool()` | Route to different context strategies based on **model** or **task**. Model-based: when routed to Haiku (small window), use aggressive truncation; when on Opus (large window), keep more context intact. Task-based: a coding task uses per-tool targeting (truncate bash, preserve read_file); a research task summarizes conversation but keeps all tool results. Same mechanism: a signal (current model, task label) selects which strategy set is active. Could be a `ContextRouter` or a strategy-level condition. |
@@ -610,16 +612,14 @@ const agent = new Agent({ contextManager: "auto" })
 ### Level 2: Custom strategies
 
 ```typescript
-import {
-  ContextManager, Offload, Inject, BeforeModelCallEvent,
-} from '@strands-agents/sdk'
+import { ContextManager, Offload, Inject } from '@strands-agents/sdk'
 
 const agent = new Agent({
   contextManager: new ContextManager({
     strategies: [
       Offload.truncate("toolResults", { previewTokens: 750 }),
       Offload.summarize({ ratio: 0.3 })
-        .when(BeforeModelCallEvent, { utilization: 0.85 }),
+        .when({ utilization: 0.85 }),
       Inject.skeleton("stash"),
     ],
   })
@@ -629,9 +629,7 @@ const agent = new Agent({
 ### Level 3: Full control with conditions
 
 ```typescript
-import {
-  ContextManager, Offload, Inject, BeforeModelCallEvent,
-} from '@strands-agents/sdk'
+import { ContextManager, Offload, Inject } from '@strands-agents/sdk'
 
 const agent = new Agent({
   contextManager: new ContextManager({
@@ -640,7 +638,7 @@ const agent = new Agent({
         .when({ threshold: 1500, skipRecent: 3 }),
       Offload("toolResultErrors"),
       Offload.summarize({ ratio: 0.3 })
-        .when(BeforeModelCallEvent, { utilization: 0.85 }),
+        .when({ utilization: 0.85 }),
       Inject.skeleton("stash"),
       Inject("clock"),
     ],
@@ -659,7 +657,7 @@ const agent = new Agent({
       Offload.truncate("toolResults", { previewTokens: 750 })
         .when({ threshold: 1500 }),
       HeadroomStrategy("assistantMessages", { apiKey: "..." })
-        .when(BeforeModelCallEvent, { utilization: 0.8 }),
+        .when({ utilization: 0.8 }),
       Inject.skeleton("stash"),
     ],
   })
@@ -669,7 +667,7 @@ const agent = new Agent({
 ### Level 5: Custom strategy
 
 ```typescript
-import { createOffloadStrategy, BeforeModelCallEvent } from '@strands-agents/sdk'
+import { createOffloadStrategy } from '@strands-agents/sdk'
 
 function MyCompression(target: ContentType, config: { myParam: number }): OffloadStrategy {
   return createOffloadStrategy({
@@ -684,7 +682,7 @@ const agent = new Agent({
     strategies: [
       Offload.truncate("toolResults", { previewTokens: 750 }),
       MyCompression("assistantMessages", { myParam: 42 })
-        .when(BeforeModelCallEvent, { utilization: 0.9 }),
+        .when({ utilization: 0.9 }),
       Inject.skeleton("stash"),
     ],
   })
@@ -701,7 +699,7 @@ const agent = new Agent({
         .when({ threshold: 1500, skipRecent: 3 }),
       Offload("toolResultErrors"),
       Offload.summarize({ ratio: 0.3 })
-        .when(BeforeModelCallEvent, { utilization: 0.85 }),
+        .when({ utilization: 0.85 }),
       Inject.skeleton("stash"),
       Inject("clock"),
       Inject("budget"),
@@ -715,7 +713,6 @@ const agent = new Agent({
 
 ```python
 from strands import Agent, ContextManager, Offload, Inject
-from strands.hooks import BeforeModelCallEvent
 
 # Level 1
 agent = Agent(context_manager="auto")
@@ -725,7 +722,7 @@ agent = Agent(context_manager=ContextManager(
     strategies=[
         Offload.truncate("toolResults", preview_tokens=750),
         Offload.summarize(ratio=0.3)
-            .when(BeforeModelCallEvent, utilization=0.85),
+            .when(utilization=0.85),
         Inject.skeleton("stash"),
     ],
 ))
@@ -737,7 +734,7 @@ agent = Agent(context_manager=ContextManager(
             .when(threshold=1500, skip_recent=3),
         Offload("toolResultErrors"),
         Offload.summarize(ratio=0.3)
-            .when(BeforeModelCallEvent, utilization=0.85),
+            .when(utilization=0.85),
         Inject.skeleton("stash"),
         Inject("clock"),
     ],
@@ -751,7 +748,7 @@ agent = Agent(context_manager=ContextManager(
         Offload.truncate("toolResults", preview_tokens=750)
             .when(threshold=1500),
         HeadroomStrategy("assistantMessages", api_key="...")
-            .when(BeforeModelCallEvent, utilization=0.8),
+            .when(utilization=0.8),
         Inject.skeleton("stash"),
     ],
 ))
@@ -771,7 +768,7 @@ agent = Agent(context_manager=ContextManager(
     strategies=[
         Offload.truncate("toolResults", preview_tokens=750),
         my_compression("assistantMessages", my_param=42)
-            .when(BeforeModelCallEvent, utilization=0.9),
+            .when(utilization=0.9),
         Inject.skeleton("stash"),
     ],
 ))
@@ -844,7 +841,7 @@ new Agent({ conversationManager: new SummarizingConversationManager({ summaryRat
 new Agent({
   contextManager: new ContextManager({
     strategies: [
-      Offload.summarize({ ratio: 0.3 }).when(BeforeModelCallEvent, { utilization: 0.85 }),
+      Offload.summarize({ ratio: 0.3 }).when({ utilization: 0.85 }),
     ],
   })
 })
@@ -913,12 +910,14 @@ See §7.3 for the v1→v2 deprecation plan.
 | `stale` | `number` (turns) | Fire when message hasn't been referenced by the model in N turns | High | Requires tracking which messages the model actually referenced. |
 | `never` | `boolean` | Only fire on reactive overflow (ContextWindowOverflowException) | Low | Last-resort: leave content alone unless we literally can't fit. |
 
-### Future lifecycle events
+### Future evaluation points
 
-| Event | When | Use case |
+The v1 engine evaluates all strategies once at BeforeModelCall. Future versions may add additional evaluation points:
+
+| Evaluation point | When | Use case |
 |-------|------|----------|
-| `AfterInvocationEvent` | End of user turn | Post-turn cleanup: summarize content that accumulated during a multi-tool loop |
-| `MessageAddedEvent` | Any message enters history | Very granular: fire on each message add (may be too noisy) |
+| Post-turn | End of `agent.invoke()` | Cleanup: summarize content that accumulated during a multi-tool loop, before the next user message |
+| On-eviction | When L0 eviction fires (P3 middleware) | Compress on eviction from the working set rather than on every model call |
 
 ### Future truncation modes
 
@@ -1022,20 +1021,17 @@ OffloadStrategy.summarize({ ratio: 0.3 }).for("*")
 **Pros**: Clear separation of config from target.
 **Rejected because**: Builder pattern is imperative, less serializable, more verbose than the final design.
 
-### 6. Chosen: `Offload.{representation}` / `Inject.{representation}` + `.when(LifecycleEvent)`
+### 6. Chosen: `Offload.{representation}` / `Inject.{representation}` + `.when(conditions)`
 
 ```typescript
-import {
-  ContextManager, Offload, Inject,
-  BeforeModelCallEvent,
-} from '@strands-agents/sdk'
+import { ContextManager, Offload, Inject } from '@strands-agents/sdk'
 
 new ContextManager({
   strategies: [
     Offload.truncate("toolResults", { previewTokens: 750 })
       .when({ threshold: 1500, skipRecent: 3 }),
     Offload.summarize({ ratio: 0.3 })
-      .when(BeforeModelCallEvent, { utilization: 0.85 }),
+      .when({ utilization: 0.85 }),
     Offload("toolResultErrors"),
     Inject.skeleton("stash"),
     Inject("clock"),
@@ -1045,10 +1041,9 @@ new ContextManager({
 ```
 
 **Why this won**:
-- Unified mental model: `{Direction}.{representation}({target/source}, {options?})`, offload adds `.when(Event, {conditions?})` for trigger control
-- Clean separation: method config (HOW to transform) vs trigger config (WHEN to fire), inject is simpler (always fires before model call)
-- `.when()` is optional for tool-result targets (timing is implicit), required only when timing is a design choice (e.g., summarize)
-- Uses real SDK lifecycle events (not magic strings), full type safety and autocomplete
+- Unified mental model: `{Direction}.{representation}({target/source}, {options?})`, offload adds `.when({conditions?})` for conditional firing
+- Clean separation: method config (HOW to transform) vs conditions (UNDER WHAT CONDITIONS to fire). No timing decision — engine always evaluates at BeforeModelCall.
+- `.when()` is optional: omit it and the strategy fires unconditionally on matching targets
 - Bare calls handle trivial cases without forcing a meaningless method name
 - Short (`Offload`/`Inject` not `OffloadStrategy`/`InjectStrategy`)
 - Representation is the verb: same vocabulary in both directions (truncate, summarize, skeleton)
@@ -1069,12 +1064,11 @@ type Strategy = OffloadStrategy | InjectStrategy
 
 interface OffloadStrategy {
   direction: "offload"
-  representation: "truncate" | "summarize" | "skeleton" | "full"  // "full" = bare Offload(), move entirely to L1
+  representation: string                  // built-in: "truncate", "summarize", "skeleton", "full"; 3P adds their own (e.g., "headroom")
   target?: OffloadTarget                  // omit = fallback for all remaining
   options: OffloadMethodOptions
-  trigger: TriggerConfig
-  when(event?: HookableEventConstructor, conditions?: OffloadConditions): OffloadStrategy
-  when(conditions?: OffloadConditions): OffloadStrategy  // conditions only: for tool-result targets where timing is implicit
+  conditions?: OffloadConditions
+  when(conditions?: OffloadConditions): OffloadStrategy
 }
 
 interface InjectStrategy {
@@ -1082,12 +1076,7 @@ interface InjectStrategy {
   representation: "skeleton" | "raw"
   source: InjectSource
   options: InjectMethodOptions
-  // Always fires on BeforeModelCallEvent: no .when() needed
-}
-
-interface TriggerConfig {
-  event?: HookableEventConstructor      // e.g., BeforeModelCallEvent (omit for tool-result targets)
-  conditions?: OffloadConditions
+  // Always fires before each model call: no .when() needed
 }
 ```
 
@@ -1099,7 +1088,7 @@ Offload.truncate(target?: OffloadTarget, options?: OffloadTruncateOptions): Offl
 Offload.summarize(target?: OffloadTarget, options?: OffloadSummarizeOptions): OffloadStrategy
 Offload.skeleton(target?: OffloadTarget, options?: OffloadSkeletonOptions): OffloadStrategy
 
-// Bare call: move entirely to L1 (no L0 representation)
+// Bare call: drop from L0 entirely (original always in L1)
 Offload(target?: OffloadTarget): OffloadStrategy
 ```
 
@@ -1192,13 +1181,12 @@ export function HeadroomStrategy(
     representation: "headroom",
     target,
     compress: (messages, budget) => client.compress(messages, { targetTokens: budget.remaining }),
-    defaultEvent: BeforeModelCallEvent,
   })
 }
 
 // Usage: .when() still works on 3P strategies
 HeadroomStrategy("assistantMessages", { apiKey: "..." })
-  .when(BeforeModelCallEvent, { utilization: 0.8 })
+  .when({ utilization: 0.8 })
 
 HeadroomStrategy(["assistantMessages", "toolResults"], { apiKey: "..." })
 ```
@@ -1356,7 +1344,7 @@ The ContextManager is designed so third parties can plug in at two points: **off
 
 ```typescript
 // Headroom example (~15 lines)
-import { createOffloadStrategy, BeforeModelCallEvent } from '@strands-agents/sdk'
+import { createOffloadStrategy } from '@strands-agents/sdk'
 
 export function HeadroomStrategy(target, config) {
   const client = new HeadroomClient(config)
@@ -1364,13 +1352,12 @@ export function HeadroomStrategy(target, config) {
     representation: "headroom",
     target,
     compress: (messages, budget) => client.compress(messages, { targetTokens: budget.remaining }),
-    defaultEvent: BeforeModelCallEvent,
   })
 }
 
 // Usage
 HeadroomStrategy("assistantMessages", { apiKey: "..." })
-  .when(BeforeModelCallEvent, { utilization: 0.8 })
+  .when({ utilization: 0.8 })
 ```
 
 ### Inject integrations
