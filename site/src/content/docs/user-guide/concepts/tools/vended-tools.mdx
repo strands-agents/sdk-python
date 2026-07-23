@@ -10,6 +10,7 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-py/src/strands/vended_tools/http_request/http_request.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -31,7 +32,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | Tool | Description | Supported in |
 |------|-------------|--------------|
 | [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 
@@ -76,20 +77,53 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 Lets your agent call external APIs and fetch web content. Supports all HTTP methods, custom headers, and request bodies. Default timeout is 30 seconds.
 
-_Supported in: Node.js 20+, modern browsers._
+_Supported in: Python; Node.js 20+, modern browsers (TypeScript)._
+
+The Python tool ships with a strict default posture that rejects non-public destinations (loopback, RFC1918, link-local, multicast, reserved, and known cloud-metadata endpoints), refuses non-http and non-https schemes, caps redirect chains, response bodies, and response headers, and rejects model-supplied Authorization, Cookie, and Proxy-Authorization headers unless the tool operator has opted the target host in. Redirects are re-validated at every hop and cross-origin hops strip credentials. Use the make_http_request factory to relax individual controls when the deployment requires it.
 
 :::caution[Security Warning]
-This tool makes HTTP requests to arbitrary URLs without restrictions on destination. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
+Even with the default posture, this tool can call any public URL. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:http_request_import"
 
 --8<-- "user-guide/concepts/tools/vended-tools.ts:http_request_example"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md)
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import http_request
+
+agent = Agent(tools=[http_request])
+agent("Get data from https://api.example.com/data")
+```
+
+Custom posture:
+
+```python
+from strands import Agent
+from strands.vended_tools import make_http_request
+
+tool = make_http_request(
+    allow_private_hosts=["metrics.internal.example.com"],
+    allow_auth_for_hosts=["api.example.com"],
+)
+agent = Agent(tools=[tool])
+```
+
+</Tab>
+</Tabs>
+
+📖 Full API Reference: [TypeScript](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md) · [Python](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/http_request/README.md)
 
 ---
 
