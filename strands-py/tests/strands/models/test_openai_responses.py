@@ -1291,6 +1291,39 @@ async def test_structured_output_context_overflow_exception(openai_client, model
 
 
 @pytest.mark.asyncio
+async def test_structured_output_context_overflow_message(openai_client, model, messages, test_output_model_cls):
+    message = "prompt tokens exceed customer model maximum"
+    mock_error = openai.APIError(
+        message=message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": message}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_message(openai_client, model, messages, test_output_model_cls):
+    mock_error = openai.APIError(
+        message="Too many requests from provider",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Too many requests from provider"}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="Too many requests") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
 async def test_structured_output_rate_limit_as_throttle(openai_client, model, messages, test_output_model_cls):
     """Test that structured output handles rate limit errors properly."""
     mock_error = openai.RateLimitError(
