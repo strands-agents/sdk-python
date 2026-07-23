@@ -292,24 +292,27 @@ export class ContextOffloader implements Plugin {
   }
 
   private _storageForAgent(agent: LocalAgent): Storage | OffloaderStorage {
-    if (!this._sandboxableStorage && !(this._storage instanceof FileStorage)) return this._storage
-
     let storage = this._storageByAgent.get(agent)
-    if (!storage) {
-      if (this._sandboxableStorage) {
-        storage = this._sandboxableStorage.forSandbox(agent.sandbox)
-      } else {
-        storage = (this._storage as FileStorage).forSandbox(agent.sandbox)
-      }
-      this._storageByAgent.set(agent, storage)
+    if (storage) return storage
+
+    if (this._sandboxableStorage) {
+      storage = this._sandboxableStorage.forSandbox(agent.sandbox)
+    } else if (this._storage instanceof FileStorage) {
+      storage = (this._storage as FileStorage).forSandbox(agent.sandbox)
+    } else if (!isOffloaderStorage(this._storage)) {
+      storage = namespace(this._storage, `${agent.sessionId}/scopes/agent/${agent.id}`)
+    } else {
+      return this._storage
     }
+
+    this._storageByAgent.set(agent, storage)
     return storage
   }
 
   private _storageForToolContext(context?: ToolContext): Storage | OffloaderStorage {
-    if (!this._sandboxableStorage && !(this._storage instanceof FileStorage)) return this._storage
+    if (isOffloaderStorage(this._storage) && !(this._storage instanceof FileStorage)) return this._storage
     if (!context) {
-      throw new Error('File-based storage retrieval requires a tool execution context.')
+      throw new Error('Storage retrieval requires a tool execution context.')
     }
     return this._storageForAgent(context.agent)
   }

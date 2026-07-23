@@ -65,6 +65,8 @@ export type MockAgent = Agent & { trackedHooks: TrackedHook[] }
 export function createMockAgent(data?: MockAgentData): MockAgent {
   const trackedHooks: TrackedHook[] = []
   return {
+    id: 'agent',
+    sessionId: 'default-session',
     messages: data?.messages ?? [],
     appState: new StateStore(data?.appState ?? {}),
     modelState: new StateStore(),

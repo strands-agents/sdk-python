@@ -761,13 +761,13 @@ describe('ContextOffloader', () => {
 
       // Only one key per block — no sidecar .contenttype key
       const keys = await unifiedStorage.list('')
-      expect(keys).toEqual(['offloader/tool-123_0'])
+      expect(keys).toEqual(['offloader/default-session/scopes/agent/agent/tool-123_0'])
 
       const tools = plugin.getTools()
       const retrievalTool = tools[0]!
-      const result = await (retrievalTool as unknown as { invoke(input: unknown): Promise<unknown> }).invoke({
-        reference: 'tool-123_0',
-      })
+      const result = await (
+        retrievalTool as unknown as { invoke(input: unknown, context: unknown): Promise<unknown> }
+      ).invoke({ reference: 'tool-123_0' }, { agent, toolUse: {}, invocationState: {} })
       expect(result).toBe('hello world '.repeat(100))
     })
   })
@@ -789,7 +789,7 @@ describe('ContextOffloader', () => {
       await invokeTrackedHook(agent, event)
 
       const keys = await unifiedStorage.list('')
-      expect(keys).toEqual(['offloader/tool-123_0'])
+      expect(keys).toEqual(['offloader/default-session/scopes/agent/agent/tool-123_0'])
     })
 
     it('does not double-namespace an already-namespaced Storage', async () => {
@@ -810,7 +810,7 @@ describe('ContextOffloader', () => {
       await invokeTrackedHook(agent, event)
 
       const keys = await unifiedStorage.list('')
-      expect(keys).toEqual(['custom/tool-123_0'])
+      expect(keys).toEqual(['custom/default-session/scopes/agent/agent/tool-123_0'])
     })
 
     it('does not namespace legacy OffloaderStorage', async () => {

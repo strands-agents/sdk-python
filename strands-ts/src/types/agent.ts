@@ -256,6 +256,11 @@ export interface LocalAgent {
   readonly id: string
 
   /**
+   * The session identifier used for scoping storage paths.
+   */
+  readonly sessionId: string
+
+  /**
    * App state storage accessible to tools and application logic.
    */
   appState: StateStore
