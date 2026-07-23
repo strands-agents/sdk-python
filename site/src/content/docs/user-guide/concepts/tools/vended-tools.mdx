@@ -10,6 +10,8 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/file-read/file-read.ts
+  - path: strands-py/src/strands/vended_tools/file_read/file_read.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -34,6 +36,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [File Read](#file-read) | Read a file or list a directory (read-only) | Python, TypeScript (Node.js) |
 
 ### File Editor
 
@@ -160,6 +163,43 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### File Read
+
+A read-only view of the filesystem. The agent can view a file (optionally with a line range) or list a directory, but cannot create, edit, or delete anything. The tool is a thin shim over the file editor's view command with a two-parameter surface, so a read-only agent's tool schema does not include any write-side parameters.
+
+_Supported in: Node.js (TypeScript); all platforms (Python)._
+
+All validation is delegated to the file editor: paths must be absolute, directory traversal is rejected on the raw input, files above the configured size limit are rejected, and all input and output goes through the agent's sandbox.
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:file_read_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:file_read_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import file_read
+
+agent = Agent(tools=[file_read])
+agent("Read the first twenty lines of /tmp/config.json")
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/file-read/README.md)
 
 ---
 

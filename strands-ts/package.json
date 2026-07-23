@@ -60,6 +60,10 @@
       "types": "./dist/src/vended-tools/file-editor/index.d.ts",
       "default": "./dist/src/vended-tools/file-editor/index.js"
     },
+    "./vended-tools/file-read": {
+      "types": "./dist/src/vended-tools/file-read/index.d.ts",
+      "default": "./dist/src/vended-tools/file-read/index.js"
+    },
     "./vended-tools/http-request": {
       "types": "./dist/src/vended-tools/http-request/index.d.ts",
       "default": "./dist/src/vended-tools/http-request/index.js"

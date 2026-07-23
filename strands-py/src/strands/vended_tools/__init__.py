@@ -1,10 +1,11 @@
 """Built-in tools for executing commands and editing files.
 
 The :data:`bash` tool runs a
-persistent shell on the host; the :func:`make_bash` and :func:`make_file_editor`
-factories produce sandbox-routed tools that either bind to a
-:class:`~strands.sandbox.base.Sandbox` at creation (as the built-in Docker/SSH
-sandboxes do when vending tools) or read the sandbox from the agent at call time.
+persistent shell on the host; the :func:`make_bash`, :func:`make_file_editor`,
+and :func:`make_file_read` factories produce sandbox-routed tools that either
+bind to a :class:`~strands.sandbox.base.Sandbox` at creation (as the built-in
+Docker/SSH sandboxes do when vending tools) or read the sandbox from the agent
+at call time.
 
 Example Usage:
     ```python
@@ -17,10 +18,13 @@ Example Usage:
 
 from .bash import bash, make_bash
 from .file_editor import file_editor, make_file_editor
+from .file_read import file_read, make_file_read
 
 __all__ = [
     "bash",
     "file_editor",
+    "file_read",
     "make_bash",
     "make_file_editor",
+    "make_file_read",
 ]
