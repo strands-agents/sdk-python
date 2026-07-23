@@ -70,6 +70,10 @@ export class McpTool extends Tool {
         toolUseId,
         status: rawResult.isError ? 'error' : 'success',
         content,
+        // The field accepts any JSON value (MCP SEP-2106), but the current MCP SDK
+        // validates structuredContent as object-only before this mapper runs, so only
+        // objects can arrive from a real server until the SDK implements SEP-2106.
+        ...(rawResult.structuredContent !== undefined && { structuredContent: rawResult.structuredContent }),
       })
     } catch (error) {
       if (
@@ -190,9 +194,11 @@ export class McpTool extends Tool {
 
   /**
    * Type Guard: Checks if value matches the expected MCP SDK result shape.
-   * \{ content: unknown[]; isError?: boolean \}
+   * \{ content: unknown[]; structuredContent?: JSONValue; isError?: boolean \}
    */
-  private _isMcpToolResult(value: unknown): value is { content: unknown[]; isError?: boolean } {
+  private _isMcpToolResult(
+    value: unknown
+  ): value is { content: unknown[]; structuredContent?: JSONValue; isError?: boolean } {
     if (typeof value !== 'object' || value === null) {
       return false
     }
