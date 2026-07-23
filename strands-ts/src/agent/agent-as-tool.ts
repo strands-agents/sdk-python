@@ -184,10 +184,6 @@ export class AgentAsTool extends Tool {
     }
 
     this._busy = true
-    // Save and restore stopEventLoop so a child frame cannot consume or
-    // overwrite the parent's stop signal — loop-stop control is frame-owned.
-    const savedStopEventLoop = toolContext.invocationState.stopEventLoop
-    toolContext.invocationState.stopEventLoop = false
     try {
       const { input } = toolUse.input as { input: string }
 
@@ -230,7 +226,6 @@ export class AgentAsTool extends Tool {
     } catch (error) {
       return createErrorResult(error, toolUseId)
     } finally {
-      toolContext.invocationState.stopEventLoop = savedStopEventLoop
       this._busy = false
     }
   }

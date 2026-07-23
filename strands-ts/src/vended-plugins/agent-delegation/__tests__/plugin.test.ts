@@ -573,10 +573,10 @@ describe('AgentDelegation integration', () => {
     })
   })
 
-  describe('nested-shared-signal', () => {
-    it('child delegation stopEventLoop does not leak to the parent agent', async () => {
-      // Middle delegates to Leaf (sets stopEventLoop). Parent calls Middle as a
-      // non-delegation tool. Without save/restore, parent stops after one call.
+  describe('nested-delegation', () => {
+    it('child delegation does not leak to the parent agent', async () => {
+      // Middle delegates to Leaf (endTurn). Parent calls Middle as a
+      // non-delegation tool. Parent should continue to its second model call.
       const leafModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Leaf response' })
       const leafAgent = new Agent({ model: leafModel, name: 'Leaf', printer: false })
 
