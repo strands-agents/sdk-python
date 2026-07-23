@@ -15,6 +15,7 @@ _CONTEXT_WINDOW_OVERFLOW_PATTERNS = (
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
     "exceed customer model maximum",
+    "exceeds the max_model_len",
 )
 _RATE_LIMIT_PATTERNS = ("rate_limit_exceeded", "rate limit", "too many requests")
 

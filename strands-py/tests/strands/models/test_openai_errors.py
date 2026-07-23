@@ -21,6 +21,7 @@ class OpenAICompatibleError(Exception):
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
         "exceed customer model maximum",
+        "the engine prompt length exceeds the max_model_len",
     ],
 )
 def test_classify_openai_error_context_overflow_message(message):
