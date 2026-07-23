@@ -3,7 +3,7 @@ title: Storage
 description: "Choose a storage backend and pass it to plugins
   that need persistence: session managers, context offloaders,
   and memory."
-tags: [session-management, token-management]
+tags: [session-management]
 sourceLinks:
   - path: strands-py/src/strands/storage/storage.py
   - path: strands-py/src/strands/storage/in_memory_storage.py
@@ -90,8 +90,8 @@ Each key becomes a file under a base directory. Writes are atomic
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| <Syntax py="base_dir" ts="baseDir" /> | `"./.strands/"` | Root directory for stored files |
-| <Syntax py="sandbox" ts="sandbox" /> | `None`/`undefined` | Route I/O through a [Sandbox](./sandbox/index.mdx) |
+| <Syntax py="base_dir" ts="baseDir" /> | `"./.strands/"` | Root directory |
+| <Syntax py="sandbox" ts="sandbox" /> | `None`/`undefined` | Optional [Sandbox](./sandbox/index.mdx) |
 
 <Tabs>
 <Tab label="Python">
@@ -158,7 +158,7 @@ and pass your class anywhere a `Storage` is accepted. In Python,
 `Storage` is a
 [protocol](@api/python/strands.storage.storage#Storage); in
 TypeScript, implement the
-[interface](@api/typescript/Storage#Storage).
+[interface](@api/typescript/Storage).
 
 Community backends can add methods beyond the core four (e.g.
 `search` for vector similarity, or structured queries for
