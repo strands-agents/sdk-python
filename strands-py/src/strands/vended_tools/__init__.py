@@ -1,4 +1,4 @@
-"""Built-in tools for executing commands, editing files, making HTTP requests, and controlling the agent loop.
+"""Built-in tools for commands, files, HTTP, tool registry, and agent-loop control.
 
 The :data:`bash` tool runs a
 persistent shell on the host; the :func:`make_bash` and :func:`make_file_editor`
@@ -13,6 +13,9 @@ security posture (private-network denial, redirect and body-size caps,
 sensitive-header rejection); use :func:`make_http_request` to relax individual
 controls when needed.
 
+The :func:`make_tool_registry` factory produces a tool that lets the agent
+introspect and mutate its own tool registry at runtime.
+
 Example Usage:
     ```python
     from strands import Agent
@@ -26,6 +29,7 @@ from .bash import bash, make_bash
 from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .stop import make_stop, stop
+from .tool_registry import make_tool_registry
 
 __all__ = [
     "bash",
@@ -35,5 +39,6 @@ __all__ = [
     "make_file_editor",
     "make_http_request",
     "make_stop",
+    "make_tool_registry",
     "stop",
 ]

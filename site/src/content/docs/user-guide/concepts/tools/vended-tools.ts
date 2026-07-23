@@ -5,7 +5,8 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
 import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
-import { SessionManager, FileStorage } from '@strands-agents/sdk'
+import { SessionManager, FileStorage, McpClient } from '@strands-agents/sdk'
+import { makeToolRegistry } from '@strands-agents/sdk/vended-tools/tool-registry'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {
@@ -108,6 +109,18 @@ async function notebookStatePersistenceExample() {
   const restoredAgent = new Agent({ tools: [notebook], sessionManager: session })
   await restoredAgent.invoke('Read the ideas notebook')
   // --8<-- [end:notebook_state_persistence]
+}
+
+// Tool registry example
+async function toolRegistryExample() {
+  // --8<-- [start:tool_registry_example]
+  const weather = new McpClient({ url: 'https://weather.example.com/mcp' })
+  await weather.connect()
+
+  const registryTool = makeToolRegistry({ mcpClients: { weather } })
+  const agent = new Agent({ tools: [registryTool] })
+  await agent.invoke('List the tools you have, then add the forecast tool from weather.')
+  // --8<-- [end:tool_registry_example]
 }
 
 // Combined tools example - development workflow
