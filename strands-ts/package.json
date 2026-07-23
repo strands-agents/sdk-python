@@ -24,6 +24,10 @@
       "node": "./dist/src/index.node.js",
       "default": "./dist/src/index.js"
     },
+    "./agentcore-harness": {
+      "types": "./dist/src/agentcore-harness/index.d.ts",
+      "default": "./dist/src/agentcore-harness/index.js"
+    },
     "./models/anthropic": {
       "types": "./dist/src/models/anthropic.d.ts",
       "default": "./dist/src/models/anthropic.js"
@@ -189,6 +193,7 @@
     "@aws-sdk/client-bedrock": "^3.1078.0",
     "@aws-sdk/client-bedrock-agent": "^3.1078.0",
     "@aws-sdk/client-bedrock-agent-runtime": "^3.1078.0",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1078.0",
     "@aws-sdk/client-s3": "^3.1078.0",
     "@aws-sdk/client-secrets-manager": "^3.1078.0",
     "@aws-sdk/client-ssm": "^3.1078.0",
@@ -246,6 +251,7 @@
     "@anthropic-ai/sdk": "^0.109.1",
     "@aws-sdk/client-bedrock-agent": "^3.1078.0",
     "@aws-sdk/client-bedrock-agent-runtime": "^3.1078.0",
+    "@aws-sdk/client-bedrock-agentcore": "^3.1078.0",
     "@aws-sdk/client-s3": "^3.1078.0",
     "@aws/bedrock-token-generator": "^1.1.0",
     "@cedar-policy/cedar-wasm": "^4.0.0",
@@ -287,6 +293,9 @@
       "optional": true
     },
     "@aws-sdk/client-bedrock-agent-runtime": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-agentcore": {
       "optional": true
     },
     "@aws-sdk/client-s3": {

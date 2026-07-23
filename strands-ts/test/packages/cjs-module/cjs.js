@@ -85,6 +85,16 @@ async function main() {
   }
   console.log('✓ Model subpath exports verified')
 
+  const { AgentCoreHarnessAgent } = await import('@strands-agents/sdk/agentcore-harness')
+  const harnessAgent = new AgentCoreHarnessAgent({
+    harnessArn: 'arn:aws:bedrock-agentcore:us-east-1:123456789012:harness/TestHarness-abcdefghij',
+    runtimeSessionId: 'session-id-padded-to-thirty-three',
+  })
+  if (typeof harnessAgent.invoke !== 'function') {
+    throw new Error('AgentCoreHarnessAgent subpath export is not constructible')
+  }
+  console.log('✓ AgentCore Harness subpath export verified')
+
   // Verify barrel exports match individual subpath exports
   if (
     barrelBash !== bash ||
