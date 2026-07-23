@@ -191,7 +191,11 @@ class MultiAgentBase(ABC):
     # Wall-clock start of the active invocation, or None when no invocation is running. Set at
     # invocation start; folded into the orchestrator's committed execution-time total exactly once
     # at finalization.
-    _invocation_start_time: float | None = None
+    _invocation_start_time: float | None
+
+    def __init__(self) -> None:
+        """Initialize base multi-agent state."""
+        self._invocation_start_time = None
 
     def _execution_time_with_active_interval(self, committed_time: int) -> int:
         """Committed execution time (ms) plus the active invocation's in-flight interval.
