@@ -74,6 +74,15 @@ _MAX_MEDIA_SIZE_LABEL = "20MB"
 _DEFAULT_MIME_TYPE = "application/octet-stream"
 _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overflow error"
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
+_CONTEXT_WINDOW_OVERFLOW_PATTERNS = ("exceed customer model maximum",)
+
+
+class _OpenAIResponsesStreamError(RuntimeError):
+    """Error reported by a terminal OpenAI Responses API stream event."""
+
+    def __init__(self, message: str | None, code: str | None) -> None:
+        super().__init__(message or "OpenAI Responses API response failed")
+        self.code = code
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -407,6 +416,17 @@ class OpenAIResponsesModel(Model):
                                         call_info["arguments"] = event.arguments
                                         break
 
+                        elif event.type == "response.failed":
+                            error = getattr(event.response, "error", None)
+                            raise _OpenAIResponsesStreamError(
+                                getattr(error, "message", None), getattr(error, "code", None)
+                            )
+
+                        elif event.type == "error":
+                            raise _OpenAIResponsesStreamError(
+                                getattr(event, "message", None), getattr(event, "code", None)
+                            )
+
                         elif event.type == "response.incomplete":
                             # Response stopped early (e.g., max tokens reached)
                             if hasattr(event, "response"):
@@ -427,13 +447,18 @@ class OpenAIResponsesModel(Model):
                             if hasattr(event, "response") and hasattr(event.response, "usage"):
                                 final_usage = event.response.usage
                             break
-            except openai.APIError as e:
-                if hasattr(e, "code") and e.code == "context_length_exceeded":
+            except (openai.APIError, _OpenAIResponsesStreamError) as e:
+                error_message = str(e)
+                error_code = getattr(e, "code", None)
+                normalized_code = error_code.lower() if isinstance(error_code, str) else ""
+                if normalized_code == "context_length_exceeded" or any(
+                    pattern in error_message.lower() for pattern in _CONTEXT_WINDOW_OVERFLOW_PATTERNS
+                ):
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
-                    raise ContextWindowOverflowException(str(e)) from e
-                if isinstance(e, openai.RateLimitError):
+                    raise ContextWindowOverflowException(error_message) from e
+                if isinstance(e, openai.RateLimitError) or normalized_code == "rate_limit_exceeded":
                     logger.warning(_RATE_LIMIT_MSG)
-                    raise ModelThrottledException(str(e)) from e
+                    raise ModelThrottledException(error_message) from e
                 raise
 
             # Close current content block if we had any
