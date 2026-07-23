@@ -151,66 +151,6 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
       print("Agent was cancelled due to timeout")
   ```
 
-  #### Per-call MCP cancellation
-
-  `MCPClient.call_tool_sync()` and `MCPClient.call_tool_async()` also accept a caller-owned
-  `threading.Event` through the keyword-only `cancel_signal` parameter. Setting the event cancels
-  only that call; the MCP session remains available for later calls. A locally observed cancellation
-  returns an error result with `cancelled=True`. This marker does not guarantee that remote execution
-  stopped, because protocol cancellation is best-effort.
-
-  Synchronous call:
-
-  ```python
-  import threading
-
-  from strands.tools.mcp import MCPClient
-
-
-  def call_tool(client: MCPClient) -> None:
-      """Cancel a tool after one second while the client context is active."""
-      cancel_signal = threading.Event()
-      timer = threading.Timer(1, cancel_signal.set)
-      timer.start()
-      try:
-          result = client.call_tool_sync(
-              tool_use_id="sync-call",
-              name="long_running_tool",
-              arguments={},
-              cancel_signal=cancel_signal,
-          )
-      finally:
-          timer.cancel()
-  ```
-
-  Asynchronous call:
-
-  ```python
-  import asyncio
-  import threading
-
-  from strands.tools.mcp import MCPClient
-
-
-  async def call_tool(client: MCPClient) -> None:
-      """Cancel a tool after one second while the client context is active."""
-      cancel_signal = threading.Event()
-      loop = asyncio.get_running_loop()
-      timer = loop.call_later(1, cancel_signal.set)
-      try:
-          result = await client.call_tool_async(
-              tool_use_id="async-call",
-              name="long_running_tool",
-              arguments={},
-              cancel_signal=cancel_signal,
-          )
-      finally:
-          timer.cancel()
-  ```
-
-  The event is not cleared by `MCPClient`; clear it before reusing it for another call. Cancelling the
-  outer asyncio task is separate from setting `cancel_signal` and raises `asyncio.CancelledError`.
-
   Cancellation differs from [interrupts](../interrupts.mdx) in that it stops the agent entirely rather than pausing for human input. Interrupts allow the agent to resume from where it left off; cancellation does not.
   </Tab>
   <Tab label="TypeScript">

@@ -1298,8 +1298,9 @@ class MCPClient(ToolProvider):
             if cancel_signal is not None:
 
                 async def wait_for_cancel() -> None:
-                    # Polling avoids blocking the loop. Running Event.wait() in an executor would
-                    # leave its worker thread blocked when this watcher is cancelled after success.
+                    # threading.Event has no async notification hook. Poll on this loop rather than
+                    # running Event.wait() in an executor: cancelling that await cannot stop a worker
+                    # already blocked in Event.wait(), so successful calls could strand worker threads.
                     while not cancel_signal.is_set():
                         await asyncio.sleep(0.05)
 
@@ -1332,7 +1333,11 @@ class MCPClient(ToolProvider):
             finally:
                 if not invoke_event.done() and not invoke_cancel_requested:
                     invoke_event.cancel()
+                    # asyncio.wait reports expiration through pending; it does not raise TimeoutError.
+                    # The original caller cancellation or exception continues after this bounded cleanup.
                     _, pending = await asyncio.wait({invoke_event}, timeout=1)
+                    if pending:
+                        self._log_debug_with_thread("MCP invocation did not finish within bounded cancellation cleanup")
                     if cancellation_state is not None:
                         await self._cancel_tool_call(cancellation_state)
                 else:

@@ -206,7 +206,7 @@ class XModel(Model):
 - **Never buffer a stream into a list before yielding.** Consume upstream async iterables with `async for` and yield as you go.
 - **Async-first with thin sync facades.** Public APIs come in async form (`invoke_async`, `stream_async`) plus thin sync wrappers (`__call__`, `invoke`) that delegate via `_async.run_async`. Never block the event loop — wrap blocking or third-party-sync calls in `asyncio.to_thread` (see `bedrock.py`).
 - **The floor is Python 3.10.** Do not use `asyncio.TaskGroup` or `asyncio.timeout` (3.11+) without a `sys.version_info` gate and a 3.10 fallback (see `multiagent/swarm.py`); for concurrent work use `asyncio.create_task` and clean up in `finally` with `task.cancel()` then `await asyncio.gather(*tasks, return_exceptions=True)`.
-- **Cancellation is cooperative.** `agent.cancel()` sets an internal `threading.Event` checked at model/tool boundaries and forwarded into in-flight MCP calls (see `agent/_concurrency.py` and `tools/mcp/mcp_agent_tool.py`). Direct MCP calls also accept a caller-owned `threading.Event` through `cancel_signal`; remote cancellation is best-effort. *(The TypeScript SDK uses `AbortSignal` instead — see its AGENTS.md.)*
+- **Cancellation is cooperative.** Long-running integrations must propagate and observe the agent cancellation signal rather than blocking the event loop. *(The TypeScript SDK uses `AbortSignal` instead — see its AGENTS.md.)*
 
 ## MCP Tasks (Experimental)
 

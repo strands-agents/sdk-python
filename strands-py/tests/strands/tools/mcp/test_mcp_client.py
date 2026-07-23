@@ -523,6 +523,56 @@ async def test_call_tool_async_caller_cancellation_cleans_up_background_call(moc
 
 
 @pytest.mark.asyncio
+async def test_call_tool_async_caller_cancellation_timeout_preserves_cancelled_error(
+    mock_transport, mock_session, caplog
+):
+    """Test bounded cleanup retains resistant work without replacing caller cancellation."""
+    call_started = threading.Event()
+    call_cancelled = threading.Event()
+    release_call = threading.Event()
+    mock_session._request_id = 0
+
+    async def resistant_call(name, arguments, read_timeout_seconds, progress_callback=None, meta=None):
+        call_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            call_cancelled.set()
+            while not release_call.is_set():
+                await asyncio.sleep(0.01)
+        return MCPCallToolResult(isError=False, content=[MCPTextContent(type="text", text="late")])
+
+    mock_session.call_tool.side_effect = resistant_call
+
+    try:
+        with MCPClient(mock_transport["transport_callable"]) as client:
+            caller = asyncio.create_task(
+                client.call_tool_async(tool_use_id="cancelled", name="slow_tool", arguments={})
+            )
+            assert await asyncio.to_thread(call_started.wait, 1)
+            caller.cancel()
+            with caplog.at_level("DEBUG", logger="strands.tools.mcp.mcp_client"):
+                with pytest.raises(asyncio.CancelledError):
+                    await caller
+                assert await asyncio.to_thread(call_cancelled.wait, 1)
+                for _ in range(150):
+                    if "did not finish within bounded cancellation cleanup" in caplog.text:
+                        break
+                    await asyncio.sleep(0.01)
+
+            assert "did not finish within bounded cancellation cleanup" in caplog.text
+            assert client._background_cleanup_tasks
+            release_call.set()
+            for _ in range(100):
+                if not client._background_cleanup_tasks:
+                    break
+                await asyncio.sleep(0.01)
+            assert not client._background_cleanup_tasks
+    finally:
+        release_call.set()
+
+
+@pytest.mark.asyncio
 async def test_call_tool_async_forwards_meta(mock_transport, mock_session):
     """Test that call_tool_async forwards meta to ClientSession.call_tool."""
     mock_content = MCPTextContent(type="text", text="Test message")
