@@ -389,11 +389,18 @@ def test_format_request_messages_replays_captured_output_items_verbatim():
 def test_format_request_messages_replays_builtin_tool_items_verbatim():
     output = [
         {
+            "id": "program_1",
+            "type": "program",
+            "call_id": "call_program_1",
+            "code": "print(1)",
+            "fingerprint": "fingerprint",
+        },
+        {
             "id": "ws_1",
             "type": "web_search_call",
             "status": "completed",
             "action": {"type": "search", "query": "weather"},
-        }
+        },
     ]
     messages = [
         {
@@ -1014,6 +1021,32 @@ async def test_stream_response_incomplete(openai_client, model, agenerator, alis
     assert len(metadata_events) == 1
     assert metadata_events[0]["metadata"]["usage"]["inputTokens"] == 10
     assert metadata_events[0]["metadata"]["usage"]["outputTokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_stream_incomplete_tool_call_preserves_max_tokens(openai_client, model, agenerator, alist):
+    events = [
+        unittest.mock.Mock(
+            type="response.output_item.added",
+            item=unittest.mock.Mock(type="function_call", call_id="call_1", name="calculator", id="item_1"),
+        ),
+        unittest.mock.Mock(
+            type="response.function_call_arguments.done", arguments='{"expression": "2+2"}', item_id="item_1"
+        ),
+        unittest.mock.Mock(
+            type="response.incomplete",
+            response=unittest.mock.Mock(
+                usage=None,
+                output=None,
+                incomplete_details=unittest.mock.Mock(reason="max_output_tokens"),
+            ),
+        ),
+    ]
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator(events))
+
+    streamed = await alist(model.stream([{"role": "user", "content": [{"text": "calculate"}]}]))
+
+    assert {"messageStop": {"stopReason": "max_tokens"}} in streamed
 
 
 @pytest.mark.asyncio

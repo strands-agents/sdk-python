@@ -68,6 +68,7 @@ const RESPONSE_OUTPUT_ITEM_TYPES = new Set([
   'custom_tool_call',
   'custom_tool_call_output',
   'compaction',
+  'additional_tools',
 ])
 
 /**
@@ -317,14 +318,39 @@ function isResponsesOutputItem(value: JSONValue): boolean {
   if (typeof item.id !== 'string' || typeof item.type !== 'string' || !RESPONSE_OUTPUT_ITEM_TYPES.has(item.type)) {
     return false
   }
-  if (item.type === 'message') {
-    return item.role === 'assistant' && typeof item.status === 'string' && Array.isArray(item.content)
+  if (
+    item.status !== undefined &&
+    !['in_progress', 'completed', 'incomplete', 'generating', 'failed'].includes(String(item.status))
+  ) {
+    return false
   }
-  if (item.type === 'reasoning') return Array.isArray(item.summary)
-  if (item.type === 'function_call') {
-    return typeof item.call_id === 'string' && typeof item.name === 'string' && typeof item.arguments === 'string'
+  if (item.type === 'message') {
+    if (item.role !== 'assistant' || !['in_progress', 'completed', 'incomplete'].includes(String(item.status)))
+      return false
+    if (!Array.isArray(item.content) || !item.content.every(isResponseOutputContent)) return false
+  } else if (item.type === 'reasoning') {
+    if (!Array.isArray(item.summary) || !item.summary.every(isReasoningSummaryPart)) return false
+  } else if (item.type === 'function_call') {
+    if (typeof item.call_id !== 'string' || typeof item.name !== 'string' || typeof item.arguments !== 'string')
+      return false
+  } else if (item.type === 'additional_tools') {
+    if (!Array.isArray(item.tools) || typeof item.role !== 'string') return false
   }
   return true
+}
+
+function isResponseOutputContent(value: JSONValue): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const part = value as Record<string, JSONValue>
+  if (part.type === 'output_text') return typeof part.text === 'string' && Array.isArray(part.annotations)
+  if (part.type === 'refusal') return typeof part.refusal === 'string'
+  return false
+}
+
+function isReasoningSummaryPart(value: JSONValue): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const part = value as Record<string, JSONValue>
+  return part.type === 'summary_text' && typeof part.text === 'string'
 }
 
 function appendAssistantTextFallback(input: ResponseInputItem[], message: Message): void {
@@ -681,7 +707,7 @@ export function finalizeResponsesStream(state: ResponsesStreamState): ModelStrea
   }
 
   let stopReason = state.stopReason
-  if (state.toolCalls.size > 0) {
+  if (state.toolCalls.size > 0 && stopReason === 'endTurn') {
     stopReason = 'toolUse'
   }
 

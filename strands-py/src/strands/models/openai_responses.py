@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from typing import Any, Protocol, TypedDict, TypeVar, cast
 
 from packaging.version import Version
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from typing_extensions import Unpack, override
 
 # Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
@@ -52,6 +52,7 @@ except Exception as e:
     ) from e
 
 import openai  # noqa: E402 - must import after version check
+from openai.types.responses.response_output_item import ResponseOutputItem  # noqa: E402
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Message, Messages, Role, SystemContentBlock  # noqa: E402
@@ -76,33 +77,7 @@ _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overfl
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
 _ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
 _OPENAI_RESPONSES_OUTPUT_FIELD = "openaiResponsesOutput"
-_RESPONSE_OUTPUT_ITEM_TYPES = {
-    "message",
-    "file_search_call",
-    "function_call",
-    "function_call_output",
-    "web_search_call",
-    "computer_call",
-    "computer_call_output",
-    "reasoning",
-    "tool_search_call",
-    "tool_search_output",
-    "image_generation_call",
-    "code_interpreter_call",
-    "local_shell_call",
-    "local_shell_call_output",
-    "shell_call",
-    "shell_call_output",
-    "apply_patch_call",
-    "apply_patch_call_output",
-    "mcp_call",
-    "mcp_list_tools",
-    "mcp_approval_request",
-    "mcp_approval_response",
-    "custom_tool_call",
-    "custom_tool_call_output",
-    "compaction",
-}
+_RESPONSE_OUTPUT_ITEM_ADAPTER: TypeAdapter[ResponseOutputItem] = TypeAdapter(ResponseOutputItem)
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -498,10 +473,10 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
             # Determine finish reason: tool_calls > max_tokens (length) > normal stop
-            if tool_calls:
-                finish_reason = "tool_calls"
-            elif stop_reason == "length":
+            if stop_reason == "length":
                 finish_reason = "length"
+            elif tool_calls:
+                finish_reason = "tool_calls"
             else:
                 finish_reason = "stop"
             additional_fields = None
@@ -754,20 +729,10 @@ class OpenAIResponsesModel(Model):
     def _is_responses_output_item(value: Any) -> bool:
         if not isinstance(value, dict):
             return False
-        item_id = value.get("id")
-        item_type = value.get("type")
-        if not isinstance(item_id, str) or item_type not in _RESPONSE_OUTPUT_ITEM_TYPES:
+        try:
+            _RESPONSE_OUTPUT_ITEM_ADAPTER.validate_python(value)
+        except ValidationError:
             return False
-        if item_type == "message":
-            return (
-                value.get("role") == "assistant"
-                and isinstance(value.get("status"), str)
-                and isinstance(value.get("content"), list)
-            )
-        if item_type == "reasoning":
-            return isinstance(value.get("summary"), list)
-        if item_type == "function_call":
-            return all(isinstance(value.get(field), str) for field in ("call_id", "name", "arguments"))
         return True
 
     @classmethod

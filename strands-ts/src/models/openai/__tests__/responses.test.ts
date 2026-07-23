@@ -481,6 +481,20 @@ describe("OpenAIModel (api: 'responses')", () => {
       warnSpy.mockRestore()
     })
 
+    it('replays additional_tools output items', async () => {
+      const output = [{ id: 'tools_1', type: 'additional_tools', role: 'assistant', tools: [] }]
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new TextBlock('answer')],
+          additionalModelResponseFields: { openaiResponsesOutput: output },
+        }),
+      ]
+
+      const req = await runOnce({}, messages)
+      expect(req.input).toEqual([...output, { role: 'assistant', content: 'answer' }])
+    })
+
     it('does not replay captured output items in stateful mode', async () => {
       const messages = [
         new Message({
@@ -738,6 +752,26 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(stop?.stopReason).toBe('maxTokens')
       const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
       expect(metadata?.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
+    })
+
+    it('preserves maxTokens when an incomplete response also contains a function call', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield {
+          type: 'response.output_item.added',
+          item: { type: 'function_call', id: 'item_1', call_id: 'call_1', name: 'calc' },
+        }
+        yield { type: 'response.function_call_arguments.done', item_id: 'item_1', arguments: '{"a":1}' }
+        yield {
+          type: 'response.incomplete',
+          response: { incomplete_details: { reason: 'max_output_tokens' } },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      const events = await collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+
+      expect((events.find((event: any) => event.type === 'modelMessageStopEvent') as any).stopReason).toBe('maxTokens')
     })
 
     it('plumbs prompt-cache reads (input_tokens_details.cached_tokens) into cacheReadInputTokens', async () => {
