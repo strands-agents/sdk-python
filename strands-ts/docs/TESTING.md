@@ -389,14 +389,9 @@ const switchToolHook = {
 
 ## Test Fixtures Reference
 
-All test fixtures are located in `src/__fixtures__/`. Use these helpers to reduce boilerplate and ensure consistency.
+Usage details and examples for the fixtures indexed in the [Quick Reference table](#test-fixtures-quick-reference) above.
 
 ### Model Fixtures (`mock-message-model.ts`, `model-test-helpers.ts`)
-
-- **`MockMessageModel`** - Content-focused model for agent loop tests. Use `addTurn()` with content blocks.
-- **`TestModelProvider`** - Low-level model for precise control over `ModelStreamEvent` sequences.
-- **`collectIterator(stream)`** - Collects all items from an async iterable into an array.
-- **`collectGenerator(generator)`** - Collects yielded items and final return value from an async generator.
 
 ```typescript
 // MockMessageModel for agent tests
@@ -410,7 +405,7 @@ const events = await collectIterator(agent.stream('Hi'))
 
 ### Hook Fixtures (`mock-hook-provider.ts`)
 
-- **`MockHookProvider`** - Records all hook invocations for verification. Pass to `Agent({ hooks: [provider] })`.
+- **`MockHookProvider`** - Pass to `Agent({ hooks: [provider] })`.
   - Use `{ includeModelEvents: false }` to exclude model streaming and result events from recordings.
   - Access `provider.invocations` to verify hook events fired.
 
@@ -425,10 +420,6 @@ expect(hookProvider.invocations[0]).toEqual(new BeforeInvocationEvent({ agent })
 ```
 
 ### Tool Fixtures (`tool-helpers.ts`)
-
-- **`createMockTool(name, resultFn)`** - Creates a mock tool with custom result behavior.
-- **`createRandomTool(name?)`** - Creates a minimal mock tool (use when tool execution doesn't matter).
-- **`createMockContext(toolUse, agentState?)`** - Creates a mock `ToolContext` for testing tool implementations directly.
 
 ```typescript
 // Mock tool with custom result
@@ -461,7 +452,7 @@ const tool = new FunctionTool({ name: 'testTool', description: '...', inputSchem
 
 ### Agent Fixtures (`agent-helpers.ts`)
 
-- **`createMockAgent(data?)`** - Creates a minimal mock Agent with messages and state. Use for testing components that need an Agent reference without full agent behavior.
+- **`createMockAgent(data?)`** - Use for testing components that need an Agent reference without full agent behavior.
 
 ```typescript
 const agent = createMockAgent({
@@ -470,7 +461,7 @@ const agent = createMockAgent({
 })
 ```
 
-- **`expectAgentResult(options)`** - Creates an asymmetric matcher that validates `AgentResult` structure and values. Reduces deeply nested assertions by providing a clean, readable matcher that combines stop reason, message text, metrics, and traces validation.
+- **`expectAgentResult(options)`** - Asymmetric matcher for `AgentResult`. Reduces deeply nested assertions by combining stop reason, message text, metrics, and traces validation in one matcher.
 
 ```typescript
 import { expectAgentResult } from '../__fixtures__/agent-helpers'
@@ -544,7 +535,7 @@ expect(result).toEqual(
 - `toolNames` (optional) - Expected tool names that were invoked
 - `usage` (optional) - Expected token usage. When omitted, validates shape with `expect.any(Number)`
 
-- **`createCancellableAgent(id, delayMs, structuredOutput?)`** - Creates a minimal `InvokableAgent` that sleeps for `delayMs` before resolving, aborting the sleep early when the invocation's `cancelSignal` fires. Use for exercising timeout and cancellation behavior in multi-agent orchestrators (swarm, graph) without standing up a full Agent.
+- **`createCancellableAgent(id, delayMs, structuredOutput?)`** - Use for exercising timeout and cancellation behavior in multi-agent orchestrators (swarm, graph) without standing up a full Agent.
 
 ```typescript
 import { createCancellableAgent } from '../__fixtures__/agent-helpers'
@@ -557,11 +548,6 @@ const handoffAgent = createCancellableAgent('a', 30, { agentId: 'b', message: 't
 ```
 
 ### Environment Fixtures (`environment.ts`)
-
-- **`isNode`** - Boolean that detects if running in Node.js environment.
-- **`isBrowser`** - Boolean that detects if running in a browser environment.
-
-Use these for conditional test execution when tests depend on environment-specific features.
 
 ```typescript
 import { isNode } from '../__fixtures__/environment'
@@ -576,14 +562,12 @@ describe.skipIf(!isNode)('Node.js specific features', () => {
 
 ### Telemetry Fixtures (`mock-span.ts`, `mock-meter.ts`)
 
-- **`MockSpan`** - Implements the OTEL `Span` interface and records all calls (`setAttribute`, `addEvent`, `setStatus`, `end`, `recordException`) for assertion. Use with `vi.mock('@opentelemetry/api')` to intercept tracer span creation.
+- **`MockSpan`** - Use with `vi.mock('@opentelemetry/api')` to intercept tracer span creation.
   - Access `mockSpan.calls.setAttribute` etc. to verify recorded calls.
   - Use `mockSpan.getAttributeValue(key)` to look up a specific attribute.
   - Use `mockSpan.getEvents(name)` to filter events by name.
-- **`eventAttr(event, key)`** - Extracts a string attribute from a mock span event's attributes map.
-- **`MockMeter`** - Implements the OTEL `Meter` interface and records all instrument data points. Use with `vi.spyOn(otelMetrics, 'getMeter').mockReturnValue(mockMeter)` to intercept meter creation.
-  - Use `mockMeter.getCounter(name)` to retrieve a counter by metric name.
-  - Use `mockMeter.getHistogram(name)` to retrieve a histogram by metric name.
+- **`MockMeter`** - Use with `vi.spyOn(otelMetrics, 'getMeter').mockReturnValue(mockMeter)` to intercept meter creation.
+  - Use `mockMeter.getCounter(name)` / `mockMeter.getHistogram(name)` to retrieve an instrument by metric name.
   - Counters and histograms expose `.dataPoints` (array of `{ value, attributes }`) and `.sum` (total of all values).
 
 ```typescript
@@ -620,7 +604,7 @@ expect(mockMeter.getCounter('gen_ai.agent.tool.call.count')?.dataPoints).toStric
 
 ### Metrics Fixtures (`metrics-helpers.ts`)
 
-- **`expectLoopMetrics({ cycleCount, toolNames?, usage? })`** - Creates an asymmetric matcher that validates `AgentMetrics` structure and values. When `usage` is provided, asserts exact token counts. When omitted, falls back to shape-level assertions with `expect.any(Number)`.
+- **`expectLoopMetrics({ cycleCount, toolNames?, usage? })`** - When `usage` is provided, asserts exact token counts. When omitted, falls back to shape-level assertions with `expect.any(Number)`.
 - **`findMetricValue(resourceMetrics, metricName)`** - Flattens the OTEL ResourceMetrics → ScopeMetrics → MetricData hierarchy and returns the value of the last data point for the matching metric name. Returns `undefined` if not found.
 
 ```typescript
@@ -723,15 +707,7 @@ Similarly, you do **not** need to call `vi.unstubAllEnvs()` in `afterEach` since
 
 ## Development Commands
 
-```bash
-npm test              # Run unit tests in Node.js
-npm run test:browser  # Run unit tests in browser (Chromium via Playwright)
-npm run test:all      # Run all tests in all environments
-npm run test:integ    # Run integration tests
-npm run test:coverage # Run tests with coverage report
-```
-
-For detailed command usage, see [CONTRIBUTING.md - Testing Instructions](../CONTRIBUTING.md#testing-instructions-and-best-practices).
+See [AGENTS.md - Development Commands](../AGENTS.md#development-commands) for the test-related npm scripts.
 
 ## Checklist Items
 

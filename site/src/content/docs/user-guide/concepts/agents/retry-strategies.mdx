@@ -149,7 +149,22 @@ For more control over retry decisions, such as validating model responses or han
 <Tabs>
 <Tab label="Python">
 
-The Python SDK's `ModelRetryStrategy` is a concrete configurable class. To customize beyond its `max_attempts` / `initial_delay` / `max_delay` parameters, use the hook approach below.
+To extend or narrow which errors are retryable, subclass `ModelRetryStrategy` and override `is_retryable`. The default implementation retries `ModelThrottledException` only; `super().is_retryable(exception)` preserves that base behavior so you can opt additional error types in (or specific ones out) without reimplementing the rest of the retry policy.
+
+```python
+from strands import Agent, ModelRetryStrategy
+from strands.types.exceptions import ModelThrottledException
+
+class MyRetryStrategy(ModelRetryStrategy):
+    def is_retryable(self, exception: Exception) -> bool:
+        return super().is_retryable(exception) or isinstance(exception, TimeoutError)
+
+agent = Agent(
+    retry_strategy=MyRetryStrategy(max_attempts=4, initial_delay=2, max_delay=60)
+)
+```
+
+A retry-strategy instance carries per-turn state and must not be shared across agents. Create a new instance per agent.
 
 </Tab>
 <Tab label="TypeScript">

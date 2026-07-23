@@ -12,8 +12,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from opentelemetry import trace as trace_api
 
+from ..._middleware.stages import ExecuteToolContext, ExecuteToolStage
 from ...experimental.hooks.events import BidiAfterToolCallEvent, BidiBeforeToolCallEvent
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
+from ...interrupt import InterruptException
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer, serialize
 from ...types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
@@ -188,6 +190,9 @@ class ToolExecutor(abc.ABC):
                 invocation_state = before_event.invocation_state
 
                 if not selected_tool:
+                    # Unknown tool: log here, but do NOT short-circuit. The middleware chain
+                    # still runs with ctx.tool = None (matching TS), so middleware can observe
+                    # or mock the call; the terminal produces the unknown-tool error result.
                     if tool_func == selected_tool:
                         logger.error(
                             "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
@@ -200,60 +205,61 @@ class ToolExecutor(abc.ABC):
                             tool_name,
                             str(tool_use.get("toolUseId")),
                         )
-
-                    result: ToolResult = {
-                        "toolUseId": str(tool_use.get("toolUseId")),
-                        "status": "error",
-                        "content": [{"text": f"Unknown tool: {tool_name}"}],
-                    }
-
-                    unknown_tool_error = Exception(f"Unknown tool: {tool_name}")
-                    after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                        agent, selected_tool, tool_use, invocation_state, result, exception=unknown_tool_error
-                    )
-                    # Check if retry requested for unknown tool error
-                    # Use getattr because BidiAfterToolCallEvent doesn't have retry attribute
-                    if getattr(after_event, "retry", False):
-                        logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
-                        continue
-                    yield ToolResultEvent(after_event.result, exception=after_event.exception)
-                    tool_results.append(after_event.result)
-                    return
                 if structured_output_context.is_enabled:
                     kwargs["structured_output_context"] = structured_output_context
 
-                exception: Exception | None = None
+                # Run tool execution through the ExecuteToolStage middleware chain. The
+                # terminal streams the tool and yields a plain ToolResultEvent as the last
+                # (result) event; middleware can transform inputs/result, short-circuit with
+                # a cached result, or gate execution behind an interrupt. A shallow copy of
+                # tool_use guards its top-level keys (e.g. name, toolUseId) from accidental
+                # in-place edits; its `input` can hold arbitrary, non-copyable objects (e.g.
+                # the agent injected on direct tool calls) so it is shared by reference.
+                # Middleware wanting an isolated tool_use should pass one via replace().
+                middleware_context = ExecuteToolContext(
+                    agent=agent,
+                    tool=selected_tool,
+                    tool_use=dict(tool_use),  # type: ignore[arg-type]
+                    invocation_state=invocation_state,
+                    _interrupt_state=agent._interrupt_state,
+                )
 
-                async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
-                    # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
-                    # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
-                    # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
-                    # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
-                    # ToolStreamEvent and the last event is just the result.
-
+                result_event: ToolResultEvent | None = None
+                async for event in agent._middleware_registry.invoke(
+                    ExecuteToolStage,
+                    middleware_context,
+                    _make_execute_tool_terminal(kwargs),
+                ):
+                    # Tool-originated interrupt: a ToolInterruptEvent yielded from tool.stream()
+                    # (including sub-agent interrupts propagated via _AgentAsTool). Distinct from
+                    # the middleware-initiated InterruptException handled below — this one rides
+                    # the event stream rather than unwinding it. Register its interrupts so
+                    # _interrupt_state.resume() can locate them by id, surface the event, and
+                    # short-circuit here: a halted tool has no result, so the after-hook and the
+                    # result handling below are intentionally skipped.
                     if isinstance(event, ToolInterruptEvent):
-                        # Register any interrupts not already in the agent's state.
-                        # For normal hooks this is a no-op (already registered by _Interruptible.interrupt()).
-                        # For sub-agent interrupts propagated via _AgentAsTool, this is where they get
-                        # registered so that _interrupt_state.resume() can locate them by ID.
                         for interrupt in event.interrupts:
                             agent._interrupt_state.interrupts.setdefault(interrupt.id, interrupt)
                         yield event
                         return
 
+                    # Capture the result but keep draining: middleware may yield trailing
+                    # events after it, and the last ToolResultEvent wins (matching the model
+                    # stage). It is re-emitted only after AfterToolCallEvent runs, since hooks
+                    # may rewrite it. All non-result events flow through as they arrive.
                     if isinstance(event, ToolResultEvent):
-                        # Preserve exception from decorated tools before extracting tool_result
-                        exception = event.exception
-                        # below the last "event" must point to the tool_result
-                        event = event.tool_result
-                        break
-
-                    if isinstance(event, ToolStreamEvent):
-                        yield event
+                        result_event = event
                     else:
-                        yield ToolStreamEvent(tool_use, event)
+                        yield event
 
-                result = cast(ToolResult, event)
+                if result_event is None:
+                    raise RuntimeError(
+                        "ExecuteToolStage middleware chain did not yield a ToolResultEvent. "
+                        "Ensure middleware forwards events from next()."
+                    )
+
+                result = result_event.tool_result
+                exception = result_event.exception
 
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, result, exception=exception
@@ -266,6 +272,17 @@ class ToolExecutor(abc.ABC):
 
                 yield ToolResultEvent(after_event.result, exception=after_event.exception)
                 tool_results.append(after_event.result)
+                return
+
+            except InterruptException as interrupt_exception:
+                # Middleware-initiated interrupt (context.interrupt() with no response yet).
+                # interrupt() is read-only, so this handler is the single place the interrupt
+                # is registered before surfacing a ToolInterruptEvent to halt the agent,
+                # matching how hook/tool interrupts are reported.
+                agent._interrupt_state.interrupts.setdefault(
+                    interrupt_exception.interrupt.id, interrupt_exception.interrupt
+                )
+                yield ToolInterruptEvent(tool_use, [interrupt_exception.interrupt])
                 return
 
             except Exception as e:
@@ -377,3 +394,106 @@ class ToolExecutor(abc.ABC):
             Events from the tool execution stream.
         """
         pass
+
+
+def _make_execute_tool_terminal(
+    extra_kwargs: dict[str, Any],
+) -> "Any":
+    """Build the terminal for the ExecuteToolStage middleware chain.
+
+    The terminal streams the resolved tool and yields a plain ``ToolResultEvent`` as its
+    last (result) event, matching the SDK-wide "last event is the result" convention.
+    Intermediate ``ToolStreamEvent``s flow through unchanged. A tool-originated
+    ``ToolInterruptEvent`` flows through as a normal event; the Output-phase adapter and
+    the executor both recognize it as a control-flow signal rather than a result.
+
+    A raw exception from ``tool.stream()`` is converted to an error ``ToolResultEvent`` here,
+    inside the terminal, so ExecuteToolStage middleware always observes a result rather than a
+    thrown exception (matching the TypeScript SDK). ``InterruptException`` is re-raised so a
+    tool-raised interrupt still halts the agent instead of becoming an error result.
+
+    All events are derived from ``ctx.tool_use`` (the possibly Input-transformed value the tool
+    actually ran with), so the streamed, wrapped, and error events agree on identity fields
+    (e.g. ``toolUseId``) even when an Input handler rewrote them.
+
+    Args:
+        extra_kwargs: Extra keyword arguments forwarded to ``tool.stream()``.
+
+    Returns:
+        An async generator function suitable as a middleware terminal.
+    """
+
+    async def terminal(ctx: ExecuteToolContext) -> AsyncGenerator[TypedEvent, None]:
+        tool_use = ctx.tool_use
+
+        # Unknown tool (not in the registry): the chain still ran so middleware could observe
+        # or mock it, but with no tool to invoke the terminal yields the error result. The
+        # message/exception mirror the pre-middleware unknown-tool contract.
+        if ctx.tool is None:
+            tool_name = tool_use["name"]
+            yield ToolResultEvent(
+                {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": f"Unknown tool: {tool_name}"}],
+                },
+                exception=Exception(f"Unknown tool: {tool_name}"),
+            )
+            return
+
+        # Mirrors ToolExecutor._stream's original dispatch: built-in AgentTools yield
+        # TypedEvents directly (ending in a ToolResultEvent); other tools yield raw values
+        # we wrap in ToolStreamEvent, and their last raw value is the result.
+        yielded_any = False
+        last_raw_event: Any = None
+        try:
+            async for event in ctx.tool.stream(tool_use, ctx.invocation_state, **extra_kwargs):
+                if isinstance(event, ToolInterruptEvent):
+                    yield event
+                    return
+
+                if isinstance(event, ToolResultEvent):
+                    # Re-emit so the exception decorated tools attach rides along as the result.
+                    yield ToolResultEvent(event.tool_result, exception=event.exception)
+                    return
+
+                if isinstance(event, ToolStreamEvent):
+                    yield event
+                else:
+                    yield ToolStreamEvent(tool_use, event)
+                yielded_any = True
+                last_raw_event = event
+        except InterruptException:
+            # A tool-raised interrupt must halt the agent — let it unwind rather than
+            # becoming an error result (matches TS re-throwing InterruptError).
+            raise
+        except Exception as error:
+            # Convert a raw tool failure to an error result inside the terminal so middleware
+            # sees a result, not an exception. The executor's after-hook still receives the
+            # exception via the ToolResultEvent below.
+            logger.exception("tool_name=<%s> | tool execution failed", tool_use["name"])
+            yield ToolResultEvent(
+                {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": f"Error: {error}"}],
+                },
+                exception=error,
+            )
+            return
+
+        # Non-SDK tool: no ToolResultEvent was emitted, so the last raw value is the result.
+        # A tool that streamed nothing at all has no result — surface an error result rather
+        # than a null one so the agent can continue (matches the pre-middleware degradation).
+        if not yielded_any:
+            yield ToolResultEvent(
+                {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": f"Tool '{tool_use['name']}' did not return a result"}],
+                }
+            )
+            return
+        yield ToolResultEvent(cast(ToolResult, last_raw_event))
+
+    return terminal
