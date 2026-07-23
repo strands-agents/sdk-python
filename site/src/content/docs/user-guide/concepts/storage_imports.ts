@@ -17,11 +17,3 @@ import { LocalFileStorage } from '@strands-agents/sdk/storage'
 // --8<-- [start:s3_imports]
 import { S3Storage } from '@strands-agents/sdk/storage'
 // --8<-- [end:s3_imports]
-
-// --8<-- [start:namespace_imports]
-import { LocalFileStorage } from '@strands-agents/sdk/storage'
-// --8<-- [end:namespace_imports]
-
-// --8<-- [start:custom_backend_imports]
-import type { Storage } from '@strands-agents/sdk/storage'
-// --8<-- [end:custom_backend_imports]
