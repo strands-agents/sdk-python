@@ -6,6 +6,14 @@
  * 2. The agent loop exits immediately after a successful delegation (via endTurn)
  * 3. The AgentResult is transformed with `stopReason: 'endTurn'` and the tool's content
  * 4. Streaming events from the delegate agent are surfaced natively in the parent stream
+ *
+ * ## Limitation
+ *
+ * The final delegation message is produced in middleware after the core loop exits.
+ * It is written to `agent.messages` and yielded to stream consumers, but does not
+ * fire `MessageAddedEvent` hooks via `invokeCallbacks`. `SessionManager` with
+ * `saveLatestOn: 'invocation'` (default) is unaffected; `saveLatestOn: 'message'`
+ * may persist the endTurn placeholder instead of the delegation content.
  */
 
 import type { Plugin } from '../../plugins/plugin.js'
@@ -15,6 +23,7 @@ import type { ContentBlock } from '../../types/messages.js'
 import {
   AfterToolCallEvent,
   AfterToolsEvent,
+  BeforeModelCallEvent,
   BeforeToolCallEvent,
   BeforeToolsEvent,
   MessageAddedEvent,
@@ -109,6 +118,12 @@ export class AgentDelegation implements Plugin {
     agent.addHook(BeforeToolCallEvent, (event) => this._onBeforeToolCall(event), { order: HookOrder.SDK_LAST })
     agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
     agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event), { order: HookOrder.SDK_LAST })
+
+    // If the loop continues past a delegation batch (e.g. a later hook cleared
+    // endTurn), the next model call invalidates the delegation flag.
+    agent.addHook(BeforeModelCallEvent, (event) => {
+      this._state.delete(event.agent)
+    })
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
