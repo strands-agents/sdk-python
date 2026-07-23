@@ -385,6 +385,16 @@ class ToolInterruptEvent(TypedEvent):
         super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
 
     @property
+    def is_interrupt(self) -> bool:
+        """True — this is a control-flow signal, never a stage result.
+
+        Satisfies the ``InterruptControlEvent`` protocol so the middleware Output-phase
+        adapter recognizes an interrupt as never-a-result (see ``_middleware/registry.py``)
+        without the stage-agnostic registry importing tool-specific event types.
+        """
+        return True
+
+    @property
     def tool_use_id(self) -> str:
         """The id of the tool interrupted."""
         return cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use"))["toolUseId"]

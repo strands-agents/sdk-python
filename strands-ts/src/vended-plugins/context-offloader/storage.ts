@@ -427,6 +427,11 @@ export class S3Storage implements Storage {
       s3Key = uriMatch[2]
     }
 
+    // Constrain references to the configured prefix, mirroring the scope store() enforces.
+    if (this._prefix && !s3Key.startsWith(this._prefix)) {
+      throw new Error(`Reference not found: ${reference}`)
+    }
+
     try {
       const response = await client.send(
         new GetObjectCommand({
