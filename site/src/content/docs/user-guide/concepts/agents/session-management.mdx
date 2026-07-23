@@ -128,18 +128,15 @@ Multi-agent session managers only track the current state of the Graph/Swarm exe
 
 ## Storage Backends
 
-Session management accepts any [Storage](../storage.mdx) backend.
-Choose one based on your durability needs:
-
-| Backend | Persistence | Best for |
-|---------|-------------|----------|
-| <Syntax py="FileSessionManager" ts="LocalFileStorage" /> | Local disk | Development, single-machine |
-| <Syntax py="S3SessionManager" ts="S3Storage" /> | Amazon S3 | Production, distributed |
-
-See [Storage](../storage.mdx) for full details on each backend.
-
 <Tabs>
 <Tab label="Python">
+
+Strands offers two built-in session managers:
+
+| Session Manager | Persistence | Best for |
+|-----------------|-------------|----------|
+| [`FileSessionManager`](@api/python/strands.session.file_session_manager#FileSessionManager) | Local disk | Development, single-machine |
+| [`S3SessionManager`](@api/python/strands.session.s3_session_manager#S3SessionManager) | Amazon S3 | Production, distributed |
 
 ```python
 from strands import Agent
@@ -164,6 +161,16 @@ agent = Agent(session_manager=session_manager)
 
 </Tab>
 <Tab label="TypeScript">
+
+Session management accepts any [Storage](../storage.mdx)
+backend. Choose one based on your durability needs:
+
+| Backend | Persistence | Best for |
+|---------|-------------|----------|
+| `LocalFileStorage` | Local disk | Development, single-machine |
+| `S3Storage` | Amazon S3 | Production, distributed |
+
+See [Storage](../storage.mdx) for full details on each backend.
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:local_file_storage"
