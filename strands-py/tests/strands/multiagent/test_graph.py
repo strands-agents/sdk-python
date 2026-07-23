@@ -2046,6 +2046,157 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "test_node" in final_state["node_results"]
 
 
+def test_graph_serialize_deserialize_serialize_preserves_cumulative_state():
+    """serialize -> deserialize -> serialize is value-preserving on the resume path.
+
+    Guarantees that a resumed graph re-serializes the same cumulative accounting (accumulated_usage /
+    accumulated_metrics / execution_count / execution_time) it was restored with, so the timeout
+    budget (should_continue) and the totals reported in GraphResult reflect the whole run.
+    """
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    payload = {
+        "type": "graph",
+        "id": "default_graph",
+        "status": "executing",
+        "completed_nodes": [],
+        "failed_nodes": [],
+        "interrupted_nodes": [],
+        "node_results": {},
+        "next_nodes_to_execute": ["test_node"],
+        "current_task": "resume me",
+        "execution_order": [],
+        "accumulated_usage": {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33},
+        "accumulated_metrics": {"latencyMs": 44},
+        "execution_count": 3,
+        "execution_time": 555,
+        "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+    }
+
+    graph.deserialize_state(payload)
+
+    # Cumulative accounting is restored, not reset to zero.
+    assert graph.state.accumulated_usage == {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33}
+    assert graph.state.accumulated_metrics == {"latencyMs": 44}
+    assert graph.state.execution_count == 3
+    assert graph.state.execution_time == 555
+
+    serialize1 = graph.serialize_state()
+    graph.deserialize_state(serialize1)
+    serialize2 = graph.serialize_state()
+
+    assert serialize2["accumulated_usage"] == serialize1["accumulated_usage"]
+    assert serialize2["accumulated_metrics"] == serialize1["accumulated_metrics"]
+    assert serialize2["execution_count"] == serialize1["execution_count"]
+    assert serialize2["execution_time"] == serialize1["execution_time"]
+
+
+@pytest.mark.asyncio
+async def test_graph_execution_time_reflects_active_invocation(mock_strands_tracer, mock_use_span):
+    """The final GraphResult includes the current invocation's interval on top of restored prior time.
+
+    execution_time is committed to state once, at finalization. GraphResult is built before that
+    commit, so it must fold in the in-flight interval itself — and finalization must not double-count.
+    """
+    # Monotonic fake clock advanced explicitly; robust to how many times time.time() is called.
+    clock = {"now": 1000.0}
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        builder = GraphBuilder()
+        builder.add_node(create_mock_agent("test_agent"), "test_node")
+        builder.set_entry_point("test_node")
+        graph = builder.build()
+
+        # Resume from a checkpoint that already accrued 555ms in a prior invocation.
+        graph.deserialize_state(
+            {
+                "type": "graph",
+                "id": "default_graph",
+                "status": "executing",
+                "completed_nodes": [],
+                "failed_nodes": [],
+                "interrupted_nodes": [],
+                "node_results": {},
+                "next_nodes_to_execute": ["test_node"],
+                "current_task": "resume me",
+                "execution_order": [],
+                "accumulated_usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                "accumulated_metrics": {"latencyMs": 0},
+                "execution_count": 0,
+                "execution_time": 555,
+                "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+            }
+        )
+
+        # The node advances the clock by 1200ms while it "runs".
+        async def advancing_stream(*args, **kwargs):
+            clock["now"] += 1.2
+            yield {"result": graph.nodes["test_node"].executor.return_value}
+
+        graph.nodes["test_node"].executor.stream_async = Mock(side_effect=advancing_stream)
+
+        result = await graph.invoke_async("resume me")
+
+    # 555 restored + 1200 in-flight = 1755ms; committed exactly once.
+    tru_result_time = result.execution_time
+    exp_result_time = 1755
+    assert tru_result_time == exp_result_time
+    assert graph.state.execution_time == exp_result_time
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_persists_in_flight_execution_time(mock_strands_tracer, mock_use_span):
+    """A mid-run per-node checkpoint persists elapsed time so a resumed run keeps its timeout budget.
+
+    Guards the crash-restart path: the AfterNodeCall session sync serializes before the invocation's
+    finally commits the interval, so serialize_state must fold the in-flight interval into
+    execution_time rather than persisting the stale pre-invocation value (which would reset the budget).
+    """
+    clock = {"now": 2000.4}
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        # Marker set at invocation start; a checkpoint taken 400ms in must reflect that interval.
+        graph._invocation_start_time = 2000.0
+        graph.state.status = Status.EXECUTING
+        checkpoint = graph.serialize_state()
+
+    assert checkpoint["execution_time"] == 400
+
+
+@pytest.mark.asyncio
+async def test_graph_tracing_setup_failure_does_not_leak_timer(mock_strands_tracer, mock_use_span):
+    """A tracing setup failure must not leave the invocation timer running.
+
+    The timer starts inside the span context so its clearing finally is guaranteed to run. If span
+    setup raises before then, no interval is started, and a later serialize_state must not accrue
+    wall time against an abandoned invocation.
+    """
+    clock = {"now": 1000.0}
+    mock_strands_tracer.start_multiagent_span.side_effect = RuntimeError("span setup failed")
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        with pytest.raises(RuntimeError, match="span setup failed"):
+            await graph.invoke_async("go")
+        clock["now"] = 1000.5  # 500ms later
+        checkpoint = graph.serialize_state()
+
+    assert graph._invocation_start_time is None
+    assert checkpoint["execution_time"] == 0
+
+
 @pytest.mark.parametrize(
     ("cancel_node", "cancel_message"),
     [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],
