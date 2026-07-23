@@ -1777,6 +1777,16 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         assert resolved["base_url"] == "https://bedrock-mantle.ap-southeast-2.api.aws/v1"
         mock_provide_token.assert_called_once_with(region="ap-southeast-2")
 
+    @pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n", "us-east-1/"])
+    def test_bedrock_mantle_config_rejects_malformed_region(self, openai_client, mock_provide_token, region):
+        """A malformed region is rejected before a token is minted or a URL is built."""
+        _ = openai_client
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": region})
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            model._resolve_client_args()
+        # Validation must precede token minting so no bearer token is ever sent toward the host.
+        mock_provide_token.assert_not_called()
+
     def test_bedrock_mantle_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):
         """provide_token failures are wrapped in a RuntimeError with actionable context."""
         _ = openai_client
