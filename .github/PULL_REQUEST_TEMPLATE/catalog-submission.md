@@ -15,6 +15,7 @@
 ### Submitter checklist
 
 #### Package
+- [ ] This is a reusable integration (library/plugin/provider), not an example agent or application built with Strands
 - [ ] Published to PyPI and/or npm under the exact `package` name in my entry (registry links are derived from it)
 - [ ] GitHub repository is public and includes a license
 
