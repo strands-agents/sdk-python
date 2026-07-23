@@ -8,10 +8,14 @@ const decoder = new TextDecoder()
 
 describe('FileMemoryStore', () => {
   let storage: InMemoryStorage
+  // A view over `storage` scoped to the same `memory/<name>/` namespace the store applies internally,
+  // so direct-storage assertions can address entries by their namespace-relative keys (e.g. `facts/...`).
+  let scoped: Storage
   let store: FileMemoryStore
 
   beforeEach(() => {
     storage = new InMemoryStorage()
+    scoped = storage.namespace('memory/test-store')
     store = new FileMemoryStore({
       name: 'test-store',
       description: 'A test file memory store',
@@ -60,12 +64,40 @@ describe('FileMemoryStore', () => {
       const minimal = new FileMemoryStore({ name: 'minimal', storage })
       expect(minimal.description).toBeUndefined()
     })
+
+    it('auto-scopes keys under a memory/<name>/ namespace on the raw backend', async () => {
+      await store.add('User prefers dark mode', { title: 'dark-mode' })
+      expect(await storage.read('memory/test-store/facts/dark-mode.md')).not.toBeNull()
+      expect(await storage.read('facts/dark-mode.md')).toBeNull()
+    })
+
+    it('scopes distinct-named stores so they never collide on a shared backend', async () => {
+      const storeA = new FileMemoryStore({ name: 'store-a', storage })
+      const storeB = new FileMemoryStore({ name: 'store-b', storage })
+      await storeA.add('User prefers dark mode', { title: 'dark-mode' })
+      await storeB.add('User prefers light mode', { title: 'dark-mode' })
+
+      expect(decoder.decode((await storage.read('memory/store-a/facts/dark-mode.md'))!)).toContain('dark mode')
+      expect(decoder.decode((await storage.read('memory/store-b/facts/dark-mode.md'))!)).toContain('light mode')
+      // Each store sees only its own entry, despite the shared backend and identical slug.
+      expect(await storeA.search('mode')).toHaveLength(1)
+      expect(await storeB.search('mode')).toHaveLength(1)
+    })
+
+    it('does not re-scope storage that is already namespaced', async () => {
+      const preScoped = storage.namespace('memory/scoped')
+      const scopedStore = new FileMemoryStore({ name: 'scoped', storage: preScoped })
+      await scopedStore.add('User prefers dark mode', { title: 'dark-mode' })
+      // A second scoping layer would land keys under `memory/scoped/memory/...`.
+      expect(await storage.read('memory/scoped/facts/dark-mode.md')).not.toBeNull()
+      expect(await storage.read('memory/scoped/memory/scoped/facts/dark-mode.md')).toBeNull()
+    })
   })
 
   describe('add', () => {
-    it('writes a markdown file to knowledge/facts/ with frontmatter', async () => {
+    it('writes a markdown file to facts/ with frontmatter', async () => {
       await store.add('User prefers dark mode', { title: 'dark-mode', description: 'Theme preference' })
-      const bytes = await storage.read('knowledge/facts/dark-mode.md')
+      const bytes = await scoped.read('facts/dark-mode.md')
       expect(bytes).not.toBeNull()
       const content = decoder.decode(bytes!)
       expect(content).toBe('---\ndescription: "Theme preference"\n---\n\nUser prefers dark mode\n')
@@ -73,23 +105,23 @@ describe('FileMemoryStore', () => {
 
     it('derives filename from content when no title provided', async () => {
       await store.add('The user likes vim keybindings')
-      const keys = await storage.list('knowledge/facts/')
+      const keys = await scoped.list('facts/')
       expect(keys).toHaveLength(1)
-      expect(keys[0]).toBe('knowledge/facts/the-user-likes-vim-keybindings.md')
+      expect(keys[0]).toBe('facts/the-user-likes-vim-keybindings.md')
     })
 
     it('derives description from first sentence when not provided', async () => {
       await store.add('Always use strict mode. It prevents bugs.')
-      const keys = await storage.list('knowledge/facts/')
-      const bytes = await storage.read(keys[0]!)
+      const keys = await scoped.list('facts/')
+      const bytes = await scoped.read(keys[0]!)
       const content = decoder.decode(bytes!)
       expect(content).toContain('description: "Always use strict mode"')
     })
 
     it('splits on newline for description derivation', async () => {
       await store.add('First line\nSecond line\nThird line')
-      const keys = await storage.list('knowledge/facts/')
-      const bytes = await storage.read(keys[0]!)
+      const keys = await scoped.list('facts/')
+      const bytes = await scoped.read(keys[0]!)
       const content = decoder.decode(bytes!)
       expect(content).toContain('description: "First line"')
     })
@@ -97,8 +129,8 @@ describe('FileMemoryStore', () => {
     it('truncates derived description at 120 characters', async () => {
       const longSentence = 'a'.repeat(200)
       await store.add(longSentence)
-      const keys = await storage.list('knowledge/facts/')
-      const bytes = await storage.read(keys[0]!)
+      const keys = await scoped.list('facts/')
+      const bytes = await scoped.read(keys[0]!)
       const content = decoder.decode(bytes!)
       const descMatch = content.match(/description: "(.+?)"/)
       expect(descMatch![1]!.length).toBeLessThanOrEqual(120)
@@ -108,14 +140,14 @@ describe('FileMemoryStore', () => {
       const longContent =
         'this is a very long sentence that should be truncated when used as a filename slug for storage'
       await store.add(longContent)
-      const keys = await storage.list('knowledge/facts/')
-      const slug = keys[0]!.replace('knowledge/facts/', '').replace('.md', '')
+      const keys = await scoped.list('facts/')
+      const slug = keys[0]!.replace('facts/', '').replace('.md', '')
       expect(slug.length).toBeLessThanOrEqual(50)
     })
 
     it('escapes double quotes in description frontmatter', async () => {
       await store.add('Use "strict" mode always', { title: 'quotes', description: 'Prefers "strict" mode' })
-      const bytes = await storage.read('knowledge/facts/quotes.md')
+      const bytes = await scoped.read('facts/quotes.md')
       const content = decoder.decode(bytes!)
       expect(content).toContain('description: "Prefers \\"strict\\" mode"')
     })
@@ -144,41 +176,32 @@ describe('FileMemoryStore', () => {
 
     it('writes to custom path when metadata.path is provided', async () => {
       await store.add('Check CloudWatch logs first', { path: 'operations/debugging', description: 'Debugging runbook' })
-      const bytes = await storage.read('knowledge/operations/debugging.md')
+      const bytes = await scoped.read('operations/debugging.md')
       expect(bytes).not.toBeNull()
       expect(decoder.decode(bytes!)).toContain('Check CloudWatch logs first')
     })
 
-    it('accepts custom path with knowledge/ prefix already included', async () => {
-      await store.add('Code review patterns', {
-        path: 'knowledge/operations/code-review.md',
-        description: 'CR patterns',
-      })
-      const bytes = await storage.read('knowledge/operations/code-review.md')
-      expect(bytes).not.toBeNull()
-    })
-
     it('appends .md extension to custom path if missing', async () => {
       await store.add('Deploy steps', { path: 'operations/deploy', description: 'Deploy process' })
-      const bytes = await storage.read('knowledge/operations/deploy.md')
+      const bytes = await scoped.read('operations/deploy.md')
       expect(bytes).not.toBeNull()
     })
 
     it('does not double-append .md if already present', async () => {
       await store.add('Steps', { path: 'operations/deploy.md', description: 'Deploy' })
-      const keys = await storage.list('knowledge/')
-      expect(keys).not.toContain('knowledge/operations/deploy.md.md')
-      expect(keys).toContain('knowledge/operations/deploy.md')
+      const keys = await scoped.list('')
+      expect(keys).not.toContain('operations/deploy.md.md')
+      expect(keys).toContain('operations/deploy.md')
     })
 
     it('does not overwrite an existing entry when slugs collide', async () => {
       await store.add('Python is great')
       await store.add('Python is great. But has a GIL.')
-      const keys = await storage.list('knowledge/facts/')
+      const keys = await scoped.list('facts/')
       expect(keys).toHaveLength(2)
-      expect(keys).toContain('knowledge/facts/python-is-great.md')
-      expect(keys).toContain('knowledge/facts/python-is-great-1.md')
-      const first = decoder.decode((await storage.read('knowledge/facts/python-is-great.md'))!)
+      expect(keys).toContain('facts/python-is-great.md')
+      expect(keys).toContain('facts/python-is-great-1.md')
+      const first = decoder.decode((await scoped.read('facts/python-is-great.md'))!)
       expect(first).toContain('Python is great')
       expect(first).not.toContain('GIL')
     })
@@ -204,52 +227,52 @@ describe('FileMemoryStore', () => {
           return [...files.keys()].filter((k) => k.startsWith(prefix)).sort()
         },
       }
-      files.set('knowledge/facts/Topic.md', encoder.encode('---\ndescription: "x"\n---\n\npreexisting fact'))
+      files.set('memory/case-store/facts/Topic.md', encoder.encode('---\ndescription: "x"\n---\n\npreexisting fact'))
       const caseStore = new FileMemoryStore({ name: 'case-store', storage: caseInsensitiveStorage })
 
       await caseStore.add('New fact', { title: 'topic' })
 
       expect(files.size).toBe(2)
-      expect(decoder.decode(files.get('knowledge/facts/Topic.md')!)).toContain('preexisting fact')
-      expect(decoder.decode(files.get('knowledge/facts/topic-1.md')!)).toContain('New fact')
+      expect(decoder.decode(files.get('memory/case-store/facts/Topic.md')!)).toContain('preexisting fact')
+      expect(decoder.decode(files.get('memory/case-store/facts/topic-1.md')!)).toContain('New fact')
     })
 
     it('uses Date.now fallback when content produces empty slug', async () => {
       await store.add('!!!???')
-      const keys = await storage.list('knowledge/facts/')
+      const keys = await scoped.list('facts/')
       expect(keys).toHaveLength(1)
-      expect(keys[0]).toMatch(/knowledge\/facts\/entry-\d+\.md$/)
+      expect(keys[0]).toMatch(/facts\/entry-\d+\.md$/)
     })
 
     it('slugifies special characters out of the filename', async () => {
       await store.add("User's #1 testing rule!", { title: "User's #1 testing rule!" })
-      const keys = await storage.list('knowledge/facts/')
-      expect(keys[0]).toBe('knowledge/facts/users-1-testing-rule.md')
+      const keys = await scoped.list('facts/')
+      expect(keys[0]).toBe('facts/users-1-testing-rule.md')
     })
 
     it('returns the key for a default facts/ path', async () => {
       const key = await store.add('User prefers dark mode', { title: 'dark-mode' })
-      expect(key).toBe('knowledge/facts/dark-mode.md')
+      expect(key).toBe('facts/dark-mode.md')
     })
 
     it('returns the key for a custom path', async () => {
       const key = await store.add('Deploy steps', { path: 'operations/deploy', description: 'Deploy process' })
-      expect(key).toBe('knowledge/operations/deploy.md')
+      expect(key).toBe('operations/deploy.md')
     })
 
     it('returns the collision-suffixed key when slugs collide', async () => {
       await store.add('Python is great')
       const key = await store.add('Python is great. But has a GIL.')
-      expect(key).toBe('knowledge/facts/python-is-great-1.md')
+      expect(key).toBe('facts/python-is-great-1.md')
     })
 
     it('returns the canonical key search and list report, not the pre-normalized path', async () => {
       const key = await store.add('Rollback runbook', { path: 'operations//deploy' })
-      expect(key).toBe('knowledge/operations/deploy.md')
+      expect(key).toBe('operations/deploy.md')
       // The returned receipt must match what the backend actually stored under.
-      const keys = await storage.list('knowledge/')
+      const keys = await scoped.list('')
       expect(keys).toContain(key)
-      expect(await storage.read(key)).not.toBeNull()
+      expect(await scoped.read(key)).not.toBeNull()
     })
   })
 
@@ -274,7 +297,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'User prefers dark mode for all editors',
         metadata: {
-          path: 'knowledge/facts/dark-mode.md',
+          path: 'facts/dark-mode.md',
           description: 'Theme preference: dark mode',
           _relevanceScore: expect.any(Number),
         },
@@ -286,7 +309,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'Deploy process uses blue-green strategy',
         metadata: {
-          path: 'knowledge/facts/deploy.md',
+          path: 'facts/deploy.md',
           description: 'Deployment pipeline details',
           _relevanceScore: expect.any(Number),
         },
@@ -298,7 +321,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'Testing philosophy: integration first, mock at boundaries',
         metadata: {
-          path: 'knowledge/facts/testing.md',
+          path: 'facts/testing.md',
           description: 'Integration-first testing approach',
           _relevanceScore: expect.any(Number),
         },
@@ -310,7 +333,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'User prefers dark mode for all editors',
         metadata: {
-          path: 'knowledge/facts/dark-mode.md',
+          path: 'facts/dark-mode.md',
           description: 'Theme preference: dark mode',
           _relevanceScore: expect.any(Number),
         },
@@ -346,21 +369,21 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'covers deploy, testing, and integration boundaries',
         metadata: {
-          path: 'knowledge/facts/broad-match.md',
+          path: 'facts/broad-match.md',
           description: 'Broad topic coverage',
           _relevanceScore: expect.any(Number),
         },
       })
     })
 
-    it('includes knowledge/system/ files in results', async () => {
-      await storage.write(
-        'knowledge/system/prefs.md',
+    it('includes system/ files in results', async () => {
+      await scoped.write(
+        'system/prefs.md',
         encoder.encode('---\ndescription: "User prefs"\n---\n\ndark mode everywhere')
       )
       const results = await store.search('dark mode')
       const paths = results.map((r) => r.metadata?.['path'] as string)
-      expect(paths.some((p) => p.startsWith('knowledge/system/'))).toBe(true)
+      expect(paths.some((p) => p.startsWith('system/'))).toBe(true)
     })
 
     it('returns entries with path and description in metadata', async () => {
@@ -368,7 +391,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'Deploy process uses blue-green strategy',
         metadata: {
-          path: 'knowledge/facts/deploy.md',
+          path: 'facts/deploy.md',
           description: 'Deployment pipeline details',
           _relevanceScore: expect.any(Number),
         },
@@ -380,7 +403,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'Deploy process uses blue-green strategy',
         metadata: {
-          path: 'knowledge/facts/deploy.md',
+          path: 'facts/deploy.md',
           description: 'Deployment pipeline details',
           _relevanceScore: expect.any(Number),
         },
@@ -392,7 +415,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'Testing philosophy: integration first, mock at boundaries',
         metadata: {
-          path: 'knowledge/facts/testing.md',
+          path: 'facts/testing.md',
           description: 'Integration-first testing approach',
           _relevanceScore: expect.any(Number),
         },
@@ -405,7 +428,7 @@ describe('FileMemoryStore', () => {
       expect(results[0]).toEqual({
         content: 'Check CloudWatch logs first',
         metadata: {
-          path: 'knowledge/operations/debugging.md',
+          path: 'operations/debugging.md',
           description: 'Debugging runbook',
           _relevanceScore: expect.any(Number),
         },
@@ -413,11 +436,11 @@ describe('FileMemoryStore', () => {
     })
 
     it('searches files without frontmatter', async () => {
-      await storage.write('knowledge/facts/plain.md', encoder.encode('Retry with exponential backoff'))
+      await scoped.write('facts/plain.md', encoder.encode('Retry with exponential backoff'))
       const results = await store.search('exponential backoff')
       expect(results[0]).toEqual({
         content: 'Retry with exponential backoff',
-        metadata: { path: 'knowledge/facts/plain.md', description: '', _relevanceScore: expect.any(Number) },
+        metadata: { path: 'facts/plain.md', description: '', _relevanceScore: expect.any(Number) },
       })
     })
 
@@ -429,7 +452,7 @@ describe('FileMemoryStore', () => {
         },
         async delete(): Promise<void> {},
         async list(): Promise<string[]> {
-          return ['knowledge/facts/ghost.md']
+          return ['memory/null-store/facts/ghost.md']
         },
       }
       const nullStore = new FileMemoryStore({ name: 'null-store', storage: nullStorage })
@@ -446,7 +469,7 @@ describe('FileMemoryStore', () => {
         },
         async delete(): Promise<void> {},
         async list(): Promise<string[]> {
-          return ['knowledge/facts/broken.md', 'knowledge/facts/good.md']
+          return ['memory/throwing-store/facts/broken.md', 'memory/throwing-store/facts/good.md']
         },
       }
       const throwingStore = new FileMemoryStore({ name: 'throwing-store', storage: throwingStorage })
@@ -455,7 +478,7 @@ describe('FileMemoryStore', () => {
         {
           content: 'valid content about deploy',
           metadata: {
-            path: 'knowledge/facts/good.md',
+            path: 'facts/good.md',
             description: 'A good entry',
             _relevanceScore: expect.any(Number),
           },
@@ -468,7 +491,7 @@ describe('FileMemoryStore', () => {
       // (one read per key) would trip this on a large corpus and silently drop those matches.
       // MAX_ACTIVE matches the store's internal SEARCH_READ_CONCURRENCY cap.
       const MAX_ACTIVE = 8
-      const keys = Array.from({ length: 30 }, (_, index) => `knowledge/facts/fact-${index}.md`)
+      const keys = Array.from({ length: 30 }, (_, index) => `memory/bounded-store/facts/fact-${index}.md`)
       let active = 0
       let peak = 0
       const boundedStorage: Storage = {

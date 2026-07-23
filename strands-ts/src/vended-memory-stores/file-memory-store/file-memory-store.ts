@@ -1,7 +1,7 @@
 /**
  * File-based memory store implementing the {@link MemoryStore} interface.
  *
- * Organizes knowledge as a structured file hierarchy under `knowledge/`. Provides
+ * Organizes knowledge as a structured file hierarchy under a `memory/` storage namespace. Provides
  * keyword-based search via `search_memory` (registered by {@link MemoryManager}).
  */
 
@@ -11,11 +11,19 @@ import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { Storage } from '../../storage/storage.js'
 import type { FileMemoryStoreConfig } from './types.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
-import { normalizeKey } from '../../storage/storage.js'
+import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 
-const KNOWLEDGE_PREFIX = 'knowledge/'
-const FACTS_PREFIX = `${KNOWLEDGE_PREFIX}facts/`
+/**
+ * Top-level storage namespace shared by every file memory store, isolating them as a group from
+ * other subsystems (sessions, context offloading) that may share the same backend. See the storage
+ * design doc's key-prefix convention (`team/designs/0014-storage.md`). Each store further scopes
+ * under its own `name` within this namespace — see {@link FileMemoryStore._resolveStorage}.
+ */
+const STORAGE_NAMESPACE = 'memory'
+
+/** Default subdirectory (within the store's namespace) for entries added without an explicit path. */
+const FACTS_PREFIX = 'facts/'
 
 /**
  * Cap on concurrent storage reads during search. The Storage contract makes no guarantee
@@ -86,11 +94,15 @@ function slugify(text: string): string {
  * A file-based memory store backed by the unified {@link Storage} interface.
  *
  * Implements {@link MemoryStore} for use with {@link MemoryManager}. Knowledge is stored as
- * markdown files with YAML frontmatter under `knowledge/`. Retrieval is via the `search_memory`
- * tool registered by {@link MemoryManager}, which calls {@link search} (keyword-based).
+ * markdown files with YAML frontmatter under a `memory/` storage namespace. Retrieval is via the
+ * `search_memory` tool registered by {@link MemoryManager}, which calls {@link search} (keyword-based).
  *
- * The storage backend defaults to {@link LocalFileStorage} (writing to `./.strands/`) when no
- * custom {@link Storage} implementation is provided.
+ * The storage backend defaults to {@link LocalFileStorage} when no custom {@link Storage}
+ * implementation is provided. Keys are auto-scoped under `memory/<name>/` (so a store named
+ * `agent-memory` with the default backend lands knowledge under `./.strands/memory/agent-memory/`),
+ * isolating it from other subsystems — and from differently-named file memory stores — that share
+ * the same backend. Two stores with the same name on one backend share storage. Pass a storage view
+ * that is already namespaced to override this.
  *
  * @example
  * ```typescript
@@ -120,7 +132,21 @@ export class FileMemoryStore implements MemoryStore {
     if (config.description !== undefined) this.description = config.description
     if (config.maxSearchResults !== undefined) this.maxSearchResults = config.maxSearchResults
     if (config.extraction !== undefined) this.extraction = config.extraction
-    this._storage = config.storage ?? new LocalFileStorage()
+    this._storage = this._resolveStorage(config.storage ?? new LocalFileStorage())
+  }
+
+  /**
+   * Auto-scopes keys under `memory/<name>/` so this store never collides with other subsystems
+   * (sessions, context offloading) sharing the same backend, nor with a differently-named file
+   * memory store on it — distinct {@link name}s yield non-overlapping scopes. Two stores sharing
+   * both a name and a backend still share storage. Storage that is already namespaced — e.g. handed
+   * down pre-scoped by a future router — is used as-is, so scoping never stacks twice.
+   */
+  private _resolveStorage(storage: Storage): Storage {
+    if (NAMESPACED in storage) return storage
+    const prefix = `${STORAGE_NAMESPACE}/${this.name}`
+    if (storage.namespace) return storage.namespace(prefix)
+    return namespace(storage, prefix)
   }
 
   /**
@@ -134,7 +160,7 @@ export class FileMemoryStore implements MemoryStore {
     const queryTokens = tokenize(query)
     if (queryTokens.size === 0) return []
 
-    const allKeys = await this._storage.list(KNOWLEDGE_PREFIX)
+    const allKeys = await this._storage.list('')
 
     const scored = (
       await mapWithConcurrency(allKeys, SEARCH_READ_CONCURRENCY, async (key) => {
@@ -168,8 +194,8 @@ export class FileMemoryStore implements MemoryStore {
   /**
    * Add a knowledge entry to the store.
    *
-   * Writes a markdown file with YAML frontmatter. By default writes to `knowledge/facts/`.
-   * Pass `metadata.path` to write to a custom location under `knowledge/`.
+   * Writes a markdown file with YAML frontmatter. By default writes to `facts/` within the store's
+   * namespace. Pass `metadata.path` to write to a custom location within the namespace.
    *
    * @param content - The knowledge content to store
    * @param metadata - Optional metadata: `title`, `description`, and `path` (custom target path)
@@ -185,7 +211,7 @@ export class FileMemoryStore implements MemoryStore {
 
     let key: string
     if (customPath) {
-      key = customPath.startsWith(KNOWLEDGE_PREFIX) ? customPath : `${KNOWLEDGE_PREFIX}${customPath}`
+      key = customPath
       if (!key.endsWith('.md')) key += '.md'
     } else {
       const slug = slugify(title) || `entry-${Date.now()}`
