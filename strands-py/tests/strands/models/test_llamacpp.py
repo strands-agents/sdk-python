@@ -174,12 +174,8 @@ def test_format_request_with_all_new_params() -> None:
 
 
 def test_format_request_llamacpp_params_are_top_level_not_extra_body() -> None:
-    """llama.cpp sampling params must reach the server at the top level of the body.
-
-    The request is posted over raw httpx (see stream()/count_tokens), not the OpenAI
-    SDK, so an "extra_body" object is never flattened into the request; nesting the
-    params there leaves them unread by the llama.cpp server. This regression test
-    pins the params to the top level, where the server reads them.
+    """llama.cpp sampling params are placed at the top level of the request body,
+    not under extra_body. Regression test for #3422.
     """
     model = LlamaCppModel(
         params={

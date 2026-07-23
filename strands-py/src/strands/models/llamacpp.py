@@ -432,12 +432,7 @@ class LlamaCppModel(Model):
                 if param in openai_params:
                     request[param] = value
 
-            # Add llama.cpp-specific parameters directly to the request body. This
-            # provider posts the request over raw httpx rather than the OpenAI SDK, so
-            # there is no client-side layer to flatten an "extra_body" object into the
-            # request; nesting these under "extra_body" would leave them unread by the
-            # server. Placing them at the top level matches how the SDK's extra_body is
-            # ultimately delivered, and how grammar/json_schema are already handled.
+            # Add llama.cpp-specific parameters directly to the request body
             for param, value in params.items():
                 if param in llamacpp_specific_params:
                     request[param] = value
