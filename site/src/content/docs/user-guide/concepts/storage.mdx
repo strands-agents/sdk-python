@@ -88,13 +88,13 @@ zero-config, gone when the process exits.
 Each key becomes a file under a base directory. Writes are atomic
 (temp file + rename).
 
-<Tabs>
-<Tab label="Python">
-
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | <Syntax py="base_dir" ts="baseDir" /> | `"./.strands/"` | Root directory for stored files |
 | <Syntax py="sandbox" ts="sandbox" /> | `None`/`undefined` | Route I/O through a [Sandbox](./sandbox/index.mdx) |
+
+<Tabs>
+<Tab label="Python">
 
 ```python
 --8<-- "user-guide/concepts/storage.py:local_file"
@@ -102,11 +102,6 @@ Each key becomes a file under a base directory. Writes are atomic
 
 </Tab>
 <Tab label="TypeScript">
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| <Syntax py="base_dir" ts="baseDir" /> | `"./.strands/"` | Root directory for stored files |
-| <Syntax py="sandbox" ts="sandbox" /> | `undefined` | Route I/O through a [Sandbox](./sandbox/index.mdx) |
 
 ```typescript
 --8<-- "user-guide/concepts/storage_imports.ts:local_file_imports"
@@ -126,9 +121,6 @@ which returns a new instance routed through the sandbox.
 Stores data as objects in an S3 bucket. The AWS SDK loads lazily,
 so applications that never construct an `S3Storage` pay nothing.
 
-<Tabs>
-<Tab label="Python">
-
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `bucket` | *(required)* | S3 bucket name |
@@ -136,19 +128,15 @@ so applications that never construct an `S3Storage` pay nothing.
 | <Syntax py="region_name" ts="region" /> | `None`/`undefined` | AWS region override |
 | <Syntax py="boto_session" ts="s3Client" /> | `None`/`undefined` | Pre-configured client |
 
+<Tabs>
+<Tab label="Python">
+
 ```python
 --8<-- "user-guide/concepts/storage.py:s3"
 ```
 
 </Tab>
 <Tab label="TypeScript">
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `bucket` | *(required)* | S3 bucket name |
-| `prefix` | `undefined` | Key prefix (namespace within the bucket) |
-| <Syntax py="region_name" ts="region" /> | `undefined` | AWS region override |
-| <Syntax py="boto_session" ts="s3Client" /> | `undefined` | Pre-configured `S3Client` |
 
 ```typescript
 --8<-- "user-guide/concepts/storage_imports.ts:s3_imports"
