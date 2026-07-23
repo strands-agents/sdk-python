@@ -1,0 +1,137 @@
+"""HTTP request tool for calling external APIs."""
+
+from __future__ import annotations
+
+import asyncio
+import math
+import re
+from typing import Annotated, Literal
+
+import httpx
+from pydantic import AnyHttpUrl, Strict, TypeAdapter, ValidationError
+
+from ...tools.decorator import tool
+from ...types.tools import JSONSchema
+from .types import HttpRequestOutput
+
+HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+
+
+Timeout = Annotated[float, Strict()]
+
+_DEFAULT_TIMEOUT = 30
+_HTTP_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+_HTTP_URL_ADAPTER = TypeAdapter(AnyHttpUrl)
+_HTTP_URL_PATTERN = re.compile(r"^https?://[^/]", re.IGNORECASE)
+_HTTP_REQUEST_INPUT_SCHEMA: JSONSchema = {
+    "json": {
+        "type": "object",
+        "properties": {
+            "method": {
+                "type": "string",
+                "enum": sorted(_HTTP_METHODS),
+                "description": "HTTP method to use for the request",
+            },
+            "url": {
+                "type": "string",
+                "format": "uri",
+                "pattern": r"^[hH][tT][tT][pP][sS]?://[^/]",
+                "description": "HTTP or HTTPS URL without embedded credentials; use headers for authentication",
+            },
+            "headers": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Optional HTTP headers as key-value pairs",
+            },
+            "body": {
+                "type": "string",
+                "description": "Optional request body as a string",
+            },
+            "timeout": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": _DEFAULT_TIMEOUT,
+                "description": "Optional timeout in seconds (default: 30)",
+            },
+        },
+        "required": ["method", "url"],
+    }
+}
+
+
+@tool(name="http_request", inputSchema=_HTTP_REQUEST_INPUT_SCHEMA)
+async def http_request(
+    method: HttpMethod,
+    url: str,
+    headers: dict[str, str] | None = None,
+    body: str | None = None,
+    timeout: Timeout = _DEFAULT_TIMEOUT,
+) -> HttpRequestOutput:
+    """Make an HTTP request to an external API.
+
+    Supports GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS requests. Redirects
+    are followed automatically. The response body is returned as text.
+
+    Args:
+        method: HTTP method to use for the request.
+        url: HTTP or HTTPS URL without embedded credentials. Use headers for authentication.
+        headers: Optional HTTP headers as key-value pairs.
+        body: Optional request body as a string.
+        timeout: Timeout in seconds (default: 30).
+
+    Returns:
+        The response status, status text, headers, and body.
+
+    Raises:
+        ValueError: If the method, URL, or timeout is invalid.
+        TimeoutError: If the request exceeds the timeout.
+        RuntimeError: If the request fails or returns a non-2xx response.
+    """
+    if method not in _HTTP_METHODS:
+        raise ValueError(f"Unsupported HTTP method: {method}")
+    timeout_value: object = timeout
+    if isinstance(timeout_value, bool) or not isinstance(timeout_value, (int, float)):
+        raise ValueError("timeout must be a number")
+    try:
+        timeout_is_valid = math.isfinite(timeout_value) and timeout_value > 0
+    except OverflowError:
+        timeout_is_valid = False
+    if not timeout_is_valid:
+        raise ValueError("timeout must be a finite number greater than 0")
+
+    if (
+        not isinstance(url, str)
+        or not _HTTP_URL_PATTERN.match(url)
+        or any(ord(char) < 32 or ord(char) == 127 for char in url)
+    ):
+        raise ValueError("Invalid URL: expected an absolute HTTP or HTTPS URL without embedded credentials")
+    try:
+        validated_url = _HTTP_URL_ADAPTER.validate_python(url)
+        raw_request_url = httpx.URL(url)
+        request_url = httpx.URL(str(validated_url))
+    except (ValidationError, httpx.InvalidURL):
+        raise ValueError("Invalid URL: expected an absolute HTTP or HTTPS URL without embedded credentials") from None
+    if not raw_request_url.is_absolute_url or raw_request_url.userinfo or request_url.userinfo:
+        raise ValueError("Invalid URL: expected an absolute HTTP or HTTPS URL without embedded credentials")
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+            response = await asyncio.wait_for(
+                client.request(method, request_url, headers=headers, content=body),
+                timeout=timeout,
+            )
+    except (asyncio.TimeoutError, httpx.TimeoutException) as error:
+        raise TimeoutError(f"Request timed out after {timeout} seconds: {method} {url}") from error
+    except httpx.RequestError as error:
+        raise RuntimeError(str(error)) from error
+
+    response_body = response.content.decode("utf-8", errors="replace")
+    if not 200 <= response.status_code < 300:
+        raise RuntimeError(f"HTTP {response.status_code} {response.reason_phrase}: {method} {url}")
+
+    return {
+        "status": response.status_code,
+        "status_text": response.reason_phrase,
+        "headers": dict(response.headers.items()),
+        "body": response_body,
+    }

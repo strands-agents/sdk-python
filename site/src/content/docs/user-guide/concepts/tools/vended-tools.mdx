@@ -9,6 +9,7 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/file-editor/file-editor.ts
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
+  - path: strands-py/src/strands/vended_tools/http_request/http_request.py
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
 ---
 
@@ -31,7 +32,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | Tool | Description | Supported in |
 |------|-------------|--------------|
 | [File Editor](#file-editor) | View, create, and edit files | Python, TypeScript (Node.js) |
-| [HTTP Request](#http-request) | Make HTTP requests to external APIs | TypeScript (Node.js 20+, browsers) |
+| [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 
@@ -74,22 +75,46 @@ agent("Create a file at /tmp/hello.txt with the contents 'Hello, world!'")
 
 ### HTTP Request
 
-Lets your agent call external APIs and fetch web content. Supports all HTTP methods, custom headers, and request bodies. Default timeout is 30 seconds.
+Lets your agent call external APIs and fetch web content over HTTP or HTTPS. Supports GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS, along with custom headers and request bodies. The default timeout is 30 seconds.
 
-_Supported in: Node.js 20+, modern browsers._
+_Supported in: Python, Node.js 20+, modern browsers._
 
 :::caution[Security Warning]
 This tool makes HTTP requests to arbitrary URLs without restrictions on destination. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example:**
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import http_request
+
+--8<-- "user-guide/concepts/tools/vended-tools.py:http_request_example"
+```
+
+</Tab>
+<Tab label="TypeScript">
+
 ```typescript
 --8<-- "user-guide/concepts/tools/vended-tools-imports.ts:http_request_import"
 
 --8<-- "user-guide/concepts/tools/vended-tools.ts:http_request_example"
 ```
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md)
+</Tab>
+</Tabs>
+
+Python direct calls are asynchronous. `await http_request(...)` returns a dictionary containing `status`, `status_text`, `headers`, and `body`. It raises `ValueError` for invalid inputs, `TimeoutError` when the deadline expires, and `RuntimeError` for network failures or non-2xx responses.
+
+```python
+response = await http_request(method="GET", url="https://api.example.com/users")
+print(response["status"], response["body"])
+```
+
+📖 API Reference: [Python function](@api/python/strands.vended_tools.http_request.http_request) and [Python output type](@api/python/strands.vended_tools.http_request.types#HttpRequestOutput) | [TypeScript](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/http-request/README.md)
 
 ---
 
