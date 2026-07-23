@@ -450,6 +450,50 @@ can implement the `SnapshotStorage` interface:
 
 This approach allows you to store session data in any backend system while leveraging the built-in session management logic.
 
+## Data Layout
+
+Both file and S3 backends use the same key structure:
+
+<Tabs>
+<Tab label="Python">
+
+```
+<root>/
+└── session_<session_id>/
+    ├── session.json
+    ├── agents/
+    │   └── agent_<agent_id>/
+    │       ├── agent.json
+    │       └── messages/
+    │           ├── message_0.json
+    │           └── message_1.json
+    └── multi_agents/
+        └── multi_agent_<orchestrator_id>/
+            └── multi_agent.json
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```
+<root>/
+└── <sessionId>/
+    └── scopes/
+        ├── agent/
+        │   └── <agentId>/
+        │       └── snapshots/
+        │           ├── snapshot_latest.json
+        │           └── immutable_history/
+        │               └── snapshot_<uuid7>.json
+        └── multiAgent/
+            └── <orchestratorId>/
+                └── snapshots/
+                    └── snapshot_latest.json
+```
+
+</Tab>
+</Tabs>
+
 ## Session Persistence Best Practices
 
 When implementing session persistence in your applications, consider these best practices:
