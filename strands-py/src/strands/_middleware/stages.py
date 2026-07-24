@@ -27,9 +27,8 @@ class InvokeModelContext:
     defensive copies — middleware cannot accidentally mutate agent state.
     invocation_state is shared by reference (hooks and tools write to it during streaming).
 
-    ``model`` is the concrete model the terminal will invoke. It defaults to
-    ``agent.model``; middleware (e.g. model routing) may replace it to redirect a single
-    call without mutating shared agent state.
+    ``model`` is the model this call invokes; it starts as ``agent.model`` and middleware
+    may replace it per call.
     """
 
     agent: Agent
