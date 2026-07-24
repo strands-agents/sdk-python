@@ -971,6 +971,99 @@ describe('SlidingWindowConversationManager', () => {
       expect(mockAgent.messages[0]!.content[0]!).toEqual({ type: 'textBlock', text: 'Message 2' })
     })
 
+    it('falls back to a complete tool pair when no plain user trim point exists', async () => {
+      const manager = new SlidingWindowConversationManager({ windowSize: 4, shouldTruncateResults: false })
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('Review this PR')] }),
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ name: 'getDiff', toolUseId: 'id-1', input: {} })],
+        }),
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({
+              toolUseId: 'id-1',
+              status: 'success',
+              content: [new TextBlock('Diff')],
+            }),
+          ],
+        }),
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ name: 'getFile', toolUseId: 'id-2', input: {} })],
+        }),
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({
+              toolUseId: 'id-2',
+              status: 'success',
+              content: [new TextBlock('File')],
+            }),
+          ],
+        }),
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ name: 'getTree', toolUseId: 'id-3', input: {} })],
+        }),
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({
+              toolUseId: 'id-3',
+              status: 'success',
+              content: [new TextBlock('Tree')],
+            }),
+          ],
+        }),
+        new Message({ role: 'assistant', content: [new TextBlock('Review complete')] }),
+      ]
+      const mockAgent = createMockAgent({ messages })
+      const expectedMessages = messages.slice(5)
+
+      await triggerContextOverflow(manager, mockAgent, new ContextWindowOverflowError('Context overflow'))
+
+      expect(mockAgent.messages).toEqual(expectedMessages)
+      expect(mockAgent.messages[0]!.content[0]).toEqual({
+        type: 'toolUseBlock',
+        name: 'getTree',
+        toolUseId: 'id-3',
+        input: {},
+      })
+    })
+
+    it('prefers a plain user trim point over an earlier complete tool pair', async () => {
+      const manager = new SlidingWindowConversationManager({ windowSize: 4, shouldTruncateResults: false })
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('First')] }),
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ name: 'lookup', toolUseId: 'id-1', input: {} })],
+        }),
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({
+              toolUseId: 'id-1',
+              status: 'success',
+              content: [new TextBlock('Result')],
+            }),
+          ],
+        }),
+        new Message({ role: 'assistant', content: [new TextBlock('Response')] }),
+        new Message({ role: 'user', content: [new TextBlock('Plain user message')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('Final response')] }),
+      ]
+      const mockAgent = createMockAgent({ messages })
+      const expectedMessages = messages.slice(4)
+
+      await triggerContextOverflow(manager, mockAgent, new ContextWindowOverflowError('Context overflow'))
+
+      expect(mockAgent.messages).toEqual(expectedMessages)
+      expect(mockAgent.messages[0]!.content[0]).toEqual({ type: 'textBlock', text: 'Plain user message' })
+    })
+
     it('allows trim when oldest message is text or other non-tool content', async () => {
       const manager = new SlidingWindowConversationManager({ windowSize: 2 })
       const messages = [

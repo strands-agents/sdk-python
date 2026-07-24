@@ -233,7 +233,14 @@ export class SlidingWindowConversationManager extends ConversationManager {
     // Try to trim messages when tool result cannot be truncated anymore
     // If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
     const startIndex = messages.length <= this._windowSize ? 2 : messages.length - this._windowSize
-    const trimIndex = findValidTrimPoint(messages, startIndex)
+    let trimIndex = findValidTrimPoint(messages, startIndex)
+
+    if (trimIndex === messages.length && this._windowSize > 0) {
+      const toolPairTrimIndex = this._findToolPairTrimPoint(messages, startIndex)
+      if (toolPairTrimIndex !== undefined) {
+        trimIndex = toolPairTrimIndex
+      }
+    }
 
     // If no valid trim point was found, return false and let the caller handle it.
     // When windowSize is 0, trimIndex === messages.length is expected (remove all), so allow it through.
@@ -434,6 +441,29 @@ export class SlidingWindowConversationManager extends ConversationManager {
     })
 
     return true
+  }
+
+  /**
+   * Find the first complete tool use/result pair at or after the starting index.
+   *
+   * @param messages - The conversation message history.
+   * @param startIndex - The index to begin searching from.
+   * @returns The assistant message index that starts the pair, or undefined if none exists.
+   */
+  private _findToolPairTrimPoint(messages: Message[], startIndex: number): number | undefined {
+    for (let index = startIndex; index < messages.length; index++) {
+      const message = messages[index]!
+      const nextMessage = messages[index + 1]
+      const hasToolUse = message.role === 'assistant' && message.content.some((block) => block.type === 'toolUseBlock')
+      const hasFollowingToolResult =
+        nextMessage?.role === 'user' && nextMessage.content.some((block) => block.type === 'toolResultBlock')
+
+      if (hasToolUse && hasFollowingToolResult) {
+        return index
+      }
+    }
+
+    return undefined
   }
 
   /**
