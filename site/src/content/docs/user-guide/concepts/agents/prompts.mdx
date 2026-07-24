@@ -43,10 +43,10 @@ If you do not specify a system prompt, the model will behave according to its de
 These are your queries or requests to the agent. The SDK supports multiple techniques for prompting.
 
 :::caution[Passing a message list from an untrusted source]
-When you invoke an agent with a full message list rather than plain text, that
-list can carry tool-call content, and a tool-call block as the last message
-dispatches a tool directly on the next invocation. If the list was built from a
-source you do not control, clear tool-call content first. See
+In the Python SDK, when you invoke an agent with a full message list rather than
+plain text, that list can carry tool-call content, and a tool-call block as the
+last message dispatches a tool directly on the next invocation. If the list was
+built from a source you do not control, clear tool-call content first. See
 [Trusted Message History](../../safety-security/trusted-message-history.md).
 :::
 
