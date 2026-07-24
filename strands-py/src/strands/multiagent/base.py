@@ -165,7 +165,10 @@ class MultiAgentResult:
 
         parts = []
         for node_name, node_result in self.results.items():
-            node_str = str(node_result).strip()
+            # Remove only the single trailing newline that AgentResult.__str__ appends
+            # as a framework separator, preserving all user-owned whitespace (leading
+            # indentation, internal markdown hard-break spaces, payload trailing newlines).
+            node_str = str(node_result).removesuffix("\n")
             if node_str:
                 parts.append(f"{node_name}: {node_str}")
 

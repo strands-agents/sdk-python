@@ -364,3 +364,104 @@ def test_node_result_str_with_nested_multiagent():
     )
     outer_node = NodeResult(result=inner_mar)
     assert "inner_node: Nested response" in str(outer_node)
+
+
+def test_multi_agent_result_str_preserves_payload_whitespace():
+    """Regression test: MultiAgentResult.__str__ preserves user-owned whitespace.
+
+    Verifies that only the framework-owned trailing newline (appended by
+    AgentResult.__str__) is removed, while all user-owned whitespace is preserved:
+    - Leading indentation (e.g., code blocks)
+    - Internal markdown hard-break (two trailing spaces before newline)
+    - Trailing newlines in the payload
+    - Whitespace-only content is preserved if non-empty after removesuffix
+
+    This test guards against regressing to .strip() which removes all whitespace.
+    """
+    # Content with: leading indentation, internal markdown hard-break (2 trailing spaces),
+    # and explicit trailing newlines in the payload
+    code_with_whitespace = "    def foo():\n        pass  \n\n"  # 4-space indent, 2-space hard-break
+
+    ar_whitespace = AgentResult(
+        message={"role": "assistant", "content": [{"text": code_with_whitespace}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+
+    # Whitespace-only node (spaces only - should appear since it's non-empty after removesuffix)
+    ar_spaces_only = AgentResult(
+        message={"role": "assistant", "content": [{"text": "   "}]},  # 3 spaces
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+
+    # Nested MultiAgentResult with whitespace content
+    inner_ar = AgentResult(
+        message={"role": "assistant", "content": [{"text": "  nested indent\n"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    inner_mar = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={"inner": NodeResult(result=inner_ar)},
+    )
+
+    result = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={
+            "code_node": NodeResult(result=ar_whitespace),
+            "spaces_node": NodeResult(result=ar_spaces_only),
+            "nested_node": NodeResult(result=inner_mar),
+        },
+    )
+
+    output = str(result)
+
+    # Verify leading indentation preserved (would be stripped by .strip())
+    assert "code_node:     def foo():" in output, "Leading indentation must be preserved"
+
+    # Verify internal markdown hard-break (2 trailing spaces) preserved
+    assert "pass  \n" in output, "Markdown hard-break (2 trailing spaces) must be preserved"
+
+    # Verify trailing newlines in payload preserved (framework removes only 1)
+    # The original text has "\n\n" at end, AgentResult adds one more "\n"
+    # So AgentResult.__str__ produces "    def foo():\n        pass  \n\n\n"
+    # After removesuffix("\n"), we get "    def foo():\n        pass  \n\n"
+    assert output.count("pass  \n\n") == 1, "Payload trailing newlines must be preserved"
+
+    # Verify whitespace-only node appears (3 spaces + newline from AgentResult -> 3 spaces after removesuffix)
+    assert "spaces_node:    " in output, "Whitespace-only content must be preserved"
+
+    # Verify nested result preserves whitespace
+    assert "inner:   nested indent" in output, "Nested result must preserve leading spaces"
+
+
+def test_multi_agent_result_str_whitespace_exact_output():
+    """Exact-output test for whitespace handling in MultiAgentResult.__str__.
+
+    This test asserts the exact output string to catch any subtle changes
+    to whitespace handling. The framework separator (\n from AgentResult)
+    should be removed, but all payload whitespace must be verbatim.
+    """
+    # Single text item with carefully controlled whitespace
+    text = "  line1  \nline2\n"  # 2-space prefix, 2-space suffix on line1, trailing newline
+
+    ar = AgentResult(
+        message={"role": "assistant", "content": [{"text": text}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+
+    result = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={"node": NodeResult(result=ar)},
+    )
+
+    # AgentResult.__str__ produces "  line1  \nline2\n\n" (appends \n)
+    # After removesuffix("\n"), we get "  line1  \nline2\n"
+    expected = "node:   line1  \nline2\n"
+    assert str(result) == expected, f"Expected exact output:\n{expected!r}\nGot:\n{str(result)!r}"
