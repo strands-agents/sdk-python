@@ -314,6 +314,10 @@ def test_fix_broken_tool_use_adds_missing_tool_results(existing_session_manager)
     assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
     assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
     assert fixed_messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+    # The synthesized message is spliced into history outside the append chokepoint, so it must
+    # still carry a durable tracking id like any other message.
+    assert isinstance(fixed_messages[1].get("tracking_id"), str)
+    assert fixed_messages[1]["tracking_id"]
 
 
 def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manager):
@@ -369,6 +373,33 @@ def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manag
     missing_result = next(tr for tr in fixed_messages[1]["content"] if tr["toolResult"]["toolUseId"] == "missing-456")
     assert missing_result["toolResult"]["status"] == "error"
     assert missing_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+
+
+def test_fix_broken_tool_use_removes_stale_tool_results(session_manager):
+    """Test that toolResults with IDs not matching any preceding toolUse are dropped (#2296)."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "valid-123", "name": "test_tool", "input": {"input": "test"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "stale-999", "status": "success", "content": [{"text": "stale"}]}},
+                {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}},
+            ],
+        },
+        {"role": "user", "content": [{"text": "Final message"}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    assert len(fixed_messages) == 3
+    assert fixed_messages[1]["content"] == [
+        {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}}
+    ]
 
 
 def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_manager):
@@ -503,6 +534,13 @@ def test_fix_broken_tool_use_consecutive_orphaned_tool_uses(session_manager):
     ]
 
     tru_fixed = session_manager._fix_broken_tool_use(tru_messages)
+
+    # Each synthesized toolResult message is spliced in outside the append chokepoint, so it
+    # carries its own durable tracking id. Assert those are present, then fold the actual ids into
+    # the expected messages so the structural comparison still holds.
+    assert tru_fixed[1]["tracking_id"] and tru_fixed[3]["tracking_id"]
+    exp_messages[1]["tracking_id"] = tru_fixed[1]["tracking_id"]
+    exp_messages[3]["tracking_id"] = tru_fixed[3]["tracking_id"]
 
     assert tru_fixed == exp_messages
 

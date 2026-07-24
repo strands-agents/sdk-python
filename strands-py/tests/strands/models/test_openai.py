@@ -2,6 +2,7 @@ import logging
 import os
 import unittest.mock
 
+import httpx
 import openai
 import pydantic
 import pytest
@@ -1422,6 +1423,8 @@ async def test_stream_context_overflow_exception(openai_client, model, messages)
         "Input is too long for requested model",
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
+        "prompt tokens exceed customer model maximum",
+        "MAXIMUM CONTEXT LENGTH EXCEEDED",
     ],
 )
 async def test_stream_alternative_context_overflow_messages(openai_client, model, messages, error_message):
@@ -1453,6 +1456,8 @@ async def test_stream_alternative_context_overflow_messages(openai_client, model
         "Input is too long for requested model",
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
+        "prompt tokens exceed customer model maximum",
+        "MAXIMUM CONTEXT LENGTH EXCEEDED",
     ],
 )
 async def test_structured_output_alternative_context_overflow_messages(
@@ -1522,6 +1527,75 @@ async def test_stream_other_bad_request_errors_passthrough(openai_client, model,
 
     # Verify the original exception is raised, not ContextWindowOverflowException
     assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mock_error", "expected_exception"),
+    [
+        (
+            openai.APIStatusError(
+                "opaque provider failure",
+                response=httpx.Response(
+                    429,
+                    request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+                ),
+                body=None,
+            ),
+            ModelThrottledException,
+        ),
+        (
+            openai.APIError(
+                message="prompt tokens exceed customer model maximum",
+                request=unittest.mock.MagicMock(),
+                body=None,
+            ),
+            ContextWindowOverflowException,
+        ),
+    ],
+)
+async def test_stream_classifies_error_during_iteration(openai_client, model, messages, mock_error, expected_exception):
+    async def error_generator():
+        yield unittest.mock.Mock(choices=[])
+        raise mock_error
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=error_generator())
+
+    with pytest.raises(expected_exception) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_http_429_as_throttle(openai_client, model, messages):
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    mock_error = openai.APIStatusError("opaque provider failure", response=response, body=None)
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="opaque provider failure") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_message(openai_client, model, messages, test_output_model_cls):
+    mock_error = openai.APIError(
+        message="Too many requests from provider",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Too many requests from provider"}},
+    )
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="Too many requests") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
 
 
 @pytest.mark.asyncio
@@ -2024,6 +2098,26 @@ class TestOpenAIModelBedrockMantleConfig:
 
         assert resolved["base_url"] == "https://bedrock-mantle.eu-west-1.api.aws/v1"
         mock_provide_token.assert_called_once_with(region="eu-west-1")
+
+    @pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n", "us-east-1/"])
+    def test_bedrock_mantle_config_rejects_malformed_region(self, openai_client, mock_provide_token, region):
+        """A malformed region is rejected before a token is minted or a URL is built."""
+        _ = openai_client
+        model = OpenAIModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": region})
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            model._resolve_client_args()
+        # Validation must precede token minting so no bearer token is ever sent toward the host.
+        mock_provide_token.assert_not_called()
+
+    def test_bedrock_mantle_config_rejects_malformed_region_from_boto3_default(self, openai_client, mock_provide_token):
+        """A malformed region resolved from the boto3 default chain is also rejected."""
+        _ = openai_client
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "x@attacker.com:443/#"
+            model = OpenAIModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={})
+            with pytest.raises(ValueError, match="invalid AWS region"):
+                model._resolve_client_args()
+        mock_provide_token.assert_not_called()
 
     def test_bedrock_mantle_config_region_resolved_from_boto_session(self, openai_client, mock_provide_token):
         """An explicit ``boto_session`` supplies the region when ``region`` is omitted."""

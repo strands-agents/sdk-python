@@ -891,6 +891,81 @@ describe('Tracer', () => {
     })
   })
 
+  describe('span attributes only', () => {
+    // With the opt-in set, message content is recorded as span attributes rather than deprecated
+    // span events, for backends that cannot read events.
+    it('records latest-convention content as span attributes and skips the event when opted in', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental,gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      const inputMessages = JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Hi' }] }])
+      expect(mockSpan.calls.setAttributes).toContainEqual({
+        attributes: { 'gen_ai.input.messages': inputMessages },
+      })
+      expect(mockSpan.getEvents('gen_ai.client.inference.operation.details')).toHaveLength(0)
+    })
+
+    it('records latest-convention content as span attributes for Langfuse without opt-in', () => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', 'https://us.cloud.langfuse.com')
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      const inputMessages = JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Hi' }] }])
+      expect(mockSpan.calls.setAttributes).toContainEqual({
+        attributes: { 'gen_ai.input.messages': inputMessages },
+      })
+      expect(mockSpan.getEvents('gen_ai.client.inference.operation.details')).toHaveLength(0)
+    })
+
+    it('emits span events by default without the opt-in or Langfuse', () => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+      vi.stubEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', '')
+      vi.stubEnv('LANGFUSE_BASE_URL', '')
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      expect(mockSpan.getEvents('gen_ai.client.inference.operation.details')).toHaveLength(1)
+    })
+
+    it('leaves legacy per-message events as events even when opted in', () => {
+      vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+      vi.stubEnv('OTEL_EXPORTER_OTLP_TRACES_ENDPOINT', '')
+      vi.stubEnv('LANGFUSE_BASE_URL', '')
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startModelInvokeSpan({ messages: [textMessage('user', 'Hi')] })
+
+      expect(mockSpan.getEvents('gen_ai.user.message')).toHaveLength(1)
+    })
+
+    it('records the memory search query as a span attribute and skips the event when opted in', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startMemorySearchSpan({ query: 'dark mode preference', storeNames: ['personal'] })
+
+      expect(mockSpan.calls.setAttributes).toContainEqual({ attributes: { content: 'dark mode preference' } })
+      expect(mockSpan.getEvents('memory.query')).toHaveLength(0)
+    })
+
+    it('records the memory add content as a span attribute and skips the event when opted in', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_span_attributes_only')
+      const tracer = new Tracer()
+
+      tracer.startMemoryAddSpan({ content: 'remember dark mode', storeNames: ['personal'] })
+
+      expect(mockSpan.calls.setAttributes).toContainEqual({ attributes: { content: 'remember dark mode' } })
+      expect(mockSpan.getEvents('memory.content')).toHaveLength(0)
+    })
+  })
+
   describe('error resilience', () => {
     it.each([
       {

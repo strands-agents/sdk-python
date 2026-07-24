@@ -24,7 +24,6 @@ import asyncio
 import base64
 import json
 import logging
-import re
 import uuid
 from typing import Any, AsyncGenerator, cast
 
@@ -41,6 +40,7 @@ from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
 
+from ....models._validation import validate_region
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
@@ -100,8 +100,7 @@ NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
 _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
-# Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
-_VALID_REGION = re.compile(r"[a-z]{2}(-[a-z]+)+-\d+")
+_STRANDS_USER_AGENT_EXTRA = "strands-agents"
 
 
 class BidiNovaSonicModel(BidiModel):
@@ -199,9 +198,7 @@ class BidiNovaSonicModel(BidiModel):
             resolved["region"] = resolved["boto_session"].region_name or "us-east-1"
 
         # Validate the region before it is interpolated into the service endpoint URL
-        region = resolved["region"]
-        if not isinstance(region, str) or not _VALID_REGION.fullmatch(region):
-            raise ValueError(f"invalid AWS region: {region!r}")
+        validate_region(resolved["region"])
 
         return resolved
 
@@ -272,6 +269,7 @@ class BidiNovaSonicModel(BidiModel):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
+            user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
         self._client = BedrockRuntimeClient(config=config)
@@ -280,6 +278,7 @@ class BidiNovaSonicModel(BidiModel):
         self._stream = await self._client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
         )
+        logger.debug("region=<%s> | nova sonic bidirectional stream established", self.region)
 
         init_events = self._build_initialization_events(system_prompt, tools, messages)
         logger.debug("event_count=<%d> | sending nova sonic initialization events", len(init_events))

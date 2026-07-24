@@ -57,15 +57,7 @@ pre-commit install -t pre-commit -t commit-msg # Install hooks
 
 ### 3. Pull Request Guidelines
 
-When creating pull requests, you MUST follow the guidelines in [PR.md](../team/PR.md). Key principles:
-
-- Focus on WHY: Explain motivation and user impact, not implementation details
-- Document public API changes: Show before/after code examples
-- Be concise: Use prose over bullet lists; avoid exhaustive checklists
-- Target senior engineers: Assume familiarity with the SDK
-- Exclude implementation details: Leave these to code comments and diffs
-
-See [PR.md](../team/PR.md) for the complete guidance and template.
+When creating pull requests, you MUST follow the guidelines and template in [PR.md](../team/PR.md).
 
 ### 4. Quality Gates
 

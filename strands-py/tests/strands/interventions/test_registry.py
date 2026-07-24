@@ -298,7 +298,9 @@ class TestGuide:
         await hook_registry.invoke_callbacks_async(event)
 
         assert event.retry is True
-        assert agent.messages == [{"role": "user", "content": [{"text": "[model-guide] be more specific"}]}]
+        assert agent.messages == [
+            {"role": "user", "content": [{"text": "[model-guide] be more specific"}], "tracking_id": unittest.mock.ANY}
+        ]
 
 
 class TestConfirm:
@@ -535,7 +537,13 @@ class TestEdgeCases:
         await hook_registry.invoke_callbacks_async(event)
 
         assert event.cancel is False
-        assert agent.messages == [{"role": "user", "content": [{"text": "[model-guide] check your sources"}]}]
+        assert agent.messages == [
+            {
+                "role": "user",
+                "content": [{"text": "[model-guide] check your sources"}],
+                "tracking_id": unittest.mock.ANY,
+            }
+        ]
 
     @pytest.mark.asyncio
     async def test_transform_apply_error_handled_via_on_error(self, hook_registry, agent):

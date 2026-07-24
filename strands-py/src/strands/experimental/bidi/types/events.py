@@ -40,7 +40,7 @@ AudioChannel = Literal[1, 2]
 """
 AudioFormat = Literal["pcm", "wav", "opus", "mp3"]
 """Audio encoding format."""
-AudioSampleRate = Literal[16000, 24000, 48000]
+AudioSampleRate = Literal[8000, 16000, 24000, 48000]
 """Audio sample rate in Hz."""
 
 Role = Literal["user", "assistant"]

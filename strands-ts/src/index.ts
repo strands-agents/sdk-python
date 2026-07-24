@@ -38,12 +38,15 @@ export {
   StructuredOutputError,
   ToolNotFoundError,
   DefaultNotConfiguredError,
+  StorageError,
 } from './errors.js'
 
 // Interrupt system
 export type { Interrupt, InterruptSource } from './interrupt.js'
 export type { InterruptParams, InterruptResponse, InterruptResponseContentData } from './types/interrupt.js'
 export { InterruptResponseContent } from './types/interrupt.js'
+
+// Checkpoint APIs are experimental; see '@strands-agents/sdk/experimental'.
 
 // JSON types
 export type { JSONSchema, JSONValue } from './types/json.js'
@@ -140,6 +143,10 @@ export type { ZodToolConfig } from './tools/zod-tool.js'
 
 // Tool factory function
 export { tool } from './tools/tool-factory.js'
+
+// Tool executors
+export { ConcurrentToolExecutor } from './tools/executors/concurrent.js'
+export { SequentialToolExecutor } from './tools/executors/sequential.js'
 
 // Streaming event types
 export type {
@@ -303,6 +310,9 @@ export { AgentTrace } from './telemetry/tracer.js'
 
 // Local Metrics
 export { AgentMetrics } from './telemetry/meter.js'
+
+// Storage
+export type { Storage } from './storage/storage.js'
 
 // Sandbox
 export { Sandbox, type ExecuteOptions } from './sandbox/base.js'

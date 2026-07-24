@@ -419,7 +419,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before sending/receiving")
+            raise RuntimeError("model not started | call start before receiving")
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
@@ -741,10 +741,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
         item_data = {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
-
-    async def _send_interrupt(self) -> None:
-        """Internal: Send interruption signal to OpenAI."""
-        await self._send_event({"type": "response.cancel"})
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result back to OpenAI."""
