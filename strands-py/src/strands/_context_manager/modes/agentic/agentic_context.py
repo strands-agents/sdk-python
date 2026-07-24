@@ -8,7 +8,7 @@ so it can decide when to compress.
 
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from ...._middleware.stages import InvokeModelContext
 from ...._middleware.types import MiddlewareInputHandler
@@ -25,9 +25,6 @@ from ....tools.decorator import tool
 from ....types.content import Message, _ensure_tracking_id
 from ....types.exceptions import ContextWindowOverflowException
 from ....types.tools import ToolContext
-
-if TYPE_CHECKING:
-    from ....models.model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -286,15 +283,13 @@ def _matches_pin_filter(message: Message, filter: Literal["user", "assistant", "
     return True  # type: ignore[unreachable]
 
 
-def create_token_usage_middleware(model: "Model") -> MiddlewareInputHandler:
+def create_token_usage_middleware() -> MiddlewareInputHandler:
     """Create middleware that appends a ``<context-status>`` block to the last message.
 
-    The block reports projected input-token usage against the model's context window limit so the
-    model can decide when to compress. The original messages are not mutated; the last message is
-    copied and the status text appended to the copy.
-
-    Args:
-        model: The model whose context window limit is reported.
+    The block reports projected input-token usage against the context window limit of the
+    model that will actually handle the call (``context.model``), so guidance stays correct
+    even when middleware has redirected the call to a different model. The original messages
+    are not mutated; the last message is copied and the status text appended to the copy.
 
     Returns:
         An async ``MiddlewareInputHandler`` for the ``InvokeModelStage.Input`` phase.
@@ -305,7 +300,7 @@ def create_token_usage_middleware(model: "Model") -> MiddlewareInputHandler:
         if projected_input_tokens is None:
             return context
 
-        context_window_limit = model.context_window_limit or DEFAULT_CONTEXT_WINDOW_LIMIT
+        context_window_limit = context.model.context_window_limit or DEFAULT_CONTEXT_WINDOW_LIMIT
         remaining = max(0, context_window_limit - projected_input_tokens)
         percent_used = (projected_input_tokens / context_window_limit) * 100
 
