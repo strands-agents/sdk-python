@@ -122,7 +122,7 @@ export abstract class ToolExecutor {
           invocationState,
         })
         yield afterToolCallEvent
-        if (afterToolCallEvent.retry) {
+        if (this._shouldRetry(options.agent, afterToolCallEvent)) {
           continue
         }
         return this._normalizeToolResultId(afterToolCallEvent.result, toolUseBlock.toolUseId)
@@ -143,7 +143,7 @@ export abstract class ToolExecutor {
       })
       yield afterToolCallEvent
 
-      if (afterToolCallEvent.retry) {
+      if (this._shouldRetry(options.agent, afterToolCallEvent)) {
         continue
       }
 
@@ -151,6 +151,10 @@ export abstract class ToolExecutor {
       // observe the same value.
       return this._normalizeToolResultId(afterToolCallEvent.result, toolUseBlock.toolUseId)
     }
+  }
+
+  private _shouldRetry(agent: Agent, afterToolCallEvent: AfterToolCallEvent): boolean {
+    return afterToolCallEvent.retry === true && !agent.cancelSignal.aborted
   }
 
   private _normalizeToolResultId(result: ToolResultBlock, toolUseId: string): ToolResultBlock {
