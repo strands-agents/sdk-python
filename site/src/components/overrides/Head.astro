@@ -8,6 +8,7 @@ import { getCollection } from 'astro:content'
 import SiteScripts from '../SiteScripts.astro'
 import Analytics from '../Analytics.astro'
 import { baseSchemas } from '../../util/structured-data'
+import { getDocsIds } from '../../util/docs-ids'
 import { relatedUserGuideFor } from '../../util/related-docs'
 import { resolveLanguage, sourceLinkUrl } from '../../util/source-links'
 import type { SourceLink } from '../../content.config'
@@ -18,6 +19,13 @@ const route = Astro.locals.starlightRoute
 // Get base path for favicon
 const base = import.meta.env.BASE_URL || '/'
 const faviconHref = base.endsWith('/') ? `${base}favicon.svg` : `${base}/favicon.svg`
+
+// Raw markdown twin served by src/pages/[...slug]/index.md.ts — one endpoint per docs
+// collection entry, at `/{entry.id}/index.md`. Only advertise it for routes backed by a
+// docs entry (blog/changelog pages flow through Starlight with synthetic entries).
+const docIds = await getDocsIds()
+const baseNoSlash = base.replace(/\/$/, '')
+const markdownHref = docIds.has(route.entry.id) ? `${baseNoSlash}/${route.entry.id}/index.md` : null
 
 // Build breadcrumb list from URL path
 const siteUrl = Astro.site?.origin || 'https://strandsagents.com'
@@ -125,6 +133,9 @@ const structuredData = {
 <!-- Favicon - uses logo-auto.svg which adapts to light/dark mode via prefers-color-scheme -->
 <link rel="icon" type="image/svg+xml" href={faviconHref} />
 
+<!-- Raw markdown twin of this page, for LLMs and tooling -->
+{markdownHref && <link rel="alternate" type="text/markdown" href={markdownHref} />}
+
 <!-- AWS Shortbread cookie consent -->
 <SiteScripts />
 
@@ -135,48 +146,53 @@ const structuredData = {
 <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
 
 <script>
-  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+  // Mermaid is ~2MB from the CDN, so only load it on pages that actually have a diagram
+  if (document.querySelector('pre[data-language="mermaid"]')) {
+    const { default: mermaid } = await import(
+      /* @vite-ignore */ 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+    )
 
-  // Transform Expressive Code mermaid blocks into mermaid.js format
-  document.querySelectorAll('pre[data-language="mermaid"]').forEach((pre) => {
-    const diagram = [...pre.querySelectorAll('code > .ec-line')].map((it) => it.textContent).join('\n')
-    const div = document.createElement('pre')
-    div.className = 'mermaid'
-    div.textContent = diagram
-    pre.replaceWith(div)
-  })
+    // Transform Expressive Code mermaid blocks into mermaid.js format
+    document.querySelectorAll('pre[data-language="mermaid"]').forEach((pre) => {
+      const diagram = [...pre.querySelectorAll('code > .ec-line')].map((it) => it.textContent).join('\n')
+      const div = document.createElement('pre')
+      div.className = 'mermaid'
+      div.textContent = diagram
+      pre.replaceWith(div)
+    })
 
-  const isDark = document.documentElement.dataset.theme === 'dark'
-  mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'neutral' })
+    const isDark = document.documentElement.dataset.theme === 'dark'
+    mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'neutral' })
 
-  // Only render diagrams in visible panels; defer hidden ones until shown
-  const hiddenDiagrams = new Set(
-    document.querySelectorAll('[role="tabpanel"][hidden] .mermaid')
-  )
-  const visibleDiagrams = [...document.querySelectorAll('.mermaid')].filter(
-    (el) => !hiddenDiagrams.has(el)
-  )
-  if (visibleDiagrams.length > 0) {
-    await mermaid.run({ nodes: visibleDiagrams })
-  }
-
-  // Render deferred diagrams once when their panel becomes visible
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && mutation.attributeName === 'hidden') {
-        const panel = mutation.target as Element
-        if (panel.hasAttribute('hidden')) continue
-        const pending = [...panel.querySelectorAll('.mermaid')].filter(
-          (el) => hiddenDiagrams.has(el)
-        )
-        if (pending.length === 0) continue
-        pending.forEach((el) => hiddenDiagrams.delete(el))
-        mermaid.run({ nodes: pending })
-      }
+    // Only render diagrams in visible panels; defer hidden ones until shown
+    const hiddenDiagrams = new Set(
+      document.querySelectorAll('[role="tabpanel"][hidden] .mermaid')
+    )
+    const visibleDiagrams = [...document.querySelectorAll('.mermaid')].filter(
+      (el) => !hiddenDiagrams.has(el)
+    )
+    if (visibleDiagrams.length > 0) {
+      await mermaid.run({ nodes: visibleDiagrams })
     }
-  })
 
-  document.querySelectorAll('[role="tabpanel"]').forEach((panel) => {
-    observer.observe(panel, { attributes: true, attributeFilter: ['hidden'] })
-  })
+    // Render deferred diagrams once when their panel becomes visible
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'hidden') {
+          const panel = mutation.target as Element
+          if (panel.hasAttribute('hidden')) continue
+          const pending = [...panel.querySelectorAll('.mermaid')].filter(
+            (el) => hiddenDiagrams.has(el)
+          )
+          if (pending.length === 0) continue
+          pending.forEach((el) => hiddenDiagrams.delete(el))
+          mermaid.run({ nodes: pending })
+        }
+      }
+    })
+
+    document.querySelectorAll('[role="tabpanel"]').forEach((panel) => {
+      observer.observe(panel, { attributes: true, attributeFilter: ['hidden'] })
+    })
+  }
 </script>

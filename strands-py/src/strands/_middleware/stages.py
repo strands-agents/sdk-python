@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ..agent.agent import Agent
     from ..experimental.bidi import BidiAgent
     from ..interrupt import _InterruptState
+    from ..models.model import Model
     from ..types._events import ModelStopReason, ToolResultEvent, TypedEvent
     from ..types.content import Messages, SystemPrompt
     from ..types.tools import AgentTool, ToolChoice, ToolSpec, ToolUse
@@ -22,9 +23,11 @@ if TYPE_CHECKING:
 class InvokeModelContext:
     """Context passed to InvokeModelStage middleware.
 
-    All collection fields (messages, system_prompt, tool_specs, tool_choice) are
-    defensive copies — middleware cannot accidentally mutate agent state.
-    invocation_state is shared by reference (hooks and tools write to it during streaming).
+    The collection fields (messages, system_prompt, tool_specs, tool_choice) are defensive
+    copies, so middleware cannot accidentally mutate agent state. ``invocation_state`` and
+    ``model`` are instead shared by reference: ``invocation_state`` is the live dict hooks and
+    tools write to during streaming, and ``model`` is the model this call invokes (it starts
+    as ``agent.model``; middleware may replace it per call).
     """
 
     agent: Agent
@@ -33,6 +36,7 @@ class InvokeModelContext:
     tool_specs: list[ToolSpec]
     tool_choice: ToolChoice | None
     invocation_state: dict[str, Any]
+    model: Model
     projected_input_tokens: int | None = None
 
 

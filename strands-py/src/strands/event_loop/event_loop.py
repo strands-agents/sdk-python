@@ -537,6 +537,7 @@ async def _handle_model_execution(
                 tool_specs=copy.deepcopy(tool_specs),
                 tool_choice=copy.deepcopy(structured_output_context.tool_choice),
                 invocation_state=invocation_state,
+                model=agent.model,
                 projected_input_tokens=projected_input_tokens,
             )
 
@@ -559,8 +560,7 @@ async def _handle_model_execution(
 
             if last_event is None:
                 raise RuntimeError(
-                    "Middleware chain did not yield a result event. "
-                    "Ensure middleware forwards events from next()."
+                    "Middleware chain did not yield a result event. Ensure middleware forwards events from next()."
                 )
 
             # Write the post-stream model state back to the agent. Skipped on error
@@ -663,7 +663,7 @@ def _make_invoke_model_terminal(
     async def terminal(ctx: InvokeModelContext) -> AsyncGenerator[Any, None]:
         system_prompt_str, system_prompt_content = split_system_prompt(ctx.system_prompt)
 
-        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
+        model_id = ctx.model.config.get("model_id") if hasattr(ctx.model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
             messages=ctx.messages,
             parent_span=cycle_span,
@@ -675,7 +675,7 @@ def _make_invoke_model_terminal(
         with trace_api.use_span(model_invoke_span, end_on_exit=False):
             try:
                 async for event in stream_messages(
-                    agent.model,
+                    ctx.model,
                     system_prompt_str,
                     ctx.messages,
                     ctx.tool_specs,
