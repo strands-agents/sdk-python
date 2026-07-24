@@ -40,13 +40,18 @@ export interface ConsolidateConfig {
   /** Which maintenance operations to run. Defaults to all operations. */
   operations?: ConsolidateOperation[]
 
-  /** Maximum subdirectories allowed under `knowledge/`. Defaults to 8. */
+  /**
+   * Maximum subdirectories allowed under the store's namespace. Defaults to 8 — enough to group
+   * knowledge by topic while keeping the tree shallow and navigable, so it never fragments into
+   * many sparse directories.
+   */
   maxDirectories?: number
 
   /**
    * Maximum number of knowledge files allowed as planner input. Defaults to 100.
    *
-   * Bounds the single-call planner input; plan output scales with touched files.
+   * Bounds the single-call planner input; plan output scales with touched files. The default keeps
+   * the whole corpus within a single model context so consolidation can reason over it holistically.
    */
   maxFiles?: number
 
@@ -54,7 +59,18 @@ export interface ConsolidateConfig {
    * Maximum total UTF-8 byte size of all knowledge file contents allowed as planner input.
    * Defaults to 131072 (128 KiB).
    *
-   * Bounds the single-call planner input; plan output scales with touched files.
+   * Bounds the single-call planner input; plan output scales with touched files. The default is a
+   * conservative fraction of a typical context window — large enough for a healthy store, small
+   * enough to keep the single planner call fast and affordable.
    */
   maxInputBytes?: number
+
+  /**
+   * Maximum number of actions a single consolidation plan may contain. Defaults to 1000.
+   *
+   * Bounds the planner *output*: `maxFiles` and `maxInputBytes` cap the input, but the model
+   * could otherwise return an arbitrarily large action list. A plan exceeding this limit is
+   * rejected before any storage mutation.
+   */
+  maxActionsPerPlan?: number
 }

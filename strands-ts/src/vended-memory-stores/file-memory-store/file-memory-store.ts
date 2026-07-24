@@ -182,6 +182,13 @@ export class FileMemoryStore implements MemoryStore {
 
   private readonly _storage: Storage
 
+  /**
+   * Guards against overlapping {@link consolidate} runs on this instance. Set synchronously before
+   * the first `await` and cleared in a `finally`, so a second concurrent call observes it and throws
+   * rather than planning against a stale snapshot and racing on the same keys.
+   */
+  private _consolidating = false
+
   constructor(config: FileMemoryStoreConfig) {
     this.name = config.name
     this.writable = config.writable ?? true
@@ -301,18 +308,54 @@ export class FileMemoryStore implements MemoryStore {
    * code executes it (writes before deletes). On validation failure, one revise-retry is
    * attempted; if the revised plan also fails validation, the method throws.
    *
+   * Only one consolidation may run at a time per store instance. Each run snapshots the store at
+   * the start ({@link _readAllFiles}) and later mutates it, so overlapping runs would plan against
+   * stale snapshots and race on the same keys. A call that starts while another is still in flight
+   * throws immediately rather than corrupting the store.
+   *
    * @param config - Model and operation configuration
+   * @throws Error when a consolidation is already running on this store instance
    * @throws Error when the knowledge store exceeds the file count limit (maxFiles)
    * @throws Error when the knowledge store exceeds the input byte size limit (maxInputBytes)
    * @throws Error when structured output is undefined (model did not return a plan)
+   * @throws Error when the consolidation plan exceeds the action limit (maxActionsPerPlan)
    * @throws Error when the consolidation plan fails validation after retry
+   *
+   * @example
+   * ```typescript
+   * // Run periodically (e.g. from a scheduled job), not on the agent's hot path
+   * await memoryStore.consolidate({
+   *   model,
+   *   operations: ['deduplicate', 'prune'], // omit to run all operations
+   * })
+   * ```
    */
   async consolidate(config: ConsolidateConfig): Promise<void> {
+    // Set synchronously before the first await so a concurrent call cannot slip past the check
+    if (this._consolidating) {
+      throw new Error('A consolidation is already running on this store instance; run consolidation one at a time')
+    }
+    this._consolidating = true
+    try {
+      await this._consolidate(config)
+    } finally {
+      this._consolidating = false
+    }
+  }
+
+  /**
+   * Execute a single consolidation run. Assumes the concurrency guard in {@link consolidate} holds,
+   * so it never overlaps another run on the same instance.
+   *
+   * @param config - Model and operation configuration
+   */
+  private async _consolidate(config: ConsolidateConfig): Promise<void> {
     const operations = config.operations ?? ALL_OPERATIONS
     const maxDirectories = config.maxDirectories ?? 8
 
     const maxFiles = config.maxFiles ?? 100
     const maxInputBytes = config.maxInputBytes ?? 128 * 1024
+    const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
 
     const files = await this._readAllFiles()
     if (files.size === 0) return
@@ -331,7 +374,7 @@ export class FileMemoryStore implements MemoryStore {
       )
     }
 
-    const plan = await this._generatePlan(config, operations, files, maxDirectories)
+    const plan = await this._generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
 
     const deleteErrors = await this._executePlan(plan, files)
     // Record the changelog even on partial failure — writes and some deletes already hit disk,
@@ -371,13 +414,15 @@ export class FileMemoryStore implements MemoryStore {
    * The plan is validated against the guardrails before being returned; if validation fails,
    * one revise-retry is attempted. A returned plan is always guaranteed to have passed validation.
    *
-   * @throws Error when the model returns no structured output, or the plan fails validation after retry
+   * @throws Error when the model returns no structured output, the plan exceeds the action limit,
+   *   or the plan fails validation after retry
    */
   private async _generatePlan(
     config: ConsolidateConfig,
     operations: ConsolidateOperation[],
     files: Map<string, string>,
-    maxDirectories: number
+    maxDirectories: number,
+    maxActionsPerPlan: number
   ): Promise<ConsolidationPlan> {
     const systemPrompt = buildPlannerSystemPrompt(operations)
     const userMessage = buildPlannerUserMessage(files)
@@ -390,14 +435,14 @@ export class FileMemoryStore implements MemoryStore {
     })
 
     const result = await agent.invoke(userMessage)
-    let plan = extractPlan(result)
+    let plan = extractPlan(result, maxActionsPerPlan)
 
     const validationError = validatePlan(plan, files, operations, maxDirectories)
     if (validationError) {
       logger.warn(
         `validation_errors=<${validationError}>, plan=<${JSON.stringify(plan)}> | consolidation plan rejected on initial attempt`
       )
-      plan = await this._revisePlan(agent, plan, validationError, files, operations, maxDirectories)
+      plan = await this._revisePlan(agent, plan, validationError, files, operations, maxDirectories, maxActionsPerPlan)
     }
 
     return plan
@@ -409,7 +454,7 @@ export class FileMemoryStore implements MemoryStore {
    * Only one retry is attempted: if the revised plan also fails validation, this throws rather
    * than looping, so consolidation never runs an unvalidated plan.
    *
-   * @throws Error when the revised plan also fails validation
+   * @throws Error when the revised plan exceeds the action limit, or also fails validation
    */
   private async _revisePlan(
     agent: Agent,
@@ -417,12 +462,13 @@ export class FileMemoryStore implements MemoryStore {
     validationError: string,
     files: Map<string, string>,
     operations: ConsolidateOperation[],
-    maxDirectories: number
+    maxDirectories: number,
+    maxActionsPerPlan: number
   ): Promise<ConsolidationPlan> {
     const reviseResult = await agent.invoke(
       `Your plan was rejected: ${validationError}. Here is the plan you produced:\n\n${JSON.stringify(originalPlan)}\n\nModify ONLY the offending actions to fix the violations above. Keep all other actions unchanged.\n\nRevise your plan to fix this issue.`
     )
-    const revisedPlan = extractPlan(reviseResult)
+    const revisedPlan = extractPlan(reviseResult, maxActionsPerPlan)
 
     const revisedValidationError = validatePlan(revisedPlan, files, operations, maxDirectories)
     if (revisedValidationError) {
@@ -557,9 +603,16 @@ export class FileMemoryStore implements MemoryStore {
     parts.push('')
 
     const entry = parts.join('\n')
-    const existing = await this._storage.read(CONSOLIDATION_CHANGELOG)
-    const content = existing ? decoder.decode(existing) + entry : `# Consolidation Changelog\n${entry}`
-    await this._storage.write(CONSOLIDATION_CHANGELOG, encoder.encode(content))
+    // The changelog is an audit artifact written after the plan's mutations already landed. A
+    // failure to record it must not throw: doing so would mask the real run outcome (a partial
+    // delete failure the caller needs to see, or a fully successful run reported as failed).
+    try {
+      const existing = await this._storage.read(CONSOLIDATION_CHANGELOG)
+      const content = existing ? decoder.decode(existing) + entry : `# Consolidation Changelog\n${entry}`
+      await this._storage.write(CONSOLIDATION_CHANGELOG, encoder.encode(content))
+    } catch (error) {
+      logger.warn(`error=<${error}> | failed to record consolidation changelog, audit log not updated`)
+    }
   }
 }
 
@@ -567,16 +620,25 @@ export class FileMemoryStore implements MemoryStore {
  * Extract and validate the plan from a raw agent result.
  *
  * Runs the untrusted model output through the schema so everything downstream can rely on the
- * plan's shape being correct.
+ * plan's shape being correct, then bounds the action count. The count guard throws rather than
+ * routing into the revise-retry: an oversized plan is an abuse/runaway signal, not a fixable
+ * mistake, and feeding it back to the model would re-incur the same unbounded cost.
  *
  * @throws Error when the result carries no structured output
  * @throws ZodError when the structured output does not match {@link ConsolidationPlanSchema}
+ * @throws Error when the plan's action count exceeds `maxActionsPerPlan`
  */
-function extractPlan(result: { structuredOutput?: unknown }): ConsolidationPlan {
+function extractPlan(result: { structuredOutput?: unknown }, maxActionsPerPlan: number): ConsolidationPlan {
   if (!result.structuredOutput) {
     throw new Error('Model did not return structured output — cannot produce a consolidation plan')
   }
-  return ConsolidationPlanSchema.parse(result.structuredOutput)
+  const plan = ConsolidationPlanSchema.parse(result.structuredOutput)
+  if (plan.actions.length > maxActionsPerPlan) {
+    throw new Error(
+      `Consolidation plan exceeds action limit: ${plan.actions.length} actions (maxActionsPerPlan: ${maxActionsPerPlan})`
+    )
+  }
+  return plan
 }
 
 /**
@@ -625,6 +687,9 @@ function validatePlan(
       violations.push(`Action '${action.action}' is not allowed for operations: ${operations.join(', ')}`)
     }
 
+    // Kept here rather than as a schema `.min(2)` so a too-short merge flows through the same
+    // accumulate-and-revise path as every other guardrail, instead of failing as a raw ZodError
+    // at parse time before the model gets a chance to fix it.
     if (action.action === 'merge' && action.sources.length < 2) {
       violations.push('Merge action requires at least 2 sources')
     }
@@ -832,12 +897,12 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
         break
       case 'deriveInsights':
         directives.push(
-          '- DERIVE INSIGHTS: When multiple files together reveal a higher-level pattern, synthesize them into a new file that captures the insight. Keep or remove originals as appropriate. Use the `merge` action.'
+          '- DERIVE INSIGHTS: When multiple files together reveal a higher-level pattern, synthesize them into a new file that captures the insight. Keep or remove originals as appropriate. Use the `merge` action. Example: files noting "prefers dark theme", "uses a high-contrast editor", and "increased default font size" together support a new file "prefers high-visibility UI settings".'
         )
         break
       case 'prune':
         directives.push(
-          '- PRUNE: Delete files whose content is fully covered by another file or that are no longer relevant. Use the `delete` action.'
+          '- PRUNE: Delete files whose content is fully covered by another file or that are no longer relevant. Use the `delete` action. Example: a note "investigating flaky test X" is stale once another file records "flaky test X fixed"; a one-off "temporarily using staging endpoint" is no longer relevant.'
         )
         break
       case 'reorganize':
@@ -871,8 +936,11 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
  */
 function buildPlannerUserMessage(files: Map<string, string>): string {
   const fileEntries: string[] = []
+  let totalBytes = 0
   for (const [path, content] of files) {
+    totalBytes += encoder.encode(content).byteLength
     fileEntries.push(`### ${path}\n\`\`\`\n${content}\`\`\``)
   }
-  return `Review the following ${files.size} knowledge files and produce a maintenance plan:\n\n${fileEntries.join('\n\n')}`
+  const totalKiB = (totalBytes / 1024).toFixed(1)
+  return `Review the following ${files.size} knowledge files (${totalKiB} KiB total) and produce a maintenance plan:\n\n${fileEntries.join('\n\n')}`
 }

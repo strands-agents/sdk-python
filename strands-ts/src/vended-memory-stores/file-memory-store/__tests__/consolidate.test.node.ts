@@ -47,6 +47,23 @@ describe('FileMemoryStore.consolidate', () => {
       await store.consolidate({ model })
     })
 
+    it('rejects a second consolidate() that overlaps a run in flight', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'OK.' }))
+
+      // The first call runs synchronously up to its first await (setting the guard); the second,
+      // started before the first resolves, observes the guard and rejects.
+      const first = store.consolidate({ model, operations: ['deduplicate'] })
+      const second = store.consolidate({ model, operations: ['deduplicate'] })
+
+      await expect(second).rejects.toThrow('A consolidation is already running on this store instance')
+      await expect(first).resolves.toBeUndefined()
+
+      // The guard clears after the first run, so a later call succeeds
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).resolves.toBeUndefined()
+    })
+
     it('executes a plan with no actions', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
@@ -105,6 +122,35 @@ describe('FileMemoryStore.consolidate', () => {
       // The plan executed successfully across directories in one call
       expect(await storage.read('facts/a.md')).toBeNull()
       expect(await storage.read('ops/b.md')).not.toBeNull()
+    })
+
+    it('warns but does not throw when the changelog write fails on an otherwise successful run', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/b.md', reason: 'prune' }],
+          summary: 'test',
+        })
+      )
+
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      // Fail only the changelog write; the plan's own mutations still land
+      const originalWrite = storage.write.bind(storage)
+      vi.spyOn(storage, 'write').mockImplementation(async (key, data) => {
+        if (key === 'consolidation/changelog.md') throw new Error('disk full')
+        return originalWrite(key, data)
+      })
+
+      // The run succeeds — a lost audit log does not fail consolidation
+      await expect(store.consolidate({ model, operations: ['prune'] })).resolves.toBeUndefined()
+
+      // The delete still executed, and the failure was logged
+      expect(await storage.read('facts/b.md')).toBeNull()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('failed to record consolidation changelog'))
+
+      warnSpy.mockRestore()
     })
 
     it('records the changelog and reports the failure when a delete fails', async () => {
@@ -1251,6 +1297,78 @@ describe('FileMemoryStore.consolidate', () => {
 
       // No maxFiles/maxInputBytes specified — defaults (100 files, 128 KiB) should pass
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).resolves.not.toThrow()
+    })
+  })
+
+  describe('output-size guardrail', () => {
+    it('throws when the plan action count exceeds maxActionsPerPlan', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+      await writeFile(storage, 'facts/c.md', 'Fact C', 'Content C')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'delete', path: 'facts/a.md', reason: 'prune' },
+            { action: 'delete', path: 'facts/b.md', reason: 'prune' },
+            { action: 'delete', path: 'facts/c.md', reason: 'prune' },
+          ],
+          summary: 'oversized plan',
+        })
+      )
+
+      await expect(store.consolidate({ model, operations: ['prune'], maxActionsPerPlan: 2 })).rejects.toThrow(
+        'Consolidation plan exceeds action limit: 3 actions (maxActionsPerPlan: 2)'
+      )
+
+      // Files untouched — the guard fires before any execution
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/b.md')).not.toBeNull()
+      expect(await storage.read('facts/c.md')).not.toBeNull()
+    })
+
+    it('does not attempt a revision when the plan exceeds the action limit', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'delete', path: 'facts/a.md', reason: 'prune' },
+            { action: 'delete', path: 'facts/b.md', reason: 'prune' },
+          ],
+          summary: 'oversized plan',
+        })
+      )
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      await expect(store.consolidate({ model, operations: ['prune'], maxActionsPerPlan: 1 })).rejects.toThrow(
+        /exceeds action limit/
+      )
+
+      // Only the initial plan call was made — an oversized plan is rejected outright, never re-sent
+      expect(streamSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('succeeds at exactly the action limit', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'delete', path: 'facts/a.md', reason: 'prune' },
+            { action: 'delete', path: 'facts/b.md', reason: 'prune' },
+          ],
+          summary: 'at limit',
+        })
+      )
+
+      // maxActionsPerPlan === actions.length → should NOT throw (> is the check, not >=)
+      await expect(store.consolidate({ model, operations: ['prune'], maxActionsPerPlan: 2 })).resolves.not.toThrow()
+
+      expect(await storage.read('facts/a.md')).toBeNull()
+      expect(await storage.read('facts/b.md')).toBeNull()
     })
   })
 })
