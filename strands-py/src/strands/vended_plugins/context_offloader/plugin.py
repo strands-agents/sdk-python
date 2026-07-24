@@ -279,8 +279,8 @@ class ContextOffloader(Plugin):
             storage = self._sandboxable_storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
         elif not _is_offloader_storage(self._storage):
             storage = _NamespacedStorage(
-                self._storage,
-                f"{agent.session_id}/scopes/agent/{agent.agent_id}",  # type: ignore[arg-type]
+                self._storage,  # type: ignore[arg-type]
+                f"{agent.session_id}/scopes/agent/{agent.agent_id}",
             )
         else:
             return self._storage

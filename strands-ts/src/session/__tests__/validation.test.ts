@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateIdentifier, validateUuidV7 } from '../validation.js'
+import { duplicateAgentIdMessage, validateIdentifier, validateUuidV7 } from '../validation.js'
 
 describe('validateIdentifier', () => {
   describe('when identifier is valid', () => {
@@ -22,6 +22,15 @@ describe('validateIdentifier', () => {
         "Identifier 'invalid\\id' can only contain lowercase letters, numbers, hyphens, and underscores"
       )
     })
+  })
+})
+
+describe('duplicateAgentIdMessage', () => {
+  it('formats the error message with agent and session ids', () => {
+    const message = duplicateAgentIdMessage('my-agent', 'my-session')
+    expect(message).toBe(
+      'agent_id=<my-agent>, session_id=<my-session> | an agent with this id already exists in this session'
+    )
   })
 })
 

@@ -34,6 +34,28 @@ describe('S3Storage', () => {
     it('accepts just a bucket name', () => {
       expect(() => new S3Storage('my-bucket')).not.toThrow()
     })
+
+    it('defaults prefix to strands/', async () => {
+      mockSend.mockResolvedValue({})
+      const storage = new S3Storage('my-bucket')
+      await storage.write('key', new Uint8Array([1]))
+      expect(mockPutObjectCommand).toHaveBeenCalledWith({
+        Bucket: 'my-bucket',
+        Key: 'strands/key',
+        Body: new Uint8Array([1]),
+      })
+    })
+
+    it('uses empty prefix when prefix is empty string', async () => {
+      mockSend.mockResolvedValue({})
+      const storage = new S3Storage('my-bucket', { prefix: '' })
+      await storage.write('key', new Uint8Array([1]))
+      expect(mockPutObjectCommand).toHaveBeenCalledWith({
+        Bucket: 'my-bucket',
+        Key: 'key',
+        Body: new Uint8Array([1]),
+      })
+    })
   })
 
   describe('write', () => {
