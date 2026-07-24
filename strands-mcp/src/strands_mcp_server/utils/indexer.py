@@ -13,6 +13,35 @@ _MD_INLINE_CODE = re.compile(r"`([^`]+)`")
 _MD_LINK_TEXT = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 
 
+def _normalize_token(token: str) -> str:
+    """Normalize common English inflections for search matching."""
+    token = token.lower()
+    if len(token) > 5 and token.endswith("ing"):
+        stem = token[:-3]
+        if len(stem) > 2 and stem[-1] == stem[-2] and stem[-1] not in "aeioulsz":
+            stem = stem[:-1]
+        return stem
+    if len(token) > 4 and token.endswith("ied"):
+        return f"{token[:-3]}y"
+    if len(token) > 4 and token.endswith("ed"):
+        stem = token[:-2]
+        if len(stem) > 2 and stem[-1] == stem[-2] and stem[-1] not in "aeioulsz":
+            stem = stem[:-1]
+        return stem
+    if len(token) > 4 and token.endswith("ies"):
+        return f"{token[:-3]}y"
+    if len(token) > 4 and token.endswith(("sses", "shes", "ches", "xes", "zes")):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+        return token[:-1]
+    return token
+
+
+def _count_token(text: str, token: str) -> int:
+    """Count normalized token occurrences in text."""
+    return sum(_normalize_token(raw_token) == token for raw_token in _TOKEN.findall(text))
+
+
 @dataclass(slots=True)
 class Doc:
     """A single indexed document with display and search metadata.
@@ -106,7 +135,8 @@ class IndexSearch:
 
         haystack = " ".join(part for part in haystack_parts if part)
 
-        for tok in _TOKEN.findall(haystack):
+        for raw_token in _TOKEN.findall(haystack):
+            tok = _normalize_token(raw_token)
             self.doc_indices.setdefault(tok, []).append(idx)
             if tok not in seen:
                 self.doc_frequency[tok] = self.doc_frequency.get(tok, 0) + 1
@@ -164,33 +194,30 @@ class IndexSearch:
                 - Link text matches: 2x weight
                 - Body text: 1x weight (base)
             """
-            content_lower = doc.content.lower()
-            title_lower = doc.index_title.lower()
-
             # Base content frequency
-            content_tf = content_lower.count(token)
+            content_tf = _count_token(doc.content, token)
 
             # Title matches (highest weight)
-            title_tf = title_lower.count(token) * _title_boost_for(doc)
+            title_tf = _count_token(doc.index_title, token) * _title_boost_for(doc)
 
             # Header matches (high weight)
             header_tf = 0
             for header in _MD_HEADER.findall(doc.content):
-                header_tf += header.lower().count(token) * 4
+                header_tf += _count_token(header, token) * 4
 
             # Code block matches (medium weight for tech docs)
             code_tf = 0
             for code in _MD_CODE_BLOCK.findall(doc.content):
-                code_tf += code.lower().count(token) * 2
+                code_tf += _count_token(code, token) * 2
 
             # Link text matches (medium weight)
             link_tf = 0
             for link in _MD_LINK_TEXT.findall(doc.content):
-                link_tf += link.lower().count(token) * 2
+                link_tf += _count_token(link, token) * 2
 
             return float(content_tf + title_tf + header_tf + code_tf + link_tf)
 
-        q_tokens = [t.lower() for t in _TOKEN.findall(query)]
+        q_tokens = [_normalize_token(token) for token in _TOKEN.findall(query)]
         scores: Dict[int, float] = {}
         N = max(len(self.docs), 1)
 
