@@ -57,6 +57,9 @@ def _sanitize_id(raw_id: str) -> str:
 class Storage(Protocol):
     """Backend for storing and retrieving offloaded content blocks.
 
+    .. deprecated::
+        Use :class:`strands.storage.Storage` instead.
+
     Each content block from a tool result is stored individually with its
     content type preserved. The SDK ships three built-in implementations:
     ``InMemoryStorage``, ``FileStorage``, and ``S3Storage``. Implement this
@@ -100,6 +103,9 @@ class Storage(Protocol):
 
 class FileStorage:
     """Store offloaded content as files, on the host filesystem or through a sandbox.
+
+    .. deprecated::
+        Use :class:`strands.storage.LocalFileStorage` instead.
 
     Files are written to the configured artifact directory with unique names.
     File extensions are derived from the content type. A ``.metadata.json``
@@ -280,6 +286,9 @@ class FileStorage:
 class InMemoryStorage:
     """Store offloaded content in memory.
 
+    .. deprecated::
+        Use :class:`strands.storage.InMemoryStorage` instead.
+
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
 
@@ -413,6 +422,9 @@ class InMemoryStorage:
 
 class S3Storage:
     """Store offloaded content in Amazon S3.
+
+    .. deprecated::
+        Use :class:`strands.storage.S3Storage` instead.
 
     Objects are stored with unique keys under the configured prefix.
     Content type is preserved as S3 object metadata.
