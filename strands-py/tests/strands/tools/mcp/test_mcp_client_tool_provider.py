@@ -1,9 +1,11 @@
 """Unit tests for MCPClient ToolProvider functionality."""
 
 import re
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from mcp import ListToolsResult
+from mcp.types import ServerNotification, ToolListChangedNotification
 from mcp.types import Tool as MCPTool
 
 from strands.tools.mcp import MCPClient
@@ -82,6 +84,64 @@ def test_continue_on_error_and_connection_failed_accessors(mock_transport):
 
     lenient_client._connection_failed = True
     assert lenient_client.connection_failed is True
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_notification_schedules_refresh(mock_transport):
+    client = MCPClient(mock_transport)
+
+    with patch.object(client, "_schedule_tools_refresh") as schedule_refresh:
+        await client._handle_error_message(ServerNotification(ToolListChangedNotification()))
+
+    schedule_refresh.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_tools_changed_notifications_are_coalesced(mock_transport):
+    client = MCPClient(mock_transport)
+
+    with (
+        patch("strands.tools.mcp.mcp_client._TOOLS_CHANGED_DEBOUNCE_SECONDS", 0),
+        patch.object(client, "_refresh_tools", new_callable=AsyncMock) as refresh_tools,
+    ):
+        client._schedule_tools_refresh()
+        client._schedule_tools_refresh()
+        client._schedule_tools_refresh()
+        await client._tools_refresh_task
+
+    refresh_tools.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_refresh_tools_reapplies_prefix_filters_and_pagination(mock_transport):
+    client = MCPClient(mock_transport, prefix="remote", tool_filters={"allowed": ["new_tool"]})
+    client._loaded_tools = [create_mock_tool("remote_old_tool", "old_tool")]
+    session = MagicMock()
+    session.list_tools = AsyncMock(
+        side_effect=[
+            ListToolsResult(
+                tools=[
+                    MCPTool(name="new_tool", inputSchema={"type": "object"}),
+                    MCPTool(name="filtered_tool", inputSchema={"type": "object"}),
+                ],
+                nextCursor="next",
+            ),
+            ListToolsResult(tools=[]),
+        ]
+    )
+    client._background_thread_session = session
+    callback = MagicMock()
+    client._tools_changed_callbacks["agent"] = callback
+
+    await client._refresh_tools()
+
+    assert [tool.tool_name for tool in client._loaded_tools] == ["remote_new_tool"]
+    assert session.list_tools.await_args_list[0].kwargs == {"cursor": None}
+    assert session.list_tools.await_args_list[1].kwargs == {"cursor": "next"}
+    callback.assert_called_once()
+    tru_old_names, tru_new_tools = callback.call_args.args
+    assert tru_old_names == ["remote_old_tool"]
+    assert [tool.tool_name for tool in tru_new_tools] == ["remote_new_tool"]
 
 
 @pytest.mark.asyncio

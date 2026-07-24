@@ -1,7 +1,7 @@
 """Tool provider interface."""
 
 from abc import ABC, abstractmethod
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -51,3 +51,18 @@ class ToolProvider(ABC):
             **kwargs: Additional arguments for future compatibility.
         """
         pass
+
+    def set_tools_changed_callback(
+        self,
+        consumer_id: Any,
+        callback: Callable[[list[str], Sequence["AgentTool"]], None],
+    ) -> None:
+        """Set a callback for replacing tools when this provider's catalog changes.
+
+        Providers with a static catalog can keep the default no-op implementation.
+
+        Args:
+            consumer_id: Unique identifier for the consumer.
+            callback: Function receiving old tool names and the provider's refreshed tools.
+        """
+        return None

@@ -100,6 +100,12 @@ Tools can also be listed explicitly if needed:
 </Tab>
 </Tabs>
 
+### Dynamic Tool Lists
+
+When an MCP client is passed directly to an agent, both SDKs listen for the server's tool-list change notifications. Notifications are debounced, the complete tool list is fetched again, and the agent's registry is updated before its next invocation. Configured Python tool filters and name prefixes are reapplied during every refresh.
+
+Tools obtained by calling `list_tools_sync()` or `listTools()` and then passed to an agent are a snapshot. Pass the client itself to the agent when runtime tool-list updates should be applied automatically.
+
 ## Transport Options
 
 Both Python and TypeScript support multiple transport mechanisms for connecting to MCP servers.

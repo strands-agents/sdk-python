@@ -131,6 +131,7 @@ class ToolRegistry:
                 elif isinstance(tool, ToolProvider):
                     self._tool_providers.append(tool)
                     tool.add_consumer(self._registry_id)
+                    tool.set_tools_changed_callback(self._registry_id, self._replace_provider_tools)
 
                     async def get_tools() -> Sequence[AgentTool]:
                         return await tool.load_tools()
@@ -157,6 +158,25 @@ class ToolRegistry:
         for tool in tools:
             add_tool(tool)
         return tool_names
+
+    def _replace_provider_tools(self, old_tool_names: list[str], new_tools: Sequence[AgentTool]) -> None:
+        """Replace a provider's registered tools after its remote catalog changes."""
+        updated_registry = self.registry.copy()
+        updated_dynamic_tools = self.dynamic_tools.copy()
+
+        for tool_name in old_tool_names:
+            updated_registry.pop(tool_name, None)
+            updated_dynamic_tools.pop(tool_name, None)
+
+        for new_tool in new_tools:
+            updated_registry[new_tool.tool_name] = new_tool
+            if new_tool.is_dynamic:
+                updated_dynamic_tools[new_tool.tool_name] = new_tool
+            else:
+                updated_dynamic_tools.pop(new_tool.tool_name, None)
+
+        self.registry = updated_registry
+        self.dynamic_tools = updated_dynamic_tools
 
     def load_tool_from_filepath(self, tool_name: str, tool_path: str) -> None:
         """DEPRECATED: Load a tool from a file path.

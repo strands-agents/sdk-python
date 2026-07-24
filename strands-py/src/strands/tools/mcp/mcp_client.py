@@ -43,7 +43,9 @@ from mcp.types import (
     ListResourcesResult,
     ListResourceTemplatesResult,
     ReadResourceResult,
+    ServerNotification,
     TextResourceContents,
+    ToolListChangedNotification,
 )
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
@@ -136,6 +138,8 @@ _NON_FATAL_ERROR_PATTERNS = [
     # See: https://github.com/modelcontextprotocol/python-sdk/blob/c51936f61f35a15f0b1f8fb6887963e5baee1506/src/mcp/shared/session.py#L421
     "unknown request id",
 ]
+
+_TOOLS_CHANGED_DEBOUNCE_SECONDS = 0.3
 
 
 class MCPClient(ToolProvider):
@@ -274,6 +278,9 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self.server_instructions: str | None = None
         self._consumers: set[Any] = set()
+        self._tools_changed_callbacks: dict[Any, Callable[[list[str], Sequence[AgentTool]], None]] = {}
+        self._tools_change_generation = 0
+        self._tools_refresh_task: asyncio.Task[None] | None = None
 
         # Task support configuration and caching
         self._tasks_config = tasks_config
@@ -440,6 +447,14 @@ class MCPClient(ToolProvider):
         self._consumers.add(consumer_id)
         logger.debug("added provider consumer, count=%d", len(self._consumers))
 
+    def set_tools_changed_callback(
+        self,
+        consumer_id: Any,
+        callback: Callable[[list[str], Sequence[AgentTool]], None],
+    ) -> None:
+        """Register a consumer callback for MCP tool-list changes."""
+        self._tools_changed_callbacks[consumer_id] = callback
+
     def remove_consumer(self, consumer_id: Any, **kwargs: Any) -> None:
         """Remove a consumer from this tool provider.
 
@@ -450,6 +465,7 @@ class MCPClient(ToolProvider):
         Uses existing synchronous stop() method for safe cleanup.
         """
         self._consumers.discard(consumer_id)
+        self._tools_changed_callbacks.pop(consumer_id, None)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))
 
         # A swallowed continue_on_error failure leaves _tool_provider_started False but still needs
@@ -538,6 +554,9 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self._connection_failed = False
         self._consumers = set()
+        self._tools_changed_callbacks = {}
+        self._tools_change_generation = 0
+        self._tools_refresh_task = None
         self._server_task_capable = None
         self._tool_task_support_cache = {}
 
@@ -580,6 +599,15 @@ class MCPClient(ToolProvider):
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
+        return self._adapt_tools_response(list_tools_response, effective_prefix, effective_filters)
+
+    def _adapt_tools_response(
+        self,
+        list_tools_response: ListToolsResult,
+        prefix: str | None,
+        tool_filters: ToolFilters | None,
+    ) -> PaginatedList[MCPAgentTool]:
+        """Adapt one MCP tool-list page and apply configured naming and filtering."""
         mcp_tools = []
         for tool in list_tools_response.tools:
             if self._is_tasks_enabled():
@@ -590,19 +618,66 @@ class MCPClient(ToolProvider):
                 self._tool_task_support_cache[tool.name] = task_support or "forbidden"
 
             # Apply prefix if specified
-            if effective_prefix:
-                prefixed_name = f"{effective_prefix}_{tool.name}"
+            if prefix:
+                prefixed_name = f"{prefix}_{tool.name}"
                 mcp_tool = MCPAgentTool(tool, self, name_override=prefixed_name)
                 logger.debug("tool_rename=<%s->%s> | renamed tool", tool.name, prefixed_name)
             else:
                 mcp_tool = MCPAgentTool(tool, self)
 
             # Apply filters if specified
-            if self._should_include_tool_with_filters(mcp_tool, effective_filters):
+            if self._should_include_tool_with_filters(mcp_tool, tool_filters):
                 mcp_tools.append(mcp_tool)
 
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
+
+    async def _refresh_tools(self) -> None:
+        """Refresh cached provider tools on the MCP client's background event loop."""
+        session = cast(ClientSession, self._background_thread_session)
+        old_tool_names = [tool.tool_name for tool in self._loaded_tools or []]
+        refreshed_tools: list[MCPAgentTool] = []
+        pagination_token = None
+
+        if self._is_tasks_enabled():
+            self._tool_task_support_cache.clear()
+
+        while True:
+            response = await session.list_tools(cursor=pagination_token)
+            page = self._adapt_tools_response(response, self._prefix, self._tool_filters)
+            refreshed_tools.extend(page)
+            pagination_token = page.pagination_token
+            if pagination_token is None:
+                break
+
+        self._loaded_tools = refreshed_tools
+        for callback in list(self._tools_changed_callbacks.values()):
+            try:
+                callback(old_tool_names, refreshed_tools)
+            except Exception as error:
+                logger.warning("error=<%s> | MCP tools-changed callback failed", error, exc_info=True)
+
+    def _schedule_tools_refresh(self) -> None:
+        """Coalesce tool-list notifications into a debounced refresh task."""
+        self._tools_change_generation += 1
+        if self._tools_refresh_task is None or self._tools_refresh_task.done():
+            self._tools_refresh_task = asyncio.create_task(self._run_tools_refreshes())
+
+    async def _run_tools_refreshes(self) -> None:
+        """Run debounced refreshes until no newer notification is pending."""
+        while True:
+            generation = self._tools_change_generation
+            await asyncio.sleep(_TOOLS_CHANGED_DEBOUNCE_SECONDS)
+            if generation != self._tools_change_generation:
+                continue
+
+            try:
+                await self._refresh_tools()
+            except Exception as error:
+                logger.warning("error=<%s> | failed to refresh MCP tools after list-changed notification", error)
+
+            if generation == self._tools_change_generation:
+                return
 
     def list_prompts_sync(self, pagination_token: str | None = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
@@ -992,6 +1067,10 @@ class MCPClient(ToolProvider):
                     # Thread is not blocked as this a future
                     await self._close_future
 
+                    if self._tools_refresh_task is not None and not self._tools_refresh_task.done():
+                        self._tools_refresh_task.cancel()
+                        await asyncio.gather(self._tools_refresh_task, return_exceptions=True)
+
                     self._log_debug_with_thread("close signal received")
         except Exception as e:
             # If we encounter an exception and the future is still running,
@@ -1012,6 +1091,11 @@ class MCPClient(ToolProvider):
     # Raise an exception if the underlying client raises an exception in a message
     # This happens when the underlying client has an http timeout error
     async def _handle_error_message(self, message: Exception | Any) -> None:
+        if isinstance(message, ServerNotification) and isinstance(message.root, ToolListChangedNotification):
+            self._schedule_tools_refresh()
+            await anyio.lowlevel.checkpoint()
+            return
+
         if isinstance(message, Exception):
             error_msg = str(message).lower()
             if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):

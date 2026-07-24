@@ -379,6 +379,9 @@ def test_tool_registry_process_tools_exception_after_add_consumer():
 
     # Verify add_consumer was called before the failure
     mock_provider.add_consumer.assert_called_once_with(registry._registry_id)
+    mock_provider.set_tools_changed_callback.assert_called_once_with(
+        registry._registry_id, registry._replace_provider_tools
+    )
 
     # Cleanup should still work
     registry.cleanup()
@@ -414,6 +417,22 @@ def test_tool_registry_add_consumer_before_load_tools():
 
     # Verify add_consumer was called with the registry ID
     mock_provider.add_consumer.assert_called_once_with(registry._registry_id)
+    mock_provider.set_tools_changed_callback.assert_called_once_with(
+        registry._registry_id, registry._replace_provider_tools
+    )
+
+
+def test_tool_registry_replaces_provider_tools_as_one_snapshot():
+    registry = ToolRegistry()
+    local_tool = PythonAgentTool(tool_name="local", tool_spec=MagicMock(), tool_func=lambda: None)
+    old_tool = PythonAgentTool(tool_name="old", tool_spec=MagicMock(), tool_func=lambda: None)
+    new_tool = PythonAgentTool(tool_name="new", tool_spec=MagicMock(), tool_func=lambda: None)
+    registry.register_tool(local_tool)
+    registry.register_tool(old_tool)
+
+    registry._replace_provider_tools(["old"], [new_tool])
+
+    assert registry.registry == {"local": local_tool, "new": new_tool}
 
 
 def test_validate_tool_spec_with_anyof_property():
