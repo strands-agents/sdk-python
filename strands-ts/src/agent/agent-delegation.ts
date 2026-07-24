@@ -14,10 +14,10 @@
  * may persist the endTurn placeholder instead of the delegation content.
  */
 
-import type { Plugin } from '../../plugins/plugin.js'
-import { AgentResult } from '../../types/agent.js'
-import type { LocalAgent, AgentStreamEvent } from '../../types/agent.js'
-import type { ContentBlock } from '../../types/messages.js'
+import type { Plugin } from '../plugins/plugin.js'
+import { AgentResult } from '../types/agent.js'
+import type { LocalAgent, AgentStreamEvent } from '../types/agent.js'
+import type { ContentBlock } from '../types/messages.js'
 import {
   AfterToolCallEvent,
   AfterToolsEvent,
@@ -26,18 +26,18 @@ import {
   MessageAddedEvent,
   StreamEvent,
   ToolStreamUpdateEvent,
-} from '../../hooks/events.js'
-import { HookOrder } from '../../hooks/types.js'
-import { AgentStreamStage, ExecuteToolStage } from '../../middleware/index.js'
+} from '../hooks/events.js'
+import { HookOrder } from '../hooks/types.js'
+import { AgentStreamStage, ExecuteToolStage } from '../middleware/index.js'
 import type {
   AgentStreamContext,
   AgentStreamResult,
   ExecuteToolContext,
   ExecuteToolResult,
   MiddlewareNext,
-} from '../../middleware/index.js'
-import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
-import { AgentAsTool } from '../../agent/agent-as-tool.js'
+} from '../middleware/index.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../types/messages.js'
+import { AgentAsTool } from './agent-as-tool.js'
 
 /**
  * Checks whether a tool registered on the agent is a delegation AgentAsTool.

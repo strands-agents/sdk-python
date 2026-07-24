@@ -9,12 +9,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
-import { Agent } from '../../../agent/agent.js'
-import { AfterToolCallEvent, AfterToolsEvent, BeforeToolCallEvent, StreamEvent } from '../../../hooks/events.js'
-import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
-import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
-import { AgentAsTool } from '../../../agent/agent-as-tool.js'
-import { ToolResultBlock, TextBlock } from '../../../types/messages.js'
+import { Agent } from '../agent.js'
+import { AfterToolCallEvent, AfterToolsEvent, BeforeToolCallEvent, StreamEvent } from '../../hooks/events.js'
+import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
+import { createMockTool } from '../../__fixtures__/tool-helpers.js'
+import { AgentAsTool } from '../agent-as-tool.js'
+import { ToolResultBlock, TextBlock } from '../../types/messages.js'
 
 describe('AgentDelegation integration', () => {
   describe('basic routing', () => {
