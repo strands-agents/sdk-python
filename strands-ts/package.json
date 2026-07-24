@@ -72,9 +72,9 @@
       "types": "./dist/src/vended-tools/sleep/index.d.ts",
       "default": "./dist/src/vended-tools/sleep/index.js"
     },
-    "./vended-tools/stop": {
-      "types": "./dist/src/vended-tools/stop/index.d.ts",
-      "default": "./dist/src/vended-tools/stop/index.js"
+    "./experimental/vended-tools/stop": {
+      "types": "./dist/src/experimental/vended-tools/stop/index.d.ts",
+      "default": "./dist/src/experimental/vended-tools/stop/index.js"
     },
     "./a2a": {
       "types": "./dist/src/a2a/index.d.ts",
