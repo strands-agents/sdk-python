@@ -13,7 +13,7 @@ export { StateStore } from './state-store.js'
 
 // Agent types
 export { AgentResult } from './types/agent.js'
-export type { AgentConfig, ToolList, ToolExecutorStrategy } from './agent/agent.js'
+export type { AgentConfig, ConcurrentInvocationMode, ToolList, ToolExecutorStrategy } from './agent/agent.js'
 export type { AgentAsToolOptions } from './agent/agent-as-tool.js'
 export type { ToolCaller, ToolCallerProxy, ToolHandle, DirectToolCallOptions } from './agent/tool-caller.js'
 export type { InvocationState, InvokeArgs, InvokeOptions, LocalAgent } from './types/agent.js'
@@ -33,6 +33,7 @@ export {
   MaxTokensError,
   JsonValidationError,
   ConcurrentInvocationError,
+  IdempotencyAbortedError,
   ModelThrottledError,
   ToolValidationError,
   StructuredOutputError,
