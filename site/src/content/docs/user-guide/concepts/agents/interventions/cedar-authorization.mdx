@@ -124,6 +124,12 @@ Schema validation integrates with the [`cedar-for-agents`](https://github.com/ce
 When using policy generators like [`cedar-agent-policy-builder`](https://github.com/cedar-policy/cedar-for-agents) that produce namespaced Cedar policies (e.g. `Agent::Action::"search"` instead of `Action::"search"`), set the `namespace` option to match:
 
 <Tabs>
+<Tab label="Python">
+
+```python
+--8<-- "user-guide/concepts/agents/interventions/cedar-authorization.py:namespace"
+```
+</Tab>
 <Tab label="TypeScript">
 
 ```typescript
@@ -136,17 +142,13 @@ When using policy generators like [`cedar-agent-policy-builder`](https://github.
 
 When `namespace` is set:
 
-| Cedar concept | Unnamespaced (default) | Namespaced (`namespace: 'Agent'`) |
+| Cedar concept | Unnamespaced (default) | Namespaced (`Agent`) |
 |---|---|---|
 | **Action** | `Action::"search"` | `Agent::Action::"search"` |
 | **Resource** | `Resource::"agent"` | `Agent::Resource::"default"` |
 | **Default principal** | `User::"anonymous"` | `Agent::User::"anonymous"` |
 
 Schema generation also uses the configured namespace, so `tools` and `namespace` work together correctly.
-
-:::note
-The `namespace` option is currently available in the TypeScript SDK only. Python support is planned.
-:::
 
 ## Environment gating
 

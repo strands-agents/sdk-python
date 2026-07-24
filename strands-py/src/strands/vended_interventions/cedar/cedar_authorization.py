@@ -103,6 +103,7 @@ class CedarAuthorization(InterventionHandler):
         tools: list[ToolDefinition] | None = None,
         entities: list[dict[str, Any]] | str | None = None,
         schema: str | None = None,
+        namespace: str | None = None,
         principal: TypeAndId | None = None,
         principal_resolver: PrincipalResolver | None = None,
         context_enricher: ContextEnricher | None = None,
@@ -115,6 +116,7 @@ class CedarAuthorization(InterventionHandler):
             tools: MCP tool definitions for auto schema generation.
             entities: Entity data as inline list, JSON string, or path to .json file.
             schema: Cedar schema as inline text or path to .cedarschema file.
+            namespace: Cedar namespace for actions, resources, and the default principal.
             principal: Static principal identity.
             principal_resolver: Dynamic principal resolver from invocation_state.
             context_enricher: Callback to inject extra fields into context.session.
@@ -122,12 +124,18 @@ class CedarAuthorization(InterventionHandler):
         """
         if principal and principal_resolver:
             raise ValueError("Provide either `principal` or `principal_resolver`, not both")
+        if namespace and _has_quotes(namespace):
+            raise ValueError("Namespace must not contain double quotes")
 
         self._policy_source = policies
         self._entity_source = entities
         self._schema_source = schema
         self._tools = tools
+        self._namespace = namespace
         self._on_error = on_error
+        self._action_type = f"{namespace}::Action" if namespace else "Action"
+        self._resource_type = f"{namespace}::Resource" if namespace else "Resource"
+        self._resource_id = "default" if namespace else "agent"
 
         self._policies = load_policies(policies)
         self._entities = load_entities(entities)
@@ -136,7 +144,7 @@ class CedarAuthorization(InterventionHandler):
         if schema:
             self._schema = load_schema(schema)
         elif tools:
-            self._schema = generate_cedar_schema(tools)
+            self._schema = generate_cedar_schema(tools, namespace)
             schema_is_auto_generated = True
         else:
             self._schema = None
@@ -144,7 +152,10 @@ class CedarAuthorization(InterventionHandler):
         if principal_resolver:
             self._principal: TypeAndId | None = None
         else:
-            self._principal = principal or {"type": "User", "id": "anonymous"}
+            self._principal = principal or {
+                "type": f"{namespace}::User" if namespace else "User",
+                "id": "anonymous",
+            }
 
         self._principal_resolver = principal_resolver
         self._context_enricher = context_enricher
@@ -192,8 +203,8 @@ class CedarAuthorization(InterventionHandler):
 
         request = {
             "principal": f'{principal["type"]}::"{principal["id"]}"',
-            "action": f'Action::"{tool_name}"',
-            "resource": 'Resource::"agent"',
+            "action": f'{self._action_type}::"{tool_name}"',
+            "resource": f'{self._resource_type}::"{self._resource_id}"',
             "context": context,
         }
 
@@ -236,7 +247,7 @@ class CedarAuthorization(InterventionHandler):
         if self._schema_source:
             schema = load_schema(self._schema_source)
         elif self._tools:
-            schema = generate_cedar_schema(self._tools)
+            schema = generate_cedar_schema(self._tools, self._namespace)
             schema_is_auto_generated = True
         else:
             schema = None

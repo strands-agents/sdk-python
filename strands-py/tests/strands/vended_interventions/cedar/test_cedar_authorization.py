@@ -130,6 +130,39 @@ class TestPrincipalResolution:
         assert "Tool name" in result.reason
 
 
+class TestNamespace:
+    def test_namespaces_default_principal_action_and_resource(self):
+        cedar = CedarAuthorization(
+            namespace="Agent",
+            policies=(
+                'permit(principal == Agent::User::"anonymous", '
+                'action == Agent::Action::"search", '
+                'resource == Agent::Resource::"default");'
+            ),
+        )
+
+        result = cedar.before_tool_call(_make_event("search"))
+
+        assert result.type == "proceed"
+
+    def test_namespaced_policy_denies_other_action(self):
+        cedar = CedarAuthorization(
+            namespace="Agent",
+            policies='permit(principal, action == Agent::Action::"search", resource);',
+        )
+
+        result = cedar.before_tool_call(_make_event("delete"))
+
+        assert result.type == "deny"
+
+    def test_namespace_with_quotes_is_rejected(self):
+        with pytest.raises(ValueError, match="Namespace must not contain double quotes"):
+            CedarAuthorization(
+                namespace='Agent"Injected',
+                policies="permit(principal, action, resource);",
+            )
+
+
 class TestRateLimiting:
     def test_call_count_increments(self):
         cedar = CedarAuthorization(
@@ -560,6 +593,27 @@ class TestReload:
         cedar.reload()
 
         assert cedar.before_tool_call(_make_event("delete")).type == "proceed"
+
+    def test_reload_preserves_namespace_for_auto_generated_schema(self, monkeypatch):
+        from strands.vended_interventions.cedar import cedar_authorization
+
+        generated_namespaces = []
+
+        def generate_schema(tools, namespace=None):
+            generated_namespaces.append(namespace)
+            return "generated schema"
+
+        monkeypatch.setattr(cedar_authorization, "generate_cedar_schema", generate_schema)
+        monkeypatch.setattr(cedar_authorization, "_validate_policies", lambda *args: None)
+
+        cedar = CedarAuthorization(
+            namespace="Agent",
+            policies="permit(principal, action, resource);",
+            tools=[{"name": "search", "inputSchema": {"type": "object"}}],
+        )
+        cedar.reload()
+
+        assert generated_namespaces == ["Agent", "Agent"]
 
 
 class TestEntities:
