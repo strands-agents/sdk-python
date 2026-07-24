@@ -23,7 +23,6 @@ import logging
 import re
 import threading
 import time
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -125,11 +124,6 @@ class FileStorage:
             artifact_dir: Directory path where artifact files will be stored.
             sandbox: Optional sandbox to route file I/O through.
         """
-        warnings.warn(
-            "FileStorage is deprecated. Use strands.storage.LocalFileStorage instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         self._artifact_dir = Path(artifact_dir)
         self._sandbox = sandbox
         self._counter: int = 0
@@ -322,11 +316,6 @@ class InMemoryStorage:
         Raises:
             ValueError: If evict_after_turns is not a positive integer.
         """
-        warnings.warn(
-            "InMemoryStorage is deprecated. Use strands.storage.InMemoryStorage instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         if evict_after_turns is not None and evict_after_turns < 1:
             raise ValueError("evict_after_turns must be a positive integer")
 
@@ -465,11 +454,6 @@ class S3Storage:
             boto_client_config: Optional botocore client configuration.
             region_name: AWS region. Used only when boto_session is not provided.
         """
-        warnings.warn(
-            "S3Storage is deprecated. Use strands.storage.S3Storage instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         self._bucket = bucket
         self._prefix = prefix.strip("/")
         if self._prefix:
