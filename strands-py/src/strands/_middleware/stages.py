@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ..agent.agent import Agent
     from ..experimental.bidi import BidiAgent
     from ..interrupt import _InterruptState
+    from ..models.model import Model
     from ..types._events import ModelStopReason, ToolResultEvent, TypedEvent
     from ..types.content import Messages, SystemPrompt
     from ..types.tools import AgentTool, ToolChoice, ToolSpec, ToolUse
@@ -25,6 +26,10 @@ class InvokeModelContext:
     All collection fields (messages, system_prompt, tool_specs, tool_choice) are
     defensive copies — middleware cannot accidentally mutate agent state.
     invocation_state is shared by reference (hooks and tools write to it during streaming).
+
+    ``model`` is the concrete model the terminal will invoke. It defaults to
+    ``agent.model``; middleware (e.g. model routing) may replace it to redirect a single
+    call without mutating shared agent state.
     """
 
     agent: Agent
@@ -33,6 +38,7 @@ class InvokeModelContext:
     tool_specs: list[ToolSpec]
     tool_choice: ToolChoice | None
     invocation_state: dict[str, Any]
+    model: Model
     projected_input_tokens: int | None = None
 
 

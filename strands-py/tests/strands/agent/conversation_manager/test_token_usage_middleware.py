@@ -25,6 +25,7 @@ def make_context(**overrides) -> InvokeModelContext:
         tool_specs=[],
         tool_choice=None,
         invocation_state={},
+        model=Mock(),
     )
     defaults.update(overrides)
     return InvokeModelContext(**defaults)
