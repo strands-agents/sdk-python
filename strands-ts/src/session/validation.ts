@@ -15,6 +15,18 @@ export function validateIdentifier(id: string): string {
 }
 
 /**
+ * Formats the duplicate agent id error message used by both SessionManager and ContextOffloader.
+ *
+ * @param agentId - The conflicting agent identifier
+ * @param sessionId - The session the agent belongs to
+ * @returns The formatted error message
+ * @internal
+ */
+export function duplicateAgentIdMessage(agentId: string, sessionId: string): string {
+  return `agent_id=<${agentId}>, session_id=<${sessionId}> | an agent with this id already exists in this session`
+}
+
+/**
  * Validates that a string is a UUID v7.
  *
  * @param id - The string to validate

@@ -19,11 +19,25 @@ describe('Agent', () => {
       expect(agent.sessionId).toBe('sm-session')
     })
 
-    it('prefers explicit sessionId over SessionManager sessionId', () => {
+    it('throws when explicit sessionId conflicts with SessionManager sessionId', () => {
       const sessionManager = new SessionManager({ sessionId: 'sm-session', storage: new InMemoryStorage() })
-      const agent = new Agent({ model: new MockMessageModel(), sessionId: 'explicit-session', sessionManager })
 
-      expect(agent.sessionId).toBe('explicit-session')
+      expect(
+        () => new Agent({ model: new MockMessageModel(), sessionId: 'different-session', sessionManager })
+      ).toThrow('explicit sessionId conflicts with sessionManager.sessionId')
+    })
+
+    it('accepts explicit sessionId when it matches SessionManager sessionId', () => {
+      const sessionManager = new SessionManager({ sessionId: 'same-session', storage: new InMemoryStorage() })
+      const agent = new Agent({ model: new MockMessageModel(), sessionId: 'same-session', sessionManager })
+
+      expect(agent.sessionId).toBe('same-session')
+    })
+
+    it('rejects invalid sessionId characters', () => {
+      expect(() => new Agent({ model: new MockMessageModel(), sessionId: 'My Session!' })).toThrow(
+        'can only contain lowercase letters, numbers, hyphens, and underscores'
+      )
     })
 
     it('auto-generates a UUID when no sessionId or SessionManager is provided', () => {

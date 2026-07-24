@@ -2,7 +2,7 @@ import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Storage } from '../storage/storage.js'
 import { NAMESPACED, namespace } from '../storage/storage.js'
 import { SnapshotStorageAdapter } from './snapshot-storage-adapter.js'
-import { validateIdentifier } from './validation.js'
+import { duplicateAgentIdMessage, validateIdentifier } from './validation.js'
 import type { SnapshotTriggerCallback } from './types.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
@@ -143,9 +143,7 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
    */
   public registerAgentId(agentId: string): void {
     if (this._registeredAgentIds.has(agentId)) {
-      throw new Error(
-        `agent_id=<${agentId}>, session_id=<${this._sessionId}> | an agent with this id already exists in this session`
-      )
+      throw new Error(duplicateAgentIdMessage(agentId, this._sessionId))
     }
     this._registeredAgentIds.add(agentId)
   }

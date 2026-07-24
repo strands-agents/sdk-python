@@ -13,6 +13,7 @@ import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
 import { FileStorage, InMemoryStorage as LegacyInMemoryStorage, type Storage as OffloaderStorage } from './storage.js'
 import { NAMESPACED, namespace, type Storage } from '../../storage/storage.js'
+import { duplicateAgentIdMessage } from '../../session/validation.js'
 import { isSearchableContent, searchContent } from './search.js'
 
 function isOffloaderStorage(storage: Storage | OffloaderStorage): storage is OffloaderStorage {
@@ -256,6 +257,7 @@ export class ContextOffloader implements Plugin {
     if (this._storage instanceof LegacyInMemoryStorage) {
       this._storage._bind(agent, this._evictAfterCycles)
     }
+    this._registerAgent(agent)
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
 
@@ -292,6 +294,15 @@ export class ContextOffloader implements Plugin {
     return [this._retrievalTool]
   }
 
+  private _registerAgent(agent: LocalAgent): void {
+    if (isOffloaderStorage(this._storage) || this._sandboxableStorage || this._storage instanceof FileStorage) return
+    const compositeKey = `${agent.sessionId}/${agent.id}`
+    if (this._registeredAgentIds.has(compositeKey)) {
+      throw new Error(duplicateAgentIdMessage(agent.id, agent.sessionId))
+    }
+    this._registeredAgentIds.add(compositeKey)
+  }
+
   private _storageForAgent(agent: LocalAgent): Storage | OffloaderStorage {
     let storage = this._storageByAgent.get(agent)
     if (storage) return storage
@@ -301,13 +312,6 @@ export class ContextOffloader implements Plugin {
     } else if (this._storage instanceof FileStorage) {
       storage = (this._storage as FileStorage).forSandbox(agent.sandbox)
     } else if (!isOffloaderStorage(this._storage)) {
-      const compositeKey = `${agent.sessionId}/${agent.id}`
-      if (this._registeredAgentIds.has(compositeKey)) {
-        throw new Error(
-          `agent_id=<${agent.id}>, session_id=<${agent.sessionId}> | an agent with this id already exists in this session`
-        )
-      }
-      this._registeredAgentIds.add(compositeKey)
       storage = namespace(this._storage, `${agent.sessionId}/scopes/agent/${agent.id}`)
     } else {
       return this._storage

@@ -99,6 +99,7 @@ import { v7 as uuidV7 } from 'uuid'
 import { MemoryManager } from '../memory/memory-manager.js'
 import type { MemoryManagerConfig } from '../memory/index.js'
 import { SessionManager } from '../session/session-manager.js'
+import { validateIdentifier } from '../session/validation.js'
 import { Tracer } from '../telemetry/tracer.js'
 import { AgentMetrics, Meter } from '../telemetry/meter.js'
 import type { AttributeValue } from '@opentelemetry/api'
@@ -508,7 +509,15 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.modelState = new StateStore(config?.modelState)
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
-    this.sessionId = config?.sessionId ?? config?.sessionManager?.sessionId ?? uuidV7()
+    this.sessionId = config?.sessionId
+      ? validateIdentifier(config.sessionId)
+      : (config?.sessionManager?.sessionId ?? uuidV7())
+    if (config?.sessionId && config?.sessionManager && config.sessionId !== config.sessionManager.sessionId) {
+      throw new Error(
+        `session_id=<${config.sessionId}>, session_manager_id=<${config.sessionManager.sessionId}> | ` +
+          'explicit sessionId conflicts with sessionManager.sessionId'
+      )
+    }
     if (config?.description !== undefined) this.description = config.description
     this.sessionManager = config?.sessionManager
     this.sessionManager?.registerAgentId(this.id)
