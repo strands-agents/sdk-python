@@ -23,12 +23,11 @@ if TYPE_CHECKING:
 class InvokeModelContext:
     """Context passed to InvokeModelStage middleware.
 
-    All collection fields (messages, system_prompt, tool_specs, tool_choice) are
-    defensive copies — middleware cannot accidentally mutate agent state.
-    invocation_state is shared by reference (hooks and tools write to it during streaming).
-
-    ``model`` is the model this call invokes; it starts as ``agent.model`` and middleware
-    may replace it per call.
+    The collection fields (messages, system_prompt, tool_specs, tool_choice) are defensive
+    copies, so middleware cannot accidentally mutate agent state. ``invocation_state`` and
+    ``model`` are instead shared by reference: ``invocation_state`` is the live dict hooks and
+    tools write to during streaming, and ``model`` is the model this call invokes (it starts
+    as ``agent.model``; middleware may replace it per call).
     """
 
     agent: Agent
