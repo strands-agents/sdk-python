@@ -613,9 +613,7 @@ class TestRetrievalToolSearch:
     async def test_returns_error_for_binary_content(self, plugin, storage, tool_context):
         ref = await storage.store("k1", b"\x89PNG", "image/png")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, pattern="test", tool_context=tool_context
-        )
+        result = await plugin.retrieve_offloaded_content(reference=ref, pattern="test", tool_context=tool_context)
 
         assert "Error: cannot search binary content (image/png)" in result
 
@@ -725,9 +723,7 @@ class TestRetrievalToolSearch:
         content = "\n".join(f"line {i + 1}" for i in range(20))
         ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
 
-        result = await plugin.retrieve_offloaded_content(
-            reference=ref, context_lines=10, tool_context=tool_context
-        )
+        result = await plugin.retrieve_offloaded_content(reference=ref, context_lines=10, tool_context=tool_context)
 
         assert "[Lines 1-10 of 20]" in result
         assert "line 1" in result
@@ -1120,3 +1116,89 @@ class TestUnifiedStorage:
                 preview_tokens=10,
                 evict_after_cycles=-1,
             )
+
+    @pytest.mark.asyncio
+    async def test_storage_scoped_by_session_and_agent(self, unified_storage):
+        plugin = ContextOffloader(
+            storage=unified_storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+        )
+        agent = MagicMock()
+        agent.model = MagicMock()
+        agent.model.count_tokens = AsyncMock(side_effect=_heuristic_count_tokens)
+        agent.sandbox = None
+        agent.session_id = "test-session"
+        agent.agent_id = "my-agent"
+        agent.event_loop_metrics.cycle_count = 1
+
+        event = _make_event(agent, "x" * 200, tool_use_id="tool-abc")
+        await plugin._handle_tool_result(event)
+
+        keys = await unified_storage.list("")
+        assert len(keys) == 1
+        assert keys[0] == "offloader/test-session/scopes/agent/my-agent/tool-abc_0"
+
+    def test_duplicate_agent_id_throws(self, unified_storage):
+        plugin = ContextOffloader(
+            storage=unified_storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+        )
+        agent1 = MagicMock()
+        agent1.session_id = "session-1"
+        agent1.agent_id = "agent-a"
+        agent1.sandbox = None
+        agent1.event_loop_metrics.cycle_count = 1
+
+        agent2 = MagicMock()
+        agent2.session_id = "session-1"
+        agent2.agent_id = "agent-a"
+        agent2.sandbox = None
+        agent2.event_loop_metrics.cycle_count = 1
+
+        plugin.init_agent(agent1)
+        with pytest.raises(ValueError, match="an agent with this id already exists in this session"):
+            plugin.init_agent(agent2)
+
+    def test_allows_same_agent_id_different_sessions(self, unified_storage):
+        plugin = ContextOffloader(
+            storage=unified_storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+        )
+        agent1 = MagicMock()
+        agent1.session_id = "session-1"
+        agent1.agent_id = "agent-a"
+        agent1.sandbox = None
+        agent1.event_loop_metrics.cycle_count = 1
+
+        agent2 = MagicMock()
+        agent2.session_id = "session-2"
+        agent2.agent_id = "agent-a"
+        agent2.sandbox = None
+        agent2.event_loop_metrics.cycle_count = 1
+
+        plugin.init_agent(agent1)
+        plugin.init_agent(agent2)
+
+    def test_duplicate_check_skipped_for_legacy_storage(self):
+        legacy_storage = MagicMock(spec=["store", "retrieve"])
+        plugin = ContextOffloader(
+            storage=legacy_storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+        )
+        agent1 = MagicMock()
+        agent1.session_id = "session-1"
+        agent1.agent_id = "agent-a"
+        agent1.sandbox = None
+
+        agent2 = MagicMock()
+        agent2.session_id = "session-1"
+        agent2.agent_id = "agent-a"
+        agent2.sandbox = None
+
+        plugin.init_agent(agent1)
+        plugin.init_agent(agent2)

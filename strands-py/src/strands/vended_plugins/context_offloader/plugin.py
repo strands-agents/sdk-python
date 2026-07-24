@@ -223,6 +223,11 @@ class ContextOffloader(Plugin):
 
         self._raw_storage: Storage | _LegacyStorage = storage
         self._storage: Storage | _LegacyStorage = self._resolve_storage(storage)
+        self._sandboxable_storage: Storage | _LegacyStorage | None = (
+            self._storage
+            if not _is_offloader_storage(self._storage) and hasattr(self._raw_storage, "for_sandbox")
+            else None
+        )
         self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage | _LegacyStorage] = weakref.WeakKeyDictionary()
         self._registered_agent_ids: set[str] = set()
         self._max_result_tokens = max_result_tokens
@@ -243,7 +248,7 @@ class ContextOffloader(Plugin):
 
     def _register_agent(self, agent: Agent) -> None:
         """Check for duplicate agent id within the same session when using unified Storage."""
-        if _is_offloader_storage(self._storage) or hasattr(self._storage, "for_sandbox"):
+        if _is_offloader_storage(self._storage) or self._sandboxable_storage:
             return
         composite_key = f"{agent.session_id}/{agent.agent_id}"
         if composite_key in self._registered_agent_ids:
@@ -270,11 +275,12 @@ class ContextOffloader(Plugin):
         if storage is not None:
             return storage
 
-        if hasattr(self._storage, "for_sandbox"):
-            storage = self._storage.for_sandbox(agent.sandbox)
+        if self._sandboxable_storage:
+            storage = self._sandboxable_storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
         elif not _is_offloader_storage(self._storage):
             storage = _NamespacedStorage(
-                self._storage, f"{agent.session_id}/scopes/agent/{agent.agent_id}"  # type: ignore[arg-type]
+                self._storage,
+                f"{agent.session_id}/scopes/agent/{agent.agent_id}",  # type: ignore[arg-type]
             )
         else:
             return self._storage
