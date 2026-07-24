@@ -62,6 +62,7 @@ from ..interventions.registry import InterventionRegistry
 from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
+from ..models.routing import ModelRouter
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..sandbox import Sandbox
@@ -160,7 +161,7 @@ class Agent(AgentBase):
 
     def __init__(
         self,
-        model: Model | str | None = None,
+        model: Model | str | ModelRouter | None = None,
         messages: Messages | None = None,
         tools: list[Union[str, dict[str, str], "ToolProvider", Any]] | None = None,
         system_prompt: str | list[SystemContentBlock] | None = None,
@@ -192,7 +193,8 @@ class Agent(AgentBase):
 
         Args:
             model: Provider for running inference or a string representing the model-id for Bedrock to use.
-                Defaults to strands.models.BedrockModel if None.
+                May also be a ``ModelRouter``, whose first candidate is resolved to a concrete model and
+                exposed as ``agent.model``. Defaults to strands.models.BedrockModel if None.
             messages: List of initial messages to pre-load into the conversation.
                 Defaults to an empty list if None.
             tools: List of tools to make available to the agent.
@@ -291,7 +293,16 @@ class Agent(AgentBase):
         Raises:
             ValueError: If agent id contains path separators.
         """
-        self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
+        self._model_router: ModelRouter | None = None
+        if isinstance(model, ModelRouter):
+            self._model_router = model
+            self.model = model.default_model
+        elif not model:
+            self.model = BedrockModel()
+        elif isinstance(model, str):
+            self.model = BedrockModel(model_id=model)
+        else:
+            self.model = model
         self.messages = messages if messages is not None else []
         if sandbox is not None and not isinstance(sandbox, Sandbox):
             raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
@@ -477,6 +488,9 @@ class Agent(AgentBase):
 
         # Register built-in plugins
         self._plugin_registry.add_and_init(_ModelPlugin())
+
+        if self._model_router is not None:
+            self._plugin_registry.add_and_init(self._model_router)
 
         plugins_to_register = resolved_plugins if resolved_plugins is not None else plugins
         if plugins_to_register:
