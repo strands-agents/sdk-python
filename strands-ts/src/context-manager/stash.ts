@@ -1,5 +1,5 @@
 /**
- * L1 transcript writer: writes messages to storage on arrival.
+ * L1 stash: writes messages to durable storage on arrival.
  *
  * @internal
  */
@@ -17,12 +17,12 @@ const MANIFEST_KEY = '_manifest'
  * Each message is written as a JSON blob keyed by its trackingId.
  * A manifest file tracks the order and metadata of stored messages.
  *
- * The transcript is scoped to a storage namespace — callers are responsible
+ * The stash is scoped to a storage namespace — callers are responsible
  * for providing a pre-scoped storage view.
  *
  * @internal
  */
-export class Transcript {
+export class Stash {
   private readonly _storage: Storage
   private _manifest: Manifest | undefined
 

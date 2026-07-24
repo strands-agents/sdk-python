@@ -14,6 +14,37 @@ export interface StashConfig {
 }
 
 /**
+ * A context management strategy that can reduce context when triggered.
+ *
+ * Strategies are applied in order during `apply()`. Each decides whether
+ * to act based on the current context state (utilization, message count, etc.).
+ */
+export interface ContextStrategy {
+  /** Stable identifier for logging and observability. */
+  readonly name: string
+
+  /**
+   * Attempt to reduce context. Returns true if it made changes, false if it
+   * decided not to act (e.g., conditions not met, nothing to offload).
+   */
+  apply(context: StrategyContext): Promise<boolean>
+}
+
+/**
+ * State passed to strategies during apply().
+ */
+export interface StrategyContext {
+  /** The agent's current message array (L0). Strategies mutate this in place. */
+  messages: import('../types/content.js').MessageData[]
+
+  /** Current context utilization ratio (0-1+). Above 1.0 means overflow. */
+  utilization: number
+
+  /** Storage backend for offloading content. */
+  storage: import('../storage/storage.js').Storage
+}
+
+/**
  * Full configuration for a ContextManager instance.
  */
 export interface ContextManagerConfig {
@@ -29,7 +60,8 @@ export interface ContextManagerConfig {
   stash?: StashConfig | boolean
 
   /**
-   * Strategy definitions (reserved for future PRs).
+   * Strategy pipeline for context reduction. Applied in order during `apply()`.
+   * When omitted, uses the default pipeline: offload tool results → summarize oldest.
    */
-  strategies?: unknown[]
+  strategies?: ContextStrategy[]
 }

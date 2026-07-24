@@ -2,7 +2,7 @@
  * Context management for Strands agents.
  *
  * Provides the ContextManager class — a first-class agent component that manages
- * the L1 durable transcript and (in later PRs) strategy-driven context offloading.
+ * the L1 stash and strategy-driven context reduction.
  *
  * @example
  * ```typescript
@@ -16,4 +16,4 @@
  */
 
 export { ContextManager } from './context-manager.js'
-export type { ContextManagerConfig, StashConfig } from './types.js'
+export type { ContextManagerConfig, ContextStrategy, StashConfig, StrategyContext } from './types.js'

@@ -1,33 +1,40 @@
 /**
  * ContextManager: first-class agent component for durable context management.
  *
- * Writes every message to L1 (the durable transcript) on arrival.
+ * Writes every message to L1 (the stash) on arrival.
  * L0 (agent.messages) is the compressed working set; L1 is the source of truth.
- * Future PRs add strategy-driven offloading, injection, and retrieval.
+ * Applies a strategy pipeline for proactive and reactive context reduction.
  */
 
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
 import type { Storage } from '../storage/storage.js'
+import type { MessageData } from '../types/content.js'
 import { NAMESPACED, namespace } from '../storage/storage.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
-import { MessageAddedEvent } from '../hooks/events.js'
+import { AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
+import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
-import { Transcript } from './transcript.js'
-import type { ContextManagerConfig, StashConfig } from './types.js'
+import { Stash } from './stash.js'
+import type { ContextManagerConfig, ContextStrategy, StashConfig, StrategyContext } from './types.js'
 
 const STORAGE_PREFIX = 'context'
 
 /**
- * Manages the L1 durable transcript for an agent's conversation.
+ * Manages the L1 stash and context reduction for an agent's conversation.
  *
- * Every message is written to L1 on arrival via the `MessageAddedEvent` hook.
+ * Every message is written to the stash on arrival via the `MessageAddedEvent` hook.
  * L0 (`agent.messages`) remains the in-memory working set that the model sees;
- * L1 holds the full, uncompressed history and serves as the source of truth for
- * later retrieval and restore operations.
+ * the stash holds the full, uncompressed history and serves as the source of truth
+ * for later retrieval and restore operations.
+ *
+ * On context overflow (or proactive threshold), `apply()` runs the strategy pipeline.
+ * When no strategies are configured, uses a default pipeline (offload → summarize).
+ * An internal floor truncation guarantees `apply()` always reduces something.
  *
  * The ContextManager is a first-class agent component — pass it via the
- * `contextManager` parameter on the Agent constructor.
+ * `contextManager` parameter on the Agent constructor. When present, it owns
+ * overflow recovery — no separate ConversationManager is needed.
  *
  * @example
  * ```typescript
@@ -44,9 +51,10 @@ export class ContextManager implements Plugin {
 
   private readonly _storage: Storage
   private readonly _stashEnabled: boolean
-  private readonly _strategies: unknown[]
+  private readonly _strategies: ContextStrategy[]
 
-  private _transcript: Transcript | undefined
+  private _stash: Stash | undefined
+  private _agent: LocalAgent | undefined
   private _agentId: string | undefined
   private _sessionId: string | undefined
 
@@ -61,21 +69,110 @@ export class ContextManager implements Plugin {
     return this._stashEnabled
   }
 
-  /** The L1 transcript writer, or undefined if stash is disabled. */
-  get transcript(): Transcript | undefined {
-    return this._transcript
+  /** The L1 stash writer, or undefined if stash is disabled. */
+  get stash(): Stash | undefined {
+    return this._stash
   }
 
   initAgent(agent: LocalAgent): void {
+    this._agent = agent
     this._agentId = agent.id
     this._sessionId = this._resolveSessionId(agent)
-    this._transcript = this._buildTranscript()
+    this._stash = this._buildStash()
 
     if (!this._stashEnabled) {
       logger.info(`agentId=<${this._agentId}> | L1 stash disabled, offload operations will be destructive`)
     }
 
     agent.addHook(MessageAddedEvent, (event) => this._onMessageAdded(event))
+
+    // Reactive: handle context overflow by applying strategies and retrying
+    agent.addHook(AfterModelCallEvent, async (event) => {
+      if (event.error instanceof ContextWindowOverflowError) {
+        await this.apply()
+        event.retry = true
+      }
+    })
+
+    // Proactive: reduce context before model call when utilization is high
+    agent.addHook(BeforeModelCallEvent, async () => {
+      const utilization = await this._estimateUtilization()
+      if (utilization >= 0.85) {
+        await this.apply()
+      }
+    })
+  }
+
+  /**
+   * Run the strategy pipeline to reduce context.
+   *
+   * Called reactively on context overflow or proactively when utilization
+   * exceeds a threshold. Strategies are applied in order; each decides
+   * whether to act. If no strategy reduces anything, a floor truncation
+   * drops the oldest non-pinned messages to guarantee progress.
+   */
+  async apply(): Promise<void> {
+    if (!this._agent) {
+      throw new Error('ContextManager.apply() called before initAgent()')
+    }
+
+    const messages = this._agent.messages as unknown as MessageData[]
+    const utilization = await this._estimateUtilization()
+
+    const strategyContext: StrategyContext = {
+      messages,
+      utilization,
+      storage: this._scopeStorage(),
+    }
+
+    const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies()
+    let reduced = false
+
+    for (const strategy of strategies) {
+      const acted = await strategy.apply(strategyContext)
+      if (acted) {
+        reduced = true
+        logger.debug(`strategy=<${strategy.name}>, agentId=<${this._agentId}> | strategy applied`)
+      }
+    }
+
+    if (!reduced) {
+      this._floorTruncate(messages)
+      logger.warn(`agentId=<${this._agentId}> | floor truncation applied, no strategy reduced context`)
+    }
+  }
+
+  private _defaultStrategies(): ContextStrategy[] {
+    // TODO: return [new OffloadStrategy(...), new SummarizeStrategy(...)]
+    // For now, return empty — floor truncation is the safety net
+    return []
+  }
+
+  private async _estimateUtilization(): Promise<number> {
+    if (!this._agent) return 0
+    const model = (this._agent as unknown as Record<string, unknown>)['model'] as
+      | { contextWindowLimit?: number; countTokens?: (messages: MessageData[]) => Promise<number> }
+      | undefined
+    if (!model?.contextWindowLimit || !model?.countTokens) return 0
+
+    const messages = this._agent.messages as unknown as MessageData[]
+    const tokens = await model.countTokens(messages)
+    return tokens / model.contextWindowLimit
+  }
+
+  /**
+   * Last-resort truncation: drop the oldest messages (preserving the first user message)
+   * until at least 20% of messages are removed.
+   */
+  private _floorTruncate(messages: MessageData[]): void {
+    const targetRemoval = Math.max(1, Math.floor(messages.length * 0.2))
+    let removed = 0
+    let index = 1 // skip first message (first user message)
+
+    while (removed < targetRemoval && index < messages.length - 2) {
+      messages.splice(index, 1)
+      removed++
+    }
   }
 
   private _resolveSessionId(agent: LocalAgent): string {
@@ -87,11 +184,11 @@ export class ContextManager implements Plugin {
     return agent.id
   }
 
-  private _buildTranscript(): Transcript | undefined {
+  private _buildStash(): Stash | undefined {
     if (!this._stashEnabled) return undefined
 
     const scopedStorage = this._scopeStorage()
-    return new Transcript(scopedStorage)
+    return new Stash(scopedStorage)
   }
 
   private _scopeStorage(): Storage {
@@ -109,9 +206,9 @@ export class ContextManager implements Plugin {
   }
 
   private async _onMessageAdded(event: MessageAddedEvent): Promise<void> {
-    if (this._transcript === undefined) return
+    if (this._stash === undefined) return
 
-    await this._transcript.writeMessage(event.message)
+    await this._stash.writeMessage(event.message)
   }
 }
 

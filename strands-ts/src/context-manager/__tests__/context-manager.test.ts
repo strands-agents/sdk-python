@@ -63,18 +63,18 @@ describe('ContextManager', () => {
   })
 
   describe('initAgent', () => {
-    it('creates transcript when stash enabled', () => {
+    it('creates stash when stash enabled', () => {
       const cm = new ContextManager()
       const agent = makeMockAgent()
       cm.initAgent(agent)
-      expect(cm.transcript).toBeDefined()
+      expect(cm.stash).toBeDefined()
     })
 
-    it('does not create transcript when stash disabled', () => {
+    it('does not create stash when stash disabled', () => {
       const cm = new ContextManager({ stash: false })
       const agent = makeMockAgent()
       cm.initAgent(agent)
-      expect(cm.transcript).toBeUndefined()
+      expect(cm.stash).toBeUndefined()
     })
 
     it('registers MessageAddedEvent hook', () => {
@@ -109,7 +109,7 @@ describe('ContextManager', () => {
       cm.initAgent(agent)
 
       const message = makeMessage('hello', 'msg-001')
-      await cm.transcript!.writeMessage(message)
+      await cm.stash!.writeMessage(message)
 
       const keys = await storage.list('')
       expect(keys.some((key) => key.includes('context/researcher/scopes/agent/researcher/msg-001'))).toBe(true)
@@ -122,7 +122,7 @@ describe('ContextManager', () => {
       cm.initAgent(agent)
 
       const message = makeMessage('hello', 'msg-002')
-      await cm.transcript!.writeMessage(message)
+      await cm.stash!.writeMessage(message)
 
       const keys = await storage.list('')
       expect(keys.some((key) => key.includes('context/sess-42/scopes/agent/researcher/msg-002'))).toBe(true)
@@ -139,7 +139,7 @@ describe('ContextManager', () => {
       const message = makeMessage('hello world', 'msg-100')
       await invokeTrackedHook(agent, new MessageAddedEvent({ agent, message, invocationState: {} }))
 
-      const manifest = await cm.transcript!.getManifest()
+      const manifest = await cm.stash!.getManifest()
       expect(manifest.has('msg-100')).toBe(true)
     })
 
@@ -153,7 +153,7 @@ describe('ContextManager', () => {
       await invokeTrackedHook(agent, new MessageAddedEvent({ agent, message, invocationState: {} }))
       await invokeTrackedHook(agent, new MessageAddedEvent({ agent, message, invocationState: {} }))
 
-      const manifest = await cm.transcript!.getManifest()
+      const manifest = await cm.stash!.getManifest()
       expect(manifest.entries).toHaveLength(1)
     })
 
@@ -168,7 +168,7 @@ describe('ContextManager', () => {
     })
   })
 
-  describe('transcript read/write', () => {
+  describe('stash read/write', () => {
     it('round-trips a message through storage', async () => {
       const storage = new InMemoryStorage()
       const cm = new ContextManager({ storage })
@@ -176,9 +176,9 @@ describe('ContextManager', () => {
       cm.initAgent(agent)
 
       const message = new Message({ role: 'assistant', content: [new TextBlock('response')], trackingId: 'msg-400' })
-      await cm.transcript!.writeMessage(message)
+      await cm.stash!.writeMessage(message)
 
-      const readBack = await cm.transcript!.readMessage('msg-400')
+      const readBack = await cm.stash!.readMessage('msg-400')
       expect(readBack).not.toBeNull()
       expect(readBack!['role']).toBe('assistant')
       expect(readBack!['trackingId']).toBe('msg-400')
@@ -190,7 +190,7 @@ describe('ContextManager', () => {
       const agent = makeMockAgent()
       cm.initAgent(agent)
 
-      const result = await cm.transcript!.readMessage('nonexistent')
+      const result = await cm.stash!.readMessage('nonexistent')
       expect(result).toBeNull()
     })
 
@@ -203,10 +203,10 @@ describe('ContextManager', () => {
       for (let idx = 0; idx < 5; idx++) {
         const role = idx % 2 === 0 ? 'user' : 'assistant'
         const message = new Message({ role, content: [new TextBlock(`msg ${idx}`)], trackingId: `msg-${idx}` })
-        await cm.transcript!.writeMessage(message)
+        await cm.stash!.writeMessage(message)
       }
 
-      const manifest = await cm.transcript!.getManifest()
+      const manifest = await cm.stash!.getManifest()
       expect(manifest.entries).toHaveLength(5)
       expect(manifest.entries[0]!.trackingId).toBe('msg-0')
       expect(manifest.entries[4]!.trackingId).toBe('msg-4')

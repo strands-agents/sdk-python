@@ -342,14 +342,15 @@ export type AgentConfig = {
  * When "auto", uses SummarizingConversationManager with proactive compression.
  * When "agentic", uses SummarizingConversationManager without proactive compression
  * (the agent manages its context via tools; the context manager is only a reactive safety net).
- * When a ContextManager instance, falls back to the conversationManager or default.
+ * When a ContextManager instance, uses NullConversationManager — the ContextManager owns
+ * overflow recovery via apply().
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
   if (contextManager instanceof ContextManager) {
-    return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
+    return new NullConversationManager()
   }
   if (contextManager === 'agentic') {
     return (
