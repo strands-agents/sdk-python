@@ -33,16 +33,23 @@
   </p>
 </div>
 
-This MCP server provides curated documentation access to your GenAI tools via llms.txt files, enabling AI coding assistants to search and retrieve relevant documentation with intelligent ranking.
+This MCP server provides curated documentation access to your GenAI tools via llms.txt files, enabling AI coding assistants to find pages by title and retrieve their contents.
 
 ## Features
 
-- **Smart Document Search**: TF-IDF based search with Markdown-aware scoring that prioritizes titles, headers, and code blocks
+- **Title-Based Document Search**: Weighted TF-IDF ranking over the curated document titles
 - **Section-Based Browsing**: Browse document structure via table of contents, then fetch only the section you need - more token-efficient than retrieving full pages
 - **Curated Content**: Indexes documentation from llms.txt files with clean, human-readable titles
 - **On-Demand Fetching**: Lazy-loads full document content only when needed for optimal performance
-- **Snippet Generation**: Provides contextual snippets with relevance scoring for quick overview
+- **Snippet Generation**: Hydrates the top-ranked pages to provide contextual previews
 - **Real URL Support**: Works with actual HTTPS URLs while maintaining backward compatibility
+
+### Tool behavior
+
+- `search_docs(query, k)` searches document titles. Use title-like keywords, then call `fetch_doc` to inspect a result's contents.
+- Search scores are unbounded weighted TF-IDF values. They are useful only for ordering results from the same query; they are not probabilities and should not be compared across queries.
+- `search_docs` returns an empty list when no title matches. If a matched page cannot be fetched for its snippet, the result still includes the URL and title.
+- `fetch_doc` returns `{"error": "...", "url": "..."}` for unsupported URLs, failed page fetches, and unknown section IDs.
 
 ## Prerequisites
 
