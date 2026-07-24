@@ -24,7 +24,6 @@ import {
   AfterToolCallEvent,
   AfterToolsEvent,
   BeforeModelCallEvent,
-  BeforeToolCallEvent,
   BeforeToolsEvent,
   MessageAddedEvent,
   StreamEvent,
@@ -115,7 +114,6 @@ export class AgentDelegation implements Plugin {
     }
 
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
-    agent.addHook(BeforeToolCallEvent, (event) => this._onBeforeToolCall(event), { order: HookOrder.SDK_LAST })
     agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
     agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event), { order: HookOrder.SDK_LAST })
 
@@ -174,38 +172,17 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
-   * BeforeToolCallEvent hook (SDK_LAST): cancels delegation tools that were
-   * injected via selectedTool replacement in a multi-tool batch.
-   *
-   * Runs after all user hooks have resolved, so it sees the final effective
-   * tool. If a hook replaced a non-delegation tool with a delegation AgentAsTool
-   * and the batch has multiple tools, cancels this tool before execution.
-   */
-  private _onBeforeToolCall(event: BeforeToolCallEvent): void {
-    if (event.agent.model.stateful) return
-
-    const state = this._state.get(event.agent)
-    if (!state || state.toolUseCount <= 1) return
-
-    // Resolve the effective tool: selectedTool wins, otherwise re-resolve
-    // from registry if the name was rewritten, otherwise use the original.
-    const effectiveTool =
-      event.selectedTool ??
-      (event.toolUse.name !== event.tool?.name ? event.agent.toolRegistry.get(event.toolUse.name) : event.tool)
-
-    if (!(effectiveTool instanceof AgentAsTool) || !effectiveTool.delegate) return
-
-    event.cancel =
-      'Delegation failed: a delegation tool must be the only tool called in a turn. ' +
-      'The tool was redirected to a delegation agent in a multi-tool batch, which is not allowed. ' +
-      'Retry with a single delegation tool call.'
-  }
-
-  /**
    * AfterToolCallEvent hook: marks the delegation tool use ID on success.
    */
   private _onAfterToolCall(event: AfterToolCallEvent): void {
-    if (event.agent.model.stateful || !(event.tool instanceof AgentAsTool) || !event.tool.delegate) return
+    if (event.agent.model.stateful || !(event.tool instanceof AgentAsTool) || !event.tool.delegate) {
+      // Clear stale delegation mark if a retry swapped to a non-delegation tool
+      const state = this._state.get(event.agent)
+      if (state?.toolUseId === event.toolUse.toolUseId) {
+        delete state.toolUseId
+      }
+      return
+    }
 
     const state = this._state.get(event.agent)
     if (!state) return
@@ -251,25 +228,38 @@ export class AgentDelegation implements Plugin {
   }
 
   /**
-   * ExecuteToolStage middleware: surfaces delegate agent streaming events natively.
+   * ExecuteToolStage middleware: enforces single-call constraint and surfaces
+   * delegate agent streaming events natively.
    *
-   * Only activates for delegation tools (AgentAsTool with `delegate: true`).
-   * Non-delegation agent tools yield their events as normal ToolStreamUpdateEvents —
-   * their results are standard tool results and should not be translated.
-   *
-   * For delegation specifically, the inner agent's events (model streaming, content
-   * blocks, tool calls, etc.) are unwrapped from `ToolStreamEvent.data` and yielded
-   * directly as native AgentStreamEvents, making the delegation transparent to
-   * stream consumers.
+   * For delegation tools in a multi-tool batch, returns an error result without
+   * executing the tool. For valid single-tool delegation, unwraps inner agent
+   * streaming events so they appear as native events in the parent stream.
    */
   private async *_handleToolExecution(
     context: ExecuteToolContext,
     next: MiddlewareNext<ExecuteToolContext, ExecuteToolResult, AgentStreamEvent>,
     agent: LocalAgent
   ): AsyncGenerator<AgentStreamEvent, ExecuteToolResult, undefined> {
-    // Only translate streaming events for delegation tools on non-stateful models.
+    // Non-delegation tools or stateful models pass through unchanged.
     if (!(context.tool instanceof AgentAsTool) || !context.tool.delegate || agent.model.stateful) {
       return yield* next(context)
+    }
+
+    // Enforce single-call constraint: delegation tool must be the only tool in the batch.
+    const state = this._state.get(agent)
+    if (state && state.toolUseCount > 1) {
+      return {
+        result: new ToolResultBlock({
+          toolUseId: context.toolUse.toolUseId,
+          status: 'error',
+          content: [
+            new TextBlock(
+              'Delegation failed: a delegation tool must be the only tool called in a turn. ' +
+                'Retry with a single delegation tool call or use only non-delegation tools.'
+            ),
+          ],
+        }),
+      }
     }
 
     // Iterate the inner pipeline manually so we can transform events

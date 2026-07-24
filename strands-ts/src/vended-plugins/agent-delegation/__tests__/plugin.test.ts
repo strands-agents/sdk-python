@@ -10,7 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { Agent } from '../../../agent/agent.js'
-import { AfterToolsEvent, StreamEvent } from '../../../hooks/events.js'
+import { AfterToolCallEvent, AfterToolsEvent, BeforeToolCallEvent, StreamEvent } from '../../../hooks/events.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 import { AgentAsTool } from '../../../agent/agent-as-tool.js'
@@ -602,6 +602,58 @@ describe('AgentDelegation integration', () => {
 
       expect(result.stopReason).toBe('endTurn')
       expect((result.lastMessage.content[0] as { text: string }).text).toBe('PARENT_FINAL')
+    })
+  })
+
+  describe('delegate-success then retry as regular tool', () => {
+    it('does not promote the regular tool result as delegated when retry swaps to a non-delegation tool', async () => {
+      const subModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'DELEGATED_ANSWER' })
+      const subAgent = new Agent({ model: subModel, name: 'Sub', printer: false })
+
+      const regularTool = createMockTool('regular', () => 'REGULAR_RESULT')
+
+      // Turn 1: model calls the delegation tool
+      // Turn 2: model produces final text after seeing the regular result
+      const orchestratorModel = new MockMessageModel()
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'Sub',
+          toolUseId: 'tool-1',
+          input: { input: 'do something' },
+        })
+        .addTurn({ type: 'textBlock', text: 'PARENT_FOLLOW_UP' })
+
+      const orchestrator = new Agent({
+        model: orchestratorModel,
+        name: 'Orchestrator',
+        tools: [subAgent.asTool({ delegate: true }), regularTool],
+        printer: false,
+      })
+
+      let attemptCount = 0
+      // After the first successful delegation call, request a retry
+      orchestrator.addHook(AfterToolCallEvent, (event) => {
+        if (event.toolUse.toolUseId === 'tool-1') {
+          attemptCount++
+          if (attemptCount === 1) {
+            event.retry = true
+          }
+        }
+      })
+
+      // On the retry's BeforeToolCallEvent, swap to the regular tool
+      orchestrator.addHook(BeforeToolCallEvent, (event) => {
+        if (event.toolUse.toolUseId === 'tool-1' && attemptCount === 1) {
+          event.selectedTool = regularTool
+        }
+      })
+
+      const result = await orchestrator.invoke('do something')
+
+      // Delegation must NOT trigger — model should produce a follow-up response
+      expect(result.stopReason).toBe('endTurn')
+      const textBlocks = result.lastMessage.content.filter((b) => b.type === 'textBlock')
+      expect((textBlocks[0] as { text: string }).text).toBe('PARENT_FOLLOW_UP')
     })
   })
 })
