@@ -54,6 +54,18 @@ describe('ContextOffloader', () => {
         () => new ContextOffloader({ storage: new InMemoryStorage(), maxResultTokens: 100, previewTokens: 100 })
       ).toThrow('previewTokens must be less than maxResultTokens')
     })
+
+    it('throws if evictAfterCycles is not a positive integer', () => {
+      expect(() => new ContextOffloader({ storage: new InMemoryStorage(), evictAfterCycles: 0 })).toThrow(
+        'evictAfterCycles must be a positive integer'
+      )
+      expect(() => new ContextOffloader({ storage: new InMemoryStorage(), evictAfterCycles: -1 })).toThrow(
+        'evictAfterCycles must be a positive integer'
+      )
+      expect(() => new ContextOffloader({ storage: new InMemoryStorage(), evictAfterCycles: 1.5 })).toThrow(
+        'evictAfterCycles must be a positive integer'
+      )
+    })
   })
 
   describe('plugin interface', () => {
@@ -238,6 +250,25 @@ describe('ContextOffloader', () => {
       expect(preview).toContain('line_range')
     })
 
+    it('includes generic guidance when retrieval tool is disabled', async () => {
+      const storage = new InMemoryStorage()
+      const plugin = new ContextOffloader({
+        storage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+        includeRetrievalTool: false,
+      })
+      const agent = createMockAgent()
+      plugin.initAgent(agent)
+
+      const event = makeEvent([new TextBlock('x'.repeat(1000))])
+      await invokeTrackedHook(agent, event)
+
+      const preview = (event.result.content[0] as TextBlock).text
+      expect(preview).toContain('use your available tools to access specific data')
+      expect(preview).not.toContain('retrieve_offloaded_content')
+    })
+
     it('respects custom previewTokens', async () => {
       const storage = new InMemoryStorage()
       const plugin = new ContextOffloader({ storage, maxResultTokens: 10, previewTokens: 2 })
@@ -356,6 +387,27 @@ describe('ContextOffloader', () => {
       const retrievalTool = tools[0]!
       const result = await (retrievalTool as unknown as { invoke(input: unknown): Promise<unknown> }).invoke({
         reference: 'nonexistent',
+      })
+      expect(result).toContain('Error: reference not found')
+    })
+
+    it('throws when unified Storage retrieval has no tool context', async () => {
+      const { InMemoryStorage: UnifiedInMemoryStorage } = await import('../../../storage/in-memory-storage.js')
+      const unifiedStorage = new UnifiedInMemoryStorage()
+
+      const plugin = new ContextOffloader({
+        storage: unifiedStorage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+        includeRetrievalTool: true,
+      })
+      const agent = createMockAgent({ extra: { model: mockModel } as never })
+      plugin.initAgent(agent)
+
+      const tools = plugin.getTools()
+      const retrievalTool = tools[0]!
+      const result = await (retrievalTool as unknown as { invoke(input: unknown): Promise<unknown> }).invoke({
+        reference: 'some-ref',
       })
       expect(result).toContain('Error: reference not found')
     })
@@ -792,6 +844,34 @@ describe('ContextOffloader', () => {
       expect(keys).toEqual(['offloader/default-session/scopes/agent/agent/tool-123_0'])
     })
 
+    it('uses namespace() fallback for Storage without .namespace method', async () => {
+      const data = new Map<string, Uint8Array>()
+      const bareStorage = {
+        write: vi.fn(async (key: string, value: Uint8Array) => {
+          data.set(key, value)
+        }),
+        read: vi.fn(async (key: string) => data.get(key) ?? null),
+        delete: vi.fn(async (key: string) => {
+          data.delete(key)
+        }),
+        list: vi.fn(async (prefix: string) => [...data.keys()].filter((key) => key.startsWith(prefix))),
+      }
+
+      const plugin = new ContextOffloader({
+        storage: bareStorage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+      })
+      const agent = createMockAgent({ extra: { model: mockModel } as never })
+      plugin.initAgent(agent)
+
+      const event = makeEvent([new TextBlock('x'.repeat(1000))], { agent })
+      await invokeTrackedHook(agent, event)
+
+      const keys = [...data.keys()]
+      expect(keys[0]).toContain('offloader/')
+    })
+
     it('does not double-namespace an already-namespaced Storage', async () => {
       const { InMemoryStorage: UnifiedInMemoryStorage } = await import('../../../storage/in-memory-storage.js')
       const { namespace } = await import('../../../storage/storage.js')
@@ -957,6 +1037,61 @@ describe('ContextOffloader', () => {
       const writtenPath = mockSandbox.writeFile.mock.calls[0]![0] as string
       expect(writtenPath).toContain('custom/')
       expect(writtenPath).not.toContain('offloader/')
+    })
+  })
+
+  describe('legacy FileStorage sandbox routing', () => {
+    it('routes legacy FileStorage through forSandbox', async () => {
+      const files = new Map<string, string | Uint8Array>()
+      const mockSandbox = {
+        writeFile: vi.fn(async (path: string, data: Uint8Array) => {
+          files.set(path, data)
+        }),
+        readFile: vi.fn(async (path: string) => {
+          const entry = files.get(path)
+          if (!entry || typeof entry === 'string') throw Object.assign(new Error('not found'), { code: 'ENOENT' })
+          return entry
+        }),
+        writeText: vi.fn(async (path: string, text: string) => {
+          files.set(path, text)
+        }),
+        readText: vi.fn(async (path: string) => {
+          const entry = files.get(path)
+          if (!entry) throw Object.assign(new Error('not found'), { code: 'ENOENT' })
+          return typeof entry === 'string' ? entry : new TextDecoder().decode(entry)
+        }),
+        removeFile: vi.fn(),
+        listFiles: vi.fn(async () => []),
+        executeStreaming: vi.fn(),
+        executeCodeStreaming: vi.fn(),
+        getTools: vi.fn(() => []),
+      }
+
+      const { FileStorage: LegacyFileStorage } = await import('../storage.js')
+      const storage = new LegacyFileStorage('./artifacts')
+      const plugin = new ContextOffloader({
+        storage,
+        maxResultTokens: 10,
+        previewTokens: 5,
+      })
+      const agent = createMockAgent({ extra: { model: mockModel, sandbox: mockSandbox } as never })
+      plugin.initAgent(agent)
+
+      const result = new ToolResultBlock({
+        toolUseId: 'tool-456',
+        status: 'success',
+        content: [new TextBlock('large content '.repeat(100))],
+      })
+      const event = new AfterToolCallEvent({
+        agent,
+        toolUse: { name: 'some_tool', toolUseId: 'tool-456', input: {} },
+        tool: undefined,
+        result,
+        invocationState: {},
+      })
+      await invokeTrackedHook(agent, event)
+
+      expect(mockSandbox.writeFile).toHaveBeenCalled()
     })
   })
 })
