@@ -120,6 +120,7 @@ import {
   pinContextTool,
   createTokenUsageMiddleware,
 } from '../context-manager/modes/agentic/agentic-context.js'
+import { ContextManager } from '../context-manager/context-manager.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -147,10 +148,19 @@ export type ToolList = (Tool | McpClient | Agent | ToolList)[]
 export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 
 /**
- * Supported values for the `contextManager` parameter.
+ * Supported string presets for the `contextManager` parameter.
  */
 export const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
-export type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+type ContextManagerPreset = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
+
+/**
+ * Supported values for the `contextManager` parameter.
+ *
+ * - `"auto"`: Managed context with proactive compression + offloading.
+ * - `"agentic"`: Model-driven context management via injected tools.
+ * - `ContextManager` instance: Full control over L1 storage and strategies.
+ */
+export type ContextManagerStrategy = ContextManagerPreset | ContextManager
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -221,17 +231,20 @@ export type AgentConfig = {
    */
   conversationManager?: ConversationManager
   /**
-   * Context management strategy.
+   * Context management strategy that controls how messages are compressed, offloaded,
+   * and durably stored.
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
    * - `"agentic"`: Lets the model drive context management via injected tools.
+   * - `ContextManager` instance: First-class component that writes every message to L1
+   *   on arrival and (in future) evaluates strategies before each model call.
    *
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
    *
-   * @remarks The offloader uses in-memory storage that does not persist across process
-   * restarts. For agents using `sessionManager`, provide an explicit `ContextOffloader`
-   * with durable storage via the `plugins` parameter.
+   * @remarks When using the string presets, the offloader uses in-memory storage that does not
+   * persist across process restarts. Pass a `ContextManager` instance with durable storage for
+   * agents that need session persistence.
    */
   contextManager?: ContextManagerStrategy
   /**
@@ -329,11 +342,15 @@ export type AgentConfig = {
  * When "auto", uses SummarizingConversationManager with proactive compression.
  * When "agentic", uses SummarizingConversationManager without proactive compression
  * (the agent manages its context via tools; the context manager is only a reactive safety net).
+ * When a ContextManager instance, falls back to the conversationManager or default.
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
+  if (contextManager instanceof ContextManager) {
+    return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
+  }
   if (contextManager === 'agentic') {
     return (
       conversationManager ??
@@ -440,6 +457,10 @@ export class Agent implements LocalAgent, InvokableAgent {
   public readonly description?: string
 
   /**
+   * The context manager for L1 durable storage and strategy-driven offloading, if configured.
+   */
+  public readonly contextManager?: ContextManager | undefined
+  /**
    * The session manager for saving and restoring agent sessions, if configured.
    */
   public readonly sessionManager?: SessionManager | undefined
@@ -497,6 +518,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.name = config?.name ?? DEFAULT_AGENT_NAME
     this.id = config?.id ?? DEFAULT_AGENT_ID
     if (config?.description !== undefined) this.description = config.description
+    this.contextManager = config?.contextManager instanceof ContextManager ? config.contextManager : undefined
     this.sessionManager = config?.sessionManager
     this.memoryManager =
       config?.memoryManager instanceof MemoryManager
@@ -581,6 +603,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
+      ...(config?.contextManager instanceof ContextManager ? [config.contextManager] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])

@@ -26,18 +26,16 @@ const STORAGE_PREFIX = 'context'
  * L1 holds the full, uncompressed history and serves as the source of truth for
  * later retrieval and restore operations.
  *
- * The ContextManager is a Plugin — attach it via `plugins: [new ContextManager(...)]`
- * on the Agent constructor.
+ * The ContextManager is a first-class agent component — pass it via the
+ * `contextManager` parameter on the Agent constructor.
  *
  * @example
  * ```typescript
- * import { Agent } from 'strands-agents'
- * import { ContextManager } from 'strands-agents/context-manager'
- * import { LocalFileStorage } from 'strands-agents/storage'
+ * import { Agent, ContextManager } from '@strands-agents/sdk'
  *
  * const agent = new Agent({
  *   model,
- *   plugins: [new ContextManager({ storage: new LocalFileStorage('./.strands/') })],
+ *   contextManager: new ContextManager({ storage }),
  * })
  * ```
  */

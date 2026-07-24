@@ -305,6 +305,10 @@ export type { SnapshotManifest, SnapshotTriggerCallback, SnapshotTriggerParams }
 export type { SessionStorage, SnapshotStorage, SnapshotLocation } from './session/storage.js'
 export { FileStorage } from './session/file-storage.js'
 
+// Context management
+export { ContextManager } from './context-manager/context-manager.js'
+export type { ContextManagerConfig, StashConfig } from './context-manager/types.js'
+
 // Local Traces
 export { AgentTrace } from './telemetry/tracer.js'
 

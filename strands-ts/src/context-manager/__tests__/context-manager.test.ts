@@ -16,7 +16,11 @@ function makeMockAgent(overrides?: { id?: string; sessionManager?: { _sessionId:
 }
 
 function makeMessage(text: string, trackingId?: string): Message {
-  return new Message({ role: 'user', content: [new TextBlock(text)], trackingId })
+  return new Message(
+    trackingId
+      ? { role: 'user', content: [new TextBlock(text)], trackingId }
+      : { role: 'user', content: [new TextBlock(text)] }
+  )
 }
 
 describe('ContextManager', () => {

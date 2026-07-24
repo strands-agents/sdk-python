@@ -6,13 +6,11 @@
  *
  * @example
  * ```typescript
- * import { Agent } from 'strands-agents'
- * import { ContextManager } from 'strands-agents/context-manager'
- * import { LocalFileStorage } from 'strands-agents/storage'
+ * import { Agent, ContextManager } from '@strands-agents/sdk'
  *
  * const agent = new Agent({
  *   model,
- *   plugins: [new ContextManager({ storage: new LocalFileStorage('./.strands/') })],
+ *   contextManager: new ContextManager({ storage }),
  * })
  * ```
  */
