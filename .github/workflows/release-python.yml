@@ -1,14 +1,13 @@
 name: "Python: Release"
 
 # Manual release of `strands-agents` to PyPI.
-# Setup, recovery, fork-testing: .github/workflows/RELEASE.md
 #
 # Shape: scan → lint/unit/integ/audit/build → inspect → notes → approve →
 #        tag + release → publish.
 #
 # Publish is the last step. Everything before it runs on a fork too — only
 # the OIDC upload fails there, because the fork is not the registered
-# trusted publisher. See RELEASE.md → "Fork testability".
+# trusted publisher.
 
 on:
   workflow_dispatch:

@@ -95,6 +95,33 @@ jobs:
           # Verify the CLI entry point resolves.
           "$WORK/venv/bin/python" -c "from strands_mcp_server.server import main; print('CLI entry point OK')"
 
+      - name: Install sdist in a clean venv outside the repo and import
+        # pip builds its own wheel from the sdist in isolation, so this
+        # exercises the source-install path (`pip install <sdist>` or a
+        # `--no-binary` fallback) independently of the prebuilt wheel above.
+        # It is the most direct guard for the wheel-from-sdist packaging bug:
+        # a mispackaged sdist installs cleanly but fails at import.
+        run: |
+          set -euo pipefail
+          WORK=$(mktemp -d)
+          trap 'rm -rf "$WORK"' EXIT
+          echo "Workspace: $WORK"
+
+          SDIST=$(find "$GITHUB_WORKSPACE/strands-mcp/dist" -maxdepth 1 -name '*.tar.gz' -print -quit)
+          if [ -z "$SDIST" ]; then
+            echo "::error::no sdist produced under strands-mcp/dist"
+            exit 1
+          fi
+          echo "Sdist: $SDIST"
+
+          python -m venv "$WORK/venv"
+          "$WORK/venv/bin/pip" install --upgrade pip
+          "$WORK/venv/bin/pip" install "$SDIST"
+
+          cd "$WORK"
+          "$WORK/venv/bin/python" -c "import strands_mcp_server; print('sdist import OK')"
+          "$WORK/venv/bin/python" -c "from strands_mcp_server.server import main; print('sdist CLI entry point OK')"
+
       - name: Upload wheel + sdist for downstream inspect/publish
         uses: actions/upload-artifact@v7
         with:
