@@ -105,6 +105,13 @@ jobs:
           fi
           # Require a single-step increment (major, minor, or patch) so a typo
           # like 1.48.0 -> 1.84.0 fails here instead of relying on the approver.
+          # Validate the baseline first: a malformed previous tag (prerelease
+          # suffix, non-numeric part) must fail with a clear message, not a
+          # cryptic arithmetic error under set -e.
+          if ! [[ "$PREV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::previous tag version '$PREV_VERSION' is not bare semver -- cannot compute the increment baseline."
+            exit 1
+          fi
           IFS=. read -r P_MAJ P_MIN P_PAT <<< "$PREV_VERSION"
           VALID="$((P_MAJ+1)).0.0 ${P_MAJ}.$((P_MIN+1)).0 ${P_MAJ}.${P_MIN}.$((P_PAT+1))"
           case " $VALID " in
@@ -471,7 +478,7 @@ jobs:
   # doesn't show the version within the timeout.
   verify-published:
     name: Verify version on PyPI
-    needs: [scan-commits, publish-pypi]
+    needs: [publish-pypi]
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
     permissions: {}
@@ -482,7 +489,10 @@ jobs:
         run: |
           set -euo pipefail
           for i in $(seq 1 30); do
-            if curl -sf "https://pypi.org/pypi/strands-agents/$VERSION/json" >/dev/null; then
+            # Cache-buster: registry CDNs cache negative (404) responses; a poll
+            # that lands before propagation must not pin a stale 404 for the
+            # rest of the window.
+            if curl -sf "https://pypi.org/pypi/strands-agents/$VERSION/json?t=$(date +%s)" >/dev/null; then
               echo "strands-agents $VERSION is live on PyPI."
               exit 0
             fi
