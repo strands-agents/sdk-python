@@ -68,11 +68,22 @@ async def test_none_prompt_with_history_trailing_tool_use_rejected():
 
 
 @pytest.mark.asyncio
-async def test_empty_list_prompt_with_history_trailing_tool_use_rejected():
+async def test_empty_list_prompt_with_history_trailing_tool_use_allowed():
+    """Contrast with the ``None`` case above: an empty list does not resume.
+
+    A non-None prompt (including ``[]``) routes through the prompt branch of
+    ``_convert_prompt_to_messages``, which patches the dangling ``toolUse`` with a
+    synthetic ``toolResult`` and then invokes the model - the tool never executes.
+    """
     agent = _agent(messages=[_dangling_tool_use_message()])
 
-    with pytest.raises(ValueError, match="toolUse"):
-        await agent.invoke_async([], allow_resume=False)
+    result = await agent.invoke_async([], allow_resume=False)
+
+    assert result.stop_reason == "end_turn"
+    # The dangling toolUse was patched with a synthetic error toolResult, not executed.
+    tru_tool_result = agent.messages[1]["content"][0]["toolResult"]
+    assert tru_tool_result["toolUseId"] == "t-1"
+    assert tru_tool_result["status"] == "error"
 
 
 @pytest.mark.asyncio
@@ -178,11 +189,13 @@ async def test_default_still_resumes_trailing_tool_use():
         ]
     )
 
-    # The tool executed directly: a toolResult for t-1 exists in history.
+    # The tool executed directly: the exact toolResult for t-1 exists in history.
     tool_results = [
         block["toolResult"] for message in agent.messages for block in message["content"] if "toolResult" in block
     ]
-    assert any(r["toolUseId"] == "t-1" for r in tool_results)
+    tru_tool_result = tool_results[0]
+    exp_tool_result = {"toolUseId": "t-1", "status": "success", "content": [{"text": "direct"}]}
+    assert tru_tool_result == exp_tool_result
     assert result.stop_reason == "end_turn"
 
 
@@ -195,7 +208,9 @@ async def test_explicit_allow_resume_true_resumes():
     tool_results = [
         block["toolResult"] for message in agent.messages for block in message["content"] if "toolResult" in block
     ]
-    assert any(r["toolUseId"] == "t-1" for r in tool_results)
+    tru_tool_result = tool_results[0]
+    exp_tool_result = {"toolUseId": "t-1", "status": "success", "content": [{"text": "direct"}]}
+    assert tru_tool_result == exp_tool_result
     assert result.stop_reason == "end_turn"
 
 
@@ -209,3 +224,70 @@ async def test_interrupted_agent_rejected():
 
     with pytest.raises(ValueError, match="interrupt state"):
         await agent.invoke_async([{"interruptResponse": {"interruptId": "x", "response": "y"}}], allow_resume=False)
+
+
+# --- Guard/event-loop equivalence ---
+#
+# _validate_no_resume re-derives the resume decision that _convert_prompt_to_messages and
+# the event loop make. This cross-check runs both for every input shape so the two cannot
+# drift unnoticed: the guard must reject an input if and only if the loop would actually
+# execute a tool without a model invocation for that same input.
+
+_DANGLING_HISTORY: Messages = [
+    {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t-1", "name": "echo", "input": {"value": "injected"}}}],
+    }
+]
+
+
+@pytest.mark.parametrize(
+    ("prompt", "history"),
+    [
+        pytest.param(None, _DANGLING_HISTORY, id="none-with-dangling-history"),
+        pytest.param(None, [{"role": "user", "content": [{"text": "hi"}]}], id="none-with-clean-history"),
+        pytest.param(None, [], id="none-with-empty-history"),
+        pytest.param([], _DANGLING_HISTORY, id="empty-list-with-dangling-history"),
+        pytest.param("continue", _DANGLING_HISTORY, id="string-with-dangling-history"),
+        pytest.param("hello", [], id="string-with-empty-history"),
+        pytest.param([{"text": "hello"}], _DANGLING_HISTORY, id="content-blocks-with-dangling-history"),
+        pytest.param(
+            [{"toolUse": {"toolUseId": "t-1", "name": "echo", "input": {"value": "injected"}}}],
+            [],
+            id="content-blocks-with-tool-use",
+        ),
+        pytest.param(list(_DANGLING_HISTORY), [], id="messages-ending-in-tool-use"),
+        pytest.param([{"role": "user", "content": [{"text": "hi"}]}], _DANGLING_HISTORY, id="messages-ending-in-text"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_guard_rejection_matches_actual_resume(prompt, history):
+    """The guard rejects an input iff the loop would execute a tool without a model call."""
+    executions = []
+
+    @tool
+    def echo(value: str) -> str:
+        """Echo the provided value back."""
+        executions.append(value)
+        return value
+
+    def make_agent() -> Agent:
+        return Agent(
+            model=MockedModelProvider([FINAL_RESPONSE]),
+            tools=[echo],
+            messages=copy.deepcopy(history),
+        )
+
+    # Actual event-loop behavior: does a tool execute directly (no model in the loop first)?
+    await make_agent().invoke_async(copy.deepcopy(prompt), allow_resume=True)
+    loop_resumed = len(executions) > 0
+
+    # Guard decision on an identical, fresh agent.
+    guard_agent = make_agent()
+    try:
+        guard_agent._validate_no_resume(copy.deepcopy(prompt))
+        guard_rejected = False
+    except ValueError:
+        guard_rejected = True
+
+    assert guard_rejected == loop_resumed

@@ -1585,7 +1585,10 @@ class Agent(AgentBase):
                 "Resuming an interrupt executes tools without a model invocation."
             )
 
-        if isinstance(prompt, dict) and "checkpointResume" in prompt:
+        # AgentInput does not include dict, but a checkpointResume block is passed as one
+        # (see _try_consume_checkpoint_resume); widen for the runtime check to satisfy mypy.
+        prompt_untyped: Any = prompt
+        if isinstance(prompt_untyped, dict) and "checkpointResume" in prompt_untyped:
             raise ValueError(
                 "Received a checkpointResume block, but the invocation was made with allow_resume=False. "
                 "Resuming a checkpoint executes tools without a model invocation."
@@ -1593,9 +1596,13 @@ class Agent(AgentBase):
 
         # Determine the message the event loop would see as latest after input conversion.
         latest_message: Message | None = None
-        if prompt is None or (isinstance(prompt, list) and len(prompt) == 0):
+        if prompt is None:
+            # Only a None prompt resumes from existing history. Any non-None input (including
+            # an empty list) routes through the prompt branch of _convert_prompt_to_messages,
+            # which patches a trailing toolUse in history with a synthetic toolResult before
+            # the model is invoked - so existing history cannot resume in those cases.
             latest_message = self.messages[-1] if self.messages else None
-        elif isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
+        elif isinstance(prompt, list) and prompt and all(isinstance(item, dict) for item in prompt):
             if all(all(key in item for key in Message.__required_keys__) for item in prompt):
                 # Messages input - the last provided message becomes the latest.
                 latest_message = cast(Message, prompt[-1])
