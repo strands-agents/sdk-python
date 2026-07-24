@@ -708,6 +708,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         idempotency_token: Any = None,
         limits: Limits | None = None,
+        allow_resume: bool = True,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -738,6 +739,15 @@ class Agent(AgentBase):
                 ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
                 caps are soft — a single oversized model response can overshoot the budget
                 by one turn, since checks run at turn boundaries, not within a model call.
+            allow_resume: Whether this invocation may resume the agent loop without an initial
+                model invocation. The event loop intentionally executes a trailing ``toolUse``
+                message directly — skipping the model — to support tool resumption, which means
+                message history from an untrusted source could trigger tool execution with no
+                model in the loop. Set False when the prompt (or restored conversation history)
+                is not fully trusted: any input or agent state that would skip the initial model
+                invocation — a latest message containing ``toolUse``, an interrupt resumption,
+                or a ``checkpointResume`` block — then raises ``ValueError`` before any agent
+                state is modified. Default True preserves resumption behavior.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -754,6 +764,8 @@ class Agent(AgentBase):
             IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
                 whose primary invocation was aborted before producing a result.
             TypeError: If a value in ``limits`` is not a positive integer.
+            ValueError: If ``allow_resume=False`` and the invocation would resume tool
+                execution without a model invocation.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
         """
         return run_async(
@@ -764,6 +776,7 @@ class Agent(AgentBase):
                 structured_output_prompt=structured_output_prompt,
                 idempotency_token=idempotency_token,
                 limits=limits,
+                allow_resume=allow_resume,
                 **kwargs,
             )
         )
@@ -790,6 +803,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         idempotency_token: Any = None,
         limits: Limits | None = None,
+        allow_resume: bool = True,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -820,6 +834,15 @@ class Agent(AgentBase):
                 ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
                 caps are soft — a single oversized model response can overshoot the budget
                 by one turn, since checks run at turn boundaries, not within a model call.
+            allow_resume: Whether this invocation may resume the agent loop without an initial
+                model invocation. The event loop intentionally executes a trailing ``toolUse``
+                message directly — skipping the model — to support tool resumption, which means
+                message history from an untrusted source could trigger tool execution with no
+                model in the loop. Set False when the prompt (or restored conversation history)
+                is not fully trusted: any input or agent state that would skip the initial model
+                invocation — a latest message containing ``toolUse``, an interrupt resumption,
+                or a ``checkpointResume`` block — then raises ``ValueError`` before any agent
+                state is modified. Default True preserves resumption behavior.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -835,6 +858,8 @@ class Agent(AgentBase):
             IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
                 whose primary invocation was aborted before producing a result.
             TypeError: If a value in ``limits`` is not a positive integer.
+            ValueError: If ``allow_resume=False`` and the invocation would resume tool
+                execution without a model invocation.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
         """
         events = self.stream_async(
@@ -844,6 +869,7 @@ class Agent(AgentBase):
             structured_output_prompt=structured_output_prompt,
             idempotency_token=idempotency_token,
             limits=limits,
+            allow_resume=allow_resume,
             **kwargs,
         )
         async for event in events:
@@ -1075,6 +1101,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         idempotency_token: Any = None,
         limits: Limits | None = None,
+        allow_resume: bool = True,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -1105,6 +1132,15 @@ class Agent(AgentBase):
                 ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
                 caps are soft — a single oversized model response can overshoot the budget
                 by one turn, since checks run at turn boundaries, not within a model call.
+            allow_resume: Whether this invocation may resume the agent loop without an initial
+                model invocation. The event loop intentionally executes a trailing ``toolUse``
+                message directly — skipping the model — to support tool resumption, which means
+                message history from an untrusted source could trigger tool execution with no
+                model in the loop. Set False when the prompt (or restored conversation history)
+                is not fully trusted: any input or agent state that would skip the initial model
+                invocation — a latest message containing ``toolUse``, an interrupt resumption,
+                or a ``checkpointResume`` block — then raises ``ValueError`` before any agent
+                state is modified. Default True preserves resumption behavior.
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -1121,6 +1157,8 @@ class Agent(AgentBase):
             IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
                 whose primary invocation was aborted before producing a result.
             TypeError: If a value in ``limits`` is not a positive integer.
+            ValueError: If ``allow_resume=False`` and the invocation would resume tool
+                execution without a model invocation.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
         Example:
@@ -1131,6 +1169,9 @@ class Agent(AgentBase):
             ```
         """
         self._validate_limits(limits)
+
+        if not allow_resume:
+            self._validate_no_resume(prompt)
 
         begin = self._concurrency.begin(idempotency_token)
 
@@ -1522,6 +1563,52 @@ class Agent(AgentBase):
             value = limits[key]
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
+
+    def _validate_no_resume(self, prompt: AgentInput) -> None:
+        """Reject input or agent state that would resume the loop without a model invocation.
+
+        Called when an invocation is made with ``allow_resume=False``. The event loop skips the
+        model and executes tools directly when the effective latest message contains a ``toolUse``
+        block, and likewise resumes tool execution for interrupts and checkpoints. This guard
+        raises before any agent state is modified if the invocation would take one of those
+        paths, guaranteeing that the invocation starts with a model call on the provided input.
+
+        Args:
+            prompt: The invocation input, prior to message conversion.
+
+        Raises:
+            ValueError: If the invocation would resume tool execution without a model invocation.
+        """
+        if self._interrupt_state.activated:
+            raise ValueError(
+                "Agent is in an interrupt state, but the invocation was made with allow_resume=False. "
+                "Resuming an interrupt executes tools without a model invocation."
+            )
+
+        if isinstance(prompt, dict) and "checkpointResume" in prompt:
+            raise ValueError(
+                "Received a checkpointResume block, but the invocation was made with allow_resume=False. "
+                "Resuming a checkpoint executes tools without a model invocation."
+            )
+
+        # Determine the message the event loop would see as latest after input conversion.
+        latest_message: Message | None = None
+        if prompt is None or (isinstance(prompt, list) and len(prompt) == 0):
+            latest_message = self.messages[-1] if self.messages else None
+        elif isinstance(prompt, list) and all(isinstance(item, dict) for item in prompt):
+            if all(all(key in item for key in Message.__required_keys__) for item in prompt):
+                # Messages input - the last provided message becomes the latest.
+                latest_message = cast(Message, prompt[-1])
+            else:
+                # A ContentBlock list is converted to a single user message.
+                latest_message = {"role": "user", "content": cast(list[ContentBlock], prompt)}
+
+        if latest_message is not None and any("toolUse" in block for block in latest_message.get("content", [])):
+            raise ValueError(
+                "The latest message contains a toolUse block, but the invocation was made with "
+                "allow_resume=False. The event loop would execute this tool call directly, without "
+                "a model invocation. Remove trailing toolUse content to proceed."
+            )
 
     async def _append_messages(self, *messages: Message) -> None:
         """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
