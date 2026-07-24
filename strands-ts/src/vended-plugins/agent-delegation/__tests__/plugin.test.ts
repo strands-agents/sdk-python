@@ -445,7 +445,7 @@ describe('AgentDelegation integration', () => {
   })
 
   describe('init-time validation', () => {
-    it('throws when delegation tools are present on a stateful model', async () => {
+    it('throws when delegation tools are present on a stateful model', () => {
       class StatefulModel extends MockMessageModel {
         override get stateful(): boolean {
           return true
@@ -457,14 +457,15 @@ describe('AgentDelegation integration', () => {
 
       const statefulModel = new StatefulModel().addTurn({ type: 'textBlock', text: 'Hi' })
 
-      const orchestrator = new Agent({
-        model: statefulModel,
-        name: 'Orchestrator',
-        tools: [subAgent.asTool({ delegate: true })],
-        printer: false,
-      })
-
-      await expect(orchestrator.initialize()).rejects.toThrow(/not supported with stateful models/)
+      expect(
+        () =>
+          new Agent({
+            model: statefulModel,
+            name: 'Orchestrator',
+            tools: [subAgent.asTool({ delegate: true })],
+            printer: false,
+          })
+      ).toThrow(/not supported with stateful models/)
     })
 
     it('does not throw for stateful models without delegation tools', async () => {
