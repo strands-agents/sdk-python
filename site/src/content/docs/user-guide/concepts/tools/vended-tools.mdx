@@ -10,8 +10,10 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/bash/bash.ts
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
+  - path: strands-ts/src/vended-tools/sleep/sleep.ts
   - path: strands-ts/src/vended-tools/stop/stop.ts
   - path: strands-py/src/strands/vended_tools/http_request/http_request.py
+  - path: strands-py/src/strands/vended_tools/sleep/sleep.py
   - path: strands-py/src/strands/vended_tools/stop/stop.py
 ---
 
@@ -37,6 +39,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [HTTP Request](#http-request) | Make HTTP requests to external APIs | Python, TypeScript (Node.js 20+, browsers) |
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
+| [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
 | [Stop](#stop) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
 
 ### File Editor
@@ -197,6 +200,72 @@ agent("List all Python files in the current directory and count them")
 ```
 
 📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/bash/README.md)
+
+---
+
+### Sleep
+
+Pauses the agent for a bounded number of seconds. Cancelling the enclosing
+invocation aborts the sleep immediately rather than waiting for the full
+duration, so a long timer never ties up a session the caller has moved on from.
+
+_Supported in: Node.js, modern browsers (TypeScript); all platforms (Python)._
+
+The maximum duration is configurable at construction (default: 60 seconds) and
+cannot be raised by the model. Negative, `NaN`, infinite, non-numeric, and
+boolean durations are rejected at the tool boundary.
+
+**Example:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:sleep_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:sleep_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import sleep
+
+agent = Agent(tools=[sleep])
+agent("Pause for two seconds, then continue.")
+```
+
+</Tab>
+</Tabs>
+
+**Custom maximum:**
+
+<Tabs>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/vended-tools-imports.ts:sleep_custom_import"
+
+--8<-- "user-guide/concepts/tools/vended-tools.ts:sleep_custom_example"
+```
+
+</Tab>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.vended_tools import make_sleep
+
+short_sleep = make_sleep(max_duration=5)
+agent = Agent(tools=[short_sleep])
+```
+
+</Tab>
+</Tabs>
+
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/sleep/README.md)
 
 ---
 

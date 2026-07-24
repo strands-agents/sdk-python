@@ -720,3 +720,38 @@ def test_retry_on_error_use_case():
     result = agent("test")
     assert result.message["content"][0]["text"] == "Success!"
     assert call_count == 3
+
+
+# --- per-call model on context (routing plumbing) ---
+
+
+def test_invoke_model_context_exposes_agent_model(agent):
+    """InvokeModelContext.model defaults to agent.model."""
+    captured: list = []
+
+    async def capture(context, next_fn):
+        captured.append(context.model)
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, capture)
+    agent("test")
+
+    assert captured == [agent.model]
+
+
+def test_terminal_streams_context_model_override():
+    """The terminal streams the model set on the context, not agent.model."""
+    model_a = MockedModelProvider([{"role": "assistant", "content": [{"text": "A"}]}])
+    model_b = MockedModelProvider([{"role": "assistant", "content": [{"text": "B"}]}])
+    agent = Agent(model=model_a, callback_handler=None)
+    model_a.stream = AsyncMock(wraps=model_a.stream)
+
+    def route_to_b(context):
+        return replace(context, model=model_b)
+
+    agent._middleware_registry.add_middleware(InvokeModelStage.Input, route_to_b)
+    result = agent("test")
+
+    assert result.message["content"][0]["text"] == "B"
+    model_a.stream.assert_not_called()
