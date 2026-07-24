@@ -129,14 +129,7 @@ Astro.locals.t = mockT
     <!-- Structured Data -->
     <script type="application/ld+json" set:html={JSON.stringify({
       "@context": "https://schema.org",
-      "@graph": [
-        ...baseSchemas(Astro.site?.origin || 'https://strandsagents.com'),
-        {
-          "@type": "WebSite",
-          "name": "Strands Agents SDK",
-          "url": Astro.site?.origin || "https://strandsagents.com"
-        }
-      ]
+      "@graph": baseSchemas(Astro.site?.origin || 'https://strandsagents.com')
     })} />
 
     <!-- AWS Shortbread cookie consent -->
