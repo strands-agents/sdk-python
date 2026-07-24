@@ -108,12 +108,14 @@ describe('Swarm', () => {
       ).toThrow('max_steps=<0> | must be at least 1')
     })
 
-    it('defaults maxSteps, timeout, and nodeTimeout to Infinity', () => {
+    it('defaults execution limits and disables repetitive handoff detection', () => {
       const swarm = new Swarm({
         nodes: [createFinalAgent('a', 'hi')],
         start: 'a',
       })
       expect(swarm.config.maxSteps).toBe(Infinity)
+      expect(swarm.config.repetitiveHandoffDetectionWindow).toBe(0)
+      expect(swarm.config.repetitiveHandoffMinUniqueAgents).toBe(0)
       expect(swarm.config.timeout).toBe(Infinity)
       expect(swarm.config.nodeTimeout).toBe(Infinity)
     })
@@ -256,6 +258,42 @@ describe('Swarm', () => {
 
       expect(result.status).toBe(Status.COMPLETED)
       expect(result.results.map((r) => r.nodeId)).toStrictEqual(['a', 'b'])
+    })
+
+    it('returns a failed result when recent handoffs do not meet the uniqueness threshold', async () => {
+      const swarm = new Swarm({
+        nodes: [
+          createHandoffAgent('a', { agentId: 'b', message: 'to b' }),
+          createHandoffAgent('b', { agentId: 'a', message: 'to a' }),
+        ],
+        start: 'a',
+        repetitiveHandoffDetectionWindow: 4,
+        repetitiveHandoffMinUniqueAgents: 3,
+      })
+
+      const result = await swarm.invoke('start')
+
+      expect(result.status).toBe(Status.FAILED)
+      expect(result.results.map((r) => r.nodeId)).toStrictEqual(['a', 'b', 'a', 'b'])
+      expect(result.results.every((nodeResult) => nodeResult.status === Status.COMPLETED)).toBe(true)
+    })
+
+    it('continues when recent handoffs meet the uniqueness threshold', async () => {
+      const swarm = new Swarm({
+        nodes: [
+          createHandoffAgent('a', { agentId: 'b', message: 'to b' }),
+          createHandoffAgent('b', { agentId: 'c', message: 'to c' }),
+          createFinalAgent('c', 'done'),
+        ],
+        start: 'a',
+        repetitiveHandoffDetectionWindow: 2,
+        repetitiveHandoffMinUniqueAgents: 2,
+      })
+
+      const result = await swarm.invoke('start')
+
+      expect(result.status).toBe(Status.COMPLETED)
+      expect(result.results.map((r) => r.nodeId)).toStrictEqual(['a', 'b', 'c'])
     })
 
     it('throws when a node exceeds nodeTimeout', async () => {

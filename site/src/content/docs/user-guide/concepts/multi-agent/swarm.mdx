@@ -128,6 +128,8 @@ The following initialization parameters control swarm behavior and safety limits
 | `start` | Agent ID that receives the initial input | First agent in `nodes` |
 | `nodes` | Array of agents (or `AgentNodeOptions`) | (required) |
 | `maxSteps` | Maximum total agent executions (including start) | Infinity |
+| `repetitiveHandoffDetectionWindow` | Number of recent agents to check for ping-pong behavior | 0 (disabled) |
+| `repetitiveHandoffMinUniqueAgents` | Minimum unique agents required in the recent sequence | 0 (disabled) |
 | `timeout` | Wall-clock ceiling for the entire swarm invocation, in milliseconds | Infinity |
 | `nodeTimeout` | Fallback per-node wall-clock ceiling in milliseconds. Applied to any node without its own `timeout` | Infinity |
 | `plugins` | Plugins for event-driven extensibility | None |
