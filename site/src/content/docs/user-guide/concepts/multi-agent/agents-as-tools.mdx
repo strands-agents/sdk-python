@@ -69,18 +69,21 @@ research_agent = Agent(
     factual, well-sourced information in response to research questions.
     Always cite your sources when possible.""",
     tools=[retrieve, http_request],
+    callback_handler=None,
 )
 
 product_agent = Agent(
     system_prompt="""You are a specialized product recommendation assistant.
     Provide personalized product suggestions based on user preferences.""",
     tools=[retrieve, http_request],
+    callback_handler=None,
 )
 
 travel_agent = Agent(
     system_prompt="""You are a specialized travel planning assistant.
     Create detailed travel itineraries based on user preferences.""",
     tools=[retrieve, http_request],
+    callback_handler=None,
 )
 
 # Create the orchestrator — agents are automatically converted to tools
@@ -103,6 +106,12 @@ orchestrator = Agent(
 ```
 </Tab>
 </Tabs>
+
+#### Keep Sub-Agent Output Isolated
+
+An agent's default output handler writes its streamed text as it runs. When that agent is nested inside an orchestrator, leaving the handler enabled prints the sub-agent response alongside the orchestrator response, which can look duplicated or interleaved.
+
+Configure agents that will run as tools with <Syntax py="callback_handler=None" ts="printer: false" />. This silences only their standalone console output; the agent-as-tool adapter still returns the final result to the orchestrator. Keep the orchestrator's output handler enabled if you want its final response printed.
 
 ### Customizing Agent Tools
 
@@ -185,7 +194,8 @@ def research_assistant(query: str) -> str:
     try:
         research_agent = Agent(
             system_prompt=RESEARCH_ASSISTANT_PROMPT,
-            tools=[retrieve, http_request]
+            tools=[retrieve, http_request],
+            callback_handler=None,
         )
 
         response = research_agent(query)
@@ -224,6 +234,7 @@ def product_recommendation_assistant(query: str) -> str:
             system_prompt="""You are a specialized product recommendation assistant.
             Provide personalized product suggestions based on user preferences.""",
             tools=[retrieve, http_request, dialog],
+            callback_handler=None,
         )
         # Implementation with response handling
         # ...
@@ -247,6 +258,7 @@ def trip_planning_assistant(query: str) -> str:
             system_prompt="""You are a specialized travel planning assistant.
             Create detailed travel itineraries based on user preferences.""",
             tools=[retrieve, http_request],
+            callback_handler=None,
         )
         # Implementation with response handling
         # ...
@@ -286,7 +298,6 @@ Always select the most appropriate tool based on the user's query.
 
 orchestrator = Agent(
     system_prompt=MAIN_SYSTEM_PROMPT,
-    callback_handler=None,
     tools=[research_assistant, product_recommendation_assistant, trip_planning_assistant]
 )
 ```

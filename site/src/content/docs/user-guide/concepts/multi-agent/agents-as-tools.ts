@@ -82,6 +82,7 @@ const researchAssistant = tool({
       systemPrompt: `You are a specialized research assistant. Focus only on providing
 factual, well-sourced information in response to research questions.
 Always cite your sources when possible.`,
+      printer: false,
     })
 
     const response = await researchAgent.invoke(input.query)
@@ -104,6 +105,7 @@ const productRecommendationAssistant = tool({
     const productAgent = new Agent({
       systemPrompt: `You are a specialized product recommendation assistant.
 Provide personalized product suggestions based on user preferences.`,
+      printer: false,
     })
 
     const response = await productAgent.invoke(input.query)
@@ -125,6 +127,7 @@ const tripPlanningAssistant = tool({
     const travelAgent = new Agent({
       systemPrompt: `You are a specialized travel planning assistant.
 Create detailed travel itineraries based on user preferences.`,
+      printer: false,
     })
 
     const response = await travelAgent.invoke(input.query)
