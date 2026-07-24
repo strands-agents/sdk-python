@@ -49,6 +49,11 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
       connect: vi.fn(),
       close: vi.fn(),
       listTools: vi.fn(),
+      listPrompts: vi.fn(),
+      getPrompt: vi.fn(),
+      listResources: vi.fn(),
+      readResource: vi.fn(),
+      listResourceTemplates: vi.fn(),
       callTool: vi.fn(),
       setRequestHandler: vi.fn(),
       setNotificationHandler: vi.fn(),
@@ -145,6 +150,11 @@ describe('MCP Integration', () => {
       connect: ReturnType<typeof vi.fn>
       close: ReturnType<typeof vi.fn>
       listTools: ReturnType<typeof vi.fn>
+      listPrompts: ReturnType<typeof vi.fn>
+      getPrompt: ReturnType<typeof vi.fn>
+      listResources: ReturnType<typeof vi.fn>
+      readResource: ReturnType<typeof vi.fn>
+      listResourceTemplates: ReturnType<typeof vi.fn>
       callTool: ReturnType<typeof vi.fn>
       setRequestHandler: ReturnType<typeof vi.fn>
       setNotificationHandler: ReturnType<typeof vi.fn>
@@ -474,6 +484,69 @@ describe('MCP Integration', () => {
       const tools = await client.listTools()
 
       expect(tools[0]!.description).toBe('Tool which performs my_tool')
+    })
+
+    it('lists prompts with an optional pagination cursor', async () => {
+      const response = {
+        prompts: [{ name: 'summarize', description: 'Summarize content' }],
+        nextCursor: 'page-2',
+      }
+      sdkClientMock.listPrompts.mockResolvedValue(response)
+
+      await expect(client.listPrompts('')).resolves.toBe(response)
+
+      expect(sdkClientMock.listPrompts).toHaveBeenCalledWith({ cursor: '' })
+    })
+
+    it('gets a prompt with optional arguments', async () => {
+      const response = {
+        description: 'Greeting',
+        messages: [{ role: 'user', content: { type: 'text', text: 'Hello Alice' } }],
+      }
+      sdkClientMock.getPrompt.mockResolvedValue(response)
+
+      await expect(client.getPrompt('greeting', { name: 'Alice' })).resolves.toBe(response)
+
+      expect(sdkClientMock.getPrompt).toHaveBeenCalledWith({
+        name: 'greeting',
+        arguments: { name: 'Alice' },
+      })
+    })
+
+    it('lists resources with an optional pagination cursor', async () => {
+      const response = {
+        resources: [{ uri: 'file:///guide.md', name: 'Guide' }],
+        nextCursor: 'page-2',
+      }
+      sdkClientMock.listResources.mockResolvedValue(response)
+
+      await expect(client.listResources('page-1')).resolves.toBe(response)
+
+      expect(sdkClientMock.listResources).toHaveBeenCalledWith({ cursor: 'page-1' })
+    })
+
+    it('reads resources from string and URL inputs', async () => {
+      const response = {
+        contents: [{ uri: 'https://example.com/guide', text: 'Guide content' }],
+      }
+      sdkClientMock.readResource.mockResolvedValue(response)
+
+      await expect(client.readResource(new URL('https://example.com/guide'))).resolves.toBe(response)
+      await client.readResource('file:///guide.md')
+
+      expect(sdkClientMock.readResource).toHaveBeenNthCalledWith(1, { uri: 'https://example.com/guide' })
+      expect(sdkClientMock.readResource).toHaveBeenNthCalledWith(2, { uri: 'file:///guide.md' })
+    })
+
+    it('lists resource templates without a cursor', async () => {
+      const response = {
+        resourceTemplates: [{ uriTemplate: 'file:///{path}', name: 'File' }],
+      }
+      sdkClientMock.listResourceTemplates.mockResolvedValue(response)
+
+      await expect(client.listResourceTemplates()).resolves.toBe(response)
+
+      expect(sdkClientMock.listResourceTemplates).toHaveBeenCalledWith(undefined)
     })
 
     it('uses callTool when tasksConfig is undefined (default)', async () => {

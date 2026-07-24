@@ -417,6 +417,35 @@ const result = await mcpClient.callTool(calcTool, { x: 10, y: 20 })
 </Tab>
 </Tabs>
 
+## Prompts and Resources
+
+Use the client APIs to discover prompts and resources, retrieve a prompt with arguments, or read resource content. List responses include the server's `nextCursor` when another page is available.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+prompts = mcp_client.list_prompts_sync()
+prompt = mcp_client.get_prompt_sync(
+    "summarize",
+    {"topic": "quarterly results"},
+)
+
+resources = mcp_client.list_resources_sync()
+resource = mcp_client.read_resource_sync("file:///reports/q1.md")
+templates = mcp_client.list_resource_templates_sync()
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/mcp-tools.ts:prompts_resources"
+```
+</Tab>
+</Tabs>
+
+These methods return the raw MCP result objects. They do not convert prompt messages into agent conversation history.
+
 ## Implementing an MCP Server
 
 Custom MCP servers can be created to extend agent capabilities:

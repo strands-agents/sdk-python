@@ -187,6 +187,25 @@ const agentMultiple = new Agent({
   void agent
 }
 
+// --8<-- [start:prompts_resources]
+const prompts = await mcpClient.listPrompts()
+const prompt = await mcpClient.getPrompt('summarize', {
+  topic: 'quarterly results',
+})
+
+const resources = await mcpClient.listResources()
+const resource = await mcpClient.readResource('file:///reports/q1.md')
+const templates = await mcpClient.listResourceTemplates()
+
+console.log({
+  prompts: prompts.prompts,
+  prompt: prompt.messages,
+  resources: resources.resources,
+  resource: resource.contents,
+  templates: templates.resourceTemplates,
+})
+// --8<-- [end:prompts_resources]
+
 // --8<-- [start:mcp_server]
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'

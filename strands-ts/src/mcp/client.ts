@@ -10,6 +10,11 @@ import {
   type ServerCapabilities,
   type Implementation,
   type LoggingMessageNotificationParams,
+  type GetPromptResult,
+  type ListPromptsResult,
+  type ListResourcesResult,
+  type ListResourceTemplatesResult,
+  type ReadResourceResult,
 } from '@modelcontextprotocol/sdk/types.js'
 import { context, propagation, trace } from '@opentelemetry/api'
 import type { JSONSchema, JSONValue } from '../types/json.js'
@@ -397,6 +402,75 @@ export class McpClient {
     }
 
     return tools
+  }
+
+  /**
+   * Lists prompts exposed by the MCP server.
+   *
+   * @param cursor - Optional pagination cursor from a previous response.
+   * @returns The raw MCP prompt-list response.
+   */
+  public async listPrompts(cursor?: string): Promise<ListPromptsResult> {
+    await this.connect()
+    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+
+    return await this._client.listPrompts(cursor !== undefined ? { cursor } : undefined)
+  }
+
+  /**
+   * Retrieves a prompt exposed by the MCP server.
+   *
+   * @param promptId - Name of the prompt to retrieve.
+   * @param args - Optional string arguments for prompt template expansion.
+   * @returns The raw MCP prompt response.
+   */
+  public async getPrompt(promptId: string, args?: Record<string, string>): Promise<GetPromptResult> {
+    await this.connect()
+    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+
+    return await this._client.getPrompt({
+      name: promptId,
+      ...(args !== undefined && { arguments: args }),
+    })
+  }
+
+  /**
+   * Lists resources exposed by the MCP server.
+   *
+   * @param cursor - Optional pagination cursor from a previous response.
+   * @returns The raw MCP resource-list response.
+   */
+  public async listResources(cursor?: string): Promise<ListResourcesResult> {
+    await this.connect()
+    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+
+    return await this._client.listResources(cursor !== undefined ? { cursor } : undefined)
+  }
+
+  /**
+   * Reads a resource exposed by the MCP server.
+   *
+   * @param uri - URI of the resource to read.
+   * @returns The raw MCP resource response.
+   */
+  public async readResource(uri: string | URL): Promise<ReadResourceResult> {
+    await this.connect()
+    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+
+    return await this._client.readResource({ uri: uri.toString() })
+  }
+
+  /**
+   * Lists resource templates exposed by the MCP server.
+   *
+   * @param cursor - Optional pagination cursor from a previous response.
+   * @returns The raw MCP resource-template response.
+   */
+  public async listResourceTemplates(cursor?: string): Promise<ListResourceTemplatesResult> {
+    await this.connect()
+    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+
+    return await this._client.listResourceTemplates(cursor !== undefined ? { cursor } : undefined)
   }
 
   /**
