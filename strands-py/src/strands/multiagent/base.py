@@ -4,6 +4,7 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
 import logging
+import time
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping
@@ -187,6 +188,47 @@ class MultiAgentBase(ABC):
     """
 
     id: str
+    # Wall-clock start of the active invocation, or None when no invocation is running. Set at
+    # invocation start; folded into the orchestrator's committed execution-time total exactly once
+    # at finalization.
+    _invocation_start_time: float | None
+
+    def __init__(self) -> None:
+        """Initialize base multi-agent state."""
+        self._invocation_start_time = None
+
+    def _execution_time_with_active_interval(self, committed_time: int) -> int:
+        """Committed execution time (ms) plus the active invocation's in-flight interval.
+
+        The active interval is folded into the committed total only once, at finalization, so any
+        read that must reflect elapsed time — checkpoints, result building — adds it on here.
+
+        Args:
+            committed_time: Execution time in milliseconds already committed by prior invocations.
+
+        Returns:
+            committed_time plus the current invocation's elapsed milliseconds, or committed_time
+            unchanged when no invocation is running.
+        """
+        if self._invocation_start_time is None:
+            return committed_time
+        return committed_time + round((time.time() - self._invocation_start_time) * 1000)
+
+    def _commit_active_interval(self, committed_time: int) -> int:
+        """Fold the active invocation's interval into committed_time and end the interval.
+
+        Idempotent: with no active interval this returns committed_time unchanged, so calling it at
+        finalization never double-counts.
+
+        Args:
+            committed_time: Execution time in milliseconds already committed by prior invocations.
+
+        Returns:
+            The new committed total including the interval that just ended.
+        """
+        total = self._execution_time_with_active_interval(committed_time)
+        self._invocation_start_time = None
+        return total
 
     @abstractmethod
     async def invoke_async(
