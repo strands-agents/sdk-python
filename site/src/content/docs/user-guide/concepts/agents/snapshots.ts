@@ -1,4 +1,5 @@
 import { Agent, type Snapshot } from '@strands-agents/sdk'
+import type { MessageData } from '@strands-agents/sdk'
 
 // Take snapshot example
 async function takeSnapshotExample() {
@@ -111,6 +112,30 @@ async function checkpointingExample() {
   agent.loadSnapshot(checkpoint1)
   await agent.invoke('Focus specifically on multi-agent systems and summarize')
   // --8<-- [end:checkpointing]
+}
+
+// Loading history from an untrusted source
+async function clearTrailingToolUseExample(untrustedData: string) {
+  // --8<-- [start:clear_trailing_tool_use]
+  function clearTrailingToolUse(messages: MessageData[]): MessageData[] {
+    if (messages.length === 0) {
+      return messages
+    }
+    const last = messages[messages.length - 1]
+    const content = last.content.filter((block) => !('toolUse' in block))
+    messages[messages.length - 1] = { ...last, content }
+    return messages
+  }
+
+  // untrustedData came from a request body, queue, or shared store.
+  const restored: Snapshot = JSON.parse(untrustedData)
+  const messages = (restored.data.messages ?? []) as unknown as MessageData[]
+  const cleaned = clearTrailingToolUse(messages)
+  restored.data.messages = cleaned as unknown as Snapshot['data']['messages']
+
+  const agent = new Agent()
+  agent.loadSnapshot(restored)
+  // --8<-- [end:clear_trailing_tool_use]
 }
 
 // Branching conversations example
