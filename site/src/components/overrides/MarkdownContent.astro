@@ -12,9 +12,7 @@ const { languages, community, experimental } = starlightRoute.entry.data;
 <div class="sl-markdown-content">
   {experimental && <ExperimentalAside />}
   {community && <CommunityContributionAside />}
-  {/* Language support aside is omitted for community pages — the CommunityContributionAside already
-      contextualizes the page, and language support is listed in the community catalog table instead. */}
-  {languages && !community && <LanguageSupportAside languages={languages} />}
+  {languages && <LanguageSupportAside languages={languages} />}
   <slot />
   <PageTags />
 </div>
