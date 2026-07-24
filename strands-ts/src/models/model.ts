@@ -24,6 +24,7 @@ import {
   type ModelStreamEvent,
 } from './streaming.js'
 import { MaxTokensError, ModelError, normalizeError } from '../errors.js'
+import { recoverMessageOnMaxTokensReached } from './recover-message-on-max-tokens.js'
 import type { Redaction } from '../hooks/events.js'
 import { logger } from '../logging/logger.js'
 import { getContextWindowLimit } from './defaults.js'
@@ -498,7 +499,7 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
       if (finalStopReason === 'maxTokens') {
         throw new MaxTokensError(
           'Model reached maximum token limit. This is an unrecoverable state that requires intervention.',
-          stoppedMessage
+          recoverMessageOnMaxTokensReached(stoppedMessage)
         )
       }
 

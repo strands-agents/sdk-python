@@ -441,6 +441,27 @@ describe('Agent Hooks Integration', () => {
       expect(callCount).toBe(2)
     })
 
+    it('does not append a recovered max-token message when hook retries', async () => {
+      const model = new MockMessageModel()
+        .addTurn(
+          { type: 'toolUseBlock', name: 'calculator', toolUseId: 'tool-1', input: { expression: '2+2' } },
+          { stopReason: 'maxTokens' }
+        )
+        .addTurn({ type: 'textBlock', text: 'Success after retry' })
+
+      const agent = new Agent({ model, printer: false })
+      agent.addHook(AfterModelCallEvent, (event: AfterModelCallEvent) => {
+        if (event.error) {
+          event.retry = true
+        }
+      })
+
+      await agent.invoke('Test')
+
+      expect(agent.messages).toHaveLength(2)
+      expect(agent.messages[1]!.content).toEqual([{ type: 'textBlock', text: 'Success after retry' }])
+    })
+
     it('does not retry when retry is not set', async () => {
       const model = new MockMessageModel().addTurn(new Error('Failure'))
       const agent = new Agent({ model })

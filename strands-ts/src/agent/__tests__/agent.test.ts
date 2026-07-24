@@ -831,11 +831,25 @@ describe('Agent', () => {
     it('releases lock after errors and abandoned streams', async () => {
       // Test error case
       const model = new MockMessageModel()
-        .addTurn({ type: 'textBlock', text: 'Partial' }, { stopReason: 'maxTokens' })
+        .addTurn(
+          [
+            { type: 'textBlock', text: 'Partial' },
+            { type: 'toolUseBlock', name: 'calculator', toolUseId: 'tool-1', input: { expression: '2+2' } },
+          ],
+          { stopReason: 'maxTokens' }
+        )
         .addTurn({ type: 'textBlock', text: 'Success' })
       const agent = new Agent({ model })
 
       await expect(agent.invoke('First')).rejects.toThrow(MaxTokensError)
+      expect(agent.messages).toHaveLength(2)
+      expect(agent.messages[1]!.content).toEqual([
+        { type: 'textBlock', text: 'Partial' },
+        {
+          type: 'textBlock',
+          text: "The selected tool calculator's tool use was incomplete due to maximum token limits being reached.",
+        },
+      ])
 
       const result = await agent.invoke('Second')
       expect(result.lastMessage.content).toEqual([{ type: 'textBlock', text: 'Success' }])
