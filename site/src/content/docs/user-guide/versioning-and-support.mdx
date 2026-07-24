@@ -85,6 +85,18 @@ Experimental features graduate to the main SDK when they meet stability criteria
 * **Version X.Y**: Feature graduates to main SDK; experimental version deprecated with migration guide
 * **Version X.Y+1**: Experimental version removed
 
+### Graduated Python Imports
+
+The following experimental compatibility imports have completed their deprecation period. Use their production locations:
+
+| Removed import | Production import |
+| --- | --- |
+| `strands.experimental.steering` | `strands.vended_plugins.steering` |
+| `strands.experimental.tools.ToolProvider` | `strands.tools.ToolProvider` |
+| `strands.experimental.hooks.multiagent` | `strands.hooks.multiagent` |
+| `BeforeToolInvocationEvent` / `AfterToolInvocationEvent` | `BeforeToolCallEvent` / `AfterToolCallEvent` from `strands.hooks` |
+| `BeforeModelInvocationEvent` / `AfterModelInvocationEvent` | `BeforeModelCallEvent` / `AfterModelCallEvent` from `strands.hooks` |
+
 ## Deprecation Policy
 
 Features are deprecated responsibly to provide adequate time for migration to newer alternatives.

@@ -3,11 +3,9 @@
 This module defines the events that are emitted as Agents and BidiAgents run through the lifecycle of a request.
 """
 
-import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from ...hooks.events import AfterModelCallEvent, AfterToolCallEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from ...hooks.registry import BaseHookEvent
 from ...types.content import Message
 from ...types.tools import AgentTool, ToolResult, ToolUse
@@ -15,27 +13,6 @@ from ...types.tools import AgentTool, ToolResult, ToolUse
 if TYPE_CHECKING:
     from ..bidi.agent.agent import BidiAgent
     from ..bidi.models import BidiModelTimeoutError
-
-# Deprecated aliases - warning emitted on access via __getattr__
-_DEPRECATED_ALIASES = {
-    "BeforeToolInvocationEvent": BeforeToolCallEvent,
-    "AfterToolInvocationEvent": AfterToolCallEvent,
-    "BeforeModelInvocationEvent": BeforeModelCallEvent,
-    "AfterModelInvocationEvent": AfterModelCallEvent,
-}
-
-
-def __getattr__(name: str) -> Any:
-    if name in _DEPRECATED_ALIASES:
-        warnings.warn(
-            f"{name} has been moved to production with an updated name. "
-            f"Use {_DEPRECATED_ALIASES[name].__name__} from strands.hooks instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return _DEPRECATED_ALIASES[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 # BidiAgent Hook Events
 
