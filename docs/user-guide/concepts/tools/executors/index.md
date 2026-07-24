@@ -27,10 +27,12 @@ const agent = new Agent({
   tools: [weatherTool, timeTool],
   toolExecutor: 'concurrent',
 })
-// or simply: new Agent({ tools: [weatherTool, timeTool] })
+// Omit toolExecutor to use concurrent execution by default.
 
 await agent.invoke('What is the weather and time in New York?')
 ```
+
+The `'concurrent'` string shorthand keeps your imports minimal. Passing `new ConcurrentToolExecutor()` is equivalent if you prefer to be explicit.
 (( /tab "TypeScript" ))
 
 Assuming the model returns `weather_tool` and `time_tool` use requests, the concurrent executor runs both at the same time. End-to-end latency scales with the slowest tool rather than their sum.
@@ -68,6 +70,8 @@ const agent = new Agent({
 
 await agent.invoke('Take a screenshot and email it to my friend')
 ```
+
+The `'sequential'` string shorthand keeps your imports minimal. Passing `new SequentialToolExecutor()` is equivalent if you prefer to be explicit.
 (( /tab "TypeScript" ))
 
 Assuming the model returns `screenshot_tool` and `email_tool` use requests, the sequential executor runs both in the order given.
@@ -106,7 +110,7 @@ Custom tool executors are not currently supported but are planned for a future r
 
 - [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (2 shared tags)
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (2 shared tags)
-- [Steering](/docs/user-guide/concepts/agents/interventions/steering/index.md) (2 shared tags)
+- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (2 shared tags)
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (2 shared tags)
 - [Creating a Custom Model Provider](/docs/user-guide/concepts/model-providers/custom_model_provider/index.md) (1 shared tag)
 - [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) (2 shared tags)
@@ -125,4 +129,5 @@ Custom tool executors are not currently supported but are planned for a future r
 
 ### TypeScript
 
-- [harness-sdk/strands-ts/src/agent/agent.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/agent/agent.ts)
+- [harness-sdk/strands-ts/src/tools/executors/concurrent.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/tools/executors/concurrent.ts)
+- [harness-sdk/strands-ts/src/tools/executors/sequential.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/tools/executors/sequential.ts)

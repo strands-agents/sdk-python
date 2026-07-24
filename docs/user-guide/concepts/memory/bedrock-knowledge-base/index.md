@@ -400,8 +400,8 @@ If the data source has ACL awareness enabled and no `access_control_list``access
 - [TypeScript Deployment to Amazon Bedrock AgentCore Runtime](/docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript/index.md) (2 shared tags)
 - [AgentCore Evaluation Dashboard Configuration](/docs/user-guide/evals-sdk/how-to/agentcore_evaluation_dashboard/index.md) (2 shared tags)
 - [Memory](/docs/user-guide/concepts/memory/overview/index.md) (1 shared tag)
+- [Test Memory Store](/docs/user-guide/concepts/memory/test-memory-store/index.md) (1 shared tag)
 - [Amazon Bedrock](/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md) (2 shared tags)
-- [Deploying Strands Agents SDK Agents to Amazon EC2](/docs/user-guide/deploy/deploy_to_amazon_ec2/index.md) (1 shared tag)
 
 
 ## Implementation

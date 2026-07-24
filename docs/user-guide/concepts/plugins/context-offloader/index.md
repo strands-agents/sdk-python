@@ -44,15 +44,13 @@ Quick setup
 
 You can enable a pre-configured `ContextOffloader` alongside summarization-based context management with a single parameter. See [Context Management](/docs/user-guide/concepts/context-management/index.md).
 
-Pass a `ContextOffloader` instance to your agent’s `plugins` list with your choice of storage backend:
+Pass a `ContextOffloader` instance to your agent’s `plugins` list with a [Storage](/docs/user-guide/concepts/storage/index.md) backend:
 
 (( tab "Python" ))
 ```python
 from strands import Agent
-from strands.vended_plugins.context_offloader import (
-    ContextOffloader,
-    InMemoryStorage,
-)
+from strands.storage import InMemoryStorage
+from strands.vended_plugins.context_offloader import ContextOffloader
 
 agent = Agent(plugins=[
     ContextOffloader(storage=InMemoryStorage())
@@ -63,13 +61,13 @@ agent = Agent(plugins=[
 (( tab "TypeScript" ))
 ```typescript
 import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  InMemoryStorage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { InMemoryStorage } from '@strands-agents/sdk/storage'
 
 const agent = new Agent({
-  plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
+  plugins: [
+    new ContextOffloader({ storage: new InMemoryStorage() }),
+  ],
 })
 ```
 (( /tab "TypeScript" ))
@@ -78,6 +76,9 @@ To customize the token thresholds:
 
 (( tab "Python" ))
 ```python
+from strands.storage import InMemoryStorage
+from strands.vended_plugins.context_offloader import ContextOffloader
+
 agent = Agent(plugins=[
     ContextOffloader(
         storage=InMemoryStorage(),
@@ -91,10 +92,8 @@ agent = Agent(plugins=[
 (( tab "TypeScript" ))
 ```typescript
 import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  InMemoryStorage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { InMemoryStorage } from '@strands-agents/sdk/storage'
 
 const agent = new Agent({
   plugins: [
@@ -110,25 +109,23 @@ const agent = new Agent({
 
 ### Storage Backends
 
-Choose a storage backend based on your needs:
+`ContextOffloader` accepts any [Storage](/docs/user-guide/concepts/storage/index.md) backend. Choose one based on your durability needs:
 
 | Backend | Persistence | Best for |
 | --- | --- | --- |
-| `InMemoryStorage` | Process lifetime only (auto-evicted after 20 idle cycles by default) | Development, testing, serverless, short-lived agents |
-| `FileStorage` | Disk | Local development, debugging, inspecting stored artifacts |
+| `InMemoryStorage` | Process lifetime only | Testing, serverless, short-lived agents |
+| `LocalFileStorage` | Local disk | Development, debugging, inspecting stored artifacts |
 | `S3Storage` | Amazon S3 | Production workloads, shared or durable artifact retention |
 
-All backends implement the `Storage` protocol and preserve content type metadata, so you can also build your own.
+See [Storage](/docs/user-guide/concepts/storage/index.md) for full details on each backend and how to implement a custom one.
 
-**In-memory storage**: stores content in process memory. Entries not accessed within `evict_after_turns` agent loop cycles are automatically evicted to prevent unbounded memory growth. The default is 20 cycles. Retrieving content resets the counter for that entry, so frequently accessed content stays alive. To disable eviction and manage memory manually, pass `None`/`null` and call `clear()` when entries are no longer needed.
+**Eviction**: offloaded entries are automatically deleted after `evict_after_cycles``evictAfterCycles` agent loop cycles (default: 20). Set to `None`/`null` to disable.
 
 (( tab "Python" ))
 ```python
 from strands import Agent
-from strands.vended_plugins.context_offloader import (
-    ContextOffloader,
-    InMemoryStorage,
-)
+from strands.storage import InMemoryStorage
+from strands.vended_plugins.context_offloader import ContextOffloader
 
 # Default: entries evicted after 20 cycles of disuse
 agent = Agent(plugins=[
@@ -137,57 +134,17 @@ agent = Agent(plugins=[
 
 # Custom eviction window
 agent = Agent(plugins=[
-    ContextOffloader(storage=InMemoryStorage(evict_after_turns=50))
+    ContextOffloader(
+        storage=InMemoryStorage(),
+        evict_after_cycles=50,
+    )
 ])
 
-# Disable eviction (accumulates until clear() is called)
-agent = Agent(plugins=[
-    ContextOffloader(storage=InMemoryStorage(evict_after_turns=None))
-])
-```
-(( /tab "Python" ))
-
-(( tab "TypeScript" ))
-```typescript
-import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  InMemoryStorage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
-
-// Default: entries evicted after 20 cycles of disuse
-const agent = new Agent({
-  plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
-})
-
-// Custom eviction window
-const agent2 = new Agent({
-  plugins: [
-    new ContextOffloader({ storage: new InMemoryStorage(50) }),
-  ],
-})
-
-// Disable eviction (accumulates until clear() is called)
-const agent3 = new Agent({
-  plugins: [
-    new ContextOffloader({ storage: new InMemoryStorage(null) }),
-  ],
-})
-```
-(( /tab "TypeScript" ))
-
-**File storage** — persists to a local directory with `.metadata.json` sidecars for content type tracking:
-
-(( tab "Python" ))
-```python
-from strands.vended_plugins.context_offloader import (
-    ContextOffloader,
-    FileStorage,
-)
-
+# Disable eviction
 agent = Agent(plugins=[
     ContextOffloader(
-        storage=FileStorage("./artifacts"),
+        storage=InMemoryStorage(),
+        evict_after_cycles=None,
     )
 ])
 ```
@@ -196,34 +153,79 @@ agent = Agent(plugins=[
 (( tab "TypeScript" ))
 ```typescript
 import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  FileStorage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { InMemoryStorage } from '@strands-agents/sdk/storage'
 
 const agent = new Agent({
   plugins: [
+    new ContextOffloader({ storage: new InMemoryStorage() }),
+  ],
+})
+
+// Custom eviction window
+const agent2 = new Agent({
+  plugins: [
     new ContextOffloader({
-      storage: new FileStorage('./artifacts'),
+      storage: new InMemoryStorage(),
+      evictAfterCycles: 50,
+    }),
+  ],
+})
+
+// Disable eviction
+const agent3 = new Agent({
+  plugins: [
+    new ContextOffloader({
+      storage: new InMemoryStorage(),
+      evictAfterCycles: null,
     }),
   ],
 })
 ```
 (( /tab "TypeScript" ))
 
-**S3 storage** — persists to an Amazon S3 bucket with content type preserved via S3 object metadata:
+**Local file storage** — persists to a directory on disk:
 
 (( tab "Python" ))
 ```python
-from strands.vended_plugins.context_offloader import (
-    ContextOffloader,
-    S3Storage,
-)
+from strands.storage import LocalFileStorage
+from strands.vended_plugins.context_offloader import ContextOffloader
+
+agent = Agent(plugins=[
+    ContextOffloader(
+        storage=LocalFileStorage("./artifacts/"),
+    )
+])
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { LocalFileStorage } from '@strands-agents/sdk/storage'
+
+const agent = new Agent({
+  plugins: [
+    new ContextOffloader({
+      storage: new LocalFileStorage('./artifacts/'),
+    }),
+  ],
+})
+```
+(( /tab "TypeScript" ))
+
+**S3 storage** — persists to an Amazon S3 bucket:
+
+(( tab "Python" ))
+```python
+from strands.storage import S3Storage
+from strands.vended_plugins.context_offloader import ContextOffloader
 
 agent = Agent(plugins=[
     ContextOffloader(
         storage=S3Storage(
-            bucket="my-agent-artifacts",
+            "my-agent-artifacts",
             prefix="tool-results/",
         ),
     )
@@ -234,10 +236,8 @@ agent = Agent(plugins=[
 (( tab "TypeScript" ))
 ```typescript
 import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  S3Storage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { S3Storage } from '@strands-agents/sdk/storage'
 
 const agent = new Agent({
   plugins: [
@@ -367,7 +367,7 @@ Input: `{ reference: "mem_1_tool-123_0", line_range: { start: 45, end: 55 } }`
 
 ### Using other tools for retrieval
 
-When using `FileStorage`, the agent can use its existing tools (shell, grep, cat, etc.) to access offloaded content directly from the file system. The offloaded guidance includes the full storage path, so the agent knows where to look:
+When using `LocalFileStorage`, the agent can use its existing tools (shell, grep, cat, etc.) to access offloaded content directly from the file system:
 
 ```plaintext
 grep -n "admin" ./artifacts/mem_1_tool-123_0
@@ -375,26 +375,28 @@ cat ./artifacts/mem_1_tool-123_0 | head -50
 sed -n '45,55p' ./artifacts/mem_1_tool-123_0
 ```
 
-With `S3Storage`, the agent can use the AWS CLI to access offloaded content:
+With `S3Storage`, the agent can use the AWS CLI:
 
 ```plaintext
 aws s3 cp s3://my-agent-artifacts/tool-results/mem_1_tool-123_0 - | grep -n "admin"
 aws s3 cp s3://my-agent-artifacts/tool-results/mem_1_tool-123_0 - | head -50
 ```
 
-With `InMemoryStorage`, there is no external access path: the built-in retrieval tool is the only way to access offloaded content, so keep it enabled. Entries are automatically evicted after 20 cycles of disuse (configurable via `evict_after_turns` / `evictAfterTurns`). Attempting to retrieve evicted content raises an error.
+With `InMemoryStorage`, there is no external access path — the built-in retrieval tool is the only way to access offloaded content, so keep it enabled.
 
 This approach is often preferable because the agent already knows these tools well and can chain them together for complex queries. To disable the built-in retrieval tool and rely on the agent’s own tools:
 
 (( tab "Python" ))
 ```python
 from strands_tools import shell
+from strands.storage import LocalFileStorage
+from strands.vended_plugins.context_offloader import ContextOffloader
 
 agent = Agent(
     tools=[shell],
     plugins=[
         ContextOffloader(
-            storage=FileStorage("./artifacts"),
+            storage=LocalFileStorage("./artifacts/"),
             include_retrieval_tool=False,
         )
     ]
@@ -405,7 +407,8 @@ agent = Agent(
 (( tab "TypeScript" ))
 ```typescript
 import { Agent } from '@strands-agents/sdk'
-import { ContextOffloader, FileStorage } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { LocalFileStorage } from '@strands-agents/sdk/storage'
 import { bash } from '@strands-agents/sdk/vended-tools/bash'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
@@ -413,7 +416,7 @@ const agent = new Agent({
   tools: [bash, fileEditor],
   plugins: [
     new ContextOffloader({
-      storage: new FileStorage('./artifacts'),
+      storage: new LocalFileStorage('./artifacts/'),
       includeRetrievalTool: false,
     }),
   ],
@@ -424,15 +427,15 @@ const agent = new Agent({
 ## Tradeoffs
 
 -   **Preview vs. full content**: The agent reasons over the preview, not the full result. If the answer is buried deep in a large result, the agent may miss it. Tune `preview_tokens` to balance context usage against information loss for your use case. The `retrieve_offloaded_content` tool is enabled by default so the agent can fetch full offloaded content as a fallback. If the agent already has tools that can access the storage backend directly (file readers, shell, etc.), you can disable it with `include_retrieval_tool=False`.
--   **Storage costs**: `S3Storage` incurs S3 PUT/GET and storage charges. `FileStorage` writes to disk on every large result.
--   **In-memory eviction**: `InMemoryStorage` evicts entries not accessed within 20 agent loop cycles (configurable). Evicted content is permanently deleted: the agent receives an error if it tries to retrieve it later. Increase the value or pass `None`/`null` to disable eviction if your agent revisits offloaded content after many turns.
+-   **Storage costs**: `S3Storage` incurs S3 PUT/GET and storage charges. `LocalFileStorage` writes to disk on every large result.
+-   **Eviction**: Offloaded entries are deleted after 20 agent loop cycles by default (configurable via `evict_after_cycles``evictAfterCycles`). Evicted content is permanently lost. Increase the value or pass `None`/`null` to disable eviction if your agent revisits offloaded content after many turns.
 -   **Not a replacement for conversation management**: This plugin handles individual large results. You still need a conversation manager like `SlidingWindowConversationManager` to handle overall context growth across many turns.
 
 ## Related pages
 
 - [Context Management](/docs/user-guide/concepts/context-management/index.md) (2 shared tags)
 - [Conversation Management](/docs/user-guide/concepts/agents/conversation-management/index.md) (2 shared tags)
-- [Steering](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
+- [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
 - [Context Injector](/docs/user-guide/concepts/plugins/context-injector/index.md) (1 shared tag)
 - [Coherence Evaluator](/docs/user-guide/evals-sdk/evaluators/coherence_evaluator/index.md) (1 shared tag)
 - [Conciseness Evaluator](/docs/user-guide/evals-sdk/evaluators/conciseness_evaluator/index.md) (1 shared tag)
@@ -447,9 +450,7 @@ const agent = new Agent({
 ### Python
 
 - [harness-sdk/strands-py/src/strands/vended_plugins/context_offloader/plugin.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py)
-- [harness-sdk/strands-py/src/strands/vended_plugins/context_offloader/storage.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/storage.py)
 
 ### TypeScript
 
 - [harness-sdk/strands-ts/src/vended-plugins/context-offloader/plugin.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-plugins/context-offloader/plugin.ts)
-- [harness-sdk/strands-ts/src/vended-plugins/context-offloader/storage.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-plugins/context-offloader/storage.ts)

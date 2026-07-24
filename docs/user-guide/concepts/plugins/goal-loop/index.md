@@ -414,10 +414,10 @@ const plugin = new GoalLoop({
 ## Related pages
 
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (2 shared tags)
-- [Steering](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
+- [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
 - [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (2 shared tags)
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (2 shared tags)
-- [Steering](/docs/user-guide/concepts/agents/interventions/steering/index.md) (2 shared tags)
+- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (2 shared tags)
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (2 shared tags)
 - [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) (2 shared tags)
 - [Instruction Following Evaluator](/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md) (1 shared tag)

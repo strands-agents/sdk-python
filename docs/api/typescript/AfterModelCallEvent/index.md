@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:467](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L467)
+Defined in: [src/hooks/events.ts:468](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L468)
 
 Event triggered after the model invocation completes. Fired after the model finishes generating a response, whether successful or failed. Uses reverse callback ordering for proper cleanup semantics.
 
@@ -16,7 +16,7 @@ Note: stopData may be undefined if an error occurs before the model completes.
 new AfterModelCallEvent(data): AfterModelCallEvent;
 ```
 
-Defined in: [src/hooks/events.ts:492](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L492)
+Defined in: [src/hooks/events.ts:493](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L493)
 
 #### Parameters
 
@@ -46,7 +46,7 @@ Defined in: [src/hooks/events.ts:492](https://github.com/strands-agents/harness-
 readonly type: "afterModelCallEvent";
 ```
 
-Defined in: [src/hooks/events.ts:468](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L468)
+Defined in: [src/hooks/events.ts:469](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L469)
 
 ---
 
@@ -56,7 +56,7 @@ Defined in: [src/hooks/events.ts:468](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:469](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L469)
+Defined in: [src/hooks/events.ts:470](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L470)
 
 ---
 
@@ -66,7 +66,7 @@ Defined in: [src/hooks/events.ts:469](https://github.com/strands-agents/harness-
 readonly model: Model;
 ```
 
-Defined in: [src/hooks/events.ts:470](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L470)
+Defined in: [src/hooks/events.ts:471](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L471)
 
 ---
 
@@ -76,7 +76,7 @@ Defined in: [src/hooks/events.ts:470](https://github.com/strands-agents/harness-
 readonly optional stopData?: ModelStopResponse;
 ```
 
-Defined in: [src/hooks/events.ts:471](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L471)
+Defined in: [src/hooks/events.ts:472](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L472)
 
 ---
 
@@ -86,7 +86,7 @@ Defined in: [src/hooks/events.ts:471](https://github.com/strands-agents/harness-
 readonly optional error?: Error;
 ```
 
-Defined in: [src/hooks/events.ts:472](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L472)
+Defined in: [src/hooks/events.ts:473](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L473)
 
 ---
 
@@ -96,7 +96,7 @@ Defined in: [src/hooks/events.ts:472](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:473](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L473)
+Defined in: [src/hooks/events.ts:474](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L474)
 
 ---
 
@@ -106,7 +106,7 @@ Defined in: [src/hooks/events.ts:473](https://github.com/strands-agents/harness-
 readonly attemptCount: number;
 ```
 
-Defined in: [src/hooks/events.ts:484](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L484)
+Defined in: [src/hooks/events.ts:485](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L485)
 
 1-indexed count of model attempts for this turn, including the attempt that just completed (or failed). The first call in a turn is `1`; each subsequent retry increments by one.
 
@@ -120,7 +120,7 @@ Retry strategies may rely on `attemptCount === 1` to mark the start of a new ret
 optional retry?: boolean;
 ```
 
-Defined in: [src/hooks/events.ts:490](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L490)
+Defined in: [src/hooks/events.ts:491](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L491)
 
 Optional flag that can be set by hook callbacks to request a retry of the model call. When set to true, the agent will retry the model invocation.
 
@@ -136,7 +136,7 @@ toJSON(): Pick<AfterModelCallEvent, "type" | "stopData" | "attemptCount"> & {
 };
 ```
 
-Defined in: [src/hooks/events.ts:522](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L522)
+Defined in: [src/hooks/events.ts:523](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L523)
 
 Serializes for wire transport, excluding the agent reference, invocationState, and mutable retry flag. Converts Error to an extensible object for safe wire serialization. Called automatically by JSON.stringify().
 

@@ -169,7 +169,7 @@ For guidance on writing safe and responsible prompts, including defending agains
 
 - [Prompt Engineering](/docs/user-guide/safety-security/prompt-engineering/index.md) (3 shared tags)
 - [Instruction Following Evaluator](/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md) (2 shared tags)
-- [Steering](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
+- [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
 - [Coherence Evaluator](/docs/user-guide/evals-sdk/evaluators/coherence_evaluator/index.md) (1 shared tag)
 - [Conciseness Evaluator](/docs/user-guide/evals-sdk/evaluators/conciseness_evaluator/index.md) (1 shared tag)
 - [Goal Success Rate Evaluator](/docs/user-guide/evals-sdk/evaluators/goal_success_rate_evaluator/index.md) (1 shared tag)

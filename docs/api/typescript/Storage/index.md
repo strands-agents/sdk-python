@@ -1,4 +1,4 @@
-Defined in: [src/storage/storage.ts:64](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/storage/storage.ts#L64)
+Defined in: [src/storage/storage.ts:64](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L64)
 
 A backend for storing and retrieving raw bytes under string keys.
 
@@ -22,7 +22,7 @@ Implement this to add a custom backend; the SDK ships InMemoryStorage, LocalFile
 write(key, data): Promise<void>;
 ```
 
-Defined in: [src/storage/storage.ts:72](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/storage/storage.ts#L72)
+Defined in: [src/storage/storage.ts:72](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L72)
 
 Stores `data` under `key`, overwriting any existing value.
 
@@ -49,7 +49,7 @@ Stores `data` under `key`, overwriting any existing value.
 read(key): Promise<Uint8Array<ArrayBufferLike>>;
 ```
 
-Defined in: [src/storage/storage.ts:81](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/storage/storage.ts#L81)
+Defined in: [src/storage/storage.ts:81](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L81)
 
 Retrieves the bytes previously stored under `key`.
 
@@ -77,7 +77,7 @@ The stored bytes, or `null` if no value exists for `key`
 delete(key): Promise<void>;
 ```
 
-Defined in: [src/storage/storage.ts:89](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/storage/storage.ts#L89)
+Defined in: [src/storage/storage.ts:89](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L89)
 
 Deletes the value stored under `key`. A no-op if the key does not exist.
 
@@ -103,7 +103,7 @@ Deletes the value stored under `key`. A no-op if the key does not exist.
 list(query): Promise<string[]>;
 ```
 
-Defined in: [src/storage/storage.ts:105](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/storage/storage.ts#L105)
+Defined in: [src/storage/storage.ts:105](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L105)
 
 Lists keys matching the given query.
 
@@ -135,7 +135,7 @@ The matching keys, sorted ascending
 optional namespace(prefix): Storage;
 ```
 
-Defined in: [src/storage/storage.ts:116](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/storage/storage.ts#L116)
+Defined in: [src/storage/storage.ts:116](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L116)
 
 Returns a view of this storage with all keys prefixed by `prefix`. The original storage is not mutated.
 

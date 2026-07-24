@@ -1,4 +1,24 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.48.0</title><link>https://strandsagents.com/changelog/harness/python-v1.48.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.48.0/</guid><description>• allow ports in either direction
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.50.1</title><link>https://strandsagents.com/changelog/harness/python-v1.50.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.50.1/</guid><description>• thread per-call model through InvokeModelStage
+• move stop tool to experimental
+• bump hono from 4.12.25 to 4.12.32
+• update ruff requirement from &lt;0.16.0,&gt;=0.13.0 to &gt;=0.13.0,&lt;0.17.0 in /strands-py
+• add model routing design doc (0016)</description><pubDate>Fri, 24 Jul 2026 00:00:00 GMT</pubDate><category>hooks</category><category>model</category><category>devx</category><category>tool</category><category>mcp</category></item><item><title>Harness Python v1.50.0</title><link>https://strandsagents.com/changelog/harness/python-v1.50.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.50.0/</guid><description>• merge strands-agents/mcp-server into monorepo
+• make the release pip-audit step actually run
+• replace duplicated examples guide with reference pointer
+• bump brace-expansion from 5.0.6 to 5.0.7
+• refactor TestMemoryStore to use the unified storage interface</description><pubDate>Fri, 24 Jul 2026 00:00:00 GMT</pubDate><category>mcp</category><category>hooks</category><category>tool</category><category>devx</category><category>model</category><category>agent</category><category>multiagent</category><category>bidirectional-streaming</category><category>persistence</category><category>context</category></item><item><title>Harness TypeScript v1.11.1</title><link>https://strandsagents.com/changelog/harness/typescript-v1.11.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.11.1/</guid><description>• persist message strategy after invocation
+• move stop tool to experimental
+• bump hono from 4.12.25 to 4.12.32
+• add model routing design doc (0016)
+• run the sync backstop every 2 hours</description><pubDate>Fri, 24 Jul 2026 00:00:00 GMT</pubDate><category>persistence</category><category>sessions</category><category>devx</category><category>tool</category><category>model</category><category>mcp</category><category>hil</category></item><item><title>Harness TypeScript v1.11.0</title><link>https://strandsagents.com/changelog/harness/typescript-v1.11.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.11.0/</guid><description>• merge strands-agents/mcp-server into monorepo
+• make the release pip-audit step actually run
+• extract shared registerNodeDefaults() to prevent src/test drift
+• detect tool use from streamed content when finish_reason is non-tool
+• replace duplicated examples guide with reference pointer</description><pubDate>Fri, 24 Jul 2026 00:00:00 GMT</pubDate><category>mcp</category><category>devx</category><category>model</category><category>language</category><category>tool</category><category>bidirectional-streaming</category><category>persistence</category><category>agent</category></item><item><title>Evals v1.0.3</title><link>https://strandsagents.com/changelog/evals/v1.0.3/</link><guid isPermaLink="true">https://strandsagents.com/changelog/evals/v1.0.3/</guid><description>• add CODEOWNERS
+• sha-pin third-party GitHub Actions
+• map type labels to native issue type
+• added pyproject classifiers
+• deflake async concurrency test by tracking in-flight tasks</description><pubDate>Thu, 23 Jul 2026 00:00:00 GMT</pubDate><category>core</category><category>tracing</category></item><item><title>Harness Python v1.48.0</title><link>https://strandsagents.com/changelog/harness/python-v1.48.0/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.48.0/</guid><description>• allow ports in either direction
 • bump actions/checkout from 6 to 7
 • group Python dev tooling by name pattern
 • scale description length to diff size

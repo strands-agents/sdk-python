@@ -1,6 +1,6 @@
 By default a Strands agent starts every conversation from zero: it cannot recall a user’s preferences, past decisions, or anything it learned in an earlier session. The `MemoryManager` gives an agent long-term memory that persists across sessions.
 
-It works through **memory stores**, the backends that hold the memories. A store can be a vector database, a managed service like [Amazon Bedrock Knowledge Bases](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md), or [your own implementation](#custom-stores). The manager handles three jobs across the stores you give it:
+It works through **memory stores**, the backends that hold the memories. A store can be the built-in zero-setup [test store](/docs/user-guide/concepts/memory/test-memory-store/index.md), a managed service like [Amazon Bedrock Knowledge Bases](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md), or [your own implementation](#custom-stores). The manager handles three jobs across the stores you give it:
 
 1.  **Recall** - the agent searches stored knowledge on demand through a tool.
 2.  **Injection** - the manager folds relevant knowledge into the prompt automatically, before the model runs.
@@ -10,12 +10,16 @@ Recall and injection are enabled by default when you attach a store. Extraction 
 
 ## Getting Started
 
-Attach a memory manager to an agent through the `memory_manager``memoryManager` parameter. The examples below use a `store`, a `MemoryStore` you provide; see [Bedrock Knowledge Base](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) for a managed backend or [Custom Stores](#custom-stores) to create your own.
+Attach a memory manager to an agent through the `memory_manager``memoryManager` parameter. The [test store](/docs/user-guide/concepts/memory/test-memory-store/index.md) below needs no cloud account and persists to disk by default, so this agent remembers across restarts with no setup. For a managed backend see [Bedrock Knowledge Base](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md), or [Custom Stores](#custom-stores) to create your own.
 
 (( tab "Python" ))
 ```python
 from strands import Agent
 from strands.memory import MemoryManager
+from strands.vended_memory_stores.test_memory_store import TestMemoryStore
+
+# Persists to ~/.strands/memory/notes.json by default.
+store = TestMemoryStore(name="notes")
 
 agent = Agent(memory_manager=MemoryManager(stores=[store]))
 ```
@@ -24,14 +28,10 @@ agent = Agent(memory_manager=MemoryManager(stores=[store]))
 (( tab "TypeScript" ))
 ```typescript
 import { Agent, BedrockModel } from '@strands-agents/sdk'
-import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/test-memory-store'
 
-const store = new BedrockKnowledgeBaseStore({
-  name: 'preferences',
-  description: 'User preferences and stable facts about the user.',
-  writable: true,
-  config: { knowledgeBaseId: 'KB123', dataSourceType: 'CUSTOM', dataSourceId: 'DS456' },
-})
+// Persists to ~/.strands/memory/notes.json by default.
+const store = new TestMemoryStore({ name: 'notes' })
 
 const agent = new Agent({
   model: new BedrockModel(),
@@ -622,6 +622,7 @@ Three SDK features manage different kinds of state; memory is the one that cross
 
 ## Related
 
+-   [Test memory store](/docs/user-guide/concepts/memory/test-memory-store/index.md) - the zero-setup vended `MemoryStore` backed by a local JSON file, for prototyping and testing.
 -   [Bedrock Knowledge Base store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) - the vended `MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 -   [Context Injector](/docs/user-guide/concepts/plugins/context-injector/index.md) - the generic injection plugin that memory injection builds on.
 -   [Session management](/docs/user-guide/concepts/agents/session-management/index.md) - persist the conversation itself across restarts.
@@ -629,6 +630,7 @@ Three SDK features manage different kinds of state; memory is the one that cross
 
 ## Related pages
 
+- [Test Memory Store](/docs/user-guide/concepts/memory/test-memory-store/index.md) (1 shared tag)
 - [Bedrock Knowledge Base Store](/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md) (1 shared tag)
 
 

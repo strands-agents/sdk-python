@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:381](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L381)
+Defined in: [src/hooks/events.ts:382](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L382)
 
 Event triggered just before the model is invoked. Fired before sending messages to the model for inference.
 
@@ -14,7 +14,7 @@ Event triggered just before the model is invoked. Fired before sending messages 
 new BeforeModelCallEvent(data): BeforeModelCallEvent;
 ```
 
-Defined in: [src/hooks/events.ts:402](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L402)
+Defined in: [src/hooks/events.ts:403](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L403)
 
 #### Parameters
 
@@ -42,7 +42,7 @@ Defined in: [src/hooks/events.ts:402](https://github.com/strands-agents/harness-
 readonly type: "beforeModelCallEvent";
 ```
 
-Defined in: [src/hooks/events.ts:382](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L382)
+Defined in: [src/hooks/events.ts:383](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L383)
 
 ---
 
@@ -52,7 +52,7 @@ Defined in: [src/hooks/events.ts:382](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:383](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L383)
+Defined in: [src/hooks/events.ts:384](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L384)
 
 ---
 
@@ -62,7 +62,7 @@ Defined in: [src/hooks/events.ts:383](https://github.com/strands-agents/harness-
 readonly model: Model;
 ```
 
-Defined in: [src/hooks/events.ts:384](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L384)
+Defined in: [src/hooks/events.ts:385](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L385)
 
 ---
 
@@ -72,7 +72,7 @@ Defined in: [src/hooks/events.ts:384](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:385](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L385)
+Defined in: [src/hooks/events.ts:386](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L386)
 
 ---
 
@@ -82,7 +82,7 @@ Defined in: [src/hooks/events.ts:385](https://github.com/strands-agents/harness-
 cancel: string | boolean = false;
 ```
 
-Defined in: [src/hooks/events.ts:392](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L392)
+Defined in: [src/hooks/events.ts:393](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L393)
 
 Set by hook callbacks to cancel this model call. When set to `true`, a default cancel message is used. When set to a string, that string is used as the assistant response message.
 
@@ -94,7 +94,7 @@ Set by hook callbacks to cancel this model call. When set to `true`, a default c
 readonly optional projectedInputTokens?: number;
 ```
 
-Defined in: [src/hooks/events.ts:400](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L400)
+Defined in: [src/hooks/events.ts:401](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L401)
 
 Projected input token count for the upcoming model call. Computed by the agent loop from message metadata and token estimation. Available for hooks and plugins (e.g. conversation managers) to make proactive decisions about context management.
 
@@ -106,7 +106,7 @@ Projected input token count for the upcoming model call. Computed by the agent l
 toJSON(): Pick<BeforeModelCallEvent, "type" | "projectedInputTokens">;
 ```
 
-Defined in: [src/hooks/events.ts:421](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L421)
+Defined in: [src/hooks/events.ts:422](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L422)
 
 Serializes for wire transport, excluding the agent reference and invocationState. Called automatically by JSON.stringify().
 

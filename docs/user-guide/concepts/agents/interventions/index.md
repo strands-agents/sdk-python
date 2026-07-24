@@ -524,9 +524,9 @@ Interventions return typed actions that the framework interprets. This enables:
 
 ## Related pages
 
-- [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (3 shared tags)
-- [Steering](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
+- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
+- [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (3 shared tags)
 - [Human in the Loop](/docs/user-guide/concepts/agents/interventions/human-in-the-loop/index.md) (2 shared tags)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (2 shared tags)

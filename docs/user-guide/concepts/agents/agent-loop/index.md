@@ -103,12 +103,14 @@ The agent emits lifecycle events at key points: before and after each invocation
 The `agent.cancel()` method provides a way to stop the loop from outside, such as on a client disconnect, a timeout, or a UI “Stop” button. Calling `cancel()` sets an internal signal that the agent checks at key checkpoints. The cancel signal clears automatically when the invocation completes, so the agent is immediately reusable.
 
 (( tab "Python" ))
-The agent checks for cancellation at two checkpoints:
+The agent checks for cancellation at four checkpoints:
 
 | Checkpoint | Behavior | Note |
 | --- | --- | --- |
 | Model response streaming | Partial output is discarded | Usage metrics may be inaccurate since the stream is closed before the model sends its final metadata event |
 | Before tool execution | Tool calls are skipped with error results added to maintain valid conversation state |  |
+| During MCP tool execution | The in-flight MCP request is cancelled without closing the shared MCP session | Remote cancellation is best-effort; the agent stops locally even if the server does not acknowledge cancellation |
+| After tool execution | The agent stops before the next model call | Non-MCP tools finish before cancellation is observed |
 
 The agent returns a result with `stop_reason="cancelled"`. `cancel()` is thread-safe and idempotent. Calling it multiple times or from different threads is safe.
 
@@ -369,7 +371,7 @@ Understanding the loop deeply makes these advanced patterns more approachable. T
 ## Related pages
 
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (3 shared tags)
-- [Steering](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
+- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (3 shared tags)
 - [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) (3 shared tags)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (2 shared tags)

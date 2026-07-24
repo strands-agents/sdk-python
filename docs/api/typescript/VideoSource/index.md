@@ -10,6 +10,6 @@ type VideoSource =
 };
 ```
 
-Defined in: [src/types/media.ts:270](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/types/media.ts#L270)
+Defined in: [src/types/media.ts:270](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/media.ts#L270)
 
 Source for a video (Class version).

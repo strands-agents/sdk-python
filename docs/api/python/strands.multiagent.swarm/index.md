@@ -322,7 +322,7 @@ Dictionary events during swarm execution, such as:
 def serialize_state() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:976](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L976)
+Defined in: [src/strands/multiagent/swarm.py:978](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L978)
 
 Serialize the current swarm state to a dictionary.
 
@@ -332,15 +332,15 @@ Serialize the current swarm state to a dictionary.
 def deserialize_state(payload: dict[str, Any]) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:1006](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1006)
+Defined in: [src/strands/multiagent/swarm.py:1011](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1011)
 
 Restore swarm state from a session dict and prepare for execution.
 
 This method handles two scenarios:
 
-1.  If the persisted status is COMPLETED, FAILED resets all nodes and graph state to allow re-execution from the beginning.
-2.  Otherwise, restores the persisted state and prepares to resume execution from the next ready nodes.
+1.  If the payload omits next\_nodes\_to\_execute (a terminal or fresh state), resets all nodes and swarm state to allow re-execution from the beginning.
+2.  Otherwise, restores the persisted state and prepares to resume execution from the next node.
 
 **Arguments**:
 
--   `payload` - Dictionary containing persisted state data including status, completed nodes, results, and next nodes to execute.
+-   `payload` - Dictionary containing persisted state data including status, node history, results, and next nodes to execute.

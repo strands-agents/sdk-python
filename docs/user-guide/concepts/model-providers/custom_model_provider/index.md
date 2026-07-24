@@ -773,9 +773,9 @@ The built-in `get_config` and `update_config` methods allow for the model’s co
 - [Human in the Loop](/docs/user-guide/concepts/agents/interventions/human-in-the-loop/index.md) (1 shared tag)
 - [Sandbox](/docs/user-guide/concepts/sandbox/index.md) (1 shared tag)
 - [Cedar Authorization](/docs/user-guide/concepts/agents/interventions/cedar-authorization/index.md) (1 shared tag)
-- [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (1 shared tag)
-- [Steering](/docs/user-guide/concepts/agents/interventions/steering/index.md) (1 shared tag)
 - [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (1 shared tag)
+- [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (1 shared tag)
+- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (1 shared tag)
 - [Agents as Tools with Strands Agents SDK](/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md) (1 shared tag)
 
 

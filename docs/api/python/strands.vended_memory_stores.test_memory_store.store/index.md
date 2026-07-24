@@ -8,15 +8,17 @@ A zero-infrastructure store for prototyping and testing. It persists to disk by 
 class TestMemoryStore(MemoryStore)
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:71](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L71)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:72](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L72)
 
-A :class:`~strands.memory.types.MemoryStore` backed by an in-memory list and a local JSON file.
+A :class:`~strands.memory.types.MemoryStore` backed by a local JSON file.
 
 A zero-infrastructure store for prototyping and testing. It persists to disk by default so memories persist across sessions. Set `persist=False` for an ephemeral, single-session store.
 
 Recall is lexical: results are ranked by how many query tokens overlap an entry’s content, with the most recent entry winning ties. This is keyword matching, not the semantic search a managed vector store (e.g. :class:`~strands.vended_memory_stores.bedrock_knowledge_base.BedrockKnowledgeBaseStore`) provides.
 
-Each :meth:`add` rewrites the whole file, so this fits modest volumes (hundreds to low thousands of entries), not production workloads — use a managed store like `BedrockKnowledgeBaseStore` for that. Writes within a process are serialized; concurrent writers across processes are not.
+Each :meth:`add` rewrites the whole file, so this fits modest volumes (hundreds to low thousands of entries), not production workloads — use a managed store like `BedrockKnowledgeBaseStore` for that. Writes within one event loop are serialized; concurrent writers across processes are not.
+
+Persistence is backed by the unified :class:`~strands.storage.Storage` interface: `persist=True` (the default) uses a :class:`~strands.storage.LocalFileStorage`, `persist=False` an ephemeral :class:`~strands.storage.InMemoryStorage`.
 
 The on-disk format is shared with the TypeScript SDK’s `TestMemoryStore`: records use the same camelCase keys (`id`, `content`, `metadata`, `createdAt`) and the same timestamp shape, so a backing file written by either SDK can be read by the other.
 
@@ -38,7 +40,7 @@ results = await store.search("what theme does the user like?")
 def __init__(**store_config: Unpack[TestMemoryStoreConfig]) -> None
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:105](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L105)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:110](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L110)
 
 Initialize the store.
 
@@ -57,7 +59,7 @@ async def search(query: str,
                  options: SearchOptions | None = None) -> list[MemoryEntry]
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L142)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:163](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L163)
 
 Search stored entries for those whose content overlaps the query.
 
@@ -74,7 +76,8 @@ Matching memory entries ordered by relevance. Each entry’s `metadata` includes
 
 **Raises**:
 
--   `ValueError` - If `options.max_search_results` is less than 1.
+-   `ValueError` - If `options.max_search_results` is less than 1, or the backing file is malformed (invalid JSON, not an array, or a record missing required fields).
+-   `StorageError` - If the backend read fails.
 
 #### add
 
@@ -83,7 +86,7 @@ async def add(content: str,
               metadata: Metadata | None = None) -> TestMemoryAddResult
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:184](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L184)
+Defined in: [src/strands/vended\_memory\_stores/test\_memory\_store/store.py:207](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/test_memory_store/store.py#L207)
 
 Add `content` (with optional `metadata`) to the store.
 
@@ -101,5 +104,5 @@ The id of the stored (or already-present) record.
 
 **Raises**:
 
--   `ValueError` - If the store is not writable or `content` is empty/whitespace.
--   `OSError` - If persisting the entry to disk fails (e.g. the path is unreachable or not writable), with the target path in the message.
+-   `ValueError` - If the store is not writable, `content` is empty/whitespace, or the existing backing file is malformed.
+-   `StorageError` - If the backend read or write fails.

@@ -222,13 +222,13 @@ For best practices on session ID management, session cleanup, error handling, st
 - [Session Management](/docs/user-guide/concepts/agents/session-management/index.md) (2 shared tags)
 - [State Management](/docs/user-guide/concepts/agents/state/index.md) (2 shared tags)
 - [Serialization](/docs/user-guide/evals-sdk/how-to/serialization/index.md) (1 shared tag)
+- [Storage](/docs/user-guide/concepts/storage/index.md) (1 shared tag)
 - [BidiAgent](/docs/user-guide/concepts/bidirectional-streaming/agent/index.md) (1 shared tag)
 - [Events](/docs/user-guide/concepts/bidirectional-streaming/events/index.md) (1 shared tag)
 - [Gemini Live](/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md) (1 shared tag)
 - [I/O Channels](/docs/user-guide/concepts/bidirectional-streaming/io/index.md) (1 shared tag)
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
 - [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
-- [Bidirectional Streaming Hooks](/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md) (1 shared tag)
 
 
 ## Implementation

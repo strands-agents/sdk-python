@@ -5,257 +5,263 @@
 ## Docs
 
 - Get Started
-  - [overview](https://strandsagents.com/docs/user-guide/quickstart/overview/index.md)
-  - [Quickstart: Python](https://strandsagents.com/docs/user-guide/quickstart/python/index.md)
-  - [Quickstart: TypeScript](https://strandsagents.com/docs/user-guide/quickstart/typescript/index.md)
-- [build-with-ai](https://strandsagents.com/docs/user-guide/build-with-ai/index.md)
+  - [overview](https://strandsagents.com/docs/user-guide/quickstart/overview/index.md): Documentation for the Strands Agents SDK. Learn to build, deploy, and scale AI agents with tools, multi-agent patterns, and any model provider.
+  - [Quickstart: Python](https://strandsagents.com/docs/user-guide/quickstart/python/index.md): Get an AI agent running in Python in under 5 minutes. Install the SDK, configure a model provider, and build your first agent.
+  - [Quickstart: TypeScript](https://strandsagents.com/docs/user-guide/quickstart/typescript/index.md): Get an AI agent running in TypeScript in under 5 minutes. Install the SDK, configure a model provider, and build your first agent.
+- [build-with-ai](https://strandsagents.com/docs/user-guide/build-with-ai/index.md): Use AI coding assistants to build Strands Agents projects with up-to-date documentation context.
 - Build
-  - [Adding Tools](https://strandsagents.com/docs/user-guide/concepts/tools/index.md)
-  - [Creating Custom Tools](https://strandsagents.com/docs/user-guide/concepts/tools/custom-tools/index.md)
-  - [Using MCP Tools](https://strandsagents.com/docs/user-guide/concepts/tools/mcp-tools/index.md)
-  - [Multi-Agent Systems](https://strandsagents.com/docs/user-guide/concepts/multi-agent/multi-agent-patterns/index.md)
-  - [Structured Output](https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/index.md)
-  - [Streaming Responses](https://strandsagents.com/docs/user-guide/concepts/streaming/index.md)
-  - [Voice & Realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md)
+  - [Adding Tools](https://strandsagents.com/docs/user-guide/concepts/tools/index.md): Give AI agents the ability to take real-world actions. Strands supports built-in tools, custom Python functions, MCP servers, and community packages.
+  - [Creating Custom Tools](https://strandsagents.com/docs/user-guide/concepts/tools/custom-tools/index.md): Turn any Python function into an AI agent tool. Define inputs with docstrings, and the agent calls your function autonomously.
+  - [Using MCP Tools](https://strandsagents.com/docs/user-guide/concepts/tools/mcp-tools/index.md): Connect AI agents to any MCP server for tool access. Strands agents integrate and invoke MCP tools without custom integration code.
+  - [Multi-Agent Systems](https://strandsagents.com/docs/user-guide/concepts/multi-agent/multi-agent-patterns/index.md): Coordinate multiple AI agents with handoffs, swarms, graphs, and workflow patterns. Built-in primitives for complex multi-agent orchestration.
+  - [Structured Output](https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/index.md): Get typed, validated responses from AI agents. Define Pydantic models and Strands returns structured data instead of raw text.
+  - [Streaming Responses](https://strandsagents.com/docs/user-guide/concepts/streaming/index.md): Stream AI agent responses in real time. Handle partial results, tool invocations, and token-by-token output as the agent works.
+  - [Voice & Realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md): Build voice-enabled AI agents with real-time audio streaming. Works with Amazon Nova Sonic, Gemini Live, and OpenAI Realtime.
 - Concepts
-  - [agent-loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/index.md)
-  - [state](https://strandsagents.com/docs/user-guide/concepts/agents/state/index.md)
-  - [session-management](https://strandsagents.com/docs/user-guide/concepts/agents/session-management/index.md)
-  - [snapshots](https://strandsagents.com/docs/user-guide/concepts/agents/snapshots/index.md)
-  - [prompts](https://strandsagents.com/docs/user-guide/concepts/agents/prompts/index.md)
-  - [hooks](https://strandsagents.com/docs/user-guide/concepts/agents/hooks/index.md)
-  - [conversation-management](https://strandsagents.com/docs/user-guide/concepts/agents/conversation-management/index.md)
-  - [context-management](https://strandsagents.com/docs/user-guide/concepts/context-management/index.md)
+  - [agent-loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/index.md): How Strands agents reason, plan, and act. Understand the model-driven loop that orchestrates tool use, reflection, and goal completion.
+  - [state](https://strandsagents.com/docs/user-guide/concepts/agents/state/index.md): Maintain state in Strands agents across turns and sessions: conversation history, key-value agent state, and per-request invocation state.
+  - [storage](https://strandsagents.com/docs/user-guide/concepts/storage/index.md): Choose a storage backend and pass it to plugins that need persistence: session managers, context offloaders, and memory.
+  - [session-management](https://strandsagents.com/docs/user-guide/concepts/agents/session-management/index.md): Persist agent conversations across sessions. Save and restore chat history, tool state, and context for long-running AI workflows.
+  - [snapshots](https://strandsagents.com/docs/user-guide/concepts/agents/snapshots/index.md): Capture and restore agent state at any point in time. Use snapshots for checkpointing, undo/redo, branching conversations, and custom persistence.
+  - [prompts](https://strandsagents.com/docs/user-guide/concepts/agents/prompts/index.md): Write system prompts and user messages for Strands agents. Covers multi-modal prompting, direct tool calls, and prompt engineering with agent SOPs.
+  - [hooks](https://strandsagents.com/docs/user-guide/concepts/agents/hooks/index.md): Intercept and customize agent behavior at every step. Hooks let you add logging, validation, guardrails, and custom logic to the agent loop.
+  - [conversation-management](https://strandsagents.com/docs/user-guide/concepts/agents/conversation-management/index.md): Keep long agent conversations within token limits using sliding window and summarizing conversation managers in the Strands Agents SDK.
+  - [context-management](https://strandsagents.com/docs/user-guide/concepts/context-management/index.md): Manage your agent's context window as conversations grow and tool results accumulate.
   - Memory
-    - [Overview](https://strandsagents.com/docs/user-guide/concepts/memory/overview/index.md)
-    - [bedrock-knowledge-base](https://strandsagents.com/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md)
-  - [retry-strategies](https://strandsagents.com/docs/user-guide/concepts/agents/retry-strategies/index.md)
+    - [Overview](https://strandsagents.com/docs/user-guide/concepts/memory/overview/index.md): Give agents long-term memory across sessions: store facts to configurable backends, recall them via tools or injection, and extract them automatically.
+    - [test-memory-store](https://strandsagents.com/docs/user-guide/concepts/memory/test-memory-store/index.md): A zero-infrastructure memory store backed by a local JSON file: no cloud account, lexical recall, and memories that survive across sessions.
+    - [bedrock-knowledge-base](https://strandsagents.com/docs/user-guide/concepts/memory/bedrock-knowledge-base/index.md): Back agent memory with Amazon Bedrock Knowledge Bases: semantic search over a managed vector store and document ingestion for CUSTOM and S3 data sources.
+  - [retry-strategies](https://strandsagents.com/docs/user-guide/concepts/agents/retry-strategies/index.md): Handle model provider rate limits in Strands agents. Configure retry strategies with exponential backoff, custom parameters, or your own retry logic.
   - Sandbox
-    - [Overview](https://strandsagents.com/docs/user-guide/concepts/sandbox/index.md)
-    - [available-sandboxes](https://strandsagents.com/docs/user-guide/concepts/sandbox/available-sandboxes/index.md)
-    - [custom-sandbox](https://strandsagents.com/docs/user-guide/concepts/sandbox/custom-sandbox/index.md)
-  - [interrupts](https://strandsagents.com/docs/user-guide/concepts/interrupts/index.md)
+    - [Overview](https://strandsagents.com/docs/user-guide/concepts/sandbox/index.md): Configure where an agent runs shell commands, executes code, and accesses a filesystem. Swap between Docker, SSH, or custom environments.
+    - [available-sandboxes](https://strandsagents.com/docs/user-guide/concepts/sandbox/available-sandboxes/index.md): Use the built-in Docker and SSH sandboxes, drive a sandbox from your own code, and stream output from long-running commands.
+    - [custom-sandbox](https://strandsagents.com/docs/user-guide/concepts/sandbox/custom-sandbox/index.md): Target an execution environment the built-in sandboxes do not cover: extend PosixShellSandbox or implement the Sandbox interface directly.
+  - [interrupts](https://strandsagents.com/docs/user-guide/concepts/interrupts/index.md): Pause AI agents mid-execution for human approval, input, or review. Build human-in-the-loop workflows with interrupt and resume patterns.
   - Tools
-    - [executors](https://strandsagents.com/docs/user-guide/concepts/tools/executors/index.md)
-    - [community-tools-package](https://strandsagents.com/docs/user-guide/concepts/tools/community-tools-package/index.md)
-    - [vended-tools](https://strandsagents.com/docs/user-guide/concepts/tools/vended-tools/index.md)
+    - [executors](https://strandsagents.com/docs/user-guide/concepts/tools/executors/index.md): Control whether Strands agents run tool calls concurrently or sequentially. Covers tool executors, event ordering, cancellation, and custom executors.
+    - [community-tools-package](https://strandsagents.com/docs/user-guide/concepts/tools/community-tools-package/index.md): Get started fast with pre-built community tools for Strands agents: file operations, shell, web requests, memory, and more via strands-agents-tools.
+    - [vended-tools](https://strandsagents.com/docs/user-guide/concepts/tools/vended-tools/index.md): Pre-built tools included in the SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes.
   - Plugins
-    - [Overview](https://strandsagents.com/docs/user-guide/concepts/plugins/index.md)
-    - [skills](https://strandsagents.com/docs/user-guide/concepts/plugins/skills/index.md)
-    - [steering](https://strandsagents.com/docs/user-guide/concepts/plugins/steering/index.md)
-    - [context-offloader](https://strandsagents.com/docs/user-guide/concepts/plugins/context-offloader/index.md)
-    - [context-injector](https://strandsagents.com/docs/user-guide/concepts/plugins/context-injector/index.md)
-    - [goal-loop](https://strandsagents.com/docs/user-guide/concepts/plugins/goal-loop/index.md)
+    - [Overview](https://strandsagents.com/docs/user-guide/concepts/plugins/index.md): Extend agent behavior with plugins. Add steering, guardrails, and custom capabilities that hook into the agent lifecycle.
+    - [skills](https://strandsagents.com/docs/user-guide/concepts/plugins/skills/index.md): Give Strands agents on-demand access to specialized instructions with the AgentSkills plugin. Progressive disclosure keeps the system prompt lean.
+    - [steering](https://strandsagents.com/docs/user-guide/concepts/plugins/steering/index.md): Guide Strands agents with just-in-time contextual feedback using plugin-based steering handlers instead of monolithic prompts.
+    - [context-offloader](https://strandsagents.com/docs/user-guide/concepts/plugins/context-offloader/index.md): Prevent large tool results from consuming the context window. ContextOffloader stores oversized results externally and leaves retrievable references.
+    - [context-injector](https://strandsagents.com/docs/user-guide/concepts/plugins/context-injector/index.md): Fold real-time text into the model input before each call with the ContextInjector plugin: a clock, environment facts, or a lookup, not stored in history.
+    - [goal-loop](https://strandsagents.com/docs/user-guide/concepts/plugins/goal-loop/index.md): Iterative refinement plugin that validates agent responses against a goal, looping with feedback until satisfied.
   - Interventions
-    - [Overview](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/index.md)
-    - [cedar-authorization](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/cedar-authorization/index.md)
-    - [steering](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/steering/index.md)
-    - [human-in-the-loop](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/human-in-the-loop/index.md)
+    - [Overview](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/index.md): A composable control layer for authorization, guardrails, and steering with typed actions, ordered evaluation, and short-circuiting.
+    - [cedar-authorization](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/cedar-authorization/index.md): Control which tools an agent can invoke using Cedar policies. Enforce identity-aware access control, role-based permissions, and rate limits at the tool-call boundary.
+    - [steering](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/steering/index.md): LLM-based contextual guidance for agents using the interventions framework: just-in-time feedback instead of front-loaded prompts.
+    - [human-in-the-loop](https://strandsagents.com/docs/user-guide/concepts/agents/interventions/human-in-the-loop/index.md): Gate agent tool execution behind human approval. Configurable modes for CLI, web, and custom UIs with optional session trust.
   - Streaming
-    - [async-iterators](https://strandsagents.com/docs/user-guide/concepts/streaming/async-iterators/index.md)
-    - [callback-handlers](https://strandsagents.com/docs/user-guide/concepts/streaming/callback-handlers/index.md)
+    - [async-iterators](https://strandsagents.com/docs/user-guide/concepts/streaming/async-iterators/index.md): Stream Strands agent events asynchronously with async iterators. Process text, tool usage, and lifecycle events in FastAPI and other async frameworks.
+    - [callback-handlers](https://strandsagents.com/docs/user-guide/concepts/streaming/callback-handlers/index.md): Intercept Strands agent events in Python with callback handlers. Monitor streaming text and tool usage in real time or format custom output.
   - Multi-agent
-    - [agent-to-agent](https://strandsagents.com/docs/user-guide/concepts/multi-agent/agent-to-agent/index.md)
-    - [agents-as-tools](https://strandsagents.com/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md)
-    - [swarm](https://strandsagents.com/docs/user-guide/concepts/multi-agent/swarm/index.md)
-    - [graph](https://strandsagents.com/docs/user-guide/concepts/multi-agent/graph/index.md)
-    - [workflow](https://strandsagents.com/docs/user-guide/concepts/multi-agent/workflow/index.md)
+    - [agent-to-agent](https://strandsagents.com/docs/user-guide/concepts/multi-agent/agent-to-agent/index.md): Connect Strands agents across platforms with the Agent-to-Agent (A2A) protocol. Serve agents over A2A and call remote agents from your own.
+    - [agents-as-tools](https://strandsagents.com/docs/user-guide/concepts/multi-agent/agents-as-tools/index.md): Wrap specialized Strands agents as callable tools so an orchestrator agent can delegate tasks to domain experts in a hierarchical pattern.
+    - [swarm](https://strandsagents.com/docs/user-guide/concepts/multi-agent/swarm/index.md): Build self-organizing agent teams with the Strands Swarm pattern. Agents collaborate through autonomous handoffs, shared context, and working memory.
+    - [graph](https://strandsagents.com/docs/user-guide/concepts/multi-agent/graph/index.md): Orchestrate multi-agent systems with the Strands Graph pattern: deterministic DAG or cyclic execution, conditional edges, and nested agents.
+    - [workflow](https://strandsagents.com/docs/user-guide/concepts/multi-agent/workflow/index.md): Coordinate multiple AI agents in sequential workflows with Strands. Define tasks, manage dependencies, and pass context between specialized agents.
   - Bidirectional Streaming
-    - [agent](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/agent/index.md)
+    - [agent](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/agent/index.md): Build real-time voice conversations with BidiAgent. Stream audio and text over persistent connections with interruptions and concurrent tool calling.
     - Models
-      - [nova_sonic](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md)
-      - [gemini_live](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md)
-      - [openai_realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md)
-    - [io](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/io/index.md)
-    - [events](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/events/index.md)
-    - [interruption](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md)
-    - [hooks](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md)
-    - [session-management](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md)
+      - [nova_sonic](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md): Build real-time speech-to-speech agents with Amazon Nova Sonic and Strands. Bidirectional audio streaming with interruption handling and tool calling.
+      - [gemini_live](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/gemini_live/index.md): Build real-time voice agents with Gemini Live and Strands. Stream audio and text over WebSocket with interruptions and tool calling.
+      - [openai_realtime](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md): Build low-latency voice agents with the OpenAI Realtime API and Strands. Configure speech-to-speech streaming, interruptions, and tool calling.
+    - [io](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/io/index.md): Connect microphones, speakers, consoles, and WebSockets to a Strands bidi-agent with BidiInput and BidiOutput channels for audio and text.
+    - [events](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/events/index.md): Send and receive bidirectional streaming events in Strands agents. Process audio, text, and tool activity in real time over persistent connections.
+    - [interruption](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md): Handle real-time voice interruptions in BidiAgent. Voice Activity Detection stops responses mid-stream for natural, human-like conversations.
+    - [hooks](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/hooks/index.md): Extend BidiAgent with hooks for bidirectional streaming events: connection lifecycle, interruptions, restarts, and real-time conversation logging.
+    - [session-management](https://strandsagents.com/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md): Persist BidiAgent conversation history and state across bidirectional streaming sessions so voice assistants resume where they left off.
   - Experimental
-    - [agent-config](https://strandsagents.com/docs/user-guide/concepts/experimental/agent-config/index.md)
+    - [agent-config](https://strandsagents.com/docs/user-guide/concepts/experimental/agent-config/index.md): Create Strands agents from JSON files or dictionaries with the experimental config_to_agent function, including tool loading and model settings.
 - Model Providers
-  - [model-providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/index.md)
-  - [amazon-bedrock](https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md)
-  - [amazon-nova](https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-nova/index.md)
-  - [anthropic](https://strandsagents.com/docs/user-guide/concepts/model-providers/anthropic/index.md)
-  - [google](https://strandsagents.com/docs/user-guide/concepts/model-providers/google/index.md)
-  - [litellm](https://strandsagents.com/docs/user-guide/concepts/model-providers/litellm/index.md)
-  - [llamacpp](https://strandsagents.com/docs/user-guide/concepts/model-providers/llamacpp/index.md)
-  - [llamaapi](https://strandsagents.com/docs/user-guide/concepts/model-providers/llamaapi/index.md)
-  - [mistral](https://strandsagents.com/docs/user-guide/concepts/model-providers/mistral/index.md)
-  - [ollama](https://strandsagents.com/docs/user-guide/concepts/model-providers/ollama/index.md)
-  - [openai](https://strandsagents.com/docs/user-guide/concepts/model-providers/openai/index.md)
-  - [openai-responses](https://strandsagents.com/docs/user-guide/concepts/model-providers/openai-responses/index.md)
-  - [sagemaker](https://strandsagents.com/docs/user-guide/concepts/model-providers/sagemaker/index.md)
-  - [vercel](https://strandsagents.com/docs/user-guide/concepts/model-providers/vercel/index.md)
-  - [writer](https://strandsagents.com/docs/user-guide/concepts/model-providers/writer/index.md)
-  - [custom_model_provider](https://strandsagents.com/docs/user-guide/concepts/model-providers/custom_model_provider/index.md)
+  - [model-providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/index.md): Use any LLM with Strands agents. Switch between Amazon Bedrock, Anthropic, OpenAI, Ollama, and more without changing your agent code.
+  - [amazon-bedrock](https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/index.md): Use Amazon Bedrock models in Strands agents. Configure AWS credentials, model settings, guardrails, prompt caching, and multi-modal input.
+  - [amazon-nova](https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-nova/index.md): Use Amazon Nova models in Strands agents with the strands-amazon-nova package. Install the provider, configure NovaAPIModel, and generate text.
+  - [anthropic](https://strandsagents.com/docs/user-guide/concepts/model-providers/anthropic/index.md): Run Strands agents on Claude models through the Anthropic API. Install the provider, configure AnthropicModel, and enable structured output and caching.
+  - [google](https://strandsagents.com/docs/user-guide/concepts/model-providers/google/index.md): Run Strands agents on Google Gemini models. Configure the provider, use built-in tools and structured output, and send image and video input.
+  - [litellm](https://strandsagents.com/docs/user-guide/concepts/model-providers/litellm/index.md): Use LiteLLM with Strands agents to access models from OpenAI, Anthropic, Amazon, and more through one API. Install and configure LiteLLMModel.
+  - [llamacpp](https://strandsagents.com/docs/user-guide/concepts/model-providers/llamacpp/index.md): Run Strands agents against a local llama.cpp server with quantized models. Configure LlamaCppModel, grammar constraints, and advanced sampling.
+  - [llamaapi](https://strandsagents.com/docs/user-guide/concepts/model-providers/llamaapi/index.md): Run Strands agents on Meta-hosted Llama models with the Llama API provider. Install, configure LlamaAPIModel, and build without managing inference.
+  - [mistral](https://strandsagents.com/docs/user-guide/concepts/model-providers/mistral/index.md): Use Mistral AI models in Strands agents. Install the Mistral provider, configure MistralModel, and run agents with tool calling and streaming.
+  - [ollama](https://strandsagents.com/docs/user-guide/concepts/model-providers/ollama/index.md): Run Strands agents on local models with Ollama. Configure OllamaModel for text generation, image understanding, tool calling, and streaming.
+  - [openai](https://strandsagents.com/docs/user-guide/concepts/model-providers/openai/index.md): Run Strands agents on OpenAI models or any OpenAI-compatible API. Install the provider, configure OpenAIModel, and enable vision and structured output.
+  - [openai-responses](https://strandsagents.com/docs/user-guide/concepts/model-providers/openai-responses/index.md): Use the OpenAI Responses API with Strands agents for built-in tools like web search and code interpreter, plus server-side conversation state.
+  - [sagemaker](https://strandsagents.com/docs/user-guide/concepts/model-providers/sagemaker/index.md): Run Strands agents against models deployed on Amazon SageMaker inference endpoints, including JumpStart models and custom fine-tuned models.
+  - [vercel](https://strandsagents.com/docs/user-guide/concepts/model-providers/vercel/index.md): Bring any Vercel AI SDK provider into Strands agents with the VercelModel adapter. Use @ai-sdk packages for OpenAI, Anthropic, Bedrock, and more.
+  - [writer](https://strandsagents.com/docs/user-guide/concepts/model-providers/writer/index.md): Use Writer Palmyra models in Strands agents. Configure WriterModel for tool calling, structured output, and domain-specific enterprise tasks.
+  - [custom_model_provider](https://strandsagents.com/docs/user-guide/concepts/model-providers/custom_model_provider/index.md): Build a custom model provider for the Strands Agents SDK. Implement the Model interface to run agents against your own LLM service.
 - Deploy
-  - [operating-agents-in-production](https://strandsagents.com/docs/user-guide/deploy/operating-agents-in-production/index.md)
+  - [operating-agents-in-production](https://strandsagents.com/docs/user-guide/deploy/operating-agents-in-production/index.md): Deploy AI agents to production on AWS Lambda, EKS, Fargate, EC2, or Bedrock AgentCore. Monitoring, scaling, and operational best practices.
   - Amazon Bedrock AgentCore
-    - [deploy_to_bedrock_agentcore](https://strandsagents.com/docs/user-guide/deploy/deploy_to_bedrock_agentcore/index.md)
-    - [python](https://strandsagents.com/docs/user-guide/deploy/deploy_to_bedrock_agentcore/python/index.md)
-    - [typescript](https://strandsagents.com/docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript/index.md)
-  - [deploy_to_aws_lambda](https://strandsagents.com/docs/user-guide/deploy/deploy_to_aws_lambda/index.md)
-  - [deploy_to_aws_fargate](https://strandsagents.com/docs/user-guide/deploy/deploy_to_aws_fargate/index.md)
-  - [deploy_to_aws_apprunner](https://strandsagents.com/docs/user-guide/deploy/deploy_to_aws_apprunner/index.md)
-  - [deploy_to_amazon_eks](https://strandsagents.com/docs/user-guide/deploy/deploy_to_amazon_eks/index.md)
-  - [deploy_to_amazon_ec2](https://strandsagents.com/docs/user-guide/deploy/deploy_to_amazon_ec2/index.md)
+    - [deploy_to_bedrock_agentcore](https://strandsagents.com/docs/user-guide/deploy/deploy_to_bedrock_agentcore/index.md): Deploy Strands agents to Amazon Bedrock AgentCore Runtime: a serverless, session-isolated platform that scales agents without managing servers.
+    - [python](https://strandsagents.com/docs/user-guide/deploy/deploy_to_bedrock_agentcore/python/index.md): Deploy a Python Strands agent to Amazon Bedrock AgentCore Runtime using the SDK integration wrapper or a custom FastAPI implementation.
+    - [typescript](https://strandsagents.com/docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript/index.md): Deploy a TypeScript Strands agent to Amazon Bedrock AgentCore Runtime: build an Express server, containerize it with Docker, and push to ECR.
+  - [deploy_to_aws_lambda](https://strandsagents.com/docs/user-guide/deploy/deploy_to_aws_lambda/index.md): Deploy Strands agents to AWS Lambda with the AWS CDK: package a Python agent handler and run it serverless, paying only for compute you use.
+  - [deploy_to_aws_fargate](https://strandsagents.com/docs/user-guide/deploy/deploy_to_aws_fargate/index.md): Deploy Strands agents to AWS Fargate: run a containerized FastAPI agent with streaming responses on serverless Amazon ECS infrastructure.
+  - [deploy_to_aws_apprunner](https://strandsagents.com/docs/user-guide/deploy/deploy_to_aws_apprunner/index.md): Deploy Strands agents to AWS App Runner: containerize a FastAPI agent and get a fully managed HTTPS endpoint with auto scaling built in.
+  - [deploy_to_amazon_eks](https://strandsagents.com/docs/user-guide/deploy/deploy_to_amazon_eks/index.md): Deploy Strands agents to Amazon EKS Auto Mode: containerize a FastAPI agent and run it on managed Kubernetes with high availability.
+  - [deploy_to_amazon_ec2](https://strandsagents.com/docs/user-guide/deploy/deploy_to_amazon_ec2/index.md): Deploy Strands agents to Amazon EC2 with the AWS CDK: run a FastAPI agent on a virtual server with full control over the infrastructure.
   - Docker
-    - [deploy_to_docker](https://strandsagents.com/docs/user-guide/deploy/deploy_to_docker/index.md)
-    - [python](https://strandsagents.com/docs/user-guide/deploy/deploy_to_docker/python/index.md)
-    - [typescript](https://strandsagents.com/docs/user-guide/deploy/deploy_to_docker/typescript/index.md)
-  - [deploy_to_kubernetes](https://strandsagents.com/docs/user-guide/deploy/deploy_to_kubernetes/index.md)
-  - [deploy_to_terraform](https://strandsagents.com/docs/user-guide/deploy/deploy_to_terraform/index.md)
-  - [deploy_with_nx_plugin_for_aws](https://strandsagents.com/docs/user-guide/deploy/deploy_with_nx_plugin_for_aws/index.md)
+    - [deploy_to_docker](https://strandsagents.com/docs/user-guide/deploy/deploy_to_docker/index.md): Containerize Strands agents with Docker: package your Python or TypeScript agent into a portable image and test it before cloud deployment.
+    - [python](https://strandsagents.com/docs/user-guide/deploy/deploy_to_docker/python/index.md): Containerize a Python Strands agent with Docker: set up a FastAPI server with uv, write a Dockerfile, and run the agent locally in a container.
+    - [typescript](https://strandsagents.com/docs/user-guide/deploy/deploy_to_docker/typescript/index.md): Containerize a TypeScript Strands agent with Docker: build an Express server with the SDK, write a Dockerfile, and test the container locally.
+  - [deploy_to_kubernetes](https://strandsagents.com/docs/user-guide/deploy/deploy_to_kubernetes/index.md): Deploy containerized Strands agents to Kubernetes: create a local Kind cluster, write deployment manifests, and run your Docker agent image.
+  - [deploy_to_terraform](https://strandsagents.com/docs/user-guide/deploy/deploy_to_terraform/index.md): Deploy Strands agents with Terraform infrastructure as code to AWS App Runner, AWS Lambda, Google Cloud Run, or Azure Container Instances.
+  - [deploy_with_nx_plugin_for_aws](https://strandsagents.com/docs/user-guide/deploy/deploy_with_nx_plugin_for_aws/index.md): Scaffold and deploy Strands agents on AWS with the Nx Plugin for AWS: generate Python or TypeScript agents with CDK or Terraform included.
 - Safety & Security
-  - [responsible-ai](https://strandsagents.com/docs/user-guide/safety-security/responsible-ai/index.md)
-  - [guardrails](https://strandsagents.com/docs/user-guide/safety-security/guardrails/index.md)
-  - [prompt-engineering](https://strandsagents.com/docs/user-guide/safety-security/prompt-engineering/index.md)
-  - [pii-redaction](https://strandsagents.com/docs/user-guide/safety-security/pii-redaction/index.md)
+  - [responsible-ai](https://strandsagents.com/docs/user-guide/safety-security/responsible-ai/index.md): Build AI agents responsibly with Strands: least-privilege tool design, input validation, audit logging, and ethical deployment practices.
+  - [guardrails](https://strandsagents.com/docs/user-guide/safety-security/guardrails/index.md): Add safety guardrails to AI agents. Control tool permissions, validate outputs, and enforce responsible AI policies in production.
+  - [prompt-engineering](https://strandsagents.com/docs/user-guide/safety-security/prompt-engineering/index.md): Write secure system prompts for Strands agents: defend against prompt injection, sanitize inputs, and validate parameters and outputs.
+  - [pii-redaction](https://strandsagents.com/docs/user-guide/safety-security/pii-redaction/index.md): Protect personal data in agent telemetry: integrate PII redaction with third-party libraries or OpenTelemetry Collector masking in Strands.
 - Observability & Debugging
-  - [observability](https://strandsagents.com/docs/user-guide/observability-evaluation/observability/index.md)
-  - [metrics](https://strandsagents.com/docs/user-guide/observability-evaluation/metrics/index.md)
-  - [traces](https://strandsagents.com/docs/user-guide/observability-evaluation/traces/index.md)
-  - [logs](https://strandsagents.com/docs/user-guide/observability-evaluation/logs/index.md)
+  - [observability](https://strandsagents.com/docs/user-guide/observability-evaluation/observability/index.md): Monitor AI agents with OpenTelemetry traces, metrics, and logs. Debug agent behavior and measure performance in production.
+  - [metrics](https://strandsagents.com/docs/user-guide/observability-evaluation/metrics/index.md): Track agent performance metrics in Strands: token usage, latency, tool call counts, and event loop cycles, all available through AgentResult.
+  - [traces](https://strandsagents.com/docs/user-guide/observability-evaluation/traces/index.md): Trace agent execution end to end with OpenTelemetry in Strands: capture model interactions, tool calls, token usage, and event loop cycles.
+  - [logs](https://strandsagents.com/docs/user-guide/observability-evaluation/logs/index.md): Configure logging for Strands agents in Python and TypeScript: set log levels, add handlers, and capture debug output from SDK operations.
 - Strands Evals SDK
-  - [quickstart](https://strandsagents.com/docs/user-guide/evals-sdk/quickstart/index.md)
-  - [eval-sop](https://strandsagents.com/docs/user-guide/evals-sdk/eval-sop/index.md)
+  - [quickstart](https://strandsagents.com/docs/user-guide/evals-sdk/quickstart/index.md): Start evaluating AI agents with Strands Evaluation: install the SDK, build your first experiment, run built-in evaluators, and analyze results.
+  - [eval-sop](https://strandsagents.com/docs/user-guide/evals-sdk/eval-sop/index.md): Follow a structured AI-assisted evaluation workflow with Eval SOP, from planning and test data generation to evaluation execution and reporting.
   - Evaluators
-    - [evaluators](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/index.md)
-    - [output_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/output_evaluator/index.md)
-    - [trajectory_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/trajectory_evaluator/index.md)
-    - [interactions_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/interactions_evaluator/index.md)
-    - [helpfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/helpfulness_evaluator/index.md)
-    - [faithfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/faithfulness_evaluator/index.md)
-    - [correctness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/correctness_evaluator/index.md)
-    - [coherence_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/coherence_evaluator/index.md)
-    - [conciseness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/conciseness_evaluator/index.md)
-    - [response_relevance_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/response_relevance_evaluator/index.md)
-    - [harmfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/harmfulness_evaluator/index.md)
-    - [refusal_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/refusal_evaluator/index.md)
-    - [stereotyping_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/stereotyping_evaluator/index.md)
-    - [instruction_following_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md)
-    - [multimodal_output_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_output_evaluator/index.md)
-    - [multimodal_overall_quality_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_overall_quality_evaluator/index.md)
-    - [multimodal_correctness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_correctness_evaluator/index.md)
-    - [multimodal_faithfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_faithfulness_evaluator/index.md)
-    - [multimodal_instruction_following_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_instruction_following_evaluator/index.md)
-    - [goal_success_rate_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/goal_success_rate_evaluator/index.md)
-    - [failure_communication_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/failure_communication_evaluator/index.md)
-    - [partial_completion_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/partial_completion_evaluator/index.md)
-    - [recovery_strategy_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/recovery_strategy_evaluator/index.md)
-    - [tool_selection_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/tool_selection_evaluator/index.md)
-    - [tool_parameter_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/tool_parameter_evaluator/index.md)
-    - [deterministic_evaluators](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/deterministic_evaluators/index.md)
-    - [custom_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/custom_evaluator/index.md)
+    - [evaluators](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/index.md): Choose the right evaluator for your agent: browse built-in LLM-judge and deterministic evaluators for output quality, tool use, and goal success.
+    - [output_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/output_evaluator/index.md): Score agent responses against a custom rubric with OutputEvaluator, an LLM-as-a-judge evaluator for safety, relevance, accuracy, and completeness.
+    - [trajectory_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/trajectory_evaluator/index.md): Judge the sequence of tool calls and actions an agent took with TrajectoryEvaluator, including exact, in-order, and any-order matching tools.
+    - [interactions_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/interactions_evaluator/index.md): Evaluate multi-agent workflows step by step with InteractionsEvaluator, scoring each interaction with node-specific rubrics and dependencies.
+    - [helpfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/helpfulness_evaluator/index.md): Measure how helpful agent responses are from the user's perspective with HelpfulnessEvaluator and its seven-level scoring scale.
+    - [faithfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/faithfulness_evaluator/index.md): Detect hallucinations with FaithfulnessEvaluator by checking whether agent statements stay grounded in the preceding conversation history.
+    - [correctness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/correctness_evaluator/index.md): Check the factual correctness of agent responses with CorrectnessEvaluator, from conversation context alone or against an expected reference answer.
+    - [coherence_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/coherence_evaluator/index.md): Assess the logical consistency and flow of agent responses with CoherenceEvaluator, an LLM judge with a five-level scoring rubric.
+    - [conciseness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/conciseness_evaluator/index.md): Catch verbose agent responses with ConcisenessEvaluator, which scores how efficiently a response communicates on a three-level scale.
+    - [response_relevance_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/response_relevance_evaluator/index.md): Verify agent responses address what the user actually asked with ResponseRelevanceEvaluator and its five-level relevance scale.
+    - [harmfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/harmfulness_evaluator/index.md): Screen agent responses for dangerous or offensive content with the binary harmful or not-harmful classification of HarmfulnessEvaluator.
+    - [refusal_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/refusal_evaluator/index.md): Detect when an agent refuses a user request with RefusalEvaluator, which separates true refusals from merely irrelevant responses.
+    - [stereotyping_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/stereotyping_evaluator/index.md): Flag biased or stereotypical content in agent responses with StereotypingEvaluator, including stereotypes the response later rejects.
+    - [instruction_following_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md): Evaluate whether agent responses comply with explicit prompt instructions using the binary scoring of InstructionFollowingEvaluator.
+    - [multimodal_output_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_output_evaluator/index.md): Evaluate agent outputs on image and document tasks with MultimodalOutputEvaluator, which judges responses against a custom rubric using an MLLM.
+    - [multimodal_overall_quality_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_overall_quality_evaluator/index.md): Score overall response quality on image tasks with MultimodalOverallQualityEvaluator: visual accuracy, instruction adherence, and coherence.
+    - [multimodal_correctness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_correctness_evaluator/index.md): Fact-check agent responses against image content with MultimodalCorrectnessEvaluator: objects, counts, colors, positions, and readable text.
+    - [multimodal_faithfulness_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_faithfulness_evaluator/index.md): Catch visual hallucinations with MultimodalFaithfulnessEvaluator, which checks agent responses for invented details not grounded in the image.
+    - [multimodal_instruction_following_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/multimodal_instruction_following_evaluator/index.md): Verify responses on image tasks satisfy explicit constraints like count, format, and scope with MultimodalInstructionFollowingEvaluator.
+    - [goal_success_rate_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/goal_success_rate_evaluator/index.md): Determine whether an agent accomplished all user goals across an entire conversation session with the GoalSuccessRateEvaluator's binary score.
+    - [failure_communication_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/failure_communication_evaluator/index.md): Rate how clearly your agent explains tool failures to users with FailureCommunicationEvaluator: clarity, actionability, transparency, and tone.
+    - [partial_completion_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/partial_completion_evaluator/index.md): Measure the fraction of a user goal an agent achieved with PartialCompletionEvaluator, a continuous 0.0 to 1.0 score for multi-step tasks.
+    - [recovery_strategy_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/recovery_strategy_evaluator/index.md): Score how well an agent recovers from tool failures with RecoveryStrategyEvaluator: alternative approaches, retries, and strategy variation.
+    - [tool_selection_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/tool_selection_evaluator/index.md): Check that your agent picks the right tool at the right time with ToolSelectionAccuracyEvaluator, which judges each tool call in context.
+    - [tool_parameter_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/tool_parameter_evaluator/index.md): Verify tool call parameters are grounded in conversation context, not hallucinated, with per-call checks from ToolParameterAccuracyEvaluator.
+    - [deterministic_evaluators](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/deterministic_evaluators/index.md): Run fast, code-based checks without LLM judges: deterministic evaluators match outputs, verify tool calls, and compare state for CI/CD pipelines.
+    - [custom_evaluator](https://strandsagents.com/docs/user-guide/evals-sdk/evaluators/custom_evaluator/index.md): Build domain-specific evaluation logic by extending the Evaluator base class: custom scoring, external services, and specialized data analysis.
   - Detectors
-    - [detectors](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/index.md)
-    - [failure_detection](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/failure_detection/index.md)
-    - [root_cause_analysis](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/root_cause_analysis/index.md)
-    - [diagnosis](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/diagnosis/index.md)
+    - [detectors](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/index.md): Find out why your agent failed: detectors analyze execution traces to detect failures, classify root causes, and recommend concrete fixes.
+    - [failure_detection](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/failure_detection/index.md): Detect semantic failures in agent traces with detect_failures: hallucinations, tool misuse, and policy violations across a 20+ category taxonomy.
+    - [root_cause_analysis](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/root_cause_analysis/index.md): Trace failure chains in agent sessions with analyze_root_cause: classify causality, assess propagation impact, and get fix recommendations.
+    - [diagnosis](https://strandsagents.com/docs/user-guide/evals-sdk/detectors/diagnosis/index.md): Run the full failure diagnosis pipeline with diagnose_session: detect failures, analyze root causes, and get deduplicated fix recommendations.
   - Red teaming
-    - [red-teaming](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/index.md)
-    - [quickstart](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/quickstart/index.md)
-    - [strategies](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/strategies/index.md)
-    - [custom_cases](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/custom_cases/index.md)
-    - [evaluators](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/evaluators/index.md)
-    - [reading_the_report](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/reading_the_report/index.md)
-  - [experiment_generator](https://strandsagents.com/docs/user-guide/evals-sdk/experiment_generator/index.md)
+    - [red-teaming](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/index.md): Probe a Strands agent's safety by running adversarial attack strategies against it and scoring whether each attack breached its guardrails.
+    - [quickstart](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/quickstart/index.md): Run an adversarial red-team experiment against a Strands agent end to end — generate attack cases, run a strategy, and read which attacks breached.
+    - [strategies](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/strategies/index.md): The built-in red-team attack strategies (Crescendo, GOAT, PAIR, Bad Likert Judge, SequentialBreak), their parameters, and when to use each.
+    - [custom_cases](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/custom_cases/index.md): Hand-author RedTeamCase objects for domain-specific red-team risks, and write success_criteria the LLM judge can apply reliably.
+    - [evaluators](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/evaluators/index.md): How AttackSuccessEvaluator scores a red-team attack from 0.0 to 1.0, what counts as a breach, and how to tune the threshold.
+    - [reading_the_report](https://strandsagents.com/docs/user-guide/evals-sdk/red-teaming/reading_the_report/index.md): Understand what a RedTeamReport prints, how to read the breach matrix and per-attack table, and what to do when an attack breaches.
+  - [experiment_generator](https://strandsagents.com/docs/user-guide/evals-sdk/experiment_generator/index.md): Generate evaluation experiments automatically with ExperimentGenerator: LLM-created test cases, rubrics, and topic-based coverage for your agent.
   - Simulators
-    - [simulators](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/index.md)
-    - [user_simulation](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/user_simulation/index.md)
-    - [tool_simulation](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/tool_simulation/index.md)
-  - [chaos_testing](https://strandsagents.com/docs/user-guide/evals-sdk/chaos_testing/index.md)
+    - [simulators](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/index.md): Evaluate agents with dynamic simulators that drive multi-turn conversations and generate realistic tool responses beyond static test cases.
+    - [user_simulation](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/user_simulation/index.md): Simulate realistic end users with ActorSimulator to evaluate agents in dynamic, goal-oriented multi-turn conversations without scripted inputs.
+    - [tool_simulation](https://strandsagents.com/docs/user-guide/evals-sdk/simulators/tool_simulation/index.md): Replace real tool execution with LLM-generated, schema-validated responses using ToolSimulator to evaluate agents without live infrastructure.
+  - [chaos_testing](https://strandsagents.com/docs/user-guide/evals-sdk/chaos_testing/index.md): Test agent resilience by injecting controlled tool failures with ChaosPlugin: simulate timeouts, network errors, and corrupted responses safely.
   - Remote Trace Providers
-    - [trace_providers](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/trace_providers/index.md)
-  - [cli](https://strandsagents.com/docs/user-guide/evals-sdk/cli/index.md)
+    - [trace_providers](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/trace_providers/index.md): Evaluate production agent traces without re-running them: fetch execution data from CloudWatch, Langfuse, or OpenSearch with trace providers.
+  - [cli](https://strandsagents.com/docs/user-guide/evals-sdk/cli/index.md): Run agent evaluations from the command line with strands-evals: execute experiments, validate JSON, render reports, and diagnose failures in CI.
   - How-To Guides
-    - [eval_task](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/eval_task/index.md)
-    - [result_caching](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/result_caching/index.md)
-    - [experiment_management](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/experiment_management/index.md)
-    - [serialization](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/serialization/index.md)
-    - [agentcore_evaluation_dashboard](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/agentcore_evaluation_dashboard/index.md)
+    - [eval_task](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/eval_task/index.md): Write evaluation task functions with the @eval_task decorator, which handles telemetry, session mapping, and result normalization for you.
+    - [result_caching](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/result_caching/index.md): Cache task execution results with EvaluationDataStore so you can iterate on evaluators without re-invoking expensive or slow agent calls.
+    - [experiment_management](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/experiment_management/index.md): Organize evaluation test cases into experiments: use metadata for filtering, group related cases, and adapt experiments across agent versions.
+    - [serialization](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/serialization/index.md): Save, load, version, and share evaluation work with JSON serialization for Strands Evals experiments and evaluation reports.
+    - [agentcore_evaluation_dashboard](https://strandsagents.com/docs/user-guide/evals-sdk/how-to/agentcore_evaluation_dashboard/index.md): Configure ADOT to send Strands evaluation results to Amazon CloudWatch and visualize scores in the Bedrock AgentCore observability dashboard.
 - Strands Shell
-  - [shell](https://strandsagents.com/docs/user-guide/shell/index.md)
-  - [quickstart](https://strandsagents.com/docs/user-guide/shell/quickstart/index.md)
-  - [configuration](https://strandsagents.com/docs/user-guide/shell/configuration/index.md)
-  - [commands](https://strandsagents.com/docs/user-guide/shell/commands/index.md)
-  - [mcp-server](https://strandsagents.com/docs/user-guide/shell/mcp-server/index.md)
-  - [security](https://strandsagents.com/docs/user-guide/shell/security/index.md)
-- [versioning-and-support](https://strandsagents.com/docs/user-guide/versioning-and-support/index.md)
+  - [shell](https://strandsagents.com/docs/user-guide/shell/index.md): Strands Shell is an in-process shell sandbox that gives agents a fast, isolated command line with filesystem, network, and credential mediation built in.
+  - [quickstart](https://strandsagents.com/docs/user-guide/shell/quickstart/index.md): Install Strands Shell and run your first sandboxed command through the MCP server, the Python API, or the Node.js API in just a few minutes.
+  - [configuration](https://strandsagents.com/docs/user-guide/shell/configuration/index.md): Bind host directories, inject credentials per URL, set the network allowlist, and tune resource limits for Strands Shell, in code or from a TOML file.
+  - [commands](https://strandsagents.com/docs/user-guide/shell/commands/index.md): The full command inventory in Strands Shell, with supported flags, shell builtins, and known divergences from GNU and BSD coreutils behavior.
+  - [mcp-server](https://strandsagents.com/docs/user-guide/shell/mcp-server/index.md): Expose Strands Shell to any MCP-compatible agent over stdio, with four sandboxed tools and optional nested MCP servers surfaced as Lua modules.
+  - [security](https://strandsagents.com/docs/user-guide/shell/security/index.md): How the Kernel boundary mediates filesystem, network, and credential access, what Strands Shell guarantees, and when to add OS-level isolation.
+- [versioning-and-support](https://strandsagents.com/docs/user-guide/versioning-and-support/index.md): How the Strands SDK versions releases: semantic versioning guarantees, experimental feature policies, and deprecation timelines explained.
 
 ## Examples
 
-- [weather_forecaster](https://strandsagents.com/docs/examples/python/weather_forecaster/index.md)
-- [memory_agent](https://strandsagents.com/docs/examples/python/memory_agent/index.md)
-- [file_operations](https://strandsagents.com/docs/examples/python/file_operations/index.md)
-- [agents_workflows](https://strandsagents.com/docs/examples/python/agents_workflows/index.md)
-- [knowledge_base_agent](https://strandsagents.com/docs/examples/python/knowledge_base_agent/index.md)
-- [structured_output](https://strandsagents.com/docs/examples/structured_output/index.md)
-- [multi_agent_example](https://strandsagents.com/docs/examples/python/multi_agent_example/multi_agent_example/index.md)
-- [graph_loops_example](https://strandsagents.com/docs/examples/python/graph_loops_example/index.md)
-- [meta_tooling](https://strandsagents.com/docs/examples/python/meta_tooling/index.md)
-- [mcp_calculator](https://strandsagents.com/docs/examples/python/mcp_calculator/index.md)
-- [multimodal](https://strandsagents.com/docs/examples/python/multimodal/index.md)
+- [weather_forecaster](https://strandsagents.com/docs/examples/python/weather_forecaster/index.md): Build a weather forecasting agent with Strands using the http_request tool and the National Weather Service API, with no API key required.
+- [memory_agent](https://strandsagents.com/docs/examples/python/memory_agent/index.md): Build a Strands agent with persistent memory using mem0.ai: store, retrieve, and apply memories across conversations for personalized responses.
+- [file_operations](https://strandsagents.com/docs/examples/python/file_operations/index.md): Build a Strands agent for file management: read, write, search, and modify files through natural language with file_read, file_write, and editor.
+- [agents_workflows](https://strandsagents.com/docs/examples/python/agents_workflows/index.md): Build a multi-agent research workflow with Strands: researcher, fact-checker, and report writer agents collaborate in sequence on web research.
+- [knowledge_base_agent](https://strandsagents.com/docs/examples/python/knowledge_base_agent/index.md): Build a Strands agent that routes user queries to an Amazon Bedrock knowledge base, deciding whether to store or retrieve information.
+- [structured_output](https://strandsagents.com/docs/examples/structured_output/index.md): Get type-safe, validated responses from Strands agents with structured output: define a schema in Python or TypeScript and receive a parsed object.
+- [multi_agent_example](https://strandsagents.com/docs/examples/python/multi_agent_example/multi_agent_example/index.md): Build a teacher's assistant with Strands multi-agent architecture: a central orchestrator routes queries to specialized subject-matter agents.
+- [graph_loops_example](https://strandsagents.com/docs/examples/python/graph_loops_example/index.md): Build multi-agent graphs with feedback loops in Strands: a write-review-improve cycle where content iterates until quality standards are met.
+- [meta_tooling](https://strandsagents.com/docs/examples/python/meta_tooling/index.md): Build a Strands agent that creates, loads, and uses new tools at runtime: meta-tooling with the load_tool, shell, and editor tools.
+- [mcp_calculator](https://strandsagents.com/docs/examples/python/mcp_calculator/index.md): Connect a Strands agent to external tools with the Model Context Protocol: build an MCP calculator server and call its tools from an agent.
+- [multimodal](https://strandsagents.com/docs/examples/python/multimodal/index.md): Build a multi-agent Strands system that generates and evaluates images: two specialized agents collaborate on multimodal content processing.
 
 ## Community
 
-- [community-packages](https://strandsagents.com/docs/community/community-packages/index.md)
-- [get-featured](https://strandsagents.com/docs/community/get-featured/index.md)
+- [community-packages](https://strandsagents.com/docs/community/community-packages/index.md): Browse community-built tools, model providers, plugins, and session managers that extend Strands agents in Python and TypeScript.
+- [get-featured](https://strandsagents.com/docs/community/get-featured/index.md): How to get your community package featured in the Strands Agents docs, from package requirements to submitting a catalog entry.
 - Contribute
-  - [contribute](https://strandsagents.com/docs/contribute/index.md)
+  - [contribute](https://strandsagents.com/docs/contribute/index.md): Ways to contribute to the Strands Agents ecosystem: fix bugs in the core SDK, improve the documentation, or build and publish extensions.
   - Contribution Types
-    - [core-sdk](https://strandsagents.com/docs/contribute/contributing/core-sdk/index.md)
-    - [documentation](https://strandsagents.com/docs/contribute/contributing/documentation/index.md)
-    - [feature-proposals](https://strandsagents.com/docs/contribute/contributing/feature-proposals/index.md)
-    - [extensions](https://strandsagents.com/docs/contribute/contributing/extensions/index.md)
+    - [core-sdk](https://strandsagents.com/docs/contribute/contributing/core-sdk/index.md): Contribute to the Strands core SDK for Python and TypeScript: find open issues, set up your development environment, and submit changes for review.
+    - [documentation](https://strandsagents.com/docs/contribute/contributing/documentation/index.md): Contribute to Strands Agents documentation: run the Astro site locally, use the docs agent skills, and submit anything from typo fixes to new guides.
+    - [feature-proposals](https://strandsagents.com/docs/contribute/contributing/feature-proposals/index.md): Propose significant features for the Strands SDK: when to write a design document, what to include, and how the review process works.
+    - [extensions](https://strandsagents.com/docs/contribute/contributing/extensions/index.md): Package and publish your own Strands components: share tools, model providers, and session managers so other developers can install them.
 - Labs
-  - [labs](https://strandsagents.com/docs/labs/index.md)
+  - [labs](https://strandsagents.com/docs/labs/index.md): Explore Strands Labs, the experimental arm of Strands Agents: open source projects covering robotics, simulation, and new programming abstractions.
   - Projects
-    - [robots](https://strandsagents.com/docs/labs/robots/index.md)
-    - [robots-sim](https://strandsagents.com/docs/labs/robots-sim/index.md)
-    - [ai-functions](https://strandsagents.com/docs/labs/ai-functions/index.md)
+    - [robots](https://strandsagents.com/docs/labs/robots/index.md): Control physical robots with natural language through Strands Agents: vision-language-action policy inference, camera capture, and control loops.
+    - [robots-sim](https://strandsagents.com/docs/labs/robots-sim/index.md): Control robots in simulated environments with natural language through Strands Agents: test vision-language-action policies without hardware.
+    - [ai-functions](https://strandsagents.com/docs/labs/ai-functions/index.md): Build reliable AI-powered applications with Strands AI Functions: Python functions evaluated by reasoning agents, with post-condition checking.
 - Integrations
-  - [ag-ui](https://strandsagents.com/docs/community/integrations/ag-ui/index.md)
+  - [ag-ui](https://strandsagents.com/docs/community/integrations/ag-ui/index.md): Build streaming chat interfaces for Strands agents with the AG-UI protocol and CopilotKit front-end components.
 - Agent Extensions
-  - [strands-code-agent](https://strandsagents.com/docs/community/agent-extensions/strands-code-agent/index.md)
+  - [strands-code-agent](https://strandsagents.com/docs/community/agent-extensions/strands-code-agent/index.md): A coding agent that replaces tool-calling with code generation in a persistent Python REPL
 - Interventions
-  - [overview](https://strandsagents.com/docs/community/interventions/overview/index.md)
-  - [strands-agt](https://strandsagents.com/docs/community/interventions/strands-agt/index.md)
+  - [overview](https://strandsagents.com/docs/community/interventions/overview/index.md): Community-built intervention handlers for authorization, guardrails, and steering.
+  - [strands-agt](https://strandsagents.com/docs/community/interventions/strands-agt/index.md): Deterministic policy enforcement via Microsoft Agent Governance Toolkit
 - Plugins
-  - [agent-control](https://strandsagents.com/docs/community/plugins/agent-control/index.md)
-  - [agentcore-payments](https://strandsagents.com/docs/community/plugins/agentcore-payments/index.md)
-  - [agentcore-tool-search](https://strandsagents.com/docs/community/plugins/agentcore-tool-search/index.md)
-  - [datadog-ai-guard](https://strandsagents.com/docs/community/plugins/datadog-ai-guard/index.md)
-  - [s3-vectors-memory](https://strandsagents.com/docs/community/plugins/s3-vectors-memory/index.md)
+  - [agent-control](https://strandsagents.com/docs/community/plugins/agent-control/index.md): Enforce centrally managed runtime policies on Strands agents with Agent Control, blocking or steering violations at every step.
+  - [agentcore-payments](https://strandsagents.com/docs/community/plugins/agentcore-payments/index.md): Automated payment processing for agents using Amazon Bedrock AgentCore
+  - [agentcore-tool-search](https://strandsagents.com/docs/community/plugins/agentcore-tool-search/index.md): Semantic tool discovery for agents using Amazon Bedrock AgentCore Gateway
+  - [datadog-ai-guard](https://strandsagents.com/docs/community/plugins/datadog-ai-guard/index.md): Protect Strands agents in real time with Datadog AI Guard, blocking prompt injection, jailbreaks, and unsafe tool calls.
+  - [s3-vectors-memory](https://strandsagents.com/docs/community/plugins/s3-vectors-memory/index.md): Long-term semantic memory for Strands Agents backed by Amazon S3 Vectors
 - Model Providers
-  - [cohere](https://strandsagents.com/docs/community/model-providers/cohere/index.md)
-  - [clova-studio](https://strandsagents.com/docs/community/model-providers/clova-studio/index.md)
-  - [fireworksai](https://strandsagents.com/docs/community/model-providers/fireworksai/index.md)
-  - [nebius-token-factory](https://strandsagents.com/docs/community/model-providers/nebius-token-factory/index.md)
-  - [nvidia-nim](https://strandsagents.com/docs/community/model-providers/nvidia-nim/index.md)
-  - [sglang](https://strandsagents.com/docs/community/model-providers/sglang/index.md)
-  - [vllm](https://strandsagents.com/docs/community/model-providers/vllm/index.md)
-  - [mlx](https://strandsagents.com/docs/community/model-providers/mlx/index.md)
-  - [ovhcloud-ai-endpoints](https://strandsagents.com/docs/community/model-providers/ovhcloud-ai-endpoints/index.md)
-  - [xai](https://strandsagents.com/docs/community/model-providers/xai/index.md)
+  - [cohere](https://strandsagents.com/docs/community/model-providers/cohere/index.md): Use Cohere language models with Strands agents through the OpenAI compatibility layer for chat, tool calling, and streaming.
+  - [clova-studio](https://strandsagents.com/docs/community/model-providers/clova-studio/index.md): Connect Strands agents to Naver CLOVA Studio, Korean-optimized language models on Naver Cloud Platform, via strands-clova.
+  - [fireworksai](https://strandsagents.com/docs/community/model-providers/fireworksai/index.md): Run Strands agents on Fireworks AI, fast hosted inference for open-source models, using the OpenAI-compatible API.
+  - [nebius-token-factory](https://strandsagents.com/docs/community/model-providers/nebius-token-factory/index.md): Use Nebius Token Factory with Strands agents for fast open-source model inference through the OpenAI-compatible API.
+  - [nvidia-nim](https://strandsagents.com/docs/community/model-providers/nvidia-nim/index.md): Connect Strands agents to NVIDIA NIM inference microservices with the strands-nvidia-nim community model provider.
+  - [sglang](https://strandsagents.com/docs/community/model-providers/sglang/index.md): Use SGLang servers as a Strands model provider with Token-In/Token-Out support for agentic reinforcement learning training.
+  - [vllm](https://strandsagents.com/docs/community/model-providers/vllm/index.md): Serve Strands agents from vLLM with Token-In/Token-Out support for agentic RL training via the OpenAI-compatible API.
+  - [mlx](https://strandsagents.com/docs/community/model-providers/mlx/index.md): Run Strands agents locally on Apple Silicon with the MLX model provider, supporting inference, LoRA fine-tuning, and vision.
+  - [ovhcloud-ai-endpoints](https://strandsagents.com/docs/community/model-providers/ovhcloud-ai-endpoints/index.md): Run Strands agents on OVHcloud AI Endpoints, a European, GDPR-compliant model service with an OpenAI-compatible API.
+  - [xai](https://strandsagents.com/docs/community/model-providers/xai/index.md): Use xAI Grok models with Strands agents, including server-side tools for web search, X platform access, and code execution.
 - Memory Stores
-  - [overview](https://strandsagents.com/docs/community/memory-stores/overview/index.md)
+  - [overview](https://strandsagents.com/docs/community/memory-stores/overview/index.md): Community-built memory stores that give agents long-term memory across sessions.
+  - [agentcore-memory-store](https://strandsagents.com/docs/community/memory-stores/agentcore-memory-store/index.md): Amazon Bedrock AgentCore Memory as a MemoryStore for long-term recall and server-side extraction
+  - [strands-dakera](https://strandsagents.com/docs/community/memory-stores/strands-dakera/index.md): Persistent, decay-weighted MemoryStore for agents — self-hosted, with a full-CRUD tool
+- Storage
+  - [overview](https://strandsagents.com/docs/community/storage/overview/index.md): Community-built storage backends for persisting raw bytes under string keys.
 - Session Managers
-  - [agentcore-memory](https://strandsagents.com/docs/community/session-managers/agentcore-memory/index.md)
-  - [strands-valkey-session-manager](https://strandsagents.com/docs/community/session-managers/strands-valkey-session-manager/index.md)
+  - [agentcore-memory](https://strandsagents.com/docs/community/session-managers/agentcore-memory/index.md): Persist Strands agent conversations with Amazon Bedrock AgentCore Memory, including short-term and long-term memory strategies.
+  - [strands-valkey-session-manager](https://strandsagents.com/docs/community/session-managers/strands-valkey-session-manager/index.md): Store Strands agent sessions in Valkey or Redis for low-latency, distributed conversation persistence across interactions.
 - Tool Protocols
-  - [utcp](https://strandsagents.com/docs/community/tools/utcp/index.md)
+  - [utcp](https://strandsagents.com/docs/community/tools/utcp/index.md): Let Strands agents discover and call tools directly over native protocols with the Universal Tool Calling Protocol (UTCP).
 - Tools
-  - [strands-apify](https://strandsagents.com/docs/community/tools/strands-apify/index.md)
-  - [strands-deepgram](https://strandsagents.com/docs/community/tools/strands-deepgram/index.md)
-  - [strands-hubspot](https://strandsagents.com/docs/community/tools/strands-hubspot/index.md)
-  - [strands-spraay](https://strandsagents.com/docs/community/tools/strands-spraay/index.md)
-  - [strands-sql](https://strandsagents.com/docs/community/tools/strands-sql/index.md)
-  - [strands-teams](https://strandsagents.com/docs/community/tools/strands-teams/index.md)
-  - [strands-telegram](https://strandsagents.com/docs/community/tools/strands-telegram/index.md)
-  - [strands-telegram-listener](https://strandsagents.com/docs/community/tools/strands-telegram-listener/index.md)
+  - [strands-apify](https://strandsagents.com/docs/community/tools/strands-apify/index.md): Web scraping for social media, search engines, e-commerce, and more via Apify Actors
+  - [strands-deepgram](https://strandsagents.com/docs/community/tools/strands-deepgram/index.md): Add speech-to-text, text-to-speech, and audio intelligence to Strands agents with the Deepgram voice AI platform.
+  - [strands-hubspot](https://strandsagents.com/docs/community/tools/strands-hubspot/index.md): Query HubSpot CRM data from Strands agents with read-only tools for sales intelligence, customer research, and analytics.
+  - [strands-spraay](https://strandsagents.com/docs/community/tools/strands-spraay/index.md): Send batch crypto payments from Strands agents with the Spraay Protocol: ETH or ERC-20 tokens to up to 200 recipients on Base.
+  - [strands-sql](https://strandsagents.com/docs/community/tools/strands-sql/index.md): General-purpose SQL tool for Strands Agents — PostgreSQL, MySQL, and SQLite via SQLAlchemy.
+  - [strands-teams](https://strandsagents.com/docs/community/tools/strands-teams/index.md): Send Microsoft Teams notifications from Strands agents with rich Adaptive Cards and custom messaging support.
+  - [strands-telegram](https://strandsagents.com/docs/community/tools/strands-telegram/index.md): Control Telegram bots from Strands agents with 60+ Bot API methods for messaging, media, and chat management.
+  - [strands-telegram-listener](https://strandsagents.com/docs/community/tools/strands-telegram-listener/index.md): Process incoming Telegram messages in real time with Strands agents, with AI-powered auto-replies and event handling.
 
 ## Api Python
 
@@ -288,6 +294,7 @@
 - [strands.experimental.bidi.types.model](https://strandsagents.com/docs/api/python/strands.experimental.bidi.types.model/index.md)
 - [strands.experimental.checkpoint.checkpoint](https://strandsagents.com/docs/api/python/strands.experimental.checkpoint.checkpoint/index.md)
 - [strands.experimental.hooks.events](https://strandsagents.com/docs/api/python/strands.experimental.hooks.events/index.md)
+- [strands.experimental.tools.stop.stop](https://strandsagents.com/docs/api/python/strands.experimental.tools.stop.stop/index.md)
 - [strands.handlers.callback_handler](https://strandsagents.com/docs/api/python/strands.handlers.callback_handler/index.md)
 - [strands.hooks.events](https://strandsagents.com/docs/api/python/strands.hooks.events/index.md)
 - [strands.hooks.registry](https://strandsagents.com/docs/api/python/strands.hooks.registry/index.md)
@@ -398,6 +405,10 @@
 - [strands.vended_tools.bash.bash](https://strandsagents.com/docs/api/python/strands.vended_tools.bash.bash/index.md)
 - [strands.vended_tools.bash.types](https://strandsagents.com/docs/api/python/strands.vended_tools.bash.types/index.md)
 - [strands.vended_tools.file_editor.file_editor](https://strandsagents.com/docs/api/python/strands.vended_tools.file_editor.file_editor/index.md)
+- [strands.vended_tools.http_request.http_request](https://strandsagents.com/docs/api/python/strands.vended_tools.http_request.http_request/index.md)
+- [strands.vended_tools.http_request.types](https://strandsagents.com/docs/api/python/strands.vended_tools.http_request.types/index.md)
+- [strands.vended_tools.sleep.sleep](https://strandsagents.com/docs/api/python/strands.vended_tools.sleep.sleep/index.md)
+- [strands.vended_tools.sleep.types](https://strandsagents.com/docs/api/python/strands.vended_tools.sleep.types/index.md)
 
 ## Api TypeScript
 
@@ -439,6 +450,7 @@
 - [CitationsDelta](https://strandsagents.com/docs/api/typescript/CitationsDelta/index.md)
 - [CitationSourceContent](https://strandsagents.com/docs/api/typescript/CitationSourceContent/index.md)
 - [ConcurrentInvocationError](https://strandsagents.com/docs/api/typescript/ConcurrentInvocationError/index.md)
+- [ConcurrentToolExecutor](https://strandsagents.com/docs/api/typescript/ConcurrentToolExecutor/index.md)
 - [configureLogging](https://strandsagents.com/docs/api/typescript/configureLogging/index.md)
 - [ConstantBackoff](https://strandsagents.com/docs/api/typescript/ConstantBackoff/index.md)
 - [ConstantBackoffOptions](https://strandsagents.com/docs/api/typescript/ConstantBackoffOptions/index.md)
@@ -619,6 +631,7 @@
 - [SaveLatestStrategy](https://strandsagents.com/docs/api/typescript/SaveLatestStrategy/index.md)
 - [Scope](https://strandsagents.com/docs/api/typescript/Scope/index.md)
 - [SearchOptions](https://strandsagents.com/docs/api/typescript/SearchOptions/index.md)
+- [SequentialToolExecutor](https://strandsagents.com/docs/api/typescript/SequentialToolExecutor/index.md)
 - [SessionManager](https://strandsagents.com/docs/api/typescript/SessionManager/index.md)
 - [SessionManagerConfig](https://strandsagents.com/docs/api/typescript/SessionManagerConfig/index.md)
 - [SessionStorage](https://strandsagents.com/docs/api/typescript/SessionStorage/index.md)
@@ -691,31 +704,33 @@
 
 ## Blog
 
-- [Introducing Harness Optimizer: Automatically optimize your agent harness](https://strandsagents.com/blog/introducing-harness-optimizer/index.md)
-- [Reduced cost, better isolation, and more resilience: Strands Agents evolves next-gen capabilities](https://strandsagents.com/blog/reduced-cost-better-isolation-more-resilience/index.md)
-- [Inside Agentic Football Cup: 10 Strands Agents, 1 Second to Decide](https://strandsagents.com/blog/inside-agentic-football-cup/index.md)
-- [Multimodal evaluators: MLLM-as-a-judge for image-to-text tasks in Strands Evals](https://strandsagents.com/blog/multimodal-evaluators-mllm-as-a-judge-image-to-text-strands-evals/index.md)
-- [What We Learned from One Year of Building Production Agents](https://strandsagents.com/blog/what-we-learned-from-one-year-of-building-production-agents/index.md)
-- [Introducing Strands Agents TypeScript 1.0: Build Production Agents in TypeScript](https://strandsagents.com/blog/strands-agents-typescript-v1/index.md)
-- [The Strands Agents Community Has a New Home](https://strandsagents.com/blog/strands-agents-discord-community/index.md)
-- [ToolSimulator: scalable tool testing for AI agents](https://strandsagents.com/blog/toolsimulator-scalable-tool-testing-ai-agents/index.md)
-- [Strands Agents TypeScript SDK: Build AI Agents in TypeScript](https://strandsagents.com/blog/strands-agents-typescript-sdk/index.md)
-- [Simulate realistic users to evaluate multi-turn AI agents in Strands Evals](https://strandsagents.com/blog/simulate-realistic-users-multi-turn-agents-strands-evals/index.md)
-- [Evaluating AI agents for production: A practical guide to Strands Evals](https://strandsagents.com/blog/evaluating-ai-agents-practical-guide-strands-evals/index.md)
-- [How Steering Hooks Achieved 100% Agent Accuracy Where Prompts and Workflows Failed](https://strandsagents.com/blog/steering-accuracy-beats-prompts-workflows/index.md)
-- [Runtime Guardrails for Strands Agents with Agent Control](https://strandsagents.com/blog/strands-agents-with-agent-control/index.md)
-- [Introducing Strands Labs: Get hands-on today with state-of-the-art, experimental approaches to agentic development](https://strandsagents.com/blog/introducing-strands-labs/index.md)
-- [Building intelligent physical AI: From edge to cloud with Strands Agents, Bedrock AgentCore, Claude 4.5, NVIDIA GR00T, and Hugging Face LeRobot](https://strandsagents.com/blog/strands-physical-ai/index.md)
-- [Introducing Strands Agent SOPs – Natural Language Workflows for AI Agents](https://strandsagents.com/blog/introducing-strands-agent-sops/index.md)
-- [Strands Agents and the Model-Driven Approach](https://strandsagents.com/blog/strands-agents-model-driven-approach/index.md)
-- [Introducing Strands Agents 1.0: Production-Ready Multi-Agent Orchestration Made Simple](https://strandsagents.com/blog/strands-agents-1-0/index.md)
-- [Using Strands Agents with Claude 4 Interleaved Thinking](https://strandsagents.com/blog/interleaved-thinking-claude-4/index.md)
-- [Introducing Strands Agents, an Open Source AI Agents SDK](https://strandsagents.com/blog/introducing-strands-agents/index.md)
+- [Introducing Harness Optimizer: Automatically optimize your agent harness](https://strandsagents.com/blog/introducing-harness-optimizer/index.md): Harness Optimizer is an open-source library that optimizes the context around your LLM agent (system prompt, tool docs, skills) the way you'd train a model: rollouts in, rewards out, parameters updated.
+- [Reduced cost, better isolation, and more resilience: Strands Agents evolves next-gen capabilities](https://strandsagents.com/blog/reduced-cost-better-isolation-more-resilience/index.md): Strands Agents ships context management that cuts costs in half, Strands Shell for sandboxed agent execution, and chaos testing and red teaming in Strands Evals 1.0.
+- [Inside Agentic Football Cup: 10 Strands Agents, 1 Second to Decide](https://strandsagents.com/blog/inside-agentic-football-cup/index.md): How we use Strands Agents and the model-driven approach to run 5v5 autonomous football matches inside a 4-hour developer workshop, with a hard latency contract, structured outputs, and multi-agent coordination.
+- [Multimodal evaluators: MLLM-as-a-judge for image-to-text tasks in Strands Evals](https://strandsagents.com/blog/multimodal-evaluators-mllm-as-a-judge-image-to-text-strands-evals/index.md): Announcing four new MLLM-as-a-Judge evaluators for image-to-text tasks in Strands Evals: Overall Quality, Correctness, Faithfulness, and Instruction Following — automated, image-grounded scoring with reasoning.
+- [What We Learned from One Year of Building Production Agents](https://strandsagents.com/blog/what-we-learned-from-one-year-of-building-production-agents/index.md): Strands Agents turned one year old. Here are the key lessons our engineers learned after open sourcing this framework and hitting 25 million downloads.
+- [Introducing Strands Agents TypeScript 1.0: Build Production Agents in TypeScript](https://strandsagents.com/blog/strands-agents-typescript-v1/index.md): Version 1.0 of the Strands Agents TypeScript SDK is here. Build type-safe AI agents with full model provider support, custom tools, plugins, and multi-agent orchestration in Node.js and the browser.
+- [The Strands Agents Community Has a New Home](https://strandsagents.com/blog/strands-agents-discord-community/index.md): The Strands Agents Discord server is live. A place for builders to get real-time help, share what they've built, and connect with the Strands team.
+- [ToolSimulator: scalable tool testing for AI agents](https://strandsagents.com/blog/toolsimulator-scalable-tool-testing-ai-agents/index.md): ToolSimulator is an LLM-powered framework within Strands Evals that enables safe, scalable agent testing by using simulated tool responses instead of risky live API calls.
+- [Strands Agents TypeScript SDK: Build AI Agents in TypeScript](https://strandsagents.com/blog/strands-agents-typescript-sdk/index.md): The Strands Agents TypeScript SDK brings the model-driven approach to the TypeScript ecosystem. Build type-safe AI agents that run in Node.js and the browser.
+- [Simulate realistic users to evaluate multi-turn AI agents in Strands Evals](https://strandsagents.com/blog/simulate-realistic-users-multi-turn-agents-strands-evals/index.md): ActorSimulator in the Strands Evals SDK enables teams to test conversational agents through realistic, goal-driven simulated users rather than relying on static test cases or manual testing.
+- [Evaluating AI agents for production: A practical guide to Strands Evals](https://strandsagents.com/blog/evaluating-ai-agents-practical-guide-strands-evals/index.md): Learn how to systematically evaluate AI agents using Strands Evals, covering core concepts like cases, experiments, evaluators, multi-turn simulation capabilities, and practical integration patterns for production deployment.
+- [How Steering Hooks Achieved 100% Agent Accuracy Where Prompts and Workflows Failed](https://strandsagents.com/blog/steering-accuracy-beats-prompts-workflows/index.md): Steering hooks achieved a 100% accuracy pass rate across 600 evaluation runs, compared to 82.5% for simple prompt-based instructions and 80.8% for graph-based workflows.
+- [Runtime Guardrails for Strands Agents with Agent Control](https://strandsagents.com/blog/strands-agents-with-agent-control/index.md): Define what your Strands agents can and can't do at runtime, without changing a line of agent code.
+- [Introducing Strands Labs: Get hands-on today with state-of-the-art, experimental approaches to agentic development](https://strandsagents.com/blog/introducing-strands-labs/index.md): Strands Labs is a new GitHub organization designed to give developers the ability to get hands-on with experimental, state-of-the-art approaches to agentic AI development.
+- [Building intelligent physical AI: From edge to cloud with Strands Agents, Bedrock AgentCore, Claude 4.5, NVIDIA GR00T, and Hugging Face LeRobot](https://strandsagents.com/blog/strands-physical-ai/index.md): Learn how to build physical AI systems that combine edge computing with cloud intelligence using Strands Agents, NVIDIA GR00T, and Hugging Face LeRobot.
+- [Introducing Strands Agent SOPs – Natural Language Workflows for AI Agents](https://strandsagents.com/blog/introducing-strands-agent-sops/index.md): Agent SOPs are a standardized markdown format for defining AI agent workflows in natural language that balances flexibility and control.
+- [Strands Agents and the Model-Driven Approach](https://strandsagents.com/blog/strands-agents-model-driven-approach/index.md): Learn how the model-driven approach in Strands Agents SDK lets modern LLMs drive their own behavior, making agents more resilient and adaptable.
+- [Introducing Strands Agents 1.0: Production-Ready Multi-Agent Orchestration Made Simple](https://strandsagents.com/blog/strands-agents-1-0/index.md): Strands Agents 1.0 brings multi-agent patterns, A2A protocol support, and production-ready features to the open source SDK.
+- [Using Strands Agents with Claude 4 Interleaved Thinking](https://strandsagents.com/blog/interleaved-thinking-claude-4/index.md): Learn how to use Claude 4's interleaved thinking beta feature with Strands Agents for faster, more fluid reasoning and reduced tool calls.
+- [Introducing Strands Agents, an Open Source AI Agents SDK](https://strandsagents.com/blog/introducing-strands-agents/index.md): Strands Agents is an open source SDK that takes a model-driven approach to building and running AI agents in just a few lines of code.
 
 ## Changelog
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
 - Harness Python
+  - [v1.50.1](https://strandsagents.com/changelog/harness/python-v1.50.1/index.md): Harness Python v1.50.1 (2026-07-24)
+  - [v1.50.0](https://strandsagents.com/changelog/harness/python-v1.50.0/index.md): Harness Python v1.50.0 (2026-07-24)
   - [v1.48.0](https://strandsagents.com/changelog/harness/python-v1.48.0/index.md): Harness Python v1.48.0 (2026-07-17)
   - [v1.47.0](https://strandsagents.com/changelog/harness/python-v1.47.0/index.md): Harness Python v1.47.0 (2026-07-10)
   - [v1.46.0](https://strandsagents.com/changelog/harness/python-v1.46.0/index.md): Harness Python v1.46.0 (2026-07-07)
@@ -783,6 +798,8 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/python-v0.1.1/index.md): Harness Python v0.1.1 (2025-05-17)
   - [v0.1.0](https://strandsagents.com/changelog/harness/python-v0.1.0/index.md): Harness Python v0.1.0 (2025-05-16)
 - Harness TypeScript
+  - [v1.11.1](https://strandsagents.com/changelog/harness/typescript-v1.11.1/index.md): Harness TypeScript v1.11.1 (2026-07-24)
+  - [v1.11.0](https://strandsagents.com/changelog/harness/typescript-v1.11.0/index.md): Harness TypeScript v1.11.0 (2026-07-24)
   - [v1.10.0](https://strandsagents.com/changelog/harness/typescript-v1.10.0/index.md): Harness TypeScript v1.10.0 (2026-07-17)
   - [v1.9.0](https://strandsagents.com/changelog/harness/typescript-v1.9.0/index.md): Harness TypeScript v1.9.0 (2026-07-10)
   - [v1.8.0](https://strandsagents.com/changelog/harness/typescript-v1.8.0/index.md): Harness TypeScript v1.8.0 (2026-07-08)
@@ -816,6 +833,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/typescript-v0.1.1/index.md): Harness TypeScript v0.1.1 (2025-12-03)
   - [v0.1.0](https://strandsagents.com/changelog/harness/typescript-v0.1.0/index.md): Harness TypeScript v0.1.0 (2025-12-03)
 - Evals
+  - [v1.0.3](https://strandsagents.com/changelog/evals/v1.0.3/index.md): Evals v1.0.3 (2026-07-23)
   - [v1.0.2](https://strandsagents.com/changelog/evals/v1.0.2/index.md): Evals v1.0.2 (2026-07-09)
   - [v1.0.1](https://strandsagents.com/changelog/evals/v1.0.1/index.md): Evals v1.0.1 (2026-06-25)
   - [v1.0.0](https://strandsagents.com/changelog/evals/v1.0.0/index.md): Evals v1.0.0 (2026-06-16)

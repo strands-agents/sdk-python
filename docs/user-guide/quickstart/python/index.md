@@ -56,7 +56,7 @@ Once uv is installed, configure the MCP server with your preferred client. For e
 }
 ```
 
-See the [MCP server documentation](https://github.com/strands-agents/mcp-server) for setup instructions with other clients.
+See the [MCP server documentation](https://github.com/strands-agents/harness-sdk/tree/main/strands-mcp) for setup instructions with other clients.
 
 ## Configuring Credentials
 
@@ -556,4 +556,4 @@ Ready to learn more? Check out these resources:
 - [Strands Shell Quickstart](/docs/user-guide/shell/quickstart/index.md) (1 shared tag)
 - [TypeScript Quickstart](/docs/user-guide/quickstart/typescript/index.md) (1 shared tag)
 - [Red Teaming Quickstart](/docs/user-guide/evals-sdk/red-teaming/quickstart/index.md) (1 shared tag)
-- [Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
+- [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)

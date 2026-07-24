@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:205](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/types/messages.ts#L205)
+Defined in: [src/types/messages.ts:205](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L205)
 
 Data for a text block.
 
@@ -10,6 +10,6 @@ Data for a text block.
 text: string;
 ```
 
-Defined in: [src/types/messages.ts:209](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/types/messages.ts#L209)
+Defined in: [src/types/messages.ts:209](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L209)
 
 Plain text content.

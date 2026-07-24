@@ -10,7 +10,7 @@ Getting an LLM agent to work well is hard. The model is good, but it needs the r
 
 That harness is everything you wrap around the model to get useful behavior: the system prompt, tool definitions, skills, retrieved context. A sharper tool description, for instance, can lead to more accurate tool invocation. But hand-tuning doesn’t scale: it improves only when a human notices a failure pattern, and it falls apart across the tasks your agent sees, let alone production agents with more diverse tasks and varied end users.
 
-![Manual prompt iteration vs. automatic harness optimization](/_astro/manual-vs-automatic.BBbWJnTl_15ydTI.webp)
+![Manual prompt iteration vs. automatic harness optimization](/_astro/manual-vs-automatic.BYFHBGIx_GDVqi.webp)
 
 We built [Harness Optimizer](https://github.com/strands-labs/harness-optimizer): treat the harness as something you **optimize**, not something you author. It’s open source under Apache 2.0.
 
@@ -20,7 +20,7 @@ We introduce the **Formula**: a tunable component of the harness, e.g., the syst
 
 In an automatic loop, the Formula runs steps that are similar to training models: forward pass → loss → gradient → optimizer step → repeat. Harness Optimizer borrows that shape exactly, but the “parameters” are your Formulas, and the optimizer isn’t just numeric search. It could be an LLM agent that reads your agent’s traces and rewrites the Formulas.
 
-![Training a model vs. optimizing a harness](/_astro/training-vs-optimizing.CZ4jSaoQ_Znrz0Y.webp)
+![Training a model vs. optimizing a harness](/_astro/training-vs-optimizing.CjUKXI7g_Z1nLId6.webp)
 
 In Harness Optimizer, we have four major classes for forming the optimization loop, i.e., [**Formula**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/formulas/formula.py), [**RewardFunction**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/rewards/reward_function.py), [**FormulaOptimizer**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/optimizers/optimizer.py) (`.step()`), and [**Trainer**](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/trainer.py).
 
@@ -31,7 +31,7 @@ In Harness Optimizer, we have four major classes for forming the optimization lo
 
 The FormulaOptimizer only touches what your Formula exposes. More Formulas can be attached to the FormulaOptimizer to automatically optimize more components of your harness.
 
-![FormulaOptimizer architecture](/_astro/formula-optimizer-architecture.CYKvvkO5_1wBV6y.webp)
+![FormulaOptimizer architecture](/_astro/formula-optimizer-architecture.BZZJnKPy_Z197e6w.webp)
 
 Every Formula exposes the same small interface: read the current params, write new ones back, and process with the agent:
 
@@ -57,7 +57,7 @@ apply_formulas_on_strands_agent(agent, [formula])
 
 We can attach the Formula to any Strands agent and assemble the full optimization loop with: a **DataLoader** which loads and processes the dataset, an **AgentRolloutEngine** which executes the agents and produces the rollouts, a **RewardFunction** which scores each rollout, and the **FormulaOptimizer** turns those scores into new params, which flow back into the Formula for the next pass.
 
-![Formula optimization loop](/_astro/formula-optimization-loop.BtypTU_Q_2bxTUN.webp)
+![Formula optimization loop](/_astro/formula-optimization-loop.B0LK1u5a_1BUx5F.webp)
 
 The Formula is the one thing the loop rewrites, the `update_params` edge that closes the cycle.
 
@@ -65,7 +65,7 @@ The Formula is the one thing the loop rewrites, the `update_params` edge that cl
 
 In the default [`ContrastiveReflectionOptimizer`](https://github.com/strands-labs/harness-optimizer/blob/main/strands_harness_optimizer/optimizers/system_prompt/contrastive_reflection.py), the optimization step is *itself an LLM agent*. It splits the rollouts into wins and losses by reward, reads them contrastively to find what the wins did that the losses didn’t, and rewrites the Formula to encode it.
 
-![Contrastive reflection](/_astro/contrastive-reflection.qpAQuYl5_oU7w.webp)
+![Contrastive reflection](/_astro/contrastive-reflection.UO5afc0Z_1NXtxp.webp)
 
 By default it *appends* what it learns rather than rewriting the prompt wholesale. Here’s the kind of edit it makes, starting from a generic harness:
 
@@ -95,7 +95,7 @@ A single reflection pass tends to fixate on whatever failure dominates the first
 
 Each sub-agent analyzes one trace in its own context and returns the trace-specific findings for the prompt. The orchestrator never reads raw traces; it just generalizes, deduplicates, and condenses those findings into the prompt edit.
 
-![Multi-agent optimizer](/_astro/multi-agent-optimizer.DOkcMcP0_Z2vQNCX.webp)
+![Multi-agent optimizer](/_astro/multi-agent-optimizer.DaAbjrCa_2ltmkK.webp)
 
 ## A full loop, end to end
 

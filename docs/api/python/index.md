@@ -162,6 +162,12 @@
         -   [Types](/docs/api/python/strands.vended_tools.bash.types)
     -   **File Editor**
         -   [File Editor](/docs/api/python/strands.vended_tools.file_editor.file_editor)
+    -   **Http Request**
+        -   [Http Request](/docs/api/python/strands.vended_tools.http_request.http_request)
+        -   [Types](/docs/api/python/strands.vended_tools.http_request.types)
+    -   **Sleep**
+        -   [Sleep](/docs/api/python/strands.vended_tools.sleep.sleep)
+        -   [Types](/docs/api/python/strands.vended_tools.sleep.types)
 -   **Experimental**
     -   [Agent Config](/docs/api/python/strands.experimental.agent_config)
     -   **Bidi**
@@ -188,3 +194,6 @@
         -   [Checkpoint](/docs/api/python/strands.experimental.checkpoint.checkpoint)
     -   **Hooks**
         -   [Events](/docs/api/python/strands.experimental.hooks.events)
+    -   **Tools**
+        -   **Stop**
+            -   [Stop](/docs/api/python/strands.experimental.tools.stop.stop)

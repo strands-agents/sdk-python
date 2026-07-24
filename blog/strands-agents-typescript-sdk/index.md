@@ -139,7 +139,7 @@ What makes the TypeScript SDK unique is that it runs natively in the browser. No
 
 To show what’s possible, we built a [browser agent example](https://github.com/strands-agents/sdk-typescript/tree/main/strands-ts/examples/browser-agent) where an AI agent manipulates a live canvas element through natural language. You chat with the agent, and it uses a custom `update_canvas` tool to change HTML, CSS, or run JavaScript in an iframe, all streaming in real time.
 
-![Browser agent demo](/_astro/browser-agent-demo.CscPr-OG_CKuwx.webp)
+![Browser agent demo](/_astro/browser-agent-demo.Jvtwtfjm_Z1m7x6a.webp)
 
 Clone the repo and try it out:
 

@@ -8,7 +8,7 @@ Agentic AI systems are rapidly expanding beyond the digital world and into the p
 
 This year has been transformative for agentic AI at AWS. We [launched Strands Agents in May 2025](/blog/introducing-strands-agents/index.md), bringing a simple developer experience and [model-driven approach](/blog/strands-agents-model-driven-approach/index.md) to agent development. In July, [we released version 1.0](https://aws.amazon.com/blogs/opensource/introducing-strands-agents-1-0-production-ready-multi-agent-orchestration-made-simple/) with multi-agent orchestration capabilities and [introduced Amazon Bedrock AgentCore](https://aws.amazon.com/blogs/aws/introducing-amazon-bedrock-agentcore-securely-deploy-and-operate-ai-agents-at-any-scale/) to accelerate AI agents to production at scale. At re:Invent 2025, we expanded Strands with the [TypeScript SDK](https://github.com/strands-agents/sdk-typescript), [evaluations](https://github.com/strands-agents/evals), [bidirectional streaming for voice agents](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md), and [steering for guiding agents within boundaries](/docs/user-guide/concepts/plugins/steering/index.md). Today, we’re exploring how these capabilities extend to the edge and physical AI, where agents don’t just process information but work alongside us in the physical world.
 
-![Robot demonstration](/_astro/edge-ai-1.BDgOpmB6_1So6J0.webp)
+![Robot demonstration](/_astro/edge-ai-1.CyDTvmDC_Z14VGlG.webp)
 
 Full code for the demonstrations can be found at:
 

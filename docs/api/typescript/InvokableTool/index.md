@@ -1,4 +1,4 @@
-Defined in: [src/tools/tool.ts:166](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L166)
+Defined in: [src/tools/tool.ts:166](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L166)
 
 Extended tool interface that supports direct invocation with type-safe input and output. This interface is useful for testing and standalone tool execution.
 
@@ -21,7 +21,7 @@ Extended tool interface that supports direct invocation with type-safe input and
 abstract name: string;
 ```
 
-Defined in: [src/tools/tool.ts:109](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L109)
+Defined in: [src/tools/tool.ts:109](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L109)
 
 The unique name of the tool. This MUST match the name in the toolSpec.
 
@@ -37,7 +37,7 @@ The unique name of the tool. This MUST match the name in the toolSpec.
 abstract description: string;
 ```
 
-Defined in: [src/tools/tool.ts:116](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L116)
+Defined in: [src/tools/tool.ts:116](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L116)
 
 Human-readable description of what the tool does. This helps the model understand when to use the tool.
 
@@ -55,7 +55,7 @@ This MUST match the description in the toolSpec.description.
 abstract toolSpec: ToolSpec;
 ```
 
-Defined in: [src/tools/tool.ts:121](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L121)
+Defined in: [src/tools/tool.ts:121](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L121)
 
 OpenAPI JSON specification for the tool. Defines the tool’s name, description, and input schema.
 
@@ -71,7 +71,7 @@ OpenAPI JSON specification for the tool. Defines the tool’s name, description,
 abstract stream(toolContext): ToolStreamGenerator;
 ```
 
-Defined in: [src/tools/tool.ts:156](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L156)
+Defined in: [src/tools/tool.ts:156](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L156)
 
 Executes the tool with streaming support. Yields zero or more ToolStreamEvents during execution, then returns exactly one ToolResultBlock as the final value.
 
@@ -125,7 +125,7 @@ console.log('Final result:', result.value.status)
 invoke(input, context?): Promise<TReturn>;
 ```
 
-Defined in: [src/tools/tool.ts:179](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L179)
+Defined in: [src/tools/tool.ts:179](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L179)
 
 Invokes the tool directly with type-safe input and returns the unwrapped result.
 

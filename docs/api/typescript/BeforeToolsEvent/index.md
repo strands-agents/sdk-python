@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:732](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L732)
+Defined in: [src/hooks/events.ts:733](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L733)
 
 Event triggered before executing tools. Fired when the model returns tool use blocks that need to be executed. Hook callbacks can set [cancel](#cancel) to prevent all tools from executing.
 
@@ -18,7 +18,7 @@ Event triggered before executing tools. Fired when the model returns tool use bl
 new BeforeToolsEvent(data): BeforeToolsEvent;
 ```
 
-Defined in: [src/hooks/events.ts:745](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L745)
+Defined in: [src/hooks/events.ts:746](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L746)
 
 #### Parameters
 
@@ -45,7 +45,7 @@ Defined in: [src/hooks/events.ts:745](https://github.com/strands-agents/harness-
 readonly type: "beforeToolsEvent";
 ```
 
-Defined in: [src/hooks/events.ts:733](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L733)
+Defined in: [src/hooks/events.ts:734](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L734)
 
 ---
 
@@ -55,7 +55,7 @@ Defined in: [src/hooks/events.ts:733](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:734](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L734)
+Defined in: [src/hooks/events.ts:735](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L735)
 
 ---
 
@@ -65,7 +65,7 @@ Defined in: [src/hooks/events.ts:734](https://github.com/strands-agents/harness-
 readonly message: Message;
 ```
 
-Defined in: [src/hooks/events.ts:735](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L735)
+Defined in: [src/hooks/events.ts:736](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L736)
 
 ---
 
@@ -75,7 +75,7 @@ Defined in: [src/hooks/events.ts:735](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:736](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L736)
+Defined in: [src/hooks/events.ts:737](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L737)
 
 ---
 
@@ -85,7 +85,7 @@ Defined in: [src/hooks/events.ts:736](https://github.com/strands-agents/harness-
 cancel: string | boolean = false;
 ```
 
-Defined in: [src/hooks/events.ts:743](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L743)
+Defined in: [src/hooks/events.ts:744](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L744)
 
 Set by hook callbacks to cancel all tool calls. When set to `true`, a default cancel message is used. When set to a string, that string is used as the tool result error message.
 
@@ -97,7 +97,7 @@ Set by hook callbacks to cancel all tool calls. When set to `true`, a default ca
 interrupt<T>(params): T;
 ```
 
-Defined in: [src/hooks/events.ts:760](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L760)
+Defined in: [src/hooks/events.ts:761](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L761)
 
 Raises an interrupt for human-in-the-loop workflows. If a response is available (from a previous resume), returns it immediately. Otherwise, throws an InterruptError to halt agent execution.
 
@@ -133,7 +133,7 @@ Interruptible.interrupt
 toJSON(): Pick<BeforeToolsEvent, "type" | "message">;
 ```
 
-Defined in: [src/hooks/events.ts:768](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/hooks/events.ts#L768)
+Defined in: [src/hooks/events.ts:769](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/hooks/events.ts#L769)
 
 Serializes for wire transport, excluding the agent reference, invocationState, and mutable cancel flag. Called automatically by JSON.stringify().
 

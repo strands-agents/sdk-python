@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:446](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/streaming.ts#L446)
+Defined in: [src/models/streaming.ts:446](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L446)
 
 Reasoning content delta within a content block. Represents incremental reasoning or thinking content.
 
@@ -10,7 +10,7 @@ Reasoning content delta within a content block. Represents incremental reasoning
 type: "reasoningContentDelta";
 ```
 
-Defined in: [src/models/streaming.ts:450](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/streaming.ts#L450)
+Defined in: [src/models/streaming.ts:450](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L450)
 
 Discriminator for reasoning delta.
 
@@ -22,7 +22,7 @@ Discriminator for reasoning delta.
 optional text?: string;
 ```
 
-Defined in: [src/models/streaming.ts:455](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/streaming.ts#L455)
+Defined in: [src/models/streaming.ts:455](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L455)
 
 Incremental reasoning text.
 
@@ -34,7 +34,7 @@ Incremental reasoning text.
 optional signature?: string;
 ```
 
-Defined in: [src/models/streaming.ts:460](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/streaming.ts#L460)
+Defined in: [src/models/streaming.ts:460](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L460)
 
 Incremental signature data.
 
@@ -46,6 +46,6 @@ Incremental signature data.
 optional redactedContent?: Uint8Array;
 ```
 
-Defined in: [src/models/streaming.ts:465](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/models/streaming.ts#L465)
+Defined in: [src/models/streaming.ts:465](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L465)
 
 Incremental redacted content data.

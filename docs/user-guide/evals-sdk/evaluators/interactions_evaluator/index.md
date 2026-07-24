@@ -302,4 +302,4 @@ Verify that agents respect declared dependencies.
 - [Context Management](/docs/user-guide/concepts/context-management/index.md) (1 shared tag)
 - [Prompt Engineering](/docs/user-guide/safety-security/prompt-engineering/index.md) (1 shared tag)
 - [Prompts](/docs/user-guide/concepts/agents/prompts/index.md) (1 shared tag)
-- [Steering](/docs/user-guide/concepts/plugins/steering/index.md) (1 shared tag)
+- [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (1 shared tag)

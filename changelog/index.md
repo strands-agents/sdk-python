@@ -1,5 +1,115 @@
 # Strands Agents Changelog
 
+## Harness Python v1.50.1 — 2026-07-24
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.50.1 · Package: https://pypi.org/project/strands-agents/1.50.1/
+
+### Features
+- thread per-call model through InvokeModelStage [hooks, model] (https://github.com/strands-agents/harness-sdk/pull/3434)
+
+### Other
+- move stop tool to experimental [devx, tool] (https://github.com/strands-agents/harness-sdk/pull/3465)
+- bump hono from 4.12.25 to 4.12.32 (https://github.com/strands-agents/harness-sdk/pull/3469)
+- update ruff requirement from \<0.16.0,\>=0.13.0 to \>=0.13.0,\<0.17.0 in /strands-py (https://github.com/strands-agents/harness-sdk/pull/3439)
+- add model routing design doc (0016) [model] (https://github.com/strands-agents/harness-sdk/pull/3217)
+- run the sync backstop every 2 hours (https://github.com/strands-agents/harness-sdk/pull/3475)
+- enforce single-increment versions and verify publish on the registry (https://github.com/strands-agents/harness-sdk/pull/3473)
+- add automated release workflow [mcp] (https://github.com/strands-agents/harness-sdk/pull/3413)
+
+## Harness Python v1.50.0 — 2026-07-24
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.50.0 · Package: https://pypi.org/project/strands-agents/1.50.0/
+
+### Features
+- add ExecuteToolStage with middleware-initiated interrupts [hooks, tool] (https://github.com/strands-agents/harness-sdk/pull/3233)
+- configurable retry exceptions (#1597) [devx, agent] (https://github.com/strands-agents/harness-sdk/pull/3340)
+- propose bidi webrtc design [bidirectional-streaming] (https://github.com/strands-agents/harness-sdk/pull/3386)
+- add http\_request to strands-py [tool] (https://github.com/strands-agents/harness-sdk/pull/3395)
+- add stop tool [tool, agent] (https://github.com/strands-agents/harness-sdk/pull/3397)
+- add sleep tool [tool] (https://github.com/strands-agents/harness-sdk/pull/3393)
+
+### Fixes
+- make the release pip-audit step actually run (https://github.com/strands-agents/harness-sdk/pull/3335)
+- replay assistant text history as valid string-content input in Responses adapters [devx, model] (https://github.com/strands-agents/harness-sdk/pull/3399)
+- keep fan-in node out of resume while a parallel sibling is in-flight [multiagent] (https://github.com/strands-agents/harness-sdk/pull/3390)
+- reject keys for s3 storage if not configured [persistence] (https://github.com/strands-agents/harness-sdk/pull/3411)
+- verify aws region (https://github.com/strands-agents/harness-sdk/pull/3412)
+- send llama.cpp sampler params at the top level, not under extra\_body [model] (https://github.com/strands-agents/harness-sdk/pull/3423)
+- preserve shared context and cumulative accounting across serialize/deserialize [context, multiagent] (https://github.com/strands-agents/harness-sdk/pull/3396)
+- surface Responses stream failures [model] (https://github.com/strands-agents/harness-sdk/pull/3427)
+
+### Other
+- merge strands-agents/mcp-server into monorepo [mcp] (https://github.com/strands-agents/harness-sdk/pull/3300)
+- replace duplicated examples guide with reference pointer (https://github.com/strands-agents/harness-sdk/pull/3288)
+- bump brace-expansion from 5.0.6 to 5.0.7 (https://github.com/strands-agents/harness-sdk/pull/3370)
+- refactor TestMemoryStore to use the unified storage interface (https://github.com/strands-agents/harness-sdk/pull/3260)
+- bump body-parser from 2.2.2 to 2.3.0 (https://github.com/strands-agents/harness-sdk/pull/3387)
+- bump actions/setup-python from 6 to 7 (https://github.com/strands-agents/harness-sdk/pull/3352)
+- bump astral-sh/setup-uv from 8.3.0 to 9.0.0 (https://github.com/strands-agents/harness-sdk/pull/3407)
+- bump pypa/gh-action-pypi-publish from 1.14.0 to 1.14.1 (https://github.com/strands-agents/harness-sdk/pull/3406)
+
+## Harness TypeScript v1.11.1 — 2026-07-24
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/typescript/v1.11.1 · Package: https://www.npmjs.com/package/@strands-agents/sdk/v/1.11.1
+
+### Features
+- add per-call MCP tool cancellation [mcp, hil] (https://github.com/strands-agents/harness-sdk/pull/3402)
+
+### Fixes
+- persist message strategy after invocation [persistence, sessions] (https://github.com/strands-agents/harness-sdk/pull/3440)
+
+### Other
+- move stop tool to experimental [devx, tool] (https://github.com/strands-agents/harness-sdk/pull/3465)
+- bump hono from 4.12.25 to 4.12.32 (https://github.com/strands-agents/harness-sdk/pull/3469)
+- add model routing design doc (0016) [model] (https://github.com/strands-agents/harness-sdk/pull/3217)
+- run the sync backstop every 2 hours (https://github.com/strands-agents/harness-sdk/pull/3475)
+- enforce single-increment versions and verify publish on the registry (https://github.com/strands-agents/harness-sdk/pull/3473)
+- add automated release workflow [mcp] (https://github.com/strands-agents/harness-sdk/pull/3413)
+
+## Harness TypeScript v1.11.0 — 2026-07-24
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/typescript/v1.11.0 · Package: https://www.npmjs.com/package/@strands-agents/sdk/v/1.11.0
+
+### Features
+- add ToolExecutor class hierarchy [language, tool] (https://github.com/strands-agents/harness-sdk/pull/3268)
+- propose bidi webrtc design [bidirectional-streaming] (https://github.com/strands-agents/harness-sdk/pull/3386)
+- add stop tool [tool, agent] (https://github.com/strands-agents/harness-sdk/pull/3397)
+- add sleep tool [tool] (https://github.com/strands-agents/harness-sdk/pull/3393)
+
+### Fixes
+- make the release pip-audit step actually run (https://github.com/strands-agents/harness-sdk/pull/3335)
+- detect tool use from streamed content when finish\_reason is non-tool [model] (https://github.com/strands-agents/harness-sdk/pull/3206)
+- surface Responses stream failures [model] (https://github.com/strands-agents/harness-sdk/pull/3290)
+- replay assistant text history as valid string-content input in Responses adapters [devx, model] (https://github.com/strands-agents/harness-sdk/pull/3399)
+- reject keys for s3 storage if not configured [persistence] (https://github.com/strands-agents/harness-sdk/pull/3411)
+- verify aws region (https://github.com/strands-agents/harness-sdk/pull/3412)
+
+### Other
+- merge strands-agents/mcp-server into monorepo [mcp] (https://github.com/strands-agents/harness-sdk/pull/3300)
+- extract shared registerNodeDefaults() to prevent src/test drift [devx] (https://github.com/strands-agents/harness-sdk/pull/3303)
+- replace duplicated examples guide with reference pointer (https://github.com/strands-agents/harness-sdk/pull/3288)
+- bump brace-expansion from 5.0.6 to 5.0.7 (https://github.com/strands-agents/harness-sdk/pull/3370)
+- refactor TestMemoryStore to use the unified storage interface (https://github.com/strands-agents/harness-sdk/pull/3260)
+- bump body-parser from 2.2.2 to 2.3.0 (https://github.com/strands-agents/harness-sdk/pull/3387)
+- bump actions/setup-python from 6 to 7 (https://github.com/strands-agents/harness-sdk/pull/3352)
+- bump astral-sh/setup-uv from 8.3.0 to 9.0.0 (https://github.com/strands-agents/harness-sdk/pull/3407)
+- bump pypa/gh-action-pypi-publish from 1.14.0 to 1.14.1 (https://github.com/strands-agents/harness-sdk/pull/3406)
+
+## Evals v1.0.3 — 2026-07-23
+Release: https://github.com/strands-agents/evals/releases/tag/v1.0.3 · Package: https://pypi.org/project/strands-agents-evals/1.0.3/
+
+### Features
+- map type labels to native issue type (https://github.com/strands-agents/evals/pull/287)
+
+### Fixes
+- sha-pin third-party GitHub Actions (https://github.com/strands-agents/evals/pull/285)
+- added pyproject classifiers (https://github.com/strands-agents/evals/pull/307)
+- fix tool parsing from list [tracing] (https://github.com/strands-agents/evals/pull/313)
+- route smolagents OpenInference spans to OpenInferenceSessionMapper [tracing] (https://github.com/strands-agents/evals/pull/308)
+- detect\_otel\_mapper checks all spans for body in CloudWatch split format [tracing] (https://github.com/strands-agents/evals/pull/320)
+
+### Other
+- add CODEOWNERS (https://github.com/strands-agents/evals/pull/305)
+- deflake async concurrency test by tracking in-flight tasks [core] (https://github.com/strands-agents/evals/pull/304)
+- align dependabot config with harness-sdk conventions (https://github.com/strands-agents/evals/pull/306)
+- bump actions/setup-python from 6 to 7 (https://github.com/strands-agents/evals/pull/318)
+
 ## Harness Python v1.48.0 — 2026-07-17
 Release: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.48.0 · Package: https://pypi.org/project/strands-agents/1.48.0/
 

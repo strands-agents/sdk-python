@@ -10,7 +10,7 @@ type JSONValue =
   | JSONValue[];
 ```
 
-Defined in: [src/types/json.ts:26](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/types/json.ts#L26)
+Defined in: [src/types/json.ts:26](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/json.ts#L26)
 
 Represents any valid JSON value. This type ensures type safety for JSON-serializable data.
 

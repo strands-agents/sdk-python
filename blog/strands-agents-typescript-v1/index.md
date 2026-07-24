@@ -223,7 +223,7 @@ The SDK also includes structured output with Zod schema validation, conversation
 
 To show what’s possible, we built a [browser agent demo](https://github.com/strands-agents/sdk-typescript/tree/main/strands-ts/examples/browser-agent). Chat with an agent to build and modify a live canvas in real time. Just describe what you want, and let the agent handle all the HTML, CSS, and JavaScript.
 
-![Browser agent demo](/_astro/browser-agent-demo.CscPr-OG_CKuwx.webp)
+![Browser agent demo](/_astro/browser-agent-demo.Jvtwtfjm_Z1m7x6a.webp)
 
 Clone the repo and try it yourself:
 

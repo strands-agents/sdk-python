@@ -376,7 +376,7 @@ Defined in: [src/strands/vended\_plugins/context\_offloader/storage.py:513](http
 
 Retrieve content from an S3 object.
 
-Accepts both `s3://` URIs (as returned by `store()`) and raw S3 keys for backward compatibility.
+Accepts both `s3://` URIs (as returned by `store()`) and raw S3 keys for backward compatibility. References are constrained to the configured `bucket` and `prefix`: a reference that resolves to a key outside the prefix (or to a different bucket) is rejected, mirroring the scope that `store()` enforces.
 
 **Arguments**:
 
@@ -388,4 +388,4 @@ A tuple of (content bytes, content type).
 
 **Raises**:
 
--   `KeyError` - If the object does not exist.
+-   `KeyError` - If the object does not exist or the reference resolves outside the configured bucket and prefix.

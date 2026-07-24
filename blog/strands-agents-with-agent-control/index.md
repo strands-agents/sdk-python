@@ -21,7 +21,7 @@ Today we’re excited to add another option to that toolkit: a launch partnershi
 -   **Evaluator**: how to assess the data (regex, list matching, JSON schema, or AI-powered evaluation via Galileo Luna-2)
 -   **Action**: what to do on a match (deny, steer, warn, log, or allow)
 
-![Agent Control architecture: controls evaluate at each step of the agent workflow, with the Agent Control Server managing policies centrally](/_astro/agent-control-architecture.DRxIK95e_Z1WVgGX.webp)
+![Agent Control architecture: controls evaluate at each step of the agent workflow, with the Agent Control Server managing policies centrally](/_astro/agent-control-architecture.DtbxdYFU_1M0j0C.webp)
 
 Controls live on the server. Agents fetch their assigned controls at runtime and evaluate on every relevant step. You can add, update, or disable controls via the dashboard or API without touching agent code or redeploying.
 

@@ -401,7 +401,7 @@ Use skills when you want a single agent that can handle a wide range of tasks by
 - [Prompt Engineering](/docs/user-guide/safety-security/prompt-engineering/index.md) (1 shared tag)
 - [Prompts](/docs/user-guide/concepts/agents/prompts/index.md) (1 shared tag)
 - [Conversation Management](/docs/user-guide/concepts/agents/conversation-management/index.md) (1 shared tag)
-- [Steering](/docs/user-guide/concepts/plugins/steering/index.md) (1 shared tag)
+- [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (1 shared tag)
 - [GoalLoop](/docs/user-guide/concepts/plugins/goal-loop/index.md) (1 shared tag)
 - [Agent Configuration](/docs/user-guide/concepts/experimental/agent-config/index.md) (1 shared tag)
 

@@ -53,4 +53,4 @@ The table below compares feature availability between the Python and TypeScript 
 - [Strands Shell Quickstart](/docs/user-guide/shell/quickstart/index.md) (1 shared tag)
 - [TypeScript Quickstart](/docs/user-guide/quickstart/typescript/index.md) (1 shared tag)
 - [Red Teaming Quickstart](/docs/user-guide/evals-sdk/red-teaming/quickstart/index.md) (1 shared tag)
-- [Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
+- [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)

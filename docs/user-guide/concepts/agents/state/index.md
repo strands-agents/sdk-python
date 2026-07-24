@@ -416,6 +416,7 @@ For automatic persistence of agent state and conversation history across applica
 - [Session Management](/docs/user-guide/concepts/agents/session-management/index.md) (3 shared tags)
 - [Bidirectional Streaming Session Management](/docs/user-guide/concepts/bidirectional-streaming/session-management/index.md) (2 shared tags)
 - [Serialization](/docs/user-guide/evals-sdk/how-to/serialization/index.md) (1 shared tag)
+- [Storage](/docs/user-guide/concepts/storage/index.md) (1 shared tag)
 - [OpenAI Responses API](/docs/user-guide/concepts/model-providers/openai-responses/index.md) (1 shared tag)
 - [Conversation Management](/docs/user-guide/concepts/agents/conversation-management/index.md) (1 shared tag)
 

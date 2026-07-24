@@ -18,7 +18,7 @@ Note, BidiNovaSonicModel is only supported for Python 3.12+
 class BidiNovaSonicModel(BidiModel)
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:109](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L109)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:106](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L106)
 
 Nova Sonic implementation for bidirectional streaming.
 
@@ -39,7 +39,7 @@ def __init__(model_id: str = NOVA_SONIC_V2_MODEL_ID,
              **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:124](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L124)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:121](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L121)
 
 Initialize Nova Sonic bidirectional model.
 
@@ -69,7 +69,7 @@ async def start(system_prompt: str | None = None,
                 **kwargs: Any) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:230](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L230)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:225](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L225)
 
 Establish bidirectional connection to Nova Sonic.
 
@@ -90,7 +90,7 @@ Establish bidirectional connection to Nova Sonic.
 async def receive() -> AsyncGenerator[BidiOutputEvent, None]
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:366](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L366)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:361](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L361)
 
 Receive Nova Sonic events and convert to provider-agnostic format.
 
@@ -104,7 +104,7 @@ Receive Nova Sonic events and convert to provider-agnostic format.
 async def send(content: BidiInputEvent | ToolResultEvent) -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:413](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L413)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:408](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L408)
 
 Unified send method for all content types. Sends the given content to Nova Sonic.
 
@@ -124,6 +124,6 @@ Dispatches to appropriate internal handler based on content type.
 async def stop() -> None
 ```
 
-Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:559](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L559)
+Defined in: [src/strands/experimental/bidi/models/nova\_sonic.py:554](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/bidi/models/nova_sonic.py#L554)
 
 Close Nova Sonic connection with proper cleanup sequence.

@@ -1,4 +1,4 @@
-Defined in: [src/errors.ts:264](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/errors.ts#L264)
+Defined in: [src/errors.ts:264](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/errors.ts#L264)
 
 Error thrown when a storage operation fails.
 
@@ -16,7 +16,7 @@ Wraps backend-specific errors (filesystem, S3, network) with a uniform type that
 new StorageError(message, options?): StorageError;
 ```
 
-Defined in: [src/errors.ts:271](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/errors.ts#L271)
+Defined in: [src/errors.ts:271](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/errors.ts#L271)
 
 Creates a new StorageError.
 

@@ -308,8 +308,8 @@ await agent.invoke('Find contact info for Acme Corp and send them a proposal')
 
 ## Related pages
 
-- [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (3 shared tags)
+- [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (3 shared tags)
 - [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) (3 shared tags)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (2 shared tags)

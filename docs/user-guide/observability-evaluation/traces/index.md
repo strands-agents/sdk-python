@@ -294,7 +294,7 @@ Strands traces include rich attributes that provide context for each operation:
 
 Traces can be visualized and analyzed using any OpenTelemetry-compatible tool:
 
-![Trace Visualization](/_astro/trace_visualization.DpHaJCpW_1m5Vq7.webp)
+![Trace Visualization](/_astro/trace_visualization.BIlWqod9_DcbQ.webp)
 
 Common visualization options include:
 

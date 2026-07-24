@@ -1,4 +1,4 @@
-Defined in: [src/tools/tool.ts:13](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L13)
+Defined in: [src/tools/tool.ts:13](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L13)
 
 Context provided to tool implementations during execution. Contains framework-level state and information from the agent invocation.
 
@@ -14,7 +14,7 @@ Context provided to tool implementations during execution. Contains framework-le
 toolUse: ToolUse;
 ```
 
-Defined in: [src/tools/tool.ts:18](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L18)
+Defined in: [src/tools/tool.ts:18](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L18)
 
 The tool use request that triggered this tool execution. Contains the tool name, toolUseId, and input parameters.
 
@@ -26,7 +26,7 @@ The tool use request that triggered this tool execution. Contains the tool name,
 agent: LocalAgent;
 ```
 
-Defined in: [src/tools/tool.ts:24](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L24)
+Defined in: [src/tools/tool.ts:24](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L24)
 
 The agent instance that is executing this tool. Provides access to agent state, conversation history, and cancellation state.
 
@@ -38,7 +38,7 @@ The agent instance that is executing this tool. Provides access to agent state, 
 invocationState: InvocationState;
 ```
 
-Defined in: [src/tools/tool.ts:35](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/tools/tool.ts#L35)
+Defined in: [src/tools/tool.ts:35](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/tools/tool.ts#L35)
 
 Per-invocation state shared across hooks and tools for the current agent invocation. Mutable — read and write freely; changes are visible to subsequent hooks, tools, and on [AgentResult.invocationState](/docs/api/typescript/AgentResult/index.md#invocationstate).
 
@@ -52,7 +52,7 @@ Distinct from `agent.appState`: `invocationState` is ephemeral and accepts arbit
 interrupt<T>(params): T;
 ```
 
-Defined in: [src/interrupt.ts:383](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/interrupt.ts#L383)
+Defined in: [src/interrupt.ts:383](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/interrupt.ts#L383)
 
 #### Type Parameters
 

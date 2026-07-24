@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/types.ts:130](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/memory/extraction/types.ts#L130)
+Defined in: [src/memory/extraction/types.ts:130](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L130)
 
 Per-store automatic-extraction configuration.
 
@@ -14,7 +14,7 @@ optional trigger?:
   | ExtractionTrigger[];
 ```
 
-Defined in: [src/memory/extraction/types.ts:136](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/memory/extraction/types.ts#L136)
+Defined in: [src/memory/extraction/types.ts:136](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L136)
 
 When to run extraction. A single trigger or an array; multiple triggers compose (extraction runs whenever any of them fires). Omit to default to every 5 turns; an explicit empty array is rejected at construction.
 
@@ -26,7 +26,7 @@ When to run extraction. A single trigger or an array; multiple triggers compose 
 optional extractor?: Extractor;
 ```
 
-Defined in: [src/memory/extraction/types.ts:144](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/memory/extraction/types.ts#L144)
+Defined in: [src/memory/extraction/types.ts:144](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L144)
 
 How to turn messages into entries (client-side extraction). When set, the store must implement `add` and each produced entry is stored through it. When omitted, the default depends on the store’s write methods: a store implementing `addMessages` uses server-side extraction (the manager hands it the raw messages, no model call), while a store implementing only `add` defaults to a [ModelExtractor](/docs/api/typescript/ModelExtractor/index.md) that distills facts client-side.
 
@@ -38,7 +38,7 @@ How to turn messages into entries (client-side extraction). When set, the store 
 optional filter?: MemoryMessageFilter;
 ```
 
-Defined in: [src/memory/extraction/types.ts:152](https://github.com/strands-agents/harness-sdk/blob/f0c6d6ece7af9c800e05f60eaf274134e45c7f47/strands-ts/src/memory/extraction/types.ts#L152)
+Defined in: [src/memory/extraction/types.ts:152](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L152)
 
 Content blocks to strip before extraction. Defaults to DEFAULT\_MEMORY\_MESSAGE\_FILTER (excludes `toolUse` / `toolResult`).
 

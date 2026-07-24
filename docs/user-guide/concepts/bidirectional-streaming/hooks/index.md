@@ -354,7 +354,7 @@ For additional best practices on performance considerations, error handling, com
 - [Interruptions](/docs/user-guide/concepts/bidirectional-streaming/interruption/index.md) (1 shared tag)
 - [OpenAI Realtime](/docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime/index.md) (1 shared tag)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (1 shared tag)
-- [Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
+- [Voice & Realtime Quickstart](/docs/user-guide/concepts/bidirectional-streaming/quickstart/index.md) (1 shared tag)
 - [Nova Sonic](/docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic/index.md) (1 shared tag)
 - [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (1 shared tag)
 

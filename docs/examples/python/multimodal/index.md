@@ -145,7 +145,7 @@ During its execution, the `artist` agent used the following prompts (which can b
 
 And the `critic` agent selected the humpback whale as the best image:
 
-![output/humpback\_whale\_breaching\_from\_the.png](/_astro/whale_2_large.DjeT7M9T_Z2ewWVS.webp)
+![output/humpback\_whale\_breaching\_from\_the.png](/_astro/whale_2_large.FhN8G0Yv_Z1gUVg3.webp)
 
 ## Extending the Example
 

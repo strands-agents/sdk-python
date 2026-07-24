@@ -150,7 +150,7 @@ Initialize the Agent with the specified configuration.
 def cancel() -> None
 ```
 
-Defined in: [src/strands/agent/agent.py:589](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L589)
+Defined in: [src/strands/agent/agent.py:587](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/agent.py#L587)
 
 Cancel the currently running agent invocation.
 
@@ -160,6 +160,8 @@ The agent will stop gracefully at the next cancellation-safe point:
 
 -   During model response streaming
 -   Before tool execution
+-   During MCP tool execution
+-   After tool execution, before the next model call
 
 The agent will return a result with stop\_reason=“cancelled”.
 

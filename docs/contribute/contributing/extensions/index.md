@@ -22,6 +22,7 @@ Strands has several extension points. Each serves a different purpose in the age
 | **Interventions** | Add composable control handlers for authorization, guardrails, and steering with typed actions | [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) |
 | **Session managers** | Persist conversations to external storage for resumption or sharing | [Session management](/docs/user-guide/concepts/agents/session-management/index.md) |
 | **Conversation managers** | Control how message history grows—trim old messages or summarize context | [Conversation management](/docs/user-guide/concepts/agents/conversation-management/index.md) |
+| **Storage** | Persist raw bytes under string keys for session snapshots, context offloading, and other durable data | [Storage backends](/docs/user-guide/concepts/plugins/context-offloader/index.md#storage-backends) |
 
 Tools are the most common extension type. They let agents interact with specific services like Slack, databases, or internal APIs.
 
@@ -30,7 +31,7 @@ Tools are the most common extension type. They let agents interact with specific
 The fastest way to create a publishable extension is the [extension template](https://github.com/strands-agents/extension-template). It gives you a ready-made project structure with skeleton implementations for Python and TypeScript, testing setup, and GitHub Actions workflows for publishing.
 
 1.  Click “Use this template” on GitHub to create your repository
-2.  Run the setup script to customize the project — pick a package name, select which components you need (tool, model provider, plugin, intervention, session manager, conversation manager), and fill in your author info
+2.  Run the setup script to customize the project — pick a package name, select which components you need (tool, model provider, plugin, intervention, session manager, conversation manager, memory store, storage), and fill in your author info
 3.  Install dependencies and run checks
 4.  Implement your component logic in the generated files
 
