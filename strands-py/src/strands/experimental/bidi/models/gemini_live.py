@@ -174,9 +174,9 @@ class BidiGeminiLiveModel(BidiModel):
     async def _send_message_history(self, messages: Messages) -> None:
         """Send conversation history to Gemini Live API.
 
-        Sends each message as a separate turn with the correct role to maintain
-        proper conversation context. The final message is sent with turn_complete=True
-        to signal that history seeding is done and realtime mode can begin.
+        Collects text content from messages into a list of turns and sends them
+        in a single send_client_content call with turn_complete=True to signal
+        that history seeding is complete and realtime mode can begin.
         """
         if not messages:
             return
