@@ -1,4 +1,6 @@
-# Stop Tool
+# Stop Tool (Experimental)
+
+> **This tool is experimental and subject to change in future revisions without notice.**
 
 Lets the model gracefully end the agent loop when it decides its work is complete.
 
@@ -29,7 +31,7 @@ If none of the above applies, you probably don't need to install this tool.
 
 ```typescript
 import { Agent } from '@strands-agents/sdk'
-import { stop } from '@strands-agents/sdk/vended-tools/stop'
+import { stop } from '@strands-agents/sdk/experimental/vended-tools/stop'
 
 const agent = new Agent({
   model,
