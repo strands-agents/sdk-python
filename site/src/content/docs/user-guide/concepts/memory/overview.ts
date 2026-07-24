@@ -19,6 +19,7 @@ import {
   BedrockKnowledgeBaseStore,
   type BedrockKnowledgeBaseConfig,
 } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/test-memory-store'
 
 // Stand-in for the reader's own managed backend, used by the server-side store example.
 declare const myBackend: {
@@ -32,12 +33,8 @@ declare const myBackend: {
 
 function gettingStarted() {
   // --8<-- [start:getting_started]
-  const store = new BedrockKnowledgeBaseStore({
-    name: 'preferences',
-    description: 'User preferences and stable facts about the user.',
-    writable: true,
-    config: { knowledgeBaseId: 'KB123', dataSourceType: 'CUSTOM', dataSourceId: 'DS456' },
-  })
+  // Persists to ~/.strands/memory/notes.json by default.
+  const store = new TestMemoryStore({ name: 'notes' })
 
   const agent = new Agent({
     model: new BedrockModel(),
