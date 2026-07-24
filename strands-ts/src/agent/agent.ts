@@ -570,17 +570,6 @@ export class Agent implements LocalAgent, InvokableAgent {
     // The plugin is a no-op when no delegation tools fire.
     const hasAgentDelegation = (config?.plugins ?? []).some((p) => p.name === 'strands:agent-delegation')
 
-    // Fail fast: delegation tools at construction time are incompatible with stateful models.
-    // Checked here (not in initAgent) so the error is thrown before the PluginRegistry
-    // consumes the plugin — preventing a fail-open on retry after a partial init.
-    if (this.model.stateful && tools.some((t) => t instanceof AgentAsTool && t.delegate)) {
-      throw new Error(
-        'Delegation tools (delegate: true) are not supported with stateful models. ' +
-          "Stateful models manage conversation state server-side, and delegation's early loop exit " +
-          'would leave unclosed function calls on the server.'
-      )
-    }
-
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,

@@ -96,6 +96,21 @@ export class AgentDelegation implements Plugin {
   private readonly _state = new WeakMap<LocalAgent, DelegationState>()
 
   initAgent(agent: LocalAgent): void {
+    // Fail fast: delegation is incompatible with stateful models.
+    // Stateful models manage conversation state server-side. Delegation's early
+    // exit would leave an unclosed function call on the server, corrupting the
+    // next request.
+    if (agent.model.stateful) {
+      const hasDelegationTool = agent.toolRegistry.list().some((tool) => tool instanceof AgentAsTool && tool.delegate)
+      if (hasDelegationTool) {
+        throw new Error(
+          'Delegation tools (delegate: true) are not supported with stateful models. ' +
+            "Stateful models manage conversation state server-side, and delegation's early loop exit " +
+            'would leave unclosed function calls on the server.'
+        )
+      }
+    }
+
     agent.addHook(BeforeToolsEvent, (event) => this._onBeforeTools(event))
     agent.addHook(AfterToolCallEvent, (event) => this._onAfterToolCall(event))
     agent.addHook(AfterToolsEvent, (event) => this._onAfterTools(event), { order: HookOrder.SDK_LAST })
