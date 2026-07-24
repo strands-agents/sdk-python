@@ -4,7 +4,6 @@ description: "Capture and restore agent state at any point in time. Use snapshot
 sourceLinks:
   - path: strands-py/src/strands/types/_snapshot.py
   - path: strands-ts/src/agent/snapshot.ts
-  - path: strands-py/src/strands/event_loop/event_loop.py
 ---
 
 Snapshots capture agent state at a point in time so you can save and restore it later. You choose which fields to include — either by picking a preset (a preconfigured set of fields) or by specifying fields directly — and you can further refine with includes and excludes. Snapshots are plain JSON-serializable objects — persistence is up to you.
@@ -88,69 +87,11 @@ Only fields present in the snapshot are restored. If a field was not included wh
 
 :::caution[Snapshots are restored verbatim]
 A snapshot's `messages` are loaded into the agent as-is, including any tool-call
-content they carry. Snapshots are expected to come from a source you trust: one
-your application took and stored somewhere only it can write. If a snapshot could
-have been influenced by an untrusted party before it reaches you, remove any
-tool-call content from its most recent message before loading it, so a restored
-tool-call block cannot dispatch a tool on the next invocation. See
-[Loading history from an untrusted source](#loading-history-from-an-untrusted-source).
+content they carry. When a snapshot could have been influenced by an untrusted
+party before it reaches you, clear tool-call content from its history first, so a
+restored tool-call block cannot dispatch a tool on the next invocation. See
+[Trusted Message History](../../safety-security/trusted-message-history.md).
 :::
-
-## Loading History from an Untrusted Source
-
-Snapshots are restored verbatim, so their history is only as trustworthy as
-where they came from. A message can carry a tool-call content block, and a
-tool-call block in the most recent restored message causes the agent to dispatch
-that tool on the next invocation, without a model response in between. That path
-is what makes resume-from-tool-state work when the block came from the model. It
-is not what you want when the block came from a party you do not trust, because
-that party has then chosen which tool runs and with which arguments.
-
-Snapshots your own application takes and stores somewhere only it can write are
-trusted; load them as-is. Treat a snapshot as untrusted when it could have been
-influenced before it reached you: loaded from a shared datastore, accepted over
-the network, or rebuilt from a request body.
-
-For untrusted history, remove `toolUse` content blocks from the final message
-before loading. That is the block that triggers a direct dispatch, so clearing
-it from the last message is enough to close the path.
-
-<Tabs>
-<Tab label="Python">
-
-```python
-from strands import Agent, Snapshot
-
-
-def clear_trailing_tool_use(messages):
-    """Remove toolUse blocks from the final message of restored history."""
-    if not messages:
-        return messages
-    last = messages[-1]
-    content = [block for block in last["content"] if "toolUse" not in block]
-    messages[-1] = {**last, "content": content}
-    return messages
-
-
-# untrusted_data came from a request body, queue, or shared store.
-restored = Snapshot.from_dict(untrusted_data)
-restored.data["messages"] = clear_trailing_tool_use(restored.data.get("messages", []))
-
-agent = Agent()
-agent.load_snapshot(restored)
-```
-</Tab>
-<Tab label="TypeScript">
-
-```typescript
---8<-- "user-guide/concepts/agents/snapshots_imports.ts:clear_trailing_tool_use_imports"
-
---8<-- "user-guide/concepts/agents/snapshots.ts:clear_trailing_tool_use"
-```
-</Tab>
-</Tabs>
-
-We may reconsider this default in a future major version.
 
 ## Field Selection
 

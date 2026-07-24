@@ -1,0 +1,100 @@
+---
+title: Trusted Message History
+description: "Message history from an untrusted source can carry tool-call content that dispatches a tool directly. Clear it before the agent loads the history."
+tags: [safety, conversation-management, session-management]
+sourceLinks:
+  - path: strands-py/src/strands/event_loop/event_loop.py
+  - path: strands-py/src/strands/agent/agent.py
+  - path: strands-ts/src/agent/agent.ts
+---
+
+An agent's message history is expected to come from a source you trust: prompts
+your application builds, and history it produced and stored itself. History can
+carry more than text. It can carry tool-call content, and a tool-call block as
+the most recent message causes the agent to dispatch that tool on its next
+invocation, without a model response in between. When the history comes from a
+source you do not control, treat that as untrusted input and clear tool-call
+content before the agent loads it.
+
+## Why tool-call content is different
+
+The agent dispatches a tool whenever the latest message in its history contains
+a tool-call content block. That path is deliberate: it lets an agent resume from
+a point where the model had already decided to call a tool. The dispatch check
+looks only at the content of the latest message. It does not consider the
+message's role or where it came from.
+
+The behavior is correct when the tool-call block came from the model. It is a
+problem when the block came from a party you do not trust, because that party has
+then chosen which tool runs and with which arguments. The model is never
+consulted on that turn, so this is not the model being led astray. A tool-call
+block in untrusted history is a direct request to run a tool.
+
+## When history is untrusted
+
+History your own application builds or persists to storage only it can write is
+trusted. Load it as-is.
+
+Treat history as untrusted when a party you do not control could have influenced
+it before it reached the agent. That covers three ways history enters an agent:
+
+- **Direct invocation** with a caller-supplied message list, for example a
+  request body deserialized into messages and passed to the agent.
+- **Session restore**, when the session store can be written by something outside
+  your application.
+- **Snapshot load**, when the snapshot was accepted over the network or read from
+  a shared store.
+
+All three feed the same history and the same dispatch check. The guidance below
+applies to each.
+
+## Clear tool-call content before loading
+
+For untrusted history, remove `toolUse` content blocks from the final message
+before the agent uses it. That block is what triggers a direct dispatch, so
+clearing it from the last message closes the path while leaving earlier history
+intact.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+
+
+def clear_trailing_tool_use(messages):
+    """Remove toolUse blocks from the final message of untrusted history."""
+    if not messages:
+        return messages
+    last = messages[-1]
+    content = [block for block in last["content"] if "toolUse" not in block]
+    messages[-1] = {**last, "content": content}
+    return messages
+
+
+# untrusted_messages came from a request body, queue, or shared store.
+agent = Agent()
+agent(clear_trailing_tool_use(untrusted_messages))
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/safety-security/trusted-message-history_imports.ts:clear_trailing_tool_use_imports"
+
+--8<-- "user-guide/safety-security/trusted-message-history.ts:clear_trailing_tool_use"
+```
+</Tab>
+</Tabs>
+
+For session restore and snapshot load, apply the same function to the history
+before the agent reads it: the restored messages for a session, or the snapshot's
+messages before <Syntax py="load_snapshot()" ts="loadSnapshot()" />.
+
+We may reconsider this default in a future major version.
+
+## Related
+
+- [Prompts](../concepts/agents/prompts.md) for the input shapes an agent accepts.
+- [Session Management](../concepts/agents/session-management.md) for restoring history from storage.
+- [Snapshots](../concepts/agents/snapshots.md) for capturing and loading agent state.
