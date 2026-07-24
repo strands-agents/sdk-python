@@ -1,8 +1,8 @@
-name: "Python: Release"
+name: "MCP: Release"
 
-# Manual release of `strands-agents` to PyPI.
+# Manual release of `strands-agents-mcp-server` to PyPI.
 #
-# Shape: scan → lint/unit/integ/audit/build → inspect → notes → approve →
+# Shape: scan → lint/unit/audit/build → inspect → notes → approve →
 #        tag + release → publish.
 #
 # Publish is the last step. Everything before it runs on a fork too — only
@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Explicit version, e.g. 1.4.0 (no leading v, no prefix).'
+        description: 'Explicit version, e.g. 0.2.0 (no leading v, no prefix).'
         required: true
         type: string
       sha:
@@ -26,14 +26,9 @@ on:
         required: true
         default: true
         type: boolean
-      run_integ_tests:
-        description: 'Run integration tests. No effect on upstream (integ always runs there). On a fork: false skips integ; true runs integ but requires the fork to have its own AWS credentials configured.'
-        required: true
-        default: false
-        type: boolean
 
 concurrency:
-  group: release-python
+  group: release-mcp
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +78,7 @@ jobs:
           fi
 
           # 3. Pick tag prefix and resolve previous tag.
-          TAG_PREFIX="python/v"
+          TAG_PREFIX="mcp/v"
           PREV_TAG=$(git tag --list "${TAG_PREFIX}*" --sort=-v:refname | head -n1)
           if [ -z "$PREV_TAG" ]; then
             echo "::error::No prior tag matching ${TAG_PREFIX}* — refusing to release without a baseline. (Fork-testing? Run \`git fetch upstream --tags && git push origin --tags\` first.)"
@@ -102,23 +97,6 @@ jobs:
             echo "::error::version $NEW_VERSION is not greater than previous $PREV_VERSION."
             exit 1
           fi
-          # Require a single-step increment (major, minor, or patch) so a typo
-          # like 1.48.0 -> 1.84.0 fails here instead of relying on the approver.
-          # Validate the baseline first: a malformed previous tag (prerelease
-          # suffix, non-numeric part) must fail with a clear message, not a
-          # cryptic arithmetic error under set -e.
-          if ! [[ "$PREV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::previous tag version '$PREV_VERSION' is not bare semver -- cannot compute the increment baseline."
-            exit 1
-          fi
-          IFS=. read -r P_MAJ P_MIN P_PAT <<< "$PREV_VERSION"
-          VALID="$((P_MAJ+1)).0.0 ${P_MAJ}.$((P_MIN+1)).0 ${P_MAJ}.${P_MIN}.$((P_PAT+1))"
-          case " $VALID " in
-            *" $NEW_VERSION "*) ;;
-            *)
-              echo "::error::version $NEW_VERSION is not a single increment of $PREV_VERSION (expected one of: $VALID)."
-              exit 1;;
-          esac
           if git rev-parse --verify "refs/tags/$NEW_TAG" >/dev/null 2>&1; then
             echo "::error::tag $NEW_TAG already exists."
             exit 1
@@ -150,47 +128,29 @@ jobs:
 
   # ── Lint + unit-test gates ─────────────────────────────────────────────
   test-lint:
-    name: Python lint + unit tests
+    name: MCP lint + unit tests
     needs: scan-commits
-    uses: ./.github/workflows/python-test-lint.yml
+    uses: ./.github/workflows/mcp-test-lint.yml
     permissions:
       contents: read
-    with:
-      ref: ${{ needs.scan-commits.outputs.release_sha }}
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-  # ── Integration tests ──────────────────────────────────────────────────
-  # Always runs on upstream. On a fork: opt-in via `run_integ_tests: true`
-  # (fork needs its own AWS credentials).
-  integ:
-    name: Python integration tests
-    needs: scan-commits
-    if: github.event.repository.fork != true || inputs.run_integ_tests == true
-    uses: ./.github/workflows/python-integration-test.yml
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: read
-    secrets: inherit
     with:
       ref: ${{ needs.scan-commits.outputs.release_sha }}
 
   # ── Security audit (informational) ─────────────────────────────────────
   security-audit:
-    name: Python security audit
+    name: MCP security audit
     needs: scan-commits
-    uses: ./.github/workflows/python-security-audit.yml
+    uses: ./.github/workflows/mcp-security-audit.yml
     permissions:
       contents: read
     with:
       ref: ${{ needs.scan-commits.outputs.release_sha }}
 
-  # ── Build + smoke test (uploads pypi-build-output artifact) ────────────
+  # ── Build + smoke test (uploads mcp-pypi-build-output artifact) ────────
   package-build:
-    name: Python wheel install smoke test
+    name: MCP wheel install smoke test
     needs: scan-commits
-    uses: ./.github/workflows/python-test-package-build.yml
+    uses: ./.github/workflows/mcp-test-package-build.yml
     permissions:
       contents: read
     with:
@@ -198,11 +158,11 @@ jobs:
       version: ${{ inputs.version }}
 
   # ── Inspect the built artifact ─────────────────────────────────────────
-  # Downloads pypi-build-output, checks metadata and version, re-uploads
-  # as pypi-dist-bundle. publish-pypi pulls from the same bundle, so the
+  # Downloads mcp-pypi-build-output, checks metadata and version, re-uploads
+  # as mcp-pypi-dist-bundle. publish-pypi pulls from the same bundle, so the
   # bytes on the run page are the bytes uploaded to PyPI.
   inspect:
-    name: Inspect Python dists
+    name: Inspect MCP dists
     needs: package-build
     runs-on: ubuntu-latest
     permissions:
@@ -211,7 +171,7 @@ jobs:
       - name: Download build output
         uses: actions/download-artifact@v8
         with:
-          name: pypi-build-output
+          name: mcp-pypi-build-output
           path: dist
 
       - uses: actions/setup-python@v7
@@ -229,9 +189,6 @@ jobs:
           done
 
       - name: Assert artifacts are stamped with the typed version
-        # Wheel filenames encode the version (PEP 427) and publish cannot
-        # change them. The build job already checks `strands.__version__`
-        # at install time — this catches the filename side.
         env:
           EXPECTED: ${{ inputs.version }}
         run: |
@@ -274,7 +231,7 @@ jobs:
       - name: Upload verified bundle for publish
         uses: actions/upload-artifact@v7
         with:
-          name: pypi-dist-bundle
+          name: mcp-pypi-dist-bundle
           path: dist/*
           if-no-files-found: error
           retention-days: 30
@@ -287,7 +244,6 @@ jobs:
     needs:
       - scan-commits
       - test-lint
-      - integ
       - security-audit
       - package-build
       - inspect
@@ -295,7 +251,6 @@ jobs:
       always() &&
       needs.scan-commits.result == 'success' &&
       needs.test-lint.result == 'success' &&
-      (needs.integ.result == 'success' || needs.integ.result == 'skipped') &&
       needs.security-audit.result == 'success' &&
       needs.package-build.result == 'success' &&
       needs.inspect.result == 'success'
@@ -336,13 +291,13 @@ jobs:
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| Package | \`strands-agents\` (Python) |"
+            echo "| Package | \`strands-agents-mcp-server\` (Python) |"
             echo "| Proposed tag | \`$NEW_TAG\` |"
             echo "| Pinned SHA | \`$RELEASE_SHA\` |"
             echo "| Dry run | \`$DRY_RUN\` |"
             echo "| Running on fork | \`$IS_FORK\` |"
             echo ""
-            echo "> Reviewers: the verified artifact is uploaded as \`pypi-dist-bundle\` on this run's page. Download and install in a fresh venv to sanity-check before approving."
+            echo "> Reviewers: the verified artifact is uploaded as \`mcp-pypi-dist-bundle\` on this run's page. Download and install in a fresh venv to sanity-check before approving."
             echo ""
             echo "### Drafted notes"
             echo ""
@@ -352,7 +307,7 @@ jobs:
       - name: Upload release notes artifact
         uses: actions/upload-artifact@v7
         with:
-          name: release-notes
+          name: mcp-release-notes
           path: release-notes.md
           retention-days: 30
 
@@ -363,8 +318,8 @@ jobs:
     if: inputs.dry_run != true
     runs-on: ubuntu-latest
     environment:
-      # Shared with release-typescript.yml. Configure reviewers + main-only
-      # deployment branches in repo settings.
+      # Shared with release-python.yml and release-typescript.yml. Configure
+      # reviewers + main-only deployment branches in repo settings.
       #
       # On forks the environment has no reviewer config, so this just
       # passes — the publish step is the one that fails there.
@@ -402,7 +357,7 @@ jobs:
       - name: Download release notes artifact
         uses: actions/download-artifact@v8
         with:
-          name: release-notes
+          name: mcp-release-notes
 
       - name: Tag the pinned SHA and create the release
         env:
@@ -457,7 +412,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/strands-agents
+      url: https://pypi.org/p/strands-agents-mcp-server
     permissions:
       id-token: write
       contents: read
@@ -465,38 +420,8 @@ jobs:
       - name: Download verified dists
         uses: actions/download-artifact@v8
         with:
-          name: pypi-dist-bundle
+          name: mcp-pypi-dist-bundle
           path: dist
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-
-  # ── Post-publish smoke check ───────────────────────────────────────────
-  # Poll PyPI until the new version is visible, replacing the manual
-  # "check the package page" verification. Fails loudly if the registry
-  # doesn't show the version within the timeout.
-  verify-published:
-    name: Verify version on PyPI
-    needs: [publish-pypi]
-    if: inputs.dry_run != true
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - name: Poll PyPI for the new version
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 30); do
-            # Cache-buster: registry CDNs cache negative (404) responses; a poll
-            # that lands before propagation must not pin a stale 404 for the
-            # rest of the window.
-            if curl -sf "https://pypi.org/pypi/strands-agents/$VERSION/json?t=$(date +%s)" >/dev/null; then
-              echo "strands-agents $VERSION is live on PyPI."
-              exit 0
-            fi
-            echo "attempt $i/30: not visible yet, retrying in 10s..."
-            sleep 10
-          done
-          echo "::error::strands-agents $VERSION not visible on PyPI after 5 minutes."
-          exit 1
