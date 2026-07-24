@@ -18,6 +18,7 @@ export const communitySessionManagers = getIntegrationEntries(allDocs, 'session-
 export const communityMemoryStores = getIntegrationEntries(allDocs, 'memory-store', true)
 export const communityTools = getIntegrationEntries(allDocs, 'tool', true)
 export const communityAgentExtensions = getIntegrationEntries(allDocs, 'agent-extension', true)
+export const communityStorage = getIntegrationEntries(allDocs, 'storage', true)
 export const communityInterventions = getIntegrationEntries(allDocs, 'intervention', true)
 
 export const packageColumns = [
@@ -79,6 +80,14 @@ Session managers provide alternative storage backends for conversation history. 
 Memory stores are backends that give agents long-term memory across sessions. Each implements the `MemoryStore` interface and plugs into an agent through a `MemoryManager`. See the [Memory Stores overview](./memory-stores/overview.md) for how they fit together.
 
 <SimpleTable data={communityMemoryStores} columns={packageColumns}>
+  {renderCell}
+</SimpleTable>
+
+## Storage
+
+Storage backends let agents and SDK subsystems persist raw bytes under string keys. Each implements the `Storage` interface and can be passed to session managers, context offloaders, or any construct that needs durable persistence. See the [Storage overview](./storage/overview.md) for how they fit together.
+
+<SimpleTable data={communityStorage} columns={packageColumns}>
   {renderCell}
 </SimpleTable>
 

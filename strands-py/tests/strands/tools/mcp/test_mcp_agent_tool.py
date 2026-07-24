@@ -1,3 +1,4 @@
+import threading
 from datetime import timedelta
 from unittest.mock import MagicMock
 
@@ -83,13 +84,19 @@ def test_tool_spec_without_output_schema(mock_mcp_tool, mock_mcp_client):
 @pytest.mark.asyncio
 async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
+    cancel_signal = threading.Event()
+    invocation_state = {"agent": MagicMock(_cancel_signal=cancel_signal)}
 
-    tru_events = await alist(mcp_agent_tool.stream(tool_use, {}))
+    tru_events = await alist(mcp_agent_tool.stream(tool_use, invocation_state))
     exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
 
     assert tru_events == exp_events
     mock_mcp_client.call_tool_async.assert_called_once_with(
-        tool_use_id="test-123", name="test_tool", arguments={"param": "value"}, read_timeout_seconds=None
+        tool_use_id="test-123",
+        name="test_tool",
+        arguments={"param": "value"},
+        read_timeout_seconds=None,
+        cancel_signal=cancel_signal,
     )
 
 
@@ -109,11 +116,33 @@ async def test_stream_with_timeout(mock_mcp_tool, mock_mcp_client, alist):
     timeout = timedelta(seconds=45)
     agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client, timeout=timeout)
     tool_use = {"toolUseId": "test-456", "name": "test_tool", "input": {"param": "value"}}
+    cancel_signal = threading.Event()
+    invocation_state = {"agent": MagicMock(_cancel_signal=cancel_signal)}
 
-    tru_events = await alist(agent_tool.stream(tool_use, {}))
+    tru_events = await alist(agent_tool.stream(tool_use, invocation_state))
     exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
 
     assert tru_events == exp_events
     mock_mcp_client.call_tool_async.assert_called_once_with(
-        tool_use_id="test-456", name="test_tool", arguments={"param": "value"}, read_timeout_seconds=timeout
+        tool_use_id="test-456",
+        name="test_tool",
+        arguments={"param": "value"},
+        read_timeout_seconds=timeout,
+        cancel_signal=cancel_signal,
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_without_agent_cancel_signal(mcp_agent_tool, mock_mcp_client, alist):
+    """Test MCP tools remain compatible with agent implementations without cancellation."""
+    tool_use = {"toolUseId": "test-789", "name": "test_tool", "input": {}}
+
+    await alist(mcp_agent_tool.stream(tool_use, {}))
+
+    mock_mcp_client.call_tool_async.assert_called_once_with(
+        tool_use_id="test-789",
+        name="test_tool",
+        arguments={},
+        read_timeout_seconds=None,
+        cancel_signal=None,
     )
