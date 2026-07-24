@@ -224,6 +224,7 @@ class ContextOffloader(Plugin):
         self._raw_storage: Storage | _LegacyStorage = storage
         self._storage: Storage | _LegacyStorage = self._resolve_storage(storage)
         self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage | _LegacyStorage] = weakref.WeakKeyDictionary()
+        self._registered_agent_ids: set[str] = set()
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
@@ -240,11 +241,24 @@ class ContextOffloader(Plugin):
             return storage
         return _NamespacedStorage(storage, "offloader")  # type: ignore[arg-type]
 
-    def _storage_for_agent(self, agent: Agent) -> Storage | _LegacyStorage:
-        """Return the storage for an agent, binding file-based storage to its sandbox.
+    def _register_agent(self, agent: Agent) -> None:
+        """Check for duplicate agent id within the same session when using unified Storage."""
+        if _is_offloader_storage(self._storage) or hasattr(self._storage, "for_sandbox"):
+            return
+        composite_key = f"{agent.session_id}/{agent.agent_id}"
+        if composite_key in self._registered_agent_ids:
+            raise ValueError(
+                f"agent_id=<{agent.agent_id}>, session_id=<{agent.session_id}> | "
+                "an agent with this id already exists in this session"
+            )
+        self._registered_agent_ids.add(composite_key)
 
-        Any storage (or namespaced view) exposing ``for_sandbox()`` is bound once
-        per agent to that agent's sandbox. All other backends are shared as-is.
+    def _storage_for_agent(self, agent: Agent) -> Storage | _LegacyStorage:
+        """Return the storage for an agent, scoping by session/agent for unified Storage.
+
+        For unified Storage: namespaces under ``{session_id}/scopes/agent/{agent_id}/``.
+        For sandboxable storage: binds to the agent's sandbox.
+        For legacy offloader storage: returns as-is.
 
         Args:
             agent: The agent whose storage to resolve.
@@ -252,19 +266,27 @@ class ContextOffloader(Plugin):
         Returns:
             The storage instance for this agent.
         """
-        if not hasattr(self._storage, "for_sandbox"):
-            return self._storage
         storage = self._storage_by_agent.get(agent)
-        if storage is None:
+        if storage is not None:
+            return storage
+
+        if hasattr(self._storage, "for_sandbox"):
             storage = self._storage.for_sandbox(agent.sandbox)
-            self._storage_by_agent[agent] = storage
+        elif not _is_offloader_storage(self._storage):
+            storage = _NamespacedStorage(
+                self._storage, f"{agent.session_id}/scopes/agent/{agent.agent_id}"  # type: ignore[arg-type]
+            )
+        else:
+            return self._storage
+
+        self._storage_by_agent[agent] = storage
         return storage
 
     def init_agent(self, agent: Agent) -> None:
         """Conditionally register the retrieval tool and bind storage."""
         if isinstance(self._storage, InMemoryStorage):
             self._storage._bind(id(agent))
-        # Bind file-based storage to this agent's sandbox up front (no-op for other backends).
+        self._register_agent(agent)
         self._storage_for_agent(agent)
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool

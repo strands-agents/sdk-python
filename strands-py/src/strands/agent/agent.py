@@ -12,6 +12,7 @@ The Agent interface supports two complementary interaction patterns:
 import copy
 import logging
 import threading
+import uuid
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
@@ -172,6 +173,7 @@ class Agent(AgentBase):
         trace_attributes: Mapping[str, AttributeValue] | None = None,
         *,
         agent_id: str | None = None,
+        session_id: str | None = None,
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
@@ -226,6 +228,9 @@ class Agent(AgentBase):
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
             agent_id: Optional ID for the agent, useful for session management and multi-agent scenarios.
                 Defaults to "default".
+            session_id: Optional session identifier for scoping storage paths. Resolution order:
+                explicit value > session_manager.session_id > auto-generated UUID.
+                Must not conflict with session_manager.session_id if both are provided.
             name: name of the Agent
                 Defaults to "Strands Agents".
             description: description of what the Agent does
@@ -302,6 +307,17 @@ class Agent(AgentBase):
         self._default_structured_output_model = structured_output_model
         self._structured_output_prompt = structured_output_prompt
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
+        sm_session_id = getattr(session_manager, "session_id", None)
+        if session_id:
+            _identifier.validate(session_id, _identifier.Identifier.SESSION)
+            if sm_session_id and session_id != sm_session_id:
+                raise ValueError(
+                    f"session_id=<{session_id}>, session_manager_id=<{sm_session_id}> | "
+                    "explicit session_id conflicts with session_manager.session_id"
+                )
+            self.session_id: str = session_id
+        else:
+            self.session_id = sm_session_id or str(uuid.uuid4())
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
