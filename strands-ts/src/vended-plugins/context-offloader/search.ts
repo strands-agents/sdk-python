@@ -5,6 +5,8 @@
  * text content, with output capped to a character budget.
  */
 
+import { LEGACY_TEXT_DOCUMENT_TYPES } from './media-types.js'
+
 /** Cuts output at the last newline before {@link maxChars} and appends a truncation message. */
 function truncate(output: string, maxChars: number, message: string): string {
   if (output.length <= maxChars) return output
@@ -101,9 +103,20 @@ const TEXT_APPLICATION_TYPES = new Set([
   'application/xhtml+xml',
 ])
 
-/** Returns whether the given MIME content type can be searched as text. */
+/**
+ * Returns whether the given MIME content type can be searched as text.
+ *
+ * Text-based document formats stored under canonical `text/*` types (csv, html,
+ * md, txt) are covered by the prefix check; the legacy `application/{format}`
+ * aliases written by earlier releases are included explicitly so existing
+ * artifacts stay searchable.
+ */
 export function isSearchableContent(contentType: string): boolean {
-  return contentType.startsWith('text/') || TEXT_APPLICATION_TYPES.has(contentType)
+  return (
+    contentType.startsWith('text/') ||
+    TEXT_APPLICATION_TYPES.has(contentType) ||
+    LEGACY_TEXT_DOCUMENT_TYPES.has(contentType)
+  )
 }
 
 /**

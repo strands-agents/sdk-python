@@ -6,7 +6,7 @@ import { AfterToolCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { TextBlock, JsonBlock, ToolResultBlock, Message } from '../../types/messages.js'
 import type { ToolResultContent } from '../../types/messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock } from '../../types/media.js'
-import type { ImageFormat, VideoFormat, DocumentFormat } from '../../types/media.js'
+import type { ImageFormat, VideoFormat } from '../../types/media.js'
 import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
@@ -14,6 +14,7 @@ import type { JSONValue } from '../../types/json.js'
 import { FileStorage, InMemoryStorage as LegacyInMemoryStorage, type Storage as OffloaderStorage } from './storage.js'
 import { NAMESPACED, namespace, type Storage } from '../../storage/storage.js'
 import { isSearchableContent, searchContent } from './search.js'
+import { documentFormatForMime, mimeForDocumentFormat } from './media-types.js'
 
 function isOffloaderStorage(storage: Storage | OffloaderStorage): storage is OffloaderStorage {
   return 'store' in storage && 'retrieve' in storage
@@ -109,9 +110,6 @@ function getBytes(block: ToolResultContent): Uint8Array | undefined {
 }
 
 function decodeStoredContent(content: Uint8Array, contentType: string, reference: string): JSONValue {
-  if (contentType.startsWith('text/')) {
-    return new TextDecoder().decode(content)
-  }
   if (contentType === 'application/json') {
     const text = new TextDecoder().decode(content)
     try {
@@ -120,7 +118,7 @@ function decodeStoredContent(content: Uint8Array, contentType: string, reference
       return text
     }
   }
-  // Return native content blocks for binary types so the agent sees the actual content.
+  // Return native content blocks for media types so the agent sees the actual content.
   // FunctionTool._wrapInToolResult passes ImageBlock/VideoBlock/DocumentBlock through as-is
   // at runtime, even though the callback type signature only accepts JSONValue.
   if (contentType.startsWith('image/')) {
@@ -137,14 +135,22 @@ function decodeStoredContent(content: Uint8Array, contentType: string, reference
       source: { bytes: content },
     }) as unknown as JSONValue
   }
-  if (contentType.startsWith('application/')) {
-    const format = contentType.split('/').pop()!
+  // Reconstruct the original document block through the canonical inverse map
+  // (plus legacy application/{format} aliases). Content types the offloader never
+  // produces -- notably the storage backends' application/octet-stream fallback
+  // when content-type metadata was lost -- fall through and decode as text rather
+  // than fabricating a document.format the model would reject (#3019).
+  const documentFormat = documentFormatForMime(contentType)
+  if (documentFormat !== undefined) {
     return new DocumentBlock({
-      format: format as DocumentFormat,
+      format: documentFormat,
       name: reference,
       source: { bytes: content },
     }) as unknown as JSONValue
   }
+  // Text-based documents (csv/md/html) and plain text decode here; a non-UTF-8
+  // file degrades via the U+FFFD replacement character (TextDecoder is non-fatal
+  // by default) rather than throwing.
   return new TextDecoder('utf-8', { fatal: false }).decode(content)
 }
 
@@ -387,7 +393,7 @@ export class ContextOffloader implements Plugin {
           ? `image/${block.format}`
           : block instanceof VideoBlock
             ? `video/${block.format}`
-            : `application/${block.format}`
+            : mimeForDocumentFormat(block.format)
       const label = block instanceof DocumentBlock ? block.name : contentType
       if (bytes) {
         const ref = await storeContent(storage, key, bytes, contentType)

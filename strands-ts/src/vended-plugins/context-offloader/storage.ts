@@ -8,6 +8,7 @@
 
 import type { Sandbox } from '../../sandbox/base.js'
 import { logger } from '../../logging/logger.js'
+import { extensionForContentType } from './media-types.js'
 
 /**
  * Backend for storing and retrieving offloaded content blocks.
@@ -219,8 +220,7 @@ export class FileStorage implements Storage {
   }
 
   private static _extensionFor(contentType: string): string {
-    if (contentType === 'text/plain') return '.txt'
-    return `.${contentType.split('/').pop()}`
+    return extensionForContentType(contentType)
   }
 
   private _artifactPath(filename: string): string {
