@@ -4,7 +4,8 @@ This implementation follows the behavioral spec defined in `strands-ts/src/middl
 
 ## Scope
 
-`InvokeModelStage` and `ExecuteToolStage` are implemented. `AgentStreamStage` will be added as needed.
+All three stages are implemented: `InvokeModelStage`, `ExecuteToolStage`, and `AgentStreamStage`.
+`AgentStreamStage` is internal (see below), matching the TS SDK.
 
 ## Result encoding
 
@@ -60,6 +61,11 @@ directly, so there is no equivalent wrapper class:
 - `InvokeModelStage` → `ModelStopReason` (the last event from `stream_messages()`).
 - `ExecuteToolStage` → `ToolResultEvent` (the last event from tool execution). It already
   carries both `tool_result` and `exception`, so a separate `ExecuteToolResult` is redundant.
+- `AgentStreamStage` → `EventLoopStopEvent` (the last event from an invocation pass). It carries
+  the full stop tuple (`stop_reason`, `message`, `metrics`, ...) the `AgentResult` is built from,
+  so a separate `AgentStreamResult` is redundant. Since middleware may yield trailing events
+  *after* the stop event, `stream_async` selects the last `EventLoopStopEvent` — not the last
+  event overall — and raises `RuntimeError` if the chain drops it entirely.
 
 Short-circuiting a tool call yields a `ToolResultEvent` directly:
 ```python
@@ -67,17 +73,22 @@ async def cached(context, next_fn):
     yield ToolResultEvent({"toolUseId": context.tool_use["toolUseId"], "status": "success", ...})
 ```
 
-## Middleware-initiated interrupts (ExecuteToolStage)
+## Middleware-initiated interrupts (ExecuteToolStage + AgentStreamStage)
 
-`ExecuteToolContext.interrupt(name, reason=..., response=...)` lets tool middleware gate
-execution behind a human-in-the-loop approval, mirroring the TS `MiddlewareInterruptible`
-contract. It returns a `MiddlewareInterruptResult` (a wrapper around `response`, kept for
-forward-compatibility with TS) on resume, and raises `InterruptException` on first call.
+`ExecuteToolContext.interrupt(name, reason=..., response=...)` and
+`AgentStreamContext.interrupt(...)` let middleware gate execution behind a human-in-the-loop
+approval, mirroring the TS `MiddlewareInterruptible` contract. Both return a
+`MiddlewareInterruptResult` (a wrapper around `response`, kept for forward-compatibility with
+TS) on resume, and raise `InterruptException` on first call. `InvokeModelStage` does **not**
+support interrupts, matching TS (only `ExecuteToolContext` and `AgentStreamContext` are
+`MiddlewareInterruptible`).
 
 `interrupt()` is **read-only** with respect to interrupt state — it inspects prior responses
-but never registers the interrupt itself. The tool executor's `InterruptException` handler is
-the single registration site. This matches TS, where middleware interrupts deliberately never
-write to interrupt state (unlike hook/tool interrupts, which self-register).
+but never registers the interrupt itself. The executor's `InterruptException` handler (the tool
+executor for `ExecuteToolStage`, the agent run loop for `AgentStreamStage`) is the single
+registration site. This matches TS, where middleware interrupts deliberately never write to
+interrupt state (unlike hook/tool interrupts, which self-register). The read-only resolution
+logic is shared by both contexts (`_resolve_middleware_interrupt`).
 
 A halted (or partially executed) tool call has no result, so interrupts must not be treated as
 the stage result:
@@ -92,9 +103,12 @@ the stage result:
   its interrupts and short-circuits. The protocol keeps the stage-agnostic registry from
   importing tool-specific event types.
 
-Either way `_stream` surfaces a single `ToolInterruptEvent` to the event loop. Only
-`ExecuteToolStage` supports interrupts — `InvokeModelStage` does not, matching TS (only
-`ExecuteToolContext` and `AgentStreamContext` are `MiddlewareInterruptible`).
+Either way `_stream` surfaces a single `ToolInterruptEvent` to the event loop.
+
+For **`AgentStreamStage`**, `Agent._run_loop` catches the `InterruptException`, registers and
+activates the interrupt, and yields a terminal `EventLoopStopEvent("interrupt", ...)` — so the
+`AgentResult` looks identical to a tool interrupt. (TS yields a distinct `InterruptEvent`; Python
+has no per-interrupt event, so this reuses how tool interrupts already surface.)
 
 **Hazard: `except Exception` swallows interrupts.** `InterruptException` subclasses `Exception`
 (not `BaseException`). A middleware that wraps `next_fn` or `interrupt()` in a broad
@@ -104,11 +118,23 @@ This is inherent to the SDK-wide interrupt design (the same is true for hooks/to
 that must catch tool errors should re-raise `InterruptException` (and `CancelledError`, a
 `BaseException` that a bare `except Exception` already lets through).
 
-Interrupt IDs are `v1:middleware_execute_tool:<toolUseId>:<uuid5(name)>` — deterministic across
+Interrupt IDs are `v1:middleware_execute_tool:<toolUseId>:<uuid5(name)>` for tool middleware and
+`v1:middleware_agent_stream:<uuid5(name)>` for agent-stream middleware — deterministic across
 resumes so a resumed response resolves the same interrupt. This follows Python's `v1:`
-interrupt-id scheme (`v1:tool_call:...`, `v1:before_tool_call:...`) and its convention of
-hashing the name with `uuid5`. (TS uses a different, unversioned literal — id *strings* are
-opaque per-SDK handles and are not compared across SDKs, so only the within-SDK scheme matters.)
+interrupt-id scheme (`v1:tool_call:...`, `v1:before_tool_call:...`) and its convention of hashing
+the name with `uuid5`. (TS uses a different, unversioned literal — id *strings* are opaque per-SDK
+handles and are not compared across SDKs, so only the within-SDK scheme matters.)
+
+The tool id embeds the `toolUseId`, so it is unique per tool call. The agent-stream id has **no**
+scoping component — it is a pure hash of `name`, identical in every pass and in every agent. What
+keeps it collision-safe within one agent is the lifecycle, not the id: only one agent-stream
+interrupt is live at a time and the state is deactivated (clearing `interrupts`) before the next
+pass could reuse the name. **Across agents it is not safe**: two agents (e.g. `Graph`/`Swarm`
+nodes) running the same reusable gate middleware produce the same id, and an orchestrator that
+aggregates interrupts into a flat id-keyed dict can cross-wire one human approval to both. This is
+an identity-layer gap the middleware can't resolve on its own (a plain `Agent`'s `agent_id`
+defaults to `"default"`), tracked as a follow-up rather than fixed here. Until then, a reusable
+agent-stream gate should not be shared across multiple agents that interrupt on the same `name`.
 
 ### No interrupt `source`
 
@@ -118,7 +144,46 @@ hooks, tools, or middleware — so there is nothing for the middleware path to s
 pre-existing, SDK-wide gap in the Python interrupt system rather than a middleware-specific
 choice; adding it means changing the core `Interrupt` type and every hook/tool call site, which
 is out of scope here. Consumers currently disambiguate by the interrupt id prefix
-(`v1:middleware_execute_tool:...`) instead.
+(`v1:middleware_execute_tool:...` / `v1:middleware_agent_stream:...`) instead.
+
+## AgentStreamStage context fields
+
+Unlike `InvokeModelContext`/`ExecuteToolContext`, which mirror their TS counterparts field-for-field
+(modulo `camelCase`↔`snake_case`), `AgentStreamContext` genuinely renames: TS exposes `args` +
+`options`, Python exposes `messages` (the input for this pass, already appended to history) +
+`invocation_state` (the per-invocation state dict). The rename reflects what Python's `_run_loop`
+actually threads through the pass. Note this drops the extra fields TS's `options` (`InvokeOptions`)
+carries — `cancel_signal`, structured-output config, `limits` — from the agent-stream context;
+those remain reachable on `agent` but are not surfaced as first-class context fields here. Since
+the stage is internal, that surface is not yet finalized.
+
+## AgentStreamStage interrupt resume
+
+Python interrupts were tool-only: the event loop keyed resume behavior on interrupt state being
+`activated` alone — priming a resume by replaying the stored `tool_use_message`, and merging the
+stored `tool_results`. An `AgentStreamStage` interrupt activates interrupt state **without** a
+pending tool execution (empty context), so both reads are gated on the presence of their tool
+context key (`"tool_use_message" in context` / `"tool_results" in context`). An agent-stream
+resume therefore falls through to a normal model call — and if that call then invokes a tool, the
+tool path no longer trips over the empty context — while the middleware resolves its own interrupt
+(returning the response) before calling `next()`.
+
+Because an agent-stream interrupt has no tool cycle to deactivate the state afterward, the run
+loop deactivates interrupt state when the pass completes without one. The guard is narrow — it
+fires only when the state is activated, the pass did not stop on an interrupt, **and** no tool
+context is present (`"tool_use_message" not in context`). That last condition is essential: a
+pending *tool* interrupt also leaves the state activated, and some non-interrupt endings keep it
+that way on purpose — e.g. cancelling a resumed tool interrupt ends the pass `"cancelled"` while
+the event loop deliberately preserves the interrupt for a later resume. Without the tool-context
+check the run loop would wipe that pending tool interrupt. Scoped this way, the run-loop
+deactivation only ever clears agent-stream interrupts (which never store tool context); the event
+loop remains the sole owner of tool-interrupt state.
+
+(TypeScript mirrors this: its AgentStreamStage wrapper deactivates on a non-interrupt completion
+when no pending tool execution is stored, so an agent-stream interrupt that resumes to a plain
+`end_turn` clears the `activated` flag and the next fresh invocation is not rejected. Both SDKs
+likewise preserve a pending *tool* interrupt across a cancelled resume — Python via the
+`"tool_use_message"` guard, TS by not clearing its pending marker until the tools actually run.)
 
 ## Hook-initiated retries re-run the middleware chain
 

@@ -293,3 +293,44 @@ async def test_agent_cancel_continue_after():
     # Second invocation should work normally
     result2 = await agent.invoke_async("Hello again")
     assert result2.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
+    """Cancelling a resumed tool interrupt must not wipe the pending interrupt state.
+
+    A tool interrupt stores its resume context (tool_use_message / tool_results) and keeps the
+    interrupt state activated. If the resume is cancelled before the tool executes, the event
+    loop deliberately leaves that state intact so the interrupt can still be resumed later. The
+    interrupt state must survive the cancelled pass rather than being deactivated.
+    """
+
+    @tool(context=True)
+    def approver(tool_context) -> str:
+        """Require approval before returning."""
+        return tool_context.interrupt("approve", reason="proceed?")
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "tool_1", "name": "approver", "input": {}}}],
+    }
+    agent = Agent(
+        model=MockedModelProvider([tool_use_response, DEFAULT_RESPONSE]),
+        tools=[approver],
+    )
+
+    interrupt_result = await agent.invoke_async("go")
+    assert interrupt_result.stop_reason == "interrupt"
+    assert agent._interrupt_state.activated
+    assert "tool_use_message" in agent._interrupt_state.context
+
+    # Cancel the resume before the tool runs.
+    agent.cancel()
+    cancelled_result = await agent.invoke_async(
+        [{"interruptResponse": {"interruptId": interrupt_result.interrupts[0].id, "response": "go"}}]
+    )
+
+    assert cancelled_result.stop_reason == "cancelled"
+    # The pending tool interrupt state survives the cancelled pass.
+    assert agent._interrupt_state.activated
+    assert "tool_use_message" in agent._interrupt_state.context

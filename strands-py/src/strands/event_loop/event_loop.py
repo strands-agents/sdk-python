@@ -283,8 +283,10 @@ async def event_loop_cycle(
 
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
-            # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-            if agent._interrupt_state.activated:
+            # Resuming a tool interrupt: replay the stored tool-use message instead of calling
+            # the model. AgentStreamStage interrupts activate the state without tool context, so
+            # gate on the stored message (they fall through to a normal model call).
+            if agent._interrupt_state.activated and "tool_use_message" in agent._interrupt_state.context:
                 stop_reason: StopReason = "tool_use"
                 message = agent._interrupt_state.context["tool_use_message"]
             # Skip model invocation if the latest message contains ToolUse
@@ -773,7 +775,10 @@ async def _handle_tool_execution(
     tool_uses: list[ToolUse] = [content["toolUse"] for content in message["content"] if "toolUse" in content]
     tool_results: list[ToolResult] = []
 
-    if agent._interrupt_state.activated:
+    # Only a tool-interrupt resume stores prior tool_results to merge. AgentStreamStage
+    # interrupts activate the state without tool context, so gate on the stored results
+    # (a resumed agent-stream interrupt may reach here on its way into a fresh tool call).
+    if agent._interrupt_state.activated and "tool_results" in agent._interrupt_state.context:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
 
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
