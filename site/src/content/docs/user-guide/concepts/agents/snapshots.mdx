@@ -89,8 +89,8 @@ Only fields present in the snapshot are restored. If a field was not included wh
 A snapshot's `messages` are loaded into the agent as-is, including any tool-call
 content they carry. In the Python SDK, a restored tool-call block as the most
 recent message dispatches a tool on the next invocation. When a snapshot could
-have been influenced by an untrusted party before it reaches you, clear tool-call
-content from its history first. See
+have been influenced by an untrusted party before it reaches you, invoke the
+restored agent with `allow_resume=False`. See
 [Trusted Message History](../../safety-security/trusted-message-history.md).
 :::
 
