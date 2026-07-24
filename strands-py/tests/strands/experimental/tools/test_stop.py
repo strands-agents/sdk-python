@@ -12,8 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from strands.types.tools import ToolContext
 from strands.experimental.tools.stop import make_stop, stop
+from strands.types.tools import ToolContext
 
 
 def _tool_context(invocation_state: dict | None = None) -> ToolContext:
