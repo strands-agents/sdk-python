@@ -151,8 +151,14 @@ class BidiGeminiLiveModel(BidiModel):
 
         self._connection_id = str(uuid.uuid4())
 
-        # Build live config
-        has_messages = bool(messages) and "live_session_handle" not in kwargs
+        # Build live config — only enable initial-history mode when text content exists
+        # (tool-only history is dropped by _send_message_history and would leave the server
+        # stuck waiting for turn_complete that never arrives)
+        has_messages = (
+            messages is not None
+            and any("text" in block for message in messages for block in message["content"])
+            and "live_session_handle" not in kwargs
+        )
         live_config = self._build_live_config(system_prompt, tools, has_messages=has_messages, **kwargs)
 
         # Create the context manager and session
@@ -497,9 +503,10 @@ class BidiGeminiLiveModel(BidiModel):
         live_session_handle = kwargs.get("live_session_handle")
         config_dict["session_resumption"] = genai_types.SessionResumptionConfig(handle=live_session_handle)
 
-        # Gemini 3.1 requires this flag to allow send_client_content for history seeding
+        # Enables send_client_content for initial history seeding before realtime mode.
+        # Not supported on Vertex AI; HistoryConfig requires google-genai>=1.67 (floor bump tracked separately).
         has_messages = kwargs.get("has_messages", False)
-        if has_messages:
+        if has_messages and getattr(self._client, "vertexai", False) is not True:
             config_dict["history_config"] = genai_types.HistoryConfig(initial_history_in_client_content=True)
 
         # Add system instruction if provided
