@@ -35,7 +35,10 @@ export interface ContextStrategy {
  */
 export interface StrategyContext {
   /** The agent's current message array (L0). Strategies mutate this in place. */
-  messages: import('../types/content.js').MessageData[]
+  messages: import('../types/messages.js').Message[]
+
+  /** The agent instance. */
+  agent: import('../types/agent.js').LocalAgent
 
   /** Current context utilization ratio (0-1+). Above 1.0 means overflow. */
   utilization: number

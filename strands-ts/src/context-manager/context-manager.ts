@@ -9,14 +9,16 @@
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
 import type { Storage } from '../storage/storage.js'
-import type { MessageData } from '../types/content.js'
+import type { Message } from '../types/messages.js'
 import { NAMESPACED, namespace } from '../storage/storage.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
-import { AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
+import { AfterModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import { Stash } from './stash.js'
 import type { ContextManagerConfig, ContextStrategy, StashConfig, StrategyContext } from './types.js'
+import { OffloadStrategy } from './strategies/offload-strategy.js'
+import { SummarizeStrategy } from './strategies/summarize-strategy.js'
 
 const STORAGE_PREFIX = 'context'
 
@@ -93,14 +95,6 @@ export class ContextManager implements Plugin {
         event.retry = true
       }
     })
-
-    // Proactive: reduce context before model call when utilization is high
-    agent.addHook(BeforeModelCallEvent, async () => {
-      const utilization = await this._estimateUtilization()
-      if (utilization >= 0.85) {
-        await this.apply()
-      }
-    })
   }
 
   /**
@@ -116,11 +110,12 @@ export class ContextManager implements Plugin {
       throw new Error('ContextManager.apply() called before initAgent()')
     }
 
-    const messages = this._agent.messages as unknown as MessageData[]
+    const messages = this._agent.messages
     const utilization = await this._estimateUtilization()
 
     const strategyContext: StrategyContext = {
       messages,
+      agent: this._agent,
       utilization,
       storage: this._scopeStorage(),
     }
@@ -143,20 +138,17 @@ export class ContextManager implements Plugin {
   }
 
   private _defaultStrategies(): ContextStrategy[] {
-    // TODO: return [new OffloadStrategy(...), new SummarizeStrategy(...)]
-    // For now, return empty — floor truncation is the safety net
-    return []
+    return [new OffloadStrategy(), new SummarizeStrategy()]
   }
 
   private async _estimateUtilization(): Promise<number> {
     if (!this._agent) return 0
     const model = (this._agent as unknown as Record<string, unknown>)['model'] as
-      | { contextWindowLimit?: number; countTokens?: (messages: MessageData[]) => Promise<number> }
+      | { contextWindowLimit?: number; countTokens?: (messages: Message[]) => Promise<number> }
       | undefined
     if (!model?.contextWindowLimit || !model?.countTokens) return 0
 
-    const messages = this._agent.messages as unknown as MessageData[]
-    const tokens = await model.countTokens(messages)
+    const tokens = await model.countTokens(this._agent.messages)
     return tokens / model.contextWindowLimit
   }
 
@@ -164,7 +156,7 @@ export class ContextManager implements Plugin {
    * Last-resort truncation: drop the oldest messages (preserving the first user message)
    * until at least 20% of messages are removed.
    */
-  private _floorTruncate(messages: MessageData[]): void {
+  private _floorTruncate(messages: Message[]): void {
     const targetRemoval = Math.max(1, Math.floor(messages.length * 0.2))
     let removed = 0
     let index = 1 // skip first message (first user message)
