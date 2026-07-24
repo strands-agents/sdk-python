@@ -1,0 +1,84 @@
+---
+project:
+  pypi: https://pypi.org/project/strands-redis-session-manager/
+  github: https://github.com/lekhnath/strands-redis-session-manager
+  maintainer: lekhnath
+title: Strands Redis Session Manager
+community: true
+description: >-
+  Persist Strands agent sessions in Redis with configurable key namespaces and
+  optional rolling expiration for distributed applications.
+integrationType: session-manager
+languages: Python
+sidebar:
+  label: "Redis"
+---
+
+
+[Strands Redis Session
+Manager](https://github.com/lekhnath/strands-redis-session-manager) stores agent
+sessions, state, and messages in Redis. Use it to share session data across application
+instances or to preserve conversations across process restarts.
+
+The package can expire all keys for a session after a configurable interval. It also
+supports rolling expiration on writes and optional expiration refreshes on reads.
+
+## Installation
+
+```bash
+pip install strands-redis-session-manager
+```
+
+The session manager requires Python 3.12 or later, Strands Agents 1.16 or later, and
+Redis 7.0.1 or later.
+
+## Usage
+
+Create a Redis client, then pass a `RedisSessionManager` to the agent:
+
+```python
+import os
+
+import redis
+from redis_session_manager import RedisSessionManager
+from strands import Agent
+
+redis_client = redis.Redis.from_url(
+    os.environ["REDIS_URL"],
+    decode_responses=True,
+)
+session_manager = RedisSessionManager(
+    session_id="customer-123",
+    redis_client=redis_client,
+    ttl_seconds=3600,
+)
+agent = Agent(session_manager=session_manager)
+
+agent("Remember that I prefer concise answers.")
+```
+
+Set `REDIS_URL` to a Redis connection string, for example:
+
+```bash
+export REDIS_URL="redis://localhost:6379/0"
+```
+
+Create another manager with the same session ID and Redis database to resume the
+stored conversation.
+
+## Configuration
+
+`RedisSessionManager` accepts these storage options:
+
+| Parameter | Default | Description |
+| --- | --- | --- |
+| `namespace` | `strands:session` | Prefix for keys created by the session manager |
+| `ttl_seconds` | `None` | Expiration time for all keys in a session |
+| `rolling_ttl` | `True` | Refresh the session expiration when data changes |
+| `touch_on_read` | `False` | Refresh the session expiration when data is read |
+
+## References
+
+- [PyPI package](https://pypi.org/project/strands-redis-session-manager/)
+- [GitHub repository](https://github.com/lekhnath/strands-redis-session-manager)
+- [Issue tracker](https://github.com/lekhnath/strands-redis-session-manager/issues)
