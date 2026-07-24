@@ -32,6 +32,7 @@ def _make_graph(
     graph._interrupt_state = interrupt_state or _InterruptState()
     graph._resume_from_session = False
     graph._resume_next_nodes = []
+    graph.max_concurrency = None
     graph.id = "test_graph"
     return graph
 
@@ -551,6 +552,7 @@ def test_graph_builder_validation():
         .build()
     )
     assert graph.max_node_executions == 10
+    assert graph.max_concurrency is None
     assert graph.execution_timeout == 300.0
     assert graph.node_timeout == 60.0
     assert graph.reset_on_revisit is True
@@ -560,9 +562,19 @@ def test_graph_builder_validation():
     builder.add_node(agent1, "test_node")
     graph = builder.build()
     assert graph.max_node_executions is None
+    assert graph.max_concurrency is None
     assert graph.execution_timeout is None
     assert graph.node_timeout is None
     assert graph.reset_on_revisit is False
+
+
+def test_graph_max_concurrency_validation():
+    """Test max concurrency validation on the builder and graph constructor."""
+    with pytest.raises(ValueError, match=r"max_concurrency=0 \| must be at least 1"):
+        GraphBuilder().set_max_concurrency(0)
+
+    with pytest.raises(ValueError, match=r"max_concurrency=-1 \| must be at least 1"):
+        Graph(nodes={}, edges=set(), entry_points=set(), max_concurrency=-1)
 
 
 @pytest.mark.asyncio
@@ -1540,6 +1552,37 @@ async def test_graph_streaming_parallel_events(mock_strands_tracer, mock_use_spa
     node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
     start_node_ids = set(e["node_id"] for e in node_start_events)
     assert start_node_ids == {"a", "b", "c"}
+
+
+@pytest.mark.asyncio
+async def test_graph_max_concurrency_limits_parallel_nodes(mock_strands_tracer, mock_use_span):
+    """Test that graph execution does not exceed the configured concurrency limit."""
+    active_nodes = 0
+    max_active_nodes = 0
+
+    async def tracked_stream(*args, **kwargs):
+        nonlocal active_nodes, max_active_nodes
+        active_nodes += 1
+        max_active_nodes = max(max_active_nodes, active_nodes)
+        try:
+            await asyncio.sleep(0.01)
+            yield {"result": create_mock_agent("result").return_value}
+        finally:
+            active_nodes -= 1
+
+    builder = GraphBuilder()
+    for node_id in ("a", "b", "c"):
+        agent = create_mock_agent(f"agent_{node_id}")
+        agent.stream_async = Mock(side_effect=tracked_stream)
+        builder.add_node(agent, node_id)
+        builder.set_entry_point(node_id)
+
+    graph = builder.set_max_concurrency(2).build()
+    result = await graph.invoke_async("Test bounded parallel execution")
+
+    assert graph.max_concurrency == 2
+    assert max_active_nodes == 2
+    assert result.status == Status.COMPLETED
 
 
 @pytest.mark.asyncio

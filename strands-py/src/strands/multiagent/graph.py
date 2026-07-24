@@ -309,6 +309,7 @@ class GraphBuilder:
 
         # Configuration options
         self._max_node_executions: int | None = None
+        self._max_concurrency: int | None = None
         self._execution_timeout: float | None = None
         self._node_timeout: float | None = None
         self._reset_on_revisit: bool = False
@@ -393,6 +394,23 @@ class GraphBuilder:
         self._max_node_executions = max_executions
         return self
 
+    def set_max_concurrency(self, max_concurrency: int) -> "GraphBuilder":
+        """Set the maximum number of graph nodes that can execute concurrently.
+
+        Args:
+            max_concurrency: Maximum concurrent node executions.
+
+        Returns:
+            This builder for method chaining.
+
+        Raises:
+            ValueError: If max_concurrency is less than 1.
+        """
+        if max_concurrency < 1:
+            raise ValueError(f"max_concurrency={max_concurrency} | must be at least 1")
+        self._max_concurrency = max_concurrency
+        return self
+
     def set_execution_timeout(self, timeout: float) -> "GraphBuilder":
         """Set total execution timeout.
 
@@ -469,6 +487,7 @@ class GraphBuilder:
             edges=self.edges.copy(),
             entry_points=self.entry_points.copy(),
             max_node_executions=self._max_node_executions,
+            max_concurrency=self._max_concurrency,
             execution_timeout=self._execution_timeout,
             node_timeout=self._node_timeout,
             reset_on_revisit=self._reset_on_revisit,
@@ -508,6 +527,7 @@ class Graph(MultiAgentBase):
         id: str = _DEFAULT_GRAPH_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
         plugins: list[MultiAgentPlugin] | None = None,
+        max_concurrency: int | None = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -524,16 +544,20 @@ class Graph(MultiAgentBase):
             id: Unique graph id (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
             plugins: List of multi-agent plugins for extending graph behavior (default: None)
+            max_concurrency: Maximum concurrent node executions (default: None - no limit)
         """
         super().__init__()
 
         # Validate nodes for duplicate instances
         self._validate_graph(nodes)
+        if max_concurrency is not None and max_concurrency < 1:
+            raise ValueError(f"max_concurrency={max_concurrency} | must be at least 1")
 
         self.nodes = nodes
         self.edges = edges
         self.entry_points = entry_points
         self.max_node_executions = max_node_executions
+        self.max_concurrency = max_concurrency
         self.execution_timeout = execution_timeout
         self.node_timeout = node_timeout
         self.reset_on_revisit = reset_on_revisit
@@ -668,8 +692,10 @@ class Graph(MultiAgentBase):
 
             try:
                 logger.debug(
-                    "max_node_executions=<%s>, execution_timeout=<%s>s, node_timeout=<%s>s | graph execution config",
+                    "max_node_executions=<%s>, max_concurrency=<%s>, execution_timeout=<%s>s, "
+                    "node_timeout=<%s>s | graph execution config",
                     self.max_node_executions or "None",
+                    self.max_concurrency or "None",
                     self.execution_timeout or "None",
                     self.node_timeout or "None",
                 )
@@ -828,9 +854,13 @@ class Graph(MultiAgentBase):
             nodes = [node for node in nodes if node.execution_status == Status.INTERRUPTED]
 
         event_queue: asyncio.Queue[Any | None | Exception] = asyncio.Queue()
+        semaphore = asyncio.Semaphore(self.max_concurrency) if self.max_concurrency is not None else None
 
         # Start all node streams as independent tasks
-        tasks = [asyncio.create_task(self._stream_node_to_queue(node, event_queue, invocation_state)) for node in nodes]
+        tasks = [
+            asyncio.create_task(self._stream_node_to_queue(node, event_queue, invocation_state, semaphore))
+            for node in nodes
+        ]
 
         try:
             # Consume events from the queue as they arrive
@@ -881,16 +911,17 @@ class Graph(MultiAgentBase):
         node: GraphNode,
         event_queue: asyncio.Queue[Any | None | Exception],
         invocation_state: dict[str, Any],
+        semaphore: asyncio.Semaphore | None,
     ) -> None:
         """Stream events from a node to the shared queue with optional timeout."""
-        try:
+
+        async def stream_node() -> None:
+            async for event in self._execute_node(node, invocation_state):
+                await event_queue.put(event)
+
+        async def execute_node() -> None:
             # Apply timeout to the entire streaming process if configured
             if self.node_timeout is not None:
-
-                async def stream_node() -> None:
-                    async for event in self._execute_node(node, invocation_state):
-                        await event_queue.put(event)
-
                 try:
                     await asyncio.wait_for(stream_node(), timeout=self.node_timeout)
                 except asyncio.TimeoutError:
@@ -899,8 +930,14 @@ class Graph(MultiAgentBase):
                     await event_queue.put(timeout_exc)
             else:
                 # No timeout - stream normally
-                async for event in self._execute_node(node, invocation_state):
-                    await event_queue.put(event)
+                await stream_node()
+
+        try:
+            if semaphore is None:
+                await execute_node()
+            else:
+                async with semaphore:
+                    await execute_node()
         except Exception as e:
             # Send exception through queue for fail-fast behavior
             await event_queue.put(e)
