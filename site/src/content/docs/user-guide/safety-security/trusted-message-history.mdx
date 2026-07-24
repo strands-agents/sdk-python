@@ -10,7 +10,7 @@ sourceLinks:
 
 An agent's message history is expected to come from a source you trust: prompts your application builds, and history it produced and stored itself. History can carry more than text. It can carry tool-call content, and in the Python SDK a tool-call block as the most recent message causes the agent to dispatch that tool on its next invocation, without a model response in between. When the history comes from a source you do not control, treat that as untrusted input and clear tool-call content before the agent loads it.
 
-This dispatch behavior is specific to the Python SDK. The TypeScript SDK does not dispatch from a trailing tool-call block in restored history; it resumes tool execution only from explicit interrupt or checkpoint state.
+This dispatch behavior is specific to the Python SDK. The TypeScript SDK appends a tool-call message and its result together after a tool runs, so its history never ends on a dangling tool-call block, and its loop never dispatches a tool directly from history.
 
 ## Why tool-call content is different
 
