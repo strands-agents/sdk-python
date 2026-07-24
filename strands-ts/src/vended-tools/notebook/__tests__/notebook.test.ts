@@ -246,6 +246,44 @@ describe('notebook tool', () => {
     })
   })
 
+  describe('write operation - append', () => {
+    it('appends newStr to a populated notebook', async () => {
+      const { state, context } = createFreshContext()
+      state.set('notebooks', { notes: 'First entry' })
+
+      const result = await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'Second entry' }, context)
+
+      expect(result).toBe("Appended text to notebook 'notes'")
+      expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry\nSecond entry')
+    })
+
+    it('writes newStr directly to an empty notebook', async () => {
+      const { state, context } = createFreshContext()
+      state.set('notebooks', { notes: '' })
+
+      await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'First entry' }, context)
+
+      expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry')
+    })
+
+    it('does not add an extra newline when the notebook already ends with one', async () => {
+      const { state, context } = createFreshContext()
+      state.set('notebooks', { notes: 'First entry\n' })
+
+      await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'Second entry\nThird entry' }, context)
+
+      expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry\nSecond entry\nThird entry')
+    })
+
+    it('throws for a notebook that does not exist', async () => {
+      const { context } = createFreshContext()
+
+      await expect(notebook.invoke({ mode: 'write', name: 'missing', newStr: 'Entry' }, context)).rejects.toThrow(
+        "Notebook 'missing' not found"
+      )
+    })
+  })
+
   describe('write operation - line insertion', () => {
     it('inserts after line number', async () => {
       const { state, context } = createFreshContext()
@@ -434,8 +472,8 @@ describe('notebook tool', () => {
       let notebooks = state.get<NotebookState>('notebooks')
       expect(notebooks!.notes).toBe('Initial')
 
-      // Write to notebook - use oldStr/newStr instead of insertLine for appending
-      await notebook.invoke({ mode: 'write', name: 'notes', oldStr: 'Initial', newStr: 'Initial\nAdded' }, context)
+      // Append to notebook
+      await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'Added' }, context)
       notebooks = state.get<NotebookState>('notebooks')
       expect(notebooks!.notes).toBe('Initial\nAdded')
 
