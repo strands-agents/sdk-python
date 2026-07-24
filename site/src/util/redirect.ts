@@ -12,67 +12,60 @@ import { exactly } from '../utils/regex'
 
 // ── Slug-level rename rules ───────────────────────────────────────────────────
 
+/**
+ * Exact-match slug renames: old slug → new slug or explicit external URL.
+ *
+ * Exported so astro.config.mjs (via redirect.static.ts) can enumerate every
+ * entry into a build-time redirect stub — a static HTML page with a meta
+ * refresh and canonical link. Crawlers don't execute the client-side 404
+ * redirect, so these stubs are what preserve backlink equity for renamed pages.
+ *
+ * Only add enumerable, exact-match renames here. Dynamic rules (regex matches,
+ * computed targets) belong in SLUG_RULES below and are handled solely by the
+ * client-side 404 fallback.
+ */
+export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
+  // gemini was renamed to google
+  'docs/user-guide/concepts/model-providers/gemini': 'docs/user-guide/concepts/model-providers/google',
+
+  // python-tools was renamed to custom-tools
+  'docs/user-guide/concepts/tools/python-tools': 'docs/user-guide/concepts/tools/custom-tools',
+
+  // multi_agent_example index redirects to the main example page
+  'docs/examples/python/multi_agent_example': 'docs/examples/python/multi_agent_example/multi_agent_example',
+
+  // Vanity URLs for community links
+  discord: 'https://discord.gg/strands',
+
+  // cli-reference-agent was archived (strands-agents/agent-builder)
+  'docs/examples/python/cli-reference-agent': 'docs/examples',
+
+  // CDK and deployment examples now live on GitHub
+  'docs/examples/cdk/deploy_to_apprunner':
+    'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_apprunner/README.md',
+  'docs/examples/cdk/deploy_to_ec2':
+    'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_ec2/README.md',
+  'docs/examples/cdk/deploy_to_fargate':
+    'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_fargate/README.md',
+  'docs/examples/cdk/deploy_to_lambda':
+    'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_lambda/README.md',
+  'docs/examples/deploy_to_eks':
+    'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/deploy_to_eks/README.md',
+  'docs/examples/typescript/deploy_to_bedrock_agentcore':
+    'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/typescript/deploy_to_bedrock_agentcore/README.md',
+}
+
 type SlugRule =
   | { match: RegExp; to: string }
   | { match: RegExp; to: (m: RegExpMatchArray) => string }
 
-const SLUG_RULES: SlugRule[] = [
-  // gemini was renamed to google
-  {
-    match: exactly('docs/user-guide/concepts/model-providers/gemini'),
-    to: 'docs/user-guide/concepts/model-providers/google',
-  },
-
-  // python-tools was renamed to custom-tools
-  {
-    match: exactly('docs/user-guide/concepts/tools/python-tools'),
-    to: 'docs/user-guide/concepts/tools/custom-tools',
-  },
-
-  // multi_agent_example index redirects to the main example page
-  {
-    match: exactly('docs/examples/python/multi_agent_example'),
-    to: 'docs/examples/python/multi_agent_example/multi_agent_example',
-  },
-
-  // Vanity URLs for community links
-  {
-    match: exactly('discord'),
-    to: 'https://discord.gg/strands',
-  },
-
-  // cli-reference-agent was archived (strands-agents/agent-builder)
-  {
-    match: exactly('docs/examples/python/cli-reference-agent'),
-    to: 'docs/examples',
-  },
-
-  // CDK and deployment examples now live on GitHub
-  {
-    match: exactly('docs/examples/cdk/deploy_to_apprunner'),
-    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_apprunner/README.md',
-  },
-  {
-    match: exactly('docs/examples/cdk/deploy_to_ec2'),
-    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_ec2/README.md',
-  },
-  {
-    match: exactly('docs/examples/cdk/deploy_to_fargate'),
-    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_fargate/README.md',
-  },
-  {
-    match: exactly('docs/examples/cdk/deploy_to_lambda'),
-    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_lambda/README.md',
-  },
-  {
-    match: exactly('docs/examples/deploy_to_eks'),
-    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/deploy_to_eks/README.md',
-  },
-  {
-    match: exactly('docs/examples/typescript/deploy_to_bedrock_agentcore'),
-    to: 'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/typescript/deploy_to_bedrock_agentcore/README.md',
-  },
-]
+// Exact-match rules generated from STATIC_SLUG_REDIRECTS, plus any dynamic
+// (regex-based) rules. Dynamic rules can't be enumerated into static stubs,
+// so they are only applied by the client-side 404 fallback.
+const SLUG_RULES: SlugRule[] = Object.entries(STATIC_SLUG_REDIRECTS).map(([from, to]) => ({
+  match: exactly(from),
+  to,
+}))
 
 // ── Public API ────────────────────────────────────────────────────────────────
 

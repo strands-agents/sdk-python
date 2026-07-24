@@ -411,7 +411,7 @@ class Agent(AgentBase):
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
 
-            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 
         self._plugin_registry = _PluginRegistry(self)
 

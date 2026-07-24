@@ -9,7 +9,7 @@
  * their corresponding /index.md endpoints.
  *
  * Used by LLMs and tooling that need documentation in a machine-readable format.
- * See the /llms/ page for more information.
+ * See /docs/user-guide/build-with-ai/ for more information.
  */
 import type { APIRoute, GetStaticPaths } from 'astro'
 import { getCollection } from 'astro:content'

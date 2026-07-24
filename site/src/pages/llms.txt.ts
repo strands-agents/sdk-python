@@ -11,11 +11,24 @@ import path from 'node:path'
 const SIDEBAR_SECTIONS = ['Docs', 'Examples', 'Community']
 
 /**
+ * Format a llms.txt link line: `- [title](url): description`, omitting the
+ * `: description` suffix when no description is available. Internal whitespace
+ * (including newlines from folded YAML) collapses to single spaces so an entry
+ * can never span multiple lines of this machine-parsed format.
+ */
+function linkLine(label: string, url: string, description?: string, indent: string = ''): string {
+  const normalized = description?.replace(/\s+/g, ' ').trim()
+  const suffix = normalized ? `: ${normalized}` : ''
+  return `${indent}- [${label}](${url})${suffix}`
+}
+
+/**
  * Recursively extract links from sidebar items
  */
 function extractLinks(
   items: StarlightSidebarItem[],
   base: string,
+  descriptions: Map<string, string | undefined>,
   depth: number = 0
 ): string[] {
   const lines: string[] = []
@@ -26,7 +39,7 @@ function extractLinks(
       // Internal link
       const url = `${base}/${item.slug}/index.md`
       const label = item.label || item.slug.split('/').pop() || item.slug
-      lines.push(`${indent}- [${label}](${url})`)
+      lines.push(linkLine(label, url, descriptions.get(item.slug), indent))
     } else if ('link' in item && item.link) {
       // External link - skip or include as-is
       if (!item.link.startsWith('http')) {
@@ -35,7 +48,7 @@ function extractLinks(
     } else if ('items' in item && item.items) {
       // Group - add label and recurse
       lines.push(`${indent}- ${item.label}`)
-      lines.push(...extractLinks(item.items, base, depth + 1))
+      lines.push(...extractLinks(item.items, base, descriptions, depth + 1))
     }
   }
 
@@ -45,6 +58,12 @@ function extractLinks(
 function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebarItem[], blogPosts: CollectionEntry<'blog'>[], releases: ChangelogRelease[]): string {
   const base = getSiteOrigin() + getBase()
   const lines: string[] = []
+
+  // Frontmatter descriptions keyed by doc id, for annotating sidebar-derived
+  // links. Sidebar slugs live in the same namespace (sidebar.ts validates each
+  // against src/content files); if that ever diverges, a miss here degrades to
+  // a link without a description rather than an error.
+  const descriptions = new Map(docs.map((doc) => [doc.id, doc.data.description]))
 
   lines.push('# Strands Agents')
   lines.push('')
@@ -60,7 +79,7 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
     if (section && 'items' in section) {
       lines.push(`## ${sectionName}`)
       lines.push('')
-      lines.push(...extractLinks(section.items, base, 0))
+      lines.push(...extractLinks(section.items, base, descriptions, 0))
       lines.push('')
     }
   }
@@ -76,7 +95,7 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
     for (const doc of pythonApi) {
       const url = `${base}/${doc.id}/index.md`
       const title = doc.data.title || doc.id
-      lines.push(`- [${title}](${url})`)
+      lines.push(linkLine(title, url, doc.data.description))
     }
     lines.push('')
   }
@@ -87,7 +106,7 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
     for (const doc of typescriptApi) {
       const url = `${base}/${doc.id}/index.md`
       const title = doc.data.title || doc.id
-      lines.push(`- [${title}](${url})`)
+      lines.push(linkLine(title, url, doc.data.description))
     }
     lines.push('')
   }
@@ -99,7 +118,7 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
     lines.push('')
     for (const post of sorted) {
       const url = `${base}/blog/${post.id}/index.md`
-      lines.push(`- [${post.data.title}](${url})`)
+      lines.push(linkLine(post.data.title, url, post.data.description))
     }
     lines.push('')
   }
