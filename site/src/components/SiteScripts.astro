@@ -1,12 +1,23 @@
 ---
 /**
- * AWS Shortbread cookie consent and Analytics WebSDK initialization.
+ * Web font loading, AWS Shortbread cookie consent, and Analytics WebSDK initialization.
  * Included in both Head.astro (docs pages) and LandingLayout.astro (index page).
  */
 ---
 
+<!-- Web fonts: preconnect + a direct stylesheet link. Still render-blocking (deliberately,
+     to avoid FOUT), but drops the chained fetch a CSS @import in custom.css forced:
+     the font CSS request couldn't even start until the bundled stylesheet was parsed. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap"
+/>
+
+<link rel="preconnect" href="https://prod.assets.shortbread.aws.dev" crossorigin />
 <link rel="stylesheet" href="https://prod.assets.shortbread.aws.dev/shortbread.css" />
-<script is:inline src="https://prod.assets.shortbread.aws.dev/shortbread.js"></script>
+<script is:inline defer src="https://prod.assets.shortbread.aws.dev/shortbread.js"></script>
 <script is:inline>
   /**
    * Shortbread Cookie Consent and AWS Analytics WebSDK Initialization
@@ -15,57 +26,59 @@
   ;(function () {
     'use strict'
 
-    const hostname = window.location.hostname
-    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1'
-    const isCloudFrontPreview = hostname === 'd3ehv1nix5p99z.cloudfront.net'
-    const isProduction = hostname.endsWith('.strandsagents.com') || hostname === 'strandsagents.com'
+    function initShortbread() {
+      const hostname = window.location.hostname
+      const isLocal = hostname === 'localhost' || hostname === '127.0.0.1'
+      const isCloudFrontPreview = hostname === 'd3ehv1nix5p99z.cloudfront.net'
+      const isProduction = hostname.endsWith('.strandsagents.com') || hostname === 'strandsagents.com'
 
-    const domain = isLocal || isCloudFrontPreview ? hostname : '.strandsagents.com'
+      const domain = isLocal || isCloudFrontPreview ? hostname : '.strandsagents.com'
 
-    let webSdkStage, webSdkDomain
-    if (isProduction) {
-      webSdkStage = 'prod'
-      webSdkDomain = 'https://d0.m.awsstatic.com'
-    } else if (isLocal) {
-      webSdkStage = 'alpha'
-      webSdkDomain = 'https://da0.m.awsstatic.com'
-    } else {
-      webSdkStage = 'gamma'
-      webSdkDomain = 'https://dg0.m.awsstatic.com'
-    }
+      let webSdkStage, webSdkDomain
+      if (isProduction) {
+        webSdkStage = 'prod'
+        webSdkDomain = 'https://d0.m.awsstatic.com'
+      } else if (isLocal) {
+        webSdkStage = 'alpha'
+        webSdkDomain = 'https://da0.m.awsstatic.com'
+      } else {
+        webSdkStage = 'gamma'
+        webSdkDomain = 'https://dg0.m.awsstatic.com'
+      }
 
-    if (typeof AWSCShortbread === 'undefined') {
-      console.warn('Shortbread unavailable. Using essential cookies only.')
-      return
-    }
+      if (typeof AWSCShortbread === 'undefined') {
+        console.warn('Shortbread unavailable. Using essential cookies only.')
+        return
+      }
 
-    try {
-      const existingShortbreadEl = document.getElementById('awsccc-sb-ux-c')
-      if (existingShortbreadEl) existingShortbreadEl.remove()
+      try {
+        const existingShortbreadEl = document.getElementById('awsccc-sb-ux-c')
+        if (existingShortbreadEl) existingShortbreadEl.remove()
 
-      const shortbread = AWSCShortbread({
-        domain,
-        registry: {
-          GitHubRepoCache: { category: 'essential' },
-        },
-        language: AWSCShortbread.Locale?.getLocaleIdShortbread(
-          AWSCShortbread.Locale.getCurrentLocale()
-        ),
-      })
+        const shortbread = AWSCShortbread({
+          domain,
+          registry: {
+            GitHubRepoCache: { category: 'essential' },
+          },
+          language: AWSCShortbread.Locale?.getLocaleIdShortbread(
+            AWSCShortbread.Locale.getCurrentLocale()
+          ),
+        })
 
-      shortbread.checkForCookieConsent()
-      window.strandsShortbread = shortbread
+        shortbread.checkForCookieConsent()
+        window.strandsShortbread = shortbread
 
-      document.addEventListener('click', function (e) {
-        if (e.target.id === 'cookie-preferences') {
-          e.preventDefault()
-          shortbread.customizeCookies()
-        }
-      })
+        document.addEventListener('click', function (e) {
+          if (e.target.id === 'cookie-preferences') {
+            e.preventDefault()
+            shortbread.customizeCookies()
+          }
+        })
 
-      loadWebSDK(webSdkStage, webSdkDomain)
-    } catch (error) {
-      console.error('Shortbread error:', error)
+        loadWebSDK(webSdkStage, webSdkDomain)
+      } catch (error) {
+        console.error('Shortbread error:', error)
+      }
     }
 
     function loadWebSDK(stage, sdkDomain) {
@@ -79,6 +92,14 @@
       } catch (error) {
         console.error('WebSDK loading error:', error)
       }
+    }
+
+    // shortbread.js loads with `defer`, so AWSCShortbread is not defined at parse time.
+    // Deferred scripts are guaranteed to execute before DOMContentLoaded fires.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initShortbread)
+    } else {
+      initShortbread()
     }
   })()
 </script>
