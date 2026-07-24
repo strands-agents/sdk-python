@@ -7,8 +7,6 @@
  * 3. The AgentResult is transformed with `stopReason: 'endTurn'` and the tool's content
  * 4. Streaming events from the delegate agent are surfaced natively in the parent stream
  *
- * ## Limitation
- *
  * The final delegation message is produced in middleware after the core loop exits.
  * It is written to `agent.messages` and yielded to stream consumers, but does not
  * fire `MessageAddedEvent` hooks via `invokeCallbacks`. `SessionManager` with
@@ -234,6 +232,11 @@ export class AgentDelegation implements Plugin {
    * For delegation tools in a multi-tool batch, returns an error result without
    * executing the tool. For valid single-tool delegation, unwraps inner agent
    * streaming events so they appear as native events in the parent stream.
+   *
+   * A post-init middleware registered inside this one can still bypass the check
+   * by spreading a modified context with a different `tool` to `next()`. This is a
+   * framework-level trust boundary, not addressable at the plugin level.
+   * The sanctioned path for tool replacement is `BeforeToolCallEvent.selectedTool`.
    */
   private async *_handleToolExecution(
     context: ExecuteToolContext,
