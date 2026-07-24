@@ -32,6 +32,14 @@ export interface ToolSpec {
    * JSON Schema defining the expected output structure for the tool.
    */
   outputSchema?: JSONSchema
+
+  /**
+   * Opaque metadata describing the tool.
+   *
+   * Annotation values are untrusted hints. Do not use them for security decisions
+   * unless the source of the tool specification is trusted.
+   */
+  annotations?: Record<string, unknown>
 }
 
 /**

@@ -388,6 +388,31 @@ and `toolFilters` too, where filter strings are regexes.
 </Tab>
 </Tabs>
 
+## Tool Annotations
+
+MCP tool annotations are available on each discovered tool's `tool_spec` (Python) or `toolSpec` (TypeScript). You can inspect hints such as `readOnlyHint`, `destructiveHint`, `idempotentHint`, and `openWorldHint` in hooks, interventions, or approval workflows.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+tools = mcp_client.list_tools_sync()
+read_only_tools = [
+    tool for tool in tools
+    if tool.tool_spec.get("annotations", {}).get("readOnlyHint") is True
+]
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/tools/mcp-tools.ts:tool_annotations"
+```
+</Tab>
+</Tabs>
+
+Annotations are opaque, untrusted hints supplied by the MCP server. Do not use them as the sole basis for security decisions unless you trust the server.
+
 ## Direct Tool Invocation
 
 While tools are typically invoked by the agent based on user requests, MCP tools can also be called directly:

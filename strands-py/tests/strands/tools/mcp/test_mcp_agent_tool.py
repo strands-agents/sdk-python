@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from mcp.types import Tool as MCPTool
+from mcp.types import ToolAnnotations
 
 from strands.tools.mcp import MCPAgentTool, MCPClient
 from strands.types._events import ToolResultEvent
@@ -16,6 +17,7 @@ def mock_mcp_tool():
     mock_tool.description = "A test tool"
     mock_tool.inputSchema = {"type": "object", "properties": {}}
     mock_tool.outputSchema = None  # MCP tools can have optional outputSchema
+    mock_tool.annotations = None
     return mock_tool
 
 
@@ -79,6 +81,30 @@ def test_tool_spec_without_output_schema(mock_mcp_tool, mock_mcp_client):
     tool_spec = agent_tool.tool_spec
 
     assert "outputSchema" not in tool_spec
+
+
+def test_tool_spec_with_annotations(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations(
+        title="Safe search",
+        readOnlyHint=True,
+        futureHint="preserved",
+    )
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tru_annotations = agent_tool.tool_spec["annotations"]
+    exp_annotations = {
+        "title": "Safe search",
+        "readOnlyHint": True,
+        "futureHint": "preserved",
+    }
+
+    assert tru_annotations == exp_annotations
+
+
+def test_tool_spec_without_annotations(mock_mcp_tool, mock_mcp_client):
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+
+    assert "annotations" not in agent_tool.tool_spec
 
 
 @pytest.mark.asyncio

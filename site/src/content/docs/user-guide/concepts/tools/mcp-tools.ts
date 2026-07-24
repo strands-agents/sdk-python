@@ -43,6 +43,13 @@ const tools = await mcpClient.listTools()
 const agentExplicit = new Agent({ tools })
 // --8<-- [end:explicit_tools]
 
+// --8<-- [start:tool_annotations]
+const discoveredTools = await mcpClient.listTools()
+const readOnlyTools = discoveredTools.filter(
+  (tool) => tool.toolSpec.annotations?.readOnlyHint === true
+)
+// --8<-- [end:tool_annotations]
+
 // --8<-- [start:stdio_transport]
 const stdioClient = new McpClient({
   transport: new StdioClientTransport({

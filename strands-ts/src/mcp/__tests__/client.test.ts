@@ -279,7 +279,19 @@ describe('MCP Integration', () => {
         required: ['forecast'],
       }
       sdkClientMock.listTools.mockResolvedValue({
-        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {}, outputSchema }],
+        tools: [
+          {
+            name: 'weather',
+            description: 'Get weather',
+            inputSchema: {},
+            outputSchema,
+            annotations: {
+              title: 'Weather lookup',
+              readOnlyHint: true,
+              futureHint: 'preserved',
+            },
+          },
+        ],
       })
 
       const tools = await client.listTools()
@@ -292,6 +304,11 @@ describe('MCP Integration', () => {
         description: 'Get weather',
         inputSchema: {},
         outputSchema,
+        annotations: {
+          title: 'Weather lookup',
+          readOnlyHint: true,
+          futureHint: 'preserved',
+        },
       })
     })
 
