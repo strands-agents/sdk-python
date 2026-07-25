@@ -526,6 +526,15 @@ class Agent(AgentBase):
             for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
+        # Always register AgentDelegation so delegation semantics work regardless of
+        # when a delegate tool is added (construction, plugin getTools, MCP, runtime).
+        # The plugin is a no-op when no delegation tools fire.
+        has_agent_delegation = any(plugin.name == "strands:agent-delegation" for plugin in (plugins_to_register or []))
+        if not has_agent_delegation:
+            from ._agent_delegation import AgentDelegation
+
+            self._plugin_registry.add_and_init(AgentDelegation())
+
         # Resolve and register the memory manager (a Plugin); keep a reference so the
         # synchronous entry point can flush pending extraction writes.
         self.memory_manager = self._resolve_memory_manager(memory_manager)
@@ -1008,6 +1017,7 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         preserve_context: bool = False,
+        delegate: bool = False,
     ) -> AgentTool:
         r"""Convert this agent into a tool for use by another agent.
 
@@ -1021,6 +1031,10 @@ class Agent(AgentBase):
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
                 interactions with the agent. Defaults to False.
+            delegate: When True, the orchestrator treats this tool's result as the final
+                response and exits without an additional model call. The tool's description
+                is automatically suffixed with an instruction telling the model that this
+                tool should be the only tool called in the turn. Defaults to False.
 
         Returns:
             A tool wrapping this agent.
@@ -1030,11 +1044,18 @@ class Agent(AgentBase):
             researcher = Agent(name="researcher", description="Finds information")
             writer = Agent(name="writer", tools=[researcher.as_tool()])
             writer("Write about AI agents")
+
+            # Delegation: sub-agent response is returned directly as the final answer
+            billing = Agent(name="billing", description="Handles billing questions")
+            orchestrator = Agent(tools=[billing.as_tool(delegate=True)])
+            orchestrator("What is my balance?")
             ```
         """
         if not name:
             name = self.name
-        return _AgentAsTool(self, name=name, description=description, preserve_context=preserve_context)
+        return _AgentAsTool(
+            self, name=name, description=description, preserve_context=preserve_context, delegate=delegate
+        )
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
