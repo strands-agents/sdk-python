@@ -28,7 +28,7 @@ from types import SimpleNamespace
 from typing import Any, Protocol, TypedDict, TypeVar, cast
 
 from packaging.version import Version
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from typing_extensions import Unpack, override
 
 # Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
@@ -52,12 +52,13 @@ except Exception as e:
     ) from e
 
 import openai  # noqa: E402 - must import after version check
+from openai.types.responses.response_input_item import ResponseInputItem  # noqa: E402
 
 from ..types.citations import WebLocationDict  # noqa: E402
-from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
+from ..types.content import ContentBlock, Message, Messages, Role, SystemContentBlock  # noqa: E402
 from ..types.event_loop import Usage  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
-from ..types.streaming import StreamEvent  # noqa: E402
+from ..types.streaming import MessageStopEvent, StopReason, StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
@@ -75,6 +76,9 @@ _MAX_MEDIA_SIZE_LABEL = "20MB"
 _DEFAULT_MIME_TYPE = "application/octet-stream"
 _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overflow error"
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
+_ENCRYPTED_REASONING_INCLUDE = "reasoning.encrypted_content"
+_OPENAI_RESPONSES_OUTPUT_FIELD = "openaiResponsesOutput"
+_RESPONSE_INPUT_ITEM_ADAPTER: TypeAdapter[ResponseInputItem] = TypeAdapter(ResponseInputItem)
 
 
 class _OpenAIResponsesStreamError(RuntimeError):
@@ -327,6 +331,7 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "message_start"})
 
                 tool_calls: dict[str, _ToolCallInfo] = {}
+                output_items: dict[int, dict[str, Any]] = {}
                 final_usage = None
                 data_type: str | None = None
                 stop_reason: str | None = None
@@ -400,6 +405,12 @@ class OpenAIResponsesModel(Model):
                                     "item_id": getattr(event.item, "id", ""),
                                 }
 
+                        elif event.type == "response.output_item.done":
+                            output_index = getattr(event, "output_index", None)
+                            item = getattr(event, "item", None)
+                            if not self.stateful and isinstance(output_index, int) and item is not None:
+                                output_items[output_index] = self._response_item_to_dict(item)
+
                         elif event.type == "response.function_call_arguments.delta":
                             # Tool arguments streaming - accumulate deltas by item_id
                             if hasattr(event, "delta") and hasattr(event, "item_id"):
@@ -430,6 +441,8 @@ class OpenAIResponsesModel(Model):
                         elif event.type == "response.incomplete":
                             # Response stopped early (e.g., max tokens reached)
                             if hasattr(event, "response"):
+                                if not self.stateful:
+                                    self._capture_response_output(event.response, output_items)
                                 if hasattr(event.response, "usage"):
                                     final_usage = event.response.usage
                                 # Check if stopped due to max_output_tokens
@@ -444,6 +457,9 @@ class OpenAIResponsesModel(Model):
 
                         elif event.type == "response.completed":
                             # Response complete
+                            if hasattr(event, "response"):
+                                if not self.stateful:
+                                    self._capture_response_output(event.response, output_items)
                             if hasattr(event, "response") and hasattr(event.response, "usage"):
                                 final_usage = event.response.usage
                             break
@@ -478,13 +494,24 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
             # Determine finish reason: tool_calls > max_tokens (length) > normal stop
-            if tool_calls:
-                finish_reason = "tool_calls"
-            elif stop_reason == "length":
+            if stop_reason == "length":
                 finish_reason = "length"
+            elif tool_calls:
+                finish_reason = "tool_calls"
             else:
                 finish_reason = "stop"
-            yield self._format_chunk({"chunk_type": "message_stop", "data": finish_reason})
+            additional_fields = None
+            if output_items:
+                additional_fields = {
+                    _OPENAI_RESPONSES_OUTPUT_FIELD: [output_items[index] for index in sorted(output_items)]
+                }
+            yield self._format_chunk(
+                {
+                    "chunk_type": "message_stop",
+                    "data": finish_reason,
+                    "additional_model_response_fields": additional_fields,
+                }
+            )
 
             if final_usage:
                 yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
@@ -554,7 +581,7 @@ class OpenAIResponsesModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
                 format.
         """
-        input_items = self._format_request_messages(messages)
+        input_items = self._format_request_messages(messages, replay_output_items=not self.stateful)
         request: dict[str, Any] = {
             "model": self.config["model_id"],
             "input": input_items,
@@ -562,6 +589,11 @@ class OpenAIResponsesModel(Model):
             **cast(dict[str, Any], self.config.get("params", {})),
             "store": self.stateful,
         }
+
+        if not self.stateful:
+            configured_include = request.get("include") or []
+            if _ENCRYPTED_REASONING_INCLUDE not in configured_include:
+                request["include"] = [*configured_include, _ENCRYPTED_REASONING_INCLUDE]
 
         response_id = model_state.get("response_id") if model_state else None
         if response_id and self.stateful:
@@ -617,11 +649,12 @@ class OpenAIResponsesModel(Model):
                 return {"tool_choice": "auto"}
 
     @classmethod
-    def _format_request_messages(cls, messages: Messages) -> list[dict[str, Any]]:
+    def _format_request_messages(cls, messages: Messages, *, replay_output_items: bool = True) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
 
         Args:
             messages: List of message objects to be processed by the model.
+            replay_output_items: Whether to replay preserved Responses output items.
 
         Returns:
             An OpenAI compatible messages array.
@@ -631,6 +664,16 @@ class OpenAIResponsesModel(Model):
         for message in messages:
             role = message["role"]
             contents = message["content"]
+            output_items = cls._get_responses_output_items(message)
+            if replay_output_items and role == "assistant" and output_items:
+                formatted_messages.extend(output_items)
+                # Max-token recovery may retain only safe reasoning items after removing an
+                # incomplete tool call. Preserve the recovered visible text in that case.
+                if not any(item.get("type") == "message" for item in output_items):
+                    text = "\n".join(content["text"] for content in contents if "text" in content)
+                    if text:
+                        formatted_messages.append({"role": "assistant", "content": text})
+                continue
 
             if any("reasoningContent" in content for content in contents):
                 logger.warning(
@@ -684,11 +727,35 @@ class OpenAIResponsesModel(Model):
             formatted_messages.extend(formatted_tool_calls)
             formatted_messages.extend(formatted_tool_messages)
 
-        return [
-            message
-            for message in formatted_messages
-            if message.get("content") or message.get("type") in ["function_call", "function_call_output"]
-        ]
+        return formatted_messages
+
+    @classmethod
+    def _get_responses_output_items(cls, message: Message) -> list[dict[str, Any]] | None:
+        fields = message.get("additionalModelResponseFields")
+        if not isinstance(fields, dict):
+            return None
+        output = fields.get(_OPENAI_RESPONSES_OUTPUT_FIELD)
+        if (
+            not isinstance(output, list)
+            or not output
+            or not all(cls._is_responses_output_item(item) for item in output)
+        ):
+            logger.warning(
+                "field=<%s> | invalid Responses output items | using legacy assistant history",
+                _OPENAI_RESPONSES_OUTPUT_FIELD,
+            )
+            return None
+        return cast(list[dict[str, Any]], output)
+
+    @staticmethod
+    def _is_responses_output_item(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        try:
+            _RESPONSE_INPUT_ITEM_ADAPTER.validate_python(value)
+        except ValidationError:
+            return False
+        return True
 
     @classmethod
     def _format_request_message_content(cls, content: ContentBlock, *, role: Role = "user") -> dict[str, Any]:
@@ -794,6 +861,22 @@ class OpenAIResponsesModel(Model):
             "output": output,
         }
 
+    @staticmethod
+    def _response_item_to_dict(item: Any) -> dict[str, Any]:
+        if isinstance(item, dict):
+            return item
+        if hasattr(item, "model_dump"):
+            return cast(dict[str, Any], item.model_dump(mode="json", exclude_unset=True))
+        raise TypeError(f"item_type=<{type(item).__name__}> | unsupported Responses output item")
+
+    @classmethod
+    def _capture_response_output(cls, response: Any, output_items: dict[int, dict[str, Any]]) -> None:
+        output = getattr(response, "output", None)
+        if not isinstance(output, (list, tuple)) or not output:
+            return
+        output_items.clear()
+        output_items.update({index: cls._response_item_to_dict(item) for index, item in enumerate(output)})
+
     def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
         """Handle switching to a new content stream.
 
@@ -876,11 +959,15 @@ class OpenAIResponsesModel(Model):
             case "message_stop":
                 match event["data"]:
                     case "tool_calls":
-                        return {"messageStop": {"stopReason": "tool_use"}}
+                        stop_reason: StopReason = "tool_use"
                     case "length":
-                        return {"messageStop": {"stopReason": "max_tokens"}}
+                        stop_reason = "max_tokens"
                     case _:
-                        return {"messageStop": {"stopReason": "end_turn"}}
+                        stop_reason = "end_turn"
+                message_stop = MessageStopEvent(stopReason=stop_reason)
+                if event.get("additional_model_response_fields") is not None:
+                    message_stop["additionalModelResponseFields"] = event["additional_model_response_fields"]
+                return {"messageStop": message_stop}
 
             case "metadata":
                 # Responses API uses input_tokens/output_tokens naming convention
