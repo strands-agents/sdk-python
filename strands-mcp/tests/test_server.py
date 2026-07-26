@@ -17,7 +17,8 @@ def test_search_docs_hydrates_pages_concurrently(mock_cache):
         Doc(uri=f"https://strandsagents.com/{index}.md", display_title=f"Doc {index}", content="", index_title="")
         for index in range(2)
     ]
-    mock_cache.get_index.return_value.search.return_value = [(1.0, doc) for doc in docs]
+    ranked_docs = [docs[0], docs[0], docs[1]]
+    mock_cache.get_index.return_value.search.return_value = [(1.0, doc) for doc in ranked_docs]
     mock_cache.get_url_cache.return_value = {doc.uri: None for doc in docs}
     mock_cache.SNIPPET_HYDRATE_MAX = 5
 
@@ -42,7 +43,9 @@ def test_search_docs_hydrates_pages_concurrently(mock_cache):
     tru_result = search_docs("agent")
 
     assert max_active_fetches == 2
-    assert [result["url"] for result in tru_result] == [doc.uri for doc in docs]
+    assert mock_cache.ensure_page.call_count == 2
+    assert {call.args[0] for call in mock_cache.ensure_page.call_args_list} == {doc.uri for doc in docs}
+    assert [result["url"] for result in tru_result] == [doc.uri for doc in ranked_docs]
 
 
 @patch("strands_mcp_server.server.cache")
