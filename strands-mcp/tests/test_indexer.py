@@ -346,3 +346,25 @@ class TestSourceWeighting:
         tru_docs = [doc for _, doc in index.search("agent")]
 
         assert tru_docs == [user_guide_doc, example_doc, api_doc]
+
+    def test_search_preserves_explicit_api_intent(self) -> None:
+        """Explicit source terms disable the user-facing documentation prior."""
+        index = IndexSearch()
+        api_doc = Doc(
+            uri="https://strandsagents.com/docs/api/python/strands.hooks/",
+            display_title="strands.hooks",
+            content="",
+            index_title="hooks",
+        )
+        user_guide_doc = Doc(
+            uri="https://strandsagents.com/docs/user-guide/concepts/hooks/",
+            display_title="Hooks",
+            content="",
+            index_title="hooks",
+        )
+        for doc in (api_doc, user_guide_doc):
+            index.add(doc)
+
+        tru_docs = [doc for _, doc in index.search("hooks API")]
+
+        assert tru_docs == [api_doc, user_guide_doc]

@@ -42,10 +42,13 @@ _SOURCE_WEIGHTS = {
     "/docs/examples/": 1.1,
     "/docs/api/": 0.8,
 }
+_SOURCE_HINT_TOKENS = {"api", "reference", "example", "examples", "guide", "guides", "python", "typescript"}
 
 
-def _source_weight(uri: str) -> float:
+def _source_weight(uri: str, query_tokens: set[str]) -> float:
     """Return the search weight for a documentation source category."""
+    if query_tokens & _SOURCE_HINT_TOKENS:
+        return 1.0
     path = urlparse(uri).path
     return next((weight for prefix, weight in _SOURCE_WEIGHTS.items() if path.startswith(prefix)), 1.0)
 
@@ -318,8 +321,12 @@ class IndexSearch:
                     idf = math.log((N + 1) / (1 + doc_frequency_snapshot.get(qt, 0))) + 1.0
                     scores[idx] = scores.get(idx, 0.0) + tf * idf
 
+        query_tokens = set(q_tokens)
         ranked = sorted(
-            ((score * _source_weight(docs_snapshot[i].uri), docs_snapshot[i]) for i, score in scores.items()),
+            (
+                (score * _source_weight(docs_snapshot[i].uri, query_tokens), docs_snapshot[i])
+                for i, score in scores.items()
+            ),
             key=lambda x: x[0],
             reverse=True,
         )
