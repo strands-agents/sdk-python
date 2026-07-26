@@ -125,8 +125,9 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
         - error: Error description
         - url: Requested URL
 
-        Errors are returned for unsupported URLs, failed page fetches, and
-        unknown section IDs.
+        Errors are returned for unsupported URLs and failed page fetches. For
+        sectioned documents, unknown section IDs also return an error; `section`
+        is ignored when the full document is returned automatically.
 
     """
     cache.ensure_ready()

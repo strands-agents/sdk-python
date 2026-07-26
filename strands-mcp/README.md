@@ -49,7 +49,9 @@ This MCP server provides curated documentation access to your GenAI tools via ll
 - `search_docs(query, k)` searches document titles. Use title-like keywords, then call `fetch_doc` to inspect a result's contents.
 - Search scores are unbounded weighted TF-IDF values. They are useful only for ordering results from the same query; they are not probabilities and should not be compared across queries.
 - `search_docs` returns an empty list when no title matches. If a matched page cannot be fetched for its snippet, the result still includes the URL and title.
-- `fetch_doc` returns `{"error": "...", "url": "..."}` for unsupported URLs, failed page fetches, and unknown section IDs.
+- `fetch_doc` returns `{"error": "...", "url": "..."}` for unsupported URLs and failed page fetches. For
+  sectioned documents, unknown section IDs also return an error; `section` is ignored when the full document is
+  returned automatically.
 
 ## Prerequisites
 
