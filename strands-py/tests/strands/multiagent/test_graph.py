@@ -568,13 +568,16 @@ def test_graph_builder_validation():
     assert graph.reset_on_revisit is False
 
 
-def test_graph_max_concurrency_validation():
+@pytest.mark.parametrize("invalid_max_concurrency", [0, -1, 1.5, True])
+def test_graph_max_concurrency_validation(invalid_max_concurrency):
     """Test max concurrency validation on the builder and graph constructor."""
-    with pytest.raises(ValueError, match=r"max_concurrency=0 \| must be at least 1"):
-        GraphBuilder().set_max_concurrency(0)
+    exp_message = rf"max_concurrency={invalid_max_concurrency!r} \| must be a positive integer"
 
-    with pytest.raises(ValueError, match=r"max_concurrency=-1 \| must be at least 1"):
-        Graph(nodes={}, edges=set(), entry_points=set(), max_concurrency=-1)
+    with pytest.raises(ValueError, match=exp_message):
+        GraphBuilder().set_max_concurrency(invalid_max_concurrency)
+
+    with pytest.raises(ValueError, match=exp_message):
+        Graph(nodes={}, edges=set(), entry_points=set(), max_concurrency=invalid_max_concurrency)
 
 
 @pytest.mark.asyncio

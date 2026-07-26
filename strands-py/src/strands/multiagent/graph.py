@@ -404,10 +404,10 @@ class GraphBuilder:
             This builder for method chaining.
 
         Raises:
-            ValueError: If max_concurrency is less than 1.
+            ValueError: If max_concurrency is not a positive integer.
         """
-        if max_concurrency < 1:
-            raise ValueError(f"max_concurrency={max_concurrency} | must be at least 1")
+        if isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int) or max_concurrency < 1:
+            raise ValueError(f"max_concurrency={max_concurrency!r} | must be a positive integer")
         self._max_concurrency = max_concurrency
         return self
 
@@ -550,8 +550,10 @@ class Graph(MultiAgentBase):
 
         # Validate nodes for duplicate instances
         self._validate_graph(nodes)
-        if max_concurrency is not None and max_concurrency < 1:
-            raise ValueError(f"max_concurrency={max_concurrency} | must be at least 1")
+        if max_concurrency is not None and (
+            isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int) or max_concurrency < 1
+        ):
+            raise ValueError(f"max_concurrency={max_concurrency!r} | must be a positive integer")
 
         self.nodes = nodes
         self.edges = edges
