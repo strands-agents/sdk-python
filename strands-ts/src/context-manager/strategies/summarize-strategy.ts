@@ -1,5 +1,5 @@
 /**
- * Summarize strategy: compresses the oldest messages into a summary,
+ * Summarize pass: compresses the oldest messages into a summary,
  * preserving key context while freeing token space.
  *
  * @internal
@@ -11,7 +11,7 @@ import {
   adjustSplitPointForToolPairs,
   generateSummary,
 } from '../../conversation-manager/compression/context-compression.js'
-import type { ContextStrategy, StrategyContext } from '../types.js'
+import type { ContextPass, PassContext } from '../types.js'
 
 const DEFAULT_SUMMARY_RATIO = 0.3
 const DEFAULT_PRESERVE_RECENT = 10
@@ -43,7 +43,7 @@ export interface SummarizeStrategyConfig {
  * Reuses the SDK's existing summarization infrastructure (generateSummary,
  * adjustSplitPointForToolPairs) for consistency with SummarizingConversationManager.
  */
-export class SummarizeStrategy implements ContextStrategy {
+export class SummarizeStrategy implements ContextPass {
   readonly name = 'summarize'
 
   private readonly _summaryRatio: number
@@ -60,7 +60,7 @@ export class SummarizeStrategy implements ContextStrategy {
     this._systemPrompt = config?.systemPrompt
   }
 
-  async apply(context: StrategyContext): Promise<boolean> {
+  async apply(context: PassContext): Promise<boolean> {
     if (this._utilization !== undefined && context.utilization < this._utilization) {
       logger.debug(
         `utilization=<${context.utilization}>, threshold=<${this._utilization}> | skipping summarization, below threshold`
@@ -86,7 +86,12 @@ export class SummarizeStrategy implements ContextStrategy {
       return false
     }
 
-    messagesToSummarize = adjustSplitPointForToolPairs(messages, messagesToSummarize)
+    try {
+      messagesToSummarize = adjustSplitPointForToolPairs(messages, messagesToSummarize)
+    } catch {
+      logger.warn('unable to find valid split point for summarization')
+      return false
+    }
 
     const toSummarize = messages.slice(0, messagesToSummarize)
 

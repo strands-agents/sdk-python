@@ -1,14 +1,19 @@
 /**
- * Offload strategy: stores oversized tool results to the stash and replaces
+ * Offload pass: stores oversized tool results to the stash and replaces
  * them with a head-tail preview + storage reference.
+ *
+ * Operates eagerly by default: offloads on message arrival so the model never
+ * sees oversized results. The retroactive `apply()` pass catches anything that
+ * slipped through (e.g., messages added before the pass was initialized).
  *
  * @internal
  */
 
 import { logger } from '../../logging/logger.js'
+import { MessageAddedEvent } from '../../hooks/events.js'
 import { TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Message } from '../../types/messages.js'
-import type { ContextStrategy, StrategyContext } from '../types.js'
+import type { ContextPass, PassContext, PassInitContext } from '../types.js'
 
 const DEFAULT_MAX_RESULT_TOKENS = 2500
 const DEFAULT_PREVIEW_TOKENS = 1000
@@ -16,7 +21,7 @@ const DEFAULT_SKIP_RECENT = 3
 const CHARS_PER_TOKEN = 4
 
 /**
- * Configuration for the offload strategy.
+ * Configuration for the offload pass.
  */
 export interface OffloadStrategyConfig {
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
@@ -25,7 +30,7 @@ export interface OffloadStrategyConfig {
   /** Number of tokens to keep as preview text. Defaults to 1,000. */
   previewTokens?: number
 
-  /** Number of recent messages to skip (never offload). Defaults to 3. */
+  /** Number of recent messages to skip during retroactive apply(). Defaults to 3. */
   skipRecent?: number
 }
 
@@ -33,10 +38,10 @@ export interface OffloadStrategyConfig {
  * Offloads oversized tool results from L0 into storage, replacing them with a
  * head-tail preview and a stash reference.
  *
- * Unlike the ContextOffloader plugin (which intercepts at tool-call time), this
- * strategy runs retroactively on the existing message array during apply().
+ * Eagerly offloads on message arrival (the model never sees the full content).
+ * The retroactive `apply()` pass catches results that existed before initialization.
  */
-export class OffloadStrategy implements ContextStrategy {
+export class OffloadStrategy implements ContextPass {
   readonly name = 'offload'
 
   private readonly _maxResultTokens: number
@@ -49,7 +54,31 @@ export class OffloadStrategy implements ContextStrategy {
     this._skipRecent = config?.skipRecent ?? DEFAULT_SKIP_RECENT
   }
 
-  async apply(context: StrategyContext): Promise<boolean> {
+  init(context: PassInitContext): void {
+    const { agent, storage } = context
+    agent.addHook(MessageAddedEvent, async (event) => {
+      const message = event.message
+      if (message.role !== 'user') return
+
+      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof ToolResultBlock)) continue
+        if (block.status === 'error') continue
+
+        const estimatedTokens = this._estimateTokens(block)
+        if (estimatedTokens <= this._maxResultTokens) continue
+
+        const reference = await this._storeAndReplace(message, blockIndex, block, storage)
+        if (reference) {
+          logger.debug(
+            `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | eagerly offloaded tool result to stash`
+          )
+        }
+      }
+    })
+  }
+
+  async apply(context: PassContext): Promise<boolean> {
     const { messages, storage } = context
     const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
 
@@ -156,7 +185,7 @@ export class OffloadStrategy implements ContextStrategy {
 
     return (
       `[Offloaded: ${block.content.length} blocks, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n` +
-      `Use retrieve_offloaded_content with reference "${reference}" for full content.\n\n` +
+      `Full content available at storage reference "${reference}".\n\n` +
       preview
     )
   }

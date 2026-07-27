@@ -50,27 +50,44 @@ export interface StashConfig {
 }
 
 /**
- * A context management strategy that can reduce context when triggered.
+ * A context pass that can reduce or transform context when triggered.
  *
- * Strategies are applied in order during `apply()`. Each decides whether
+ * Passes are applied in order during `apply()`. Each decides whether
  * to act based on the current context state (utilization, message count, etc.).
  */
-export interface ContextStrategy {
+export interface ContextPass {
   /** Stable identifier for logging and observability. */
   readonly name: string
+
+  /**
+   * Called once when the ContextManager is attached to an agent.
+   * Passes can use this to register hooks (e.g., eager offloading on message arrival).
+   */
+  init?(context: PassInitContext): void
 
   /**
    * Attempt to reduce context. Returns true if it made changes, false if it
    * decided not to act (e.g., conditions not met, nothing to offload).
    */
-  apply(context: StrategyContext): Promise<boolean>
+  apply(context: PassContext): Promise<boolean>
 }
 
 /**
- * State passed to strategies during apply().
+ * Context passed to context passes during initialization.
  */
-export interface StrategyContext {
-  /** The agent's current message array (L0). Strategies mutate this in place. */
+export interface PassInitContext {
+  /** The agent instance. */
+  agent: import('../types/agent.js').LocalAgent
+
+  /** Storage backend for offloading content. */
+  storage: import('../storage/storage.js').Storage
+}
+
+/**
+ * State passed to context passes during apply().
+ */
+export interface PassContext {
+  /** The agent's current message array (L0). Passes mutate this in place. */
   messages: import('../types/messages.js').Message[]
 
   /** The agent instance. */
@@ -99,8 +116,8 @@ export interface ContextManagerConfig {
   stash?: StashConfig | boolean
 
   /**
-   * Strategy pipeline for context reduction. Applied in order during `apply()`.
+   * Context pass pipeline for context reduction. Applied in order during `apply()`.
    * When omitted, uses the default pipeline: offload tool results → summarize oldest.
    */
-  strategies?: ContextStrategy[]
+  passes?: ContextPass[]
 }
