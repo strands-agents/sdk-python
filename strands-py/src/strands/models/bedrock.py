@@ -605,10 +605,24 @@ class BedrockModel(Model):
         Raises:
             TypeError: If the content block type is not supported by Bedrock.
         """
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_AudioBlock.html
+        if "audio" in content:
+            audio = content["audio"]
+            source = audio["source"]
+            formatted_audio_source: dict[str, Any] | None
+            if "location" in source:
+                formatted_audio_source = self._handle_location(source["location"])
+                if formatted_audio_source is None:
+                    return None
+            elif "bytes" in source:
+                formatted_audio_source = {"bytes": source["bytes"]}
+            result: dict[str, Any] = {"format": audio["format"], "source": formatted_audio_source}
+            return {"audio": result}
+
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
         if "cachePoint" in content:
             cache_point = content["cachePoint"]
-            result: dict[str, Any] = {"type": cache_point["type"]}
+            result = {"type": cache_point["type"]}
             if "ttl" in cache_point:
                 result["ttl"] = cache_point["ttl"]
             return {"cachePoint": result}

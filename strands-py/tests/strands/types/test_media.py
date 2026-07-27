@@ -1,6 +1,7 @@
 """Tests for media type definitions."""
 
 from strands.types.media import (
+    AudioSource,
     DocumentSource,
     ImageSource,
     S3Location,
@@ -73,6 +74,30 @@ class TestImageSource:
 
         assert "bytes" not in img_source
         assert img_source["s3Location"]["uri"] == "s3://my-bucket/images/photo.png"
+
+
+class TestAudioSource:
+    """Tests for AudioSource TypedDict."""
+
+    def test_audio_source_with_bytes(self):
+        """Test AudioSource with bytes content."""
+        audio_source: AudioSource = {"bytes": b"audio content"}
+
+        assert audio_source["bytes"] == b"audio content"
+        assert "s3Location" not in audio_source
+
+    def test_audio_source_with_s3_location(self):
+        """Test AudioSource with s3Location."""
+        audio_source: AudioSource = {
+            "s3Location": {
+                "uri": "s3://my-bucket/audio/recording.mp3",
+                "bucketOwner": "123456789012",
+            }
+        }
+
+        assert "bytes" not in audio_source
+        assert audio_source["s3Location"]["uri"] == "s3://my-bucket/audio/recording.mp3"
+        assert audio_source["s3Location"]["bucketOwner"] == "123456789012"
 
 
 class TestVideoSource:

@@ -46,6 +46,37 @@ class S3Location(Location, total=False):
 
 SourceLocation: TypeAlias = Location | S3Location
 
+AudioFormat = Literal[
+    "mp3", "opus", "wav", "aac", "flac", "mp4", "ogg", "mkv", "mka", "x-aac", "m4a", "mpeg", "mpga", "pcm", "webm"
+]
+"""Supported audio formats."""
+
+
+class AudioSource(TypedDict, total=False):
+    """Contains the content of an audio file.
+
+    Only one of `bytes` or `s3Location` should be specified.
+
+    Attributes:
+        bytes: The binary content of the audio file.
+        location: Location of the audio file.
+    """
+
+    bytes: bytes
+    location: SourceLocation
+
+
+class AudioContent(TypedDict):
+    """An audio file to include in a message.
+
+    Attributes:
+        format: The format of the audio file (e.g., "mp3", "wav").
+        source: The source containing the audio file's binary content.
+    """
+
+    format: AudioFormat
+    source: AudioSource
+
 
 class DocumentSource(TypedDict, total=False):
     """Contains the content of a document.
