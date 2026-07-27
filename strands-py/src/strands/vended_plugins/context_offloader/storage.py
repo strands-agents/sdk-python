@@ -1,27 +1,20 @@
 """Storage backends for offloaded tool result content.
 
-This module defines the Storage protocol and provides three built-in
-implementations: file-based, in-memory, and S3 storage. Each content block
-from a tool result is stored individually with its content type preserved.
+.. deprecated::
+    The storage classes in this module (``InMemoryStorage``, ``FileStorage``,
+    ``S3Storage``) are deprecated. Use the unified storage backends from
+    :mod:`strands.storage` instead::
+
+        from strands.storage import InMemoryStorage, LocalFileStorage, S3Storage
 
 Example:
     ```python
-    from strands.vended_plugins.context_offloader import (
-        FileStorage,
-        InMemoryStorage,
-        S3Storage,
-    )
+    from strands.storage import InMemoryStorage, LocalFileStorage, S3Storage
 
-    # File-based storage
-    storage = FileStorage(artifact_dir="./artifacts")
-    ref = storage.store("tool_123_0", b"large output content...", "text/plain")
-    content, content_type = storage.retrieve(ref)
-
-    # In-memory storage (useful for testing and serverless)
+    # Unified storage backends
+    storage = LocalFileStorage("./artifacts")
     storage = InMemoryStorage()
-
-    # S3 storage
-    storage = S3Storage(bucket="my-bucket", prefix="artifacts/")
+    storage = S3Storage("my-bucket", prefix="artifacts/")
     ```
 """
 
@@ -63,6 +56,9 @@ def _sanitize_id(raw_id: str) -> str:
 @runtime_checkable
 class Storage(Protocol):
     """Backend for storing and retrieving offloaded content blocks.
+
+    .. deprecated::
+        Use :class:`strands.storage.Storage` instead.
 
     Each content block from a tool result is stored individually with its
     content type preserved. The SDK ships three built-in implementations:
@@ -107,6 +103,9 @@ class Storage(Protocol):
 
 class FileStorage:
     """Store offloaded content as files, on the host filesystem or through a sandbox.
+
+    .. deprecated::
+        Use :class:`strands.storage.LocalFileStorage` instead.
 
     Files are written to the configured artifact directory with unique names.
     File extensions are derived from the content type. A ``.metadata.json``
@@ -346,6 +345,9 @@ class FileStorage:
 class InMemoryStorage:
     """Store offloaded content in memory.
 
+    .. deprecated::
+        Use :class:`strands.storage.InMemoryStorage` instead.
+
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
 
@@ -479,6 +481,9 @@ class InMemoryStorage:
 
 class S3Storage:
     """Store offloaded content in Amazon S3.
+
+    .. deprecated::
+        Use :class:`strands.storage.S3Storage` instead.
 
     Objects are stored with unique keys under the configured prefix.
     Content type is preserved as S3 object metadata.
