@@ -152,9 +152,11 @@ flowchart LR
   end
   subgraph Tool["Tool Events"]
     direction TB
+        BeforeToolsEvent["BeforeToolsEvent"]
         BeforeToolCallEvent["BeforeToolCallEvent"]
         AfterToolCallEvent["AfterToolCallEvent"]
         ToolMessage["MessageAddedEvent"]
+        BeforeToolsEvent --> BeforeToolCallEvent
         BeforeToolCallEvent --> AfterToolCallEvent
         AfterToolCallEvent --> ToolMessage
   end
@@ -294,6 +296,7 @@ Init --> Invocation
 | `MessageAddedEvent`                | Triggered when a message is added to the agent's conversation history                                         |
 | `BeforeModelCallEvent`             | Triggered before the model is invoked for inference                                                           |
 | `AfterModelCallEvent`              | Triggered after model invocation completes. Uses reverse callback ordering                                    |
+| `BeforeToolsEvent`                 | Triggered once before a batch of tools is executed, before any `BeforeToolCallEvent`                          |
 | `BeforeToolCallEvent`              | Triggered before a tool is invoked                                                                            |
 | `AfterToolCallEvent`               | Triggered after tool invocation completes. Uses reverse callback ordering                                     |
 | `MultiAgentInitializedEvent`       | Triggered when multi-agent orchestrator is initialized                                                        |
@@ -349,6 +352,9 @@ Most event properties are read-only to prevent unintended modifications. However
 
 - [`AfterModelCallEvent`](@api/python/strands.hooks.events#AfterModelCallEvent)
     - `retry` - Request a retry of the model invocation. See [Model Call Retry](#model-call-retry).
+
+- [`BeforeToolsEvent`](@api/python/strands.hooks.events#BeforeToolsEvent)
+    - `cancel` - Cancel all tool calls in the batch with a message. See [Limit Tool Counts](#limit-tool-counts).
 
 - [`BeforeToolCallEvent`](@api/python/strands.hooks.events#BeforeToolCallEvent)
     - `cancel_tool` - Cancel tool execution with a message. See [Limit Tool Counts](#limit-tool-counts).
