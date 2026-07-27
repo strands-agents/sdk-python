@@ -82,12 +82,12 @@ class ConcurrentToolExecutor(ToolExecutor):
 
                 yield event
                 task_events[task_id].set()
-            for results in task_results:
-                tool_results.extend(results)
         finally:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            for results in task_results:
+                tool_results.extend(results)
 
     async def _task(
         self,

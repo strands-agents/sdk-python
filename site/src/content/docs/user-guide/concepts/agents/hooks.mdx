@@ -296,6 +296,7 @@ Init --> Invocation
 | `AfterModelCallEvent`              | Triggered after model invocation completes. Uses reverse callback ordering                                    |
 | `BeforeToolCallEvent`              | Triggered before a tool is invoked                                                                            |
 | `AfterToolCallEvent`               | Triggered after tool invocation completes. Uses reverse callback ordering                                     |
+| `AfterToolsEvent`                  | Triggered after tools are executed in a batch. Uses reverse callback ordering                                 |
 | `MultiAgentInitializedEvent`       | Triggered when multi-agent orchestrator is initialized                                                        |
 | `BeforeMultiAgentInvocationEvent`  | Triggered before orchestrator execution starts                                                                |
 | `AfterMultiAgentInvocationEvent`   | Triggered after orchestrator execution completes. Uses reverse callback ordering                              |
@@ -359,6 +360,9 @@ Most event properties are read-only to prevent unintended modifications. However
     - `result` - Modify the tool result. See [Result Modification](#result-modification).
     - `retry` - Request a retry of the tool invocation. See [Tool Call Retry](#tool-call-retry).
     - `exception` *(read-only)* - The original exception if the tool raised one, otherwise `None`. See [Exception Handling](#exception-handling).
+
+- [`AfterToolsEvent`](@api/python/strands.hooks.events#AfterToolsEvent)
+    - `end_turn` - End the agent loop after the current tool batch without another model call. Set it to `True` for the default assistant message, or to a non-empty string to use that string as the final assistant message. The result uses `stop_reason="end_turn"`.
 
 - [`AfterInvocationEvent`](@api/python/strands.hooks.events#AfterInvocationEvent)
     - `resume` - Trigger a follow-up agent invocation with new input. See [Invocation resume](#invocation-resume).

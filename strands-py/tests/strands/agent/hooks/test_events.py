@@ -7,10 +7,12 @@ from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
     AfterToolCallEvent,
+    AfterToolsEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
     BeforeToolCallEvent,
+    HookRegistry,
     MessageAddedEvent,
 )
 from strands.types.content import Message, Messages
@@ -174,6 +176,53 @@ def test_after_invocation_event_properties_not_writable(agent):
 
     with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
         event.invocation_state = {}
+
+
+def test_after_tools_event_fields_defaults_and_mutability(agent):
+    message: Message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "123",
+                    "status": "success",
+                    "content": [{"text": "result"}],
+                }
+            }
+        ],
+    }
+    invocation_state = {"request_state": {"key": "value"}}
+    event = AfterToolsEvent(agent=agent, message=message, invocation_state=invocation_state)
+
+    assert event.agent is agent
+    assert event.message is message
+    assert event.invocation_state is invocation_state
+    assert event.end_turn is False
+    assert event.should_reverse_callbacks is True
+
+    event.end_turn = True
+    assert event.end_turn is True
+    event.end_turn = "enough information gathered"
+    assert event.end_turn == "enough information gathered"
+
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        event.agent = Mock()
+    with pytest.raises(AttributeError, match="Property message is not writable"):
+        event.message = {"role": "user", "content": []}
+    with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
+        event.invocation_state = {}
+
+
+def test_after_tools_event_callbacks_run_in_reverse_order(agent):
+    event = AfterToolsEvent(agent=agent, message={"role": "user", "content": []}, invocation_state={})
+    registry = HookRegistry()
+    calls = []
+    registry.add_callback(AfterToolsEvent, lambda _: calls.append("first"))
+    registry.add_callback(AfterToolsEvent, lambda _: calls.append("second"))
+
+    registry.invoke_callbacks(event)
+
+    assert calls == ["second", "first"]
 
 
 def test_invocation_state_is_available_in_invocation_events(agent):

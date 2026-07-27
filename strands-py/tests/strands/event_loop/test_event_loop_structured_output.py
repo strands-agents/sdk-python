@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from strands._middleware import MiddlewareRegistry
 from strands.event_loop.event_loop import event_loop_cycle, recurse_event_loop
+from strands.hooks import AfterToolsEvent
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.telemetry.tracer import Tracer
 from strands.tools.registry import ToolRegistry
@@ -19,7 +20,7 @@ from strands.tools.structured_output._structured_output_context import (
     DEFAULT_STRUCTURED_OUTPUT_PROMPT,
     StructuredOutputContext,
 )
-from strands.types._events import EventLoopStopEvent, StructuredOutputEvent
+from strands.types._events import EventLoopStopEvent, StructuredOutputEvent, ToolInterruptEvent
 from strands.types.exceptions import EventLoopException, StructuredOutputException
 
 
@@ -391,6 +392,101 @@ async def test_structured_output_tool_execution_extracts_result(
     assert structured_output_events[0]["structured_output"] == test_result
 
     # Extract_result should have been called
+    structured_output_context.extract_result.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_end_turn_skips_structured_output_extraction(
+    mock_agent,
+    structured_output_context,
+    agenerator,
+    alist,
+):
+    mock_agent.model.stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": "UserModel"}}}},
+            {
+                "contentBlockDelta": {
+                    "delta": {"toolUse": {"input": '{"name": "Alice", "age": 25, "email": "alice@test.com"}'}}
+                }
+            },
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+    )
+    mock_agent.tool_executor._execute = Mock(return_value=agenerator([]))
+    structured_output_context.extract_result = Mock()
+
+    async def invoke_callbacks(event):
+        if isinstance(event, AfterToolsEvent):
+            event.end_turn = True
+        return event, []
+
+    mock_agent.hooks.invoke_callbacks_async = AsyncMock(side_effect=invoke_callbacks)
+
+    events = await alist(
+        event_loop_cycle(
+            agent=mock_agent,
+            invocation_state={},
+            structured_output_context=structured_output_context,
+        )
+    )
+
+    stop_reason, message, _, _, _, structured_output, checkpoint = events[-1]["stop"]
+    assert stop_reason == "end_turn"
+    assert message["content"] == [{"text": "Turn ended early by hook after tool execution"}]
+    assert structured_output is None
+    assert checkpoint is None
+    structured_output_context.extract_result.assert_not_called()
+    assert not [event for event in events if isinstance(event, StructuredOutputEvent)]
+    assert mock_agent.model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_interrupt_still_surfaces_structured_output_result(
+    mock_agent,
+    structured_output_context,
+    agenerator,
+    alist,
+):
+    """An interrupted batch still extracts and surfaces the structured-output result.
+
+    This preserves the pre-AfterToolsEvent control flow: end_turn only affects a fully
+    completed batch, so an interrupt keeps carrying its structured-output result.
+    """
+    mock_agent.model.stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": "UserModel"}}}},
+            {
+                "contentBlockDelta": {
+                    "delta": {"toolUse": {"input": '{"name": "Alice", "age": 25, "email": "alice@test.com"}'}}
+                }
+            },
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+    )
+    interrupt = Mock()
+    mock_agent.tool_executor._execute = Mock(
+        return_value=agenerator(
+            [ToolInterruptEvent({"toolUseId": "t1", "name": "UserModel", "input": {}}, [interrupt])]
+        )
+    )
+    test_result = UserModel(name="Alice", age=25, email="alice@test.com")
+    structured_output_context.extract_result = Mock(return_value=test_result)
+
+    events = await alist(
+        event_loop_cycle(
+            agent=mock_agent,
+            invocation_state={},
+            structured_output_context=structured_output_context,
+        )
+    )
+
+    stop_reason, _, _, _, interrupts, structured_output, _ = events[-1]["stop"]
+    assert stop_reason == "interrupt"
+    assert interrupts == [interrupt]
+    assert structured_output == test_result
     structured_output_context.extract_result.assert_called_once()
 
 

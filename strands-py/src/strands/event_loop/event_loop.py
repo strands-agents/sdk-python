@@ -18,7 +18,7 @@ from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent
+from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -745,64 +745,78 @@ async def _handle_tool_execution(
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
     interrupts = []
+    execution_error: Exception | None = None
+    after_tools_error: Exception | None = None
 
-    # Check for cancellation before tool execution
-    # Add tool_result for each tool_use to maintain valid conversation state
-    if agent._cancel_signal.is_set():
-        logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
-
-        # Create cancellation tool_result for each tool_use to avoid invalid message state
-        # (tool_use without tool_result would be rejected on next invocation)
-        for tool_use in tool_uses:
-            cancel_result: ToolResult = {
-                "toolUseId": str(tool_use.get("toolUseId")),
-                "status": "error",
-                "content": [{"text": "Tool execution cancelled"}],
-            }
-            tool_results.append(cancel_result)
-
-        # Add tool results message to conversation if any tools were cancelled
-        cancelled_tool_result_message: Message | None = None
-        if tool_results:
-            _cancelled_msg: Message = {
-                "role": "user",
-                "content": [{"toolResult": result} for result in tool_results],
-            }
-            cancelled_tool_result_message = _cancelled_msg
-            await agent._append_messages(_cancelled_msg)
-            yield ToolResultMessageEvent(message=_cancelled_msg)
-
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "cancelled",
-            message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
-        )
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(
-                span=cycle_span, message=message, tool_result_message=cancelled_tool_result_message
+    try:
+        # Check for cancellation before tool execution. Add one synthetic result per
+        # tool use so the conversation remains valid if finalization completes.
+        if agent._cancel_signal.is_set():
+            logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
+            for tool_use in tool_uses:
+                cancel_result: ToolResult = {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": "Tool execution cancelled"}],
+                }
+                tool_results.append(cancel_result)
+        else:
+            tool_events = agent.tool_executor._execute(
+                agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
-        return
+            async for tool_event in tool_events:
+                if isinstance(tool_event, ToolInterruptEvent):
+                    interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
 
-    tool_events = agent.tool_executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
-    )
-    async for tool_event in tool_events:
-        if isinstance(tool_event, ToolInterruptEvent):
-            interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+                yield tool_event
+    except Exception as error:
+        execution_error = error
+    finally:
+        tool_result_message: Message = {
+            "role": "user",
+            "content": [{"toolResult": result} for result in tool_results],
+        }
+        after_tools_event = AfterToolsEvent(
+            agent=agent,
+            message=tool_result_message,
+            invocation_state=invocation_state,
+        )
+        try:
+            await agent.hooks.invoke_callbacks_async(after_tools_event)
+        except Exception as error:
+            after_tools_error = error
 
-        yield tool_event
-
-    structured_output_result = None
-    if structured_output_context.is_enabled:
-        if structured_output_result := structured_output_context.extract_result(tool_uses):
-            yield StructuredOutputEvent(structured_output=structured_output_result)
-            structured_output_context.stop_loop = True
-
-    invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
+    if execution_error is not None:
+        # The tool-execution error is the authoritative outcome. If the after-tools hook
+        # also failed, surface it in the logs rather than letting it mask the real error.
+        if after_tools_error is not None:
+            logger.error(
+                "exception=<%s> | after-tools hook failed while preserving tool execution error",
+                type(after_tools_error).__name__,
+            )
+            logger.debug("after-tools hook failed", exc_info=after_tools_error)
+        raise execution_error
 
     if interrupts:
+        # An interrupt is an authoritative outcome that must not be lost, so it is handled
+        # before re-raising an after-tools hook failure (which is only logged here). Structured
+        # output is extracted and surfaced on the interrupt stop event, matching the control flow
+        # used before AfterToolsEvent was introduced; it is re-extracted when the loop resumes.
+        structured_output_result = None
+        if structured_output_context.is_enabled:
+            if structured_output_result := structured_output_context.extract_result(tool_uses):
+                yield StructuredOutputEvent(structured_output=structured_output_result)
+                structured_output_context.stop_loop = True
+
+        invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
+
+        if after_tools_error is not None:
+            logger.error(
+                "exception=<%s> | after-tools hook failed while preserving interrupt",
+                type(after_tools_error).__name__,
+            )
+            logger.debug("after-tools hook failed", exc_info=after_tools_error)
+
         # Session state stored on AfterInvocationEvent.
         agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
         agent._interrupt_state.activate()
@@ -816,28 +830,50 @@ async def _handle_tool_execution(
             interrupts,
             structured_output=structured_output_result,
         )
-        # End the cycle span before yielding the recursive cycle.
         if cycle_span:
             tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
 
         return
 
+    if after_tools_error is not None:
+        raise after_tools_error
+
     agent._interrupt_state.deactivate()
 
-    tool_result_message: Message = {
-        "role": "user",
-        "content": [{"toolResult": result} for result in tool_results],
-    }
+    if tool_result_message["content"]:
+        await agent._append_messages(tool_result_message)
+        yield ToolResultMessageEvent(message=tool_result_message)
 
-    await agent._append_messages(tool_result_message)
-
-    yield ToolResultMessageEvent(message=tool_result_message)
-
-    # End the cycle span before yielding the recursive cycle.
     if cycle_span:
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
-
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+
+    if after_tools_event.end_turn:
+        # A hook ended the turn on a completed batch: stop before another model call and
+        # before structured-output extraction, request-state stopping, cancellation, and
+        # checkpointing. A non-empty string is used verbatim as the assistant message.
+        end_turn_text = (
+            after_tools_event.end_turn
+            if isinstance(after_tools_event.end_turn, str)
+            else "Turn ended early by hook after tool execution"
+        )
+        final_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
+        await agent._append_messages(final_message)
+        yield EventLoopStopEvent(
+            "end_turn",
+            final_message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        return
+
+    structured_output_result = None
+    if structured_output_context.is_enabled:
+        if structured_output_result := structured_output_context.extract_result(tool_uses):
+            yield StructuredOutputEvent(structured_output=structured_output_result)
+            structured_output_context.stop_loop = True
+
+    invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     if invocation_state["request_state"].get("stop_event_loop", False) or structured_output_context.stop_loop:
         yield EventLoopStopEvent(

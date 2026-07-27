@@ -17,6 +17,8 @@ from strands.event_loop._retry import ModelRetryStrategy
 from strands.experimental.checkpoint import Checkpoint
 from strands.hooks import (
     AfterModelCallEvent,
+    AfterToolCallEvent,
+    AfterToolsEvent,
     BeforeModelCallEvent,
     BeforeToolCallEvent,
     HookRegistry,
@@ -25,7 +27,7 @@ from strands.hooks import (
 from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.telemetry.tracer import Tracer
-from strands.tools.executors import SequentialToolExecutor
+from strands.tools.executors import ConcurrentToolExecutor, SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
 from strands.types._events import EventLoopStopEvent
 from strands.types.exceptions import (
@@ -408,6 +410,199 @@ async def test_event_loop_cycle_tool_result(
         invocation_state=unittest.mock.ANY,
         model_state=unittest.mock.ANY,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("end_turn", "expected_text"),
+    [
+        (True, "Turn ended early by hook after tool execution"),
+        ("enough information gathered", "enough information gathered"),
+    ],
+)
+async def test_after_tools_event_end_turn_stops_before_next_model_call(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+    end_turn,
+    expected_text,
+):
+    captured_events = []
+
+    def end_after_tools(event):
+        captured_events.append(event)
+        event.end_turn = end_turn
+
+    agent.hooks.add_callback(AfterToolsEvent, end_after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={}))
+
+    assert len(captured_events) == 1
+    assert captured_events[0].message == {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [{"text": "abcdEfghI123"}],
+                }
+            }
+        ],
+        "tracking_id": ANY,
+    }
+    assert events[-1] == EventLoopStopEvent(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": expected_text}], "tracking_id": ANY},
+        metrics=ANY,
+        request_state={},
+    )
+    assert [message["role"] for message in agent.messages] == ["user", "assistant", "user", "assistant"]
+    assert agent.messages[-1] == {
+        "role": "assistant",
+        "content": [{"text": expected_text}],
+        "tracking_id": ANY,
+    }
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("end_turn", [False, ""])
+async def test_after_tools_event_falsy_end_turn_continues(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+    end_turn,
+):
+    def after_tools(event):
+        event.end_turn = end_turn
+
+    agent.hooks.add_callback(AfterToolsEvent, after_tools)
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "continued"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={}))
+
+    assert events[-1]["stop"][0] == "end_turn"
+    assert events[-1]["stop"][1]["content"] == [{"text": "continued"}]
+    assert model.stream.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_observes_mutated_tool_result(agent, model, tool_stream, agenerator, alist):
+    captured_events = []
+
+    def replace_result(event):
+        event.result = {
+            "toolUseId": event.result["toolUseId"],
+            "status": "success",
+            "content": [{"text": "rewritten"}],
+        }
+
+    agent.hooks.add_callback(AfterToolCallEvent, replace_result)
+    agent.hooks.add_callback(AfterToolsEvent, captured_events.append)
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "done"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    await alist(strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={}))
+
+    assert len(captured_events) == 1
+    assert captured_events[0].message["content"] == [
+        {
+            "toolResult": {
+                "toolUseId": "t1",
+                "status": "success",
+                "content": [{"text": "rewritten"}],
+            }
+        }
+    ]
+    assert agent.messages[-2]["content"] == captured_events[0].message["content"]
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_end_turn_wins_for_cancelled_batch(agent, model, tool_stream, agenerator, alist):
+    def end_after_tools(event):
+        event.end_turn = True
+
+    def set_cancel_after_model(event):
+        agent._cancel_signal.set()
+
+    agent.hooks.add_callback(AfterModelCallEvent, set_cancel_after_model)
+    agent.hooks.add_callback(AfterToolsEvent, end_after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={}))
+
+    assert events[-1]["stop"][0] == "end_turn"
+    assert events[-1]["stop"][1]["content"] == [{"text": "Turn ended early by hook after tool execution"}]
+    assert agent.messages[-2]["content"] == [
+        {
+            "toolResult": {
+                "toolUseId": "t1",
+                "status": "error",
+                "content": [{"text": "Tool execution cancelled"}],
+            }
+        }
+    ]
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_end_turn_with_concurrent_tools(
+    agent,
+    model,
+    tool_times_2,
+    tool_times_5,
+    agenerator,
+    alist,
+):
+    agent.tool_executor = ConcurrentToolExecutor()
+    captured_events = []
+
+    def end_after_tools(event):
+        captured_events.append(event)
+        event.end_turn = True
+
+    agent.hooks.add_callback(AfterToolsEvent, end_after_tools)
+    model.stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": tool_times_2.tool_name}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"x": 2}'}}}},
+            {"contentBlockStop": {}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t2", "name": tool_times_5.tool_name}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"x": 3}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+    )
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={}))
+
+    assert events[-1]["stop"][0] == "end_turn"
+    assert len(captured_events) == 1
+    assert [block["toolResult"]["toolUseId"] for block in captured_events[0].message["content"]] == ["t1", "t2"]
+    assert model.stream.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1002,8 +1197,113 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
 
 
 @pytest.mark.asyncio
+async def test_after_tools_event_fires_on_interrupt_without_overriding_it(agent, model, tool_stream, agenerator, alist):
+    captured_events = []
+
+    def interrupt_callback(event):
+        event.interrupt("test_name", "test reason")
+
+    def after_tools(event):
+        captured_events.append(event)
+        event.end_turn = True
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+    agent.hooks.add_callback(AfterToolsEvent, after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    assert len(captured_events) == 1
+    assert captured_events[0].message == {"role": "user", "content": []}
+    assert events[-1]["stop"][0] == "interrupt"
+    assert agent.messages[-1]["role"] == "assistant"
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_fires_when_tool_executor_raises(agent, model, tool_stream, agenerator, alist):
+    captured_events = []
+
+    async def failing_executor(*args, **kwargs):
+        if False:
+            yield
+        raise RuntimeError("executor failed")
+
+    agent.hooks.add_callback(AfterToolsEvent, captured_events.append)
+    agent.tool_executor._execute = failing_executor
+    model.stream.return_value = agenerator(tool_stream)
+
+    with pytest.raises(EventLoopException, match="executor failed"):
+        await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    assert len(captured_events) == 1
+    assert captured_events[0].message == {"role": "user", "content": []}
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_execution_error_remains_primary_when_after_tools_callback_fails(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+    caplog,
+):
+    async def failing_executor(*args, **kwargs):
+        if False:
+            yield
+        raise RuntimeError("executor failed")
+
+    def failing_after_tools(event):
+        raise ValueError("cleanup failed")
+
+    agent.tool_executor._execute = failing_executor
+    agent.hooks.add_callback(AfterToolsEvent, failing_after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+
+    with caplog.at_level("ERROR", logger="strands.event_loop.event_loop"):
+        with pytest.raises(EventLoopException, match="executor failed") as raised:
+            await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    assert isinstance(raised.value.__cause__, RuntimeError)
+    # The secondary after-tools hook failure must be surfaced (logged), not silently swallowed.
+    assert "after-tools hook failed while preserving tool execution error" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_callback_error_does_not_override_interrupt(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+    caplog,
+):
+    def interrupt_callback(event):
+        event.interrupt("test_name", "test reason")
+
+    def failing_after_tools(event):
+        raise ValueError("cleanup failed")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+    agent.hooks.add_callback(AfterToolsEvent, failing_after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+
+    with caplog.at_level("ERROR", logger="strands.event_loop.event_loop"):
+        events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # Interrupt stays authoritative; the raising hook is logged, not surfaced as the outcome.
+    assert events[-1]["stop"][0] == "interrupt"
+    assert agent._interrupt_state.activated is True
+    assert "after-tools hook failed while preserving interrupt" in caplog.text
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, agenerator, alist, hook_provider):
     """Test that model hooks are correctly emitted even when throttled."""
+
     # Set up the model to raise throttling exceptions multiple times before succeeding
     exception = ModelThrottledException("ThrottlingException | ConverseStream")
     model.stream.side_effect = [
@@ -1449,6 +1749,61 @@ async def test_event_loop_cycle_checkpoint_after_tools(
     assert tru_checkpoint is not None
     assert tru_checkpoint.position == "after_tools"
     assert tru_checkpoint.cycle_index == 0
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_end_turn_beats_after_tools_checkpoint(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    agent._checkpointing = True
+    agent._checkpoint = Checkpoint(position="after_model", cycle_index=0)
+
+    def end_after_tools(event):
+        event.end_turn = True
+
+    agent.hooks.add_callback(AfterToolsEvent, end_after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={}))
+    stop_reason, message, _, _, _, structured_output, checkpoint = events[-1]["stop"]
+
+    assert stop_reason == "end_turn"
+    assert message["content"] == [{"text": "Turn ended early by hook after tool execution"}]
+    assert structured_output is None
+    assert checkpoint is None
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_after_tools_event_end_turn_wins_without_clearing_stop_event_loop(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    def end_after_tools(event):
+        event.end_turn = True
+
+    agent.hooks.add_callback(AfterToolsEvent, end_after_tools)
+    model.stream.return_value = agenerator(tool_stream)
+    request_state = {"stop_event_loop": True}
+
+    events = await alist(
+        strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={"request_state": request_state},
+        )
+    )
+
+    assert events[-1]["stop"][0] == "end_turn"
+    assert events[-1]["stop"][3] is request_state
+    assert request_state == {"stop_event_loop": True}
+    assert model.stream.call_count == 1
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
     AfterToolCallEvent,
+    AfterToolsEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
@@ -30,6 +31,7 @@ def hook_provider():
             BeforeInvocationEvent,
             AfterInvocationEvent,
             AfterToolCallEvent,
+            AfterToolsEvent,
             BeforeToolCallEvent,
             BeforeModelCallEvent,
             AfterModelCallEvent,
@@ -158,7 +160,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     length, events = hook_provider.get_events()
 
-    assert length == 12
+    assert length == 13
 
     assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
@@ -194,6 +196,11 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         tool_use=tool_use,
         invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
+    )
+    assert next(events) == AfterToolsEvent(
+        agent=agent,
+        message=agent.messages[2],
+        invocation_state=ANY,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
     assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
@@ -238,7 +245,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     length, events = hook_provider.get_events()
 
-    assert length == 12
+    assert length == 13
 
     assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
@@ -274,6 +281,11 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         tool_use=tool_use,
         invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
+    )
+    assert next(events) == AfterToolsEvent(
+        agent=agent,
+        message=agent.messages[2],
+        invocation_state=ANY,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
     assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)

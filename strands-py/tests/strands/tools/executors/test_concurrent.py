@@ -135,3 +135,48 @@ async def test_concurrent_executor_reraises_exceptions(
         await alist(stream)
 
     assert tool_results == []
+
+
+@pytest.mark.asyncio
+async def test_concurrent_executor_preserves_partial_results_on_error(
+    executor,
+    agent,
+    exception_tool,
+    tool_results,
+    cycle_trace,
+    cycle_span,
+    invocation_state,
+    structured_output_context,
+    alist,
+):
+    """Completed results remain available when another concurrent tool raises."""
+
+    original_stream = exception_tool.stream
+
+    async def delayed_stream(*args, **kwargs):
+        await asyncio.sleep(0.01)
+        async for event in original_stream(*args, **kwargs):
+            yield event
+
+    exception_tool.stream = delayed_stream
+
+    def reraise_callback(event):
+        if event.exception is not None:
+            raise event.exception
+
+    agent.hooks.add_callback(AfterToolCallEvent, reraise_callback)
+    tool_uses = [
+        {"name": "weather_tool", "toolUseId": "1", "input": {}},
+        {"name": "exception_tool", "toolUseId": "2", "input": {}},
+    ]
+
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
+
+    with pytest.raises(RuntimeError, match="Tool error"):
+        await alist(stream)
+
+    assert tool_results == [
+        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
+    ]
