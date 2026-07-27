@@ -1,6 +1,8 @@
 ---
 title: Available Sandboxes
-description: "Use the built-in Docker and SSH sandboxes, drive a sandbox from your own code, and stream output from long-running commands."
+description: >-
+  Run Strands commands in Docker, SSH, or Modal sandboxes, then use the same
+  execution, streaming, and file APIs directly from your application.
 tags: [sandbox, tool-execution]
 sidebar:
   badge:
@@ -8,7 +10,9 @@ sidebar:
     variant: tip
 ---
 
-Strands provides two built-in Sandbox backends: `DockerSandbox` for containers on the local host, and `SshSandbox` for remote machines. Both automatically register `sandbox_bash` and `sandbox_file_editor` tools on the agent. This page covers their configuration, plus how to drive a sandbox directly from your own code.
+Strands provides stable Sandbox backends for local Docker containers and remote
+SSH hosts. The TypeScript SDK also provides an experimental Modal integration.
+Each backend registers `sandbox_bash` and `sandbox_file_editor` on the agent.
 
 ## DockerSandbox
 
@@ -85,6 +89,43 @@ Setting `allowUnsafeSshOptions: true` bypasses this allowlist and lets any SSH o
 :::
 
 Neither backend sets environment variables at construction time. Pass them per-command via the `env` option on <Syntax py="execute()" ts="execute()" /> / <Syntax py="execute_code()" ts="executeCode()" />.
+
+## ModalSandbox
+
+To give a TypeScript agent a hosted execution environment, wrap an existing
+Modal Sandbox. This integration requires a server-side Node.js 22 or later
+runtime and an [authenticated Modal client](https://modal.com/docs/guide#getting-started).
+Install Modal alongside the SDK:
+
+```shell
+npm install @strands-agents/sdk modal
+```
+
+The integration is experimental. It requires a Modal image with a POSIX `sh`,
+Linux `/proc`, and the `util-linux` implementation of `setsid` with `--fork`
+and `--wait`. This example installs the required package.
+
+```typescript
+--8<-- "user-guide/concepts/sandbox/index_imports.ts:modal_constructor_imports"
+
+--8<-- "user-guide/concepts/sandbox/index.ts:modal_constructor"
+```
+
+`ModalSandbox` does not create or terminate the Modal resource. Keep lifecycle
+ownership in your application and terminate the resource in a `finally` block.
+Each command runs in a fresh shell. A timeout, abort signal, or stopped output
+stream terminates that command's process group without terminating the resource.
+
+Per-command cancellation is not a security boundary against deliberately
+evasive code. For hostile workloads, use a dedicated Modal Sandbox for each
+task and terminate the whole resource afterward rather than reusing it.
+
+### Options
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `sandbox` | Modal `Sandbox` | (required) | Running Modal resource to use |
+| `workingDir` | `string` | Modal default | Absolute command and relative-file directory |
 
 ## Working with a sandbox directly
 

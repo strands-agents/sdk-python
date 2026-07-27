@@ -10,6 +10,8 @@ import type {
 } from '@strands-agents/sdk/sandbox'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
 import { SshSandbox } from '@strands-agents/sdk/sandbox/ssh'
+import { ModalSandbox } from '@strands-agents/sdk/experimental/sandbox/modal'
+import { ModalClient } from 'modal'
 import { z } from 'zod'
 
 async function basicUsage() {
@@ -52,7 +54,7 @@ class FirecrackerSandbox extends PosixShellSandbox {
     )
     yield { type: 'executionResult', exitCode, stdout, stderr, outputFiles: [] }
   }
-// --8<-- [end:custom_sandbox]
+  // --8<-- [end:custom_sandbox]
 
   // --8<-- [start:vend_tools]
   override getTools(): Tool[] {
@@ -86,6 +88,34 @@ function sshConstructor() {
   const agent = new Agent({ sandbox })
   void agent.invoke('Check disk usage and list running processes')
   // --8<-- [end:ssh_constructor]
+}
+
+async function modalConstructor() {
+  // --8<-- [start:modal_constructor]
+  const modal = new ModalClient()
+  const app = await modal.apps.fromName('strands-agents', {
+    createIfMissing: true,
+  })
+  const image = modal.images
+    .fromRegistry('node:22-slim')
+    .dockerfileCommands([
+      'RUN apt-get update',
+      'RUN apt-get install -y --no-install-recommends util-linux',
+      'RUN rm -rf /var/lib/apt/lists/*',
+    ])
+  const remoteSandbox = await modal.sandboxes.create(app, image)
+
+  try {
+    const sandbox = new ModalSandbox({
+      sandbox: remoteSandbox,
+      workingDir: '/root',
+    })
+    const agent = new Agent({ sandbox })
+    await agent.invoke('Use the shell to print the Node.js version')
+  } finally {
+    await remoteSandbox.terminate()
+  }
+  // --8<-- [end:modal_constructor]
 }
 
 function toolOverride() {
@@ -162,6 +192,7 @@ export {
   basicUsage,
   dockerConstructor,
   sshConstructor,
+  modalConstructor,
   programmaticAccess,
   FirecrackerSandbox,
   lint,

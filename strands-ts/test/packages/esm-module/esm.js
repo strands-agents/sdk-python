@@ -27,6 +27,8 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
 import { GoogleModel } from '@strands-agents/sdk/models/google'
 
+import { ModalSandbox } from '@strands-agents/sdk/experimental/sandbox/modal'
+
 import { z } from 'zod'
 
 console.log('✓ Import from main entry point successful')
@@ -154,3 +156,8 @@ if (GoalLoopFromSubpath !== GoalLoop) {
   throw new Error('GoalLoop from subpath should match barrel export')
 }
 console.log('✓ GoalLoop subpath export verified')
+
+if (typeof ModalSandbox !== 'function') {
+  throw new Error('ModalSandbox subpath export is not constructible')
+}
+console.log('✓ ModalSandbox subpath export verified')

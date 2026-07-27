@@ -42,6 +42,7 @@ import {
 } from '@strands-agents/sdk/vended-plugins'
 
 import { BedrockModel as BedrockFromSubpath } from '@strands-agents/sdk/models/bedrock'
+import { ModalSandbox } from '@strands-agents/sdk/experimental/sandbox/modal'
 import { Graph, Swarm, MultiAgentState } from '@strands-agents/sdk/multiagent'
 import { AgentSkills } from '@strands-agents/sdk/vended-plugins/skills'
 import { ContextOffloader, InMemoryStorage } from '@strands-agents/sdk/vended-plugins/context-offloader'
@@ -95,7 +96,10 @@ if (!(model instanceof Model)) {
 if (!(weatherTool instanceof FunctionTool) && !(weatherTool instanceof ZodTool)) {
   throw new Error('tool() factory returned an unexpected Tool subclass')
 }
-console.log('[pack-test] Subpath export identity + model/tool hierarchy verified')
+if (typeof ModalSandbox !== 'function') {
+  throw new Error('ModalSandbox subpath export is not constructible')
+}
+console.log('[pack-test] Subpath exports + model/tool hierarchy verified')
 
 const store = new StateStore({ count: 0 })
 store.set('count', 1)
