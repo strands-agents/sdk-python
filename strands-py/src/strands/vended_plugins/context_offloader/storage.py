@@ -190,13 +190,11 @@ class FileStorage:
         if ".." in reference:
             raise KeyError(f"Reference not found: {reference}")
 
-        prefix = f"{str(self._artifact_dir).rstrip('/')}/"
-        if "/" in reference:
-            if not reference.startswith(prefix):
+        ref_path = Path(reference)
+        if len(ref_path.parts) > 1:
+            if ref_path.parent.resolve() != self._artifact_dir.resolve():
                 raise KeyError(f"Reference not found: {reference}")
-            candidate = reference[len(prefix):]
-            if "/" in candidate:
-                raise KeyError(f"Reference not found: {reference}")
+            candidate = ref_path.name
         else:
             candidate = reference
 
@@ -269,14 +267,11 @@ class FileStorage:
         """
         if ".." in reference:
             raise KeyError(f"Reference not found: {reference}")
-        prefix = f"{str(self._artifact_dir).rstrip('/')}/"
-        if "/" in reference:
-            if not reference.startswith(prefix):
+        ref_path = Path(reference)
+        if len(ref_path.parts) > 1:
+            if ref_path.parent.resolve() != self._artifact_dir.resolve():
                 raise KeyError(f"Reference not found: {reference}")
-            candidate = reference[len(prefix):]
-            if "/" in candidate:
-                raise KeyError(f"Reference not found: {reference}")
-            return candidate
+            return ref_path.name
         return reference
 
     async def retrieve(self, reference: str) -> tuple[bytes, str]:
