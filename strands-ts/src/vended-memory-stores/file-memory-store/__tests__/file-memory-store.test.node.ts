@@ -376,6 +376,21 @@ describe('FileMemoryStore', () => {
       })
     })
 
+    // The consolidation changelog records the paths and reasons of merged content, so it scores on
+    // the same queries that match the knowledge it describes. It is an audit artifact, not knowledge.
+    it('excludes the consolidation changelog from results', async () => {
+      await scoped.write(
+        'consolidation-changelog.md',
+        encoder.encode(
+          '# Consolidation Changelog\n\n## 2026-01-01\n\nActions (1):\n  - update: dark mode theme prefs\n'
+        )
+      )
+      const results = await store.search('dark mode')
+      const paths = results.map((result) => result.metadata?.['path'] as string)
+      expect(paths).not.toContain('consolidation-changelog.md')
+      expect(paths).toContain('facts/dark-mode.md')
+    })
+
     it('includes system/ files in results', async () => {
       await scoped.write(
         'system/prefs.md',

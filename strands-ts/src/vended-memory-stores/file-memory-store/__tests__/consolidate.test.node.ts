@@ -92,7 +92,7 @@ describe('FileMemoryStore.consolidate', () => {
 
       const file = await storage.read('facts/a.md')
       expect(file).not.toBeNull()
-      const changelog = await storage.read('consolidation/changelog.md')
+      const changelog = await storage.read('consolidation-changelog.md')
       expect(changelog).not.toBeNull()
       expect(decoder.decode(changelog!)).toContain('Actions (0)')
     })
@@ -104,20 +104,20 @@ describe('FileMemoryStore.consolidate', () => {
 
       await store.consolidate({ model, operations: ['deduplicate', 'prune'] })
 
-      const changelog = decoder.decode((await storage.read('consolidation/changelog.md'))!)
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
       expect(changelog).toContain('deduplicate, prune')
       expect(changelog).toContain('Nothing to do.')
     })
 
     it('appends to existing changelog', async () => {
-      await storage.write('consolidation/changelog.md', encoder.encode('# Consolidation Changelog\n\n## Prior\n'))
+      await storage.write('consolidation-changelog.md', encoder.encode('# Consolidation Changelog\n\n## Prior\n'))
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
       const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'OK.' }))
 
       await store.consolidate({ model, operations: ['deduplicate'] })
 
-      const changelog = decoder.decode((await storage.read('consolidation/changelog.md'))!)
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
       expect(changelog).toContain('## Prior')
       expect(changelog).toContain('deduplicate')
     })
@@ -156,7 +156,7 @@ describe('FileMemoryStore.consolidate', () => {
       // Fail only the changelog write; the plan's own mutations still land
       const originalWrite = storage.write.bind(storage)
       vi.spyOn(storage, 'write').mockImplementation(async (key, data) => {
-        if (key === 'consolidation/changelog.md') throw new Error('disk full')
+        if (key === 'consolidation-changelog.md') throw new Error('disk full')
         return originalWrite(key, data)
       })
 
@@ -188,7 +188,7 @@ describe('FileMemoryStore.consolidate', () => {
       )
 
       // The changelog records the partial run, including the failed delete
-      const changelog = await storage.read('consolidation/changelog.md')
+      const changelog = await storage.read('consolidation-changelog.md')
       expect(changelog).not.toBeNull()
       const text = decoder.decode(changelog!)
       expect(text).toContain('Failed deletes (1)')
@@ -473,19 +473,19 @@ describe('FileMemoryStore.consolidate', () => {
       )
     })
 
-    it('rejects plan writing into the reserved consolidation/ directory', async () => {
+    it('rejects plan writing to the reserved changelog file', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
       const model = new MockMessageModel()
         .addTurn(
           buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation/place.md', reason: 'hack' }],
+            actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation-changelog.md', reason: 'hack' }],
             summary: 'test',
           })
         )
         .addTurn(
           buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation/place.md', reason: 'hack' }],
+            actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation-changelog.md', reason: 'hack' }],
             summary: 'test',
           })
         )
@@ -844,7 +844,7 @@ describe('FileMemoryStore.consolidate', () => {
 
       await store.consolidate({ model })
 
-      const changelog = decoder.decode((await storage.read('consolidation/changelog.md'))!)
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
       expect(changelog).toContain('deduplicate')
       expect(changelog).toContain('resolveContradictions')
       expect(changelog).toContain('deriveInsights')

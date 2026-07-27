@@ -29,15 +29,8 @@ const STORAGE_NAMESPACE = 'memory'
 /** Default subdirectory (within the store's namespace) for entries added without an explicit path. */
 const FACTS_PREFIX = 'facts/'
 
-/**
- * Subdirectory (within the store's namespace) reserved for the consolidation audit log.
- * {@link FileMemoryStore.consolidate} excludes this prefix from its working set so it never ingests
- * and rewrites its own changelog as though it were a knowledge file.
- */
-const CONSOLIDATION_PREFIX = 'consolidation/'
-
-/** Path of the consolidation changelog, within {@link CONSOLIDATION_PREFIX}. */
-const CONSOLIDATION_CHANGELOG = `${CONSOLIDATION_PREFIX}changelog.md`
+/** Path (within the store's namespace) reserved for the consolidation audit log. */
+const CONSOLIDATION_CHANGELOG = 'consolidation-changelog.md'
 
 /**
  * Cap on concurrent storage reads during search. The Storage contract makes no guarantee
@@ -47,8 +40,15 @@ const CONSOLIDATION_CHANGELOG = `${CONSOLIDATION_PREFIX}changelog.md`
  */
 const SEARCH_READ_CONCURRENCY = 8
 
-/** Default cap for total generated content bytes across all write actions in a plan. */
-const DEFAULT_MAX_GENERATED_BYTES = 262_144
+/** Default cap on total UTF-8 bytes of knowledge files accepted as planner input. */
+const DEFAULT_MAX_INPUT_BYTES = 128 * 1024
+
+/**
+ * Default cap for total generated content bytes across all write actions in a plan. Consolidation
+ * reorganizes the corpus it was given, so 2x the input cap leaves headroom for content split across
+ * merge targets while still catching a planner that generates instead of reorganizing.
+ */
+const DEFAULT_MAX_GENERATED_BYTES = 2 * DEFAULT_MAX_INPUT_BYTES
 
 /**
  * Delimiters wrapping the untrusted stored content in the planner's user message. Stored bodies are
@@ -169,6 +169,16 @@ function pathsResolveSame(a: string, b: string): boolean {
 }
 
 /**
+ * Whether a key addresses the reserved consolidation changelog. The changelog is an audit artifact
+ * rather than knowledge, so every path that walks the store excludes it: {@link FileMemoryStore.search}
+ * so it is never recalled as a memory, {@link FileMemoryStore._readAllFiles} so consolidation never
+ * ingests and rewrites its own log, and {@link validatePath} so no plan can clobber the audit trail.
+ */
+function isConsolidationChangelog(key: string): boolean {
+  return pathsResolveSame(key, CONSOLIDATION_CHANGELOG)
+}
+
+/**
  * A file-based memory store backed by the unified {@link Storage} interface.
  *
  * Implements {@link MemoryStore} for use with {@link MemoryManager}. Knowledge is stored as
@@ -249,6 +259,8 @@ export class FileMemoryStore implements MemoryStore {
 
     const scored = (
       await mapWithConcurrency(allKeys, SEARCH_READ_CONCURRENCY, async (key) => {
+        // The changelog is an audit artifact, not knowledge — never return it as a memory
+        if (isConsolidationChangelog(key)) return null
         try {
           const bytes = await this._storage.read(key)
           if (!bytes) return null
@@ -382,7 +394,7 @@ export class FileMemoryStore implements MemoryStore {
     const maxDirectories = config.maxDirectories ?? 8
 
     const maxFiles = config.maxFiles ?? 100
-    const maxInputBytes = config.maxInputBytes ?? 128 * 1024
+    const maxInputBytes = config.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES
     const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
     const maxGeneratedBytes = config.maxGeneratedBytes ?? DEFAULT_MAX_GENERATED_BYTES
 
@@ -438,8 +450,8 @@ export class FileMemoryStore implements MemoryStore {
     const files = new Map<string, string>()
     const allKeys = await this._storage.list('')
     for (const key of allKeys) {
-      // Exclude the changelog dir so consolidation never ingests and rewrites its own audit log
-      if (key.startsWith(CONSOLIDATION_PREFIX)) continue
+      // Exclude the changelog so consolidation never ingests and rewrites its own audit log
+      if (isConsolidationChangelog(key)) continue
       const bytes = await this._storage.read(key)
       if (bytes) files.set(key, decoder.decode(bytes))
     }
@@ -955,7 +967,7 @@ function planOverwritesSelf(plan: ConsolidationPlan, target: string): boolean {
 
 /**
  * Validate a single write-target path against the store's layout rules: a namespace-relative `.md`
- * file, at most one level of nesting, outside the reserved `consolidation/` dir, with a well-formed
+ * file, at most one level of nesting, not the reserved changelog path, with a well-formed
  * directory name that stays within the budget.
  *
  * @returns A human-readable error string when the path is invalid, or `undefined` when it passes
@@ -970,8 +982,8 @@ function validatePath(path: string, existingDirs: Set<string>, maxDirectories: n
     return `Path must not contain dot segments ('.' or '..'): ${path}`
   }
 
-  if (path.startsWith(CONSOLIDATION_PREFIX)) {
-    return `Path must not be under the reserved '${CONSOLIDATION_PREFIX}' directory: ${path}`
+  if (isConsolidationChangelog(path)) {
+    return `Path must not be the reserved '${CONSOLIDATION_CHANGELOG}' file: ${path}`
   }
   if (!path.endsWith('.md')) {
     return `Path must end with .md: ${path}`
@@ -1052,7 +1064,7 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
     '2. Reason about which operations apply.',
     '3. Produce a plan with the appropriate actions.',
     '4. Every `content` you write must be a complete markdown file: a `---` line, YAML fields including a `description`, a closing `---` line, then a non-empty body. Never emit empty or frontmatter-only content — it would erase the file.',
-    '5. All paths must end with `.md` and must not be under the reserved `consolidation/` directory.',
+    `5. All paths must end with \`.md\` and must not be the reserved \`${CONSOLIDATION_CHANGELOG}\` file.`,
     '6. Only one level of subdirectory nesting is allowed.',
     '7. Each action fully transforms one path. Never write to and delete the same path in one plan, and never move a file onto its own path. To rewrite a file in place use `update`; to relocate it use `move` to a different path.',
     '8. Only make changes that clearly improve quality. When in doubt, leave files as-is.',
