@@ -8,9 +8,11 @@ sourceLinks:
   - path: strands-ts/src/agent/agent.ts
 ---
 
-An agent treats its message history as trusted input. When you build that history from a source you do not control (a request body, a stored conversation, a loaded snapshot) treat it as untrusted, because message content carries more than text: it can carry tool-call and tool-result blocks.
+An agent treats its message history as trusted input. When you build that history from a source you do not control (a request body, a loaded snapshot) treat it as untrusted, because message content carries more than text: it can carry tool-call and tool-result blocks.
 
-Forged tool content is a concern in both SDKs. A tool-result block you did not produce, placed in history that reaches the model, can misrepresent what a tool returned and steer the model's next step. The Python SDK has a sharper version: a tool-call block as the most recent message causes the agent to run that tool directly on its next invocation, with no model call in between, so the block's author chooses the tool and its arguments outright.
+Forged tool content is a concern in both SDKs. A tool-result block you did not produce, placed in history that reaches the model, can misrepresent what a tool returned and steer the model's next step.
+
+In the Python SDK, invoking an agent with content other than a string is a pointed example of this: the input is considered trusted, and a tool-call block as the most recent message causes the agent to run that tool directly on its next invocation, with no model call in between. The block's author chooses the tool and its arguments outright.
 
 ## Do not populate history from an untrusted source
 
