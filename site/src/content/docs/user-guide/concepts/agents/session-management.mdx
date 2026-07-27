@@ -34,15 +34,6 @@ Strands provides built-in session persistence capabilities that automatically ca
 
 Beyond the built-in options, [third-party session managers](#third-party-session-managers) provide additional storage and memory capabilities.
 
-:::caution[Restored history is trusted]
-An agent restores its stored messages verbatim on initialization, including any
-tool-call content they carry. In the Python SDK, a tool-call block as the most
-recent restored message dispatches a tool on the next invocation. If your session
-store can be written by something outside your application, treat that history as
-untrusted and clear tool-call content from it. See
-[Trusted Message History](../../safety-security/trusted-message-history.md).
-:::
-
 ## Basic Usage
 
 ### Single Agent Sessions
