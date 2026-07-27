@@ -566,6 +566,17 @@ class TestFileStorageWithSandbox:
         _, content_type = await FileStorage(artifact_dir=artifact_dir, sandbox=sandbox).retrieve(ref)
         assert content_type == "image/png"
 
+    @pytest.mark.asyncio
+    async def test_missing_metadata_fallback(self, tmp_path):
+        sandbox = TestSandbox(str(tmp_path))
+        artifact_dir = str(tmp_path / "artifacts")
+        storage = FileStorage(artifact_dir=artifact_dir, sandbox=sandbox)
+        ref = await storage.store("key_1", b"content", "image/png")
+
+        storage._content_types.clear()
+        _, content_type = await storage.retrieve(ref)
+        assert content_type == "application/octet-stream"
+
     def test_for_sandbox_keeps_explicit_sandbox(self, tmp_path):
         # An instance constructed with a sandbox is returned unchanged by for_sandbox.
         sandbox = TestSandbox(str(tmp_path))

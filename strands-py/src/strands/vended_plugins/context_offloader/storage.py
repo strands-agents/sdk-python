@@ -251,6 +251,34 @@ class FileStorage:
         host_path.write_bytes(content)
         return str(host_path)
 
+    def _resolve_from_path(self, reference: str) -> str:
+        """Validate a reference as a path within the artifact directory.
+
+        Used as a fallback when ``_resolve_reference`` fails (metadata
+        missing or corrupt). Only accepts full paths or bare filenames —
+        stem matching requires metadata.
+
+        Args:
+            reference: A full path or bare filename.
+
+        Returns:
+            The validated filename (basename).
+
+        Raises:
+            KeyError: If the path is outside the artifact directory.
+        """
+        if ".." in reference:
+            raise KeyError(f"Reference not found: {reference}")
+        prefix = f"{str(self._artifact_dir).rstrip('/')}/"
+        if "/" in reference:
+            if not reference.startswith(prefix):
+                raise KeyError(f"Reference not found: {reference}")
+            candidate = reference[len(prefix):]
+            if "/" in candidate:
+                raise KeyError(f"Reference not found: {reference}")
+            return candidate
+        return reference
+
     async def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from a stored file.
 
@@ -268,7 +296,10 @@ class FileStorage:
         """
         if self._sandbox is not None:
             await self._ensure_sandbox_metadata()
-            filename = self._resolve_reference(reference)
+            try:
+                filename = self._resolve_reference(reference)
+            except KeyError:
+                filename = self._resolve_from_path(reference)
             full_path = self._artifact_path(filename)
             try:
                 content = await self._sandbox.read_file(full_path)
@@ -279,12 +310,7 @@ class FileStorage:
         try:
             filename = self._resolve_reference(reference)
         except KeyError:
-            # Fallback: try as a literal path (metadata may be stale/corrupt).
-            file_path = Path(reference) if Path(reference).is_absolute() else (self._artifact_dir / reference)
-            file_path = file_path.resolve()
-            if not file_path.is_relative_to(self._artifact_dir.resolve()) or not file_path.is_file():
-                raise
-            filename = file_path.name
+            filename = self._resolve_from_path(reference)
 
         file_path = (self._artifact_dir / filename).resolve()
         if not file_path.is_relative_to(self._artifact_dir.resolve()) or not file_path.is_file():
