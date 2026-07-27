@@ -172,6 +172,43 @@ class FileStorage:
         """Join a filename onto the artifact dir, preserving its string form."""
         return f"{str(self._artifact_dir).rstrip('/')}/{filename}"
 
+    def _resolve_reference(self, reference: str) -> str:
+        """Normalize a reference to a known filename in ``_content_types``.
+
+        Accepts full paths, bare filenames (with extension), and filename
+        stems (without extension). Validates against path traversal.
+
+        Args:
+            reference: Full path, bare filename, or filename stem.
+
+        Returns:
+            The resolved filename (basename with extension).
+
+        Raises:
+            KeyError: If the reference cannot be resolved or fails validation.
+        """
+        if ".." in reference:
+            raise KeyError(f"Reference not found: {reference}")
+
+        prefix = f"{str(self._artifact_dir).rstrip('/')}/"
+        if "/" in reference:
+            if not reference.startswith(prefix):
+                raise KeyError(f"Reference not found: {reference}")
+            candidate = reference[len(prefix):]
+            if "/" in candidate:
+                raise KeyError(f"Reference not found: {reference}")
+        else:
+            candidate = reference
+
+        if candidate in self._content_types:
+            return candidate
+
+        matches = [key for key in self._content_types if Path(key).stem == candidate]
+        if len(matches) == 1:
+            return matches[0]
+
+        raise KeyError(f"Reference not found: {reference}")
+
     async def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as a file and return the path as reference.
 
@@ -217,11 +254,11 @@ class FileStorage:
     async def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from a stored file.
 
-        Accepts both full paths (as returned by ``store()``) and bare
-        filenames for backward compatibility.
+        Accepts full paths (as returned by ``store()``), bare filenames,
+        and filename stems (without extension) for backward compatibility.
 
         Args:
-            reference: The file path or filename returned by store().
+            reference: The file path, filename, or stem returned by store().
 
         Returns:
             A tuple of (content bytes, content type).
@@ -231,26 +268,27 @@ class FileStorage:
         """
         if self._sandbox is not None:
             await self._ensure_sandbox_metadata()
-            prefix = f"{str(self._artifact_dir).rstrip('/')}/"
-            if not reference.startswith(prefix) or ".." in reference:
-                raise KeyError(f"Reference not found: {reference}")
-            filename = reference.split("/")[-1]
+            filename = self._resolve_reference(reference)
+            full_path = self._artifact_path(filename)
             try:
-                content = await self._sandbox.read_file(reference)
-            except Exception as e:
-                raise KeyError(f"Reference not found: {reference}") from e
+                content = await self._sandbox.read_file(full_path)
+            except Exception as exc:
+                raise KeyError(f"Reference not found: {reference}") from exc
             return content, self._content_types.get(filename, "application/octet-stream")
 
-        resolved_dir = self._artifact_dir.resolve()
-        ref_path = Path(reference)
-        file_path = ref_path.resolve() if len(ref_path.parts) > 1 else (self._artifact_dir / reference).resolve()
-        if not file_path.is_relative_to(resolved_dir):
-            file_path = (self._artifact_dir / reference).resolve()
-        if not file_path.is_relative_to(resolved_dir):
+        try:
+            filename = self._resolve_reference(reference)
+        except KeyError:
+            # Fallback: try as a literal path (metadata may be stale/corrupt).
+            file_path = Path(reference) if Path(reference).is_absolute() else (self._artifact_dir / reference)
+            file_path = file_path.resolve()
+            if not file_path.is_relative_to(self._artifact_dir.resolve()) or not file_path.is_file():
+                raise
+            filename = file_path.name
+
+        file_path = (self._artifact_dir / filename).resolve()
+        if not file_path.is_relative_to(self._artifact_dir.resolve()) or not file_path.is_file():
             raise KeyError(f"Reference not found: {reference}")
-        if not file_path.is_file():
-            raise KeyError(f"Reference not found: {reference}")
-        filename = file_path.name
         content_type = self._content_types.get(filename, "application/octet-stream")
         return file_path.read_bytes(), content_type
 

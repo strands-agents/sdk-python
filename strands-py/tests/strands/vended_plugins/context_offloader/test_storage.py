@@ -325,6 +325,15 @@ class TestFileStorage:
         assert content_type == "text/plain"
 
     @pytest.mark.asyncio
+    async def test_retrieve_accepts_stem_without_extension(self, tmp_path):
+        storage = FileStorage(artifact_dir=str(tmp_path))
+        ref = await storage.store("key_1", b"hello world", "text/plain")
+        stem = Path(ref).stem
+        content, content_type = await storage.retrieve(stem)
+        assert content == b"hello world"
+        assert content_type == "text/plain"
+
+    @pytest.mark.asyncio
     async def test_metadata_survives_across_instances(self, tmp_path):
         artifact_dir = str(tmp_path / "artifacts")
         storage1 = FileStorage(artifact_dir=artifact_dir)
@@ -514,6 +523,23 @@ class TestFileStorageWithSandbox:
     async def test_reference_under_artifact_dir(self, storage, tmp_path):
         ref = await storage.store("key_1", b"data")
         assert ref.startswith(f"{tmp_path / 'artifacts'}/")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_accepts_bare_filename(self, storage):
+        ref = await storage.store("key_1", b"hello sandbox", "text/plain")
+        filename = ref.split("/")[-1]
+        content, content_type = await storage.retrieve(filename)
+        assert content == b"hello sandbox"
+        assert content_type == "text/plain"
+
+    @pytest.mark.asyncio
+    async def test_retrieve_accepts_stem_without_extension(self, storage):
+        ref = await storage.store("key_1", b"hello sandbox", "text/plain")
+        filename = ref.split("/")[-1]
+        stem = filename.rsplit(".", 1)[0]
+        content, content_type = await storage.retrieve(stem)
+        assert content == b"hello sandbox"
+        assert content_type == "text/plain"
 
     @pytest.mark.asyncio
     async def test_retrieve_rejects_path_outside_artifact_dir(self, storage):
