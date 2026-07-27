@@ -10,6 +10,7 @@ import type { MemoryEntry, MemoryStore, SearchOptions } from '../../memory/types
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { Storage } from '../../storage/storage.js'
 import type { ConsolidateConfig, ConsolidateOperation, FileMemoryStoreConfig } from './types.js'
+import { CONSOLIDATE_OPERATIONS } from './types.js'
 import { z } from 'zod'
 import { Agent } from '../../agent/agent.js'
 import { logger } from '../../logging/logger.js'
@@ -45,14 +46,6 @@ const CONSOLIDATION_CHANGELOG = `${CONSOLIDATION_PREFIX}changelog.md`
  * just no more than this many at once.
  */
 const SEARCH_READ_CONCURRENCY = 8
-
-const ALL_OPERATIONS: ConsolidateOperation[] = [
-  'deduplicate',
-  'resolveContradictions',
-  'deriveInsights',
-  'prune',
-  'reorganize',
-]
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -350,7 +343,7 @@ export class FileMemoryStore implements MemoryStore {
    * @param config - Model and operation configuration
    */
   private async _consolidate(config: ConsolidateConfig): Promise<void> {
-    const operations = config.operations ?? ALL_OPERATIONS
+    const operations = config.operations ?? [...CONSOLIDATE_OPERATIONS]
     const maxDirectories = config.maxDirectories ?? 8
 
     const maxFiles = config.maxFiles ?? 100

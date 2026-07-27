@@ -20,7 +20,10 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
 }
 
 /**
- * A maintenance operation that the consolidation agent can perform.
+ * Every maintenance operation the consolidation agent can perform, in application order.
+ * The default set {@link FileMemoryStore.consolidate} runs when `operations` is omitted, and the
+ * single source of truth from which {@link ConsolidateOperation} is derived — add an operation here
+ * and the union type widens with it, so the two can never drift.
  *
  * - `deduplicate` — merge files with overlapping content
  * - `resolveContradictions` — fix conflicting facts across files
@@ -28,7 +31,19 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
  * - `prune` — remove stale or irrelevant entries
  * - `reorganize` — move files to better subdirectories
  */
-export type ConsolidateOperation = 'deduplicate' | 'resolveContradictions' | 'deriveInsights' | 'prune' | 'reorganize'
+export const CONSOLIDATE_OPERATIONS = [
+  'deduplicate',
+  'resolveContradictions',
+  'deriveInsights',
+  'prune',
+  'reorganize',
+] as const
+
+/**.
+ * A maintenance operation that the consolidation agent can perform. See {@link CONSOLIDATE_OPERATIONS}
+ * for the full set and per-operation descriptions.
+ */
+export type ConsolidateOperation = (typeof CONSOLIDATE_OPERATIONS)[number]
 
 /**
  * Configuration for {@link FileMemoryStore.consolidate}.
