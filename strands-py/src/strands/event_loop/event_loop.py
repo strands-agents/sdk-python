@@ -18,7 +18,7 @@ from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, BeforeToolsEvent
+from ..hooks import AfterModelCallEvent, AfterToolsEvent, BeforeModelCallEvent, BeforeToolsEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -771,43 +771,56 @@ async def _handle_tool_execution(
     elif agent._cancel_signal.is_set():
         cancel_message = "Tool execution cancelled"
 
-    if cancel_message:
-        logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
-        for tool_use in tool_uses:
-            cancel_result: ToolResult = {
-                "toolUseId": str(tool_use.get("toolUseId")),
-                "status": "error",
-                "content": [{"text": cancel_message}],
-            }
-            tool_results.append(cancel_result)
-            yield ToolResultEvent(cancel_result)
-    else:
-        pending_tool_use_ids = {tool_use["toolUseId"] for tool_use in tool_uses}
-        validated_tool_uses: list[ToolUse] = []
-        validation_results: list[ToolResult] = []
-        invalid_tool_use_ids: list[str] = []
-        validate_and_prepare_tools(message, validated_tool_uses, validation_results, invalid_tool_use_ids)
-        tool_uses = [
-            tool_use
-            for tool_use in validated_tool_uses
-            if tool_use["toolUseId"] in pending_tool_use_ids and tool_use["toolUseId"] not in invalid_tool_use_ids
-        ]
-        tool_results.extend(result for result in validation_results if result["toolUseId"] in pending_tool_use_ids)
-
-        tool_events = agent.tool_executor._execute(
-            agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
-        )
-        async for tool_event in tool_events:
-            if isinstance(tool_event, ToolInterruptEvent):
-                interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
-
-            yield tool_event
-
     structured_output_result = None
-    if structured_output_context.is_enabled:
-        if structured_output_result := structured_output_context.extract_result(tool_uses):
-            yield StructuredOutputEvent(structured_output=structured_output_result)
-            structured_output_context.stop_loop = True
+    tool_result_message: Message = {"role": "user", "content": []}
+    after_tools_event = AfterToolsEvent(agent=agent, message=tool_result_message, invocation_state=invocation_state)
+    try:
+        if cancel_message:
+            logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
+            for tool_use in tool_uses:
+                cancel_result: ToolResult = {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": cancel_message}],
+                }
+                tool_results.append(cancel_result)
+                yield ToolResultEvent(cancel_result)
+        else:
+            pending_tool_use_ids = {tool_use["toolUseId"] for tool_use in tool_uses}
+            validated_tool_uses: list[ToolUse] = []
+            validation_results: list[ToolResult] = []
+            invalid_tool_use_ids: list[str] = []
+            validate_and_prepare_tools(message, validated_tool_uses, validation_results, invalid_tool_use_ids)
+            tool_uses = [
+                tool_use
+                for tool_use in validated_tool_uses
+                if tool_use["toolUseId"] in pending_tool_use_ids and tool_use["toolUseId"] not in invalid_tool_use_ids
+            ]
+            tool_results.extend(result for result in validation_results if result["toolUseId"] in pending_tool_use_ids)
+
+            tool_events = agent.tool_executor._execute(
+                agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+            )
+            async for tool_event in tool_events:
+                if isinstance(tool_event, ToolInterruptEvent):
+                    interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+
+                yield tool_event
+
+            if structured_output_context.is_enabled:
+                if structured_output_result := structured_output_context.extract_result(tool_uses):
+                    yield StructuredOutputEvent(structured_output=structured_output_result)
+                    structured_output_context.stop_loop = True
+    finally:
+        # Always pair BeforeToolsEvent with AfterToolsEvent (mirrors the source `finally`
+        # dispatch), so batch-level hooks observe the results even on the cancel, interrupt,
+        # and error paths.
+        tool_result_message = {
+            "role": "user",
+            "content": [{"toolResult": result} for result in tool_results],
+        }
+        after_tools_event = AfterToolsEvent(agent=agent, message=tool_result_message, invocation_state=invocation_state)
+        after_tools_event, _ = await agent.hooks.invoke_callbacks_async(after_tools_event)
 
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
@@ -833,11 +846,6 @@ async def _handle_tool_execution(
 
     agent._interrupt_state.deactivate()
 
-    tool_result_message: Message = {
-        "role": "user",
-        "content": [{"toolResult": result} for result in tool_results],
-    }
-
     await agent._append_messages(tool_result_message)
 
     yield ToolResultMessageEvent(message=tool_result_message)
@@ -847,6 +855,25 @@ async def _handle_tool_execution(
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+
+    # Hook requested end-of-turn after tool execution: append the final assistant
+    # message and stop without calling the model again.
+    if after_tools_event.end_turn:
+        end_turn_text = (
+            after_tools_event.end_turn
+            if isinstance(after_tools_event.end_turn, str)
+            else "Turn ended early by hook after tool execution"
+        )
+        end_turn_message: Message = {"role": "assistant", "content": [{"text": end_turn_text}]}
+        await agent._append_messages(end_turn_message)
+        yield EventLoopStopEvent(
+            "end_turn",
+            end_turn_message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            structured_output=structured_output_result,
+        )
+        return
 
     if invocation_state["request_state"].get("stop_event_loop", False) or structured_output_context.stop_loop:
         yield EventLoopStopEvent(

@@ -168,6 +168,40 @@ class BeforeToolsEvent(HookEvent, _Interruptible):
 
 
 @dataclass
+class AfterToolsEvent(HookEvent):
+    """Event triggered once after a batch of tools finishes executing.
+
+    This event is fired after all tools requested in an assistant message have
+    completed (or been cancelled), giving hooks aggregate visibility over the
+    full set of tool results before the next model call. It is always paired
+    with a preceding ``BeforeToolsEvent``, including on cancel and error paths.
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Attributes:
+        message: The user-role message containing all tool results from the batch.
+        invocation_state: State and configuration passed through the agent invocation.
+        end_turn: When set, the agent loop halts after this tool batch without
+            calling the model again, and the returned result has ``stop_reason``
+            ``"end_turn"``. If a string, that string becomes the content of a final
+            assistant text message; if ``True``, a default message is used.
+    """
+
+    message: Message
+    invocation_state: dict[str, Any]
+    end_turn: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "end_turn"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+@dataclass
 class BeforeToolCallEvent(HookEvent, _Interruptible):
     """Event triggered before a tool is invoked.
 

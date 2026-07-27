@@ -17,6 +17,8 @@ from strands.event_loop._retry import ModelRetryStrategy
 from strands.experimental.checkpoint import Checkpoint
 from strands.hooks import (
     AfterModelCallEvent,
+    AfterToolCallEvent,
+    AfterToolsEvent,
     BeforeModelCallEvent,
     BeforeToolCallEvent,
     BeforeToolsEvent,
@@ -1126,6 +1128,265 @@ async def test_event_loop_cycle_before_tools_fires_once_per_batch(agent, model, 
     await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
     assert before_tools_count == 1
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_order_and_message(agent, model, tool_stream, agenerator, alist):
+    callback_order = []
+    after_tools_events = []
+
+    def before_tools_callback(event):
+        callback_order.append("before_tools")
+
+    def after_tool_callback(event):
+        callback_order.append("after_tool")
+
+    def after_tools_callback(event):
+        callback_order.append("after_tools")
+        after_tools_events.append(event)
+
+    agent.hooks.add_callback(BeforeToolsEvent, before_tools_callback)
+    agent.hooks.add_callback(AfterToolCallEvent, after_tool_callback)
+    agent.hooks.add_callback(AfterToolsEvent, after_tools_callback)
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator([{"contentBlockDelta": {"delta": {"text": "done"}}}, {"contentBlockStop": {}}]),
+    ]
+
+    await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    tru_order = callback_order
+    exp_order = ["before_tools", "after_tool", "after_tools"]
+    assert tru_order == exp_order
+
+    tru_event = after_tools_events[0]
+    assert tru_event.agent is agent
+    assert tru_event.message["role"] == "user"
+    assert tru_event.message["content"][0]["toolResult"]["toolUseId"] == "t1"
+    assert tru_event.end_turn is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("executor_type", [SequentialToolExecutor, ConcurrentToolExecutor])
+@pytest.mark.parametrize(
+    ("end_turn", "expected_text"),
+    [(True, "Turn ended early by hook after tool execution"), ("stop now", "stop now")],
+)
+async def test_event_loop_cycle_after_tools_end_turn_halts_loop(
+    agent, model, tool_stream, agenerator, alist, executor_type, end_turn, expected_text
+):
+    agent.tool_executor = executor_type()
+
+    def set_end_turn(event):
+        event.end_turn = end_turn
+
+    agent.hooks.add_callback(AfterToolsEvent, set_end_turn)
+    # Only one model call should happen — the loop must not recurse.
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    tru_stop_reason = events[-1]["stop"][0]
+    assert tru_stop_reason == "end_turn"
+    assert model.stream.call_count == 1
+    tru_last_message = agent.messages[-1]
+    assert tru_last_message["role"] == "assistant"
+    assert tru_last_message["content"] == [{"text": expected_text}]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_message_reflects_mutated_result(
+    agent, model, tool_stream, agenerator, alist
+):
+    after_tools_messages = []
+
+    def mutate_result(event):
+        event.result = {"toolUseId": "t1", "status": "success", "content": [{"text": "mutated"}]}
+
+    def record_after_tools(event):
+        after_tools_messages.append(event.message)
+
+    agent.hooks.add_callback(AfterToolCallEvent, mutate_result)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator([{"contentBlockDelta": {"delta": {"text": "done"}}}, {"contentBlockStop": {}}]),
+    ]
+
+    await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # A result mutated in AfterToolCallEvent is reflected in the AfterToolsEvent batch message.
+    assert len(after_tools_messages) == 1
+    assert after_tools_messages[0]["content"] == [
+        {"toolResult": {"toolUseId": "t1", "status": "success", "content": [{"text": "mutated"}]}}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_message_preserves_source_order_concurrent(
+    agent, model, tool, tool_times_2, agenerator, alist
+):
+    agent.tool_executor = ConcurrentToolExecutor()
+    after_tools_messages = []
+
+    agent.hooks.add_callback(AfterToolsEvent, lambda event: after_tools_messages.append(event.message))
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": tool.tool_name}}}},
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "first"}'}}}},
+                {"contentBlockStop": {}},
+                {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t2", "name": tool_times_2.tool_name}}}},
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"x": 2}'}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        agenerator([{"contentBlockDelta": {"delta": {"text": "done"}}}, {"contentBlockStop": {}}]),
+    ]
+
+    await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # AfterToolsEvent.message preserves the source order of tool uses even under concurrent execution.
+    assert len(after_tools_messages) == 1
+    tru_ids = [content["toolResult"]["toolUseId"] for content in after_tools_messages[0]["content"]]
+    assert tru_ids == ["t1", "t2"]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_fires_on_batch_cancel(agent, model, tool_stream, agenerator, alist):
+    after_tools_messages = []
+
+    def cancel_batch(event):
+        event.cancel = "Batch cancelled"
+
+    def record_after_tools(event):
+        after_tools_messages.append(event.message)
+        event.end_turn = True
+
+    agent.hooks.add_callback(BeforeToolsEvent, cancel_batch)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # AfterToolsEvent fires even though the batch was cancelled, and its end_turn halts the loop.
+    assert len(after_tools_messages) == 1
+    tru_after_content = after_tools_messages[0]["content"]
+    exp_after_content = [
+        {"toolResult": {"toolUseId": "t1", "status": "error", "content": [{"text": "Batch cancelled"}]}}
+    ]
+    assert tru_after_content == exp_after_content
+    assert events[-1]["stop"][0] == "end_turn"
+    assert model.stream.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_fires_when_tool_hook_raises(agent, model, tool_stream, agenerator, alist):
+    after_tools_calls = []
+
+    def raise_in_after_tool(event):
+        raise RuntimeError("after tool hook failed")
+
+    def record_after_tools(event):
+        after_tools_calls.append(event)
+
+    agent.hooks.add_callback(AfterToolCallEvent, raise_in_after_tool)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    with pytest.raises(EventLoopException, match="after tool hook failed"):
+        await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # AfterToolsEvent still fires on the error path (finally-equivalent dispatch).
+    assert len(after_tools_calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_not_fired_on_before_tools_interrupt(
+    agent, model, tool_stream, agenerator, alist
+):
+    after_tools_calls = []
+
+    def interrupt_batch(event):
+        event.interrupt("approval", "Approve?")
+
+    def record_after_tools(event):
+        after_tools_calls.append(event)
+
+    agent.hooks.add_callback(BeforeToolsEvent, interrupt_batch)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    assert events[-1]["stop"][0] == "interrupt"
+    # A BeforeToolsEvent interrupt short-circuits before the tool batch, so AfterToolsEvent does not fire.
+    assert after_tools_calls == []
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_not_fired_when_before_tools_hook_raises(
+    agent, model, tool_stream, agenerator, alist
+):
+    after_tools_calls = []
+
+    def raise_in_before_tools(event):
+        raise RuntimeError("before tools hook failed")
+
+    def record_after_tools(event):
+        after_tools_calls.append(event)
+
+    agent.hooks.add_callback(BeforeToolsEvent, raise_in_before_tools)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    with pytest.raises(EventLoopException, match="before tools hook failed"):
+        await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # A BeforeToolsEvent hook exception propagates before the tool batch, so AfterToolsEvent does not fire.
+    assert after_tools_calls == []
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_empty_string_end_turn_does_not_halt(
+    agent, model, tool_stream, agenerator, alist
+):
+    def set_empty_end_turn(event):
+        event.end_turn = ""
+
+    agent.hooks.add_callback(AfterToolsEvent, set_empty_end_turn)
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        agenerator([{"contentBlockDelta": {"delta": {"text": "done"}}}, {"contentBlockStop": {}}]),
+    ]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # An empty-string end_turn is falsy, so the loop continues to the next model call.
+    assert events[-1]["stop"][0] == "end_turn"
+    assert model.stream.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_fires_on_per_tool_interrupt(agent, model, tool_stream, agenerator, alist):
+    after_tools_calls = []
+
+    def interrupt_tool(event):
+        event.interrupt("approval", "Approve?")
+
+    def record_after_tools(event):
+        after_tools_calls.append(event)
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_tool)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # A per-tool interrupt stops the batch, but AfterToolsEvent still fires (finally-equivalent dispatch).
+    assert events[-1]["stop"][0] == "interrupt"
+    assert len(after_tools_calls) == 1
 
 
 @pytest.mark.asyncio
