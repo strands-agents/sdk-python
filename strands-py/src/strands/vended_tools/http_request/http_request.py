@@ -63,6 +63,7 @@ def make_http_request(
         url: str,
         headers: dict[str, str] | None = None,
         body: str | None = None,
+        timeout: float | None = None,
         tool_context: ToolContext | None = None,
     ) -> HttpRequestOutput:
         """Make an HTTP request to a URL and return the response.
@@ -73,16 +74,21 @@ def make_http_request(
             url: Absolute URL to request.
             headers: Optional request headers.
             body: Optional request body as a string.
+            timeout: Optional per-request timeout in seconds. Capped at the
+                client's configured timeout so the model cannot exceed the
+                operator's limit.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal mid-flight.
         """
         cancel_signal = _extract_cancel_signal(tool_context)
+        effective_timeout = _resolve_timeout(timeout, external_client)
 
         return await _perform_request(
             method=method,
             url=url,
             headers=headers or {},
             body=body,
+            timeout=effective_timeout,
             client=external_client,
             cancel_signal=cancel_signal,
         )
@@ -96,6 +102,32 @@ http_request = make_http_request()
 
 # ---- Internals ----
 
+_DEFAULT_TIMEOUT_SECONDS = 30.0
+
+
+def _resolve_timeout(
+    model_timeout: float | None,
+    client: httpx.AsyncClient | None,
+) -> float:
+    """Return the effective per-request timeout.
+
+    The model may request a shorter timeout, but it can never exceed the
+    client's configured timeout. When no client is provided, a default of
+    30 seconds is used as the upper bound.
+    """
+    if client is not None and isinstance(client.timeout, httpx.Timeout):
+        client_timeout = client.timeout.read
+        if client_timeout is None:
+            client_timeout = _DEFAULT_TIMEOUT_SECONDS
+    else:
+        client_timeout = _DEFAULT_TIMEOUT_SECONDS
+
+    if model_timeout is None:
+        return client_timeout
+    if model_timeout <= 0:
+        raise HttpRequestError("timeout must be positive")
+    return min(float(model_timeout), client_timeout)
+
 
 async def _perform_request(
     *,
@@ -103,6 +135,7 @@ async def _perform_request(
     url: str,
     headers: dict[str, str],
     body: str | None,
+    timeout: float,
     client: httpx.AsyncClient | None,
     cancel_signal: threading.Event | None = None,
 ) -> HttpRequestOutput:
@@ -123,6 +156,7 @@ async def _perform_request(
                 url,
                 headers=headers or None,
                 content=body,
+                extensions={"timeout": {"connect": timeout, "read": timeout, "write": timeout, "pool": timeout}},
             )
             response = await active_client.send(request)
         except httpx.TimeoutException as error:

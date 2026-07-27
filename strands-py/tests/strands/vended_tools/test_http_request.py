@@ -182,6 +182,56 @@ class TestNoClientProvided:
         assert tool.tool_name == "http_request"
 
 
+class TestTimeout:
+    """Model-supplied timeout is capped by the client's configured timeout."""
+
+    @pytest.mark.asyncio
+    async def test_rejects_non_positive_timeout(self):
+        client = httpx.AsyncClient(transport=_make_transport(lambda _r: httpx.Response(200)))
+        tool = make_http_request(client=client)
+        with pytest.raises(HttpRequestError, match="positive"):
+            await tool(method="GET", url="https://example.com/", timeout=0)
+
+    @pytest.mark.asyncio
+    async def test_model_timeout_capped_by_client(self):
+        async def slow_handler(_request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("timed out")
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(slow_handler),
+            timeout=5.0,
+        )
+        tool = make_http_request(client=client)
+        with pytest.raises(HttpRequestError, match="timed out"):
+            await tool(method="GET", url="https://example.com/slow", timeout=60)
+
+    @pytest.mark.asyncio
+    async def test_model_timeout_used_when_shorter_than_client(self):
+        async def slow_handler(_request: httpx.Request) -> httpx.Response:
+            raise httpx.TimeoutException("timed out")
+
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(slow_handler),
+            timeout=60.0,
+        )
+        tool = make_http_request(client=client)
+        with pytest.raises(HttpRequestError, match="timed out"):
+            await tool(method="GET", url="https://example.com/slow", timeout=2)
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_client_timeout_when_model_omits(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(handler),
+            timeout=10.0,
+        )
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://example.com/")
+        assert result["status"] == 200
+
+
 class TestToolMetadata:
     """Tool name, description, and input schema."""
 
@@ -196,7 +246,7 @@ class TestToolMetadata:
 
     def test_schema_exposes_expected_parameters(self):
         props = http_request.tool_spec["inputSchema"]["json"]["properties"]
-        assert set(props) == {"method", "url", "headers", "body"}
+        assert set(props) == {"method", "url", "headers", "body", "timeout"}
 
 
 class TestCancelSignal:
