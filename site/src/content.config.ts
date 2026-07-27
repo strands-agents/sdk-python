@@ -95,6 +95,7 @@ export const catalogEntrySchema = z
       'tool',
       'session-manager',
       'memory-store',
+      'storage',
       'integration',
       'plugin',
       'agent-extension',

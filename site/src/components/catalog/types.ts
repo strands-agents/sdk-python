@@ -33,6 +33,13 @@ export const CATALOG_TYPES = [
     icon: 'M12 2C7.6 2 4 3.6 4 5.5v13C4 20.4 7.6 22 12 22s8-1.6 8-3.5v-13C20 3.6 16.4 2 12 2zm0 2c3.9 0 6 1.2 6 1.5S15.9 7 12 7 6 5.8 6 5.5 8.1 4 12 4zm6 14.5c0 .3-2.1 1.5-6 1.5s-6-1.2-6-1.5V16c1.5.9 3.7 1.4 6 1.4s4.5-.5 6-1.4v2.5zm0-5c0 .3-2.1 1.5-6 1.5s-6-1.2-6-1.5V11c1.5.9 3.7 1.4 6 1.4s4.5-.5 6-1.4v2.5zm0-5C18 8.8 15.9 10 12 10S6 8.8 6 8.5V7.6C7.5 8.5 9.7 9 12 9s4.5-.5 6-1.4v.9z',
   },
   {
+    value: 'storage',
+    label: 'Storage',
+    labelPlural: 'Storage',
+    // hard drive: rounded enclosure with indicator dot and activity bar
+    icon: 'M20 4H4C2.9 4 2 4.9 2 6v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zm-2-3.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zM6 13h8v2H6v-2z',
+  },
+  {
     value: 'integration',
     label: 'Integration',
     labelPlural: 'Integrations',
