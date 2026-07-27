@@ -18,7 +18,7 @@ const { author } = Astro.props
 const posts = await getPostsByAuthor(author.id)
 ---
 
-<BlogLayout title={author.data.name} description={author.data.bio}>
+<BlogLayout title={author.data.name} description={author.data.bio} noindex>
   <div class="author-page">
     <a href={pathWithBase('/blog/')} class="back-link">&larr; All posts</a>
 

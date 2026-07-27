@@ -40,6 +40,7 @@ def invoke_ctx(messages: list[dict], agent: Any) -> InvokeModelContext:
         tool_specs=[],
         tool_choice=None,
         invocation_state={},
+        model=MagicMock(),
     )
 
 
