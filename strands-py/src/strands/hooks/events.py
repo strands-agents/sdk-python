@@ -134,6 +134,40 @@ class MessageAddedEvent(HookEvent):
 
 
 @dataclass
+class BeforeToolsEvent(HookEvent, _Interruptible):
+    """Event triggered before a batch of tools is executed.
+
+    This event is fired once for each assistant message containing tool use
+    requests, before any individual tool callbacks or execution begin.
+
+    Attributes:
+        message: The full assistant message containing the tool use requests.
+        invocation_state: State and configuration passed through the agent invocation.
+        cancel: When set, cancels every pending tool call in the batch. If a string,
+            used as the cancellation message. If True, a default message is used.
+    """
+
+    message: Message
+    invocation_state: dict[str, Any]
+    cancel: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "cancel"
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Return the unique id for an interrupt raised before a tool batch.
+
+        Args:
+            name: User-defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:before_tools:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+
+
+@dataclass
 class BeforeToolCallEvent(HookEvent, _Interruptible):
     """Event triggered before a tool is invoked.
 

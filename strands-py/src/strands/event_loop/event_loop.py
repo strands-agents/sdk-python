@@ -18,7 +18,7 @@ from opentelemetry import trace as trace_api
 
 from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, BeforeToolsEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -32,6 +32,7 @@ from ..types._events import (
     StartEventLoopEvent,
     StructuredOutputEvent,
     ToolInterruptEvent,
+    ToolResultEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -314,8 +315,8 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
-                # Emit after_model checkpoint, unless we just resumed from one.
-                if agent._checkpointing and not agent._cancel_signal.is_set():
+                # Emit after_model checkpoint, unless we just resumed from one or an interrupt.
+                if agent._checkpointing and not agent._cancel_signal.is_set() and not agent._interrupt_state.activated:
                     resume_position = agent._checkpoint_resume_position
                     agent._checkpoint_resume_position = None
                     if resume_position != "after_model":
@@ -730,69 +731,77 @@ async def _handle_tool_execution(
             - The updated event loop metrics,
             - The updated request state.
     """
-    tool_uses: list[ToolUse] = []
+    tool_uses = [content["toolUse"] for content in message["content"] if "toolUse" in content]
     tool_results: list[ToolResult] = []
-    invalid_tool_use_ids: list[str] = []
-
-    validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
-    tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
 
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
+        completed_tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
+        tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in completed_tool_use_ids]
 
-        # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
-        tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
-        tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
+    before_tools_event = BeforeToolsEvent(
+        agent=agent,
+        message=message,
+        invocation_state=invocation_state,
+    )
+    before_tools_event, interrupts = await agent.hooks.invoke_callbacks_async(before_tools_event)
 
-    interrupts = []
+    if interrupts:
+        # Session state stored on AfterInvocationEvent.
+        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+        agent._interrupt_state.activate()
 
-    # Check for cancellation before tool execution
-    # Add tool_result for each tool_use to maintain valid conversation state
-    if agent._cancel_signal.is_set():
+        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        yield EventLoopStopEvent(
+            "interrupt",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            interrupts,
+        )
+        if cycle_span:
+            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+        return
+
+    cancel_message = None
+    if before_tools_event.cancel:
+        cancel_message = (
+            before_tools_event.cancel if isinstance(before_tools_event.cancel, str) else "Tool cancelled by hook"
+        )
+    elif agent._cancel_signal.is_set():
+        cancel_message = "Tool execution cancelled"
+
+    if cancel_message:
         logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
-
-        # Create cancellation tool_result for each tool_use to avoid invalid message state
-        # (tool_use without tool_result would be rejected on next invocation)
         for tool_use in tool_uses:
             cancel_result: ToolResult = {
                 "toolUseId": str(tool_use.get("toolUseId")),
                 "status": "error",
-                "content": [{"text": "Tool execution cancelled"}],
+                "content": [{"text": cancel_message}],
             }
             tool_results.append(cancel_result)
+            yield ToolResultEvent(cancel_result)
+    else:
+        pending_tool_use_ids = {tool_use["toolUseId"] for tool_use in tool_uses}
+        validated_tool_uses: list[ToolUse] = []
+        validation_results: list[ToolResult] = []
+        invalid_tool_use_ids: list[str] = []
+        validate_and_prepare_tools(message, validated_tool_uses, validation_results, invalid_tool_use_ids)
+        tool_uses = [
+            tool_use
+            for tool_use in validated_tool_uses
+            if tool_use["toolUseId"] in pending_tool_use_ids and tool_use["toolUseId"] not in invalid_tool_use_ids
+        ]
+        tool_results.extend(result for result in validation_results if result["toolUseId"] in pending_tool_use_ids)
 
-        # Add tool results message to conversation if any tools were cancelled
-        cancelled_tool_result_message: Message | None = None
-        if tool_results:
-            _cancelled_msg: Message = {
-                "role": "user",
-                "content": [{"toolResult": result} for result in tool_results],
-            }
-            cancelled_tool_result_message = _cancelled_msg
-            await agent._append_messages(_cancelled_msg)
-            yield ToolResultMessageEvent(message=_cancelled_msg)
-
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "cancelled",
-            message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
+        tool_events = agent.tool_executor._execute(
+            agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
         )
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(
-                span=cycle_span, message=message, tool_result_message=cancelled_tool_result_message
-            )
-        return
+        async for tool_event in tool_events:
+            if isinstance(tool_event, ToolInterruptEvent):
+                interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
 
-    tool_events = agent.tool_executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
-    )
-    async for tool_event in tool_events:
-        if isinstance(tool_event, ToolInterruptEvent):
-            interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
-
-        yield tool_event
+            yield tool_event
 
     structured_output_result = None
     if structured_output_context.is_enabled:

@@ -42,6 +42,7 @@ from .events import (
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     BeforeToolCallEvent,
+    BeforeToolsEvent,
     MessageAddedEvent,
     MultiAgentInitializedEvent,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "AgentInitializedEvent",
     "BeforeInvocationEvent",
     "BeforeToolCallEvent",
+    "BeforeToolsEvent",
     "AfterToolCallEvent",
     "BeforeModelCallEvent",
     "AfterModelCallEvent",
