@@ -101,30 +101,26 @@ http_request = make_http_request()
 
 # ---- Internals ----
 
-_DEFAULT_TIMEOUT_SECONDS = 30.0
-
-
 def _resolve_timeout(
     model_timeout: float | None,
     client: httpx.AsyncClient | None,
-) -> float:
+) -> float | None:
     """Return the effective per-request timeout.
 
     The model may request a shorter timeout, but it can never exceed the
-    client's configured timeout. When no client is provided, a default of
-    30 seconds is used as the upper bound.
+    client's configured timeout. Returns ``None`` when no cap applies
+    (operator set unlimited timeout and model didn't supply one).
     """
+    client_timeout: float | None = None
     if client is not None and isinstance(client.timeout, httpx.Timeout):
         client_timeout = client.timeout.read
-        if client_timeout is None:
-            client_timeout = _DEFAULT_TIMEOUT_SECONDS
-    else:
-        client_timeout = _DEFAULT_TIMEOUT_SECONDS
 
     if model_timeout is None:
         return client_timeout
     if model_timeout <= 0:
         raise HttpRequestError("timeout must be positive")
+    if client_timeout is None:
+        return float(model_timeout)
     return min(float(model_timeout), client_timeout)
 
 
@@ -134,7 +130,7 @@ async def _perform_request(
     url: str,
     headers: dict[str, str],
     body: str | None,
-    timeout: float,
+    timeout: float | None,
     client: httpx.AsyncClient | None,
     cancel_signal: threading.Event | None = None,
 ) -> HttpRequestOutput:
@@ -154,12 +150,20 @@ async def _perform_request(
     try:
         _check_cancelled(cancel_signal)
         try:
+            extensions: dict[str, object] = {}
+            if timeout is not None:
+                extensions["timeout"] = {
+                    "connect": timeout,
+                    "read": timeout,
+                    "write": timeout,
+                    "pool": timeout,
+                }
             request = active_client.build_request(
                 method,
                 url,
                 headers=headers or None,
                 content=body,
-                extensions={"timeout": {"connect": timeout, "read": timeout, "write": timeout, "pool": timeout}},
+                extensions=extensions,
             )
             response = await active_client.send(request, stream=True)
         except httpx.TimeoutException as error:
