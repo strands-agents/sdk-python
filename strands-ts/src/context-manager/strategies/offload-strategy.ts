@@ -1,10 +1,10 @@
 /**
- * Offload pass: stores oversized tool results to in-memory storage and replaces
+ * Offload strategy: stores oversized tool results to in-memory storage and replaces
  * them with a head-tail preview in the message array.
  *
  * Operates eagerly: offloads on message arrival so the model never sees
- * oversized results. The retroactive `apply()` pass catches anything that
- * slipped through (e.g., messages added before the pass was initialized).
+ * oversized results. The retroactive `apply()` catches anything that
+ * slipped through (e.g., messages added before the strategy was initialized).
  *
  * @internal
  */
@@ -13,7 +13,7 @@ import { logger } from '../../logging/logger.js'
 import { MessageAddedEvent } from '../../hooks/events.js'
 import { TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Message } from '../../types/messages.js'
-import type { ContextPass, PassContext, PassInitContext } from '../types.js'
+import type { ContextStrategy, StrategyContext, StrategyInitContext } from '../types.js'
 
 const DEFAULT_MAX_RESULT_TOKENS = 2500
 const DEFAULT_PREVIEW_TOKENS = 1000
@@ -21,9 +21,9 @@ const DEFAULT_SKIP_RECENT = 3
 const CHARS_PER_TOKEN = 4
 
 /**
- * Configuration for the offload pass.
+ * Configuration for the offload strategy.
  */
-export interface OffloadPassConfig {
+export interface OffloadStrategyConfig {
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
   maxResultTokens?: number
 
@@ -35,26 +35,26 @@ export interface OffloadPassConfig {
 }
 
 /**
- * A context pass that offloads oversized tool results into storage, replacing
- * them with a head-tail preview and a storage reference.
+ * A context reduction strategy that offloads oversized tool results into storage,
+ * replacing them with a head-tail preview and a storage reference.
  *
- * Included in the default pass pipeline when no custom passes are configured.
+ * Included in the default pipeline when no custom strategies are configured.
  * Eagerly offloads on message arrival so the model never sees the full content.
  */
-export class OffloadPass implements ContextPass {
+export class OffloadStrategy implements ContextStrategy {
   readonly name = 'offload'
 
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
   private readonly _skipRecent: number
 
-  constructor(config?: OffloadPassConfig) {
+  constructor(config?: OffloadStrategyConfig) {
     this._maxResultTokens = config?.maxResultTokens ?? DEFAULT_MAX_RESULT_TOKENS
     this._previewTokens = config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS
     this._skipRecent = config?.skipRecent ?? DEFAULT_SKIP_RECENT
   }
 
-  init(context: PassInitContext): void {
+  init(context: StrategyInitContext): void {
     const { agent, storage } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
@@ -78,7 +78,7 @@ export class OffloadPass implements ContextPass {
     })
   }
 
-  async apply(context: PassContext): Promise<boolean> {
+  async apply(context: StrategyContext): Promise<boolean> {
     const { messages, storage } = context
     const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
 

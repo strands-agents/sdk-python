@@ -1,5 +1,5 @@
 /**
- * Summarize pass: compresses the oldest messages into a summary,
+ * Summarize strategy: compresses the oldest messages into a summary,
  * preserving key context while freeing token space.
  *
  * @internal
@@ -11,15 +11,15 @@ import {
   adjustSplitPointForToolPairs,
   generateSummary,
 } from '../../conversation-manager/compression/context-compression.js'
-import type { ContextPass, PassContext } from '../types.js'
+import type { ContextStrategy, StrategyContext } from '../types.js'
 
 const DEFAULT_SUMMARY_RATIO = 0.3
 const DEFAULT_PRESERVE_RECENT = 10
 
 /**
- * Configuration for the summarize pass.
+ * Configuration for the summarize strategy.
  */
-export interface SummarizePassConfig {
+export interface SummarizeStrategyConfig {
   /** Ratio of messages to summarize (0.1 - 0.8). Defaults to 0.3. */
   summaryRatio?: number
 
@@ -40,10 +40,9 @@ export interface SummarizePassConfig {
  * Summarizes the oldest messages into a single summary message, preserving
  * key information while reducing token count.
  *
- * Reuses the SDK's existing summarization infrastructure (generateSummary,
- * adjustSplitPointForToolPairs) for consistency with SummarizingConversationManager.
+ * Included in the default pipeline when no custom strategies are configured.
  */
-export class SummarizePass implements ContextPass {
+export class SummarizeStrategy implements ContextStrategy {
   readonly name = 'summarize'
 
   private readonly _summaryRatio: number
@@ -52,7 +51,7 @@ export class SummarizePass implements ContextPass {
   private readonly _model: Model | undefined
   private readonly _systemPrompt: string | undefined
 
-  constructor(config?: SummarizePassConfig) {
+  constructor(config?: SummarizeStrategyConfig) {
     this._summaryRatio = Math.max(0.1, Math.min(0.8, config?.summaryRatio ?? DEFAULT_SUMMARY_RATIO))
     this._preserveRecent = config?.preserveRecent ?? DEFAULT_PRESERVE_RECENT
     this._utilization = config?.utilization
@@ -60,7 +59,7 @@ export class SummarizePass implements ContextPass {
     this._systemPrompt = config?.systemPrompt
   }
 
-  async apply(context: PassContext): Promise<boolean> {
+  async apply(context: StrategyContext): Promise<boolean> {
     if (this._utilization !== undefined && context.utilization < this._utilization) {
       logger.debug(
         `utilization=<${context.utilization}>, threshold=<${this._utilization}> | skipping summarization, below threshold`

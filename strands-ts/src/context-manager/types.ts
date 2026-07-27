@@ -50,32 +50,33 @@ export interface StashConfig {
 }
 
 /**
- * A context pass that can reduce or transform context when triggered.
+ * A context reduction strategy that can offload, summarize, or otherwise
+ * transform the message array to reduce token usage.
  *
- * Passes are applied in order during `apply()`. Each decides whether
+ * Strategies are applied in order during `apply()`. Each decides whether
  * to act based on the current context state (utilization, message count, etc.).
  */
-export interface ContextPass {
+export interface ContextStrategy {
   /** Stable identifier for logging and observability. */
   readonly name: string
 
   /**
    * Called once when the ContextManager is attached to an agent.
-   * Passes can use this to register hooks (e.g., eager offloading on message arrival).
+   * Strategies can use this to register hooks (e.g., eager offloading on message arrival).
    */
-  init?(context: PassInitContext): void
+  init?(context: StrategyInitContext): void
 
   /**
    * Attempt to reduce context. Returns true if it made changes, false if it
    * decided not to act (e.g., conditions not met, nothing to offload).
    */
-  apply(context: PassContext): Promise<boolean>
+  apply(context: StrategyContext): Promise<boolean>
 }
 
 /**
- * Context passed to context passes during initialization.
+ * Context passed to strategies during initialization.
  */
-export interface PassInitContext {
+export interface StrategyInitContext {
   /** The agent instance. */
   agent: import('../types/agent.js').LocalAgent
 
@@ -84,10 +85,10 @@ export interface PassInitContext {
 }
 
 /**
- * State passed to context passes during apply().
+ * State passed to strategies during apply().
  */
-export interface PassContext {
-  /** The agent's current message array (L0). Passes mutate this in place. */
+export interface StrategyContext {
+  /** The agent's current message array (L0). Strategies mutate this in place. */
   messages: import('../types/messages.js').Message[]
 
   /** The agent instance. */
@@ -111,8 +112,8 @@ export interface ContextManagerConfig {
   stash?: StashConfig | boolean
 
   /**
-   * Context pass pipeline for context reduction. Applied in order during `apply()`.
+   * Strategies for context reduction. Applied in order during `apply()`.
    * When omitted, uses the default pipeline: offload tool results → summarize oldest.
    */
-  passes?: ContextPass[]
+  strategies?: ContextStrategy[]
 }

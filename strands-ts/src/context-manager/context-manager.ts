@@ -3,7 +3,7 @@
  *
  * Writes every message to L1 (the stash) on arrival.
  * L0 (agent.messages) is the compressed working set; L1 is the source of truth.
- * Applies a pass pipeline for proactive and reactive context reduction.
+ * On overflow, always truncates to guarantee the agent can continue.
  */
 
 import type { Plugin } from '../plugins/plugin.js'
@@ -18,14 +18,14 @@ import { adjustSplitPointForToolPairs } from '../conversation-manager/compressio
 import { Stash } from './stash.js'
 import type {
   ContextManagerConfig,
-  ContextPass,
+  ContextStrategy,
   MessageCategory,
-  PassContext,
-  PassInitContext,
   StashConfig,
+  StrategyContext,
+  StrategyInitContext,
 } from './types.js'
-import { OffloadPass } from './strategies/offload-strategy.js'
-import { SummarizePass } from './strategies/summarize-strategy.js'
+import { OffloadStrategy } from './strategies/offload-strategy.js'
+import { SummarizeStrategy } from './strategies/summarize-strategy.js'
 
 /**
  * Manages the L1 stash and context reduction for an agent's conversation.
@@ -35,9 +35,9 @@ import { SummarizePass } from './strategies/summarize-strategy.js'
  * the stash holds the full, uncompressed history and serves as the source of truth
  * for later retrieval and restore operations.
  *
- * On context overflow (or proactive threshold), `apply()` runs the pass pipeline.
- * When no passes are configured, uses a default pipeline (offload → summarize).
- * An internal floor truncation guarantees `apply()` always reduces something.
+ * On context overflow, always truncates the oldest messages to guarantee the agent
+ * can continue. Strategies (offload, summarize) run first for smarter compression,
+ * but truncation is the unconditional safety net.
  *
  * The ContextManager is a first-class agent component — pass it via the
  * `contextManager` parameter on the Agent constructor. When present, it owns
@@ -60,8 +60,8 @@ export class ContextManager implements Plugin {
   private readonly _stashEnabled: boolean
   private readonly _stashFilter: MessageCategory[] | undefined
   private readonly _stashFilterMode: 'include' | 'exclude' | undefined
-  private readonly _passes: ContextPass[]
-  private readonly _defaultPasses: ContextPass[]
+  private readonly _strategies: ContextStrategy[]
+  private readonly _defaultStrategies: ContextStrategy[]
 
   private _stash: Stash | undefined
   private _agent: LocalAgent | undefined
@@ -70,8 +70,8 @@ export class ContextManager implements Plugin {
   constructor(config?: ContextManagerConfig) {
     this._storage = new InMemoryStorage()
     this._stashEnabled = resolveStashEnabled(config?.stash)
-    this._passes = config?.passes ?? []
-    this._defaultPasses = [new OffloadPass(), new SummarizePass()]
+    this._strategies = config?.strategies ?? []
+    this._defaultStrategies = [new OffloadStrategy(), new SummarizeStrategy()]
 
     const stashConfig = typeof config?.stash === 'object' ? config.stash : undefined
     if (stashConfig?.include && stashConfig?.exclude) {
@@ -114,13 +114,13 @@ export class ContextManager implements Plugin {
       logger.info(`agentId=<${this._agentId}> | L1 stash disabled, offload operations will be destructive`)
     }
 
-    const initContext: PassInitContext = {
+    const initContext: StrategyInitContext = {
       agent,
       storage: this._storage,
     }
-    const passes = this._passes.length > 0 ? this._passes : this._defaultPasses
-    for (const pass of passes) {
-      pass.init?.(initContext)
+    const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies
+    for (const strategy of strategies) {
+      strategy.init?.(initContext)
     }
 
     agent.addHook(MessageAddedEvent, (event) => this._onMessageAdded(event))
@@ -138,14 +138,8 @@ export class ContextManager implements Plugin {
         return
       }
 
-      const messageCountBefore = agent.messages.length
-      await this.apply()
-      const messageCountAfter = agent.messages.length
-
-      if (messageCountAfter >= messageCountBefore) {
-        logger.warn(`agentId=<${this._agentId}> | apply() did not reduce context, not retrying`)
-        return
-      }
+      await this._runStrategies()
+      this._truncate(agent.messages)
 
       overflowRetries++
       event.retry = true
@@ -153,42 +147,39 @@ export class ContextManager implements Plugin {
   }
 
   /**
-   * Run the pass pipeline to reduce context.
+   * Run the strategy pipeline to reduce context.
    *
-   * Called reactively on context overflow or proactively when utilization
-   * exceeds a threshold. Passes are applied in order; each decides
-   * whether to act. If no pass reduces anything, a floor truncation
-   * drops the oldest non-pinned messages to guarantee progress.
+   * Called proactively when utilization exceeds a threshold. Strategies are
+   * applied in order; each decides whether to act.
    */
   async apply(): Promise<void> {
     if (!this._agent) {
       throw new Error('ContextManager.apply() called before initAgent()')
     }
 
+    await this._runStrategies()
+  }
+
+  private async _runStrategies(): Promise<void> {
+    if (!this._agent) return
+
     const messages = this._agent.messages
     const utilization = await this._estimateUtilization()
 
-    const passContext: PassContext = {
+    const strategyContext: StrategyContext = {
       messages,
       agent: this._agent,
       utilization,
       storage: this._storage,
     }
 
-    const passes = this._passes.length > 0 ? this._passes : this._defaultPasses
-    let reduced = false
+    const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies
 
-    for (const pass of passes) {
-      const acted = await pass.apply(passContext)
+    for (const strategy of strategies) {
+      const acted = await strategy.apply(strategyContext)
       if (acted) {
-        reduced = true
-        logger.debug(`pass=<${pass.name}>, agentId=<${this._agentId}> | pass applied`)
+        logger.debug(`strategy=<${strategy.name}>, agentId=<${this._agentId}> | strategy applied`)
       }
-    }
-
-    if (!reduced) {
-      this._floorTruncate(messages)
-      logger.warn(`agentId=<${this._agentId}> | floor truncation applied, no pass reduced context`)
     }
   }
 
@@ -203,10 +194,10 @@ export class ContextManager implements Plugin {
   }
 
   /**
-   * Last-resort truncation: drop the oldest messages (preserving the first message
+   * Unconditional truncation: drop the oldest messages (preserving the first message
    * and respecting tool-use/tool-result pair boundaries).
    */
-  private _floorTruncate(messages: Message[]): void {
+  private _truncate(messages: Message[]): void {
     const targetRemoval = Math.max(1, Math.floor(messages.length * 0.2))
     if (messages.length <= 3) return
 
@@ -214,6 +205,7 @@ export class ContextManager implements Plugin {
     const removeCount = Math.max(1, safeSplitPoint - 1)
 
     messages.splice(1, removeCount)
+    logger.debug(`agentId=<${this._agentId}>, removed=<${removeCount}> | truncated oldest messages on overflow`)
   }
 
   private async _onMessageAdded(event: MessageAddedEvent): Promise<void> {

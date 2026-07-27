@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SummarizePass } from '../summarize-strategy.js'
+import { SummarizeStrategy } from '../summarize-strategy.js'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { InMemoryStorage } from '../../../storage/in-memory-storage.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
-import type { PassContext } from '../../types.js'
+import type { StrategyContext } from '../../types.js'
 
 vi.mock('../../../conversation-manager/compression/context-compression.js', () => ({
   adjustSplitPointForToolPairs: vi.fn((messages: Message[], splitPoint: number) => splitPoint),
@@ -14,7 +14,7 @@ function makeUserMessage(text: string): Message {
   return new Message({ role: 'user', content: [new TextBlock(text)] })
 }
 
-function makeContext(messages: Message[], utilization = 0.5, model?: unknown): PassContext {
+function makeContext(messages: Message[], utilization = 0.5, model?: unknown): StrategyContext {
   const agent = createMockAgent({ messages })
   if (model) {
     ;(agent as unknown as Record<string, unknown>)['model'] = model
@@ -27,10 +27,10 @@ function makeContext(messages: Message[], utilization = 0.5, model?: unknown): P
   }
 }
 
-describe('SummarizePass', () => {
+describe('SummarizeStrategy', () => {
   describe('constructor', () => {
     it('uses default config values', () => {
-      const strategy = new SummarizePass()
+      const strategy = new SummarizeStrategy()
       expect(strategy.name).toBe('summarize')
       expect(strategy['_summaryRatio']).toBe(0.3)
       expect(strategy['_preserveRecent']).toBe(10)
@@ -38,7 +38,7 @@ describe('SummarizePass', () => {
     })
 
     it('accepts custom config', () => {
-      const strategy = new SummarizePass({
+      const strategy = new SummarizeStrategy({
         summaryRatio: 0.5,
         preserveRecent: 5,
         utilization: 0.85,
@@ -49,12 +49,12 @@ describe('SummarizePass', () => {
     })
 
     it('clamps ratio to min', () => {
-      const strategy = new SummarizePass({ summaryRatio: 0.01 })
+      const strategy = new SummarizeStrategy({ summaryRatio: 0.01 })
       expect(strategy['_summaryRatio']).toBe(0.1)
     })
 
     it('clamps ratio to max', () => {
-      const strategy = new SummarizePass({ summaryRatio: 0.99 })
+      const strategy = new SummarizeStrategy({ summaryRatio: 0.99 })
       expect(strategy['_summaryRatio']).toBe(0.8)
     })
   })
@@ -62,7 +62,7 @@ describe('SummarizePass', () => {
   describe('apply', () => {
     it('returns false when no model is available', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
-      const strategy = new SummarizePass()
+      const strategy = new SummarizeStrategy()
       const context = makeContext(messages)
 
       const result = await strategy.apply(context)
@@ -73,7 +73,7 @@ describe('SummarizePass', () => {
     it('returns false when not enough messages to summarize', async () => {
       const messages = [makeUserMessage('hello')]
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass({ preserveRecent: 10 })
+      const strategy = new SummarizeStrategy({ preserveRecent: 10 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -84,7 +84,7 @@ describe('SummarizePass', () => {
     it('summarizes oldest messages', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass({ summaryRatio: 0.3, preserveRecent: 5 })
+      const strategy = new SummarizeStrategy({ summaryRatio: 0.3, preserveRecent: 5 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -97,7 +97,7 @@ describe('SummarizePass', () => {
     it('does not exceed preserve_recent', async () => {
       const messages = Array.from({ length: 12 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass({ summaryRatio: 0.8, preserveRecent: 10 })
+      const strategy = new SummarizeStrategy({ summaryRatio: 0.8, preserveRecent: 10 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -110,7 +110,7 @@ describe('SummarizePass', () => {
     it('skips when utilization is below threshold', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass({ utilization: 0.85 })
+      const strategy = new SummarizeStrategy({ utilization: 0.85 })
       const context = makeContext(messages, 0.5, mockModel) // below 0.85
 
       const result = await strategy.apply(context)
@@ -122,7 +122,7 @@ describe('SummarizePass', () => {
     it('fires when utilization exceeds threshold', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass({ utilization: 0.85, preserveRecent: 5 })
+      const strategy = new SummarizeStrategy({ utilization: 0.85, preserveRecent: 5 })
       const context = makeContext(messages, 0.9, mockModel) // above 0.85
 
       const result = await strategy.apply(context)
@@ -133,7 +133,7 @@ describe('SummarizePass', () => {
     it('fires unconditionally when no utilization threshold set', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass({ preserveRecent: 5 })
+      const strategy = new SummarizeStrategy({ preserveRecent: 5 })
       const context = makeContext(messages, 0.1, mockModel) // low utilization but no threshold
 
       const result = await strategy.apply(context)
@@ -143,7 +143,7 @@ describe('SummarizePass', () => {
 
     it('returns false on empty messages', async () => {
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizePass()
+      const strategy = new SummarizeStrategy()
       const context = makeContext([], 0.9, mockModel)
 
       const result = await strategy.apply(context)
