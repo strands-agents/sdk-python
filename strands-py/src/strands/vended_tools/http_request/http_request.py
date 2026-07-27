@@ -10,8 +10,7 @@ redirects, and connection pooling.
 
 The parent agent's cancel signal (``Agent._cancel_signal``) is propagated so
 an in-flight fetch aborts when the agent is cancelled. Cancellation is
-signalled with :class:`asyncio.CancelledError`, matching the
-:func:`asyncio.sleep`-style vended-tool convention.
+signalled with :class:`asyncio.CancelledError`.
 """
 
 from __future__ import annotations
