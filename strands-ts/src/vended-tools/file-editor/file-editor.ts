@@ -10,20 +10,14 @@ const MB = 1024 * 1024
 const SNIPPET_LINES = 4
 const DEFAULT_MAX_FILE_SIZE = 1 * MB
 const MAX_DIRECTORY_DEPTH = 2
-const MAX_PATTERN_LENGTH = 1000
-const MAX_PATTERN_MATCHES = 10_000
+const MAX_FIND_LINE_HITS = 200
 const DEFAULT_MAX_UNDO_ENTRIES = 32
 const DEFAULT_MAX_UNDO_BYTES = 32 * MB
 
-/**
- * Zod schema for file editor input validation.
- */
 const fileEditorInputSchema = z.object({
   command: z
-    .enum(['view', 'create', 'str_replace', 'insert', 'pattern_replace', 'find_line', 'undo_edit'])
-    .describe(
-      'The operation to perform: `view`, `create`, `str_replace`, `insert`, `pattern_replace`, `find_line`, or `undo_edit`.'
-    ),
+    .enum(['view', 'create', 'str_replace', 'insert', 'find_line', 'undo_edit'])
+    .describe('The operation to perform: `view`, `create`, `str_replace`, `insert`, `find_line`, or `undo_edit`.'),
   path: z.string().describe('Absolute path to the file or directory.'),
   file_text: z.string().optional().describe('Content for new file (required for create command).'),
   view_range: z
@@ -36,31 +30,27 @@ const fileEditorInputSchema = z.object({
     .describe(
       'Exact string to find and replace (required for str_replace). Must be unique unless replace_all is true.'
     ),
-  new_str: z
-    .string()
-    .optional()
-    .describe('Replacement string (for str_replace, pattern_replace, and insert commands).'),
+  new_str: z.string().optional().describe('Replacement string (for str_replace and insert commands).'),
   insert_line: z
     .number()
     .optional()
     .describe('Line number where text should be inserted (0-indexed, required for insert command).'),
-  pattern: z.string().optional().describe('Regex pattern to match (required for pattern_replace command).'),
   search_text: z.string().optional().describe('Text to search for (required for find_line command).'),
   fuzzy: z.boolean().optional().describe('Enable whitespace-tolerant, case-insensitive matching for find_line.'),
   replace_all: z
     .boolean()
     .optional()
     .describe(
-      'For str_replace and pattern_replace, allow replacing every occurrence. Defaults to false; a match count > 1 is rejected without this flag to prevent silent broad edits.'
+      'For str_replace, allow replacing every occurrence. Defaults to false; a match count > 1 is rejected without this flag to prevent silent broad edits.'
     ),
 })
 
 /**
  * File editor tool for viewing, creating, and editing files programmatically.
  *
- * Provides commands for viewing files/directories, creating files, string and
- * regex replacement, line insertion, search, and single-step undo. All I/O
- * routes through the agent's configured sandbox.
+ * Provides commands for viewing files/directories, creating files, string
+ * replacement, line insertion, search, and single-step undo. All I/O routes
+ * through the agent's configured sandbox.
  *
  * @example
  * ```typescript
@@ -78,7 +68,7 @@ const fileEditorInputSchema = z.object({
  * ```
  */
 export const DEFAULT_FILE_EDITOR_DESCRIPTION =
-  'Filesystem editor for viewing, creating, and editing files. Supports view (with line ranges), create, str_replace (exact match; ambiguous matches must opt in via replace_all), insert, pattern_replace (regex), find_line, and undo_edit. Files must use absolute paths.'
+  'Filesystem editor for viewing, creating, and editing files. Supports view (with line ranges), create, str_replace (exact match; ambiguous matches must opt in via replace_all), insert, find_line, and undo_edit. Files must use absolute paths.'
 
 export interface MakeFileEditorOptions {
   name?: string
@@ -87,11 +77,11 @@ export interface MakeFileEditorOptions {
    * Optional absolute directory that confines every operation. String-level
    * checks reject non-absolute paths and any `..` traversal on the raw input;
    * when the resolved target exists on the local host, `fs.realpathSync` is
-   * also applied and the result must still be inside `root`. Confinement is
-   * enforced against the raw path input before I/O; concurrent rename attacks
-   * between the confinement check and the read/write are the sandbox's
-   * responsibility. When `undefined`, only absolute-path and `..`-traversal
-   * checks apply; the underlying sandbox's symlink policy governs escape.
+   * also applied and the result must still be inside `root`. When `root` is
+   * set but does not exist locally (a container-side path in a Docker/SSH
+   * sandbox), construction fails closed on the first call: the local process
+   * cannot canonicalize container-side paths, so accepting a lexical-only
+   * match would let a symlink inside the sandbox escape confinement.
    */
   root?: string
   /**
@@ -101,22 +91,25 @@ export interface MakeFileEditorOptions {
    */
   maxFileSize?: number
   /**
-   * Maximum number of distinct paths retained in the in-memory undo history.
-   * Oldest entry is evicted on overflow. Defaults to 32.
+   * Maximum number of distinct paths retained in the in-memory undo history
+   * per calling agent. Oldest entry is evicted on overflow. Defaults to 32.
    */
   maxUndoEntries?: number
   /**
-   * Approximate cap on total bytes of file content held in the undo history
-   * (measured as UTF-8 byte length, matching the Python side). Oldest entries
-   * are evicted until the cap is met. Defaults to 32 MB.
+   * Approximate cap on total bytes of file content held in the per-agent undo
+   * history (measured as UTF-8 byte length, matching the Python side). Oldest
+   * entries are evicted until the cap is met. Defaults to 32 MB.
    */
   maxUndoBytes?: number
 }
 
 /**
- * Create a file editor tool. If a sandbox is passed, it's bound at creation time.
- * Otherwise, the tool reads from `context.agent.sandbox` at call time.
- * Used by sandbox implementations in `getTools()` and by users who want a customized file editor.
+ * Create a file editor tool. If a sandbox is passed, it's bound at creation
+ * time. Otherwise, the tool reads from `context.agent.sandbox` at call time.
+ *
+ * Undo history is kept per calling agent via a `WeakMap` keyed on
+ * `context.agent`, so two agents sharing one editor factory cannot see or
+ * overwrite each other's snapshots.
  */
 export function makeFileEditor(options?: MakeFileEditorOptions): ReturnType<typeof tool>
 export function makeFileEditor(sandbox: Sandbox | undefined, options?: MakeFileEditorOptions): ReturnType<typeof tool>
@@ -133,16 +126,24 @@ export function makeFileEditor(
   if (options.root !== undefined && !path.isAbsolute(options.root)) {
     throw new Error(`root must be an absolute path, got: ${options.root}`)
   }
-  // Use platform-native normalization so a Windows-style `root`
-  // (e.g. `C:\Users\...\workspace`) survives round-tripping. Trailing separators
-  // are stripped so subsequent `startsWith(root + sep)` checks work.
+  // Platform-native normalization so a Windows-style `root` (e.g.
+  // `C:\Users\...\workspace`) survives round-tripping.
   const normalizedRoot: string | undefined =
     options.root === undefined ? undefined : stripTrailingSep(path.normalize(options.root))
 
-  // Bounded LRU: previous file content keyed by path. `Map` preserves insertion
-  // order, so re-inserting a key after `delete` gives LRU behavior; eviction
-  // removes the oldest key when either cap is exceeded.
-  const undoHistory = new Map<string, string>()
+  // Per-agent bounded LRU: `agent -> path -> previous content`. A WeakMap so
+  // the agent's undo state is collected with it and no two agents sharing
+  // this editor can see each other's snapshots.
+  const undoHistories = new WeakMap<object, Map<string, string>>()
+
+  function getUndoHistory(agent: object): Map<string, string> {
+    let history = undoHistories.get(agent)
+    if (history === undefined) {
+      history = new Map()
+      undoHistories.set(agent, history)
+    }
+    return history
+  }
 
   return tool({
     name: options.name ?? 'fileEditor',
@@ -152,6 +153,7 @@ export function makeFileEditor(
       if (!context) throw new Error('Tool context is required for fileEditor operations')
       const sandbox = boundSandbox ?? context.agent.sandbox
       const filePath = resolvePath(input.path, normalizedRoot)
+      const undoHistory = getUndoHistory(context.agent as unknown as object)
 
       switch (input.command) {
         case 'view':
@@ -181,18 +183,6 @@ export function makeFileEditor(
             maxUndoEntries,
             maxUndoBytes
           )
-        case 'pattern_replace':
-          return handlePatternReplace(
-            sandbox,
-            filePath,
-            input.pattern!,
-            input.new_str,
-            input.replace_all === true,
-            maxFileSize,
-            undoHistory,
-            maxUndoEntries,
-            maxUndoBytes
-          )
         case 'find_line':
           return handleFindLine(sandbox, filePath, input.search_text!, input.fuzzy === true, maxFileSize)
         case 'undo_edit':
@@ -210,22 +200,20 @@ export function makeFileEditor(
 export const fileEditor = makeFileEditor()
 
 /**
- * Normalize a path, rejecting traversal and out-of-root inputs.
+ * Normalize a path and enforce confinement; the single validation funnel every command routes through.
  *
- * This is the single funnel every command routes through — it exists so path
- * validation cannot be bypassed by a new command forgetting to call it. When
- * `root` is set and the target (or its parent, for a not-yet-existing file)
- * exists locally, symlinks are also resolved via `fs.realpathSync` and the
- * result must still be inside `root` — a symlink inside `root` pointing at
- * `/etc/passwd` is rejected. When `root` does not exist locally (e.g. a Docker
- * sandbox whose paths are container-side), the realpath layer is skipped and
- * the sandbox owns its own symlink policy — otherwise every operation would
- * fail an ENOENT-on-realpath check.
+ * Rejects non-absolute paths and `..` segments unconditionally. When `root`
+ * is set the resolved path must sit inside it after both a string-level
+ * check and, for any existing ancestor on the local host, a `realpath`
+ * check. A `root` that is not present on the local host fails closed —
+ * see {@link MakeFileEditorOptions.root} for the reasoning.
+ *
+ * @throws Error on non-absolute paths, `..` traversal, out-of-root
+ *   resolution (including via symlink), or an unresolvable `root`.
  */
 function resolvePath(filePath: string, root: string | undefined): string {
-  // Strip trailing slashes on the raw input (compat with pre-existing
-  // behavior). Uses `stripTrailingSep` so a Windows drive root like `C:\` is
-  // preserved rather than collapsed to `C:` (which is not absolute).
+  // stripTrailingSep preserves a Windows drive root like `C:\` — a naive
+  // trailing-separator strip would collapse it to `C:`, which is not absolute.
   const stripped = stripTrailingSep(filePath)
 
   if (!path.isAbsolute(stripped)) {
@@ -245,25 +233,25 @@ function resolvePath(filePath: string, root: string | undefined): string {
   const normalized = stripTrailingSep(path.normalize(stripped))
 
   if (root !== undefined) {
-    // String-level confinement: normalized must equal root or start with root
-    // + platform separator. Case-insensitive on Windows; case-sensitive on POSIX.
     if (!isInsideRoot(normalized, root)) {
       throw new Error(`Invalid path: ${filePath} is outside the configured root ${root}`)
     }
 
-    // Symlink confinement is a best-effort, local-fs-only layer. If `root`
-    // itself does not exist on the local filesystem, the caller is running
-    // against a non-local sandbox (Docker, SSH, etc.) whose paths do not map
-    // to this host — realpath would ENOENT on every call and reject every
-    // operation. In that case the string-level check above is the whole
-    // policy; the sandbox owns its own symlink handling.
+    // Fail closed when the local host cannot see `root`: without a local
+    // filesystem entry the realpath layer below has nothing to canonicalize,
+    // and a lexical-only match would let a symlink inside a container
+    // sandbox escape confinement silently.
     if (!fs.existsSync(root)) {
-      return normalized
+      throw new Error(
+        `Invalid configuration: root ${root} does not exist on the local host. ` +
+          `root confinement requires a locally resolvable directory so symlinks can be canonicalized; ` +
+          `construct the editor without root when routing through a container-side sandbox.`
+      )
     }
 
-    // Resolve the deepest existing ancestor via realpath and confirm it is
-    // still inside root. This is what catches a symlink `inside-root/link ->
-    // /etc/passwd` — the string-level check above only sees `inside-root/link`.
+    // Walk to the deepest existing ancestor, then confirm its realpath is
+    // still inside root — this is what catches a symlink whose target sits
+    // outside root even though the raw path did not.
     let probe = normalized
     while (probe && !existsSyncLstat(probe)) {
       const parent = path.dirname(probe)
@@ -314,10 +302,9 @@ function isInsideRoot(target: string, root: string): boolean {
 }
 
 /**
- * Reject a replacement payload whose UTF-8 length would exceed `maxSize`. The
- * read-side cap already protects against pulling a huge file into memory; this
- * mirrors it on the write side so a model can't ship an unbounded `new_str`
- * or `file_text` through the tool.
+ * Reject a replacement payload whose UTF-8 length would exceed `maxSize`.
+ * Mirrors the read-side cap on the write side so a model cannot ship an
+ * unbounded `new_str` or `file_text` through the tool.
  */
 function rejectOversizeReplacement(text: string | undefined, maxSize: number, label = 'new_str'): void {
   if (text === undefined) return
@@ -328,16 +315,41 @@ function rejectOversizeReplacement(text: string | undefined, maxSize: number, la
 }
 
 /**
- * Reject a post-edit buffer whose UTF-8 length would exceed `maxSize`. The
- * write-side cap catches the case where the individual `new_str` fits but the
- * resulting file (after all substitutions) is larger than the read cap — a
- * `replace_all` that expands every match, for instance.
+ * Reject a `str_replace` whose projected UTF-8 output would exceed `maxSize`.
+ *
+ * The projected size is exact — `String.prototype.replace` never re-runs
+ * itself — so rejection happens before V8 allocates the substituted string.
+ * Guards against a pathological `replace_all` (many small matches, large
+ * replacement) trying to allocate a multi-terabyte buffer.
  */
-function rejectOversizeResult(content: string, maxSize: number, filePath: string): void {
-  const bytes = Buffer.byteLength(content, 'utf-8')
-  if (bytes > maxSize) {
+function preflightStrReplaceOutputSize(
+  originalContent: string,
+  oldStr: string,
+  newStrValue: string,
+  replaceAll: boolean,
+  occurrences: number,
+  maxSize: number,
+  filePath: string
+): void {
+  const oldBytes = Buffer.byteLength(oldStr, 'utf-8')
+  const newBytes = Buffer.byteLength(newStrValue, 'utf-8')
+  const count = replaceAll ? occurrences : 1
+  const projected = Buffer.byteLength(originalContent, 'utf-8') + count * (newBytes - oldBytes)
+  if (projected > maxSize) {
     throw new Error(
-      `The edit would produce a ${bytes}-byte file at ${filePath}, exceeding the maximum allowed size of ${maxSize} bytes.`
+      `The edit would produce a ${projected}-byte file at ${filePath}, exceeding the maximum allowed size of ${maxSize} bytes.`
+    )
+  }
+}
+
+/**
+ * Reject an `insert` whose projected UTF-8 output would exceed `maxSize`.
+ */
+function preflightInsertOutputSize(originalContent: string, newStr: string, maxSize: number, filePath: string): void {
+  const projected = Buffer.byteLength(originalContent, 'utf-8') + Buffer.byteLength(newStr, 'utf-8')
+  if (projected > maxSize) {
+    throw new Error(
+      `The edit would produce a ${projected}-byte file at ${filePath}, exceeding the maximum allowed size of ${maxSize} bytes.`
     )
   }
 }
@@ -352,26 +364,7 @@ function existsSyncLstat(p: string): boolean {
 }
 
 /**
- * Approximate check that a pattern has a known-catastrophic ReDoS shape.
- * Catastrophic backtracking in JS regex hangs a single `.exec()` call, and
- * V8 has no regex timeout, so the match-count cap only fires between exec
- * calls. This pre-compile heuristic is the only sync-time defense. False
- * positives on legitimate patterns are acceptable: the caller can loosen the
- * pattern.
- *
- * Shapes flagged:
- * 1. Nested quantifier: `(a+)+`, `(a*)*`, `(a+)*b`.
- * 2. Alternation-overlap inside a quantified group: `(a|a)*`, `(a|ab)*b`.
- * 3. Bounded quantifier `{n,}` inside a quantified group: `(a{2,})+`.
- */
-function looksLikeCatastrophicPattern(pattern: string): boolean {
-  return /\([^()]*(?:[+*]|\||\{\d+,\d*\})[^()]*\)(?:[+*]|\{\d+,\d*\})/.test(pattern)
-}
-
-/**
- * Validates a view_range tuple and slices the file content to it. Returns the
- * visible content along with the line number to use as the first line in the
- * formatted output.
+ * Slice file content to a 1-indexed `[start, end]` range (end `-1` means end of file).
  */
 function applyViewRange(
   fileContent: string,
@@ -405,17 +398,21 @@ function applyViewRange(
 }
 
 /**
- * Performs a str_replace transformation on file content. Requires exactly one
- * match unless `replaceAll` is true. Returns the new content, a context
- * snippet, the snippet's 0-indexed start line, and the number of substitutions
- * performed.
+ * Perform a `str_replace` and return `{ newContent, snippet, startLine, count }`.
+ *
+ * Requires exactly one match unless `replaceAll` is true, and runs a
+ * projected-size preflight before allocating the substituted string.
+ *
+ * @throws Error when `oldStr` does not appear, appears more than once
+ *   without `replaceAll`, or the substitution would exceed `maxSize`.
  */
 function buildStrReplaceResult(
   originalContent: string,
   oldStr: string,
   newStr: string | undefined,
   filePath: string,
-  replaceAll: boolean
+  replaceAll: boolean,
+  maxSize: number
 ): { newContent: string; snippet: string; startLine: number; count: number } {
   const newStrValue = newStr ?? ''
 
@@ -430,6 +427,8 @@ function buildStrReplaceResult(
       `No replacement was performed. Multiple occurrences of old_str \`${oldStr}\` in lines ${JSON.stringify(lineNumbers)}. Pass replace_all=true to replace every occurrence, or make old_str unique.`
     )
   }
+
+  preflightStrReplaceOutputSize(originalContent, oldStr, newStrValue, replaceAll, occurrences, maxSize, filePath)
 
   const count = replaceAll ? occurrences : 1
   // Single replacement uses a replacer function so `$&`/`$1`/`$$` in newStr
@@ -452,9 +451,9 @@ function buildStrReplaceResult(
 }
 
 /**
- * Inserts text at a 0-indexed line in file content. Validates the insertion
- * point. Returns the new content plus a snippet around the insertion site
- * (with 0-indexed `startLine`).
+ * Insert text at a 0-indexed line and return `{ newContent, snippet, startLine }`.
+ *
+ * @throws Error when `insertLine` is out of bounds.
  */
 function buildInsertResult(
   originalContent: string,
@@ -485,51 +484,53 @@ function buildInsertResult(
 }
 
 /**
- * Formats file content with line numbers (cat -n style).
+ * Format file content with cat-n-style line numbers.
  */
 function makeOutput(fileContent: string, fileDescriptor: string, initLine: number = 1): string {
-  // Expand tabs to spaces in content
   const expandedContent = fileContent.replace(/\t/g, '        ')
 
   const numberedLines = expandedContent.split('\n').map((line, index) => {
     const lineNum = index + initLine
-    // Use two spaces instead of tab to avoid any tabs in output
     return `${lineNum.toString().padStart(6)}  ${line}`
   })
 
   return `Here's the result of running \`cat -n\` on ${fileDescriptor}:\n${numberedLines.join('\n')}\n`
 }
 
-/**
- * Escapes special regex characters in a string.
- */
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
- * Returns the 0-indexed line number where `searchText` first appears, else -1.
+ * Return every 0-indexed line where `searchText` matches, capped at `cap` hits.
  *
  * When `fuzzy` is true, whitespace between tokens is collapsed and matching
  * is case-insensitive.
  */
-function findLineNumber(content: string, searchText: string, fuzzy: boolean): number {
+function findLineNumbers(content: string, searchText: string, fuzzy: boolean, cap: number): number[] {
   const lines = content.split('\n')
+  const hits: number[] = []
   if (fuzzy) {
     const tokens = searchText.trim().split(/\s+/).filter(Boolean)
-    if (tokens.length === 0) return -1
+    if (tokens.length === 0) return hits
     const pattern = new RegExp(tokens.map(escapeRegExp).join('.*'), 'i')
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      if (line !== undefined && pattern.test(line)) return i
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]
+      if (line !== undefined && pattern.test(line)) {
+        hits.push(index)
+        if (hits.length >= cap) break
+      }
     }
   } else {
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      if (line !== undefined && line.includes(searchText)) return i
+    for (let index = 0; index < lines.length; index++) {
+      const line = lines[index]
+      if (line !== undefined && line.includes(searchText)) {
+        hits.push(index)
+        if (hits.length >= cap) break
+      }
     }
   }
-  return -1
+  return hits
 }
 
 // ---- Undo history bookkeeping ----
@@ -539,6 +540,9 @@ function findLineNumber(content: string, searchText: string, fuzzy: boolean): nu
  *
  * `Map` iteration follows insertion order; a re-inserted key after `delete` moves
  * to the end. `keys().next()` therefore yields the oldest entry for eviction.
+ *
+ * Callers must invoke this only *after* the corresponding write has succeeded
+ * so a failed write does not overwrite a still-valid earlier snapshot.
  */
 function storeUndoSnapshot(
   undoHistory: Map<string, string>,
@@ -563,9 +567,11 @@ function storeUndoSnapshot(
 // ---- Sandbox-routed I/O helpers ----
 
 /**
- * Probes a path through the sandbox, reporting existence and directory-ness by listing
- * the parent directory. A missing parent or entry resolves to `exists: false`; permission,
- * transport, and other failures propagate so they aren't disguised as non-existence.
+ * Return `{ exists, isDir }` for a path by listing its parent through the sandbox.
+ *
+ * A missing parent or entry becomes `{ exists: false }`; other listing
+ * errors (permission, transport) propagate so they are not disguised as
+ * non-existence.
  */
 async function probeSandboxPath(sandbox: Sandbox, filePath: string): Promise<{ exists: boolean; isDir: boolean }> {
   const normalized = filePath.replaceAll('\\', '/')
@@ -617,7 +623,7 @@ async function readTextOrRejectBinary(sandbox: Sandbox, filePath: string, maxSiz
 }
 
 /**
- * Lists directory contents up to 2 levels deep, excluding hidden files.
+ * List directory contents up to 2 levels deep through the sandbox, excluding hidden files.
  */
 async function listDirectory(sandbox: Sandbox, dirPath: string): Promise<string> {
   const items: string[] = []
@@ -627,7 +633,6 @@ async function listDirectory(sandbox: Sandbox, dirPath: string): Promise<string>
     try {
       entries = await sandbox.listFiles(currentPath)
     } catch {
-      // Ignore permission errors and continue
       return
     }
 
@@ -736,12 +741,14 @@ async function handleStrReplace(
     oldStr,
     newStr,
     filePath,
-    replaceAll
+    replaceAll,
+    maxSize
   )
 
-  rejectOversizeResult(newContent, maxSize, filePath)
-  storeUndoSnapshot(undoHistory, filePath, fileContent, maxUndoEntries, maxUndoBytes)
+  // Snapshot only after the write commits so a failed write leaves the
+  // previous entry — which still reflects on-disk state — valid to undo.
   await sandbox.writeText(filePath, newContent)
+  storeUndoSnapshot(undoHistory, filePath, fileContent, maxUndoEntries, maxUndoBytes)
 
   const suffix = replaceAll && count > 1 ? ` (${count} occurrences replaced)` : ''
   return `The file ${filePath} has been edited.${suffix} ${makeOutput(snippet, `a snippet of ${filePath}`, startLine + 1)}Review the changes and make sure they are as expected. Edit the file again if necessary.`
@@ -772,146 +779,13 @@ async function handleInsert(
 
   const fileText = await readTextOrRejectBinary(sandbox, filePath, maxSize)
 
+  preflightInsertOutputSize(fileText, newStr, maxSize, filePath)
   const { newContent, snippet, startLine } = buildInsertResult(fileText, insertLine, newStr)
 
-  rejectOversizeResult(newContent, maxSize, filePath)
-  storeUndoSnapshot(undoHistory, filePath, fileText, maxUndoEntries, maxUndoBytes)
   await sandbox.writeText(filePath, newContent)
+  storeUndoSnapshot(undoHistory, filePath, fileText, maxUndoEntries, maxUndoBytes)
 
   return `The file ${filePath} has been edited. ${makeOutput(snippet, 'a snippet of the edited file', startLine + 1)}Review the changes and make sure they are as expected (correct indentation, no duplicate lines, etc). Edit the file again if necessary.`
-}
-
-async function handlePatternReplace(
-  sandbox: Sandbox,
-  filePath: string,
-  pattern: string,
-  newStr: string | undefined,
-  replaceAll: boolean,
-  maxSize: number,
-  undoHistory: Map<string, string>,
-  maxUndoEntries: number,
-  maxUndoBytes: number
-): Promise<string> {
-  if (pattern === undefined) {
-    throw new Error('Parameter `pattern` is required for command: pattern_replace')
-  }
-  if (pattern === '') {
-    throw new Error('Parameter `pattern` must not be empty for command: pattern_replace')
-  }
-  if (newStr === undefined) {
-    throw new Error('Parameter `new_str` is required for command: pattern_replace')
-  }
-  rejectOversizeReplacement(newStr, maxSize, 'new_str')
-  if (pattern.length > MAX_PATTERN_LENGTH) {
-    throw new Error(`Pattern is ${pattern.length} chars, exceeds maximum of ${MAX_PATTERN_LENGTH}.`)
-  }
-  if (looksLikeCatastrophicPattern(pattern)) {
-    // Deliberate cross-SDK divergence: V8 has no in-exec regex timeout and JS
-    // has no way to cancel a running .exec() call, so a catastrophic pattern
-    // would hang the event loop indefinitely. The Python side runs regexes on
-    // a worker thread under an asyncio.wait_for timeout; TypeScript cannot
-    // replicate that safely, so it statically rejects the classic ReDoS
-    // shapes ((...+)+, (...*)*, ...) before compiling. A pattern accepted by
-    // Python with `pattern_replace_timeout` may be refused here — see the
-    // vended-tools doc for the reasoning.
-    throw new Error(
-      `Pattern \`${pattern}\` has a shape that risks catastrophic backtracking (nested quantifier, alternation-overlap, or a bounded {n,} quantifier inside a quantified group); refusing to compile. Rewrite the quantified group so its interior does not itself repeat.`
-    )
-  }
-
-  // Compile once with the `g` flag; a shared `.exec()` loop drives both the
-  // ambiguity check (with a match cap so a runaway regex can't produce an
-  // unbounded array) and the eventual substitution. V8 has no timeout, so the
-  // pre-compile heuristic above plus the hard match cap below are the defense
-  // against catastrophic backtracking.
-  let regex: RegExp
-  try {
-    regex = new RegExp(pattern, 'g')
-  } catch (e) {
-    throw new Error(`Invalid regex pattern \`${pattern}\`: ${(e as Error).message}`, { cause: e })
-  }
-
-  const { exists, isDir } = await probeSandboxPath(sandbox, filePath)
-  if (!exists) {
-    throw new Error(`The path ${filePath} does not exist. Please provide a valid path.`)
-  }
-  if (isDir) {
-    throw new Error(`The path ${filePath} is a directory and only the \`view\` command can be used on directories`)
-  }
-
-  const fileContent = await readTextOrRejectBinary(sandbox, filePath, maxSize)
-
-  const matches: RegExpExecArray[] = []
-  regex.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = regex.exec(fileContent)) !== null) {
-    matches.push(m)
-    if (matches.length > MAX_PATTERN_MATCHES) {
-      throw new Error(`Pattern \`${pattern}\` produced more than ${MAX_PATTERN_MATCHES} matches; refusing to continue.`)
-    }
-    // Guard against a zero-width match causing an infinite loop.
-    if (m.index === regex.lastIndex) regex.lastIndex++
-  }
-
-  if (matches.length === 0) {
-    throw new Error(`No replacement was performed, pattern \`${pattern}\` did not match in ${filePath}.`)
-  }
-  if (matches.length > 1 && !replaceAll) {
-    const lineNumbers = matches.map((mm) => fileContent.substring(0, mm.index).split('\n').length)
-    throw new Error(
-      `No replacement was performed. Pattern \`${pattern}\` matched ${matches.length} times (lines ${JSON.stringify(lineNumbers)}). Pass replace_all=true to replace every occurrence, or tighten the pattern.`
-    )
-  }
-
-  // Build the replacement without recompiling the regex: substitute in reverse
-  // order using the captured match indices when we're replacing all; otherwise
-  // slice around the first match to avoid re-running the engine.
-  const first = matches[0]!
-  let newContent: string
-  if (replaceAll) {
-    newContent = ''
-    let cursor = 0
-    for (const mm of matches) {
-      newContent += fileContent.slice(cursor, mm.index) + expandBackreferences(newStr, mm)
-      cursor = mm.index + mm[0].length
-    }
-    newContent += fileContent.slice(cursor)
-  } else {
-    newContent =
-      fileContent.slice(0, first.index) +
-      expandBackreferences(newStr, first) +
-      fileContent.slice(first.index + first[0].length)
-  }
-
-  const count = replaceAll ? matches.length : 1
-
-  rejectOversizeResult(newContent, maxSize, filePath)
-  storeUndoSnapshot(undoHistory, filePath, fileContent, maxUndoEntries, maxUndoBytes)
-  await sandbox.writeText(filePath, newContent)
-
-  const replacementLine = fileContent.substring(0, first.index).split('\n').length - 1
-  const newLines = newContent.split('\n')
-  const startLine = Math.max(0, replacementLine - SNIPPET_LINES)
-  const endLine = Math.min(newLines.length, replacementLine + SNIPPET_LINES + 1)
-  const snippet = newLines.slice(startLine, endLine).join('\n')
-
-  const suffix = replaceAll && count > 1 ? ` (${count} matches replaced)` : ''
-  return `The file ${filePath} has been edited via pattern_replace.${suffix} ${makeOutput(snippet, `a snippet of ${filePath}`, startLine + 1)}Review the changes and make sure they are as expected. Edit the file again if necessary.`
-}
-
-/**
- * Expand `$&`, `$$`, and `$1..$9` backreferences against a match, mirroring
- * String.prototype.replace's replacement-string semantics. Used so a single
- * compiled regex + captured matches drives both the ambiguity check and the
- * substitution (no second `.replace()` call, no third regex compile).
- */
-function expandBackreferences(replacement: string, match: RegExpExecArray): string {
-  return replacement.replace(/\$(\$|&|\d)/g, (_full, token: string) => {
-    if (token === '$') return '$'
-    if (token === '&') return match[0]
-    const idx = parseInt(token, 10)
-    return match[idx] ?? ''
-  })
 }
 
 async function handleFindLine(
@@ -935,29 +809,38 @@ async function handleFindLine(
 
   const fileContent = await readTextOrRejectBinary(sandbox, filePath, maxSize)
 
-  const lineIndex = findLineNumber(fileContent, searchText, fuzzy)
-  if (lineIndex === -1) {
-    throw new Error(`Could not find \`${searchText}\` in ${filePath}.`)
+  const hits = findLineNumbers(fileContent, searchText, fuzzy, MAX_FIND_LINE_HITS)
+  if (hits.length === 0) {
+    return `No matches for \`${searchText}\` in ${filePath}.`
   }
 
+  const lineNumbers = hits.map((index) => index + 1)
+  const truncatedNote = hits.length === MAX_FIND_LINE_HITS ? ` (truncated to first ${MAX_FIND_LINE_HITS} hits)` : ''
+
+  const first = hits[0]!
   const lines = fileContent.split('\n')
-  const startLine = Math.max(0, lineIndex - SNIPPET_LINES)
-  const endLine = Math.min(lines.length, lineIndex + SNIPPET_LINES + 1)
+  const startLine = Math.max(0, first - SNIPPET_LINES)
+  const endLine = Math.min(lines.length, first + SNIPPET_LINES + 1)
   const snippet = lines.slice(startLine, endLine).join('\n')
-  return `Found \`${searchText}\` at line ${lineIndex + 1} of ${filePath}.\n${makeOutput(snippet, `a snippet of ${filePath}`, startLine + 1)}`
+  return `Found \`${searchText}\` at line(s) ${JSON.stringify(lineNumbers)}${truncatedNote} of ${filePath}.\n${makeOutput(snippet, `a snippet around line ${first + 1} of ${filePath}`, startLine + 1)}`
 }
 
-// Restores the last in-memory snapshot for `filePath`. The snapshot is
-// unconditionally written back through the sandbox: if the file was deleted
-// (or moved) outside the tool since the snapshot was captured, `undo_edit`
-// will re-create it at that path. Undo tracks content-per-path, not the
-// file's presence.
+/**
+ * Restores the last in-memory snapshot for `filePath`. The snapshot is
+ * unconditionally written back through the sandbox: if the file was deleted
+ * (or moved) outside the tool since the snapshot was captured, `undo_edit`
+ * will re-create it at that path. Undo tracks content-per-path, not the
+ * file's presence.
+ *
+ * The snapshot stays in history until the restoring write succeeds so a
+ * transient sandbox failure leaves undo retryable.
+ */
 async function handleUndo(sandbox: Sandbox, filePath: string, undoHistory: Map<string, string>): Promise<string> {
   const previous = undoHistory.get(filePath)
   if (previous === undefined) {
     throw new Error(`No undo history available for ${filePath} in this session.`)
   }
-  undoHistory.delete(filePath)
   await sandbox.writeText(filePath, previous)
+  undoHistory.delete(filePath)
   return `Reverted ${filePath} to its previous in-memory snapshot.`
 }

@@ -49,21 +49,6 @@ export interface InsertInput {
 }
 
 /**
- * Input parameters for pattern_replace (regex) operation.
- */
-export interface PatternReplaceInput {
-  command: 'pattern_replace'
-  path: string
-  pattern: string
-  new_str: string
-  /**
-   * When true, replace every match. Defaults to false; a match count \> 1 is
-   * rejected without this flag to prevent silent broad edits.
-   */
-  replace_all?: boolean
-}
-
-/**
  * Input parameters for find_line operation.
  */
 export interface FindLineInput {
@@ -88,5 +73,4 @@ export interface UndoEditInput {
 /**
  * Union type of all valid file editor inputs.
  */
-export type FileEditorInput =
-  ViewInput | CreateInput | StrReplaceInput | InsertInput | PatternReplaceInput | FindLineInput | UndoEditInput
+export type FileEditorInput = ViewInput | CreateInput | StrReplaceInput | InsertInput | FindLineInput | UndoEditInput

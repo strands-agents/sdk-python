@@ -1,16 +1,13 @@
 """Tests for the sandbox-routed file editor tool.
 
-Tests for the sandbox-routed file editor tool.
-The tool is exercised against a real ``NotASandboxLocalEnvironment`` (host
-filesystem), and called directly
-(like a normal async function). Errors
-surface as raised ``ValueError`` (the raw function raises; the error->status
-wrapping only happens through the tool's ``stream`` path). Path semantics assume
-POSIX, so these are skipped on Windows.
+Exercises the tool against a real ``NotASandboxLocalEnvironment`` (host
+filesystem), calling it directly as an async function. Errors surface as
+raised ``ValueError`` — the raw function raises; the error→status wrapping
+only happens through the tool's ``stream`` path. Path semantics assume
+POSIX, so these tests are skipped on Windows.
 """
 
 import sys
-from types import SimpleNamespace
 
 import pytest
 
@@ -22,9 +19,20 @@ from strands.vended_tools.file_editor.file_editor import DEFAULT_FILE_EDITOR_DES
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX path semantics assumed")
 
 
+class _FakeAgent:
+    """A minimal agent stand-in that supports weak references (unlike SimpleNamespace).
+
+    Per-agent state in the editor is stored in a ``WeakKeyDictionary`` keyed on
+    the agent instance, so tests must use an object that can be weakref'd.
+    """
+
+    def __init__(self, sandbox: NotASandboxLocalEnvironment | None = None) -> None:
+        self.sandbox = sandbox or NotASandboxLocalEnvironment()
+
+
 def _tool_context(sandbox: NotASandboxLocalEnvironment | None = None) -> ToolContext:
     """Build a ToolContext whose agent exposes the given sandbox (or a fresh one)."""
-    agent = SimpleNamespace(sandbox=sandbox or NotASandboxLocalEnvironment())
+    agent = _FakeAgent(sandbox=sandbox)
     return ToolContext(
         tool_use={"name": "file_editor", "toolUseId": "test-id", "input": {}},
         agent=agent,
@@ -451,16 +459,13 @@ class TestToolMetadata:
         assert "path" in props
         assert "tool_context" not in props
 
-    def test_input_schema_advertises_new_commands(self):
-        # The literal-enum values must include the newly reconciled commands so
-        # models see them in the tool schema.
+    def test_input_schema_advertises_commands(self):
         command_enum = file_editor.tool_spec["inputSchema"]["json"]["properties"]["command"]["enum"]
         assert set(command_enum) == {
             "view",
             "create",
             "str_replace",
             "insert",
-            "pattern_replace",
             "find_line",
             "undo_edit",
         }
@@ -566,53 +571,20 @@ class TestWriteSizeCaps:
 
 
 class TestNonLocalRoot:
-    """A ``root`` that does not exist on the local host (e.g. Docker sandbox) must not
-    fail every op via ``realpath``. The realpath layer must be skipped; the string-
-    level confinement still applies."""
+    """A ``root`` that does not exist on the local host must fail closed at construction/use time.
+
+    The local process cannot canonicalize a container-side path, so silently
+    downgrading to a string-only check would leave `root` confinement
+    unenforceable against a symlink inside the sandbox. Guards against a
+    Docker/SSH deployment thinking `root` is protecting them when it isn't.
+    """
 
     @pytest.mark.asyncio
-    async def test_confines_container_side_root(self, ctx):
-        # A container-side path with no local counterpart. The tool should
-        # accept an in-root path (and fail later at the sandbox with a
-        # not-found), and reject an out-of-root path at the string level.
+    async def test_container_side_root_fails_closed(self, ctx):
         container_root = "/workspace-in-container-does-not-exist-locally"
         e = make_file_editor(sandbox=NotASandboxLocalEnvironment(), root=container_root)
-        with pytest.raises(ValueError, match="does not exist"):
+        with pytest.raises(ValueError, match="does not exist on the local host"):
             await e(command="view", path=f"{container_root}/foo.txt", tool_context=ctx)
-        with pytest.raises(ValueError, match="outside the configured root"):
-            await e(command="view", path="/etc/passwd", tool_context=ctx)
-
-
-class TestPatternReplaceReDoSGuards:
-    """``pattern_replace`` must bound pattern length, match count, and wall-clock time."""
-
-    @pytest.mark.asyncio
-    async def test_rejects_overlong_pattern(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "content")
-        with pytest.raises(ValueError, match="exceeds maximum"):
-            await editor(
-                command="pattern_replace",
-                path=file_path,
-                tool_context=ctx,
-                pattern="a" * 1001,
-                new_str="x",
-            )
-
-    @pytest.mark.asyncio
-    async def test_rejects_catastrophic_regex_via_timeout(self, ctx, tmp_path):
-        # (a+)+b against an all-a input is the canonical catastrophic
-        # backtracking example. Use a small input plus a short timeout so the
-        # test exercises the timeout path in ~0.1s instead of stalling pytest.
-        e = make_file_editor(sandbox=NotASandboxLocalEnvironment(), pattern_replace_timeout=0.05)
-        file_path = _write(tmp_path / "evil.txt", "a" * 24)
-        with pytest.raises(ValueError, match="timed out|catastrophic"):
-            await e(
-                command="pattern_replace",
-                path=file_path,
-                tool_context=ctx,
-                pattern=r"(a+)+b",
-                new_str="x",
-            )
 
 
 class TestUndoLRUEviction:
@@ -634,8 +606,8 @@ class TestUndoLRUEviction:
 
     @pytest.mark.asyncio
     async def test_evicts_past_byte_cap(self, ctx, tmp_path):
-        # Byte cap sized so one snapshot fits but a second forces eviction of
-        # the oldest. Mirrors the entry-cap test's "keep newest, drop oldest".
+        # Byte cap sized to fit one snapshot but not two, so a second edit
+        # forces the oldest out.
         snapshot = "x" * 100
         e = make_file_editor(sandbox=NotASandboxLocalEnvironment(), max_undo_bytes=len(snapshot) + 20)
         p1 = _write(tmp_path / "big1.txt", snapshot)
@@ -699,68 +671,23 @@ class TestStrReplaceReplaceAll:
         assert (tmp_path / "test.txt").read_text() == "X\nfoo\nX\nbar\nX\n"
 
 
-class TestPatternReplace:
-    """The ``pattern_replace`` regex command."""
-
-    @pytest.mark.asyncio
-    async def test_unique_match(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "hello world\ngoodbye")
-        await editor(
-            command="pattern_replace",
-            path=file_path,
-            tool_context=ctx,
-            pattern=r"hello (\w+)",
-            new_str=r"HI \1",
-        )
-        assert (tmp_path / "test.txt").read_text() == "HI world\ngoodbye"
-
-    @pytest.mark.asyncio
-    async def test_ambiguous_without_replace_all_raises(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "foo\nfoo\nfoo\n")
-        with pytest.raises(ValueError, match="replace_all"):
-            await editor(command="pattern_replace", path=file_path, tool_context=ctx, pattern="foo", new_str="bar")
-
-    @pytest.mark.asyncio
-    async def test_replace_all_opt_in(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "foo\nfoo\nfoo\n")
-        await editor(
-            command="pattern_replace",
-            path=file_path,
-            tool_context=ctx,
-            pattern="foo",
-            new_str="bar",
-            replace_all=True,
-        )
-        assert (tmp_path / "test.txt").read_text() == "bar\nbar\nbar\n"
-
-    @pytest.mark.asyncio
-    async def test_invalid_pattern_raises(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "content")
-        with pytest.raises(ValueError, match="Invalid regex"):
-            await editor(command="pattern_replace", path=file_path, tool_context=ctx, pattern="[unclosed", new_str="x")
-
-    @pytest.mark.asyncio
-    async def test_no_match_raises(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "content")
-        with pytest.raises(ValueError, match="did not match"):
-            await editor(command="pattern_replace", path=file_path, tool_context=ctx, pattern="MISSING", new_str="x")
-
-
 class TestFindLine:
-    """The ``find_line`` command."""
+    """The ``find_line`` command returns every match and treats absence as an empty report."""
 
     @pytest.mark.asyncio
-    async def test_finds_first_occurrence(self, editor, ctx, tmp_path):
+    async def test_returns_every_match(self, editor, ctx, tmp_path):
         file_path = _write(tmp_path / "test.txt", "alpha\nbeta\ngamma\nbeta again\n")
         result = await editor(command="find_line", path=file_path, tool_context=ctx, search_text="beta")
-        assert "line 2" in result
-        assert "gamma" in result  # context snippet
+        assert "[2, 4]" in result
+        # The snippet is drawn around the first hit.
+        assert "gamma" in result
 
     @pytest.mark.asyncio
-    async def test_not_found_raises(self, editor, ctx, tmp_path):
+    async def test_returns_empty_report_when_missing(self, editor, ctx, tmp_path):
         file_path = _write(tmp_path / "test.txt", "alpha\n")
-        with pytest.raises(ValueError, match="Could not find"):
-            await editor(command="find_line", path=file_path, tool_context=ctx, search_text="MISSING")
+        result = await editor(command="find_line", path=file_path, tool_context=ctx, search_text="MISSING")
+        assert "No matches" in result
+        assert "MISSING" in result
 
     @pytest.mark.asyncio
     async def test_fuzzy_matches_across_whitespace(self, editor, ctx, tmp_path):
@@ -768,11 +695,19 @@ class TestFindLine:
         result = await editor(
             command="find_line", path=file_path, tool_context=ctx, search_text="def my_function", fuzzy=True
         )
-        assert "line 1" in result
+        assert "[1]" in result
+
+    @pytest.mark.asyncio
+    async def test_truncates_past_hit_cap(self, editor, ctx, tmp_path):
+        # 300 matching lines with a 200-hit cap: the reply is truncated and says so.
+        content = "\n".join("hit line" for _ in range(300)) + "\n"
+        file_path = _write(tmp_path / "test.txt", content)
+        result = await editor(command="find_line", path=file_path, tool_context=ctx, search_text="hit")
+        assert "truncated" in result
 
 
 class TestUndo:
-    """In-memory, per-tool-instance ``undo_edit``."""
+    """In-memory, per-agent ``undo_edit``."""
 
     @pytest.mark.asyncio
     async def test_undo_str_replace(self, editor, ctx, tmp_path):
@@ -790,31 +725,97 @@ class TestUndo:
         assert (tmp_path / "test.txt").read_text() == "one\ntwo\n"
 
     @pytest.mark.asyncio
-    async def test_undo_pattern_replace(self, editor, ctx, tmp_path):
-        file_path = _write(tmp_path / "test.txt", "a\nb\nc\n")
-        await editor(command="pattern_replace", path=file_path, tool_context=ctx, pattern="a", new_str="A")
-        await editor(command="undo_edit", path=file_path, tool_context=ctx)
-        assert (tmp_path / "test.txt").read_text() == "a\nb\nc\n"
-
-    @pytest.mark.asyncio
     async def test_undo_without_history_raises(self, editor, ctx, tmp_path):
         file_path = _write(tmp_path / "test.txt", "content\n")
         with pytest.raises(ValueError, match="No undo history"):
             await editor(command="undo_edit", path=file_path, tool_context=ctx)
 
     @pytest.mark.asyncio
-    async def test_undo_is_scoped_to_tool_instance(self, ctx, tmp_path):
-        # Two independent tool instances share no history.
-        file_path = _write(tmp_path / "test.txt", "original\n")
-        editor_a = make_file_editor(sandbox=NotASandboxLocalEnvironment())
-        editor_b = make_file_editor(sandbox=NotASandboxLocalEnvironment())
-        await editor_a(command="str_replace", path=file_path, tool_context=ctx, old_str="original", new_str="changed")
+    async def test_undo_is_scoped_per_agent_within_one_editor(self, tmp_path):
+        # Guards #3235: two agents sharing one editor instance must not see each
+        # other's undo history, so agent B cannot restore agent A's snapshot
+        # over B's file.
+        file_a = _write(tmp_path / "a.txt", "A-original\n")
+        file_b = _write(tmp_path / "b.txt", "B-original\n")
+        shared = make_file_editor(sandbox=NotASandboxLocalEnvironment())
+
+        agent_a = _FakeAgent()
+        agent_b = _FakeAgent()
+        ctx_a = ToolContext(
+            tool_use={"name": "file_editor", "toolUseId": "a", "input": {}}, agent=agent_a, invocation_state={}
+        )
+        ctx_b = ToolContext(
+            tool_use={"name": "file_editor", "toolUseId": "b", "input": {}}, agent=agent_b, invocation_state={}
+        )
+
+        await shared(command="str_replace", path=file_a, tool_context=ctx_a, old_str="A-original", new_str="A-changed")
+        await shared(command="str_replace", path=file_b, tool_context=ctx_b, old_str="B-original", new_str="B-changed")
+
+        # Agent B cannot undo agent A's edit.
         with pytest.raises(ValueError, match="No undo history"):
-            await editor_b(command="undo_edit", path=file_path, tool_context=ctx)
+            await shared(command="undo_edit", path=file_a, tool_context=ctx_b)
+        # Agent B's own edit is still undoable and lands on B's file (not A's).
+        await shared(command="undo_edit", path=file_b, tool_context=ctx_b)
+        assert (tmp_path / "a.txt").read_text() == "A-changed\n"
+        assert (tmp_path / "b.txt").read_text() == "B-original\n"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_only_stored_after_successful_write(self, ctx, tmp_path):
+        # Guards #3235: a write failure must not shadow the still-valid earlier
+        # snapshot. undo_edit after a failed edit restores what was on disk
+        # before the last successful write, not the current-but-unwritten content.
+        file_path = _write(tmp_path / "test.txt", "original\n")
+        sandbox = NotASandboxLocalEnvironment()
+        editor = make_file_editor(sandbox=sandbox)
+
+        await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="original", new_str="first")
+        assert (tmp_path / "test.txt").read_text() == "first\n"
+
+        original_write = sandbox.write_text
+
+        async def failing_write(path, content, **kwargs):
+            raise OSError("EIO: transient failure")
+
+        sandbox.write_text = failing_write  # type: ignore[method-assign]
+        with pytest.raises(OSError, match="transient failure"):
+            await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="first", new_str="second")
+
+        # The failed write must not have shadowed the still-valid snapshot.
+        sandbox.write_text = original_write  # type: ignore[method-assign]
+        await editor(command="undo_edit", path=file_path, tool_context=ctx)
+        assert (tmp_path / "test.txt").read_text() == "original\n"
+
+    @pytest.mark.asyncio
+    async def test_undo_stays_retryable_on_transient_write_failure(self, ctx, tmp_path):
+        # Guards #3235: a failed undo write must keep the entry in history so
+        # the caller can retry.
+        file_path = _write(tmp_path / "test.txt", "original\n")
+        sandbox = NotASandboxLocalEnvironment()
+        editor = make_file_editor(sandbox=sandbox)
+
+        await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="original", new_str="edited")
+        assert (tmp_path / "test.txt").read_text() == "edited\n"
+
+        original_write = sandbox.write_text
+        calls = {"count": 0}
+
+        async def flaky_write(path, content, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise OSError("EIO: transient failure")
+            return await original_write(path, content, **kwargs)
+
+        sandbox.write_text = flaky_write  # type: ignore[method-assign]
+        with pytest.raises(OSError, match="transient failure"):
+            await editor(command="undo_edit", path=file_path, tool_context=ctx)
+
+        # Undo entry is still there and the retry succeeds.
+        await editor(command="undo_edit", path=file_path, tool_context=ctx)
+        assert (tmp_path / "test.txt").read_text() == "original\n"
 
 
 class TestEmptyInputRejection:
-    """Empty ``old_str`` / ``pattern`` inputs produce confusing behavior and are rejected."""
+    """Empty ``old_str`` input produces confusing behavior and is rejected."""
 
     @pytest.mark.asyncio
     async def test_str_replace_empty_old_str_raises(self, editor, ctx, tmp_path):
@@ -825,37 +826,9 @@ class TestEmptyInputRejection:
         with pytest.raises(ValueError, match="empty"):
             await editor(command="str_replace", path=file_path, tool_context=ctx, old_str="", new_str="X")
 
-    @pytest.mark.asyncio
-    async def test_pattern_replace_empty_pattern_raises(self, editor, ctx, tmp_path):
-        # An empty pattern compiles to a zero-width regex that matches at every
-        # position — surprising, and almost certainly a caller error.
-        file_path = _write(tmp_path / "test.txt", "hello\n")
-        with pytest.raises(ValueError, match="empty"):
-            await editor(command="pattern_replace", path=file_path, tool_context=ctx, pattern="", new_str="x")
 
-
-class TestPatternReplaceBadBackreference:
-    """Bad ``new_str`` backreferences must surface as a clean ``ValueError``."""
-
-    @pytest.mark.asyncio
-    async def test_missing_group_backreference_raises_valueerror(self, editor, ctx, tmp_path):
-        # `re.sub` raises `re.error` at substitution time when new_str references
-        # a group that doesn't exist. The worker-thread wrapper must convert
-        # this into a caller-friendly ValueError rather than leaking as an
-        # internal exception.
-        file_path = _write(tmp_path / "test.txt", "hello world\n")
-        with pytest.raises(ValueError, match="Invalid replacement"):
-            await editor(
-                command="pattern_replace",
-                path=file_path,
-                tool_context=ctx,
-                pattern=r"hello",
-                new_str=r"\9",
-            )
-
-
-class TestOversizePostEdit:
-    """An edit whose *result* is larger than ``max_file_size`` is rejected before write."""
+class TestOversizePreflight:
+    """An edit whose projected output would exceed ``max_file_size`` is rejected before allocation."""
 
     @pytest.mark.asyncio
     async def test_str_replace_expansion_past_cap_rejected(self, ctx, tmp_path):
@@ -874,9 +847,25 @@ class TestOversizePostEdit:
             )
 
     @pytest.mark.asyncio
+    async def test_str_replace_preflight_runs_before_allocation(self, ctx, tmp_path):
+        # Guards #3235: replace_all must reject an oversized projected output
+        # by byte-count arithmetic, before str.replace allocates the buffer.
+        # Small file × small replacement × many matches models the pathological
+        # case where the individual payloads fit but the aggregate is huge.
+        e = make_file_editor(sandbox=NotASandboxLocalEnvironment(), max_file_size=4 * 1024)
+        file_path = _write(tmp_path / "small.txt", "a" * 1000)
+        with pytest.raises(ValueError, match="exceeding the maximum"):
+            await e(
+                command="str_replace",
+                path=file_path,
+                tool_context=ctx,
+                old_str="a",
+                new_str="x" * 100,
+                replace_all=True,
+            )
+
+    @pytest.mark.asyncio
     async def test_insert_expansion_past_cap_rejected(self, ctx, tmp_path):
-        # Original is 30 bytes. `new_str` is 10 bytes. The result would be 41
-        # bytes ("\n" adds one on insert into non-empty content), past the cap.
         e = make_file_editor(sandbox=NotASandboxLocalEnvironment(), max_file_size=32)
         file_path = _write(tmp_path / "grow.txt", "x" * 30)
         with pytest.raises(ValueError, match="exceeding the maximum"):
@@ -886,18 +875,4 @@ class TestOversizePostEdit:
                 tool_context=ctx,
                 insert_line=0,
                 new_str="y" * 10,
-            )
-
-    @pytest.mark.asyncio
-    async def test_pattern_replace_expansion_past_cap_rejected(self, ctx, tmp_path):
-        e = make_file_editor(sandbox=NotASandboxLocalEnvironment(), max_file_size=32)
-        file_path = _write(tmp_path / "grow.txt", "x" * 20)
-        with pytest.raises(ValueError, match="exceeding the maximum"):
-            await e(
-                command="pattern_replace",
-                path=file_path,
-                tool_context=ctx,
-                pattern="x",
-                new_str="XXX",
-                replace_all=True,
             )
