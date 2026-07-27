@@ -417,6 +417,17 @@ class Agent(AgentBase):
 
         self._middleware_registry = MiddlewareRegistry()
 
+        # Routing selects the per-call model and must run before capability middleware that reads
+        # context.model. Input handlers run in registration order, so it is registered here in
+        # __init__ (before the agentic middleware below) rather than from ModelRouter.init_agent,
+        # which runs during later plugin registration and would order routing after it.
+        if self._model_router is not None:
+            from .._middleware.stages import InvokeModelStage
+
+            self._middleware_registry.add_middleware(
+                InvokeModelStage.Input, self._model_router._selection_middleware()
+            )
+
         # In agentic mode, surface live token usage to the model so it can decide when to compress.
         if context_manager == "agentic":
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware

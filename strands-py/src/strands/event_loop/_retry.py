@@ -91,7 +91,7 @@ class ModelRetryStrategy(HookProvider):
         delay: int = self._initial_delay * (2**attempt)
         return min(delay, self._max_delay)
 
-    def _reset_retry_state(self) -> None:
+    def reset_retry_state(self) -> None:
         """Reset retry state to initial values."""
         self._current_attempt = 0
 
@@ -101,7 +101,7 @@ class ModelRetryStrategy(HookProvider):
         Args:
             event: The AfterInvocationEvent signaling invocation completion.
         """
-        self._reset_retry_state()
+        self.reset_retry_state()
 
     async def _handle_after_model_call(self, event: AfterModelCallEvent) -> None:
         """Handle model call completion and determine if retry is needed.
@@ -129,12 +129,12 @@ class ModelRetryStrategy(HookProvider):
                 "stop_reason=<%s> | model call succeeded, resetting retry state",
                 event.stop_response.stop_reason,
             )
-            self._reset_retry_state()
+            self.reset_retry_state()
             return
 
         # Check if we have an exception and reset state if no exception
         if event.exception is None:
-            self._reset_retry_state()
+            self.reset_retry_state()
             return
 
         if not self.is_retryable(event.exception):
