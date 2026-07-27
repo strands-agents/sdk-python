@@ -88,4 +88,14 @@ export interface ConsolidateConfig {
    * rejected before any storage mutation.
    */
   maxActionsPerPlan?: number
+
+  /**
+   * Maximum total UTF-8 bytes of model-generated content across all write actions (merge and
+   * update) in a single plan. Defaults to 262144 (256 KiB).
+   *
+   * Bounds the planner *output volume*: even within the action limit, a few large write actions
+   * could generate unbounded content. The entire plan is rejected before any storage mutation
+   * when this cap is exceeded.
+   */
+  maxGeneratedBytes?: number
 }

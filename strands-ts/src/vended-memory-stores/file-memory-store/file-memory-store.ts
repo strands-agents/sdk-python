@@ -47,6 +47,18 @@ const CONSOLIDATION_CHANGELOG = `${CONSOLIDATION_PREFIX}changelog.md`
  */
 const SEARCH_READ_CONCURRENCY = 8
 
+/** Default cap for total generated content bytes across all write actions in a plan. */
+const DEFAULT_MAX_GENERATED_BYTES = 262_144
+
+/**
+ * Frontmatter opening delimiter. Matches the convention used by {@link FileMemoryStore.add}:
+ * files start with `---\n`, followed by YAML fields, then a closing `---\n`.
+ */
+const FRONTMATTER_OPEN = '---\n'
+
+/** Frontmatter closing delimiter, including the newline that must precede it. */
+const FRONTMATTER_CLOSE = '\n---\n'
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -321,6 +333,7 @@ export class FileMemoryStore implements MemoryStore {
    * @throws Error when the knowledge store exceeds the input byte size limit (maxInputBytes)
    * @throws Error when structured output is undefined (model did not return a plan)
    * @throws Error when the consolidation plan exceeds the action limit (maxActionsPerPlan)
+   * @throws Error when the plan's generated content exceeds the byte limit (maxGeneratedBytes)
    * @throws Error when the consolidation plan fails validation after retry
    *
    * @example
@@ -334,7 +347,9 @@ export class FileMemoryStore implements MemoryStore {
    */
   async consolidate(config: ConsolidateConfig): Promise<void> {
     if (!this.writable) {
-      throw new Error('FileMemoryStore: consolidate requires a writable store (writable: false is searchable only, never written to)')
+      throw new Error(
+        'FileMemoryStore: consolidate requires a writable store (writable: false is searchable only, never written to)'
+      )
     }
     // Set synchronously before the first await so a concurrent call cannot slip past the check
     if (this._consolidating) {
@@ -361,6 +376,7 @@ export class FileMemoryStore implements MemoryStore {
     const maxFiles = config.maxFiles ?? 100
     const maxInputBytes = config.maxInputBytes ?? 128 * 1024
     const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
+    const maxGeneratedBytes = config.maxGeneratedBytes ?? DEFAULT_MAX_GENERATED_BYTES
 
     const files = await this._readAllFiles()
     if (files.size === 0) return
@@ -380,6 +396,15 @@ export class FileMemoryStore implements MemoryStore {
     }
 
     const plan = await this._generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
+
+    // Like the action-count guard, an oversized plan is a runaway signal rather than a fixable
+    // mistake, so this throws instead of routing into the revise-retry
+    const generatedBytes = generatedByteSize(plan)
+    if (generatedBytes > maxGeneratedBytes) {
+      throw new Error(
+        `Consolidation plan exceeds generated content limit: ${generatedBytes} bytes (maxGeneratedBytes: ${maxGeneratedBytes})`
+      )
+    }
 
     const deleteErrors = await this._executePlan(plan, files)
     // Record the changelog even on partial failure — writes and some deletes already hit disk,
@@ -651,11 +676,28 @@ function extractPlan(result: { structuredOutput?: unknown }, maxActionsPerPlan: 
 }
 
 /**
+ * Total UTF-8 bytes of model-generated content across a plan's write actions.
+ *
+ * Bounds planner output volume independently of the action count: a plan within the action limit
+ * can still carry a few very large writes.
+ */
+function generatedByteSize(plan: ConsolidationPlan): number {
+  let bytes = 0
+  for (const action of plan.actions) {
+    if (action.action === 'merge' || action.action === 'update') {
+      bytes += encoder.encode(action.content).byteLength
+    }
+  }
+  return bytes
+}
+
+/**
  * Validate a plan against the guardrails before any storage mutation.
  *
- * Guards three properties: every action is permitted by the requested operations, every path is
- * well-formed and references files that exist, and no two actions collide on a write target. The
- * model is untrusted, so this is the gate that keeps a bad plan from corrupting the store.
+ * Guards four properties: every action is permitted by the requested operations, every path is
+ * well-formed and references files that exist, every write carries well-formed content, and no two
+ * actions collide on a write target. The model is untrusted, so this is the gate that keeps a bad
+ * plan from corrupting the store.
  *
  * All violations are accumulated so the revision prompt can present a complete repair spec in one
  * shot rather than requiring iterative single-error fixes.
@@ -705,6 +747,9 @@ function validatePlan(
 
     const pathErrors = validateActionPaths(action, files, plannedDirs, maxDirectories)
     violations.push(...pathErrors)
+
+    const contentError = validateActionContent(action)
+    if (contentError) violations.push(contentError)
   }
 
   // Reject plans where multiple actions write to the same target path
@@ -752,6 +797,41 @@ function validateActionPaths(
       return errors
     }
   }
+}
+
+/**
+ * Validate the content a write action (merge or update) would put on disk.
+ *
+ * A schema-valid plan can still carry content that erases knowledge: the schema accepts any string,
+ * so an empty or structurally broken value would be written verbatim — and for a merge, its sources
+ * deleted afterwards. This requires the frontmatter shape {@link FileMemoryStore.add} produces
+ * (`---\n`, YAML, `\n---\n`) plus a non-empty body, so a written file stays parseable by
+ * {@link parseFrontmatter} and searchable.
+ *
+ * Non-write actions carry no content and are skipped, so delete, move, and prune stay unaffected.
+ *
+ * @returns A human-readable error string when the content is invalid, or `undefined` when it passes
+ */
+function validateActionContent(action: ConsolidationAction): string | undefined {
+  if (action.action !== 'merge' && action.action !== 'update') return undefined
+
+  const label = action.action === 'merge' ? `Merge target '${action.target}'` : `Update target '${action.path}'`
+
+  if (action.content.trim().length === 0) {
+    return `${label} has empty content — a write must not blank out a file`
+  }
+  if (!action.content.startsWith(FRONTMATTER_OPEN)) {
+    return `${label} must start with YAML frontmatter ('---' on the first line)`
+  }
+  const closingIndex = action.content.indexOf(FRONTMATTER_CLOSE, FRONTMATTER_OPEN.length - 1)
+  if (closingIndex === -1) {
+    return `${label} is missing the closing frontmatter delimiter ('---' on its own line)`
+  }
+  if (action.content.slice(closingIndex + FRONTMATTER_CLOSE.length).trim().length === 0) {
+    return `${label} has no body after its frontmatter`
+  }
+
+  return undefined
 }
 
 /**
@@ -846,7 +926,11 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
  */
 function planOverwritesSelf(plan: ConsolidationPlan, target: string): boolean {
   for (const action of plan.actions) {
-    if (action.action === 'merge' && pathsResolveSame(action.target, target) && action.sources.some((s) => pathsResolveSame(s, target))) {
+    if (
+      action.action === 'merge' &&
+      pathsResolveSame(action.target, target) &&
+      action.sources.some((s) => pathsResolveSame(s, target))
+    ) {
       return true
     }
     if (action.action === 'update' && pathsResolveSame(action.path, target)) {
@@ -954,7 +1038,7 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
     '1. Read each knowledge file.',
     '2. Reason about which operations apply.',
     '3. Produce a plan with the appropriate actions.',
-    '4. Preserve the markdown + frontmatter format for all written files.',
+    '4. Every `content` you write must be a complete markdown file: a `---` line, YAML fields including a `description`, a closing `---` line, then a non-empty body. Never emit empty or frontmatter-only content — it would erase the file.',
     '5. All paths must end with `.md` and must not be under the reserved `consolidation/` directory.',
     '6. Only one level of subdirectory nesting is allowed.',
     '7. Each action fully transforms one path. Never write to and delete the same path in one plan, and never move a file onto its own path. To rewrite a file in place use `update`; to relocate it use `move` to a different path.',

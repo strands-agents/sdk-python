@@ -57,9 +57,7 @@ describe('FileMemoryStore.consolidate', () => {
       const listSpy = vi.spyOn(readOnlyStorage, 'list')
       const streamSpy = vi.spyOn(model, 'stream')
 
-      await expect(readOnlyStore.consolidate({ model })).rejects.toThrow(
-        'consolidate requires a writable store'
-      )
+      await expect(readOnlyStore.consolidate({ model })).rejects.toThrow('consolidate requires a writable store')
 
       // The guard fires before any storage read or model invocation
       expect(listSpy).not.toHaveBeenCalled()
@@ -1552,6 +1550,211 @@ describe('FileMemoryStore.consolidate', () => {
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
       expect(await storage.read('facts/existing.md')).not.toBeNull()
+    })
+  })
+
+  describe('write-content validation', () => {
+    // Guards against knowledge erasure: a schema-valid plan whose merge content is empty would
+    // write a zero-byte target and then delete its populated sources.
+    it('rejects merge with empty content, leaving sources intact', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'merge',
+            sources: ['facts/a.md', 'facts/b.md'],
+            target: 'facts/combined.md',
+            content: '',
+            reason: 'dedup',
+          },
+        ],
+        summary: 'empty merge',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty content/)
+
+      // Sources untouched and no zero-byte target written — nothing mutated
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/b.md')).not.toBeNull()
+      expect(await storage.read('facts/combined.md')).toBeNull()
+    })
+
+    // Content without frontmatter is unparseable by parseFrontmatter, so the file's description
+    // would be lost and its body would no longer be indexed the way search expects.
+    it('rejects content missing frontmatter', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const badPlan = buildPlanTurn({
+        actions: [
+          { action: 'update', path: 'facts/a.md', content: 'Just plain text without frontmatter', reason: 'update' },
+        ],
+        summary: 'no frontmatter',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
+        /must start with YAML frontmatter/
+      )
+
+      expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+    })
+
+    it('rejects content whose frontmatter is never closed', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'update',
+            path: 'facts/a.md',
+            content: '---\ndescription: "test"\nno closing delimiter here',
+            reason: 'update',
+          },
+        ],
+        summary: 'unclosed frontmatter',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
+        /missing the closing frontmatter delimiter/
+      )
+
+      expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+    })
+
+    // Frontmatter-only content is the subtler erasure case: structurally valid, but every fact
+    // the file held is gone.
+    it('rejects content with no body after its frontmatter', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const badPlan = buildPlanTurn({
+        actions: [
+          { action: 'update', path: 'facts/a.md', content: '---\ndescription: "test"\n---\n', reason: 'update' },
+        ],
+        summary: 'no body',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
+        /has no body after its frontmatter/
+      )
+
+      expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+    })
+
+    // Malformed content is a formatting slip, so it routes through the same revise-retry as every
+    // other guardrail rather than aborting the run.
+    it('recovers when the model fixes malformed content on revision', async () => {
+      await writeFile(storage, 'facts/a.md', 'Dark mode', 'User prefers dark mode')
+      await writeFile(storage, 'facts/b.md', 'Theme dark', 'Theme preference: dark')
+
+      const fixedContent = '---\ndescription: "Theme preference"\n---\n\nUser prefers dark mode everywhere\n'
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/combined.md',
+                content: '',
+                reason: 'dedup',
+              },
+            ],
+            summary: 'empty merge',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/combined.md',
+                content: fixedContent,
+                reason: 'dedup',
+              },
+            ],
+            summary: 'repaired merge',
+          })
+        )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      expect(decoder.decode((await storage.read('facts/combined.md'))!)).toContain('dark mode everywhere')
+      expect(await storage.read('facts/a.md')).toBeNull()
+      expect(await storage.read('facts/b.md')).toBeNull()
+    })
+
+    // Bounds planner output volume: a plan within the action limit can still generate unbounded
+    // content. Like the action-count guard, this throws without a retry — an oversized plan is a
+    // runaway signal, and re-prompting would re-incur the same cost.
+    it('rejects a plan exceeding maxGeneratedBytes without attempting a revision', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const largeContent = `---\ndescription: "Large"\n---\n\n${'X'.repeat(200)}\n`
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/combined.md',
+              content: largeContent,
+              reason: 'dedup',
+            },
+          ],
+          summary: 'large merge',
+        })
+      )
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'], maxGeneratedBytes: 50 })).rejects.toThrow(
+        /exceeds generated content limit/
+      )
+
+      // Only the initial plan call was made — the guard does not route into the revise-retry
+      expect(streamSpy).toHaveBeenCalledTimes(1)
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/b.md')).not.toBeNull()
+      expect(await storage.read('facts/combined.md')).toBeNull()
+    })
+
+    // Content validation must not block legitimate dedup: a well-formed merge still writes its
+    // target and deletes the redundant sources.
+    it('allows a valid merge that deduplicates sources into a well-formed target', async () => {
+      await writeFile(storage, 'facts/a.md', 'Dark mode preference', 'User prefers dark mode in editors')
+      await writeFile(storage, 'facts/b.md', 'Theme is dark', 'User uses dark mode theme')
+
+      const mergedContent =
+        '---\ndescription: "Theme preference"\n---\n\nUser prefers dark mode in all editors and applications\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/a.md',
+              content: mergedContent,
+              reason: 'Both express the same dark mode preference',
+            },
+          ],
+          summary: 'Merged duplicate dark mode files.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      const target = await storage.read('facts/a.md')
+      expect(target).not.toBeNull()
+      expect(decoder.decode(target!)).toContain('dark mode in all editors and applications')
+
+      // Redundant source was deleted
+      expect(await storage.read('facts/b.md')).toBeNull()
     })
   })
 })
