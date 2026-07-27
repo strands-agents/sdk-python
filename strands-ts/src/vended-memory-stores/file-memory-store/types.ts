@@ -39,7 +39,7 @@ export const CONSOLIDATE_OPERATIONS = [
   'reorganize',
 ] as const
 
-/**.
+/**
  * A maintenance operation that the consolidation agent can perform. See {@link CONSOLIDATE_OPERATIONS}
  * for the full set and per-operation descriptions.
  */
