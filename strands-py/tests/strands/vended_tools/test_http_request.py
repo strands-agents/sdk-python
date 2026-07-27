@@ -68,15 +68,14 @@ class TestHappyPath:
         assert seen["ct"] == "application/json"
 
     @pytest.mark.asyncio
-    async def test_non_2xx_status_is_returned_not_raised(self):
+    async def test_non_2xx_status_raises_error(self):
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(404, text="not found")
 
         client = httpx.AsyncClient(transport=_make_transport(handler))
         tool = make_http_request(client=client)
-        result = await tool(method="GET", url="https://example.com/missing")
-        assert result["status"] == 404
-        assert result["body"] == "not found"
+        with pytest.raises(HttpRequestError, match="HTTP 404"):
+            await tool(method="GET", url="https://example.com/missing")
 
 
 class TestClientPassthrough:

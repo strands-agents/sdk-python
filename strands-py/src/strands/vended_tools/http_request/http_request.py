@@ -169,6 +169,11 @@ async def _perform_request(
         headers_out = _response_headers(response)
         body_text = response.text
 
+        if response.status_code >= 400:
+            raise HttpRequestError(
+                f"HTTP {response.status_code} {response.reason_phrase}: {method} {url}"
+            )
+
         return HttpRequestOutput(
             status=response.status_code,
             status_text=response.reason_phrase or "",
