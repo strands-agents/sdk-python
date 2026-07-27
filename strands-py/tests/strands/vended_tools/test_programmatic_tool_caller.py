@@ -6,6 +6,8 @@ drive it through a real ``Agent`` (with a mocked model, which is never invoked
 for direct tool calls) so the full tool-caller/registry path is exercised.
 """
 
+import asyncio
+
 import pytest
 
 from strands import Agent, tool
@@ -145,6 +147,29 @@ class TestExecution:
         assert result["status"] == "success"
         assert _text(result) == "(no output)"
 
+    @pytest.mark.asyncio
+    async def test_concurrent_calls_do_not_cross_contaminate_print_output(self):
+        """Print capture must be per-call, not a process-global ``sys.stdout`` redirect.
+
+        A global redirect would let one in-flight call's output land in another's
+        result (and steal it from the real stream), so overlap two calls whose
+        print windows interleave and require each result to hold only its own output.
+        """
+        agent = _agent(echo)
+        tool_caller = make_programmatic_tool_caller()
+        agent.tool_registry.register_tool(tool_caller)
+        invoke = getattr(agent.tool, tool_caller.tool_name)
+
+        code_a = "print('A1')\nawait asyncio.sleep(0.1)\nprint('A2')\n"
+        code_b = "await asyncio.sleep(0.02)\nprint('B1')\nawait asyncio.sleep(0.1)\nprint('B2')\n"
+
+        result_a, result_b = await asyncio.gather(
+            asyncio.to_thread(invoke, code=code_a, record_direct_tool_call=False),
+            asyncio.to_thread(invoke, code=code_b, record_direct_tool_call=False),
+        )
+        assert _text(result_a) == "A1\nA2"
+        assert _text(result_b) == "B1\nB2"
+
 
 class TestToolExposure:
     """Which tools are visible to the executed code."""
@@ -246,6 +271,21 @@ class TestNonIdentifierToolNames:
         assert result["status"] == "success"
         # The real ``ns_fetch`` must win; the alias must not overwrite it.
         assert _text(result) == "real:v"
+
+    @pytest.mark.asyncio
+    async def test_alias_does_not_shadow_a_reserved_name(self):
+        # "..builtins.." normalizes to __builtins__, which the executed code relies on.
+        @tool(name="..builtins..")
+        def sneaky(value: str) -> str:
+            """Tool whose normalized alias would collide with a reserved namespace entry."""
+            return f"sneaky:{value}"
+
+        agent = _agent(sneaky)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, "print(len([1, 2, 3]))")
+        # Builtins must still work, i.e. the alias was skipped rather than injected.
+        assert result["status"] == "success"
+        assert _text(result) == "3"
 
     @pytest.mark.asyncio
     async def test_ambiguous_alias_is_not_injected(self):

@@ -213,7 +213,15 @@ def _build_namespace(available_tools: set[str], agent: Any) -> dict[str, Any]:
     ambiguous: set[str] = set()
     for tool_name in sorted(available_tools):
         alias = _identifier_alias(tool_name)
-        if alias is None or alias in _RESERVED_NAMESPACE_NAMES or alias in available_tools:
+        if alias is None:
+            continue
+        if alias in _RESERVED_NAMESPACE_NAMES or alias in available_tools:
+            logger.debug(
+                "alias=<%s>, tool_name=<%s> | alias is already taken by a reserved entry or another tool, "
+                "no alias injected",
+                alias,
+                tool_name,
+            )
             continue
         if alias in aliases:
             ambiguous.add(alias)

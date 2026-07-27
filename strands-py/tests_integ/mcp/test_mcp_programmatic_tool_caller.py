@@ -22,7 +22,7 @@ def mcp_agent():
     client = MCPClient(
         lambda: stdio_client(
             StdioServerParameters(
-                command="python3",
+                command="python",
                 args=["tests_integ/mcp/programmatic_tool_caller_server.py"],
             )
         )
@@ -77,6 +77,7 @@ def test_mcp_tool_error_is_catchable(mcp_agent):
     )
     assert result["status"] == "success"
     assert "caught:" in _text(result)
+    assert "mcp tool exploded" in _text(result)
 
 
 def test_hyphenated_mcp_tool_is_callable(mcp_agent):
