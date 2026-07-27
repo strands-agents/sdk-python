@@ -22,27 +22,15 @@ mcp = FastMCP(APP_NAME)
 
 @mcp.tool()
 def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
-    """Search curated documentation and return ranked results with snippets.
+    """Search the curated documentation catalog by title.
 
-    This tool provides access to the complete Strands Agents documentation including:
+    The catalog contains Strands Agents user guides, API reference pages, and
+    examples. Search ranking uses document titles, so use title-like keywords
+    such as "bedrock model", "structured output", or "MCP tools". The top
+    results are fetched on demand to provide content snippets, but page content
+    does not affect ranking.
 
-    **User Guide Topics:**
-    - Agent concepts (agent loop, conversation management, hooks, prompts, state)
-    - Model providers (Amazon Bedrock, Anthropic, Cohere, LiteLLM, LlamaAPI,
-            MistralAI, Ollama, OpenAI, SageMaker, Writer, Gemini)
-    - Multi-agent patterns (Agent2Agent, Agents as Tools, Graph, Swarm, Workflow)
-    - Tools (Python tools, MCP tools, community tools, executors)
-    - Deployment guides (EC2, EKS, Fargate, Lambda, Bedrock AgentCore)
-    - Observability & evaluation (logs, metrics, traces, evaluation)
-    - Safety & security (guardrails, PII redaction, responsible AI)
-
-    **API Reference:**
-    - Complete API documentation for Agent, Models, Tools, Handlers, etc.
-
-    **Examples:**
-    - Code samples and implementation examples
-
-    Use this to find relevant Strands Agents documentation for any development question.
+    Call fetch_doc with a result URL to read the page or one of its sections.
 
     Args:
         query: Search query string (e.g., "bedrock model", "tell me about a2a", "how to use MCP tools")
@@ -52,8 +40,13 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
         List of dictionaries containing:
         - url: Document URL
         - title: Display title
-        - score: Relevance score (0-1, higher is better)
+        - score: Unbounded weighted TF-IDF score. Higher is better within this
+          result set; do not interpret it as a probability or compare it across
+          different queries.
         - snippet: Contextual content preview
+
+        Returns an empty list when no document title matches. If a result page
+        cannot be fetched, its title is used as the snippet.
 
     """
     cache.ensure_ready()
@@ -131,6 +124,10 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
         On error:
         - error: Error description
         - url: Requested URL
+
+        Errors are returned for unsupported URLs and failed page fetches. For
+        sectioned documents, unknown section IDs also return an error; `section`
+        is ignored when the full document is returned automatically.
 
     """
     cache.ensure_ready()
