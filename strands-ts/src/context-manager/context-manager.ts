@@ -15,8 +15,9 @@ import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { AfterModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
+import { TextBlock, ToolResultBlock, ToolUseBlock } from '../types/messages.js'
 import { Stash } from './stash.js'
-import type { ContextManagerConfig, ContextStrategy, StashConfig, StrategyContext } from './types.js'
+import type { ContextManagerConfig, ContextStrategy, MessageCategory, StashConfig, StrategyContext } from './types.js'
 import { OffloadStrategy } from './strategies/offload-strategy.js'
 import { SummarizeStrategy } from './strategies/summarize-strategy.js'
 
@@ -53,6 +54,8 @@ export class ContextManager implements Plugin {
 
   private readonly _storage: Storage
   private readonly _stashEnabled: boolean
+  private readonly _stashInclude: MessageCategory[] | undefined
+  private readonly _stashExclude: MessageCategory[] | undefined
   private readonly _strategies: ContextStrategy[]
 
   private _stash: Stash | undefined
@@ -64,6 +67,14 @@ export class ContextManager implements Plugin {
     this._storage = config?.storage ?? new InMemoryStorage()
     this._stashEnabled = resolveStashEnabled(config?.stash)
     this._strategies = config?.strategies ?? []
+
+    const stashConfig = typeof config?.stash === 'object' ? config.stash : undefined
+    this._stashInclude = stashConfig?.include
+      ? (Array.isArray(stashConfig.include) ? stashConfig.include : [stashConfig.include])
+      : undefined
+    this._stashExclude = stashConfig?.exclude
+      ? (Array.isArray(stashConfig.exclude) ? stashConfig.exclude : [stashConfig.exclude])
+      : undefined
   }
 
   /** Whether L1 writes are active. */
@@ -200,8 +211,67 @@ export class ContextManager implements Plugin {
   private async _onMessageAdded(event: MessageAddedEvent): Promise<void> {
     if (this._stash === undefined) return
 
+    if (!this._shouldStash(event.message)) return
+
     await this._stash.writeMessage(event.message)
   }
+
+  private _shouldStash(message: Message): boolean {
+    if (!this._stashInclude && !this._stashExclude) return true
+
+    const categories = messageCategories(message)
+    categories.add(message.role)
+
+    if (this._stashInclude) {
+      return expandCategories(this._stashInclude).some((category) => categories.has(category))
+    }
+
+    if (this._stashExclude) {
+      return !expandCategories(this._stashExclude).some((category) => categories.has(category))
+    }
+
+    return true
+  }
+}
+
+const MEDIA_TYPES = new Set(['imageBlock', 'videoBlock', 'documentBlock'])
+const MEDIA_CATEGORIES: Set<MessageCategory> = new Set(['image', 'video', 'document'])
+
+const BLOCK_TYPE_TO_CATEGORY: Record<string, MessageCategory> = {
+  textBlock: 'text',
+  toolUseBlock: 'toolUse',
+  reasoningBlock: 'reasoning',
+  imageBlock: 'image',
+  videoBlock: 'video',
+  documentBlock: 'document',
+  citationsBlock: 'citations',
+  cachePointBlock: 'cachePoint',
+  guardContentBlock: 'guardContent',
+}
+
+function messageCategories(message: Message): Set<MessageCategory> {
+  const categories = new Set<MessageCategory>()
+
+  for (const block of message.content) {
+    if (block instanceof ToolResultBlock) {
+      categories.add(block.status === 'error' ? 'toolError' : 'toolResult')
+    } else {
+      const category = BLOCK_TYPE_TO_CATEGORY[block.type]
+      if (category) {
+        categories.add(category)
+        if (MEDIA_TYPES.has(block.type)) {
+          categories.add('media')
+        }
+      }
+    }
+  }
+
+  return categories
+}
+
+function expandCategories(categories: MessageCategory[]): MessageCategory[] {
+  if (!categories.includes('media')) return categories
+  return [...categories, ...MEDIA_CATEGORIES]
 }
 
 function resolveStashEnabled(stash: StashConfig | boolean | undefined): boolean {

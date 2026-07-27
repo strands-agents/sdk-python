@@ -18,6 +18,6 @@
 export { ContextManager } from './context-manager.js'
 export { OffloadStrategy } from './strategies/offload-strategy.js'
 export { SummarizeStrategy } from './strategies/summarize-strategy.js'
-export type { ContextManagerConfig, ContextStrategy, StashConfig, StrategyContext } from './types.js'
+export type { ContextManagerConfig, ContextStrategy, MessageCategory, StashConfig, StrategyContext } from './types.js'
 export type { OffloadStrategyConfig } from './strategies/offload-strategy.js'
 export type { SummarizeStrategyConfig } from './strategies/summarize-strategy.js'

@@ -3,6 +3,30 @@
  */
 
 /**
+ * Semantic categories for message content.
+ *
+ * A message matches a category if it contains at least one block of that type.
+ * `'media'` is a convenience shorthand that matches any of `'image'`, `'video'`, or `'document'`.
+ * `'user'` and `'assistant'` are role-level shorthands that match by message role.
+ */
+export type MessageCategory =
+  | 'text'
+  | 'toolUse'
+  | 'toolResult'
+  | 'toolError'
+  | 'reasoning'
+  | 'image'
+  | 'video'
+  | 'document'
+  | 'citations'
+  | 'json'
+  | 'cachePoint'
+  | 'guardContent'
+  | 'media'
+  | 'user'
+  | 'assistant'
+
+/**
  * Configuration for the L1 stash (durable message store).
  */
 export interface StashConfig {
@@ -11,6 +35,18 @@ export interface StashConfig {
    * When false, offload operations are destructive (originals are lost).
    */
   enabled?: boolean
+
+  /**
+   * Only stash messages matching these categories. Mutually exclusive with `exclude`.
+   * A message is written if it contains at least one block matching any listed category.
+   */
+  include?: MessageCategory | MessageCategory[]
+
+  /**
+   * Skip stashing messages matching these categories. Mutually exclusive with `include`.
+   * A message is skipped if it contains at least one block matching any listed category.
+   */
+  exclude?: MessageCategory | MessageCategory[]
 }
 
 /**

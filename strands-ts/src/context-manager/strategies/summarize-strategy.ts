@@ -26,8 +26,14 @@ export interface SummarizeStrategyConfig {
   /** Number of recent messages to always preserve. Defaults to 10. */
   preserveRecent?: number
 
+  /** Only fire when context utilization exceeds this ratio (0-1). Defaults to undefined (always fire). */
+  utilization?: number
+
   /** Model to use for summarization. When omitted, uses the agent's model. */
   model?: Model
+
+  /** Custom system prompt for the summarization model. When omitted, uses the default summarization prompt. */
+  systemPrompt?: string
 }
 
 /**
@@ -42,15 +48,26 @@ export class SummarizeStrategy implements ContextStrategy {
 
   private readonly _summaryRatio: number
   private readonly _preserveRecent: number
+  private readonly _utilization: number | undefined
   private readonly _model: Model | undefined
+  private readonly _systemPrompt: string | undefined
 
   constructor(config?: SummarizeStrategyConfig) {
     this._summaryRatio = Math.max(0.1, Math.min(0.8, config?.summaryRatio ?? DEFAULT_SUMMARY_RATIO))
     this._preserveRecent = config?.preserveRecent ?? DEFAULT_PRESERVE_RECENT
+    this._utilization = config?.utilization
     this._model = config?.model
+    this._systemPrompt = config?.systemPrompt
   }
 
   async apply(context: StrategyContext): Promise<boolean> {
+    if (this._utilization !== undefined && context.utilization < this._utilization) {
+      logger.debug(
+        `utilization=<${context.utilization}>, threshold=<${this._utilization}> | skipping summarization, below threshold`
+      )
+      return false
+    }
+
     const { messages, agent } = context
     const model = this._model ?? (agent as unknown as Record<string, unknown>)['model'] as Model | undefined
 
@@ -76,7 +93,7 @@ export class SummarizeStrategy implements ContextStrategy {
     if (toSummarize.length === 0) return false
 
     try {
-      const summaryMessage = await generateSummary(toSummarize, model)
+      const summaryMessage = await generateSummary(toSummarize, model, this._systemPrompt)
       messages.splice(0, messagesToSummarize, summaryMessage)
 
       logger.debug(
