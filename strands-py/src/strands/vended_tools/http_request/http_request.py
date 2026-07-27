@@ -73,9 +73,9 @@ def make_http_request(
             url: Absolute URL to request.
             headers: Optional request headers.
             body: Optional request body as a string.
-            timeout: Optional per-request timeout in seconds. Capped at the
-                client's configured timeout so the model cannot exceed the
-                operator's limit.
+            timeout: Optional per-request timeout in seconds. When a client
+                is provided, capped at the client's configured timeout.
+                When no client is provided, used as-is.
             tool_context: Framework-injected. Not model-visible. Carries the
                 agent so the tool can read its cancel signal mid-flight.
         """
@@ -107,13 +107,23 @@ def _resolve_timeout(
 ) -> float | None:
     """Return the effective per-request timeout.
 
-    The model may request a shorter timeout, but it can never exceed the
-    client's configured timeout. Returns ``None`` when no cap applies
-    (operator set unlimited timeout and model didn't supply one).
+    When a client is provided and has a finite timeout configured, the model
+    may request a shorter timeout but can never exceed the client's cap.
+    When no client is provided (default path), the model's requested timeout
+    is used as-is with no upper bound — operators who need a cap should
+    supply a client with an explicit timeout.
+
+    Returns ``None`` when no cap applies (no client provided and model
+    didn't supply a timeout, or client has no finite timeout set).
     """
     client_timeout: float | None = None
     if client is not None and isinstance(client.timeout, httpx.Timeout):
-        client_timeout = client.timeout.read
+        # Use the most relevant phase timeout as the cap. Prefer `read`
+        # (governs response wait), fall back to `connect`, then `write`.
+        for phase in (client.timeout.read, client.timeout.connect, client.timeout.write):
+            if phase is not None:
+                client_timeout = phase
+                break
 
     if model_timeout is None:
         return client_timeout

@@ -173,12 +173,69 @@ class TestNoClientProvided:
     """When no client is supplied, a default one is created per request."""
 
     @pytest.mark.asyncio
-    async def test_creates_client_per_request(self):
-        # Without a client, the tool creates one internally. We can't easily
-        # inject a transport, but we can verify the tool doesn't crash.
-        tool = make_http_request()
-        # This would hit real DNS so we just verify the tool object is usable.
-        assert tool.tool_name == "http_request"
+    async def test_creates_and_closes_client_per_request(self):
+        from strands.vended_tools.http_request.http_request import _perform_request
+
+        # Track whether aclose was called on the internally-created client
+        close_called = {"n": 0}
+        original_aclose = httpx.AsyncClient.aclose
+
+        async def tracking_aclose(self):
+            close_called["n"] += 1
+            await original_aclose(self)
+
+        # Use monkeypatch-style replacement on the class method
+        httpx.AsyncClient.aclose = tracking_aclose  # type: ignore[assignment]
+        try:
+            # _perform_request with client=None creates+closes its own client.
+            # Use a real request to localhost that will fail with a connection error,
+            # which still exercises the create/close lifecycle.
+            try:
+                await _perform_request(
+                    method="GET",
+                    url="http://127.0.0.1:1/nonexistent",
+                    headers={},
+                    body=None,
+                    timeout=0.1,
+                    client=None,
+                    cancel_signal=None,
+                )
+            except HttpRequestError:
+                pass  # Expected — connection refused or timeout
+        finally:
+            httpx.AsyncClient.aclose = original_aclose  # type: ignore[assignment]
+
+        assert close_called["n"] == 1
+
+    @pytest.mark.asyncio
+    async def test_provided_client_is_not_closed(self):
+        close_called = {"n": 0}
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="ok")
+
+        client = httpx.AsyncClient(transport=_make_transport(handler))
+        original_aclose = client.aclose
+
+        async def tracking_aclose():
+            close_called["n"] += 1
+            await original_aclose()
+
+        client.aclose = tracking_aclose  # type: ignore[assignment]
+
+        from strands.vended_tools.http_request.http_request import _perform_request
+
+        await _perform_request(
+            method="GET",
+            url="https://example.com/",
+            headers={},
+            body=None,
+            timeout=None,
+            client=client,
+            cancel_signal=None,
+        )
+        # The tool must NOT close a client it doesn't own
+        assert close_called["n"] == 0
 
 
 class TestTimeout:
@@ -229,6 +286,44 @@ class TestTimeout:
         tool = make_http_request(client=client)
         result = await tool(method="GET", url="https://example.com/")
         assert result["status"] == 200
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_connect_timeout_when_read_is_none(self):
+        """When read timeout is None but connect is set, connect is used as cap."""
+        from strands.vended_tools.http_request.http_request import _resolve_timeout
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(lambda _r: httpx.Response(200)),
+            timeout=httpx.Timeout(None, connect=5.0),
+        )
+        # Model requests 60s, but connect cap is 5s
+        result = _resolve_timeout(60.0, client)
+        assert result == 5.0
+
+    @pytest.mark.asyncio
+    async def test_no_client_no_cap(self):
+        """Without a client, model timeout is used as-is (no cap)."""
+        from strands.vended_tools.http_request.http_request import _resolve_timeout
+
+        result = _resolve_timeout(999.0, None)
+        assert result == 999.0
+
+    @pytest.mark.asyncio
+    async def test_client_with_all_none_timeouts_no_cap(self):
+        """A client with all timeout phases set to None applies no cap."""
+        from strands.vended_tools.http_request.http_request import _resolve_timeout
+
+        client = httpx.AsyncClient(
+            transport=_make_transport(lambda _r: httpx.Response(200)),
+            timeout=httpx.Timeout(None),
+        )
+        # All phases are None, so no cap — model's timeout is used as-is
+        result = _resolve_timeout(999.0, client)
+        assert result == 999.0
+
+        # And when model omits timeout, result is None (no timeout at all)
+        result_none = _resolve_timeout(None, client)
+        assert result_none is None
 
 
 class TestToolMetadata:
@@ -344,3 +439,39 @@ class TestRequestError:
         tool = make_http_request(client=client)
         with pytest.raises(HttpRequestError, match="Request failed"):
             await tool(method="GET", url="https://example.com/")
+
+
+class TestEncodingFallback:
+    """Response body decoding falls back to UTF-8 on unknown encodings."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_encoding_falls_back_to_utf8(self):
+        from unittest.mock import MagicMock, PropertyMock
+
+        from strands.vended_tools.http_request.http_request import _read_body
+
+        mock_response = MagicMock()
+
+        async def fake_aiter_bytes():
+            yield b"hello world"
+
+        mock_response.aiter_bytes = fake_aiter_bytes
+        # Force an encoding that Python doesn't recognize
+        type(mock_response).encoding = PropertyMock(return_value="x-nonexistent-codec-999")
+
+        result = await _read_body(mock_response, None)
+        assert result == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_valid_encoding_is_used(self):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                content="héllo".encode("latin-1"),
+                headers={"content-type": "text/plain; charset=latin-1"},
+            )
+
+        client = httpx.AsyncClient(transport=_make_transport(handler))
+        tool = make_http_request(client=client)
+        result = await tool(method="GET", url="https://example.com/")
+        assert result["body"] == "héllo"
