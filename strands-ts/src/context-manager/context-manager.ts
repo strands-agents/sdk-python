@@ -24,8 +24,8 @@ import type {
   PassInitContext,
   StashConfig,
 } from './types.js'
-import { OffloadStrategy } from './strategies/offload-strategy.js'
-import { SummarizeStrategy } from './strategies/summarize-strategy.js'
+import { OffloadPass } from './strategies/offload-strategy.js'
+import { SummarizePass } from './strategies/summarize-strategy.js'
 
 /**
  * Manages the L1 stash and context reduction for an agent's conversation.
@@ -71,7 +71,7 @@ export class ContextManager implements Plugin {
     this._storage = new InMemoryStorage()
     this._stashEnabled = resolveStashEnabled(config?.stash)
     this._passes = config?.passes ?? []
-    this._defaultPasses = [new OffloadStrategy(), new SummarizeStrategy()]
+    this._defaultPasses = [new OffloadPass(), new SummarizePass()]
 
     const stashConfig = typeof config?.stash === 'object' ? config.stash : undefined
     if (stashConfig?.include && stashConfig?.exclude) {

@@ -17,9 +17,9 @@ const DEFAULT_SUMMARY_RATIO = 0.3
 const DEFAULT_PRESERVE_RECENT = 10
 
 /**
- * Configuration for the summarize strategy.
+ * Configuration for the summarize pass.
  */
-export interface SummarizeStrategyConfig {
+export interface SummarizePassConfig {
   /** Ratio of messages to summarize (0.1 - 0.8). Defaults to 0.3. */
   summaryRatio?: number
 
@@ -43,7 +43,7 @@ export interface SummarizeStrategyConfig {
  * Reuses the SDK's existing summarization infrastructure (generateSummary,
  * adjustSplitPointForToolPairs) for consistency with SummarizingConversationManager.
  */
-export class SummarizeStrategy implements ContextPass {
+export class SummarizePass implements ContextPass {
   readonly name = 'summarize'
 
   private readonly _summaryRatio: number
@@ -52,7 +52,7 @@ export class SummarizeStrategy implements ContextPass {
   private readonly _model: Model | undefined
   private readonly _systemPrompt: string | undefined
 
-  constructor(config?: SummarizeStrategyConfig) {
+  constructor(config?: SummarizePassConfig) {
     this._summaryRatio = Math.max(0.1, Math.min(0.8, config?.summaryRatio ?? DEFAULT_SUMMARY_RATIO))
     this._preserveRecent = config?.preserveRecent ?? DEFAULT_PRESERVE_RECENT
     this._utilization = config?.utilization

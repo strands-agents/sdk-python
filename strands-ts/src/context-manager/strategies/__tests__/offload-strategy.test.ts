@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { OffloadStrategy } from '../offload-strategy.js'
+import { OffloadPass } from '../offload-strategy.js'
 import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import { InMemoryStorage } from '../../../storage/in-memory-storage.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -27,10 +27,10 @@ function makeContext(messages: Message[], storage?: InMemoryStorage, utilization
   }
 }
 
-describe('OffloadStrategy', () => {
+describe('OffloadPass', () => {
   describe('constructor', () => {
     it('uses default config values', () => {
-      const strategy = new OffloadStrategy()
+      const strategy = new OffloadPass()
       expect(strategy.name).toBe('offload')
       expect(strategy['_maxResultTokens']).toBe(2500)
       expect(strategy['_previewTokens']).toBe(1000)
@@ -38,7 +38,7 @@ describe('OffloadStrategy', () => {
     })
 
     it('accepts custom config', () => {
-      const strategy = new OffloadStrategy({
+      const strategy = new OffloadPass({
         maxResultTokens: 5000,
         previewTokens: 2000,
         skipRecent: 5,
@@ -54,7 +54,7 @@ describe('OffloadStrategy', () => {
       const largeText = 'x'.repeat(2500 * 4 + 100)
       const messages = [makeToolResultMessage(largeText)]
       const storage = new InMemoryStorage()
-      const strategy = new OffloadStrategy({ skipRecent: 0 })
+      const strategy = new OffloadPass({ skipRecent: 0 })
       const context = makeContext(messages, storage)
 
       const result = await strategy.apply(context)
@@ -71,7 +71,7 @@ describe('OffloadStrategy', () => {
       const smallText = 'short result'
       const messages = [makeToolResultMessage(smallText)]
       const storage = new InMemoryStorage()
-      const strategy = new OffloadStrategy({ skipRecent: 0 })
+      const strategy = new OffloadPass({ skipRecent: 0 })
       const context = makeContext(messages, storage)
 
       const result = await strategy.apply(context)
@@ -88,7 +88,7 @@ describe('OffloadStrategy', () => {
         makeToolResultMessage(largeText, 'tool-4'),
       ]
       const storage = new InMemoryStorage()
-      const strategy = new OffloadStrategy({ skipRecent: 3 })
+      const strategy = new OffloadPass({ skipRecent: 3 })
       const context = makeContext(messages, storage)
 
       const result = await strategy.apply(context)
@@ -114,7 +114,7 @@ describe('OffloadStrategy', () => {
           }),
         ],
       })
-      const strategy = new OffloadStrategy({ skipRecent: 0 })
+      const strategy = new OffloadPass({ skipRecent: 0 })
       const context = makeContext([message])
 
       const result = await strategy.apply(context)
@@ -133,7 +133,7 @@ describe('OffloadStrategy', () => {
           }),
         ],
       })
-      const strategy = new OffloadStrategy({ skipRecent: 0 })
+      const strategy = new OffloadPass({ skipRecent: 0 })
       const context = makeContext([message])
 
       const result = await strategy.apply(context)
@@ -147,7 +147,7 @@ describe('OffloadStrategy', () => {
         role: 'assistant',
         content: [new TextBlock(largeText)],
       })
-      const strategy = new OffloadStrategy({ skipRecent: 0 })
+      const strategy = new OffloadPass({ skipRecent: 0 })
       const context = makeContext([message])
 
       const result = await strategy.apply(context)
@@ -159,7 +159,7 @@ describe('OffloadStrategy', () => {
       const largeText = 'HEAD'.repeat(1000) + 'MIDDLE'.repeat(5000) + 'TAIL'.repeat(1000)
       const messages = [makeToolResultMessage(largeText)]
       const storage = new InMemoryStorage()
-      const strategy = new OffloadStrategy({ skipRecent: 0, previewTokens: 100 })
+      const strategy = new OffloadPass({ skipRecent: 0, previewTokens: 100 })
       const context = makeContext(messages, storage)
 
       await strategy.apply(context)
@@ -174,7 +174,7 @@ describe('OffloadStrategy', () => {
       const largeText = 'x'.repeat(2500 * 4 + 100)
       const messages = [makeToolResultMessage(largeText, 'my-tool-id')]
       const storage = new InMemoryStorage()
-      const strategy = new OffloadStrategy({ skipRecent: 0 })
+      const strategy = new OffloadPass({ skipRecent: 0 })
       const context = makeContext(messages, storage)
 
       await strategy.apply(context)
@@ -184,7 +184,7 @@ describe('OffloadStrategy', () => {
     })
 
     it('returns false for empty messages', async () => {
-      const strategy = new OffloadStrategy()
+      const strategy = new OffloadPass()
       const context = makeContext([])
 
       const result = await strategy.apply(context)

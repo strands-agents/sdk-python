@@ -1,9 +1,9 @@
 /**
- * Offload pass: stores oversized tool results to the stash and replaces
- * them with a head-tail preview + storage reference.
+ * Offload pass: stores oversized tool results to in-memory storage and replaces
+ * them with a head-tail preview in the message array.
  *
- * Operates eagerly by default: offloads on message arrival so the model never
- * sees oversized results. The retroactive `apply()` pass catches anything that
+ * Operates eagerly: offloads on message arrival so the model never sees
+ * oversized results. The retroactive `apply()` pass catches anything that
  * slipped through (e.g., messages added before the pass was initialized).
  *
  * @internal
@@ -23,7 +23,7 @@ const CHARS_PER_TOKEN = 4
 /**
  * Configuration for the offload pass.
  */
-export interface OffloadStrategyConfig {
+export interface OffloadPassConfig {
   /** Token threshold above which tool results are offloaded. Defaults to 2,500. */
   maxResultTokens?: number
 
@@ -35,20 +35,20 @@ export interface OffloadStrategyConfig {
 }
 
 /**
- * Offloads oversized tool results from L0 into storage, replacing them with a
- * head-tail preview and a stash reference.
+ * A context pass that offloads oversized tool results into storage, replacing
+ * them with a head-tail preview and a storage reference.
  *
- * Eagerly offloads on message arrival (the model never sees the full content).
- * The retroactive `apply()` pass catches results that existed before initialization.
+ * Included in the default pass pipeline when no custom passes are configured.
+ * Eagerly offloads on message arrival so the model never sees the full content.
  */
-export class OffloadStrategy implements ContextPass {
+export class OffloadPass implements ContextPass {
   readonly name = 'offload'
 
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
   private readonly _skipRecent: number
 
-  constructor(config?: OffloadStrategyConfig) {
+  constructor(config?: OffloadPassConfig) {
     this._maxResultTokens = config?.maxResultTokens ?? DEFAULT_MAX_RESULT_TOKENS
     this._previewTokens = config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS
     this._skipRecent = config?.skipRecent ?? DEFAULT_SKIP_RECENT
@@ -71,7 +71,7 @@ export class OffloadStrategy implements ContextPass {
         const reference = await this._storeAndReplace(message, blockIndex, block, storage)
         if (reference) {
           logger.debug(
-            `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | eagerly offloaded tool result to stash`
+            `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | eagerly offloaded tool result to storage`
           )
         }
       }
@@ -100,7 +100,7 @@ export class OffloadStrategy implements ContextPass {
         if (reference) {
           offloaded = true
           logger.debug(
-            `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | offloaded tool result to stash`
+            `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | offloaded tool result to storage`
           )
         }
       }

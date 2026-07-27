@@ -10,14 +10,14 @@
  *
  * const agent = new Agent({
  *   model,
- *   contextManager: new ContextManager({ storage }),
+ *   contextManager: new ContextManager(),
  * })
  * ```
  */
 
 export { ContextManager } from './context-manager.js'
-export { OffloadStrategy } from './strategies/offload-strategy.js'
-export { SummarizeStrategy } from './strategies/summarize-strategy.js'
+export { OffloadPass } from './strategies/offload-strategy.js'
+export { SummarizePass } from './strategies/summarize-strategy.js'
 export type { ContextManagerConfig, ContextPass, MessageCategory, PassContext, PassInitContext, StashConfig } from './types.js'
-export type { OffloadStrategyConfig } from './strategies/offload-strategy.js'
-export type { SummarizeStrategyConfig } from './strategies/summarize-strategy.js'
+export type { OffloadPassConfig } from './strategies/offload-strategy.js'
+export type { SummarizePassConfig } from './strategies/summarize-strategy.js'

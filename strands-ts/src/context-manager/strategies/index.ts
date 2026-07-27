@@ -1,4 +1,4 @@
-export { OffloadStrategy } from './offload-strategy.js'
-export { SummarizeStrategy } from './summarize-strategy.js'
-export type { OffloadStrategyConfig } from './offload-strategy.js'
-export type { SummarizeStrategyConfig } from './summarize-strategy.js'
+export { OffloadPass } from './offload-strategy.js'
+export { SummarizePass } from './summarize-strategy.js'
+export type { OffloadPassConfig } from './offload-strategy.js'
+export type { SummarizePassConfig } from './summarize-strategy.js'
