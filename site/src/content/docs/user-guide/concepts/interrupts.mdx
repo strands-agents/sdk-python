@@ -226,6 +226,7 @@ Strands enforces the following rules for interrupts:
     - In other words, within a single hook, you can interrupt, respond to that interrupt, and then proceed to interrupt again.
 - All tools running concurrently are interruptible
 - All tools running concurrently that are not interrupted will execute
+- When an interrupt fires from `BeforeToolCallEvent`, `AfterToolCallEvent` does not fire for that tool, but `AfterToolsEvent` always fires
 - When an interrupt fires from `BeforeToolsEvent`, no tool in the batch executes (and no `BeforeToolCallEvent` fires) until the interrupt is answered; on resume the batch hook re-runs and, if not interrupted again, the tools execute
 </Tab>
 <Tab label="TypeScript">
