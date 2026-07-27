@@ -55,12 +55,19 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
     url_cache = cache.get_url_cache()
 
     # Collect top-k URLs that need hydration (no content yet)
-    # Simplified: Direct hydration in one pass
+    # Track whether hydration changed the index (content was updated)
+    any_hydrated = False
     top = results[: min(len(results), cache.SNIPPET_HYDRATE_MAX)]
     for _, doc in top:
         cached = url_cache.get(doc.uri)
         if cached is None or not cached.content:
             cache.ensure_page(doc.uri)
+            any_hydrated = True
+
+    # Re-rank if hydration changed the index, so scores are consistent with content
+    # This ensures the first search response reflects ONE consistent index state
+    if any_hydrated and index:
+        results = index.search(query, k=k)
 
     # Build response with real content snippets when available
     return_docs: List[Dict[str, Any]] = []

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 # Enhanced tokenization patterns
 _TOKEN = re.compile(r"[A-Za-z0-9_]+")
@@ -36,6 +37,12 @@ _TITLE_BOOST_SHORT = 5  # boost for short pages (<800 chars)
 _TITLE_BOOST_LONG = 3  # boost for longer pages
 _SHORT_PAGE_THRESHOLD = 800  # character threshold for short pages
 
+# Test-only hook: if set to a callable, called mid-transaction in add()/update_content()
+# after reading shared state but before writing it back. Used by concurrency tests
+# to force deterministic interleaving that exposes races hidden by the GIL.
+# Production: always None (zero overhead - guarded by `if _TEST_YIELD is not None`).
+_TEST_YIELD: object = None
+
 
 class IndexSearch:
     """Lightweight inverted index with TF-IDF scoring and Markdown awareness.
@@ -43,6 +50,17 @@ class IndexSearch:
     This class provides document indexing and search functionality optimized for
     technical documentation. It uses TF-IDF scoring with special handling for
     Markdown structure elements like headers, code blocks, and links.
+
+    Note:
+        This class is an internal implementation detail of strands-mcp-server.
+        It is NOT part of the public API and may change without notice.
+        Do not import or depend on it from external code.
+
+    Thread Safety:
+        All public methods (add, update_content, search) are thread-safe.
+        A single lock guards all shared state mutations to ensure atomic
+        read-modify-write operations when used by concurrent threads
+        (e.g., background prefetch daemon + foreground ensure_page).
 
     Features:
         - Indexes searchable titles (not display titles) for synonym support
@@ -58,12 +76,53 @@ class IndexSearch:
 
     def __init__(self) -> None:
         """Initialize an empty search index."""
+        self._lock = threading.Lock()
         self.docs: List[Doc] = []
         self.doc_frequency: Dict[str, int] = {}  # document frequency
         self.doc_indices: Dict[str, List[int]] = {}  # token -> doc indices
+        self.uri_to_idx: Dict[str, int] = {}  # uri -> doc index for updates
+        self.doc_tokens: Dict[int, Set[str]] = {}  # idx -> set of tokens (for rehydration)
+
+    def _index_tokens_for_doc(self, idx: int, doc: Doc) -> Set[str]:
+        """Extract and index tokens from a document."""
+        seen: Set[str] = set()
+
+        content = doc.content.lower()
+        title_text = doc.index_title.lower()
+        headers = " ".join(_MD_HEADER.findall(doc.content))
+        code_blocks = " ".join(_MD_CODE_BLOCK.findall(doc.content))
+        inline_code = " ".join(_MD_INLINE_CODE.findall(doc.content))
+        link_text = " ".join(_MD_LINK_TEXT.findall(doc.content))
+
+        haystack_parts = [
+            title_text,
+            headers.lower(),
+            link_text.lower(),
+            code_blocks.lower(),
+            inline_code.lower(),
+            content,
+        ]
+
+        haystack = " ".join(part for part in haystack_parts if part)
+
+        for tok in _TOKEN.findall(haystack):
+            tok_lower = tok.lower()
+            if tok_lower not in seen:
+                self.doc_indices.setdefault(tok_lower, []).append(idx)
+                # Read-modify-write on doc_frequency: the vulnerable seam.
+                # Test hook called between read and write to force interleaving.
+                current_df = self.doc_frequency.get(tok_lower, 0)
+                if _TEST_YIELD is not None:
+                    _TEST_YIELD()  # type: ignore[operator]
+                self.doc_frequency[tok_lower] = current_df + 1
+                seen.add(tok_lower)
+
+        return seen
 
     def add(self, doc: Doc) -> None:
         """Add a document to the search index.
+
+        Thread-safe: acquires lock for the entire add operation.
 
         Args:
             doc: Document to add to the index
@@ -76,27 +135,86 @@ class IndexSearch:
             - Link text: Medium weight for navigation context
             - Body text: Base weight for general content
         """
-        idx = len(self.docs)
-        self.docs.append(doc)
-        seen: set[str] = set()
+        with self._lock:
+            idx = len(self.docs)
+            self.docs.append(doc)
+            self.uri_to_idx[doc.uri] = idx
 
-        # Extract MD-specific content with different weights
+            # Index tokens and track which tokens belong to this doc
+            self.doc_tokens[idx] = self._index_tokens_for_doc(idx, doc)
+
+    def update_content(self, uri: str, new_content: str) -> bool:
+        """Update content for an existing document and reindex.
+
+        Called when document content is hydrated after initial title-only indexing.
+        Idempotent - calling with the same content multiple times is safe.
+
+        Thread-safe: acquires lock for the entire update operation.
+        """
+        with self._lock:
+            idx = self.uri_to_idx.get(uri)
+            if idx is None:
+                return False
+
+            doc = self.docs[idx]
+
+            # Skip if content unchanged (idempotent)
+            if doc.content == new_content:
+                return True
+
+            doc.content = new_content
+
+            # Get old tokens and new tokens
+            old_tokens = self.doc_tokens.get(idx, set())
+            new_tokens = self._extract_tokens(doc)
+
+            # Tokens to remove from index (in old but not in new)
+            tokens_to_remove = old_tokens - new_tokens
+
+            # Tokens to add to index (in new but not in old)
+            tokens_to_add = new_tokens - old_tokens
+
+            # Update document frequency for removed tokens
+            for tok in tokens_to_remove:
+                if tok in self.doc_frequency:
+                    self.doc_frequency[tok] -= 1
+                    if self.doc_frequency[tok] <= 0:
+                        del self.doc_frequency[tok]
+                if tok in self.doc_indices:
+                    try:
+                        self.doc_indices[tok].remove(idx)
+                    except ValueError:
+                        pass
+                    if not self.doc_indices[tok]:
+                        del self.doc_indices[tok]
+
+            # Add new tokens to index
+            for tok in tokens_to_add:
+                self.doc_indices.setdefault(tok, []).append(idx)
+                # Read-modify-write on doc_frequency: the vulnerable seam.
+                current_df = self.doc_frequency.get(tok, 0)
+                if _TEST_YIELD is not None:
+                    _TEST_YIELD()  # type: ignore[operator]
+                self.doc_frequency[tok] = current_df + 1
+
+            # Update tracked tokens
+            self.doc_tokens[idx] = new_tokens
+
+            return True
+
+    def _extract_tokens(self, doc: Doc) -> Set[str]:
+        """Extract unique tokens from a document without indexing."""
+        seen: Set[str] = set()
+
         content = doc.content.lower()
         title_text = doc.index_title.lower()
-
-        # Extract headers (high importance)
         headers = " ".join(_MD_HEADER.findall(doc.content))
-
-        # Extract code content (medium importance for tech docs)
         code_blocks = " ".join(_MD_CODE_BLOCK.findall(doc.content))
         inline_code = " ".join(_MD_INLINE_CODE.findall(doc.content))
-
-        # Extract link text (medium importance)
         link_text = " ".join(_MD_LINK_TEXT.findall(doc.content))
 
-        # Build weighted haystack: title gets highest weight
         haystack_parts = [
-            title_text,  # Will get title boost in search
+            title_text,
             headers.lower(),
             link_text.lower(),
             code_blocks.lower(),
@@ -107,13 +225,20 @@ class IndexSearch:
         haystack = " ".join(part for part in haystack_parts if part)
 
         for tok in _TOKEN.findall(haystack):
-            if tok not in seen:
-                self.doc_indices.setdefault(tok, []).append(idx)
-                self.doc_frequency[tok] = self.doc_frequency.get(tok, 0) + 1
-                seen.add(tok)
+            seen.add(tok.lower())
+
+        return seen
 
     def search(self, query: str, k: int = 8) -> List[Tuple[float, Doc]]:
         """Search the index and return ranked results.
+
+        Uses TF-IDF scoring with Markdown-aware enhancements:
+        - Title matches receive adaptive boosting
+        - Header matches get 4x weight
+        - Code and link matches get 2x weight
+        - Empty content gets higher title boost for better ranking
+
+        Thread-safe: acquires lock to ensure consistent reads of index state.
 
         Args:
             query: Search query string
@@ -121,13 +246,6 @@ class IndexSearch:
 
         Returns:
             List of (score, document) tuples sorted by relevance (highest first)
-
-        Note:
-            Uses TF-IDF scoring with Markdown-aware enhancements:
-            - Title matches receive adaptive boosting
-            - Header matches get 4x weight
-            - Code and link matches get 2x weight
-            - Empty content gets higher title boost for better ranking
         """
 
         def _title_boost_for(doc: Doc) -> int:
@@ -191,15 +309,23 @@ class IndexSearch:
             return float(content_tf + title_tf + header_tf + code_tf + link_tf)
 
         q_tokens = [t.lower() for t in _TOKEN.findall(query)]
+
+        # Snapshot index state under lock for consistent reads
+        with self._lock:
+            docs_snapshot = list(self.docs)
+            doc_frequency_snapshot = dict(self.doc_frequency)
+            doc_indices_snapshot = {k: list(v) for k, v in self.doc_indices.items()}
+
         scores: Dict[int, float] = {}
-        N = max(len(self.docs), 1)
+        N = max(len(docs_snapshot), 1)
 
         for qt in q_tokens:
-            for idx in self.doc_indices.get(qt, []):
-                d = self.docs[idx]
-                tf = _calculate_md_score(d, qt)
-                idf = math.log((N + 1) / (1 + self.doc_frequency.get(qt, 0))) + 1.0
-                scores[idx] = scores.get(idx, 0.0) + tf * idf
+            for idx in doc_indices_snapshot.get(qt, []):
+                if idx < len(docs_snapshot):
+                    d = docs_snapshot[idx]
+                    tf = _calculate_md_score(d, qt)
+                    idf = math.log((N + 1) / (1 + doc_frequency_snapshot.get(qt, 0))) + 1.0
+                    scores[idx] = scores.get(idx, 0.0) + tf * idf
 
-        ranked = sorted(((score, self.docs[i]) for i, score in scores.items()), key=lambda x: x[0], reverse=True)
+        ranked = sorted(((score, docs_snapshot[i]) for i, score in scores.items()), key=lambda x: x[0], reverse=True)
         return ranked[:k]

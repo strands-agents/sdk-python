@@ -1,3 +1,5 @@
+import os
+import threading
 from typing import Dict
 
 from ..config import doc_config
@@ -8,8 +10,53 @@ _INDEX: indexer.IndexSearch | None = None
 _URL_CACHE: Dict[str, doc_fetcher.Page | None] = {}  # url -> Page (None if not fetched yet)
 _URL_TITLES: Dict[str, str] = {}  # url -> curated title from llms.txt
 _LINKS_LOADED = False
+_PREFETCH_STARTED = False
 
 SNIPPET_HYDRATE_MAX = 5  # how many top results to hydrate with content
+
+# Environment variable to enable background prefetch (default: OFF)
+PREFETCH_ENV_VAR = "STRANDS_MCP_PREFETCH_ALL"
+
+
+def _is_prefetch_enabled() -> bool:
+    """Check if background prefetch is enabled via environment variable.
+
+    Returns:
+        True if STRANDS_MCP_PREFETCH_ALL is set to a truthy value (1, true, yes)
+    """
+    val = os.environ.get(PREFETCH_ENV_VAR, "").lower()
+    return val in ("1", "true", "yes")
+
+
+def _background_prefetch() -> None:
+    """Background thread function to prefetch all pages.
+
+    Iterates through all URLs in the cache and fetches content for any
+    that haven't been fetched yet. Updates the index with hydrated content.
+    Note: Search may return transiently stale results during hydration (eventual consistency).
+    """
+    global _URL_CACHE, _INDEX
+    for url in list(_URL_CACHE.keys()):
+        if _URL_CACHE.get(url) is None:
+            try:
+                ensure_page(url)
+            except Exception:
+                pass  # Silently skip failures in background prefetch
+
+
+def _start_background_prefetch() -> None:
+    """Start background prefetch thread if enabled and not already started.
+
+    This function is idempotent - calling it multiple times has no effect
+    after the first successful start.
+    """
+    global _PREFETCH_STARTED
+    if _PREFETCH_STARTED or not _is_prefetch_enabled():
+        return
+
+    _PREFETCH_STARTED = True
+    thread = threading.Thread(target=_background_prefetch, daemon=True)
+    thread.start()
 
 
 def load_links_only() -> None:
@@ -19,11 +66,15 @@ def load_links_only() -> None:
     configured llms.txt files. Content is not fetched during initialization for
     faster startup times.
 
+    If STRANDS_MCP_PREFETCH_ALL environment variable is set to a truthy value,
+    background prefetch of all pages will be started after initialization.
+
     Side Effects:
         - Updates global _INDEX with document entries
         - Populates _URL_TITLES with curated titles
         - Sets placeholder entries in _URL_CACHE
         - Sets _LINKS_LOADED to True
+        - May start background prefetch thread if enabled
     """
     global _INDEX, _LINKS_LOADED, _URL_TITLES, _URL_CACHE
     if _INDEX is None:
@@ -44,6 +95,9 @@ def load_links_only() -> None:
 
     _LINKS_LOADED = True
 
+    # Start background prefetch if enabled
+    _start_background_prefetch()
+
 
 def ensure_ready() -> None:
     """Ensure the search index is initialized and ready for use.
@@ -57,6 +111,15 @@ def ensure_ready() -> None:
 
 def ensure_page(url: str) -> doc_fetcher.Page | None:
     """Ensure a page is cached, fetching it if necessary.
+
+    When a page is fetched, also updates the search index with the hydrated content
+    so that body-only terms become searchable. This operation is idempotent -
+    re-fetching an already-cached page has no effect.
+
+    Thread Safety:
+        If indexing fails after fetch succeeds, the page is NOT cached, allowing
+        retry on subsequent calls. This ensures body terms eventually become
+        searchable even after transient indexing failures.
 
     Args:
         url: The URL of the page to ensure is cached
@@ -72,7 +135,15 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         raw = doc_fetcher.fetch_and_clean(url)
         display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
         page = doc_fetcher.Page(url=url, title=display_title, content=raw.content)
+
+        # Update the search index with the hydrated content BEFORE caching
+        # If this fails, we leave the page un-cached so retry is possible
+        if _INDEX is not None:
+            _INDEX.update_content(url, raw.content)
+
+        # Only cache after indexing succeeds
         _URL_CACHE[url] = page
+
         return page
     except Exception:
         return None
