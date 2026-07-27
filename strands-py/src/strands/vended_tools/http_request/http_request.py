@@ -139,7 +139,11 @@ async def _perform_request(
     client: httpx.AsyncClient | None,
     cancel_signal: threading.Event | None = None,
 ) -> HttpRequestOutput:
-    """Perform the HTTP request, delegating all behavior to the client."""
+    """Perform the HTTP request, delegating all behavior to the client.
+
+    The response body is streamed so the cancel signal can be checked between
+    chunks, giving mid-flight abort granularity similar to AbortSignal in fetch.
+    """
     owns_client = client is None
 
     active_client: httpx.AsyncClient
@@ -158,7 +162,7 @@ async def _perform_request(
                 content=body,
                 extensions={"timeout": {"connect": timeout, "read": timeout, "write": timeout, "pool": timeout}},
             )
-            response = await active_client.send(request)
+            response = await active_client.send(request, stream=True)
         except httpx.TimeoutException as error:
             raise HttpRequestError(f"Request timed out: {error}") from error
         except httpx.TooManyRedirects as error:
@@ -166,13 +170,19 @@ async def _perform_request(
         except httpx.RequestError as error:
             raise HttpRequestError(f"Request failed: {error}") from error
 
-        headers_out = _response_headers(response)
-        body_text = response.text
+        try:
+            headers_out = _response_headers(response)
 
-        if response.status_code >= 400:
-            raise HttpRequestError(
-                f"HTTP {response.status_code} {response.reason_phrase}: {method} {url}"
-            )
+            if response.status_code >= 400:
+                await response.aclose()
+                raise HttpRequestError(
+                    f"HTTP {response.status_code} {response.reason_phrase}: {method} {url}"
+                )
+
+            body_text = await _read_body(response, cancel_signal)
+        finally:
+            if not response.is_closed:
+                await response.aclose()
 
         return HttpRequestOutput(
             status=response.status_code,
@@ -183,6 +193,23 @@ async def _perform_request(
     finally:
         if owns_client:
             await active_client.aclose()
+
+
+async def _read_body(
+    response: httpx.Response,
+    cancel_signal: threading.Event | None,
+) -> str:
+    """Read the response body, checking the cancel signal between chunks."""
+    chunks: list[bytes] = []
+    async for chunk in response.aiter_bytes():
+        _check_cancelled(cancel_signal)
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    encoding = response.encoding or "utf-8"
+    try:
+        return raw.decode(encoding, errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
 
 
 def _response_headers(response: httpx.Response) -> dict[str, str]:

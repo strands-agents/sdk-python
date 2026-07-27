@@ -275,6 +275,28 @@ class TestCancelSignal:
             )
 
     @pytest.mark.asyncio
+    async def test_mid_flight_cancel_between_chunks(self):
+        cancel = threading.Event()
+
+        async def streaming_body():
+            yield b"partial-"
+            cancel.set()
+            yield b"the-rest"
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=streaming_body())
+
+        agent = SimpleNamespace(_cancel_signal=cancel)
+        client = httpx.AsyncClient(transport=_make_transport(handler))
+        tool = make_http_request(client=client)
+        with pytest.raises(asyncio.CancelledError):
+            await tool(
+                method="GET",
+                url="https://example.com/",
+                tool_context=self._tool_context_for(agent),
+            )
+
+    @pytest.mark.asyncio
     async def test_no_cancel_signal_no_op(self):
         def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(200, text="ok")
