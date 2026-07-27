@@ -184,6 +184,89 @@ class TestToolExposure:
         assert _text(result) == "ok"
 
 
+class TestNonIdentifierToolNames:
+    """Tools whose registry names are not valid Python identifiers (e.g. MCP tools)."""
+
+    @pytest.mark.asyncio
+    async def test_hyphenated_tool_reachable_via_alias(self):
+        @tool(name="dash-tool")
+        def dash_tool(value: str) -> str:
+            """A tool whose registry name contains a hyphen."""
+            return f"dash:{value}"
+
+        agent = _agent(dash_tool)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, 'print(await dash_tool(value="x"))')
+        assert result["status"] == "success"
+        assert _text(result) == "dash:x"
+
+    @pytest.mark.asyncio
+    async def test_dotted_tool_reachable_via_alias(self):
+        @tool(name="ns.fetch")
+        def ns_fetch(value: str) -> str:
+            """A tool whose registry name contains a dot."""
+            return f"fetch:{value}"
+
+        agent = _agent(ns_fetch)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, 'print(await ns_fetch(value="y"))')
+        assert result["status"] == "success"
+        assert _text(result) == "fetch:y"
+
+    @pytest.mark.asyncio
+    async def test_raw_name_remains_available(self):
+        @tool(name="dash-tool")
+        def dash_tool(value: str) -> str:
+            """A tool whose registry name contains a hyphen."""
+            return f"dash:{value}"
+
+        agent = _agent(dash_tool)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, 'print(await globals()["dash-tool"](value="raw"))')
+        assert result["status"] == "success"
+        assert _text(result) == "dash:raw"
+
+    @pytest.mark.asyncio
+    async def test_alias_does_not_shadow_a_real_tool(self):
+        # The registry already rejects two tools differing only by '-'/'_', but a dotted
+        # name normalizes onto a real underscore name, so the alias must yield to it.
+        @tool(name="ns.fetch")
+        def ns_dotted(value: str) -> str:
+            """Dotted tool whose alias collides with a real tool name."""
+            return f"dotted:{value}"
+
+        @tool(name="ns_fetch")
+        def ns_real(value: str) -> str:
+            """Real tool that already owns the alias identifier."""
+            return f"real:{value}"
+
+        agent = _agent(ns_dotted, ns_real)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, 'print(await ns_fetch(value="v"))')
+        assert result["status"] == "success"
+        # The real ``ns_fetch`` must win; the alias must not overwrite it.
+        assert _text(result) == "real:v"
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_alias_is_not_injected(self):
+        @tool(name="dup-tool")
+        def dup_hyphen(value: str) -> str:
+            """One of two tools normalizing to the same identifier."""
+            return f"hyphen:{value}"
+
+        @tool(name="dup.tool")
+        def dup_dot(value: str) -> str:
+            """The other tool normalizing to the same identifier."""
+            return f"dot:{value}"
+
+        agent = _agent(dup_hyphen, dup_dot)
+        tool_caller = make_programmatic_tool_caller()
+        result = _call(tool_caller, agent, 'print(await dup_tool(value="v"))')
+        # Ambiguous: no alias is injected rather than silently picking one.
+        assert result["status"] == "error"
+        assert "NameError" in _text(result)
+
+
 class TestErrorHandling:
     """User-code failures come back as error results, not raised exceptions."""
 

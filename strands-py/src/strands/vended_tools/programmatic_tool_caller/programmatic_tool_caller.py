@@ -20,8 +20,10 @@ Limitations:
   interrupts cannot be raised from a direct tool call.
 - Background tasks created with ``asyncio.create_task`` that outlive the submitted
   code are not awaited, and their output is not captured.
-- Tools whose registry names are not valid Python identifiers (for example, names
-  containing ``-``) are not reachable by name from the code.
+- Tools whose registry names are not valid Python identifiers (for example, MCP tools
+  named ``fetch-url`` or ``ns.fetch``) are additionally exposed under a normalized
+  identifier alias (``fetch_url``, ``ns_fetch``) so the code can call them. An alias is
+  skipped if it would collide with another tool or a reserved name.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ import ast
 import asyncio
 import io
 import logging
+import re
 import traceback
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
@@ -147,6 +150,27 @@ def _resolve_available_tools(agent: Any, allowed_tools: list[str] | None, self_n
     return available
 
 
+def _identifier_alias(tool_name: str) -> str | None:
+    """Return a valid-identifier alias for a tool name, or ``None`` if not applicable.
+
+    Tool registries admit names that are not valid Python identifiers (MCP servers
+    commonly use ``-`` or ``.``), which the code could not call by name. Such names
+    get an alias with every non-word character replaced by ``_``, matching how
+    ``agent.tool.<name>`` already resolves underscore forms to hyphenated tools.
+
+    Args:
+        tool_name: Registry name of the tool.
+
+    Returns:
+        The alias, or ``None`` when the name is already an identifier or cannot be
+        normalized into one (for example, a name starting with a digit).
+    """
+    if tool_name.isidentifier():
+        return None
+    alias = re.sub(r"\W", "_", tool_name)
+    return alias if alias.isidentifier() else None
+
+
 def _build_namespace(available_tools: set[str], agent: Any) -> dict[str, Any]:
     """Build the code execution namespace: base entries plus tool functions.
 
@@ -158,6 +182,11 @@ def _build_namespace(available_tools: set[str], agent: Any) -> dict[str, Any]:
     Args:
         available_tools: Registry names of the tools to inject.
         agent: The agent whose tools are being wrapped.
+
+    A tool whose name is not a valid Python identifier is also injected under a
+    normalized alias (see :func:`_identifier_alias`) so the code can call it. An
+    alias is skipped when it would shadow a reserved name, a real tool name, or
+    another tool's alias.
 
     Returns:
         A namespace dict for executing the code.
@@ -177,6 +206,26 @@ def _build_namespace(available_tools: set[str], agent: Any) -> dict[str, Any]:
     namespace: dict[str, Any] = {"__name__": "__main__", "asyncio": asyncio}
     for tool_name in available_tools:
         namespace[tool_name] = _make_async_tool_function(agent, tool_name)
+
+    # Alias non-identifier tool names so the code can actually call them. Aliases that are
+    # ambiguous (two tools normalizing to the same identifier) are dropped rather than guessed.
+    aliases: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for tool_name in sorted(available_tools):
+        alias = _identifier_alias(tool_name)
+        if alias is None or alias in _RESERVED_NAMESPACE_NAMES or alias in available_tools:
+            continue
+        if alias in aliases:
+            ambiguous.add(alias)
+            continue
+        aliases[alias] = tool_name
+
+    for alias in ambiguous:
+        del aliases[alias]
+        logger.warning("alias=<%s> | multiple tools normalize to this name, no alias injected", alias)
+
+    for alias, tool_name in aliases.items():
+        namespace[alias] = namespace[tool_name]
 
     return namespace
 
