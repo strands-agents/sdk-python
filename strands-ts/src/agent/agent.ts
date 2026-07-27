@@ -485,12 +485,16 @@ export class Agent implements LocalAgent, InvokableAgent {
   private readonly _checkpointing: boolean
   /** Direct tool caller — created via {@link ToolCaller.create} factory. */
   private readonly _toolCaller: ToolCallerProxy
+  /** The config this agent was constructed with, returned by {@link getConfig}. */
+  private readonly _config: AgentConfig
 
   /**
    * Creates an instance of the Agent.
    * @param config - The configuration for the agent.
    */
   constructor(config?: AgentConfig) {
+    this._config = config ?? {}
+
     // Initialize public fields
     this.messages = (config?.messages ?? []).map((msg) => (msg instanceof Message ? msg : Message.fromMessageData(msg)))
     this.appState = new StateStore(config?.appState)
@@ -1362,6 +1366,15 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   public loadSnapshot(snapshot: Snapshot): void {
     loadSnapshotInternal(this, snapshot)
+  }
+
+  /**
+   * Retrieves the configuration this agent was constructed with.
+   *
+   * @returns The configuration passed to the constructor
+   */
+  public getConfig(): AgentConfig {
+    return this._config
   }
 
   /**
