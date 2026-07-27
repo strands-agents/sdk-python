@@ -59,7 +59,7 @@ dev = [
     "ruff>=0.4.4",
 ]
 
-[tool.hatch.build]
+[tool.hatch.build.targets.wheel]
 packages = ["src/strands_mcp_server"]
 
 [tool.hatch.envs.hatch-static-analysis]
