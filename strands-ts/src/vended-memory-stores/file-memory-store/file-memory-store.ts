@@ -140,6 +140,15 @@ function slugify(text: string): string {
 }
 
 /**
+ * Case-normalized path identity comparison. Returns true when two paths would resolve to the same
+ * file on a case-insensitive filesystem. This is a conservative approximation — backend-resolved
+ * identity (probing the storage layer for true equivalence) is future work.
+ */
+function pathsResolveSame(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase()
+}
+
+/**
  * A file-based memory store backed by the unified {@link Storage} interface.
  *
  * Implements {@link MemoryStore} for use with {@link MemoryManager}. Knowledge is stored as
@@ -324,6 +333,9 @@ export class FileMemoryStore implements MemoryStore {
    * ```
    */
   async consolidate(config: ConsolidateConfig): Promise<void> {
+    if (!this.writable) {
+      throw new Error('FileMemoryStore: consolidate requires a writable store (writable: false is searchable only, never written to)')
+    }
     // Set synchronously before the first await so a concurrent call cannot slip past the check
     if (this._consolidating) {
       throw new Error('A consolidation is already running on this store instance; run consolidation one at a time')
@@ -528,7 +540,7 @@ export class FileMemoryStore implements MemoryStore {
         for (const source of action.sources) {
           // Skip the target when it is one of its own sources — the merge folded into an existing
           // file, so deleting it here would remove the content just written
-          if (source !== action.target) {
+          if (!pathsResolveSame(source, action.target)) {
             try {
               await this._storage.delete(source)
             } catch (error) {
@@ -537,10 +549,14 @@ export class FileMemoryStore implements MemoryStore {
           }
         }
       } else if (action.action === 'move') {
-        try {
-          await this._storage.delete(action.from)
-        } catch (error) {
-          deleteErrors.push({ path: action.from, error })
+        // Skip delete when source and target resolve to the same identity (case-only rename) —
+        // deleting would remove the content the write pass just produced
+        if (!pathsResolveSame(action.from, action.to)) {
+          try {
+            await this._storage.delete(action.from)
+          } catch (error) {
+            deleteErrors.push({ path: action.from, error })
+          }
         }
       }
     }
@@ -755,9 +771,10 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
   for (const action of plan.actions) {
     if (action.action === 'merge') {
       writeTargets.push(action.target)
-      // Non-target merge sources are deleted during execution
+      // Non-target merge sources are deleted during execution (case-normalized —
+      // a source that resolves to the same identity as the target is not vacated)
       for (const source of action.sources) {
-        if (source !== action.target) {
+        if (!pathsResolveSame(source, action.target)) {
           vacatedPaths.add(source)
         }
       }
@@ -765,28 +782,37 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
       writeTargets.push(action.path)
     } else if (action.action === 'move') {
       writeTargets.push(action.to)
-      vacatedPaths.add(action.from)
+      // A case-only rename (different string but same normalized identity) does not delete the
+      // source in execution — skip vacating to keep validation consistent with the executor.
+      // An exact-string identity move (from === to) still vacates, triggering the write-vs-vacate
+      // guard that rejects it as a no-op that would destroy content.
+      if (action.from === action.to || !pathsResolveSame(action.from, action.to)) {
+        vacatedPaths.add(action.from)
+      }
     } else if (action.action === 'delete') {
       vacatedPaths.add(action.path)
     }
   }
 
-  // Check for two actions writing the same path
+  // Check for two actions writing the same path (case-insensitive — divergent casing resolves
+  // to the same file on case-insensitive backends)
   const seen = new Set<string>()
   for (const target of writeTargets) {
-    if (seen.has(target)) {
+    const normalized = target.toLowerCase()
+    if (seen.has(normalized)) {
       errors.push(`Multiple actions write to the same path '${target}'`)
     }
-    seen.add(target)
+    seen.add(normalized)
   }
 
   // A path both written and vacated in one plan is destroyed: writes run before deletes, so the
   // delete pass removes the content the write pass just produced. This single rule covers write +
   // delete on one path, an identity move (from === to), chained moves (one move's target is another
   // move's source), an update whose target is later moved away, and a move onto a since-deleted file.
-  const writeSet = new Set(writeTargets)
+  // Case-normalized so case-only aliases are caught on case-insensitive backends.
+  const writeSetNormalized = new Set(writeTargets.map((t) => t.toLowerCase()))
   for (const path of vacatedPaths) {
-    if (writeSet.has(path)) {
+    if (writeSetNormalized.has(path.toLowerCase())) {
       errors.push(
         `Path '${path}' is both written to and removed by the same plan (one action writes it, another deletes or moves it away), which would destroy its content`
       )
@@ -795,9 +821,13 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
 
   // Check for a write landing on a pre-existing file the plan does not vacate (vacated-and-written
   // targets are already rejected above). A self-overwrite — an update, or a merge into one of its
-  // own sources — is the one legitimate case.
+  // own sources — is the one legitimate case. Case-normalized to catch aliases on case-insensitive
+  // backends.
+  const vacatedNormalized = new Set([...vacatedPaths].map((p) => p.toLowerCase()))
   for (const target of writeTargets) {
-    if (files.has(target) && !vacatedPaths.has(target) && !planOverwritesSelf(plan, target)) {
+    const existsInFiles = [...files.keys()].some((key) => pathsResolveSame(key, target))
+    const isVacated = vacatedNormalized.has(target.toLowerCase())
+    if (existsInFiles && !isVacated && !planOverwritesSelf(plan, target)) {
       errors.push(`Target path '${target}' already exists and is not vacated by another action in the plan`)
     }
   }
@@ -816,10 +846,15 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
  */
 function planOverwritesSelf(plan: ConsolidationPlan, target: string): boolean {
   for (const action of plan.actions) {
-    if (action.action === 'merge' && action.target === target && action.sources.includes(target)) {
+    if (action.action === 'merge' && pathsResolveSame(action.target, target) && action.sources.some((s) => pathsResolveSame(s, target))) {
       return true
     }
-    if (action.action === 'update' && action.path === target) {
+    if (action.action === 'update' && pathsResolveSame(action.path, target)) {
+      return true
+    }
+    // A case-only move (from and to resolve to same identity) is an in-place rename — writing
+    // the target is overwriting the source's own file, which is intentional
+    if (action.action === 'move' && pathsResolveSame(action.to, target) && pathsResolveSame(action.from, target)) {
       return true
     }
   }
@@ -834,6 +869,15 @@ function planOverwritesSelf(plan: ConsolidationPlan, target: string): boolean {
  * @returns A human-readable error string when the path is invalid, or `undefined` when it passes
  */
 function validatePath(path: string, existingDirs: Set<string>, maxDirectories: number): string | undefined {
+  if (path.includes('\\')) {
+    return `Path must not contain backslashes: ${path}`
+  }
+
+  const rawSegments = path.split('/')
+  if (rawSegments.some((seg) => seg === '.' || seg === '..')) {
+    return `Path must not contain dot segments ('.' or '..'): ${path}`
+  }
+
   if (path.startsWith(CONSOLIDATION_PREFIX)) {
     return `Path must not be under the reserved '${CONSOLIDATION_PREFIX}' directory: ${path}`
   }

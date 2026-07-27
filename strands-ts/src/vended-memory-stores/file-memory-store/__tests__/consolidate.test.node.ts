@@ -47,6 +47,25 @@ describe('FileMemoryStore.consolidate', () => {
       await store.consolidate({ model })
     })
 
+    // Guards the MemoryStore contract: writable:false means searchable only, never written to.
+    it('rejects consolidate() on a read-only store without reading files or invoking the model', async () => {
+      const readOnlyStorage = new InMemoryStorage().namespace('memory/readonly-store')
+      await writeFile(readOnlyStorage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const readOnlyStore = new FileMemoryStore({ name: 'readonly-store', storage: readOnlyStorage, writable: false })
+      const model = new MockMessageModel()
+      const listSpy = vi.spyOn(readOnlyStorage, 'list')
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      await expect(readOnlyStore.consolidate({ model })).rejects.toThrow(
+        'consolidate requires a writable store'
+      )
+
+      // The guard fires before any storage read or model invocation
+      expect(listSpy).not.toHaveBeenCalled()
+      expect(streamSpy).not.toHaveBeenCalled()
+    })
+
     it('rejects a second consolidate() that overlaps a run in flight', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
@@ -1369,6 +1388,170 @@ describe('FileMemoryStore.consolidate', () => {
 
       expect(await storage.read('facts/a.md')).toBeNull()
       expect(await storage.read('facts/b.md')).toBeNull()
+    })
+  })
+
+  describe('path-identity validation', () => {
+    // Guards against directory traversal: backslashes bypass POSIX-only segment splitting,
+    // allowing paths like '..\\..\\escaped.md' to resolve outside the store boundary.
+    it('rejects a plan action whose path contains a backslash', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: '..\\..\\escaped.md', reason: 'hack' }],
+            summary: 'bad plan',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: '..\\..\\escaped.md', reason: 'hack' }],
+            summary: 'still bad',
+          })
+        )
+
+      await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+        /must not contain backslashes/
+      )
+
+      // No mutation occurred
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+    })
+
+    // Guards against path traversal via dot segments that escape the store namespace.
+    it('rejects a path with a ".." segment', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: '../escape.md', reason: 'hack' }],
+            summary: 'bad plan',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: '../escape.md', reason: 'hack' }],
+            summary: 'still bad',
+          })
+        )
+
+      await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+        /must not contain dot segments/
+      )
+
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+    })
+
+    // Guards against current-directory dot segments which are ambiguous and non-canonical.
+    it('rejects a path with a "." segment', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: './facts/a.md', reason: 'no-op' }],
+            summary: 'bad plan',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: './facts/a.md', reason: 'no-op' }],
+            summary: 'still bad',
+          })
+        )
+
+      await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+        /must not contain dot segments/
+      )
+
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+    })
+
+    // Guards against data loss from case-only moves: on a case-insensitive filesystem,
+    // 'topic.md' and 'Topic.md' resolve to the same file. Deleting the source after writing
+    // the target would destroy the file's content.
+    it('case-only move does not delete the source data', async () => {
+      await writeFile(storage, 'facts/topic.md', 'Topic', 'Important content about topic')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/topic.md', to: 'facts/Topic.md', reason: 'capitalize' }],
+          summary: 'Rename to capitalize.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['reorganize'] })
+
+      // The content is still accessible — the source was not deleted because the paths
+      // resolve to the same identity on a case-insensitive backend
+      const content = await storage.read('facts/Topic.md')
+      expect(content).not.toBeNull()
+      expect(decoder.decode(content!)).toContain('Important content about topic')
+    })
+
+    // Guards against silent clobber: two actions writing case-variant paths would resolve to
+    // the same file on case-insensitive backends, with the second silently overwriting the first.
+    it('rejects two actions writing case-variant targets', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+      await writeFile(storage, 'facts/c.md', 'Fact C', 'Content C')
+
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              { action: 'move', from: 'facts/a.md', to: 'facts/merged.md', reason: 'reorg' },
+              { action: 'move', from: 'facts/b.md', to: 'facts/Merged.md', reason: 'reorg' },
+            ],
+            summary: 'bad plan',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              { action: 'move', from: 'facts/a.md', to: 'facts/merged.md', reason: 'reorg' },
+              { action: 'move', from: 'facts/b.md', to: 'facts/Merged.md', reason: 'reorg' },
+            ],
+            summary: 'still bad',
+          })
+        )
+
+      await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+        /Multiple actions write to the same path/
+      )
+
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/b.md')).not.toBeNull()
+    })
+
+    // Guards against overwriting an existing file when paths differ only by case — on a
+    // case-insensitive backend, writing to a case-variant of an existing file would clobber it.
+    it('rejects a write colliding case-insensitively with an existing file', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/existing.md', 'Existing', 'Important existing content')
+
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/Existing.md', reason: 'reorg' }],
+            summary: 'bad plan',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/Existing.md', reason: 'reorg' }],
+            summary: 'still bad',
+          })
+        )
+
+      await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+        /already exists and is not vacated/
+      )
+
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/existing.md')).not.toBeNull()
     })
   })
 })
