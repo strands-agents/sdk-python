@@ -1,17 +1,13 @@
 import { describe, it, expect } from 'vitest'
 import { ContextManager } from '../context-manager.js'
 import { Manifest } from '../manifest.js'
-import { InMemoryStorage } from '../../storage/in-memory-storage.js'
 import { MessageAddedEvent } from '../../hooks/events.js'
 import { Message, TextBlock } from '../../types/messages.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
 
-function makeMockAgent(overrides?: { id?: string; sessionManager?: { _sessionId: string } }) {
+function makeMockAgent(overrides?: { id?: string }) {
   const agent = createMockAgent()
   Object.defineProperty(agent, 'id', { value: overrides?.id ?? 'test-agent', writable: false })
-  if (overrides?.sessionManager) {
-    ;(agent as unknown as Record<string, unknown>)['sessionManager'] = overrides.sessionManager
-  }
   return agent
 }
 
@@ -25,14 +21,8 @@ function makeMessage(text: string, trackingId?: string): Message {
 
 describe('ContextManager', () => {
   describe('constructor', () => {
-    it('uses InMemoryStorage by default', () => {
+    it('uses InMemoryStorage internally', () => {
       const cm = new ContextManager()
-      expect(cm.stashEnabled).toBe(true)
-    })
-
-    it('accepts custom storage', () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
       expect(cm.stashEnabled).toBe(true)
     })
 
@@ -84,55 +74,11 @@ describe('ContextManager', () => {
       const hook = agent.trackedHooks.find((h) => h.eventType === MessageAddedEvent)
       expect(hook).toBeDefined()
     })
-
-    it('uses session manager session ID when available', () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
-      const agent = makeMockAgent({ sessionManager: { _sessionId: 'session-123' } })
-      cm.initAgent(agent)
-      expect(cm['_sessionId']).toBe('session-123')
-    })
-
-    it('falls back to agent ID when no session manager', () => {
-      const cm = new ContextManager()
-      const agent = makeMockAgent({ id: 'my-agent' })
-      cm.initAgent(agent)
-      expect(cm['_sessionId']).toBe('my-agent')
-    })
-  })
-
-  describe('storage scoping', () => {
-    it('writes to correct path with agent ID', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
-      const agent = makeMockAgent({ id: 'researcher' })
-      cm.initAgent(agent)
-
-      const message = makeMessage('hello', 'msg-001')
-      await cm.stash!.writeMessage(message)
-
-      const keys = await storage.list('')
-      expect(keys.some((key) => key.includes('context/researcher/scopes/agent/researcher/msg-001'))).toBe(true)
-    })
-
-    it('writes to correct path with session manager', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
-      const agent = makeMockAgent({ id: 'researcher', sessionManager: { _sessionId: 'sess-42' } })
-      cm.initAgent(agent)
-
-      const message = makeMessage('hello', 'msg-002')
-      await cm.stash!.writeMessage(message)
-
-      const keys = await storage.list('')
-      expect(keys.some((key) => key.includes('context/sess-42/scopes/agent/researcher/msg-002'))).toBe(true)
-    })
   })
 
   describe('L1 write on arrival', () => {
     it('writes message to storage via hook', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
+      const cm = new ContextManager()
       const agent = makeMockAgent()
       cm.initAgent(agent)
 
@@ -144,8 +90,7 @@ describe('ContextManager', () => {
     })
 
     it('duplicate message is idempotent', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
+      const cm = new ContextManager()
       const agent = makeMockAgent()
       cm.initAgent(agent)
 
@@ -164,14 +109,12 @@ describe('ContextManager', () => {
 
       const message = makeMessage('dropped', 'msg-300')
       await invokeTrackedHook(agent, new MessageAddedEvent({ agent, message, invocationState: {} }))
-      // Should not throw
     })
   })
 
   describe('stash read/write', () => {
     it('round-trips a message through storage', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
+      const cm = new ContextManager()
       const agent = makeMockAgent()
       cm.initAgent(agent)
 
@@ -185,8 +128,7 @@ describe('ContextManager', () => {
     })
 
     it('returns null for nonexistent message', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
+      const cm = new ContextManager()
       const agent = makeMockAgent()
       cm.initAgent(agent)
 
@@ -195,8 +137,7 @@ describe('ContextManager', () => {
     })
 
     it('tracks multiple messages in manifest', async () => {
-      const storage = new InMemoryStorage()
-      const cm = new ContextManager({ storage })
+      const cm = new ContextManager()
       const agent = makeMockAgent()
       cm.initAgent(agent)
 

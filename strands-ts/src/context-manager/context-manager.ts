@@ -8,9 +8,7 @@
 
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
-import type { Storage } from '../storage/storage.js'
 import type { Message } from '../types/messages.js'
-import { NAMESPACED, namespace } from '../storage/storage.js'
 import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { AfterModelCallEvent, MessageAddedEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
@@ -28,8 +26,6 @@ import type {
 } from './types.js'
 import { OffloadStrategy } from './strategies/offload-strategy.js'
 import { SummarizeStrategy } from './strategies/summarize-strategy.js'
-
-const STORAGE_PREFIX = 'context'
 
 /**
  * Manages the L1 stash and context reduction for an agent's conversation.
@@ -53,14 +49,14 @@ const STORAGE_PREFIX = 'context'
  *
  * const agent = new Agent({
  *   model,
- *   contextManager: new ContextManager({ storage }),
+ *   contextManager: new ContextManager(),
  * })
  * ```
  */
 export class ContextManager implements Plugin {
   readonly name = 'strands:context-manager'
 
-  private readonly _storage: Storage
+  private readonly _storage: InMemoryStorage
   private readonly _stashEnabled: boolean
   private readonly _stashFilter: MessageCategory[] | undefined
   private readonly _stashFilterMode: 'include' | 'exclude' | undefined
@@ -70,10 +66,9 @@ export class ContextManager implements Plugin {
   private _stash: Stash | undefined
   private _agent: LocalAgent | undefined
   private _agentId: string | undefined
-  private _sessionId: string | undefined
 
   constructor(config?: ContextManagerConfig) {
-    this._storage = config?.storage ?? new InMemoryStorage()
+    this._storage = new InMemoryStorage()
     this._stashEnabled = resolveStashEnabled(config?.stash)
     this._passes = config?.passes ?? []
     this._defaultPasses = [new OffloadStrategy(), new SummarizeStrategy()]
@@ -110,8 +105,10 @@ export class ContextManager implements Plugin {
   initAgent(agent: LocalAgent): void {
     this._agent = agent
     this._agentId = agent.id
-    this._sessionId = this._resolveSessionId(agent)
-    this._stash = this._buildStash()
+
+    if (this._stashEnabled) {
+      this._stash = new Stash(this._storage)
+    }
 
     if (!this._stashEnabled) {
       logger.info(`agentId=<${this._agentId}> | L1 stash disabled, offload operations will be destructive`)
@@ -119,7 +116,7 @@ export class ContextManager implements Plugin {
 
     const initContext: PassInitContext = {
       agent,
-      storage: this._scopeStorage(),
+      storage: this._storage,
     }
     const passes = this._passes.length > 0 ? this._passes : this._defaultPasses
     for (const pass of passes) {
@@ -175,7 +172,7 @@ export class ContextManager implements Plugin {
       messages,
       agent: this._agent,
       utilization,
-      storage: this._scopeStorage(),
+      storage: this._storage,
     }
 
     const passes = this._passes.length > 0 ? this._passes : this._defaultPasses
@@ -217,36 +214,6 @@ export class ContextManager implements Plugin {
     const removeCount = Math.max(1, safeSplitPoint - 1)
 
     messages.splice(1, removeCount)
-  }
-
-  private _resolveSessionId(agent: LocalAgent): string {
-    const agentRecord = agent as unknown as Record<string, unknown>
-    const sessionManager = agentRecord['sessionManager'] as { _sessionId?: string } | undefined
-    if (sessionManager?._sessionId) {
-      return sessionManager._sessionId
-    }
-    return agent.id
-  }
-
-  private _buildStash(): Stash | undefined {
-    if (!this._stashEnabled) return undefined
-
-    const scopedStorage = this._scopeStorage()
-    return new Stash(scopedStorage)
-  }
-
-  private _scopeStorage(): Storage {
-    if (NAMESPACED in this._storage) {
-      return this._storage
-    }
-
-    const prefix = `${STORAGE_PREFIX}/${this._sessionId}/scopes/agent/${this._agentId}`
-
-    if (this._storage.namespace) {
-      return this._storage.namespace(prefix)
-    }
-
-    return namespace(this._storage, prefix)
   }
 
   private async _onMessageAdded(event: MessageAddedEvent): Promise<void> {

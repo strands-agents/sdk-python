@@ -105,11 +105,6 @@ export interface PassContext {
  */
 export interface ContextManagerConfig {
   /**
-   * Storage backend for L1 writes. Falls back to InMemoryStorage if not provided.
-   */
-  storage?: import('../storage/storage.js').Storage
-
-  /**
    * L1 stash configuration. Set to `false` to disable writes entirely,
    * or pass a StashConfig object for fine-grained control.
    */
