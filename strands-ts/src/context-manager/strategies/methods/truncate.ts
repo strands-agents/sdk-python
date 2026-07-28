@@ -8,6 +8,10 @@
 
 import { TextBlock, ToolResultBlock } from '../../../types/messages.js'
 
+export const TRUNCATED_PREFIX = '[Truncated:'
+export const DROPPED_MARKER = '[Dropped]'
+export const SUMMARIZED_PREFIX = '[Summarized:'
+
 const DEFAULT_PREVIEW_TOKENS = 1000
 const CHARS_PER_TOKEN = 4
 
@@ -64,12 +68,16 @@ export function extractBlockText(block: ToolResultBlock): string {
  */
 export function isAlreadyProcessed(block: ToolResultBlock | TextBlock): boolean {
   if (block instanceof TextBlock) {
-    return block.text.startsWith('[Truncated:') || block.text.startsWith('[Dropped]') || block.text.startsWith('[Summarized:')
+    return isProcessedText(block.text)
   }
   if (block.content.length === 1 && block.content[0] instanceof TextBlock) {
-    return block.content[0].text.startsWith('[Truncated:') || block.content[0].text.startsWith('[Dropped]') || block.content[0].text.startsWith('[Summarized:')
+    return isProcessedText(block.content[0].text)
   }
   return false
+}
+
+function isProcessedText(text: string): boolean {
+  return text.startsWith(TRUNCATED_PREFIX) || text.startsWith(DROPPED_MARKER) || text.startsWith(SUMMARIZED_PREFIX)
 }
 
 /**
@@ -108,7 +116,7 @@ export function buildPreview(
   }
 
   return (
-    `[Truncated: ${blockCount} blocks, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n\n` +
+    `${TRUNCATED_PREFIX} ${blockCount} blocks, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n\n` +
     preview
   )
 }

@@ -30,6 +30,8 @@ import type { Message } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import type { ContextStrategy, StrategyContext, StrategyInitContext } from '../types.js'
 import {
+  DROPPED_MARKER,
+  SUMMARIZED_PREFIX,
   estimateBlockTokens,
   estimateTextBlockTokens,
   extractBlockText,
@@ -186,7 +188,7 @@ class OffloadDropStrategy implements ContextStrategy {
       if (!(block instanceof TextBlock)) continue
       if (isAlreadyProcessed(block)) continue
       if (this._threshold > 0 && estimateTextBlockTokens(block) <= this._threshold) continue
-      ;(message.content as unknown[])[blockIndex] = new TextBlock('[Dropped]')
+      ;(message.content as unknown[])[blockIndex] = new TextBlock(DROPPED_MARKER)
       dropped = true
       logger.debug(`trackingId=<${message.trackingId}> | dropped text block from L0`)
     }
@@ -209,7 +211,7 @@ class OffloadDropStrategy implements ContextStrategy {
       const replacement = new ToolResultBlock({
         toolUseId: block.toolUseId,
         status: block.status,
-        content: [new TextBlock('[Dropped]')],
+        content: [new TextBlock(DROPPED_MARKER)],
       })
       ;(message.content as unknown[])[blockIndex] = replacement
       dropped = true
@@ -437,7 +439,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
 
       const summary = await summarizeText(block.text, model, this._config)
       if (summary) {
-        ;(message.content as unknown[])[blockIndex] = new TextBlock(`[Summarized: ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+        ;(message.content as unknown[])[blockIndex] = new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
         summarized = true
         logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
       }
@@ -462,7 +464,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
         const replacement = new ToolResultBlock({
           toolUseId: block.toolUseId,
           status: block.status,
-          content: [new TextBlock(`[Summarized: ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
+          content: [new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
         })
         ;(message.content as unknown[])[blockIndex] = replacement
         summarized = true
