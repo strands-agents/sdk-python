@@ -11,12 +11,19 @@
  *
  * const cm = new ContextManager({
  *   strategies: [
+ *     // Replace tool results over 1500 tokens with a 750-token head-tail preview
  *     Offload.truncate("toolResults", { previewTokens: 750 })
  *       .when({ threshold: 1500 }),
+ *
+ *     // Aggressively truncate noisy tools — small preview, low threshold
  *     Offload.truncate(["bash", "list_files"], { previewTokens: 200 })
  *       .when({ threshold: 500 }),
+ *
+ *     // LLM-summarize all large blocks when context is 85% full, keep last 2 messages intact
  *     Offload.summarize()
  *       .when({ utilization: 0.85, preserveRecent: 2 }),
+ *
+ *     // Drop all error tool results from context immediately
  *     Offload("toolResultErrors"),
  *   ],
  * })
@@ -60,14 +67,14 @@ export type OffloadTarget =
   | string[]
 
 /**
- * Conditions that determine when a strategy fires.
+ * Conditions that determine when an offload strategy fires.
  *
  * All fields are optional. Omitting a condition means that dimension is not gated:
  * - No `threshold` → process blocks at any size
  * - No `utilization` → don't gate on context fullness
  * - No `preserveRecent` → don't protect any messages
  */
-export interface WhenConditions {
+export interface OffloadConditions {
   /** Token threshold above which individual blocks are offloaded. Omit to process at any size. */
   threshold?: number
 
@@ -82,9 +89,9 @@ export interface WhenConditions {
  * Intermediate builder result that allows chaining `.when()` conditions.
  * Also implements `ContextStrategy` directly so it can be used without `.when()`.
  */
-export interface StrategyBuilder extends ContextStrategy {
+export interface OffloadStrategyBuilder extends ContextStrategy {
   /** Add conditions that determine when this strategy fires. */
-  when(conditions: WhenConditions): ContextStrategy
+  when(conditions: OffloadConditions): ContextStrategy
 }
 
 
@@ -120,7 +127,7 @@ class OffloadDropStrategy implements ContextStrategy {
   private readonly _toolFilter: Set<string> | undefined
   private readonly _excludeFilter: Set<string> | undefined
 
-  constructor(target?: OffloadTarget, conditions?: WhenConditions) {
+  constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
     this._target = target
     this._threshold = conditions?.threshold ?? 0
     this._preserveRecent = conditions?.preserveRecent ?? 0
@@ -233,7 +240,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
   private readonly _toolFilter: Set<string> | undefined
   private readonly _excludeFilter: Set<string> | undefined
 
-  constructor(target?: OffloadTarget, config?: TruncateConfig, conditions?: WhenConditions) {
+  constructor(target?: OffloadTarget, config?: TruncateConfig, conditions?: OffloadConditions) {
     this._threshold = conditions?.threshold ?? 0
     this._truncateConfig = config ?? {}
     this._target = target
@@ -345,7 +352,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
   private readonly _toolFilter: Set<string> | undefined
   private readonly _excludeFilter: Set<string> | undefined
 
-  constructor(target?: OffloadTarget, config?: SummarizeConfig, conditions?: WhenConditions) {
+  constructor(target?: OffloadTarget, config?: SummarizeConfig, conditions?: OffloadConditions) {
     this._config = config ?? {}
     this._target = target
     this._threshold = conditions?.threshold ?? 0
@@ -526,7 +533,7 @@ function messageMatchesTarget(
 
 // --- Builder ---
 
-function createDropBuilder(target?: OffloadTarget): StrategyBuilder {
+function createDropBuilder(target?: OffloadTarget): OffloadStrategyBuilder {
   const strategy = new OffloadDropStrategy(target)
   return {
     get name(): string {
@@ -534,13 +541,13 @@ function createDropBuilder(target?: OffloadTarget): StrategyBuilder {
     },
     init: strategy.init.bind(strategy),
     apply: strategy.apply.bind(strategy),
-    when(conditions: WhenConditions): ContextStrategy {
+    when(conditions: OffloadConditions): ContextStrategy {
       return new OffloadDropStrategy(target, conditions)
     },
   }
 }
 
-function createTruncateBuilder(target?: OffloadTarget, config?: TruncateConfig): StrategyBuilder {
+function createTruncateBuilder(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder {
   const strategy = new OffloadTruncateStrategy(target, config)
   return {
     get name(): string {
@@ -548,13 +555,13 @@ function createTruncateBuilder(target?: OffloadTarget, config?: TruncateConfig):
     },
     init: strategy.init.bind(strategy),
     apply: strategy.apply.bind(strategy),
-    when(conditions: WhenConditions): ContextStrategy {
+    when(conditions: OffloadConditions): ContextStrategy {
       return new OffloadTruncateStrategy(target, config, conditions)
     },
   }
 }
 
-function createSummarizeBuilder(target?: OffloadTarget, config?: SummarizeConfig): StrategyBuilder {
+function createSummarizeBuilder(target?: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder {
   const strategy = new OffloadSummarizeStrategy(target, config)
   return {
     get name(): string {
@@ -562,7 +569,7 @@ function createSummarizeBuilder(target?: OffloadTarget, config?: SummarizeConfig
     },
     init: strategy.init.bind(strategy),
     apply: strategy.apply.bind(strategy),
-    when(conditions: WhenConditions): ContextStrategy {
+    when(conditions: OffloadConditions): ContextStrategy {
       return new OffloadSummarizeStrategy(target, config, conditions)
     },
   }
@@ -577,27 +584,27 @@ function createSummarizeBuilder(target?: OffloadTarget, config?: SummarizeConfig
  */
 export interface OffloadNamespace {
   /** Drop matching content from L0 entirely. */
-  (target?: OffloadTarget): StrategyBuilder
+  (target?: OffloadTarget): OffloadStrategyBuilder
 
   /** Replace oversized content with a preview. */
-  truncate(target?: OffloadTarget, config?: TruncateConfig): StrategyBuilder
+  truncate(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder
 
   /** Replace oversized content with an LLM-generated summary. */
-  summarize(target?: OffloadTarget, config?: SummarizeConfig): StrategyBuilder
+  summarize(target?: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder
 
   /** Replace oversized content with an LLM-generated summary (config-only overload). */
-  summarize(config?: SummarizeConfig): StrategyBuilder
+  summarize(config?: SummarizeConfig): OffloadStrategyBuilder
 }
 
-function offloadFn(target?: OffloadTarget): StrategyBuilder {
+function offloadFn(target?: OffloadTarget): OffloadStrategyBuilder {
   return createDropBuilder(target)
 }
 
-offloadFn.truncate = function truncate(target?: OffloadTarget, config?: TruncateConfig): StrategyBuilder {
+offloadFn.truncate = function truncate(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder {
   return createTruncateBuilder(target, config)
 }
 
-offloadFn.summarize = function summarize(targetOrConfig?: OffloadTarget | SummarizeConfig, config?: SummarizeConfig): StrategyBuilder {
+offloadFn.summarize = function summarize(targetOrConfig?: OffloadTarget | SummarizeConfig, config?: SummarizeConfig): OffloadStrategyBuilder {
   if (targetOrConfig === undefined) {
     return createSummarizeBuilder(undefined, config)
   }
