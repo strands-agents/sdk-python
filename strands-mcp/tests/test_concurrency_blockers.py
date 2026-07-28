@@ -632,3 +632,41 @@ class TestReRankAfterHydration:
 
         # Verify hydration actually happened (scores should differ from title-only)
         assert len(results_first) == 2, "Expected 2 results"
+
+    def test_update_content_atomic_on_mid_loop_failure(self):
+        """yonib05's finding: if the postings loop raises after doc.content is set,
+        the idempotence guard must NOT make retries a no-op. Content is committed
+        last, so a failed reindex leaves content unchanged and retry re-runs."""
+        from strands_mcp_server.utils import indexer as idx_mod
+
+        index = idx_mod.IndexSearch()
+        index.add(idx_mod.Doc(uri="u1", display_title="Guardrails", index_title="Guardrails", content=""))
+
+        body = "You can set a guardrail temperature threshold for the model."
+
+        # Inject a failure partway through the postings update via the _TEST_YIELD seam
+        calls = {"n": 0}
+
+        def boom():
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("simulated failure mid-transaction")
+
+        idx_mod._TEST_YIELD = boom
+        try:
+            try:
+                index.update_content("u1", body)
+            except RuntimeError:
+                pass
+        finally:
+            idx_mod._TEST_YIELD = None
+
+        # After the failed update, body terms must not be silently lost forever:
+        # retry must actually re-run (content was NOT committed on failure)
+        retried = index.update_content("u1", body)
+        assert retried is True
+        results = index.search("temperature")
+        assert any(doc.uri == "u1" for _, doc in results), (
+            "page must be searchable by body term after retry — "
+            "content was not committed on the failed attempt, so retry re-indexed it"
+        )

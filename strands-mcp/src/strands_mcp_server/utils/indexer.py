@@ -162,11 +162,10 @@ class IndexSearch:
             if doc.content == new_content:
                 return True
 
-            doc.content = new_content
-
-            # Get old tokens and new tokens
+            # Get old tokens and new tokens (extract from new_content WITHOUT
+            # assigning doc.content yet — atomic: content committed last)
             old_tokens = self.doc_tokens.get(idx, set())
-            new_tokens = self._extract_tokens(doc)
+            new_tokens = self._extract_tokens(doc, content_override=new_content)
 
             # Tokens to remove from index (in old but not in new)
             tokens_to_remove = old_tokens - new_tokens
@@ -197,21 +196,24 @@ class IndexSearch:
                     _TEST_YIELD()  # type: ignore[operator]
                 self.doc_frequency[tok] = current_df + 1
 
-            # Update tracked tokens
+            # Update tracked tokens and commit content last — if anything above
+            # raised, doc.content is unchanged and the idempotence guard allows retry
             self.doc_tokens[idx] = new_tokens
+            doc.content = new_content
 
             return True
 
-    def _extract_tokens(self, doc: Doc) -> Set[str]:
+    def _extract_tokens(self, doc: Doc, content_override: str | None = None) -> Set[str]:
         """Extract unique tokens from a document without indexing."""
         seen: Set[str] = set()
 
-        content = doc.content.lower()
+        raw_content = content_override if content_override is not None else doc.content
+        content = raw_content.lower()
         title_text = doc.index_title.lower()
-        headers = " ".join(_MD_HEADER.findall(doc.content))
-        code_blocks = " ".join(_MD_CODE_BLOCK.findall(doc.content))
-        inline_code = " ".join(_MD_INLINE_CODE.findall(doc.content))
-        link_text = " ".join(_MD_LINK_TEXT.findall(doc.content))
+        headers = " ".join(_MD_HEADER.findall(raw_content))
+        code_blocks = " ".join(_MD_CODE_BLOCK.findall(raw_content))
+        inline_code = " ".join(_MD_INLINE_CODE.findall(raw_content))
+        link_text = " ".join(_MD_LINK_TEXT.findall(raw_content))
 
         haystack_parts = [
             title_text,
