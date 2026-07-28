@@ -54,7 +54,7 @@ export class S3Storage implements Storage {
   /**
    * Stores `data` under `key`, overwriting any existing value.
    *
-   * @param key - Opaque, `/`-separated key identifying the value
+   * @param key - Opaque string key identifying the value
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the key is invalid or the upload fails
    */
