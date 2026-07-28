@@ -6,7 +6,7 @@
  *
  * @example
  * ```typescript
- * import { Agent, ContextManager, Offload } from '@strands-agents/sdk'
+ * import { Agent, ContextManager, Offload, Inject } from '@strands-agents/sdk'
  *
  * const agent = new Agent({
  *   model,
@@ -16,6 +16,8 @@
  *         .when({ threshold: 1500, skipRecent: 3 }),
  *       Offload.summarize({ ratio: 0.3 })
  *         .when({ utilization: 0.85 }),
+ *       Inject.truncate("stash", { previewTokens: 500 })
+ *         .when({ utilization: 0.5 }),
  *     ],
  *   }),
  * })
@@ -24,8 +26,7 @@
 
 export { ContextManager } from './context-manager.js'
 export { Offload } from './strategies/offload.js'
-export { TruncateMethod } from './strategies/methods/truncate-method.js'
-export { SummarizeMethod } from './strategies/methods/summarize-method.js'
+export { Inject } from './strategies/inject.js'
 export type {
   ContextManagerConfig,
   ContextStrategy,
@@ -34,12 +35,7 @@ export type {
   StrategyContext,
   StrategyInitContext,
 } from './types.js'
-export type { TruncateMethodConfig } from './strategies/methods/truncate-method.js'
-export type { SummarizeMethodConfig } from './strategies/methods/summarize-method.js'
-export type { OffloadTarget, OffloadWhenConditions, OffloadStrategyBuilder, OffloadNamespace } from './strategies/offload.js'
-
-// Legacy re-exports
-export { OffloadStrategy } from './strategies/offload-strategy.js'
-export { SummarizeStrategy } from './strategies/summarize-strategy.js'
-export type { OffloadStrategyConfig } from './strategies/offload-strategy.js'
-export type { SummarizeStrategyConfig } from './strategies/summarize-strategy.js'
+export type { OffloadTarget, WhenConditions, StrategyBuilder, OffloadNamespace } from './strategies/offload.js'
+export type { InjectSource, InjectNamespace } from './strategies/inject.js'
+export type { TruncateConfig } from './strategies/methods/truncate.js'
+export type { SummarizeConfig } from './strategies/methods/summarize.js'

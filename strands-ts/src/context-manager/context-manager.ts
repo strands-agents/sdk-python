@@ -24,8 +24,7 @@ import type {
   StrategyContext,
   StrategyInitContext,
 } from './types.js'
-import { TruncateMethod } from './strategies/methods/truncate-method.js'
-import { SummarizeMethod } from './strategies/methods/summarize-method.js'
+import { Offload } from './strategies/offload.js'
 
 /**
  * Manages the L1 stash and context reduction for an agent's conversation.
@@ -71,7 +70,7 @@ export class ContextManager implements Plugin {
     this._storage = new InMemoryStorage()
     this._stashEnabled = resolveStashEnabled(config?.stash)
     this._strategies = config?.strategies ?? []
-    this._defaultStrategies = [new TruncateMethod('toolResults'), new SummarizeMethod()]
+    this._defaultStrategies = [Offload.truncate('toolResults'), Offload.summarize()]
 
     const stashConfig = typeof config?.stash === 'object' ? config.stash : undefined
     if (stashConfig?.include && stashConfig?.exclude) {
