@@ -21,7 +21,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from opentelemetry import trace as trace_api
 
@@ -234,6 +234,26 @@ class SwarmResult(MultiAgentResult):
     node_history: list[SwarmNode] = field(default_factory=list)
 
 
+@dataclass
+class _TurnCheckpoint:
+    """The handoff state a node inherited, plus whether its turn committed.
+
+    A checkpoint fires before the execution loop applies a handoff transition, so EXECUTING with a pending
+    handoff is ambiguous on its own: the node may have committed that handoff or merely inherited it.
+
+    Attributes:
+        handoff_node: Handoff target as it stood before the node ran.
+        handoff_message: Handoff message as it stood before the node ran.
+        shared_context: Shared context as it stood before the node ran.
+        outcome: "open" until the turn either commits or is rolled back.
+    """
+
+    handoff_node: SwarmNode | None
+    handoff_message: str | None
+    shared_context: dict[str, dict[str, Any]]
+    outcome: Literal["open", "committed", "rolled_back"] = "open"
+
+
 class Swarm(MultiAgentBase):
     """Self-organizing collaborative agent teams with shared working memory."""
 
@@ -310,6 +330,8 @@ class Swarm(MultiAgentBase):
                 self._plugin_registry.add_and_init(plugin)
 
         self._resume_from_session = False
+
+        self._turn: _TurnCheckpoint | None = None
 
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
@@ -415,6 +437,9 @@ class Swarm(MultiAgentBase):
             interrupts = []
 
             self._invocation_start_time = self.state.start_time
+            # A turn belongs to the invocation that ran it; carrying one over would let a finished
+            # invocation's outcome decide this one's frontier.
+            self._turn = None
 
             try:
                 current_node = cast(SwarmNode, self.state.current_node)
@@ -437,6 +462,8 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
+                # On stream close this finally runs before _execute_swarm's teardown, so roll back here too.
+                self._rollback_uncommitted_turn()
                 self.state.execution_time = self._commit_active_interval(self.state.execution_time)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
@@ -629,6 +656,18 @@ class Swarm(MultiAgentBase):
             target_node.node_id,
         )
 
+    def _rollback_uncommitted_turn(self) -> None:
+        """Undo the handoff state an uncommitted turn wrote, so a checkpoint cannot persist it.
+
+        Only an open turn rolls back, so this is safe to call from more than one teardown path.
+        """
+        if self._turn is None or self._turn.outcome != "open":
+            return
+        self.state.handoff_node = self._turn.handoff_node
+        self.state.handoff_message = self._turn.handoff_message
+        self.shared_context.context = self._turn.shared_context
+        self._turn.outcome = "rolled_back"
+
     def _build_node_input(self, target_node: SwarmNode) -> str:
         """Build input text for a node based on shared context and handoffs.
 
@@ -787,6 +826,12 @@ class Swarm(MultiAgentBase):
                         self.state.completion_status = Status.FAILED
                         break
 
+                    self._turn = _TurnCheckpoint(
+                        self.state.handoff_node,
+                        self.state.handoff_message,
+                        copy.deepcopy(self.shared_context.context),
+                    )
+
                     node_stream = self._stream_with_timeout(
                         self._execute_node(current_node, self.state.task, invocation_state),
                         self.node_timeout,
@@ -798,15 +843,23 @@ class Swarm(MultiAgentBase):
                     stop_event = cast(MultiAgentNodeStopEvent, event)
                     node_result = stop_event["node_result"]
                     if node_result.status == Status.INTERRUPTED:
+                        # An interrupt commits the turn: resume continues past it, so the handoff stands.
+                        self._turn.outcome = "committed"
                         yield self._activate_interrupt(current_node, node_result.interrupts)
                         break
 
                     self._interrupt_state.deactivate()
 
                     self.state.node_history.append(current_node)
+                    self._turn.outcome = "committed"
+
+                except (asyncio.CancelledError, GeneratorExit):
+                    self._rollback_uncommitted_turn()
+                    raise
 
                 except Exception:
                     logger.exception("node=<%s> | node execution failed", current_node.node_id)
+                    self._rollback_uncommitted_turn()
                     self.state.completion_status = Status.FAILED
                     break
 
@@ -978,12 +1031,13 @@ class Swarm(MultiAgentBase):
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current swarm state to a dictionary."""
         status_str = self.state.completion_status.value
-        if self.state.completion_status == Status.EXECUTING and self.state.current_node:
-            next_nodes = [self.state.current_node.node_id]
-        elif self.state.completion_status == Status.INTERRUPTED and self.state.current_node:
-            next_nodes = [self.state.current_node.node_id]
-        elif self.state.handoff_node:
+        # Only a committed turn earns its handoff target the frontier; a handoff standing mid-turn was
+        # inherited, and resuming its target would skip the node that never finished.
+        turn_committed = self._turn is not None and self._turn.outcome == "committed"
+        if self.state.completion_status == Status.EXECUTING and turn_committed and self.state.handoff_node:
             next_nodes = [self.state.handoff_node.node_id]
+        elif self.state.completion_status in (Status.EXECUTING, Status.INTERRUPTED) and self.state.current_node:
+            next_nodes = [self.state.current_node.node_id]
         else:
             next_nodes = []
 
@@ -1012,10 +1066,15 @@ class Swarm(MultiAgentBase):
         """Restore swarm state from a session dict and prepare for execution.
 
         This method handles two scenarios:
-        1. If the payload omits next_nodes_to_execute (a terminal or fresh state), resets all
-           nodes and swarm state to allow re-execution from the beginning.
-        2. Otherwise, restores the persisted state and prepares to resume execution
-           from the next node.
+        1. If the swarm has no resume frontier (next_nodes_to_execute is empty — e.g. completed, or failed
+           at a dead end), resets all nodes and swarm state to allow re-execution from the beginning.
+        2. Otherwise, restores the persisted state and prepares to resume execution from the next node.
+
+        Note:
+            Resume is at-least-once: a crash between a node finishing and the next checkpoint replays that
+            node on restore (e.g. a terminal node whose completion checkpoint never landed), and a resume
+            frontier naming a node this swarm no longer defines re-runs the task from the beginning. Swarm
+            nodes should therefore be idempotent.
 
         Args:
             payload: Dictionary containing persisted state data including status,
@@ -1025,19 +1084,36 @@ class Swarm(MultiAgentBase):
             internal_state = payload["_internal_state"]
             self._interrupt_state = _InterruptState.from_dict(internal_state["interrupt_state"])
 
-        self._resume_from_session = "next_nodes_to_execute" in payload
-        if self._resume_from_session:
-            self._from_dict(payload)
+        # Restored state describes work no in-memory turn ran, so any turn from this process does not apply.
+        self._turn = None
+
+        next_node_ids = payload.get("next_nodes_to_execute") or []
+        # A frontier naming a node this swarm no longer defines is not resumable: the persisted history,
+        # results, and handoff all belong to a topology that no longer exists.
+        if not next_node_ids or next_node_ids[0] not in self.nodes:
+            self._reset_for_fresh_run()
             return
 
+        self._resume_from_session = True
+        self._from_dict(payload)
+
+    def _reset_for_fresh_run(self) -> None:
+        """Discard restored state so the next invocation runs the task from the initial node."""
+        # Clear interrupt state first, else reset_executor_state indexes its context by node_id and
+        # KeyErrors on a never-interrupted node.
+        self._interrupt_state = _InterruptState()
         for node in self.nodes.values():
             node.reset_executor_state()
 
+        # stream_async re-aliases the swarm-owned shared context onto the fresh state, so clear it here or
+        # a previous run's context survives the reset.
+        self.shared_context.context = {}
         self.state = SwarmState(
             current_node=SwarmNode("", Agent(), swarm=self),
             task="",
             completion_status=Status.PENDING,
         )
+        self._resume_from_session = False
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         self.state.completion_status = Status(payload["status"])
@@ -1047,9 +1123,17 @@ class Swarm(MultiAgentBase):
         self.state.shared_context = self.shared_context
         # Hydrate completed nodes & results
         context = payload["context"] or {}
-        self.shared_context.context = context.get("shared_context") or {}
-        self.state.handoff_message = context.get("handoff_message")
-        self.state.handoff_node = self.nodes[context["handoff_node"]] if context.get("handoff_node") else None
+        # Keyed by node id, so drop entries for nodes this swarm no longer defines rather than rendering a
+        # removed node's context into every prompt.
+        restored_context = context.get("shared_context") or {}
+        self.shared_context.context = {
+            node_id: entries for node_id, entries in restored_context.items() if node_id in self.nodes
+        }
+        handoff_node_id = context.get("handoff_node")
+        self.state.handoff_node = self.nodes.get(handoff_node_id) if handoff_node_id else None
+        # The message is written for the handoff target, so it only survives if that target still does.
+        target_vanished = handoff_node_id is not None and self.state.handoff_node is None
+        self.state.handoff_message = None if target_vanished else context.get("handoff_message")
 
         self.state.accumulated_usage = _parse_usage(payload.get("accumulated_usage") or {})
         self.state.accumulated_metrics = _parse_metrics(payload.get("accumulated_metrics") or {})
@@ -1070,9 +1154,17 @@ class Swarm(MultiAgentBase):
         self.state.results = results
         self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
 
-        next_node_ids = payload.get("next_nodes_to_execute") or []
-        if next_node_ids:
-            self.state.current_node = self.nodes[next_node_ids[0]] if next_node_ids[0] else self._initial_node()
+        # Only reached for a frontier that names a node this swarm defines.
+        self.state.current_node = self.nodes[payload["next_nodes_to_execute"][0]]
+
+        # Clear a handoff the resume frontier already satisfies so the target is not re-run. Skip INTERRUPTED:
+        # there the frontier is the current node, so a self-handoff equality is coincidental and still pending.
+        if (
+            self.state.completion_status != Status.INTERRUPTED
+            and self.state.handoff_node is not None
+            and self.state.handoff_node == self.state.current_node
+        ):
+            self.state.handoff_node = None
 
     def _initial_node(self) -> SwarmNode:
         if self.entry_point:
