@@ -97,6 +97,10 @@ export interface OffloadStrategyBuilder extends ContextStrategy {
 
 // --- Shared helpers ---
 
+/**
+ * Checks whether a ToolResultBlock matches the given offload target.
+ * Handles status-based targets (toolResults/toolResultErrors) and name-based targets (string[]).
+ */
 function matchesToolTarget(
   block: ToolResultBlock,
   target: OffloadTarget,
@@ -509,6 +513,10 @@ function excludeRecentMatches(
   return messages.filter((message) => !excluded.has(message))
 }
 
+/**
+ * Checks whether a message matches the given target for preserveRecent counting.
+ * A message matches if it contains content that the target would select.
+ */
 function messageMatchesTarget(
   message: Message,
   target: OffloadTarget | undefined,
@@ -533,6 +541,7 @@ function messageMatchesTarget(
 
 // --- Builder ---
 
+/** Creates a drop strategy builder with an optional target. */
 function createDropBuilder(target?: OffloadTarget): OffloadStrategyBuilder {
   const strategy = new OffloadDropStrategy(target)
   return {
@@ -547,6 +556,7 @@ function createDropBuilder(target?: OffloadTarget): OffloadStrategyBuilder {
   }
 }
 
+/** Creates a truncate strategy builder with an optional target and config. */
 function createTruncateBuilder(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder {
   const strategy = new OffloadTruncateStrategy(target, config)
   return {
@@ -561,6 +571,7 @@ function createTruncateBuilder(target?: OffloadTarget, config?: TruncateConfig):
   }
 }
 
+/** Creates a summarize strategy builder with an optional target and config. */
 function createSummarizeBuilder(target?: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder {
   const strategy = new OffloadSummarizeStrategy(target, config)
   return {
@@ -614,6 +625,7 @@ offloadFn.summarize = function summarize(targetOrConfig?: OffloadTarget | Summar
   return createSummarizeBuilder(targetOrConfig as OffloadTarget, config)
 }
 
+/** Disambiguates the summarize overload: is the first arg a config object or a target? */
 function isSummarizeConfig(value: unknown): value is SummarizeConfig {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
   const keys = Object.keys(value)
@@ -651,6 +663,10 @@ function resolveToolName(block: ToolResultBlock, messages: Message[]): string | 
   return undefined
 }
 
+/**
+ * Parses a string[] target into include/exclude filter sets.
+ * Entries prefixed with `!` become excludes; all others become includes.
+ */
 function resolveToolFilter(target: OffloadTarget | undefined): { include?: Set<string>; exclude?: Set<string> } {
   if (target === undefined) return {}
   if (typeof target === 'string') return {}
