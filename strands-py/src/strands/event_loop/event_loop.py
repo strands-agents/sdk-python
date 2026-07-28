@@ -714,22 +714,8 @@ async def _stop_for_interrupts(
 ) -> AsyncGenerator[TypedEvent, None]:
     """Persist interrupt state and emit the interrupt stop event.
 
-    Both the pre-execution (``BeforeToolsEvent``) and post-execution interrupt paths in
-    :func:`_handle_tool_execution` stop in exactly the same way. Keeping that sequence here
-    ensures a future change to interrupt persistence only has to be made in one place, rather
-    than being duplicated across the two paths.
-
-    Args:
-        agent: Agent whose interrupt state is being persisted.
-        message: The assistant tool-use message that triggered the batch.
-        tool_results: Tool results collected so far (including any from a prior resume).
-        interrupts: The interrupts raised during this cycle.
-        cycle_start_time: Start time of the current cycle.
-        cycle_trace: Trace object for the current event loop cycle.
-        cycle_span: Span object for tracing the cycle (type may vary).
-        invocation_state: Additional keyword arguments, including request state.
-        tracer: Tracer instance for span management.
-        structured_output_result: Structured output captured during the batch, if any.
+    Shared by both the pre-execution and post-execution interrupt paths
+    so interrupt persistence logic lives in one place.
     """
     # Session state stored on AfterInvocationEvent.
     agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
@@ -862,9 +848,7 @@ async def _handle_tool_execution(
                     yield StructuredOutputEvent(structured_output=structured_output_result)
                     structured_output_context.stop_loop = True
     finally:
-        # Always pair BeforeToolsEvent with AfterToolsEvent (mirrors the source `finally`
-        # dispatch), so batch-level hooks observe the results even on the cancel, interrupt,
-        # and error paths.
+        # Always pair BeforeToolsEvent with AfterToolsEvent, even on cancel/interrupt/error paths.
         tool_result_message: Message = {
             "role": "user",
             "content": [{"toolResult": result} for result in tool_results],
@@ -902,8 +886,7 @@ async def _handle_tool_execution(
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
 
-    # Hook requested end-of-turn after tool execution: append the final assistant
-    # message and stop without calling the model again.
+    # Hook requested halt: exit without calling the model again.
     if after_tools_event.end_turn:
         end_turn_text = (
             after_tools_event.end_turn

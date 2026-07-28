@@ -1298,7 +1298,7 @@ async def test_event_loop_cycle_after_tools_fires_when_tool_hook_raises(agent, m
     with pytest.raises(EventLoopException, match="after tool hook failed"):
         await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
-    # AfterToolsEvent still fires on the error path (finally-equivalent dispatch).
+    # AfterToolsEvent still fires on the error path.
     assert len(after_tools_calls) == 1
 
 
@@ -1361,7 +1361,7 @@ async def test_event_loop_cycle_after_tools_fires_on_per_tool_interrupt(agent, m
 
     events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
-    # A per-tool interrupt stops the batch, but AfterToolsEvent still fires (finally-equivalent dispatch).
+    # A per-tool interrupt stops the batch, but AfterToolsEvent still fires.
     assert events[-1]["stop"][0] == "interrupt"
     assert len(after_tools_calls) == 1
 
@@ -1372,10 +1372,7 @@ async def test_event_loop_cycle_after_tools_fires_per_cycle_across_per_tool_inte
 ):
     """AfterToolsEvent fires once per event-loop cycle, not once per logical batch.
 
-    A per-tool interrupt splits one batch across two cycles, so the event fires twice: on the
-    interrupt cycle carrying only the results collected so far, then again on resume carrying the
-    full set. This mirrors the TypeScript SDK, where `executeTools` dispatches AfterToolsEvent from
-    a `finally` that also runs on the interrupt (throw) path, so it likewise fires once per cycle.
+    A per-tool interrupt splits one batch across two cycles, so the event fires twice.
     """
     agent.tool_executor = SequentialToolExecutor()
     after_tools_ids = []
@@ -1565,8 +1562,7 @@ async def test_event_loop_cycle_before_tools_hook_exception_skips_execution(
     with pytest.raises(EventLoopException, match="batch hook failed"):
         await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
-    # A BeforeToolsEvent hook exception propagates before the batch is entered: no tool executes,
-    # and AfterToolsEvent never fires (it is only paired once the batch begins).
+    # Hook exception propagates before tools execute; AfterToolsEvent never fires.
     executor._execute.assert_not_called()
     assert after_tools_calls == []
 
@@ -1634,11 +1630,7 @@ async def test_event_loop_cycle_before_tools_interrupt_invalid_tool_result_not_d
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_per_tool_interrupt_with_invalid_tool_no_duplicate_result(agent, tool, alist):
-    """A per-tool interrupt in a batch containing an invalid tool must not duplicate the invalid tool's result.
-
-    The pending_tool_use_ids filter on validation_results prevents re-appending results that were already
-    persisted in interrupt state from the prior cycle.
-    """
+    """A per-tool interrupt in a batch containing an invalid tool must not duplicate the invalid tool's result."""
     assistant_message = {
         "role": "assistant",
         "content": [

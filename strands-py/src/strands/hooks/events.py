@@ -135,17 +135,18 @@ class MessageAddedEvent(HookEvent):
 
 @dataclass
 class BeforeToolsEvent(HookEvent, _Interruptible):
-    """Event triggered at the start of each event-loop cycle that has pending tool-use requests.
+    """Event triggered before executing tools.
 
-    A per-tool interrupt splits a batch across cycles, so this event can fire more
-    than once for a single assistant message. On a resume cycle, tools that already
-    completed are excluded from the pending set.
+    This event is fired when the model returns tool use blocks that need to be executed.
+    Hook callbacks can set ``cancel`` to prevent all tools from executing. Fires once per
+    cycle, so may fire more than once per assistant message when a per-tool interrupt
+    splits the batch.
 
     Attributes:
-        message: The full assistant message containing the tool use requests.
+        message: The assistant message containing tool use requests.
         invocation_state: State and configuration passed through the agent invocation.
-        cancel: When set, cancels every pending tool call in the batch. If a string,
-            used as the cancellation message. If True, a default message is used.
+        cancel: When set, cancels all tool calls. If a string, used as the tool result
+            error message. If True, a default message is used.
     """
 
     message: Message
@@ -157,10 +158,10 @@ class BeforeToolsEvent(HookEvent, _Interruptible):
 
     @override
     def _interrupt_id(self, name: str) -> str:
-        """Return the unique id for an interrupt raised before a tool batch.
+        """Unique id for the interrupt.
 
         Args:
-            name: User-defined name for the interrupt.
+            name: User defined name for the interrupt.
 
         Returns:
             Interrupt id.
@@ -170,33 +171,23 @@ class BeforeToolsEvent(HookEvent, _Interruptible):
 
 @dataclass
 class AfterToolsEvent(HookEvent):
-    """Event triggered once after a batch of tools finishes executing.
+    """Event triggered after all tools complete execution.
 
-    This event is fired after the tools requested in an assistant message have
-    completed (or been cancelled), giving hooks aggregate visibility over the
-    tool results before the next model call. It is always paired with a preceding
-    ``BeforeToolsEvent``, including on cancel and error paths.
-
-    It fires once per event-loop cycle, not once per logical batch. When a per-tool
-    interrupt pauses a batch, the batch is split across cycles: this event fires on
-    the interrupt cycle (with only the results collected so far — the interrupted
-    tool has none yet) and again on the resume cycle (with the results produced that
-    cycle). Hooks that perform side effects here should be prepared to run more than
-    once for a single assistant message. This mirrors the TypeScript SDK, where the
-    equivalent ``finally``-dispatched ``AfterToolsEvent`` also fires per cycle.
+    This event is fired after tool results are collected and ready to be added to conversation.
+    Always paired with a preceding ``BeforeToolsEvent``, including on cancel and
+    error paths. Fires once per cycle, so may fire more than once per assistant message
+    when a per-tool interrupt splits the batch.
 
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.
 
     Attributes:
-        message: The user-role message containing the tool results collected in the
-            current event-loop cycle (the full batch when it completes in one cycle;
-            a partial set on an interrupt cycle).
+        message: The user-role message containing the tool results.
         invocation_state: State and configuration passed through the agent invocation.
         end_turn: When set, the agent loop halts after this tool batch without
-            calling the model again, and the returned result has ``stop_reason``
-            ``"end_turn"``. If a string, that string becomes the content of a final
-            assistant text message; if ``True``, a default message is used.
+            calling the model again. If a string, that string becomes the content of
+            a final assistant text message. If True, a default message is used.
+            In both cases stop_reason on the returned result is "end_turn".
     """
 
     message: Message
