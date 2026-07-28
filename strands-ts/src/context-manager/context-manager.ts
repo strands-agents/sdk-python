@@ -7,7 +7,6 @@
 import type { Plugin } from '../plugins/plugin.js'
 import type { LocalAgent } from '../types/agent.js'
 import type { Message } from '../types/messages.js'
-import { InMemoryStorage } from '../storage/in-memory-storage.js'
 import { AfterModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
@@ -43,7 +42,6 @@ import { Offload } from './strategies/offload.js'
 export class ContextManager implements Plugin {
   readonly name = 'strands:context-manager'
 
-  private readonly _storage: InMemoryStorage
   private readonly _strategies: ContextStrategy[]
   private readonly _defaultStrategies: ContextStrategy[]
 
@@ -51,7 +49,6 @@ export class ContextManager implements Plugin {
   private _agentId: string | undefined
 
   constructor(config?: ContextManagerConfig) {
-    this._storage = new InMemoryStorage()
     this._strategies = config?.strategies ?? []
     this._defaultStrategies = [Offload.truncate('toolResults'), Offload.summarize()]
   }
@@ -62,7 +59,6 @@ export class ContextManager implements Plugin {
 
     const initContext: StrategyInitContext = {
       agent,
-      storage: this._storage,
     }
     const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies
     for (const strategy of strategies) {
@@ -113,7 +109,6 @@ export class ContextManager implements Plugin {
       messages,
       agent: this._agent,
       utilization,
-      storage: this._storage,
     }
 
     const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies

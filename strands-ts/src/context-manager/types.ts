@@ -32,9 +32,6 @@ export interface ContextStrategy {
 export interface StrategyInitContext {
   /** The agent instance. */
   agent: import('../types/agent.js').LocalAgent
-
-  /** Storage backend for offloading content. */
-  storage: import('../storage/storage.js').Storage
 }
 
 /**
@@ -49,9 +46,6 @@ export interface StrategyContext {
 
   /** Current context utilization ratio (0-1+). Above 1.0 means overflow. */
   utilization: number
-
-  /** Storage backend for offloading content. */
-  storage: import('../storage/storage.js').Storage
 }
 
 /**

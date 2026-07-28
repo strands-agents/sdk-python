@@ -1,9 +1,9 @@
 /**
  * Builder API for offload strategies.
  *
- * Offload strategies move content out of L0 (the context window) and into storage.
- * The builder composes a target, a reduction method (truncate or summarize), and
- * optional conditions into a strategy that implements `ContextStrategy`.
+ * Offload strategies reduce content in L0 (the context window).
+ * The builder composes a target, a reduction method (truncate, drop, or summarize),
+ * and optional conditions into a strategy that implements `ContextStrategy`.
  *
  * @example
  * ```typescript
@@ -31,7 +31,6 @@ import type { Model } from '../../models/model.js'
 import type { ContextStrategy, StrategyContext, StrategyInitContext } from '../types.js'
 import {
   estimateBlockTokens,
-  extractBlockText,
   isAlreadyTruncated,
   truncateBlock,
   type TruncateConfig,
@@ -123,7 +122,7 @@ class OffloadDropStrategy implements ContextStrategy {
   }
 
   init(context: StrategyInitContext): void {
-    const { agent, storage } = context
+    const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
       if (message.role !== 'user') return
@@ -138,19 +137,10 @@ class OffloadDropStrategy implements ContextStrategy {
           if (tokens <= this._threshold) continue
         }
 
-        const fullText = extractBlockText(block)
-        const storageKey = `offload/${block.toolUseId}`
-        try {
-          await storage.write(storageKey, new TextEncoder().encode(fullText))
-        } catch {
-          logger.warn(`toolUseId=<${block.toolUseId}> | failed to store dropped content`)
-          continue
-        }
-
         const replacement = new ToolResultBlock({
           toolUseId: block.toolUseId,
           status: block.status,
-          content: [new TextBlock(`[Dropped: stored at "${storageKey}"]`)],
+          content: [new TextBlock('[Dropped]')],
         })
         ;(message.content as unknown[])[blockIndex] = replacement
         logger.debug(`toolUseId=<${block.toolUseId}> | eagerly dropped tool result from L0`)
@@ -159,7 +149,7 @@ class OffloadDropStrategy implements ContextStrategy {
   }
 
   async apply(context: StrategyContext): Promise<boolean> {
-    const { messages, storage } = context
+    const { messages } = context
     const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
 
     let dropped = false
@@ -178,19 +168,10 @@ class OffloadDropStrategy implements ContextStrategy {
           if (tokens <= this._threshold) continue
         }
 
-        const fullText = extractBlockText(block)
-        const storageKey = `offload/${block.toolUseId}`
-        try {
-          await storage.write(storageKey, new TextEncoder().encode(fullText))
-        } catch {
-          logger.warn(`toolUseId=<${block.toolUseId}> | failed to store dropped content`)
-          continue
-        }
-
         const replacement = new ToolResultBlock({
           toolUseId: block.toolUseId,
           status: block.status,
-          content: [new TextBlock(`[Dropped: stored at "${storageKey}"]`)],
+          content: [new TextBlock('[Dropped]')],
         })
         ;(message.content as unknown[])[blockIndex] = replacement
         dropped = true
@@ -239,7 +220,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
   }
 
   init(context: StrategyInitContext): void {
-    const { agent, storage } = context
+    const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
       if (message.role !== 'user') return
@@ -252,30 +233,20 @@ class OffloadTruncateStrategy implements ContextStrategy {
         const estimatedTokens = estimateBlockTokens(block)
         if (estimatedTokens <= this._threshold) continue
 
-        const storageKey = `offload/${block.toolUseId}`
-        const fullText = extractBlockText(block)
-
-        try {
-          await storage.write(storageKey, new TextEncoder().encode(fullText))
-        } catch {
-          logger.warn(`toolUseId=<${block.toolUseId}> | failed to store offloaded content`)
-          continue
-        }
-
-        const replacement = truncateBlock(block, storageKey, this._truncateConfig)
+        const replacement = truncateBlock(block, this._truncateConfig)
         ;(message.content as unknown[])[blockIndex] = replacement
         logger.debug(
-          `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | eagerly offloaded tool result to storage`
+          `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | eagerly truncated tool result`
         )
       }
     })
   }
 
   async apply(context: StrategyContext): Promise<boolean> {
-    const { messages, storage } = context
+    const { messages } = context
     const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
 
-    let offloaded = false
+    let truncated = false
 
     for (const message of eligible) {
       if (message.role !== 'user') continue
@@ -289,26 +260,16 @@ class OffloadTruncateStrategy implements ContextStrategy {
         const estimatedTokens = estimateBlockTokens(block)
         if (estimatedTokens <= this._threshold) continue
 
-        const storageKey = `offload/${block.toolUseId}`
-        const fullText = extractBlockText(block)
-
-        try {
-          await storage.write(storageKey, new TextEncoder().encode(fullText))
-        } catch {
-          logger.warn(`toolUseId=<${block.toolUseId}> | failed to store offloaded content`)
-          continue
-        }
-
-        const replacement = truncateBlock(block, storageKey, this._truncateConfig)
+        const replacement = truncateBlock(block, this._truncateConfig)
         ;(message.content as unknown[])[blockIndex] = replacement
-        offloaded = true
+        truncated = true
         logger.debug(
-          `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | offloaded tool result to storage`
+          `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | truncated tool result`
         )
       }
     }
 
-    return offloaded
+    return truncated
   }
 
   private _matchesTarget(block: ToolResultBlock, message: Message): boolean {
@@ -466,7 +427,7 @@ offloadFn.summarize = function summarize(config?: OffloadSummarizeConfig): Strat
 }
 
 /**
- * Builder for offload strategies — moves content out of L0 into storage.
+ * Builder for offload strategies — reduces content in L0.
  *
  * @example
  * ```typescript

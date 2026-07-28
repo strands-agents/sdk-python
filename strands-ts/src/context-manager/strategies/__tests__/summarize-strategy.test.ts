@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Offload } from '../offload.js'
 import { Message, TextBlock } from '../../../types/messages.js'
-import { InMemoryStorage } from '../../../storage/in-memory-storage.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { StrategyContext } from '../../types.js'
 
@@ -23,7 +22,6 @@ function makeContext(messages: Message[], utilization = 0.5, model?: unknown): S
     messages,
     agent,
     utilization,
-    storage: new InMemoryStorage(),
   }
 }
 

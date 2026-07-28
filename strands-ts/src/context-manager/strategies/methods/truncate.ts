@@ -51,11 +51,11 @@ export function extractBlockText(block: ToolResultBlock): string {
 }
 
 /**
- * Checks whether a block has already been truncated (offloaded).
+ * Checks whether a block has already been truncated.
  */
 export function isAlreadyTruncated(block: ToolResultBlock): boolean {
   if (block.content.length === 1 && block.content[0] instanceof TextBlock) {
-    return block.content[0].text.startsWith('[Offloaded:')
+    return block.content[0].text.startsWith('[Truncated:') || block.content[0].text.startsWith('[Dropped:')
   }
   return false
 }
@@ -63,12 +63,11 @@ export function isAlreadyTruncated(block: ToolResultBlock): boolean {
 /**
  * Builds a head-tail preview of the given text.
  *
- * @returns The preview string with offload metadata header.
+ * @returns The preview string with truncation metadata header.
  */
 export function buildPreview(
   fullText: string,
   block: ToolResultBlock,
-  storageReference: string,
   config?: TruncateConfig
 ): string {
   const previewTokens = config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS
@@ -88,8 +87,7 @@ export function buildPreview(
   }
 
   return (
-    `[Offloaded: ${block.content.length} blocks, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n` +
-    `Full content available at storage reference "${storageReference}".\n\n` +
+    `[Truncated: ${block.content.length} blocks, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n\n` +
     preview
   )
 }
@@ -99,11 +97,10 @@ export function buildPreview(
  */
 export function truncateBlock(
   block: ToolResultBlock,
-  storageReference: string,
   config?: TruncateConfig
 ): ToolResultBlock {
   const fullText = extractBlockText(block)
-  const preview = buildPreview(fullText, block, storageReference, config)
+  const preview = buildPreview(fullText, block, config)
   return new ToolResultBlock({
     toolUseId: block.toolUseId,
     status: block.status,
