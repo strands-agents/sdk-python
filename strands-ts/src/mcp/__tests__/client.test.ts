@@ -456,6 +456,32 @@ describe('MCP Integration', () => {
       )
     })
 
+    it('surfaces tool annotations in the tool spec', async () => {
+      const annotations = { title: 'Get Weather', readOnlyHint: true }
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {}, annotations }],
+      })
+
+      const tools = await client.listTools()
+
+      expect(tools[0]!.toolSpec).toEqual({
+        name: 'weather',
+        description: 'Get weather',
+        inputSchema: {},
+        annotations,
+      })
+    })
+
+    it('omits annotations from the tool spec when the server provides none', async () => {
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [{ name: 'weather', description: 'Get weather', inputSchema: {} }],
+      })
+
+      const tools = await client.listTools()
+
+      expect(tools[0]!.toolSpec).not.toHaveProperty('annotations')
+    })
+
     it('generates description fallback when description is missing', async () => {
       sdkClientMock.listTools.mockResolvedValue({
         tools: [{ name: 'my_tool', inputSchema: {} }],

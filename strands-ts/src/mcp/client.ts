@@ -380,6 +380,11 @@ export class McpClient {
           description: toolSpec.description || `Tool which performs ${toolSpec.name}`,
           inputSchema: toolSpec.inputSchema as JSONSchema,
           ...(toolSpec.outputSchema !== undefined && { outputSchema: toolSpec.outputSchema as JSONSchema }),
+          // Annotations pass through opaquely: the MCP spec treats them as untrusted hints,
+          // and the annotation vocabulary is still evolving (SEP-1984, SEP-1913).
+          ...(toolSpec.annotations !== undefined && {
+            annotations: toolSpec.annotations as Record<string, JSONValue>,
+          }),
           client: this,
         })
         this._serverToolNames.set(tool, toolSpec.name)

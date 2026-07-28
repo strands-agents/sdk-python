@@ -30,12 +30,18 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
+        annotations: Optional metadata describing tool behavior (e.g. MCP tool
+            annotations such as `readOnlyHint` or `destructiveHint`). Annotations
+            are untrusted hints from the tool provider, not guarantees; consumers
+            such as permission layers must not treat them as a security boundary.
+            This field is not sent to model provider APIs.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
+    annotations: NotRequired[dict[str, Any]]
 
 
 class Tool(TypedDict):

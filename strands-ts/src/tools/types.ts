@@ -32,6 +32,14 @@ export interface ToolSpec {
    * JSON Schema defining the expected output structure for the tool.
    */
   outputSchema?: JSONSchema
+
+  /**
+   * Metadata describing tool behavior (e.g. MCP tool annotations such as `readOnlyHint`
+   * or `destructiveHint`). Annotations are untrusted hints from the tool provider, not
+   * guarantees; consumers such as permission layers must not treat them as a security
+   * boundary. This field is not sent to model provider APIs.
+   */
+  annotations?: Record<string, JSONValue>
 }
 
 /**

@@ -66,7 +66,8 @@ class MCPAgentTool(AgentTool):
         """Get the specification of the tool.
 
         This method converts the MCP tool specification to the agent framework's
-        ToolSpec format, including the input schema, description, and optional output schema.
+        ToolSpec format, including the input schema, description, optional output
+        schema, and optional tool annotations.
 
         Returns:
             ToolSpec: The tool specification in the agent framework format
@@ -81,6 +82,11 @@ class MCPAgentTool(AgentTool):
 
         if self.mcp_tool.outputSchema:
             spec["outputSchema"] = {"json": self.mcp_tool.outputSchema}
+
+        # Pass annotations through opaquely: per MCP spec they are untrusted hints,
+        # and the annotation vocabulary is still evolving (SEP-1984, SEP-1913).
+        if self.mcp_tool.annotations:
+            spec["annotations"] = self.mcp_tool.annotations.model_dump(exclude_none=True)
 
         return spec
 
