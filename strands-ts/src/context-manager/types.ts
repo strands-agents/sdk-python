@@ -3,53 +3,6 @@
  */
 
 /**
- * Semantic categories for message content.
- *
- * A message matches a category if it contains at least one block of that type.
- * `'media'` is a convenience shorthand that matches any of `'image'`, `'video'`, or `'document'`.
- * `'user'` and `'assistant'` are role-level shorthands that match by message role.
- */
-export type MessageCategory =
-  | 'text'
-  | 'toolUse'
-  | 'toolResult'
-  | 'toolError'
-  | 'reasoning'
-  | 'image'
-  | 'video'
-  | 'document'
-  | 'citations'
-  | 'json'
-  | 'cachePoint'
-  | 'guardContent'
-  | 'media'
-  | 'user'
-  | 'assistant'
-
-/**
- * Configuration for the L1 stash (durable message store).
- */
-export interface StashConfig {
-  /**
-   * Whether to write messages to L1 on arrival. Defaults to true.
-   * When false, offload operations are destructive (originals are lost).
-   */
-  enabled?: boolean
-
-  /**
-   * Only stash messages matching these categories. Mutually exclusive with `exclude`.
-   * A message is written if it contains at least one block matching any listed category.
-   */
-  include?: MessageCategory | MessageCategory[]
-
-  /**
-   * Skip stashing messages matching these categories. Mutually exclusive with `include`.
-   * A message is skipped if it contains at least one block matching any listed category.
-   */
-  exclude?: MessageCategory | MessageCategory[]
-}
-
-/**
  * A context reduction strategy that can offload, summarize, or otherwise
  * transform the message array to reduce token usage.
  *
@@ -105,12 +58,6 @@ export interface StrategyContext {
  * Full configuration for a ContextManager instance.
  */
 export interface ContextManagerConfig {
-  /**
-   * L1 stash configuration. Set to `false` to disable writes entirely,
-   * or pass a StashConfig object for fine-grained control.
-   */
-  stash?: StashConfig | boolean
-
   /**
    * Strategies for context reduction. Applied in order during `apply()`.
    * When omitted, uses the default pipeline: offload tool results → summarize oldest.
