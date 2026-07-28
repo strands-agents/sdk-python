@@ -1,3 +1,5 @@
+import type { Scope } from './types.js'
+
 /**
  * Validates that an identifier contains only allowed characters.
  * Allowed characters: lowercase letters (a-z), numbers (0-9), hyphens (-), and underscores (_)
@@ -12,6 +14,29 @@ export function validateIdentifier(id: string): string {
     throw new Error(`Identifier '${id}' can only contain lowercase letters, numbers, hyphens, and underscores`)
   }
   return id
+}
+
+/**
+ * The set of recognized snapshot scopes. Derived from the `Scope` union so adding a new
+ * scope forces a compile error here until the allowlist is updated.
+ * Used as an allowlist so a scope value can only ever name a known storage subtree.
+ */
+const VALID_SCOPES = { agent: true, multiAgent: true } satisfies Record<Scope, true>
+
+/**
+ * Validates that a scope is one of the recognized values.
+ * `Scope` is a compile-time union, but this guards the storage layer against any value
+ * that bypasses the type system before it is used to build a file path or object key.
+ *
+ * @param scope - The scope to validate
+ * @returns The validated scope
+ * @throws Error if scope is not a recognized value
+ */
+export function validateScope(scope: string): string {
+  if (!Object.hasOwn(VALID_SCOPES, scope)) {
+    throw new Error(`Scope '${scope}' is not a recognized session scope`)
+  }
+  return scope
 }
 
 /**

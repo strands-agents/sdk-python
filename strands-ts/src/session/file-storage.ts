@@ -2,7 +2,7 @@ import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Snapshot, SnapshotManifest } from './types.js'
 
 import { SessionError } from '../errors.js'
-import { validateIdentifier, validateUuidV7 } from './validation.js'
+import { validateIdentifier, validateScope, validateUuidV7 } from './validation.js'
 
 const MANIFEST = 'manifest.json'
 const SNAPSHOT_LATEST = 'snapshot_latest.json'
@@ -38,13 +38,29 @@ export class FileStorage implements SnapshotStorage {
 
   /**
    * Resolves the absolute file path for a given scope location and filename.
-   * Validates sessionId and scopeId before constructing the path.
+   * Validates sessionId, scope, and scopeId, then confirms the resolved path stays
+   * within `_baseDir` before returning it.
    */
   private async _getPath(location: SnapshotLocation, filename: string): Promise<string> {
-    const { join } = await import('path')
+    const { join, resolve, sep } = await import('path')
     validateIdentifier(location.sessionId)
+    validateScope(location.scope)
     validateIdentifier(location.scopeId)
-    return join(this._baseDir, location.sessionId, 'scopes', location.scope, location.scopeId, 'snapshots', filename)
+    const path = join(
+      this._baseDir,
+      location.sessionId,
+      'scopes',
+      location.scope,
+      location.scopeId,
+      'snapshots',
+      filename
+    )
+    const resolvedBaseDir = resolve(this._baseDir)
+    const resolvedPath = resolve(path)
+    if (resolvedPath !== resolvedBaseDir && !resolvedPath.startsWith(resolvedBaseDir + sep)) {
+      throw new SessionError(`Resolved path for session ${location.sessionId} escapes the storage directory`)
+    }
+    return path
   }
 
   /**
@@ -209,14 +225,10 @@ export class FileStorage implements SnapshotStorage {
 
   /**
    * Returns the file path for an immutable snapshot in `immutable_history/`.
-   * Validates the snapshotId and guards against path traversal outside `_baseDir`.
+   * Validates the snapshotId; `_getPath` enforces resolve+sep containment within `_baseDir`.
    */
   private async _getHistorySnapshotPath(location: SnapshotLocation, snapshotId: string): Promise<string> {
     validateIdentifier(snapshotId)
-    const resolved = await this._getPath(location, `${IMMUTABLE_HISTORY}/snapshot_${snapshotId}.json`)
-    if (!resolved.startsWith(this._baseDir)) {
-      throw new SessionError(`Invalid snapshotId '${snapshotId}': resolves outside storage directory`)
-    }
-    return resolved
+    return this._getPath(location, `${IMMUTABLE_HISTORY}/snapshot_${snapshotId}.json`)
   }
 }

@@ -64,6 +64,26 @@ describe('S3Storage', () => {
     })
   })
 
+  describe('scope validation', () => {
+    describe('S3SnapshotStorage_When_ScopeIsUnrecognized_Then_Rejects', () => {
+      // Guards the key builder against a scope value that escapes the Scope union and would
+      // otherwise be interpolated into the object key.
+      it('rejects an operation whose scope is not a recognized value', async () => {
+        const location = {
+          sessionId: 'test-session',
+          scope: '../../../../etc' as unknown as SnapshotLocation['scope'],
+          scopeId: SCOPE_ID,
+        }
+        mockS3Client.send.mockResolvedValue({})
+
+        await expect(
+          storage.saveSnapshot({ location, snapshotId: '1', isLatest: true, snapshot: createTestSnapshot() })
+        ).rejects.toThrow("Scope '../../../../etc' is not a recognized session scope")
+        expect(mockS3Client.send).not.toHaveBeenCalled()
+      })
+    })
+  })
+
   describe('saveSnapshot', () => {
     describe('S3SnapshotStorage_When_saveSnapshot_Then_PutsObjects', () => {
       it('saves snapshot to S3 history', async () => {

@@ -128,6 +128,24 @@ describe('FileStorage', () => {
     })
   })
 
+  describe('scope validation', () => {
+    describe('FileSnapshotStorage_When_ScopeIsUnrecognized_Then_Rejects', () => {
+      // Guards the storage layer against a scope value that escapes the Scope union and would
+      // otherwise be interpolated into the path.
+      it('rejects an operation whose scope is not a recognized value', async () => {
+        const location = {
+          sessionId: 'test-session',
+          scope: '../../../../etc' as unknown as SnapshotLocation['scope'],
+          scopeId: SCOPE_ID,
+        }
+
+        await expect(
+          storage.saveSnapshot({ location, snapshotId: '1', isLatest: true, snapshot: createTestSnapshot() })
+        ).rejects.toThrow("Scope '../../../../etc' is not a recognized session scope")
+      })
+    })
+  })
+
   describe('loadSnapshot', () => {
     describe('FileSnapshotStorage_When_LoadLatestSnapshot_Then_ReturnsSnapshot', () => {
       it('loads latest snapshot when snapshotId is undefined', async () => {

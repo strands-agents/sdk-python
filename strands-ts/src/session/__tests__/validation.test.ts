@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateIdentifier, validateUuidV7 } from '../validation.js'
+import { validateIdentifier, validateScope, validateUuidV7 } from '../validation.js'
 
 describe('validateIdentifier', () => {
   describe('when identifier is valid', () => {
@@ -21,6 +21,46 @@ describe('validateIdentifier', () => {
       expect(() => validateIdentifier('invalid\\id')).toThrow(
         "Identifier 'invalid\\id' can only contain lowercase letters, numbers, hyphens, and underscores"
       )
+    })
+  })
+})
+
+describe('validateScope', () => {
+  describe('when scope is agent', () => {
+    it('returns the scope', () => {
+      expect(validateScope('agent')).toBe('agent')
+    })
+  })
+
+  describe('when scope is multiAgent', () => {
+    it('returns the scope', () => {
+      expect(validateScope('multiAgent')).toBe('multiAgent')
+    })
+  })
+
+  describe('when scope contains path traversal', () => {
+    it('throws error', () => {
+      expect(() => validateScope('../../etc')).toThrow("Scope '../../etc' is not a recognized session scope")
+    })
+  })
+
+  describe('when scope is an unrecognized value', () => {
+    it('throws error', () => {
+      expect(() => validateScope('unknown')).toThrow("Scope 'unknown' is not a recognized session scope")
+    })
+  })
+
+  describe('when scope is an inherited Object.prototype property', () => {
+    it('rejects constructor', () => {
+      expect(() => validateScope('constructor')).toThrow("Scope 'constructor' is not a recognized session scope")
+    })
+
+    it('rejects __proto__', () => {
+      expect(() => validateScope('__proto__')).toThrow("Scope '__proto__' is not a recognized session scope")
+    })
+
+    it('rejects toString', () => {
+      expect(() => validateScope('toString')).toThrow("Scope 'toString' is not a recognized session scope")
     })
   })
 })
