@@ -1967,4 +1967,224 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/a.md')).not.toBeNull()
     })
   })
+
+  describe('duplicate merge source guard (PR #3429 Blocker 3)', () => {
+    // Duplicate sources launder an in-place overwrite past the operations allow-list: a merge with
+    // sources:['a','a'] and target:'a' bypasses the ≥2 source length check and rewrites 'a' under
+    // 'deduplicate' where 'update' is not authorized.
+    it('rejects merge with duplicate sources that would launder an update under deduplicate', async () => {
+      await writeFile(storage, 'facts/keep.md', 'Fact Keep', 'Original content')
+
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'merge',
+            sources: ['facts/keep.md', 'facts/keep.md'],
+            target: 'facts/keep.md',
+            content: '---\ndescription: "Rewritten"\n---\n\nFully arbitrary content\n',
+            reason: 'dedup',
+          },
+        ],
+        summary: 'laundered update',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+        /at least 2 distinct source paths/
+      )
+
+      // Original file untouched — the laundered overwrite was blocked
+      expect(decoder.decode((await storage.read('facts/keep.md'))!)).toContain('Original content')
+    })
+
+    // Case-variant duplicates must also be caught: 'Facts/Keep.md' and 'facts/keep.md' resolve to
+    // the same file on a case-insensitive backend.
+    it('rejects merge with case-variant duplicate sources', async () => {
+      await writeFile(storage, 'facts/keep.md', 'Fact Keep', 'Original content')
+
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'merge',
+            sources: ['facts/keep.md', 'facts/Keep.md'],
+            target: 'facts/keep.md',
+            content: '---\ndescription: "Rewritten"\n---\n\nArbitrary\n',
+            reason: 'dedup',
+          },
+        ],
+        summary: 'case-variant duplicate',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+        /at least 2 distinct source paths/
+      )
+    })
+  })
+
+  describe('changelog forgery and byte-cap bypass guard (PR #3429 Blocker 4)', () => {
+    // A reason containing newlines plus '## ' forges a run header in the changelog, making a real
+    // deletion indistinguishable from the forged noise.
+    it('sanitizes reason and summary so newlines and leading # cannot forge changelog headers', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'delete',
+              path: 'facts/a.md',
+              reason: 'legit\n## FORGED-RUN\n\nActions (99):',
+            },
+          ],
+          summary: '## Another forged header\nwith newline',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['prune'] })
+
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
+      // Only one markdown ## header exists — the legitimate timestamp header for this run.
+      // Without sanitization, the reason's '\n## FORGED-RUN' creates a second header on its own line.
+      const headers = changelog.match(/^## .+$/gm) ?? []
+      expect(headers).toHaveLength(1)
+      expect(headers[0]).not.toContain('FORGED-RUN')
+      expect(headers[0]).not.toContain('Another forged header')
+      // Newlines in reason/summary were flattened to spaces — no multi-line injection possible
+      expect(changelog.split('\n').filter((line) => line.startsWith('## ')).length).toBe(1)
+    })
+
+    // reason/summary bytes must count against maxGeneratedBytes so large strings cannot bypass cap
+    it('includes reason and summary bytes in the generatedByteSize computation', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'delete',
+              path: 'facts/a.md',
+              reason: 'X'.repeat(100),
+            },
+          ],
+          summary: 'Y'.repeat(100),
+        })
+      )
+
+      // maxGeneratedBytes is 150, but reason (100) + summary (100) = 200 > 150
+      await expect(store.consolidate({ model, operations: ['prune'], maxGeneratedBytes: 150 })).rejects.toThrow(
+        /exceeds generated content limit/
+      )
+
+      // File untouched — guard fires before execution
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+    })
+  })
+
+  describe('NaN numeric cap guard (PR #3429 Should-fix 2)', () => {
+    // NaN silently disables numeric caps because `??` only substitutes null/undefined and
+    // comparisons against NaN are always false.
+    it('throws TypeError for NaN maxInputBytes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxInputBytes: NaN })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for NaN maxFiles', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxFiles: NaN })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for NaN maxActionsPerPlan', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxActionsPerPlan: NaN })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for NaN maxGeneratedBytes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxGeneratedBytes: NaN })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for NaN maxDirectories', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxDirectories: NaN })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for Infinity maxFiles', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxFiles: Infinity })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for non-positive (0) maxFiles', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxFiles: 0 })).rejects.toThrow(TypeError)
+    })
+
+    it('throws TypeError for negative maxInputBytes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, maxInputBytes: -1 })).rejects.toThrow(TypeError)
+    })
+  })
+
+  describe('zero-width character content bypass guard (PR #3429 Blocker 2b)', () => {
+    // Zero-width characters defeat the non-empty content check: a string of zero-width joiners
+    // has .trim().length > 0 but carries no visible or meaningful content.
+    it('rejects content that is only zero-width characters as empty', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      // Content is entirely zero-width characters (U+200B, U+200C, U+200D, U+FEFF)
+      const zeroWidthOnly = '\u200B\u200C\u200D\uFEFF'
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'merge',
+            sources: ['facts/a.md', 'facts/b.md'],
+            target: 'facts/combined.md',
+            content: zeroWidthOnly,
+            reason: 'dedup',
+          },
+        ],
+        summary: 'invisible content',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty content/)
+
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/b.md')).not.toBeNull()
+    })
+
+    // Zero-width body after valid frontmatter must also be treated as empty
+    it('rejects content with valid frontmatter but zero-width-only body', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const zeroWidthBody = '---\ndescription: "test"\n---\n\u200B\u200C\u200D\uFEFF'
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'update',
+            path: 'facts/a.md',
+            content: zeroWidthBody,
+            reason: 'update',
+          },
+        ],
+        summary: 'invisible body',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+      await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
+        /has no body after its frontmatter/
+      )
+
+      expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+    })
+  })
 })

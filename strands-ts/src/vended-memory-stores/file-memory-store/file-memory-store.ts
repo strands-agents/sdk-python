@@ -74,6 +74,12 @@ const FRONTMATTER_OPEN = '---\n'
 /** Frontmatter closing delimiter, including the newline that must precede it. */
 const FRONTMATTER_CLOSE = '\n---\n'
 
+/**
+ * Cap on model-generated reason/summary text written into the consolidation changelog.
+ * Keeps plan metadata concise without truncating useful context.
+ */
+const MAX_PLAN_TEXT_LENGTH = 500
+
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
 
@@ -85,28 +91,28 @@ const ConsolidationPlanSchema = z.object({
         sources: z.array(z.string()),
         target: z.string(),
         content: z.string(),
-        reason: z.string(),
+        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
       }),
       z.object({
         action: z.literal('update'),
         path: z.string(),
         content: z.string(),
-        reason: z.string(),
+        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
       }),
       z.object({
         action: z.literal('delete'),
         path: z.string(),
-        reason: z.string(),
+        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
       }),
       z.object({
         action: z.literal('move'),
         from: z.string(),
         to: z.string(),
-        reason: z.string(),
+        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
       }),
     ])
   ),
-  summary: z.string(),
+  summary: z.string().max(MAX_PLAN_TEXT_LENGTH),
 })
 
 type ConsolidationPlan = z.infer<typeof ConsolidationPlanSchema>
@@ -336,6 +342,11 @@ export class FileMemoryStore implements MemoryStore {
     // Canonicalize with the same helper the shipped backends apply internally, so the
     // returned receipt matches the key search() and the backend's list() report.
     const canonicalKey = normalizeKey(key)
+
+    if (isConsolidationChangelog(canonicalKey)) {
+      throw new Error(`Path must not be the reserved '${CONSOLIDATION_CHANGELOG}' file`)
+    }
+
     const fileContent = `---\ndescription: ${JSON.stringify(description)}\n---\n\n${content}\n`
     await this._storage.write(canonicalKey, encoder.encode(fileContent))
     return canonicalKey
@@ -415,6 +426,17 @@ export class FileMemoryStore implements MemoryStore {
     const maxInputBytes = config.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES
     const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
     const maxGeneratedBytes = config.maxGeneratedBytes ?? DEFAULT_MAX_GENERATED_BYTES
+
+    const assertPositiveFinite = (name: string, value: number): void => {
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new TypeError(`${name} must be a positive finite number, got ${value}`)
+      }
+    }
+    assertPositiveFinite('maxFiles', maxFiles)
+    assertPositiveFinite('maxInputBytes', maxInputBytes)
+    assertPositiveFinite('maxActionsPerPlan', maxActionsPerPlan)
+    assertPositiveFinite('maxGeneratedBytes', maxGeneratedBytes)
+    assertPositiveFinite('maxDirectories', maxDirectories)
 
     const files = await this._readAllFiles()
     if (files.size === 0) return
@@ -654,16 +676,21 @@ export class FileMemoryStore implements MemoryStore {
     deleteErrors: Array<{ path: string; error: unknown }>
   ): Promise<void> {
     const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
+
+    // Sanitize model-generated strings: strip newlines and leading '#' so injected content cannot
+    // forge a '## ' run header or inject arbitrary markdown structure into the changelog
+    const sanitizeChangelogField = (value: string): string => value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, '')
+
     const actionSummaries = plan.actions.map((action) => {
       switch (action.action) {
         case 'merge':
-          return `  - merge: ${action.sources.join(' + ')} → ${action.target} (${action.reason})`
+          return `  - merge: ${action.sources.join(' + ')} → ${action.target} (${sanitizeChangelogField(action.reason)})`
         case 'update':
-          return `  - update: ${action.path} (${action.reason})`
+          return `  - update: ${action.path} (${sanitizeChangelogField(action.reason)})`
         case 'delete':
-          return `  - delete: ${action.path} (${action.reason})`
+          return `  - delete: ${action.path} (${sanitizeChangelogField(action.reason)})`
         case 'move':
-          return `  - move: ${action.from} → ${action.to} (${action.reason})`
+          return `  - move: ${action.from} → ${action.to} (${sanitizeChangelogField(action.reason)})`
       }
     })
 
@@ -677,7 +704,7 @@ export class FileMemoryStore implements MemoryStore {
 
     // summary is a required string; the guard only suppresses an empty-string value
     if (plan.summary) {
-      parts.push(``, `Summary: ${plan.summary}`)
+      parts.push(``, `Summary: ${sanitizeChangelogField(plan.summary)}`)
     }
 
     if (deleteErrors.length > 0) {
@@ -739,7 +766,9 @@ function generatedByteSize(plan: ConsolidationPlan): number {
     if (action.action === 'merge' || action.action === 'update') {
       bytes += encoder.encode(action.content).byteLength
     }
+    bytes += encoder.encode(action.reason).byteLength
   }
+  bytes += encoder.encode(plan.summary).byteLength
   return bytes
 }
 
@@ -797,6 +826,15 @@ function validatePlan(
       violations.push('Merge action requires at least 2 sources')
     }
 
+    // Distinct-source guard: duplicate sources launder an in-place overwrite past the operations
+    // allow-list (e.g. a self-overwrite under 'deduplicate' where 'update' is not allowed)
+    if (action.action === 'merge') {
+      const distinctSources = new Set(action.sources.map((source) => source.toLowerCase()))
+      if (distinctSources.size < 2) {
+        violations.push('Merge action requires at least 2 distinct source paths (case-insensitive)')
+      }
+    }
+
     const pathErrors = validateActionPaths(action, files, plannedDirs, maxDirectories)
     violations.push(...pathErrors)
 
@@ -852,6 +890,15 @@ function validateActionPaths(
 }
 
 /**
+ * Strip zero-width and other invisible characters that would defeat a non-empty check.
+ * Removes U+200B-U+200D (zero-width space/joiner), U+FEFF (BOM/zero-width no-break space),
+ * and trims surrounding whitespace so zero-width-only content is treated as empty.
+ */
+function stripInvisible(text: string): string {
+  return text.replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+}
+
+/**
  * Validate the content a write action (merge or update) would put on disk.
  *
  * A schema-valid plan can still carry content that erases knowledge: the schema accepts any string,
@@ -869,7 +916,7 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
 
   const label = action.action === 'merge' ? `Merge target '${action.target}'` : `Update target '${action.path}'`
 
-  if (action.content.trim().length === 0) {
+  if (stripInvisible(action.content).length === 0) {
     return `${label} has empty content — a write must not blank out a file`
   }
   if (!action.content.startsWith(FRONTMATTER_OPEN)) {
@@ -879,7 +926,7 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
   if (closingIndex === -1) {
     return `${label} is missing the closing frontmatter delimiter ('---' on its own line)`
   }
-  if (action.content.slice(closingIndex + FRONTMATTER_CLOSE.length).trim().length === 0) {
+  if (stripInvisible(action.content.slice(closingIndex + FRONTMATTER_CLOSE.length)).length === 0) {
     return `${label} has no body after its frontmatter`
   }
 

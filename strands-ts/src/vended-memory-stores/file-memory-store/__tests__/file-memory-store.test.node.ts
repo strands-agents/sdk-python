@@ -274,6 +274,23 @@ describe('FileMemoryStore', () => {
       expect(keys).toContain(key)
       expect(await scoped.read(key)).not.toBeNull()
     })
+
+    // The consolidation changelog is a reserved audit key that add() must not clobber — the
+    // next consolidation run would append its audit entry onto the user's content.
+    it('rejects writing to the reserved consolidation-changelog.md path', async () => {
+      await expect(store.add('user content', { path: 'consolidation-changelog.md' })).rejects.toThrow(
+        /reserved.*consolidation-changelog\.md/i
+      )
+      // Verify nothing was written
+      expect(await scoped.read('consolidation-changelog.md')).toBeNull()
+    })
+
+    // Case-insensitive variant must also be rejected
+    it('rejects writing to a case-variant of the reserved changelog key', async () => {
+      await expect(store.add('user content', { path: 'Consolidation-Changelog.md' })).rejects.toThrow(
+        /reserved.*consolidation-changelog\.md/i
+      )
+    })
   })
 
   describe('search', () => {
