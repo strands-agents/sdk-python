@@ -50,7 +50,7 @@ describe('Offload.summarize', () => {
     it('returns false when not enough messages to summarize', async () => {
       const messages = [makeUserMessage('hello')]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ preserveRecent: 10 })
+      const strategy = Offload.summarize({ ratio: 0.3 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -58,27 +58,29 @@ describe('Offload.summarize', () => {
       expect(result).toBe(false)
     })
 
-    it('summarizes oldest messages', async () => {
+    it('summarizes oldest messages according to ratio', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ ratio: 0.3, preserveRecent: 5 })
+      const strategy = Offload.summarize({ ratio: 0.3 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
 
       expect(result).toBe(true)
+      // 30% of 20 = 6 messages summarized, replaced by 1 summary = 15 remaining
       expect(messages).toHaveLength(15)
     })
 
-    it('does not exceed preserveRecent', async () => {
-      const messages = Array.from({ length: 12 }, (_, index) => makeUserMessage(`msg-${index}`))
+    it('respects higher ratio', async () => {
+      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ ratio: 0.8, preserveRecent: 10 })
+      const strategy = Offload.summarize({ ratio: 0.5 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
 
       expect(result).toBe(true)
+      // 50% of 20 = 10 messages summarized, replaced by 1 summary = 11 remaining
       expect(messages).toHaveLength(11)
     })
 
@@ -97,7 +99,7 @@ describe('Offload.summarize', () => {
     it('fires when utilization exceeds threshold', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ preserveRecent: 5 }).when({ utilization: 0.85 })
+      const strategy = Offload.summarize().when({ utilization: 0.85 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -108,7 +110,7 @@ describe('Offload.summarize', () => {
     it('fires unconditionally when no utilization threshold set', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ preserveRecent: 5 })
+      const strategy = Offload.summarize()
       const context = makeContext(messages, 0.1, mockModel)
 
       const result = await strategy.apply(context)

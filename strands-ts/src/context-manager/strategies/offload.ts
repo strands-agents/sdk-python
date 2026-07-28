@@ -35,7 +35,7 @@ import {
   truncateBlock,
   type TruncateConfig,
 } from './methods/truncate.js'
-import { type SummarizeConfig } from './methods/summarize.js'
+import type { SummarizeConfig } from './methods/summarize.js'
 import {
   adjustSplitPointForToolPairs,
   generateSummary,
@@ -44,7 +44,6 @@ import {
 const DEFAULT_THRESHOLD = 2500
 const DEFAULT_SKIP_RECENT = 3
 const DEFAULT_SUMMARIZE_RATIO = 0.3
-const DEFAULT_PRESERVE_RECENT = 10
 
 /**
  * Target for offload operations.
@@ -89,16 +88,6 @@ export interface StrategyBuilder extends ContextStrategy {
   when(conditions: WhenConditions): ContextStrategy
 }
 
-/**
- * Summarize config for conversation-level summarization.
- */
-export interface OffloadSummarizeConfig extends SummarizeConfig {
-  /** Ratio of messages to summarize (0.1 - 0.8). Defaults to 0.3. */
-  ratio?: number
-
-  /** Number of recent messages to always preserve. Defaults to 10. */
-  preserveRecent?: number
-}
 
 // --- Offload bare: drop from L0 entirely ---
 
@@ -291,10 +280,10 @@ class OffloadTruncateStrategy implements ContextStrategy {
 class OffloadSummarizeStrategy implements ContextStrategy {
   readonly name = 'offload:summarize'
 
-  private readonly _config: OffloadSummarizeConfig
+  private readonly _config: SummarizeConfig
   private readonly _utilization: number | undefined
 
-  constructor(config?: OffloadSummarizeConfig, conditions?: WhenConditions) {
+  constructor(config?: SummarizeConfig, conditions?: WhenConditions) {
     this._config = config ?? {}
     this._utilization = conditions?.utilization
   }
@@ -316,15 +305,11 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     }
 
     const ratio = Math.max(0.1, Math.min(0.8, this._config.ratio ?? DEFAULT_SUMMARIZE_RATIO))
-    const preserveRecent = this._config.preserveRecent ?? DEFAULT_PRESERVE_RECENT
 
     let messagesToSummarize = Math.max(1, Math.floor(messages.length * ratio))
-    messagesToSummarize = Math.min(messagesToSummarize, messages.length - preserveRecent)
 
-    if (messagesToSummarize <= 0) {
-      logger.debug(
-        `preserveRecent=<${preserveRecent}>, messages=<${messages.length}> | insufficient messages for summarization`
-      )
+    if (messagesToSummarize >= messages.length) {
+      logger.debug(`messages=<${messages.length}> | insufficient messages for summarization`)
       return false
     }
 
@@ -383,7 +368,7 @@ function createTruncateBuilder(target: OffloadTarget, config?: TruncateConfig): 
   }
 }
 
-function createSummarizeBuilder(config?: OffloadSummarizeConfig): StrategyBuilder {
+function createSummarizeBuilder(config?: SummarizeConfig): StrategyBuilder {
   const strategy = new OffloadSummarizeStrategy(config)
   return {
     get name(): string {
@@ -411,7 +396,7 @@ export interface OffloadNamespace {
   truncate(target: OffloadTarget, config?: TruncateConfig): StrategyBuilder
 
   /** Summarize the oldest messages to free context space (conversation-level). */
-  summarize(config?: OffloadSummarizeConfig): StrategyBuilder
+  summarize(config?: SummarizeConfig): StrategyBuilder
 }
 
 function offloadFn(target: OffloadTarget): StrategyBuilder {
@@ -422,7 +407,7 @@ offloadFn.truncate = function truncate(target: OffloadTarget, config?: TruncateC
   return createTruncateBuilder(target, config)
 }
 
-offloadFn.summarize = function summarize(config?: OffloadSummarizeConfig): StrategyBuilder {
+offloadFn.summarize = function summarize(config?: SummarizeConfig): StrategyBuilder {
   return createSummarizeBuilder(config)
 }
 

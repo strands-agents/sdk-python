@@ -12,6 +12,7 @@ import type { Model } from '../../../models/model.js'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { logger } from '../../../logging/logger.js'
 
+// Subject to change as we benchmark summarization quality.
 const DEFAULT_SYSTEM_PROMPT = [
   'You are a summarization assistant. Produce a concise summary that preserves:',
   '- Key decisions and conclusions',
@@ -31,6 +32,9 @@ export interface SummarizeConfig {
 
   /** Custom system prompt for the summarization model. */
   systemPrompt?: string
+
+  /** Target compression ratio (0.1 - 0.8). Summarize to ~ratio of the original size. Defaults to 0.3. */
+  ratio?: number
 }
 
 /**
