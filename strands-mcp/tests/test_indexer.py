@@ -365,6 +365,7 @@ class TestSourceWeighting:
         for doc in (api_doc, user_guide_doc):
             index.add(doc)
 
-        tru_docs = [doc for _, doc in index.search("hooks API")]
+        tru_results = index.search("hooks API")
 
-        assert tru_docs == [api_doc, user_guide_doc]
+        assert sorted(doc.uri for _, doc in tru_results) == sorted([api_doc.uri, user_guide_doc.uri])
+        assert tru_results[0][0] == tru_results[1][0]

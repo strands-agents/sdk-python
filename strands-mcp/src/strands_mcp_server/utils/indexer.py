@@ -42,7 +42,7 @@ _SOURCE_WEIGHTS = {
     "/docs/examples/": 1.1,
     "/docs/api/": 0.8,
 }
-_SOURCE_HINT_TOKENS = {"api", "reference", "example", "examples", "guide", "guides", "python", "typescript"}
+_SOURCE_HINT_TOKENS = {"api", "reference"}
 
 
 def _source_weight(uri: str, query_tokens: set[str]) -> float:
