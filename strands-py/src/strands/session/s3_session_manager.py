@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, cast
 import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
-from typing_extensions import deprecated
 
 from .. import _identifier
 from ..types.exceptions import SessionException
@@ -29,12 +28,6 @@ MESSAGE_PREFIX = "message_"
 MULTI_AGENT_PREFIX = "multi_agent_"
 
 
-@deprecated(
-    "S3SessionManager is deprecated and will be removed in Strands SDK 2.0. Use "
-    "SnapshotSessionManager with an S3Storage instead (single- and multi-agent). "
-    "See migration guide: "
-    "https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
-)
 class S3SessionManager(RepositorySessionManager, SessionRepository):
     """S3-based session manager for cloud storage.
 

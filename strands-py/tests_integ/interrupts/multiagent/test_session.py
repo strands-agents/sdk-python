@@ -7,8 +7,7 @@ from strands import Agent, tool
 from strands.interrupt import Interrupt
 from strands.multiagent import GraphBuilder, Swarm
 from strands.multiagent.base import Status
-from strands.session import FileSessionManager, SnapshotSessionManager
-from strands.storage import LocalFileStorage
+from strands.session import FileSessionManager
 from strands.types.tools import ToolContext
 
 
@@ -151,76 +150,6 @@ def test_graph_interrupt_session(weather_tool, tmpdir):
     exp_state_status = Status.COMPLETED
     assert tru_state_status == exp_state_status
 
-    assert len(multiagent_result.results) == 2
-    summarizer_message = json.dumps(multiagent_result.results["summarizer"].result.message).lower()
-    assert "sunny" in summarizer_message
-
-
-def test_swarm_interrupt_snapshot_session(weather_tool, tmpdir):
-    """A Swarm interrupt round-trips across a session boundary using SnapshotSessionManager."""
-    storage = LocalFileStorage(str(tmpdir))
-    weather_agent = Agent(name="weather", tools=[weather_tool])
-    summarizer_agent = Agent(name="summarizer")
-    swarm = Swarm(
-        [weather_agent, summarizer_agent], session_manager=SnapshotSessionManager("swarm-snap", storage=storage)
-    )
-
-    multiagent_result = swarm("Can you check the weather and then summarize the results?")
-    assert multiagent_result.status == Status.INTERRUPTED
-    interrupt = multiagent_result.interrupts[0]
-
-    # Fresh swarm + fresh manager over the same storage: simulate a process restart.
-    weather_agent = Agent(name="weather", tools=[weather_tool])
-    summarizer_agent = Agent(name="summarizer")
-    swarm = Swarm(
-        [weather_agent, summarizer_agent], session_manager=SnapshotSessionManager("swarm-snap", storage=storage)
-    )
-
-    responses = [{"interruptResponse": {"interruptId": interrupt.id, "response": "sunny"}}]
-    multiagent_result = swarm(responses)
-
-    assert multiagent_result.status == Status.COMPLETED
-    assert len(multiagent_result.results) == 2
-    summarizer_message = json.dumps(multiagent_result.results["summarizer"].result.message).lower()
-    assert "sunny" in summarizer_message
-
-
-def test_graph_interrupt_snapshot_session(weather_tool, tmpdir):
-    """A Graph interrupt (nested sub-graph) round-trips across a session boundary via SnapshotSessionManager.
-
-    Parent and child orchestrators share one storage backend under distinct session ids —
-    the multiAgent scope keys them apart.
-    """
-    storage = LocalFileStorage(str(tmpdir))
-
-    def build():
-        weather_agent = Agent(name="weather", tools=[weather_tool])
-        summarizer_agent = Agent(name="summarizer")
-        weather_builder = GraphBuilder()
-        weather_builder.add_node(weather_agent, "weather")
-        weather_builder.set_entry_point("weather")
-        weather_builder.set_session_manager(SnapshotSessionManager("child-snap", storage=storage))
-        weather_graph = weather_builder.build()
-
-        builder = GraphBuilder()
-        builder.add_node(weather_graph, "weather")
-        builder.add_node(summarizer_agent, "summarizer")
-        builder.add_edge("weather", "summarizer")
-        builder.set_session_manager(SnapshotSessionManager("parent-snap", storage=storage))
-        return builder.build()
-
-    graph = build()
-    multiagent_result = graph("Can you check the weather and then summarize the results?")
-    assert multiagent_result.status == Status.INTERRUPTED
-    assert graph.state.status == Status.INTERRUPTED
-    interrupt = multiagent_result.interrupts[0]
-
-    graph = build()  # fresh graphs + managers over the same storage
-    responses = [{"interruptResponse": {"interruptId": interrupt.id, "response": "sunny"}}]
-    multiagent_result = graph(responses)
-
-    assert multiagent_result.status == Status.COMPLETED
-    assert graph.state.status == Status.COMPLETED
     assert len(multiagent_result.results) == 2
     summarizer_message = json.dumps(multiagent_result.results["summarizer"].result.message).lower()
     assert "sunny" in summarizer_message

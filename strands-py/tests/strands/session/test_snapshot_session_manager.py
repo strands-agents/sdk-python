@@ -9,13 +9,10 @@ import pytest
 
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
-from strands.multiagent import GraphBuilder, Swarm
+from strands.multiagent import GraphBuilder
 from strands.session.snapshot_session_manager import (
     SnapshotSessionManager,
-    _deserialize_multi_agent,
-    _multi_agent_key,
     _new_snapshot_id,
-    _serialize_multi_agent,
     _session_prefix,
     _snapshot_key,
 )
@@ -75,55 +72,13 @@ def test_unknown_save_latest_on_is_rejected(storage):
         SnapshotSessionManager("s1", storage=storage, save_latest_on="Invocation")  # type: ignore[arg-type]
 
 
-def _build_graph(session_manager, *, node_reply):
-    """Build a single-node Graph wired to the given session manager."""
+def test_graph_is_rejected_rather_than_silently_not_persisted(storage):
+    """Attaching this single-agent manager to a Graph fails loudly instead of persisting nothing."""
     builder = GraphBuilder()
-    builder.add_node(Agent(model=_model(node_reply), agent_id="n1"), "n1")
-    builder.set_session_manager(session_manager)
-    return builder.build()
-
-
-@pytest.mark.asyncio
-async def test_graph_persists_under_multi_agent_scope(temp_dir):
-    """A Graph orchestrator persists its state under the multiAgent scope, not the agent scope."""
-    storage = LocalFileStorage(temp_dir)
-    graph = _build_graph(SnapshotSessionManager("g1", storage=storage), node_reply="done")
-    graph("do the task")
-
-    keys = await storage.list("")
-    assert keys == [f"session/{_multi_agent_key('g1', graph.id)}"]
-    assert "scopes/multiAgent/" in keys[0]
-
-
-@pytest.mark.asyncio
-async def test_graph_state_round_trips_through_storage(temp_dir):
-    """The orchestrator state written to storage round-trips losslessly via serialize/deserialize.
-
-    A completed graph has no pending nodes, so Graph.deserialize_state intentionally resets
-    rather than replaying (nothing to resume) — mid-execution resume-across-a-session-boundary
-    is exercised by the integ suite. Here we pin that the manager persists the orchestrator's
-    own serialize_state() output verbatim.
-    """
-    storage = LocalFileStorage(temp_dir)
-    graph = _build_graph(SnapshotSessionManager("g1", storage=storage), node_reply="first")
-    graph("run once")
-
-    blob = await storage.read(f"session/{_multi_agent_key('g1', graph.id)}")
-    restored_state = _deserialize_multi_agent(blob, expected_orchestrator_id=graph.id)
-    assert restored_state == graph.serialize_state()
-
-
-def test_swarm_persists_under_multi_agent_scope(temp_dir):
-    """A Swarm orchestrator persists its state under the multiAgent scope."""
-    storage = LocalFileStorage(temp_dir)
-    swarm = Swarm(
-        nodes=[Agent(model=_model("done"), agent_id="n1")],
-        session_manager=SnapshotSessionManager("sw1", storage=storage),
-    )
-    swarm("do the task")
-
-    keys = asyncio.run(storage.list(""))
-    assert keys == [f"session/{_multi_agent_key('sw1', swarm.id)}"]
+    builder.add_node(Agent(model=_model("done"), agent_id="n1"), "n1")
+    builder.set_session_manager(SnapshotSessionManager("g1", storage=storage))
+    with pytest.raises(NotImplementedError, match="does not support multi-agent"):
+        builder.build()
 
 
 def test_child_agent_session_manager_still_blocked(storage):
@@ -134,25 +89,10 @@ def test_child_agent_session_manager_still_blocked(storage):
         builder.add_node(child, "n1")
 
 
-def test_multi_agent_snapshot_id_mismatch_is_rejected():
-    """A snapshot stamped for one orchestrator is not loaded into another under the same key."""
-    blob = _serialize_multi_agent("graph-a", {"type": "graph", "id": "graph-a"})
-    with pytest.raises(SnapshotException, match="orchestrator id mismatch"):
-        _deserialize_multi_agent(blob, expected_orchestrator_id="graph-b")
-
-
-def test_multi_agent_snapshot_round_trips_with_matching_id():
-    """The id stamp is transparent on the happy path: matching id yields the original state."""
-    exp_state = {"type": "graph", "id": "graph-a", "completed_nodes": ["n1"]}
-    blob = _serialize_multi_agent("graph-a", exp_state)
-    tru_state = _deserialize_multi_agent(blob, expected_orchestrator_id="graph-a")
-    assert tru_state == exp_state
-
-
 def test_raising_snapshot_trigger_still_saves_latest(storage):
     """A snapshot_trigger that raises does not discard the completed turn's latest save."""
 
-    def boom(*, agent, **kwargs):
+    def boom(*, agent_data, **kwargs):
         raise RuntimeError("trigger blew up")
 
     manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=boom)
@@ -344,12 +284,50 @@ async def test_invocation_strategy_saves_once_not_per_message(temp_dir):
 
 def test_snapshot_trigger_creates_immutable(storage):
     """When the trigger fires, an immutable snapshot is appended."""
-    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(model=_model("turn one"), session_manager=manager, agent_id="a1")
     agent("go")
 
     ids = asyncio.run(manager.list_snapshot_ids(agent))
     assert len(ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_save_snapshot_forces_immutable_checkpoint_without_a_trigger(storage):
+    """save_snapshot(is_latest=False) appends an immutable checkpoint on demand and is restorable."""
+    manager = SnapshotSessionManager("s1", storage=storage)  # no snapshot_trigger
+    agent = Agent(model=_model("first", "second"), session_manager=manager, agent_id="a1")
+    agent("turn 1")
+
+    # No trigger fired, so nothing immutable exists yet.
+    assert await manager.list_snapshot_ids(agent) == []
+
+    await manager.save_snapshot(agent, is_latest=False)
+    agent("turn 2")
+
+    ids = await manager.list_snapshot_ids(agent)
+    assert len(ids) == 1  # the manual checkpoint, not the second turn
+
+    # The forced checkpoint captured turn 1 only and can be restored (time travel).
+    restored = SnapshotSessionManager("s1", storage=storage)
+    agent_2 = Agent(model=_model("x"), session_manager=restored, agent_id="a1")
+    assert await restored.restore_snapshot(agent_2, snapshot_id=ids[0]) is True
+    tru_texts = [content["text"] for message in agent_2.messages for content in message["content"] if "text" in content]
+    assert "turn 1" in tru_texts
+    assert "turn 2" not in tru_texts
+
+
+@pytest.mark.asyncio
+async def test_save_snapshot_is_latest_overwrites_latest_only(storage):
+    """save_snapshot(is_latest=True) overwrites snapshot_latest and appends no immutable snapshot."""
+    manager = SnapshotSessionManager("s1", storage=storage, save_latest_on="trigger")
+    agent = Agent(model=_model("only turn"), session_manager=manager, agent_id="a1")
+    agent("go")
+
+    await manager.save_snapshot(agent, is_latest=True)
+
+    assert await manager.list_snapshot_ids(agent) == []
+    assert await storage.read(_on_disk_key("s1", "a1")) is not None
 
 
 @pytest.mark.asyncio
@@ -367,7 +345,7 @@ async def test_triggered_turn_captures_and_writes_latest_once(temp_dir):
     storage.write = _spy  # type: ignore[method-assign]
 
     # Default save_latest_on="invocation" with a trigger that always fires.
-    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(model=_model("reply"), session_manager=manager, agent_id="a1")
     latest_writes.clear()
     await agent.invoke_async("go")
@@ -380,7 +358,7 @@ async def test_triggered_turn_captures_and_writes_latest_once(temp_dir):
 
 def test_time_travel_restore(storage):
     """restore_snapshot rewinds an agent to an earlier immutable checkpoint."""
-    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(model=_model("first", "second"), session_manager=manager, agent_id="a1")
     agent("turn 1")
     agent("turn 2")
@@ -445,7 +423,7 @@ def test_redaction_flush_persists_redacted_content(temp_dir):
 @pytest.mark.asyncio
 async def test_delete_session_removes_snapshots(storage):
     """delete_session clears persisted snapshots."""
-    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(model=_model("hi"), session_manager=manager, agent_id="a1")
     agent("go")
 
@@ -597,8 +575,8 @@ def test_snapshot_trigger_returning_false_appends_nothing(storage):
     """A present trigger that returns False creates no immutable snapshot and receives the agent."""
     seen_agents = []
 
-    def trigger(*, agent, **kwargs):
-        seen_agents.append(agent)
+    def trigger(*, agent_data, **kwargs):
+        seen_agents.append(agent_data)
         return False
 
     manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=trigger)
@@ -606,14 +584,14 @@ def test_snapshot_trigger_returning_false_appends_nothing(storage):
     agent("go")
 
     assert asyncio.run(manager.list_snapshot_ids(agent)) == []
-    # The trigger was invoked with the agent as a keyword argument.
+    # The trigger was invoked with the agent as the agent_data keyword argument.
     assert seen_agents and seen_agents[0] is agent
 
 
 @pytest.mark.asyncio
 async def test_list_snapshot_ids_pagination(storage):
     """limit and start_after page the immutable id list; invalid start_after raises."""
-    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(model=_model("a", "b", "c"), session_manager=manager, agent_id="a1")
     agent("one")
     agent("two")
@@ -705,7 +683,7 @@ async def test_prenamespaced_storage_is_not_double_prefixed(temp_dir):
 
 def test_snapshot_ids_are_monotonic_uuidv7(storage):
     """Immutable ids are UUIDv7 and sort in creation order even within one millisecond."""
-    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(model=_model(*[f"t{index}" for index in range(6)]), session_manager=manager, agent_id="a1")
     for index in range(6):
         agent(f"turn {index}")

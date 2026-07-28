@@ -29,8 +29,6 @@ from .._identifier import Identifier
 from .._identifier import validate as validate_identifier
 from ..hooks.events import (
     AfterInvocationEvent,
-    AfterMultiAgentInvocationEvent,
-    AfterNodeCallEvent,
     AgentInitializedEvent,
     MessageAddedEvent,
     MultiAgentInitializedEvent,
@@ -48,7 +46,6 @@ from .session_manager import SessionManager
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
-    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +54,7 @@ SaveLatestStrategy = Literal["message", "invocation", "trigger"]
 
 - ``"invocation"``: after every agent invocation completes (default; balances durability and I/O).
 - ``"message"``: after every message added (most durable, highest I/O).
-- ``"trigger"``: only when ``snapshot_trigger`` fires (or manually via ``sync_agent``).
+- ``"trigger"``: only when ``snapshot_trigger`` fires (or manually via ``save_snapshot``).
 
 Guardrail redactions are flushed immediately under every strategy, including ``"trigger"``,
 so pre-redaction content never sits at rest. This diverges from the TypeScript SDK, which
@@ -126,17 +123,6 @@ def _snapshot_key(session_id: str, agent_id: str, *, snapshot_id: str | None) ->
     return f"{prefix}{_IMMUTABLE_HISTORY}/snapshot_{snapshot_id}.json"
 
 
-def _multi_agent_key(session_id: str, orchestrator_id: str) -> str:
-    """Return the storage key for a multi-agent orchestrator's latest snapshot.
-
-    Under the ``multiAgent`` scope, byte-identical to the TypeScript SDK. Orchestrators persist
-    latest-only (no immutable-history / time-travel), matching TS.
-    """
-    session_id = validate_identifier(session_id, Identifier.SESSION)
-    orchestrator_id = validate_identifier(orchestrator_id, Identifier.AGENT)
-    return f"{session_id}/scopes/multiAgent/{orchestrator_id}/snapshots/{_SNAPSHOT_LATEST}"
-
-
 def _encode_json(obj: dict[str, Any]) -> bytes:
     """JSON-encode a dict to UTF-8 bytes, base64-encoding any bytes values."""
     return json.dumps(encode_bytes_values(obj), ensure_ascii=False).encode("utf-8")
@@ -182,52 +168,15 @@ def _deserialize_snapshot(data: bytes) -> Snapshot:
         raise SnapshotException(f"Failed to deserialize snapshot: {error}") from error
 
 
-def _serialize_multi_agent(orchestrator_id: str, state: dict[str, Any]) -> bytes:
-    """Serialize an orchestrator's ``serialize_state()`` dict to JSON bytes, base64-encoding bytes.
-
-    The orchestrator id is stamped alongside the state (mirroring the TypeScript SDK) so restore
-    can reject a snapshot that belongs to a different orchestrator; see
-    :func:`_deserialize_multi_agent`. Stamping at this boundary — rather than trusting an id inside
-    the subclass's ``serialize_state()`` — guards every ``MultiAgentBase`` subclass uniformly.
-    """
-    return _encode_json({"orchestrator_id": orchestrator_id, "state": state})
-
-
-def _deserialize_multi_agent(data: bytes, *, expected_orchestrator_id: str) -> dict[str, Any]:
-    """Deserialize orchestrator-state JSON bytes back into a state dict, decoding base64 bytes.
-
-    Args:
-        data: The stored snapshot bytes.
-        expected_orchestrator_id: The id of the orchestrator being restored into. A snapshot whose
-            stamped id differs is rejected so state is never loaded into the wrong orchestrator.
-
-    Raises:
-        SnapshotException: If the bytes are not valid orchestrator-state JSON (malformed, wrong
-            encoding, or wrong shape), or the stamped orchestrator id does not match
-            ``expected_orchestrator_id``.
-    """
-    decoded = _decode_json_object(data, description="multi-agent snapshot")
-    stored_orchestrator_id = decoded.get("orchestrator_id")
-    if stored_orchestrator_id != expected_orchestrator_id:
-        raise SnapshotException(
-            "Multi-agent snapshot orchestrator id mismatch: "
-            f"expected {expected_orchestrator_id!r}, got {stored_orchestrator_id!r}"
-        )
-    state = decoded.get("state")
-    if not isinstance(state, dict):
-        raise SnapshotException(f"Multi-agent snapshot state is not an object: got {type(state).__name__}")
-    return state
-
-
 @runtime_checkable
 class SnapshotTrigger(Protocol):
     """Decides whether to write an immutable checkpoint after an invocation."""
 
-    def __call__(self, *, agent: "Agent", **kwargs: Any) -> bool:
+    def __call__(self, *, agent_data: "Agent", **kwargs: Any) -> bool:
         """Return True to append an immutable snapshot for the given agent.
 
         Args:
-            agent: The agent that just completed an invocation.
+            agent_data: The agent that just completed an invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
@@ -243,6 +192,9 @@ class SnapshotSessionManager(SessionManager):
     qualifying lifecycle event the agent is re-captured and ``snapshot_latest`` is
     overwritten. When ``snapshot_trigger`` returns True after an invocation, an
     additional immutable snapshot is appended for time-travel restore.
+
+    Single agents only. Attaching this manager to a Graph or Swarm raises
+    ``NotImplementedError``; use a message-log session manager for orchestrators.
 
     Example:
         ```python
@@ -272,7 +224,8 @@ class SnapshotSessionManager(SessionManager):
             storage: Unified storage backend that persists snapshot blobs.
             save_latest_on: When to overwrite ``snapshot_latest``. See :data:`SaveLatestStrategy`.
             snapshot_trigger: Optional callback invoked after each invocation; when it
-                returns True an immutable snapshot is appended for checkpointing.
+                returns True an immutable snapshot is appended for checkpointing. An immutable
+                snapshot can also be forced at any point via :meth:`save_snapshot`.
             migrate_from: Optional message-log session manager (``FileSessionManager``,
                 ``S3SessionManager``) to migrate from once. When set and no snapshot
                 exists yet, the agent is restored from the message log and an equivalent
@@ -317,12 +270,17 @@ class SnapshotSessionManager(SessionManager):
             registry.add_callback(MessageAddedEvent, self._on_message_added)
         registry.add_callback(AfterInvocationEvent, self._on_after_invocation)
 
-        # Multi-agent (Graph/Swarm): restore the orchestrator once on init, persist its state
-        # after each node and after the invocation. Latest-only (no immutable checkpoints),
-        # matching the TypeScript SDK's multi-agent path.
-        registry.add_callback(MultiAgentInitializedEvent, self._on_multi_agent_initialized)
-        registry.add_callback(AfterNodeCallEvent, self._on_after_node_call)
-        registry.add_callback(AfterMultiAgentInvocationEvent, self._on_after_multi_agent_invocation)
+        # Fail loudly rather than silently persisting nothing: this manager handles single agents
+        # only, so an orchestrator must not be able to attach it and appear to be persisted.
+        registry.add_callback(MultiAgentInitializedEvent, self._reject_multi_agent)
+
+    def _reject_multi_agent(self, event: MultiAgentInitializedEvent) -> None:
+        """Raise on orchestrator init; multi-agent snapshot persistence is not supported yet."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support multi-agent (Graph/Swarm) persistence. "
+            "Use a message-log session manager (FileSessionManager, S3SessionManager) for "
+            "orchestrators."
+        )
 
     # -- ABC methods (invoked synchronously by the Agent; bridge to async storage) --
 
@@ -374,26 +332,6 @@ class SnapshotSessionManager(SessionManager):
             **kwargs: Additional keyword arguments for future extensibility.
         """
 
-    # -- Multi-agent ABC methods (Graph/Swarm orchestrators; latest-only, no time travel) --
-
-    def initialize_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
-        """Restore an orchestrator's state from its latest snapshot, if one exists.
-
-        Args:
-            source: The Graph/Swarm orchestrator to restore.
-            **kwargs: Additional keyword arguments for future extensibility.
-        """
-        run_async(lambda: self._restore_multi_agent(source))
-
-    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
-        """Capture the orchestrator's state and overwrite its latest snapshot.
-
-        Args:
-            source: The Graph/Swarm orchestrator to persist.
-            **kwargs: Additional keyword arguments for future extensibility.
-        """
-        run_async(lambda: self._save_multi_agent(source))
-
     # -- Public time-travel API --
 
     async def list_snapshot_ids(
@@ -440,6 +378,22 @@ class SnapshotSessionManager(SessionManager):
             ValueError: If ``snapshot_id`` is not a valid snapshot id.
         """
         return await self._restore(agent, snapshot_id=snapshot_id)
+
+    async def save_snapshot(self, agent: "Agent", *, is_latest: bool) -> None:
+        """Save a snapshot of the agent's current state on demand.
+
+        Use ``is_latest=False`` to force an immutable checkpoint at an arbitrary point (independent
+        of ``snapshot_trigger``), so it can later be restored with :meth:`restore_snapshot`; use
+        ``is_latest=True`` to overwrite ``snapshot_latest``.
+
+        Args:
+            agent: Agent whose state to capture.
+            is_latest: When True, overwrite ``snapshot_latest`` (a single mutable snapshot). When
+                False, append a new immutable snapshot under a fresh, time-ordered id.
+        """
+        data = _serialize_snapshot(self._capture(agent))
+        snapshot_id = None if is_latest else _new_snapshot_id()
+        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=snapshot_id), data)
 
     async def delete_session(self) -> None:
         """Delete all snapshots for this session."""
@@ -525,8 +479,7 @@ class SnapshotSessionManager(SessionManager):
 
     async def _save_latest(self, agent: "Agent") -> None:
         """Capture the agent and overwrite ``snapshot_latest``."""
-        data = _serialize_snapshot(self._capture(agent))
-        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
+        await self.save_snapshot(agent, is_latest=True)
 
     async def _save_immutable_and_latest(self, agent: "Agent") -> None:
         """Capture once and write the immutable snapshot, then ``snapshot_latest``.
@@ -538,30 +491,6 @@ class SnapshotSessionManager(SessionManager):
         data = _serialize_snapshot(self._capture(agent))
         await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=_new_snapshot_id()), data)
         await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
-
-    async def _restore_multi_agent(self, source: "MultiAgentBase") -> None:
-        """Load an orchestrator's latest snapshot into it, if one exists."""
-        data = await self._storage.read(_multi_agent_key(self.session_id, source.id))
-        if data is None:
-            return
-        source.deserialize_state(_deserialize_multi_agent(data, expected_orchestrator_id=source.id))
-
-    async def _save_multi_agent(self, source: "MultiAgentBase") -> None:
-        """Capture the orchestrator's state and overwrite its latest snapshot."""
-        data = _serialize_multi_agent(source.id, source.serialize_state())
-        await self._storage.write(_multi_agent_key(self.session_id, source.id), data)
-
-    async def _on_multi_agent_initialized(self, event: MultiAgentInitializedEvent) -> None:
-        """Restore the orchestrator on construction (fires once per orchestrator)."""
-        await self._restore_multi_agent(event.source)
-
-    async def _on_after_node_call(self, event: AfterNodeCallEvent) -> None:
-        """Persist the orchestrator after each node completes."""
-        await self._save_multi_agent(event.source)
-
-    async def _on_after_multi_agent_invocation(self, event: AfterMultiAgentInvocationEvent) -> None:
-        """Persist the orchestrator after the invocation completes."""
-        await self._save_multi_agent(event.source)
 
     async def _on_message_added(self, event: MessageAddedEvent) -> None:
         """Save latest after each message under the ``"message"`` strategy."""
@@ -581,7 +510,7 @@ class SnapshotSessionManager(SessionManager):
         triggered = False
         if self._snapshot_trigger is not None:
             try:
-                triggered = self._snapshot_trigger(agent=event.agent)
+                triggered = self._snapshot_trigger(agent_data=event.agent)
             except Exception:
                 # A caller's trigger raising must not discard the completed turn's latest save;
                 # log and fall through to the normal save below.

@@ -4,8 +4,6 @@ import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
-from typing_extensions import deprecated
-
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types.content import ContentBlock, Message, _generate_tracking_id
@@ -27,12 +25,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-@deprecated(
-    "RepositorySessionManager is deprecated and will be removed in Strands SDK 2.0. Use "
-    "SnapshotSessionManager with a Storage backend instead (single- and multi-agent). "
-    "See migration guide: "
-    "https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/session-management/"
-)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
@@ -287,7 +279,9 @@ class RepositorySessionManager(SessionManager):
 
         for index in reversed(tool_use_indices):
             message = messages[index]
-            tool_use_ids = [content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content]
+            tool_use_ids = [
+                content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
+            ]
 
             next_message = messages[index + 1]
             next_content = next_message["content"]
