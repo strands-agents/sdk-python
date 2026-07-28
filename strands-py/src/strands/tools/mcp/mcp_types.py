@@ -1,7 +1,7 @@
 """Type definitions for MCP integration."""
 
 from contextlib import AbstractAsyncContextManager
-from typing import Any
+from typing import Any, Literal
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.client.streamable_http import GetSessionIdCallback
@@ -66,8 +66,11 @@ class MCPToolResult(ToolResult):
             returned a failure. Absent when the tool succeeded or when the error was a
             protocol/client exception rather than a tool-reported failure, letting
             callers distinguish application errors from transport/protocol errors.
+        cancelled: ``True`` when the local per-call cancellation signal was observed.
+            This confirms local cancellation, not that remote execution stopped.
     """
 
     structuredContent: NotRequired[dict[str, Any]]
     metadata: NotRequired[dict[str, Any]]
     isError: NotRequired[bool]
+    cancelled: NotRequired[Literal[True]]

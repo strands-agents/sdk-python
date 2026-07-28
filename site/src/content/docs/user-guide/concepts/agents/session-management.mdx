@@ -11,8 +11,6 @@ sourceLinks:
   - path: strands-py/src/strands/session/file_session_manager.py
   - path: strands-py/src/strands/session/s3_session_manager.py
   - path: strands-ts/src/session/session-manager.ts
-  - path: strands-ts/src/session/file-storage.ts
-  - path: strands-ts/src/session/s3-storage.ts
 ---
 
 Session management in Strands Agents provides a robust mechanism for persisting agent state and conversation history across multiple interactions. This enables agents to maintain context and continuity even when the application restarts or when deployed in distributed environments.
@@ -144,139 +142,37 @@ Swarm works the same way:
 
 Multi-agent session managers only track the current state of the Graph/Swarm execution and do not persist individual agent conversation histories.
 
-## Built-in Session Managers
+## Storage Backends
 
 <Tabs>
 <Tab label="Python">
 
-Strands recommends `SnapshotSessionManager` for new agents. It pairs with a [unified `Storage`](@api/python/strands.storage.storage#Storage) backend that decides where snapshots live:
+Strands offers two built-in session managers:
 
-1. **`LocalFileStorage`**: Stores snapshots on the local filesystem
-2. **`S3Storage`**: Stores snapshots in Amazon S3
-
-The same `Storage` backend also powers other SDK subsystems, so you configure a storage location once and reuse it.
-
-The message-log managers ([`FileSessionManager`](@api/python/strands.session.file_session_manager#FileSessionManager), [`S3SessionManager`](@api/python/strands.session.s3_session_manager#S3SessionManager)) remain available but are deprecated. They persist each message as a separate object and emit a `DeprecationWarning`.
-
-</Tab>
-<Tab label="TypeScript">
-
-The TypeScript SDK uses a single `SessionManager` class paired with a pluggable storage backend:
-
-1. **`FileStorage`**: Stores snapshots on the local filesystem
-2. **`S3Storage`**: Stores snapshots in Amazon S3
-
-</Tab>
-</Tabs>
-
-### FileSessionManager / FileStorage
-
-<Tabs>
-<Tab label="Python">
-
-`LocalFileStorage` writes snapshots to the local filesystem. Pass it to `SnapshotSessionManager`:
+| Session Manager | Persistence | Best for |
+|-----------------|-------------|----------|
+| [`FileSessionManager`](@api/python/strands.session.file_session_manager#FileSessionManager) | Local disk | Development, single-machine |
+| [`S3SessionManager`](@api/python/strands.session.s3_session_manager#S3SessionManager) | Amazon S3 | Production, distributed |
 
 ```python
 from strands import Agent
-from strands.session import SnapshotSessionManager
-from strands.storage import LocalFileStorage
+from strands.session.file_session_manager import FileSessionManager
+from strands.session.s3_session_manager import S3SessionManager
 
-session_manager = SnapshotSessionManager(
-    "user-123",
-    storage=LocalFileStorage("/path/to/sessions"),  # Optional, defaults to a temp directory
+# File-based persistence
+session_manager = FileSessionManager(
+    session_id="user-123",
+    storage_dir="/path/to/sessions"
+)
+
+# S3-based persistence
+session_manager = S3SessionManager(
+    session_id="user-123",
+    bucket="my-agent-sessions",
+    prefix="production/",
 )
 
 agent = Agent(session_manager=session_manager)
-
-# State and messages are persisted automatically on every turn
-agent("Hello, I'm a new user!")
-```
-
-`SnapshotSessionManager` covers both single agents and multi-agent orchestrators (see [Multi-Agent Sessions](#multi-agent-sessions)).
-
-</Tab>
-
-<Tab label="TypeScript">
-
-`FileStorage` persists snapshots to the local filesystem. Pass it to `SessionManager` via the `storage.snapshot` config:
-
-```typescript
---8<-- "user-guide/concepts/agents/session-manager.ts:file_storage"
-```
-
-</Tab>
-</Tabs>
-
-#### File Storage Structure
-
-<Tabs>
-<Tab label="Python">
-
-  `SnapshotSessionManager` with `LocalFileStorage` writes one snapshot blob per save, under this layout:
-
-```
-<base_dir>/
-└── session/
-    └── <session_id>/
-        └── scopes/
-            └── agent/
-                └── <agent_id>/
-                    └── snapshots/
-                        ├── snapshot_latest.json      # Latest mutable snapshot
-                        └── immutable_history/
-                            └── snapshot_<id>.json    # Immutable checkpoint
-```
-
-The key layout matches the TypeScript SDK. The snapshot contents differ per SDK, so a session is restored by the SDK that wrote it.
-</Tab>
-
-<Tab label="TypeScript">
-
-```
-<baseDir>/
-└── <sessionId>/
-    └── scopes/
-        ├── agent/
-        │   └── <agentId>/
-        │       └── snapshots/
-        │           ├── snapshot_latest.json        # Latest mutable snapshot
-        │           └── immutable_history/
-        │               ├── snapshot_<uuid7>.json   # Immutable checkpoint
-        │               └── snapshot_<uuid7>.json
-        └── multiAgent/
-            └── <orchestratorId>/
-                └── snapshots/
-                    └── snapshot_latest.json   # Multi-agent only saves latest (no immutable history)
-```
-
-</Tab>
-</Tabs>
-
-### S3SessionManager / S3Storage
-
-<Tabs>
-<Tab label="Python">
-
-For cloud-based persistence, especially in distributed environments, use `S3Storage`:
-
-```python
-from strands import Agent
-from strands.session import SnapshotSessionManager
-from strands.storage import S3Storage
-
-session_manager = SnapshotSessionManager(
-    "user-456",
-    storage=S3Storage(
-        bucket="my-agent-sessions",
-        prefix="production/",  # Optional key prefix
-        region_name="us-west-2",  # Optional AWS region
-    ),
-)
-
-agent = Agent(session_manager=session_manager)
-
-# State and messages are persisted to S3 on every turn
-agent("Tell me about Amazon S3")
 ```
 
 `S3Storage` also accepts a `boto_session`, a `boto_client_config`, and an `endpoint_url` for S3-compatible backends.
@@ -284,7 +180,19 @@ agent("Tell me about Amazon S3")
 </Tab>
 <Tab label="TypeScript">
 
-`S3Storage` persists snapshots to an S3 bucket. You can provide a pre-configured `S3Client` or let the SDK create one from a `region`:
+Session management accepts any [Storage](../storage.mdx)
+backend. Choose one based on your durability needs:
+
+| Backend | Persistence | Best for |
+|---------|-------------|----------|
+| `LocalFileStorage` | Local disk | Development, single-machine |
+| `S3Storage` | Amazon S3 | Production, distributed |
+
+See [Storage](../storage.mdx) for full details on each backend.
+
+```typescript
+--8<-- "user-guide/concepts/agents/session-manager.ts:local_file_storage"
+```
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:s3_storage"
@@ -293,45 +201,7 @@ agent("Tell me about Amazon S3")
 </Tab>
 </Tabs>
 
-#### S3 Storage Structure
-
-<Tabs>
-<Tab label="Python">
-
-```
-[<prefix>/]session/
-└── <session_id>/
-    └── scopes/
-        └── agent/
-            └── <agent_id>/
-                └── snapshots/
-                    ├── snapshot_latest.json
-                    └── immutable_history/
-                        └── snapshot_<id>.json
-```
-
-</Tab>
-<Tab label="TypeScript">
-
-```
-[<prefix>/]<sessionId>/
-└── scopes/
-    ├── agent/
-    │   └── <agentId>/
-    │       └── snapshots/
-    │           ├── snapshot_latest.json
-    │           └── immutable_history/
-    │               └── snapshot_<uuid7>.json
-    └── multiAgent/
-        └── <orchestratorId>/
-            └── snapshots/
-                └── snapshot_latest.json   # Multi-agent only saves latest (no immutable history)
-```
-
-</Tab>
-</Tabs>
-
-#### Required S3 Permissions
+### Required S3 Permissions
 
 To use S3-backed session storage, your AWS credentials must have the following permissions:
 
@@ -459,19 +329,10 @@ agent("Draft a project plan.")
 
 ### Listing and Restoring Snapshots
 
-Snapshot ids carry a timestamp prefix, so they sort in chronological order. List them, then restore a specific checkpoint by id:
-
-<Tabs>
-<Tab label="Python">
-
-```python
-# list_snapshot_ids and restore_snapshot are async
-snapshot_ids = await session_manager.list_snapshot_ids(agent)
-await session_manager.restore_snapshot(agent, snapshot_id=snapshot_ids[0])
-```
-
-</Tab>
-<Tab label="TypeScript">
+Snapshot IDs are UUID v7, so they sort lexicographically in
+chronological order. Use `listSnapshotIds` on the
+`SessionManager` to retrieve them, then pass a `snapshotId` to
+`restoreSnapshot`:
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:list_and_restore"
@@ -659,7 +520,10 @@ agent = Agent(session_manager=session_manager)
 </Tab>
 <Tab label="TypeScript">
 
-Create a custom storage backend by implementing the `SnapshotStorage` interface:
+The simplest approach is to pass any
+[Storage](../storage.mdx) backend directly — the
+`SessionManager` wraps it automatically. For full control, you
+can implement the `SnapshotStorage` interface:
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager.ts:custom_storage"
@@ -669,6 +533,50 @@ Create a custom storage backend by implementing the `SnapshotStorage` interface:
 </Tabs>
 
 This approach allows you to store session data in any backend system while leveraging the built-in session management logic.
+
+## Data Layout
+
+Both file and S3 backends use the same key structure:
+
+<Tabs>
+<Tab label="Python">
+
+```
+<root>/
+└── session_<session_id>/
+    ├── session.json
+    ├── agents/
+    │   └── agent_<agent_id>/
+    │       ├── agent.json
+    │       └── messages/
+    │           ├── message_0.json
+    │           └── message_1.json
+    └── multi_agents/
+        └── multi_agent_<orchestrator_id>/
+            └── multi_agent.json
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```
+<root>/
+└── <sessionId>/
+    └── scopes/
+        ├── agent/
+        │   └── <agentId>/
+        │       └── snapshots/
+        │           ├── snapshot_latest.json
+        │           └── immutable_history/
+        │               └── snapshot_<uuid7>.json
+        └── multiAgent/
+            └── <orchestratorId>/
+                └── snapshots/
+                    └── snapshot_latest.json
+```
+
+</Tab>
+</Tabs>
 
 ## Session Persistence Best Practices
 

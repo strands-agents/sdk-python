@@ -1,14 +1,13 @@
 name: "Python: Release"
 
 # Manual release of `strands-agents` to PyPI.
-# Setup, recovery, fork-testing: .github/workflows/RELEASE.md
 #
 # Shape: scan → lint/unit/integ/audit/build → inspect → notes → approve →
 #        tag + release → publish.
 #
 # Publish is the last step. Everything before it runs on a fork too — only
 # the OIDC upload fails there, because the fork is not the registered
-# trusted publisher. See RELEASE.md → "Fork testability".
+# trusted publisher.
 
 on:
   workflow_dispatch:
@@ -103,6 +102,23 @@ jobs:
             echo "::error::version $NEW_VERSION is not greater than previous $PREV_VERSION."
             exit 1
           fi
+          # Require a single-step increment (major, minor, or patch) so a typo
+          # like 1.48.0 -> 1.84.0 fails here instead of relying on the approver.
+          # Validate the baseline first: a malformed previous tag (prerelease
+          # suffix, non-numeric part) must fail with a clear message, not a
+          # cryptic arithmetic error under set -e.
+          if ! [[ "$PREV_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::previous tag version '$PREV_VERSION' is not bare semver -- cannot compute the increment baseline."
+            exit 1
+          fi
+          IFS=. read -r P_MAJ P_MIN P_PAT <<< "$PREV_VERSION"
+          VALID="$((P_MAJ+1)).0.0 ${P_MAJ}.$((P_MIN+1)).0 ${P_MAJ}.${P_MIN}.$((P_PAT+1))"
+          case " $VALID " in
+            *" $NEW_VERSION "*) ;;
+            *)
+              echo "::error::version $NEW_VERSION is not a single increment of $PREV_VERSION (expected one of: $VALID)."
+              exit 1;;
+          esac
           if git rev-parse --verify "refs/tags/$NEW_TAG" >/dev/null 2>&1; then
             echo "::error::tag $NEW_TAG already exists."
             exit 1
@@ -198,7 +214,7 @@ jobs:
           name: pypi-build-output
           path: dist
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.10'
 
@@ -454,3 +470,33 @@ jobs:
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # ── Post-publish smoke check ───────────────────────────────────────────
+  # Poll PyPI until the new version is visible, replacing the manual
+  # "check the package page" verification. Fails loudly if the registry
+  # doesn't show the version within the timeout.
+  verify-published:
+    name: Verify version on PyPI
+    needs: [publish-pypi]
+    if: inputs.dry_run != true
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Poll PyPI for the new version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            # Cache-buster: registry CDNs cache negative (404) responses; a poll
+            # that lands before propagation must not pin a stale 404 for the
+            # rest of the window.
+            if curl -sf "https://pypi.org/pypi/strands-agents/$VERSION/json?t=$(date +%s)" >/dev/null; then
+              echo "strands-agents $VERSION is live on PyPI."
+              exit 0
+            fi
+            echo "attempt $i/30: not visible yet, retrying in 10s..."
+            sleep 10
+          done
+          echo "::error::strands-agents $VERSION not visible on PyPI after 5 minutes."
+          exit 1
