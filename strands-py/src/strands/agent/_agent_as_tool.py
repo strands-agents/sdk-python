@@ -14,8 +14,9 @@ from typing import TYPE_CHECKING, Any, cast
 from typing_extensions import override
 
 from ..agent.state import AgentState
-from ..interrupt import _InterruptState
+from ..interrupt import Interrupt
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
+from ..types._snapshot import Snapshot
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
 from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
@@ -222,9 +223,16 @@ class _AgentAsTool(AgentTool):
             # Propagate sub-agent interrupts to the parent agent. The snapshot lets the parent
             # persist everything required to resume this exact invocation, so the sub-agent does
             # not need its own session and does not accumulate history across turns.
+            #
+            # Interrupt IDs are namespaced by the outer toolUseId so that two concurrent
+            # sub-agents producing the same local ID do not collide when the parent registers
+            # them with setdefault.
             if result.stop_reason == "interrupt" and result.interrupts:
+                namespaced_interrupts, interrupt_id_map = self._namespace_interrupts(
+                    tool_use_id, list(result.interrupts)
+                )
                 yield ToolInterruptEvent(
-                    tool_use, list(result.interrupts), sub_agent_snapshot=self._build_sub_agent_snapshot()
+                    tool_use, namespaced_interrupts, sub_agent_snapshot=self._build_sub_agent_snapshot(interrupt_id_map)
                 )
                 return
 
@@ -279,22 +287,45 @@ class _AgentAsTool(AgentTool):
         self._agent.messages = copy.deepcopy(self._initial_messages)
         self._agent.state = AgentState(self._initial_state.get())
 
-    def _build_sub_agent_snapshot(self) -> dict[str, Any]:
-        """Capture the minimal serializable state needed to resume this invocation.
+    @staticmethod
+    def _namespace_interrupts(tool_use_id: str, interrupts: list[Interrupt]) -> tuple[list[Interrupt], dict[str, str]]:
+        """Create parent-visible copies of interrupts with IDs namespaced by the outer tool call.
 
-        The snapshot is scoped to the single interrupted turn: the sub-agent's messages, its
-        key/value state, and its interrupt state (which carries the original ``tool_use_message``
-        and therefore the original ``toolUseId``). Restoring it reproduces the exact pending tool
-        call so the recomputed interrupt id matches, without persisting the sub-agent's session or
-        retaining history beyond this turn.
+        Prefixing with the outer ``tool_use_id`` guarantees uniqueness at the parent level
+        when multiple sub-agents are invoked concurrently.
+
+        Args:
+            tool_use_id: The outer (orchestrator-level) tool use ID for this agent-as-tool call.
+            interrupts: The sub-agent-local interrupt objects.
+
+        Returns:
+            A tuple of (namespaced interrupt copies, mapping from parent_id to local_id).
+        """
+        namespaced: list[Interrupt] = []
+        id_map: dict[str, str] = {}
+        for interrupt in interrupts:
+            parent_id = f"{tool_use_id}:{interrupt.id}"
+            id_map[parent_id] = interrupt.id
+            namespaced.append(Interrupt(id=parent_id, name=interrupt.name, reason=interrupt.reason))
+        return namespaced, id_map
+
+    def _build_sub_agent_snapshot(self, interrupt_id_map: dict[str, str]) -> dict[str, Any]:
+        """Capture the sub-agent's session state for resuming this interrupted invocation.
+
+        Uses ``take_snapshot(preset="session")`` to capture all session fields (messages, state,
+        conversation_manager_state, interrupt_state, model_state) as a versioned snapshot.
+
+        Args:
+            interrupt_id_map: Mapping from parent-visible (namespaced) interrupt IDs to
+                sub-agent-local IDs.
 
         Returns:
             Serializable snapshot of the interrupted invocation.
         """
+        session_snapshot = self._agent.take_snapshot(preset="session")
         return {
-            "messages": copy.deepcopy(self._agent.messages),
-            "state": copy.deepcopy(self._agent.state.get()),
-            "interrupt_state": self._agent._interrupt_state.to_dict(),
+            "session_snapshot": session_snapshot.to_dict(),
+            "interrupt_id_map": interrupt_id_map,
         }
 
     def _get_sub_agent_snapshot(self, invocation_state: dict[str, Any], tool_use_id: str) -> dict[str, Any] | None:
@@ -317,7 +348,10 @@ class _AgentAsTool(AgentTool):
     def _restore_from_snapshot(
         self, snapshot: dict[str, Any], invocation_state: dict[str, Any]
     ) -> list[InterruptResponseContent]:
-        """Overlay the interrupted turn onto a fresh sub-agent and build its resume prompt.
+        """Restore the sub-agent from a snapshot and build the resume prompt.
+
+        Loads the full session state via ``load_snapshot``, then filters and translates
+        the parent's interrupt responses back to sub-agent-local IDs.
 
         Args:
             snapshot: Snapshot produced by ``_build_sub_agent_snapshot`` (possibly round-tripped
@@ -328,17 +362,33 @@ class _AgentAsTool(AgentTool):
         Returns:
             The interrupt responses destined for this sub-agent, ready to pass to ``stream_async``.
         """
-        self._agent.messages = snapshot["messages"]
-        self._agent.state = AgentState(snapshot["state"])
-        self._agent._interrupt_state = _InterruptState.from_dict(snapshot["interrupt_state"])
+        session_snapshot_dict = snapshot["session_snapshot"]
+        self._agent.load_snapshot(Snapshot.from_dict(session_snapshot_dict))
+
+        # The interrupt_id_map translates parent-visible (namespaced) IDs back to the
+        # sub-agent-local IDs that the restored _interrupt_state expects.
+        interrupt_id_map: dict[str, str] = snapshot.get("interrupt_id_map") or {}
+        parent_ids_for_this_snapshot = set(interrupt_id_map.keys())
 
         sub_agent_interrupt_resume = invocation_state.get("_sub_agent_interrupt_resume") or {}
         responses = sub_agent_interrupt_resume.get("responses") or []
-        return [
-            response
-            for response in responses
-            if response["interruptResponse"]["interruptId"] in self._agent._interrupt_state.interrupts
-        ]
+
+        # Filter to only responses owned by this snapshot (keyed by namespaced parent ID),
+        # then rewrite interruptId to the sub-agent-local form before forwarding.
+        local_responses: list[InterruptResponseContent] = []
+        for response in responses:
+            parent_id = response["interruptResponse"]["interruptId"]
+            if parent_id in parent_ids_for_this_snapshot:
+                local_id = interrupt_id_map[parent_id]
+                local_responses.append(
+                    {
+                        "interruptResponse": {
+                            "interruptId": local_id,
+                            "response": response["interruptResponse"]["response"],
+                        }
+                    }
+                )
+        return local_responses
 
     @override
     def get_display_properties(self) -> dict[str, str]:

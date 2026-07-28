@@ -504,7 +504,11 @@ async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, to
 
     assert len(events) == 1
     assert isinstance(events[0], ToolInterruptEvent)
-    assert events[0].interrupts == interrupt_result.interrupts
+    # Interrupt IDs are namespaced by the outer tool_use_id to avoid collisions.
+    assert len(events[0].interrupts) == 1
+    assert events[0].interrupts[0].id == f"tool-123:{interrupt_result.interrupts[0].id}"
+    assert events[0].interrupts[0].name == interrupt_result.interrupts[0].name
+    assert events[0].interrupts[0].reason == interrupt_result.interrupts[0].reason
     assert events[0].tool_use_id == "tool-123"
 
 
@@ -572,13 +576,18 @@ async def test_stream_interrupt_attaches_sub_agent_snapshot(fake_agent):
     assert len(interrupt_events) == 1
     snapshot = interrupt_events[0].sub_agent_snapshot
     assert snapshot is not None
-    assert snapshot["messages"] == [{"role": "user", "content": [{"text": "do it"}]}, sub_tool_use_message]
-    assert snapshot["state"] == {"k": "v"}
-    assert snapshot["interrupt_state"]["activated"] is True
+    # The snapshot uses the versioned session_snapshot path for complete state.
+    assert "session_snapshot" in snapshot
+    session_data = snapshot["session_snapshot"]["data"]
+    assert session_data["messages"] == [{"role": "user", "content": [{"text": "do it"}]}, sub_tool_use_message]
+    assert session_data["state"] == {"k": "v"}
+    assert session_data["interrupt_state"]["activated"] is True
     # The original sub-agent toolUseId is preserved, which is what keeps the interrupt id stable.
-    persisted_tool_use = snapshot["interrupt_state"]["context"]["tool_use_message"]["content"][0]["toolUse"]
+    persisted_tool_use = session_data["interrupt_state"]["context"]["tool_use_message"]["content"][0]["toolUse"]
     assert persisted_tool_use["toolUseId"] == "sub-1"
-    assert "interrupt-1" in snapshot["interrupt_state"]["interrupts"]
+    assert "interrupt-1" in session_data["interrupt_state"]["interrupts"]
+    # The interrupt_id_map maps parent-namespaced IDs back to sub-agent-local IDs.
+    assert snapshot["interrupt_id_map"] == {"orch-1:interrupt-1": "interrupt-1"}
 
 
 @pytest.mark.asyncio
@@ -594,22 +603,42 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
         "content": [{"toolUse": {"toolUseId": "sub-1", "name": "get_my_roles", "input": {}}}],
     }
     snapshot = {
-        "messages": [{"role": "user", "content": [{"text": "what are my roles"}]}, sub_tool_use_message],
-        "state": {"k": "v"},
-        "interrupt_state": {
-            "interrupts": {
-                "interrupt-1": {"id": "interrupt-1", "name": "approval", "reason": "need approval", "response": None}
+        "session_snapshot": {
+            "scope": "agent",
+            "schema_version": "1.0",
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "data": {
+                "messages": [{"role": "user", "content": [{"text": "what are my roles"}]}, sub_tool_use_message],
+                "state": {"k": "v"},
+                "conversation_manager_state": {
+                    "__name__": "SlidingWindowConversationManager",
+                    "removed_message_count": 0,
+                    "model_call_count": 0,
+                },
+                "interrupt_state": {
+                    "interrupts": {
+                        "interrupt-1": {
+                            "id": "interrupt-1",
+                            "name": "approval",
+                            "reason": "need approval",
+                            "response": None,
+                        }
+                    },
+                    "context": {"tool_use_message": sub_tool_use_message, "tool_results": []},
+                    "activated": True,
+                },
+                "model_state": {},
             },
-            "context": {"tool_use_message": sub_tool_use_message, "tool_results": []},
-            "activated": True,
+            "app_data": {},
         },
+        "interrupt_id_map": {"orch-1:interrupt-1": "interrupt-1"},
     }
     # Round-trip through JSON to simulate restoration from a session store.
     snapshot = json.loads(json.dumps(snapshot))
 
     invocation_state = {
         "_sub_agent_interrupt_resume": {
-            "responses": [{"interruptResponse": {"interruptId": "interrupt-1", "response": "APPROVE"}}],
+            "responses": [{"interruptResponse": {"interruptId": "orch-1:interrupt-1", "response": "APPROVE"}}],
             "snapshots": {"orch-1": snapshot},
         }
     }
@@ -631,7 +660,7 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
     events = [event async for event in tool.stream(tool_use, invocation_state)]
 
     # Sub-agent state was rebuilt from the snapshot.
-    assert fake_agent.messages == snapshot["messages"]
+    assert fake_agent.messages == snapshot["session_snapshot"]["data"]["messages"]
     assert fake_agent.state.get() == {"k": "v"}
     assert fake_agent._interrupt_state.activated is True
     assert "interrupt-1" in fake_agent._interrupt_state.interrupts
@@ -738,9 +767,8 @@ async def test_sub_agent_interrupt_resumes_deterministically_after_rehydration()
     # The sub-agent snapshot is persisted inside the orchestrator's own interrupt record.
     snapshots = orch_1._interrupt_state.context["sub_agent_snapshots"]
     assert "orch-um-1" in snapshots
-    persisted_tool_use = snapshots["orch-um-1"]["interrupt_state"]["context"]["tool_use_message"]["content"][0][
-        "toolUse"
-    ]
+    session_data = snapshots["orch-um-1"]["session_snapshot"]["data"]
+    persisted_tool_use = session_data["interrupt_state"]["context"]["tool_use_message"]["content"][0]["toolUse"]
     assert persisted_tool_use["toolUseId"] == "sub-roles-1"
     interrupt_id = next(iter(orch_1._interrupt_state.interrupts))
 
@@ -876,3 +904,85 @@ def test_agent_mixed_with_regular_tools_in_tools_list():
 
     assert "my_tool" in parent.tool_names
     assert "helper_agent" in parent.tool_names
+
+
+@pytest.mark.asyncio
+async def test_concurrent_sub_agents_with_same_local_interrupt_id_are_disambiguated():
+    """Two sub-agents producing the same local interrupt ID must not collide at the parent."""
+    interrupt_a = Interrupt(id="same-local-id", name="confirm", reason="reason A")
+    interrupt_b = Interrupt(id="same-local-id", name="confirm", reason="reason B")
+
+    namespaced_a, id_map_a = _AgentAsTool._namespace_interrupts("outer-tool-A", [interrupt_a])
+    namespaced_b, id_map_b = _AgentAsTool._namespace_interrupts("outer-tool-B", [interrupt_b])
+
+    assert namespaced_a[0].id != namespaced_b[0].id
+    assert namespaced_a[0].id == "outer-tool-A:same-local-id"
+    assert namespaced_b[0].id == "outer-tool-B:same-local-id"
+
+    parent_interrupts: dict[str, Interrupt] = {}
+    parent_interrupts.setdefault(namespaced_a[0].id, namespaced_a[0])
+    parent_interrupts.setdefault(namespaced_b[0].id, namespaced_b[0])
+    assert len(parent_interrupts) == 2
+
+    assert set(id_map_a.keys()) == {"outer-tool-A:same-local-id"}
+    assert set(id_map_b.keys()) == {"outer-tool-B:same-local-id"}
+
+
+@pytest.mark.asyncio
+async def test_snapshot_preserves_model_state_and_conversation_manager_state(fake_agent):
+    """The sub-agent snapshot captures model_state and conversation_manager_state."""
+    sub_tool_use_message = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "sub-1", "name": "do_thing", "input": {}}}],
+    }
+    interrupt = Interrupt(id="int-1", name="approval", reason="check")
+    interrupt_result = AgentResult(
+        stop_reason="interrupt",
+        message={"role": "assistant", "content": [{"text": "pending"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        interrupts=[interrupt],
+    )
+
+    async def fake_stream(prompt, **kwargs):
+        fake_agent.messages = [{"role": "user", "content": [{"text": "go"}]}, sub_tool_use_message]
+        fake_agent._model_state = {"response_id": "resp_abc123"}
+        fake_agent._interrupt_state.interrupts["int-1"] = interrupt
+        fake_agent._interrupt_state.activate()
+        yield {"result": interrupt_result}
+
+    fake_agent.stream_async = fake_stream
+
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool_use = {"toolUseId": "orch-1", "name": "fake_agent", "input": {"input": "go"}}
+
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    interrupt_events = [e for e in events if isinstance(e, ToolInterruptEvent)]
+    assert len(interrupt_events) == 1
+    snapshot = interrupt_events[0].sub_agent_snapshot
+    assert snapshot is not None
+
+    session_data = snapshot["session_snapshot"]["data"]
+    assert session_data["model_state"] == {"response_id": "resp_abc123"}
+    assert "conversation_manager_state" in session_data
+    assert "__name__" in session_data["conversation_manager_state"]
+
+
+def test_tool_interrupt_event_snapshot_not_in_dict():
+    """sub_agent_snapshot must not appear in the event's dict or as_dict() output."""
+    interrupt = Interrupt(id="int-1", name="test", reason="why")
+    tool_use = {"toolUseId": "tu-1", "name": "tool", "input": {}}
+    snapshot_data = {"session_snapshot": {"data": {"messages": [{"role": "user", "content": [{"text": "secret"}]}]}}}
+
+    event = ToolInterruptEvent(tool_use, [interrupt], sub_agent_snapshot=snapshot_data)
+
+    assert event.sub_agent_snapshot is snapshot_data
+    assert "sub_agent_snapshot" not in event
+    assert "sub_agent_snapshot" not in event.get("tool_interrupt_event", {})
+    assert "sub_agent_snapshot" not in str(event.as_dict())
+    assert "secret" not in str(event.as_dict())
+
+    event_no_snapshot = ToolInterruptEvent(tool_use, [interrupt])
+    assert event_no_snapshot.sub_agent_snapshot is None
+    assert "sub_agent_snapshot" not in event_no_snapshot.get("tool_interrupt_event", {})

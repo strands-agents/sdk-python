@@ -391,19 +391,19 @@ class ToolInterruptEvent(TypedEvent):
         Args:
             tool_use: The tool use that was interrupted.
             interrupts: The interrupts raised during tool execution.
-            sub_agent_snapshot: Serializable snapshot an agent-as-tool needs to resume the
-                interrupted sub-agent invocation across process boundaries. ``None`` for ordinary
-                tool interrupts that have no sub-agent to resume.
+            sub_agent_snapshot: Serializable snapshot for resuming an interrupted sub-agent
+                invocation. ``None`` for ordinary tool interrupts. Stored as private metadata,
+                not included in the dict payload.
         """
         super().__init__(
             {
                 "tool_interrupt_event": {
                     "tool_use": tool_use,
                     "interrupts": interrupts,
-                    "sub_agent_snapshot": sub_agent_snapshot,
                 }
             }
         )
+        self._sub_agent_snapshot = sub_agent_snapshot
 
     @property
     def is_interrupt(self) -> bool:
@@ -427,8 +427,8 @@ class ToolInterruptEvent(TypedEvent):
 
     @property
     def sub_agent_snapshot(self) -> dict[str, Any] | None:
-        """Serializable state an agent-as-tool needs to resume its sub-agent, if any."""
-        return cast("dict[str, Any] | None", self["tool_interrupt_event"].get("sub_agent_snapshot"))
+        """Serializable state for resuming an interrupted sub-agent, or None."""
+        return self._sub_agent_snapshot
 
 
 class ModelMessageEvent(TypedEvent):

@@ -279,9 +279,7 @@ class RepositorySessionManager(SessionManager):
 
         for index in reversed(tool_use_indices):
             message = messages[index]
-            tool_use_ids = [
-                content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
-            ]
+            tool_use_ids = [content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content]
 
             next_message = messages[index + 1]
             next_content = next_message["content"]
