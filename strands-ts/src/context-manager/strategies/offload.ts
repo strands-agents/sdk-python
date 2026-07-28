@@ -12,7 +12,7 @@
  * const cm = new ContextManager({
  *   strategies: [
  *     Offload.truncate("toolResults", { previewTokens: 750 })
- *       .when({ threshold: 1500, skipRecent: 3 }),
+ *       .when({ threshold: 1500 }),
  *     Offload.truncate(["bash", "list_files"], { previewTokens: 200 })
  *       .when({ threshold: 500 }),
  *     Offload.summarize("toolResults", { ratio: 0.3 })
@@ -41,7 +41,6 @@ import {
 import { summarizeText, type SummarizeConfig } from './methods/summarize.js'
 
 const DEFAULT_THRESHOLD = 2500
-const DEFAULT_SKIP_RECENT = 3
 
 /**
  * Target for offload operations.
@@ -67,14 +66,11 @@ export type OffloadTarget =
  * Conditions that determine when a strategy fires.
  */
 export interface WhenConditions {
-  /** Token threshold above which individual results are offloaded (truncate/summarize). */
+  /** Token threshold above which individual blocks are offloaded (truncate/summarize). */
   threshold?: number
 
   /** Context utilization ratio (0-1) above which the strategy fires. */
   utilization?: number
-
-  /** Number of recent messages to skip during retroactive apply(). */
-  skipRecent?: number
 }
 
 /**
@@ -93,14 +89,12 @@ class OffloadDropStrategy implements ContextStrategy {
   readonly name = 'offload:drop'
 
   private readonly _target: OffloadTarget
-  private readonly _skipRecent: number
   private readonly _threshold: number
   private readonly _toolFilter: Set<string> | undefined
   private readonly _excludeFilter: Set<string> | undefined
 
   constructor(target: OffloadTarget, conditions?: WhenConditions) {
     this._target = target
-    this._skipRecent = conditions?.skipRecent ?? DEFAULT_SKIP_RECENT
     this._threshold = conditions?.threshold ?? 0
 
     const resolved = resolveToolFilter(target)
@@ -118,11 +112,9 @@ class OffloadDropStrategy implements ContextStrategy {
 
   async apply(context: StrategyContext): Promise<boolean> {
     const { messages } = context
-    const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
-
     let dropped = false
 
-    for (const message of eligible) {
+    for (const message of messages) {
       if (this._processMessage(message)) {
         dropped = true
       }
@@ -208,7 +200,6 @@ class OffloadTruncateStrategy implements ContextStrategy {
   readonly name = 'offload:truncate'
 
   private readonly _threshold: number
-  private readonly _skipRecent: number
   private readonly _truncateConfig: TruncateConfig
   private readonly _target: OffloadTarget
   private readonly _toolFilter: Set<string> | undefined
@@ -216,7 +207,6 @@ class OffloadTruncateStrategy implements ContextStrategy {
 
   constructor(target: OffloadTarget, config?: TruncateConfig, conditions?: WhenConditions) {
     this._threshold = conditions?.threshold ?? DEFAULT_THRESHOLD
-    this._skipRecent = conditions?.skipRecent ?? DEFAULT_SKIP_RECENT
     this._truncateConfig = config ?? {}
     this._target = target
 
@@ -235,11 +225,9 @@ class OffloadTruncateStrategy implements ContextStrategy {
 
   async apply(context: StrategyContext): Promise<boolean> {
     const { messages } = context
-    const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
-
     let truncated = false
 
-    for (const message of eligible) {
+    for (const message of messages) {
       if (this._processMessage(message)) {
         truncated = true
       }
@@ -325,7 +313,6 @@ class OffloadSummarizeStrategy implements ContextStrategy {
   private readonly _config: SummarizeConfig
   private readonly _target: OffloadTarget
   private readonly _threshold: number
-  private readonly _skipRecent: number
   private readonly _utilization: number | undefined
   private readonly _toolFilter: Set<string> | undefined
   private readonly _excludeFilter: Set<string> | undefined
@@ -334,7 +321,6 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     this._config = config ?? {}
     this._target = target
     this._threshold = conditions?.threshold ?? DEFAULT_THRESHOLD
-    this._skipRecent = conditions?.skipRecent ?? DEFAULT_SKIP_RECENT
     this._utilization = conditions?.utilization
 
     const resolved = resolveToolFilter(target)
@@ -368,11 +354,9 @@ class OffloadSummarizeStrategy implements ContextStrategy {
       return false
     }
 
-    const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
-
     let summarized = false
 
-    for (const message of eligible) {
+    for (const message of messages) {
       if (await this._processMessage(message, model)) {
         summarized = true
       }

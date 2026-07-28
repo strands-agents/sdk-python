@@ -48,7 +48,7 @@ describe('Offload.summarize', () => {
     it('returns false when no model is available', async () => {
       const largeText = 'x'.repeat(2500 * 4 + 100)
       const messages = [makeToolResultMessage(largeText)]
-      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults')
       const context = makeContext(messages)
 
       const result = await strategy.apply(context)
@@ -60,7 +60,7 @@ describe('Offload.summarize', () => {
       const smallText = 'short result'
       const messages = [makeToolResultMessage(smallText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults')
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -72,7 +72,7 @@ describe('Offload.summarize', () => {
       const largeText = 'x'.repeat(2500 * 4 + 100)
       const messages = [makeToolResultMessage(largeText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults')
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -89,7 +89,7 @@ describe('Offload.summarize', () => {
         content: [new TextBlock(largeText)],
       })
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('assistantMessages').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('assistantMessages')
       const context = makeContext([message], 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -106,7 +106,7 @@ describe('Offload.summarize', () => {
         content: [new TextBlock(largeText)],
       })
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('userMessages').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('userMessages')
       const context = makeContext([message], 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -120,7 +120,7 @@ describe('Offload.summarize', () => {
       const largeText = 'x'.repeat(2500 * 4 + 100)
       const messages = [makeToolResultMessage(largeText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults').when({ utilization: 0.85, skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults').when({ utilization: 0.85 })
       const context = makeContext(messages, 0.5, mockModel)
 
       const result = await strategy.apply(context)
@@ -132,7 +132,7 @@ describe('Offload.summarize', () => {
       const largeText = 'x'.repeat(2500 * 4 + 100)
       const messages = [makeToolResultMessage(largeText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults').when({ utilization: 0.85, skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults').when({ utilization: 0.85 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -152,7 +152,7 @@ describe('Offload.summarize', () => {
         ],
       })
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults')
       const context = makeContext([message], 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -162,7 +162,7 @@ describe('Offload.summarize', () => {
 
     it('returns false on empty messages', async () => {
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
+      const strategy = Offload.summarize('toolResults')
       const context = makeContext([], 0.9, mockModel)
 
       const result = await strategy.apply(context)

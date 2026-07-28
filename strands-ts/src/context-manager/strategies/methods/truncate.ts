@@ -1,8 +1,7 @@
 /**
  * Truncate reduction method.
  *
- * Replaces content with a head-tail preview. Used by Offload to shrink
- * oversized blocks in L0.
+ * Replaces content with a preview (head, tail, or head-tail).
  *
  * @internal
  */

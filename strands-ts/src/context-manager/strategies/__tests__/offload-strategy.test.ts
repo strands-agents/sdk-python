@@ -33,14 +33,14 @@ describe('Offload.truncate', () => {
 
   it('creates a strategy with .when() conditions', () => {
     const strategy = Offload.truncate('toolResults', { previewTokens: 500 })
-      .when({ threshold: 1000, skipRecent: 5 })
+      .when({ threshold: 1000 })
     expect(strategy.name).toBe('offload:truncate')
   })
 
   it('truncates large tool results', async () => {
     const largeText = 'x'.repeat(2500 * 4 + 100)
     const messages = [makeToolResultMessage(largeText)]
-    const strategy = Offload.truncate('toolResults').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResults')
     const context = makeContext(messages)
 
     const result = await strategy.apply(context)
@@ -56,32 +56,12 @@ describe('Offload.truncate', () => {
   it('does not truncate small results', async () => {
     const smallText = 'short result'
     const messages = [makeToolResultMessage(smallText)]
-    const strategy = Offload.truncate('toolResults').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResults')
     const context = makeContext(messages)
 
     const result = await strategy.apply(context)
 
     expect(result).toBe(false)
-  })
-
-  it('skips recent messages', async () => {
-    const largeText = 'x'.repeat(2500 * 4 + 100)
-    const messages = [
-      makeToolResultMessage(largeText, 'tool-1'),
-      makeToolResultMessage(largeText, 'tool-2'),
-      makeToolResultMessage(largeText, 'tool-3'),
-      makeToolResultMessage(largeText, 'tool-4'),
-    ]
-    const strategy = Offload.truncate('toolResults').when({ skipRecent: 3 })
-    const context = makeContext(messages)
-
-    const result = await strategy.apply(context)
-
-    expect(result).toBe(true)
-    const firstBlock = messages[0]!.content[0] as ToolResultBlock
-    expect((firstBlock.content[0] as TextBlock).text).toContain('[Truncated:')
-    const lastBlock = messages[3]!.content[0] as ToolResultBlock
-    expect((lastBlock.content[0] as TextBlock).text).not.toContain('[Truncated:')
   })
 
   it('skips error results when target is toolResults', async () => {
@@ -96,7 +76,7 @@ describe('Offload.truncate', () => {
         }),
       ],
     })
-    const strategy = Offload.truncate('toolResults').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResults')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -116,7 +96,7 @@ describe('Offload.truncate', () => {
         }),
       ],
     })
-    const strategy = Offload.truncate('toolResultErrors').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResultErrors')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -135,7 +115,7 @@ describe('Offload.truncate', () => {
         }),
       ],
     })
-    const strategy = Offload.truncate('toolResults').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResults')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -149,7 +129,7 @@ describe('Offload.truncate', () => {
       role: 'assistant',
       content: [new TextBlock(largeText)],
     })
-    const strategy = Offload.truncate('toolResults').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResults')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -163,7 +143,7 @@ describe('Offload.truncate', () => {
       role: 'assistant',
       content: [new TextBlock(largeText)],
     })
-    const strategy = Offload.truncate('assistantMessages').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('assistantMessages')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -179,7 +159,7 @@ describe('Offload.truncate', () => {
       role: 'user',
       content: [new TextBlock(largeText)],
     })
-    const strategy = Offload.truncate('userMessages').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('userMessages')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -195,7 +175,7 @@ describe('Offload.truncate', () => {
       role: 'user',
       content: [new TextBlock(largeText)],
     })
-    const strategy = Offload.truncate('assistantMessages').when({ skipRecent: 0 })
+    const strategy = Offload.truncate('assistantMessages')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -206,7 +186,7 @@ describe('Offload.truncate', () => {
   it('builds head-tail preview', async () => {
     const largeText = 'HEAD'.repeat(1000) + 'MIDDLE'.repeat(5000) + 'TAIL'.repeat(1000)
     const messages = [makeToolResultMessage(largeText)]
-    const strategy = Offload.truncate('toolResults', { previewTokens: 100 }).when({ skipRecent: 0 })
+    const strategy = Offload.truncate('toolResults', { previewTokens: 100 })
     const context = makeContext(messages)
 
     await strategy.apply(context)
@@ -238,7 +218,7 @@ describe('Offload builder', () => {
   it('Offload() drops tool result content from L0 entirely', async () => {
     const largeText = 'x'.repeat(100)
     const messages = [makeToolResultMessage(largeText)]
-    const strategy = Offload('toolResults').when({ skipRecent: 0 })
+    const strategy = Offload('toolResults')
     const context = makeContext(messages)
 
     const result = await strategy.apply(context)
@@ -253,7 +233,7 @@ describe('Offload builder', () => {
       role: 'assistant',
       content: [new TextBlock('some assistant response')],
     })
-    const strategy = Offload('assistantMessages').when({ skipRecent: 0 })
+    const strategy = Offload('assistantMessages')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -268,7 +248,7 @@ describe('Offload builder', () => {
       role: 'user',
       content: [new TextBlock('some user message')],
     })
-    const strategy = Offload('userMessages').when({ skipRecent: 0 })
+    const strategy = Offload('userMessages')
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
