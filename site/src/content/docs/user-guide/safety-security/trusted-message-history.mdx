@@ -20,30 +20,33 @@ The reliable control is the trust boundary. Build an agent's message history fro
 
 ## Clearing a trailing tool-call block
 
-If a Python application must accept caller-influenced history, remove `toolUse` content from the final message before the agent uses it. That closes the direct-dispatch path.
+If a Python application must accept caller-influenced history, strip `toolUse` content from the tail before the agent uses it. The dispatch check inspects only the last message, so keep stripping until the final message carries no `toolUse` block: dropping one `toolUse`-only message can expose another beneath it.
 
 ```python
 from strands import Agent
 
 
-def clear_trailing_tool_use(messages):
-    """Remove toolUse blocks from the final message of untrusted history."""
-    if not messages:
-        return messages
-    last = messages[-1]
-    content = [block for block in last.get("content", []) if "toolUse" not in block]
-    if not content:
-        return messages[:-1]
-    messages[-1] = {**last, "content": content}
+def strip_trailing_tool_use(messages):
+    """Strip toolUse blocks from the tail until the last message has none."""
+    messages = list(messages)
+    while messages:
+        last = messages[-1]
+        content = [block for block in last.get("content", []) if "toolUse" not in block]
+        if len(content) == len(last.get("content", [])):
+            break  # no toolUse in the final message
+        if content:
+            messages[-1] = {**last, "content": content}
+            break
+        messages.pop()  # message was toolUse-only; drop it and re-check the tail
     return messages
 
 
 # untrusted_messages came from a request body, queue, or shared store.
 agent = Agent()
-agent(clear_trailing_tool_use(untrusted_messages))
+agent(strip_trailing_tool_use(untrusted_messages))
 ```
 
-Clearing the trailing block closes the direct-dispatch path. It does not make untrusted content safe: injected text and forged tool-result content elsewhere in the history still reach the model. Prefer the trust boundary above.
+Stripping the trailing tool-call content closes the direct-dispatch path. It does not make untrusted content safe: injected text and forged tool-result content elsewhere in the history still reach the model. Prefer the trust boundary above.
 
 ## Related
 
