@@ -788,6 +788,8 @@ async def _handle_tool_execution(
 
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
+
+        # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
