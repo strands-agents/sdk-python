@@ -323,6 +323,10 @@ class ContextOffloader(Plugin):
         Constraints:
           - pattern/line_range/context_lines only work on text content. For binary content, omit them.
           - Line numbers in results are 1-indexed and can be used in follow-up line_range calls.
+          - Retrieving a reference refreshes its eviction timer for unified Storage
+            backends, so actively-retrieved content survives ``evict_after_cycles``
+            beyond its store time — matching ``InMemoryStorage.retrieve``'s
+            last-access refresh behavior.
 
         Examples:
           {"reference": "ref_1", "pattern": "error"} -> lines containing "error" with 5 lines context
@@ -344,6 +348,10 @@ class ContextOffloader(Plugin):
             content_bytes, content_type = await _retrieve_content(storage, reference)
         except KeyError:
             return f"Error: reference not found: {reference}"
+
+        # Refresh the eviction cycle so actively-retrieved content survives
+        # eviction for unified Storage backends, matching InMemoryStorage.retrieve.
+        self._refresh_eviction_cycle(tool_context.agent, reference)
 
         if pattern is None and line_range is None and context_lines is None:
             return self._decode_full_content(content_bytes, content_type, reference)
@@ -539,6 +547,26 @@ class ContextOffloader(Plugin):
                 agent_cycles = {}
                 self._stored_cycles[agent] = agent_cycles
             agent_cycles[ref] = cycle
+
+    def _refresh_eviction_cycle(self, agent: Agent, reference: str) -> None:
+        """Refresh the eviction cycle for a retrieved reference.
+
+        Unified ``Storage`` backends are evicted by the plugin based on the cycle
+        recorded at *store* time (see ``_on_before_model_call``). Without a refresh
+        on retrieve, an entry is evicted ``evict_after_cycles`` after it was stored
+        regardless of active retrieval — so an agent that retrieves a reference at
+        cycle 15 can still hit "reference not found" at cycle 21 because the store
+        happened at cycle 0. ``InMemoryStorage.retrieve`` already refreshes its own
+        last-accessed cycle (storage.py:372); this mirrors that behavior for the
+        unified-Storage path so cross-backend behavior matches the documented
+        contract. A no-op for ``InMemoryStorage`` (``_track_stored_cycle`` is guarded
+        by ``not _is_offloader_storage``), which self-refreshes on retrieve.
+        """
+        cycle = agent.event_loop_metrics.cycle_count
+        self._track_stored_cycle(agent, reference, cycle)
+        logger.debug(
+            "reference=<%s>, cycle=<%d> | retrieve refreshed eviction cycle", reference, cycle
+        )
 
     def _slice_preview(self, text: str) -> str:
         """Slice text to approximately preview_tokens using character-based estimation.
