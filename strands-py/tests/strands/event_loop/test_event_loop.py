@@ -1633,6 +1633,49 @@ async def test_event_loop_cycle_before_tools_interrupt_invalid_tool_result_not_d
 
 
 @pytest.mark.asyncio
+async def test_event_loop_cycle_per_tool_interrupt_with_invalid_tool_no_duplicate_result(agent, tool, alist):
+    """A per-tool interrupt in a batch containing an invalid tool must not duplicate the invalid tool's result.
+
+    The pending_tool_use_ids filter on validation_results prevents re-appending results that were already
+    persisted in interrupt state from the prior cycle.
+    """
+    assistant_message = {
+        "role": "assistant",
+        "content": [
+            {"toolUse": {"toolUseId": "t1", "name": tool.tool_name, "input": {"random_string": "hello"}}},
+            {"toolUse": {"toolUseId": "t2", "name": "invalid tool", "input": {}}},
+        ],
+    }
+    agent.messages.append(assistant_message)
+
+    def interrupt_tool(event):
+        if event.tool_use["toolUseId"] == "t1":
+            event.interrupt("approval", "Approve?")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_tool)
+
+    # First cycle: t2 gets an invalid-tool result, t1 is interrupted before execution.
+    first_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+    _, _, _, _, interrupts, _, _ = first_events[-1]["stop"]
+    interrupt = interrupts[0]
+
+    # Resume: t1 should execute, t2's result should not be duplicated.
+    agent._interrupt_state.resume([{"interruptResponse": {"interruptId": interrupt.id, "response": "approved"}}])
+
+    resumed_events = await alist(
+        strands.event_loop.event_loop.event_loop_cycle(
+            agent,
+            invocation_state={"request_state": {"stop_event_loop": True}},
+        )
+    )
+
+    assert resumed_events[-1]["stop"][0] == "tool_use"
+    result_ids = [content["toolResult"]["toolUseId"] for content in agent.messages[-1]["content"]]
+    assert result_ids.count("t2") == 1, f"t2 duplicated: {result_ids}"
+    assert "t1" in result_ids
+
+
+@pytest.mark.asyncio
 async def test_event_loop_cycle_before_tools_interrupt_resume_with_checkpoint(agent, tool_stream, agenerator, alist):
     agent._checkpointing = True
     agent._checkpoint = Checkpoint(position="after_model", cycle_index=0)

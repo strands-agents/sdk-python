@@ -135,10 +135,11 @@ class MessageAddedEvent(HookEvent):
 
 @dataclass
 class BeforeToolsEvent(HookEvent, _Interruptible):
-    """Event triggered before a batch of tools is executed.
+    """Event triggered at the start of each event-loop cycle that has pending tool-use requests.
 
-    This event is fired once for each assistant message containing tool use
-    requests, before any individual tool callbacks or execution begin.
+    A per-tool interrupt splits a batch across cycles, so this event can fire more
+    than once for a single assistant message. On a resume cycle, tools that already
+    completed are excluded from the pending set.
 
     Attributes:
         message: The full assistant message containing the tool use requests.
