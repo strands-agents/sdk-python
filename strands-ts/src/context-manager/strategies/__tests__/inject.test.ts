@@ -10,7 +10,7 @@ function createMockModel(): unknown {
     streamAggregated: vi.fn(() => {
       let called = false
       return {
-        async next(): Promise<{ done: boolean; value?: { message: { content: unknown[] } } }> {
+        async next(): Promise<{ done: boolean; value: { message: { content: unknown[] } } | undefined }> {
           if (!called) {
             called = true
             return { done: true, value: { message: { content: [new TextBlock('Summarized content')] } } }

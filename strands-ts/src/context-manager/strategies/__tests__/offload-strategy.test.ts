@@ -201,11 +201,25 @@ describe('Offload.truncate', () => {
 })
 
 describe('Offload builder', () => {
-  it('Offload() shorthand creates a truncate strategy', () => {
+  it('Offload() bare call creates a drop strategy', () => {
     const strategy = Offload('toolResults')
-    expect(strategy.name).toBe('offload:truncate')
+    expect(strategy.name).toBe('offload:drop')
     expect(strategy.init).toBeDefined()
     expect(strategy.apply).toBeDefined()
+  })
+
+  it('Offload() drops content from L0 entirely', async () => {
+    const largeText = 'x'.repeat(100)
+    const messages = [makeToolResultMessage(largeText)]
+    const storage = new InMemoryStorage()
+    const strategy = Offload('toolResults').when({ skipRecent: 0 })
+    const context = makeContext(messages, storage)
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    const block = messages[0]!.content[0] as ToolResultBlock
+    expect((block.content[0] as TextBlock).text).toContain('[Dropped:')
   })
 
   it('Offload.summarize() creates a summarize strategy', () => {
