@@ -220,13 +220,7 @@ class _AgentAsTool(AgentTool):
                 )
                 return
 
-            # Propagate sub-agent interrupts to the parent agent. The snapshot lets the parent
-            # persist everything required to resume this exact invocation, so the sub-agent does
-            # not need its own session and does not accumulate history across turns.
-            #
-            # Interrupt IDs are namespaced by the outer toolUseId so that two concurrent
-            # sub-agents producing the same local ID do not collide when the parent registers
-            # them with setdefault.
+            # Propagate sub-agent interrupts to the parent agent.
             if result.stop_reason == "interrupt" and result.interrupts:
                 namespaced_interrupts, interrupt_id_map = self._namespace_interrupts(
                     tool_use_id, list(result.interrupts)
@@ -365,21 +359,16 @@ class _AgentAsTool(AgentTool):
         session_snapshot_dict = snapshot["session_snapshot"]
         self._agent.load_snapshot(Snapshot.from_dict(session_snapshot_dict))
 
-        # The interrupt_id_map translates parent-visible (namespaced) IDs back to the
-        # sub-agent-local IDs that the restored _interrupt_state expects.
         interrupt_id_map: dict[str, str] = snapshot.get("interrupt_id_map") or {}
-        parent_ids_for_this_snapshot = set(interrupt_id_map.keys())
 
         sub_agent_interrupt_resume = invocation_state.get("_sub_agent_interrupt_resume") or {}
         responses = sub_agent_interrupt_resume.get("responses") or []
 
-        # Filter to only responses owned by this snapshot (keyed by namespaced parent ID),
-        # then rewrite interruptId to the sub-agent-local form before forwarding.
         local_responses: list[InterruptResponseContent] = []
         for response in responses:
             parent_id = response["interruptResponse"]["interruptId"]
-            if parent_id in parent_ids_for_this_snapshot:
-                local_id = interrupt_id_map[parent_id]
+            local_id = interrupt_id_map.get(parent_id)
+            if local_id is not None:
                 local_responses.append(
                     {
                         "interruptResponse": {
