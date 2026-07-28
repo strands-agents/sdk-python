@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Offload } from '../offload.js'
-import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
+import { Message, TextBlock, ToolResultBlock, ToolUseBlock } from '../../../types/messages.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { StrategyContext } from '../../types.js'
 
@@ -256,6 +256,60 @@ describe('Offload builder', () => {
     expect(result).toBe(true)
     const block = message.content[0] as TextBlock
     expect(block.text).toBe('[Dropped]')
+  })
+
+  it('Offload.truncate with string[] target matches tool by name from assistant message', async () => {
+    const largeText = 'x'.repeat(2500 * 4 + 100)
+    const assistantMsg = new Message({
+      role: 'assistant',
+      content: [
+        new ToolUseBlock({ name: 'bash', toolUseId: 'tool-bash', input: {} }),
+      ],
+    })
+    const userMsg = new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'tool-bash',
+          status: 'success',
+          content: [new TextBlock(largeText)],
+        }),
+      ],
+    })
+    const strategy = Offload.truncate(['bash'])
+    const context = makeContext([assistantMsg, userMsg])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    const block = userMsg.content[0] as ToolResultBlock
+    expect((block.content[0] as TextBlock).text).toContain('[Truncated:')
+  })
+
+  it('Offload.truncate with string[] target skips non-matching tools', async () => {
+    const largeText = 'x'.repeat(2500 * 4 + 100)
+    const assistantMsg = new Message({
+      role: 'assistant',
+      content: [
+        new ToolUseBlock({ name: 'read_file', toolUseId: 'tool-read', input: {} }),
+      ],
+    })
+    const userMsg = new Message({
+      role: 'user',
+      content: [
+        new ToolResultBlock({
+          toolUseId: 'tool-read',
+          status: 'success',
+          content: [new TextBlock(largeText)],
+        }),
+      ],
+    })
+    const strategy = Offload.truncate(['bash'])
+    const context = makeContext([assistantMsg, userMsg])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(false)
   })
 
   it('Offload.summarize() creates a summarize strategy', () => {

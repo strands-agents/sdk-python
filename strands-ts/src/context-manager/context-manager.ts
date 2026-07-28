@@ -139,7 +139,12 @@ export class ContextManager implements Plugin {
     const targetRemoval = Math.max(1, Math.floor(messages.length * 0.2))
     if (messages.length <= 3) return
 
-    const safeSplitPoint = adjustSplitPointForToolPairs(messages, Math.min(targetRemoval + 1, messages.length - 2))
+    let safeSplitPoint: number
+    try {
+      safeSplitPoint = adjustSplitPointForToolPairs(messages, Math.min(targetRemoval + 1, messages.length - 2))
+    } catch {
+      safeSplitPoint = Math.min(targetRemoval + 1, messages.length - 2)
+    }
     const removeCount = Math.max(1, safeSplitPoint - 1)
 
     messages.splice(1, removeCount)

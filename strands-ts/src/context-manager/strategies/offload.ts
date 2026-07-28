@@ -17,7 +17,7 @@
  *       .when({ threshold: 500 }),
  *     Offload.summarize("toolResults", { ratio: 0.3 })
  *       .when({ threshold: 2000, utilization: 0.85 }),
- *     Offload("toolResultErrors"),  // drop from L0 entirely
+ *     Offload("toolResultErrors"),
  *   ],
  * })
  * ```
@@ -49,8 +49,6 @@ const DEFAULT_THRESHOLD = 2500
  * - `"toolResultErrors"` — all failed tool result blocks
  * - `"assistantMessages"` — text blocks in assistant messages
  * - `"userMessages"` — text blocks in user messages (excluding tool results)
- * - `"images"` — image blocks (planned, not yet implemented)
- * - `"documents"` — document blocks (planned, not yet implemented)
  * - `string[]` — tool results from specific tools; prefix with `!` to exclude
  */
 export type OffloadTarget =
@@ -58,8 +56,6 @@ export type OffloadTarget =
   | 'toolResultErrors'
   | 'assistantMessages'
   | 'userMessages'
-  | 'images'
-  | 'documents'
   | string[]
 
 /**
@@ -82,6 +78,27 @@ export interface StrategyBuilder extends ContextStrategy {
   when(conditions: WhenConditions): ContextStrategy
 }
 
+
+// --- Shared helpers ---
+
+function matchesToolTarget(
+  block: ToolResultBlock,
+  target: OffloadTarget,
+  messages: Message[],
+  toolFilter: Set<string> | undefined,
+  excludeFilter: Set<string> | undefined
+): boolean {
+  if (target === 'toolResults') return block.status !== 'error'
+  if (target === 'toolResultErrors') return block.status === 'error'
+
+  const toolName = resolveToolName(block, messages)
+  if (!toolName) return toolFilter === undefined && excludeFilter === undefined
+
+  if (excludeFilter) return !excludeFilter.has(toolName)
+  if (toolFilter) return toolFilter.has(toolName)
+
+  return true
+}
 
 // --- Offload bare: drop from L0 entirely ---
 
@@ -106,7 +123,7 @@ class OffloadDropStrategy implements ContextStrategy {
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
-      this._processMessage(message)
+      this._processMessage(message, [message])
     })
   }
 
@@ -115,7 +132,7 @@ class OffloadDropStrategy implements ContextStrategy {
     let dropped = false
 
     for (const message of messages) {
-      if (this._processMessage(message)) {
+      if (this._processMessage(message, messages)) {
         dropped = true
       }
     }
@@ -123,7 +140,7 @@ class OffloadDropStrategy implements ContextStrategy {
     return dropped
   }
 
-  private _processMessage(message: Message): boolean {
+  private _processMessage(message: Message, messages: Message[]): boolean {
     let dropped = false
 
     if (this._target === 'assistantMessages') {
@@ -159,7 +176,7 @@ class OffloadDropStrategy implements ContextStrategy {
     for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
       const block = message.content[blockIndex]!
       if (!(block instanceof ToolResultBlock)) continue
-      if (!this._matchesToolTarget(block, message)) continue
+      if (!matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)) continue
       if (isAlreadyProcessed(block)) continue
 
       if (this._threshold > 0) {
@@ -178,19 +195,6 @@ class OffloadDropStrategy implements ContextStrategy {
     }
 
     return dropped
-  }
-
-  private _matchesToolTarget(block: ToolResultBlock, message: Message): boolean {
-    if (this._target === 'toolResults') return block.status !== 'error'
-    if (this._target === 'toolResultErrors') return block.status === 'error'
-
-    const toolName = resolveToolName(block, message)
-    if (!toolName) return this._toolFilter === undefined && this._excludeFilter === undefined
-
-    if (this._excludeFilter) return !this._excludeFilter.has(toolName)
-    if (this._toolFilter) return this._toolFilter.has(toolName)
-
-    return true
   }
 }
 
@@ -219,7 +223,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
-      this._processMessage(message)
+      this._processMessage(message, [message])
     })
   }
 
@@ -228,7 +232,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     let truncated = false
 
     for (const message of messages) {
-      if (this._processMessage(message)) {
+      if (this._processMessage(message, messages)) {
         truncated = true
       }
     }
@@ -236,7 +240,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     return truncated
   }
 
-  private _processMessage(message: Message): boolean {
+  private _processMessage(message: Message, messages: Message[]): boolean {
     let truncated = false
 
     if (this._target === 'assistantMessages') {
@@ -274,7 +278,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
       if (!(block instanceof ToolResultBlock)) continue
-      if (!this._matchesToolTarget(block, message)) continue
+      if (!matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)) continue
       if (isAlreadyProcessed(block)) continue
 
       const estimatedTokens = estimateBlockTokens(block)
@@ -289,19 +293,6 @@ class OffloadTruncateStrategy implements ContextStrategy {
     }
 
     return truncated
-  }
-
-  private _matchesToolTarget(block: ToolResultBlock, message: Message): boolean {
-    if (this._target === 'toolResults') return block.status !== 'error'
-    if (this._target === 'toolResultErrors') return block.status === 'error'
-
-    const toolName = resolveToolName(block, message)
-    if (!toolName) return this._toolFilter === undefined && this._excludeFilter === undefined
-
-    if (this._excludeFilter) return !this._excludeFilter.has(toolName)
-    if (this._toolFilter) return this._toolFilter.has(toolName)
-
-    return true
   }
 }
 
@@ -331,10 +322,11 @@ class OffloadSummarizeStrategy implements ContextStrategy {
   init(context: StrategyInitContext): void {
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
+      if (this._utilization !== undefined) return
       const message = event.message
       const model = this._config.model ?? (agent as unknown as Record<string, unknown>)['model'] as Model | undefined
       if (!model) return
-      await this._processMessage(message, model)
+      await this._processMessage(message, [message], model)
     })
   }
 
@@ -357,7 +349,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     let summarized = false
 
     for (const message of messages) {
-      if (await this._processMessage(message, model)) {
+      if (await this._processMessage(message, messages, model)) {
         summarized = true
       }
     }
@@ -365,7 +357,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     return summarized
   }
 
-  private async _processMessage(message: Message, model: Model): Promise<boolean> {
+  private async _processMessage(message: Message, messages: Message[], model: Model): Promise<boolean> {
     let summarized = false
 
     if (this._target === 'assistantMessages') {
@@ -411,7 +403,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
       if (!(block instanceof ToolResultBlock)) continue
-      if (!this._matchesToolTarget(block, message)) continue
+      if (!matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)) continue
       if (isAlreadyProcessed(block)) continue
 
       const tokens = estimateBlockTokens(block)
@@ -432,19 +424,6 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     }
 
     return summarized
-  }
-
-  private _matchesToolTarget(block: ToolResultBlock, message: Message): boolean {
-    if (this._target === 'toolResults') return block.status !== 'error'
-    if (this._target === 'toolResultErrors') return block.status === 'error'
-
-    const toolName = resolveToolName(block, message)
-    if (!toolName) return this._toolFilter === undefined && this._excludeFilter === undefined
-
-    if (this._excludeFilter) return !this._excludeFilter.has(toolName)
-    if (this._toolFilter) return this._toolFilter.has(toolName)
-
-    return true
   }
 }
 
@@ -496,14 +475,14 @@ function createSummarizeBuilder(target: OffloadTarget, config?: SummarizeConfig)
  * Offload strategy builder namespace.
  *
  * - `Offload(target)` — drop matching content from L0 entirely
- * - `Offload.truncate(target, config)` — replace with head-tail preview
+ * - `Offload.truncate(target, config)` — replace with a preview
  * - `Offload.summarize(target, config)` — replace with LLM-generated summary
  */
 export interface OffloadNamespace {
   /** Drop matching content from L0 entirely. */
   (target: OffloadTarget): StrategyBuilder
 
-  /** Replace oversized content with a head-tail preview. */
+  /** Replace oversized content with a preview. */
   truncate(target: OffloadTarget, config?: TruncateConfig): StrategyBuilder
 
   /** Replace oversized content with an LLM-generated summary. */
@@ -536,10 +515,17 @@ export const Offload: OffloadNamespace = offloadFn as OffloadNamespace
 
 // --- Helpers ---
 
-function resolveToolName(block: ToolResultBlock, message: Message): string | undefined {
-  for (const content of message.content) {
-    if ('toolUseId' in content && 'name' in content && (content as { toolUseId: string }).toolUseId === block.toolUseId) {
-      return (content as { name: string }).name
+/**
+ * Resolves the tool name for a ToolResultBlock by finding the corresponding ToolUseBlock
+ * in the preceding assistant message (where ToolUseBlocks live).
+ */
+function resolveToolName(block: ToolResultBlock, messages: Message[]): string | undefined {
+  for (const message of messages) {
+    if (message.role !== 'assistant') continue
+    for (const content of message.content) {
+      if ('toolUseId' in content && 'name' in content && (content as { toolUseId: string }).toolUseId === block.toolUseId) {
+        return (content as { name: string }).name
+      }
     }
   }
   return undefined
@@ -561,6 +547,7 @@ function resolveToolFilter(target: OffloadTarget): { include?: Set<string>; excl
   }
 
   if (excludes.length > 0 && includes.length > 0) {
+    logger.warn('tool filter contains both includes and excludes, excludes will be ignored')
     return { include: new Set(includes) }
   }
   if (excludes.length > 0) {

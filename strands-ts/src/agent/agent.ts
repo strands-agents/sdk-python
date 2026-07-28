@@ -350,6 +350,9 @@ function resolveConversationManager(
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
   if (contextManager instanceof ContextManager) {
+    if (conversationManager) {
+      logger.warn('contextManager instance provided alongside conversationManager, conversationManager will be ignored')
+    }
     return new NullConversationManager()
   }
   if (contextManager === 'agentic') {
@@ -586,6 +589,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     //   guards on `event.retry`, so a user hook that already set it short-circuits
     //   the strategy regardless of registration order.
     const hasOffloader = (config?.plugins ?? []).some((p) => p.name === 'strands:context-offloader')
+    const hasContextManager = (config?.plugins ?? []).some((p) => p.name === 'strands:context-manager')
 
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
@@ -604,7 +608,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
-      ...(config?.contextManager instanceof ContextManager ? [config.contextManager] : []),
+      ...(config?.contextManager instanceof ContextManager && !hasContextManager ? [config.contextManager] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
     ])
