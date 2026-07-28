@@ -23,7 +23,7 @@ export class PluginRegistry {
 
   /**
    * Initialize all pending plugins with the agent.
-   * Safe to call multiple times — only runs once per pending batch.
+   * Safe to call multiple times — subsequent calls share the first initialization result, including failures.
    *
    * @param agent - The agent instance to initialize plugins with
    */

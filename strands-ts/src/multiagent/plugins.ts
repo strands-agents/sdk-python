@@ -70,7 +70,7 @@ export class MultiAgentPluginRegistry {
 
   /**
    * Initialize all pending plugins with the orchestrator.
-   * Safe to call multiple times — only runs once.
+   * Safe to call multiple times — subsequent calls share the first initialization result, including failures.
    *
    * @param orchestrator - The orchestrator instance to initialize plugins with
    */
