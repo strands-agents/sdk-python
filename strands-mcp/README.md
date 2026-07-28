@@ -37,7 +37,7 @@ This MCP server provides curated documentation access to your GenAI tools via ll
 
 ## Features
 
-- **Title-Based Document Search**: Weighted TF-IDF ranking over the curated document titles
+- **Document Search**: Weighted TF-IDF ranking over document titles, extended to page content once a page is hydrated (fetched), so body terms become searchable
 - **Section-Based Browsing**: Browse document structure via table of contents, then fetch only the section you need - more token-efficient than retrieving full pages
 - **Curated Content**: Indexes documentation from llms.txt files with clean, human-readable titles
 - **On-Demand Fetching**: Lazy-loads full document content only when needed for optimal performance
@@ -46,12 +46,16 @@ This MCP server provides curated documentation access to your GenAI tools via ll
 
 ### Tool behavior
 
-- `search_docs(query, k)` searches document titles. Use title-like keywords, then call `fetch_doc` to inspect a result's contents.
+- `search_docs(query, k)` ranks by document title and by page content once a page has been hydrated. Both title-like keywords and body terms work; call `fetch_doc` to inspect a result's contents.
 - Search scores are unbounded weighted TF-IDF values. They are useful only for ordering results from the same query; they are not probabilities and should not be compared across queries.
-- `search_docs` returns an empty list when no title matches. If a matched page cannot be fetched for its snippet, the result still includes the URL and title.
+- `search_docs` returns an empty list when no document matches. If a matched page cannot be fetched for its snippet, the result still includes the URL and title.
 - `fetch_doc` returns `{"error": "...", "url": "..."}` for unsupported URLs and failed page fetches. For
   sectioned documents, unknown section IDs also return an error; `section` is ignored when the full document is
   returned automatically.
+
+## Configuration
+
+- `STRANDS_MCP_PREFETCH_ALL`: when set to a truthy value (`1`, `true`, `yes`), the server prefetches and indexes all pages in the background at startup, so body-term search works immediately instead of only after a page has been hydrated by a prior query. Defaults to off. Prefetch is best-effort and eventually consistent: results may be title-only until background hydration completes.
 
 ## Prerequisites
 
