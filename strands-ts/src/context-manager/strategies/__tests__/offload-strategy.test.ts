@@ -143,13 +143,59 @@ describe('Offload.truncate', () => {
     expect(result).toBe(false)
   })
 
-  it('skips non-user messages', async () => {
+  it('skips non-user messages when targeting tool results', async () => {
     const largeText = 'x'.repeat(2500 * 4 + 100)
     const message = new Message({
       role: 'assistant',
       content: [new TextBlock(largeText)],
     })
     const strategy = Offload.truncate('toolResults').when({ skipRecent: 0 })
+    const context = makeContext([message])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(false)
+  })
+
+  it('truncates assistant text blocks with assistantMessages target', async () => {
+    const largeText = 'x'.repeat(2500 * 4 + 100)
+    const message = new Message({
+      role: 'assistant',
+      content: [new TextBlock(largeText)],
+    })
+    const strategy = Offload.truncate('assistantMessages').when({ skipRecent: 0 })
+    const context = makeContext([message])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    const block = message.content[0] as TextBlock
+    expect(block.text).toContain('[Truncated:')
+  })
+
+  it('truncates user text blocks with userMessages target', async () => {
+    const largeText = 'x'.repeat(2500 * 4 + 100)
+    const message = new Message({
+      role: 'user',
+      content: [new TextBlock(largeText)],
+    })
+    const strategy = Offload.truncate('userMessages').when({ skipRecent: 0 })
+    const context = makeContext([message])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    const block = message.content[0] as TextBlock
+    expect(block.text).toContain('[Truncated:')
+  })
+
+  it('does not truncate user messages with assistantMessages target', async () => {
+    const largeText = 'x'.repeat(2500 * 4 + 100)
+    const message = new Message({
+      role: 'user',
+      content: [new TextBlock(largeText)],
+    })
+    const strategy = Offload.truncate('assistantMessages').when({ skipRecent: 0 })
     const context = makeContext([message])
 
     const result = await strategy.apply(context)
@@ -189,7 +235,7 @@ describe('Offload builder', () => {
     expect(strategy.apply).toBeDefined()
   })
 
-  it('Offload() drops content from L0 entirely', async () => {
+  it('Offload() drops tool result content from L0 entirely', async () => {
     const largeText = 'x'.repeat(100)
     const messages = [makeToolResultMessage(largeText)]
     const strategy = Offload('toolResults').when({ skipRecent: 0 })
@@ -202,14 +248,44 @@ describe('Offload builder', () => {
     expect((block.content[0] as TextBlock).text).toBe('[Dropped]')
   })
 
+  it('Offload() drops assistant text blocks', async () => {
+    const message = new Message({
+      role: 'assistant',
+      content: [new TextBlock('some assistant response')],
+    })
+    const strategy = Offload('assistantMessages').when({ skipRecent: 0 })
+    const context = makeContext([message])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    const block = message.content[0] as TextBlock
+    expect(block.text).toBe('[Dropped]')
+  })
+
+  it('Offload() drops user text blocks', async () => {
+    const message = new Message({
+      role: 'user',
+      content: [new TextBlock('some user message')],
+    })
+    const strategy = Offload('userMessages').when({ skipRecent: 0 })
+    const context = makeContext([message])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    const block = message.content[0] as TextBlock
+    expect(block.text).toBe('[Dropped]')
+  })
+
   it('Offload.summarize() creates a summarize strategy', () => {
-    const strategy = Offload.summarize()
+    const strategy = Offload.summarize('toolResults')
     expect(strategy.name).toBe('offload:summarize')
     expect(strategy.apply).toBeDefined()
   })
 
   it('Offload.summarize().when() creates a strategy with conditions', () => {
-    const strategy = Offload.summarize({ ratio: 0.5 }).when({ utilization: 0.85 })
+    const strategy = Offload.summarize('toolResults', { ratio: 0.5 }).when({ utilization: 0.85 })
     expect(strategy.name).toBe('offload:summarize')
   })
 })

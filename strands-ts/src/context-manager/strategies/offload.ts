@@ -15,9 +15,9 @@
  *       .when({ threshold: 1500, skipRecent: 3 }),
  *     Offload.truncate(["bash", "list_files"], { previewTokens: 200 })
  *       .when({ threshold: 500 }),
- *     Offload.summarize({ ratio: 0.3 })
- *       .when({ utilization: 0.85 }),
- *     Offload("toolResultErrors"),  // drop from L0 entirely (still in L1)
+ *     Offload.summarize("toolResults", { ratio: 0.3 })
+ *       .when({ threshold: 2000, utilization: 0.85 }),
+ *     Offload("toolResultErrors"),  // drop from L0 entirely
  *   ],
  * })
  * ```
@@ -31,29 +31,27 @@ import type { Model } from '../../models/model.js'
 import type { ContextStrategy, StrategyContext, StrategyInitContext } from '../types.js'
 import {
   estimateBlockTokens,
-  isAlreadyTruncated,
-  truncateBlock,
+  estimateTextBlockTokens,
+  extractBlockText,
+  isAlreadyProcessed,
+  truncateToolResultBlock,
+  truncateTextBlock,
   type TruncateConfig,
 } from './methods/truncate.js'
-import type { SummarizeConfig } from './methods/summarize.js'
-import {
-  adjustSplitPointForToolPairs,
-  generateSummary,
-} from '../../conversation-manager/compression/context-compression.js'
+import { summarizeText, type SummarizeConfig } from './methods/summarize.js'
 
 const DEFAULT_THRESHOLD = 2500
 const DEFAULT_SKIP_RECENT = 3
-const DEFAULT_SUMMARIZE_RATIO = 0.3
 
 /**
  * Target for offload operations.
  *
- * - `"toolResults"` — all successful tool result messages
- * - `"toolResultErrors"` — all failed tool result messages
- * - `"assistantMessages"` — assistant messages (text responses)
- * - `"userMessages"` — user messages (no tool result)
- * - `"images"` — messages containing image blocks
- * - `"documents"` — messages containing document blocks
+ * - `"toolResults"` — all successful tool result blocks
+ * - `"toolResultErrors"` — all failed tool result blocks
+ * - `"assistantMessages"` — text blocks in assistant messages
+ * - `"userMessages"` — text blocks in user messages (excluding tool results)
+ * - `"images"` — image blocks (planned, not yet implemented)
+ * - `"documents"` — document blocks (planned, not yet implemented)
  * - `string[]` — tool results from specific tools; prefix with `!` to exclude
  */
 export type OffloadTarget =
@@ -69,10 +67,10 @@ export type OffloadTarget =
  * Conditions that determine when a strategy fires.
  */
 export interface WhenConditions {
-  /** Token threshold above which individual results are offloaded (truncate). */
+  /** Token threshold above which individual results are offloaded (truncate/summarize). */
   threshold?: number
 
-  /** Context utilization ratio (0-1) above which the strategy fires (summarize). */
+  /** Context utilization ratio (0-1) above which the strategy fires. */
   utilization?: number
 
   /** Number of recent messages to skip during retroactive apply(). */
@@ -114,26 +112,7 @@ class OffloadDropStrategy implements ContextStrategy {
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
-      if (message.role !== 'user') return
-
-      for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
-        const block = message.content[blockIndex]!
-        if (!(block instanceof ToolResultBlock)) continue
-        if (!this._matchesTarget(block, message)) continue
-
-        if (this._threshold > 0) {
-          const tokens = estimateBlockTokens(block)
-          if (tokens <= this._threshold) continue
-        }
-
-        const replacement = new ToolResultBlock({
-          toolUseId: block.toolUseId,
-          status: block.status,
-          content: [new TextBlock('[Dropped]')],
-        })
-        ;(message.content as unknown[])[blockIndex] = replacement
-        logger.debug(`toolUseId=<${block.toolUseId}> | eagerly dropped tool result from L0`)
-      }
+      this._processMessage(message)
     })
   }
 
@@ -144,34 +123,72 @@ class OffloadDropStrategy implements ContextStrategy {
     let dropped = false
 
     for (const message of eligible) {
-      if (message.role !== 'user') continue
-
-      for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
-        const block = message.content[blockIndex]!
-        if (!(block instanceof ToolResultBlock)) continue
-        if (!this._matchesTarget(block, message)) continue
-        if (isAlreadyTruncated(block)) continue
-
-        if (this._threshold > 0) {
-          const tokens = estimateBlockTokens(block)
-          if (tokens <= this._threshold) continue
-        }
-
-        const replacement = new ToolResultBlock({
-          toolUseId: block.toolUseId,
-          status: block.status,
-          content: [new TextBlock('[Dropped]')],
-        })
-        ;(message.content as unknown[])[blockIndex] = replacement
+      if (this._processMessage(message)) {
         dropped = true
-        logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from L0`)
       }
     }
 
     return dropped
   }
 
-  private _matchesTarget(block: ToolResultBlock, message: Message): boolean {
+  private _processMessage(message: Message): boolean {
+    let dropped = false
+
+    if (this._target === 'assistantMessages') {
+      if (message.role !== 'assistant') return false
+      for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof TextBlock)) continue
+        if (isAlreadyProcessed(block)) continue
+        if (this._threshold > 0 && estimateTextBlockTokens(block) <= this._threshold) continue
+        ;(message.content as unknown[])[blockIndex] = new TextBlock('[Dropped]')
+        dropped = true
+        logger.debug(`trackingId=<${message.trackingId}> | dropped assistant text block from L0`)
+      }
+      return dropped
+    }
+
+    if (this._target === 'userMessages') {
+      if (message.role !== 'user') return false
+      for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof TextBlock)) continue
+        if (isAlreadyProcessed(block)) continue
+        if (this._threshold > 0 && estimateTextBlockTokens(block) <= this._threshold) continue
+        ;(message.content as unknown[])[blockIndex] = new TextBlock('[Dropped]')
+        dropped = true
+        logger.debug(`trackingId=<${message.trackingId}> | dropped user text block from L0`)
+      }
+      return dropped
+    }
+
+    // Tool result targets
+    if (message.role !== 'user') return false
+    for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
+      const block = message.content[blockIndex]!
+      if (!(block instanceof ToolResultBlock)) continue
+      if (!this._matchesToolTarget(block, message)) continue
+      if (isAlreadyProcessed(block)) continue
+
+      if (this._threshold > 0) {
+        const tokens = estimateBlockTokens(block)
+        if (tokens <= this._threshold) continue
+      }
+
+      const replacement = new ToolResultBlock({
+        toolUseId: block.toolUseId,
+        status: block.status,
+        content: [new TextBlock('[Dropped]')],
+      })
+      ;(message.content as unknown[])[blockIndex] = replacement
+      dropped = true
+      logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from L0`)
+    }
+
+    return dropped
+  }
+
+  private _matchesToolTarget(block: ToolResultBlock, message: Message): boolean {
     if (this._target === 'toolResults') return block.status !== 'error'
     if (this._target === 'toolResultErrors') return block.status === 'error'
 
@@ -212,22 +229,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const message = event.message
-      if (message.role !== 'user') return
-
-      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
-        const block = message.content[blockIndex]!
-        if (!(block instanceof ToolResultBlock)) continue
-        if (!this._matchesTarget(block, message)) continue
-
-        const estimatedTokens = estimateBlockTokens(block)
-        if (estimatedTokens <= this._threshold) continue
-
-        const replacement = truncateBlock(block, this._truncateConfig)
-        ;(message.content as unknown[])[blockIndex] = replacement
-        logger.debug(
-          `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | eagerly truncated tool result`
-        )
-      }
+      this._processMessage(message)
     })
   }
 
@@ -238,30 +240,70 @@ class OffloadTruncateStrategy implements ContextStrategy {
     let truncated = false
 
     for (const message of eligible) {
-      if (message.role !== 'user') continue
-
-      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
-        const block = message.content[blockIndex]!
-        if (!(block instanceof ToolResultBlock)) continue
-        if (!this._matchesTarget(block, message)) continue
-        if (isAlreadyTruncated(block)) continue
-
-        const estimatedTokens = estimateBlockTokens(block)
-        if (estimatedTokens <= this._threshold) continue
-
-        const replacement = truncateBlock(block, this._truncateConfig)
-        ;(message.content as unknown[])[blockIndex] = replacement
+      if (this._processMessage(message)) {
         truncated = true
-        logger.debug(
-          `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | truncated tool result`
-        )
       }
     }
 
     return truncated
   }
 
-  private _matchesTarget(block: ToolResultBlock, message: Message): boolean {
+  private _processMessage(message: Message): boolean {
+    let truncated = false
+
+    if (this._target === 'assistantMessages') {
+      if (message.role !== 'assistant') return false
+      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof TextBlock)) continue
+        if (isAlreadyProcessed(block)) continue
+        const tokens = estimateTextBlockTokens(block)
+        if (tokens <= this._threshold) continue
+        ;(message.content as unknown[])[blockIndex] = truncateTextBlock(block, this._truncateConfig)
+        truncated = true
+        logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated assistant text block`)
+      }
+      return truncated
+    }
+
+    if (this._target === 'userMessages') {
+      if (message.role !== 'user') return false
+      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof TextBlock)) continue
+        if (isAlreadyProcessed(block)) continue
+        const tokens = estimateTextBlockTokens(block)
+        if (tokens <= this._threshold) continue
+        ;(message.content as unknown[])[blockIndex] = truncateTextBlock(block, this._truncateConfig)
+        truncated = true
+        logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated user text block`)
+      }
+      return truncated
+    }
+
+    // Tool result targets
+    if (message.role !== 'user') return false
+    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+      const block = message.content[blockIndex]!
+      if (!(block instanceof ToolResultBlock)) continue
+      if (!this._matchesToolTarget(block, message)) continue
+      if (isAlreadyProcessed(block)) continue
+
+      const estimatedTokens = estimateBlockTokens(block)
+      if (estimatedTokens <= this._threshold) continue
+
+      const replacement = truncateToolResultBlock(block, this._truncateConfig)
+      ;(message.content as unknown[])[blockIndex] = replacement
+      truncated = true
+      logger.debug(
+        `toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | truncated tool result`
+      )
+    }
+
+    return truncated
+  }
+
+  private _matchesToolTarget(block: ToolResultBlock, message: Message): boolean {
     if (this._target === 'toolResults') return block.status !== 'error'
     if (this._target === 'toolResultErrors') return block.status === 'error'
 
@@ -275,17 +317,39 @@ class OffloadTruncateStrategy implements ContextStrategy {
   }
 }
 
-// --- Offload + Summarize strategy (conversation-level) ---
+// --- Offload + Summarize strategy (block-level) ---
 
 class OffloadSummarizeStrategy implements ContextStrategy {
   readonly name = 'offload:summarize'
 
   private readonly _config: SummarizeConfig
+  private readonly _target: OffloadTarget
+  private readonly _threshold: number
+  private readonly _skipRecent: number
   private readonly _utilization: number | undefined
+  private readonly _toolFilter: Set<string> | undefined
+  private readonly _excludeFilter: Set<string> | undefined
 
-  constructor(config?: SummarizeConfig, conditions?: WhenConditions) {
+  constructor(target: OffloadTarget, config?: SummarizeConfig, conditions?: WhenConditions) {
     this._config = config ?? {}
+    this._target = target
+    this._threshold = conditions?.threshold ?? DEFAULT_THRESHOLD
+    this._skipRecent = conditions?.skipRecent ?? DEFAULT_SKIP_RECENT
     this._utilization = conditions?.utilization
+
+    const resolved = resolveToolFilter(target)
+    this._toolFilter = resolved.include
+    this._excludeFilter = resolved.exclude
+  }
+
+  init(context: StrategyInitContext): void {
+    const { agent } = context
+    agent.addHook(MessageAddedEvent, async (event) => {
+      const message = event.message
+      const model = this._config.model ?? (agent as unknown as Record<string, unknown>)['model'] as Model | undefined
+      if (!model) return
+      await this._processMessage(message, model)
+    })
   }
 
   async apply(context: StrategyContext): Promise<boolean> {
@@ -304,37 +368,99 @@ class OffloadSummarizeStrategy implements ContextStrategy {
       return false
     }
 
-    const ratio = Math.max(0.1, Math.min(0.8, this._config.ratio ?? DEFAULT_SUMMARIZE_RATIO))
+    const eligible = messages.slice(0, Math.max(0, messages.length - this._skipRecent))
 
-    let messagesToSummarize = Math.max(1, Math.floor(messages.length * ratio))
+    let summarized = false
 
-    if (messagesToSummarize >= messages.length) {
-      logger.debug(`messages=<${messages.length}> | insufficient messages for summarization`)
-      return false
+    for (const message of eligible) {
+      if (await this._processMessage(message, model)) {
+        summarized = true
+      }
     }
 
-    try {
-      messagesToSummarize = adjustSplitPointForToolPairs(messages, messagesToSummarize)
-    } catch {
-      logger.warn('unable to find valid split point for summarization')
-      return false
+    return summarized
+  }
+
+  private async _processMessage(message: Message, model: Model): Promise<boolean> {
+    let summarized = false
+
+    if (this._target === 'assistantMessages') {
+      if (message.role !== 'assistant') return false
+      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof TextBlock)) continue
+        if (isAlreadyProcessed(block)) continue
+        const tokens = estimateTextBlockTokens(block)
+        if (tokens <= this._threshold) continue
+
+        const summary = await summarizeText(block.text, model, this._config)
+        if (summary) {
+          ;(message.content as unknown[])[blockIndex] = new TextBlock(`[Summarized: ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+          summarized = true
+          logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized assistant text block`)
+        }
+      }
+      return summarized
     }
 
-    const toSummarize = messages.slice(0, messagesToSummarize)
-    if (toSummarize.length === 0) return false
+    if (this._target === 'userMessages') {
+      if (message.role !== 'user') return false
+      for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+        const block = message.content[blockIndex]!
+        if (!(block instanceof TextBlock)) continue
+        if (isAlreadyProcessed(block)) continue
+        const tokens = estimateTextBlockTokens(block)
+        if (tokens <= this._threshold) continue
 
-    try {
-      const summaryMessage = await generateSummary(toSummarize, model, this._config.systemPrompt)
-      messages.splice(0, messagesToSummarize, summaryMessage)
-
-      logger.debug(
-        `summarized=<${messagesToSummarize}>, remaining=<${messages.length}> | summarized oldest messages`
-      )
-      return true
-    } catch (error) {
-      logger.warn(`error=<${error}> | conversation summarization failed`)
-      return false
+        const summary = await summarizeText(block.text, model, this._config)
+        if (summary) {
+          ;(message.content as unknown[])[blockIndex] = new TextBlock(`[Summarized: ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+          summarized = true
+          logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized user text block`)
+        }
+      }
+      return summarized
     }
+
+    // Tool result targets
+    if (message.role !== 'user') return false
+    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
+      const block = message.content[blockIndex]!
+      if (!(block instanceof ToolResultBlock)) continue
+      if (!this._matchesToolTarget(block, message)) continue
+      if (isAlreadyProcessed(block)) continue
+
+      const tokens = estimateBlockTokens(block)
+      if (tokens <= this._threshold) continue
+
+      const fullText = extractBlockText(block)
+      const summary = await summarizeText(fullText, model, this._config)
+      if (summary) {
+        const replacement = new ToolResultBlock({
+          toolUseId: block.toolUseId,
+          status: block.status,
+          content: [new TextBlock(`[Summarized: ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
+        })
+        ;(message.content as unknown[])[blockIndex] = replacement
+        summarized = true
+        logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | summarized tool result`)
+      }
+    }
+
+    return summarized
+  }
+
+  private _matchesToolTarget(block: ToolResultBlock, message: Message): boolean {
+    if (this._target === 'toolResults') return block.status !== 'error'
+    if (this._target === 'toolResultErrors') return block.status === 'error'
+
+    const toolName = resolveToolName(block, message)
+    if (!toolName) return this._toolFilter === undefined && this._excludeFilter === undefined
+
+    if (this._excludeFilter) return !this._excludeFilter.has(toolName)
+    if (this._toolFilter) return this._toolFilter.has(toolName)
+
+    return true
   }
 }
 
@@ -368,15 +494,16 @@ function createTruncateBuilder(target: OffloadTarget, config?: TruncateConfig): 
   }
 }
 
-function createSummarizeBuilder(config?: SummarizeConfig): StrategyBuilder {
-  const strategy = new OffloadSummarizeStrategy(config)
+function createSummarizeBuilder(target: OffloadTarget, config?: SummarizeConfig): StrategyBuilder {
+  const strategy = new OffloadSummarizeStrategy(target, config)
   return {
     get name(): string {
       return strategy.name
     },
+    init: strategy.init.bind(strategy),
     apply: strategy.apply.bind(strategy),
     when(conditions: WhenConditions): ContextStrategy {
-      return new OffloadSummarizeStrategy(config, conditions)
+      return new OffloadSummarizeStrategy(target, config, conditions)
     },
   }
 }
@@ -384,19 +511,19 @@ function createSummarizeBuilder(config?: SummarizeConfig): StrategyBuilder {
 /**
  * Offload strategy builder namespace.
  *
- * - `Offload(target)` — drop matching content from L0 entirely (still in L1)
+ * - `Offload(target)` — drop matching content from L0 entirely
  * - `Offload.truncate(target, config)` — replace with head-tail preview
- * - `Offload.summarize(config)` — summarize oldest messages (conversation-level)
+ * - `Offload.summarize(target, config)` — replace with LLM-generated summary
  */
 export interface OffloadNamespace {
-  /** Drop matching content from L0 entirely (originals preserved in L1). */
+  /** Drop matching content from L0 entirely. */
   (target: OffloadTarget): StrategyBuilder
 
   /** Replace oversized content with a head-tail preview. */
   truncate(target: OffloadTarget, config?: TruncateConfig): StrategyBuilder
 
-  /** Summarize the oldest messages to free context space (conversation-level). */
-  summarize(config?: SummarizeConfig): StrategyBuilder
+  /** Replace oversized content with an LLM-generated summary. */
+  summarize(target: OffloadTarget, config?: SummarizeConfig): StrategyBuilder
 }
 
 function offloadFn(target: OffloadTarget): StrategyBuilder {
@@ -407,8 +534,8 @@ offloadFn.truncate = function truncate(target: OffloadTarget, config?: TruncateC
   return createTruncateBuilder(target, config)
 }
 
-offloadFn.summarize = function summarize(config?: SummarizeConfig): StrategyBuilder {
-  return createSummarizeBuilder(config)
+offloadFn.summarize = function summarize(target: OffloadTarget, config?: SummarizeConfig): StrategyBuilder {
+  return createSummarizeBuilder(target, config)
 }
 
 /**
@@ -417,7 +544,7 @@ offloadFn.summarize = function summarize(config?: SummarizeConfig): StrategyBuil
  * @example
  * ```typescript
  * Offload.truncate("toolResults", { previewTokens: 750 }).when({ threshold: 1500 })
- * Offload.summarize({ ratio: 0.3 }).when({ utilization: 0.85 })
+ * Offload.summarize("toolResults", { ratio: 0.3 }).when({ threshold: 2000 })
  * Offload("toolResultErrors")  // drop from L0 entirely
  * ```
  */

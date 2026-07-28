@@ -1,16 +1,24 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Offload } from '../offload.js'
-import { Message, TextBlock } from '../../../types/messages.js'
+import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { StrategyContext } from '../../types.js'
 
-vi.mock('../../../conversation-manager/compression/context-compression.js', () => ({
-  adjustSplitPointForToolPairs: vi.fn((messages: Message[], splitPoint: number) => splitPoint),
-  generateSummary: vi.fn(async () => new Message({ role: 'user', content: [new TextBlock('Summary of conversation')] })),
+vi.mock('../methods/summarize.js', () => ({
+  summarizeText: vi.fn(async (text: string) => `Summary of: ${text.slice(0, 20)}`),
 }))
 
-function makeUserMessage(text: string): Message {
-  return new Message({ role: 'user', content: [new TextBlock(text)] })
+function makeToolResultMessage(text: string, toolUseId = 'tool-123'): Message {
+  return new Message({
+    role: 'user',
+    content: [
+      new ToolResultBlock({
+        toolUseId,
+        status: 'success',
+        content: [new TextBlock(text)],
+      }),
+    ],
+  })
 }
 
 function makeContext(messages: Message[], utilization = 0.5, model?: unknown): StrategyContext {
@@ -27,19 +35,20 @@ function makeContext(messages: Message[], utilization = 0.5, model?: unknown): S
 
 describe('Offload.summarize', () => {
   it('creates a strategy with correct name', () => {
-    const strategy = Offload.summarize()
+    const strategy = Offload.summarize('toolResults')
     expect(strategy.name).toBe('offload:summarize')
   })
 
   it('creates a strategy with .when() conditions', () => {
-    const strategy = Offload.summarize({ ratio: 0.5 }).when({ utilization: 0.85 })
+    const strategy = Offload.summarize('toolResults', { ratio: 0.5 }).when({ utilization: 0.85 })
     expect(strategy.name).toBe('offload:summarize')
   })
 
   describe('apply', () => {
     it('returns false when no model is available', async () => {
-      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
-      const strategy = Offload.summarize()
+      const largeText = 'x'.repeat(2500 * 4 + 100)
+      const messages = [makeToolResultMessage(largeText)]
+      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
       const context = makeContext(messages)
 
       const result = await strategy.apply(context)
@@ -47,10 +56,11 @@ describe('Offload.summarize', () => {
       expect(result).toBe(false)
     })
 
-    it('returns false when not enough messages to summarize', async () => {
-      const messages = [makeUserMessage('hello')]
+    it('returns false when blocks are below threshold', async () => {
+      const smallText = 'short result'
+      const messages = [makeToolResultMessage(smallText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ ratio: 0.3 })
+      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -58,48 +68,71 @@ describe('Offload.summarize', () => {
       expect(result).toBe(false)
     })
 
-    it('summarizes oldest messages according to ratio', async () => {
-      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
+    it('summarizes large tool results', async () => {
+      const largeText = 'x'.repeat(2500 * 4 + 100)
+      const messages = [makeToolResultMessage(largeText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ ratio: 0.3 })
+      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
 
       expect(result).toBe(true)
-      // 30% of 20 = 6 messages summarized, replaced by 1 summary = 15 remaining
-      expect(messages).toHaveLength(15)
+      const block = messages[0]!.content[0] as ToolResultBlock
+      expect((block.content[0] as TextBlock).text).toContain('[Summarized:')
     })
 
-    it('respects higher ratio', async () => {
-      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
+    it('summarizes assistant text blocks', async () => {
+      const largeText = 'x'.repeat(2500 * 4 + 100)
+      const message = new Message({
+        role: 'assistant',
+        content: [new TextBlock(largeText)],
+      })
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize({ ratio: 0.5 })
-      const context = makeContext(messages, 0.9, mockModel)
+      const strategy = Offload.summarize('assistantMessages').when({ skipRecent: 0 })
+      const context = makeContext([message], 0.9, mockModel)
 
       const result = await strategy.apply(context)
 
       expect(result).toBe(true)
-      // 50% of 20 = 10 messages summarized, replaced by 1 summary = 11 remaining
-      expect(messages).toHaveLength(11)
+      const block = message.content[0] as TextBlock
+      expect(block.text).toContain('[Summarized:')
+    })
+
+    it('summarizes user text blocks', async () => {
+      const largeText = 'x'.repeat(2500 * 4 + 100)
+      const message = new Message({
+        role: 'user',
+        content: [new TextBlock(largeText)],
+      })
+      const mockModel = { stream: vi.fn() }
+      const strategy = Offload.summarize('userMessages').when({ skipRecent: 0 })
+      const context = makeContext([message], 0.9, mockModel)
+
+      const result = await strategy.apply(context)
+
+      expect(result).toBe(true)
+      const block = message.content[0] as TextBlock
+      expect(block.text).toContain('[Summarized:')
     })
 
     it('skips when utilization is below threshold', async () => {
-      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
+      const largeText = 'x'.repeat(2500 * 4 + 100)
+      const messages = [makeToolResultMessage(largeText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize().when({ utilization: 0.85 })
+      const strategy = Offload.summarize('toolResults').when({ utilization: 0.85, skipRecent: 0 })
       const context = makeContext(messages, 0.5, mockModel)
 
       const result = await strategy.apply(context)
 
       expect(result).toBe(false)
-      expect(messages).toHaveLength(20)
     })
 
     it('fires when utilization exceeds threshold', async () => {
-      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
+      const largeText = 'x'.repeat(2500 * 4 + 100)
+      const messages = [makeToolResultMessage(largeText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize().when({ utilization: 0.85 })
+      const strategy = Offload.summarize('toolResults').when({ utilization: 0.85, skipRecent: 0 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)
@@ -107,20 +140,29 @@ describe('Offload.summarize', () => {
       expect(result).toBe(true)
     })
 
-    it('fires unconditionally when no utilization threshold set', async () => {
-      const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
+    it('skips already summarized blocks', async () => {
+      const message = new Message({
+        role: 'user',
+        content: [
+          new ToolResultBlock({
+            toolUseId: 'tool-123',
+            status: 'success',
+            content: [new TextBlock('[Summarized: ~500 tokens]\nsome summary')],
+          }),
+        ],
+      })
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize()
-      const context = makeContext(messages, 0.1, mockModel)
+      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
+      const context = makeContext([message], 0.9, mockModel)
 
       const result = await strategy.apply(context)
 
-      expect(result).toBe(true)
+      expect(result).toBe(false)
     })
 
     it('returns false on empty messages', async () => {
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize()
+      const strategy = Offload.summarize('toolResults').when({ skipRecent: 0 })
       const context = makeContext([], 0.9, mockModel)
 
       const result = await strategy.apply(context)

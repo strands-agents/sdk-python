@@ -14,8 +14,8 @@
  *     strategies: [
  *       Offload.truncate("toolResults", { previewTokens: 750 })
  *         .when({ threshold: 1500, skipRecent: 3 }),
- *       Offload.summarize({ ratio: 0.3 })
- *         .when({ utilization: 0.85 }),
+ *       Offload.summarize("toolResults", { ratio: 0.3 })
+ *         .when({ threshold: 2000, utilization: 0.85 }),
  *       Offload("toolResultErrors"),
  *     ],
  *   }),

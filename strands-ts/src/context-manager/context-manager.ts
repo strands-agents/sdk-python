@@ -50,7 +50,7 @@ export class ContextManager implements Plugin {
 
   constructor(config?: ContextManagerConfig) {
     this._strategies = config?.strategies ?? []
-    this._defaultStrategies = [Offload.truncate('toolResults'), Offload.summarize()]
+    this._defaultStrategies = [Offload.truncate('toolResults'), Offload.summarize('toolResults')]
   }
 
   initAgent(agent: LocalAgent): void {
