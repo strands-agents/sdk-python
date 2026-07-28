@@ -61,7 +61,7 @@ Now show *how* it's hard. Ground the reader in the existing system — how it wo
 ## Goals
 
 - What are the user outcomes?
-- What future opportunites might be unlocked?
+- What future opportunities might be unlocked?
 - What does a good solution need to do?
 - What constraints does it operate under?
 
@@ -70,7 +70,7 @@ Now show *how* it's hard. Ground the reader in the existing system — how it wo
 1. What key decisions in the past are relevant to this topic?
 2. What assumptions/invariants/risks does the proposed solution include?
 3. What alternatives were determined as less fruitful and, concisely, why were they not pursued?
-4. What key decisions need to aligned on by the team during this review meeting? As it relates to either (1), (2), and/or (3).
+4. Which of the above does the team need to align on during this review meeting?
 
 ## Proposal
 
