@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 from urllib.parse import urlparse
 
@@ -54,13 +55,13 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
     results = index.search(query, k=k) if index else []
     url_cache = cache.get_url_cache()
 
-    # Collect top-k URLs that need hydration (no content yet)
-    # Simplified: Direct hydration in one pass
     top = results[: min(len(results), cache.SNIPPET_HYDRATE_MAX)]
-    for _, doc in top:
-        cached = url_cache.get(doc.uri)
-        if cached is None or not cached.content:
-            cache.ensure_page(doc.uri)
+    urls_to_hydrate = list(
+        dict.fromkeys(doc.uri for _, doc in top if (page := url_cache.get(doc.uri)) is None or not page.content)
+    )
+    if urls_to_hydrate:
+        with ThreadPoolExecutor(max_workers=len(urls_to_hydrate)) as executor:
+            list(executor.map(cache.ensure_page, urls_to_hydrate))
 
     # Build response with real content snippets when available
     return_docs: List[Dict[str, Any]] = []
