@@ -125,12 +125,17 @@ class BatchApprovalHook(HookProvider):
         registry.add_callback(BeforeToolsEvent, self.approve)
 
     def approve(self, event: BeforeToolsEvent) -> None:
-        tool_names = [
-            content["toolUse"]["name"] for content in event.message["content"] if "toolUse" in content
+        dangerous_tools = [
+            content["toolUse"]["name"]
+            for content in event.message["content"]
+            if "toolUse" in content and content["toolUse"]["name"] == "delete_files"
         ]
-        approval = event.interrupt(f"{self.app_name}-batch-approval", reason={"tools": tool_names})
+        if not dangerous_tools:
+            return
+
+        approval = event.interrupt(f"{self.app_name}-batch-approval", reason={"tools": dangerous_tools})
         if approval.lower() != "y":
-            event.cancel = "User denied permission to run the requested tools"
+            event.cancel = "Batch cancelled by user"
 
 
 agent = Agent(

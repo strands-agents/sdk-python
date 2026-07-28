@@ -1326,29 +1326,6 @@ async def test_event_loop_cycle_after_tools_not_fired_on_before_tools_interrupt(
 
 
 @pytest.mark.asyncio
-async def test_event_loop_cycle_after_tools_not_fired_when_before_tools_hook_raises(
-    agent, model, tool_stream, agenerator, alist
-):
-    after_tools_calls = []
-
-    def raise_in_before_tools(event):
-        raise RuntimeError("before tools hook failed")
-
-    def record_after_tools(event):
-        after_tools_calls.append(event)
-
-    agent.hooks.add_callback(BeforeToolsEvent, raise_in_before_tools)
-    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
-    model.stream.side_effect = [agenerator(tool_stream)]
-
-    with pytest.raises(EventLoopException, match="before tools hook failed"):
-        await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
-
-    # A BeforeToolsEvent hook exception propagates before the tool batch, so AfterToolsEvent does not fire.
-    assert after_tools_calls == []
-
-
-@pytest.mark.asyncio
 async def test_event_loop_cycle_after_tools_empty_string_end_turn_does_not_halt(
     agent, model, tool_stream, agenerator, alist
 ):
@@ -1523,17 +1500,22 @@ async def test_event_loop_cycle_before_tools_hook_exception_skips_execution(
 ):
     executor = agent.tool_executor
     executor._execute = MagicMock(wraps=executor._execute)
+    after_tools_calls = []
 
     def raise_error(event):
         raise RuntimeError("batch hook failed")
 
     agent.hooks.add_callback(BeforeToolsEvent, raise_error)
+    agent.hooks.add_callback(AfterToolsEvent, lambda event: after_tools_calls.append(event))
     model.stream.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException, match="batch hook failed"):
         await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
+    # A BeforeToolsEvent hook exception propagates before the batch is entered: no tool executes,
+    # and AfterToolsEvent never fires (it is only paired once the batch begins).
     executor._execute.assert_not_called()
+    assert after_tools_calls == []
 
 
 @pytest.mark.asyncio
@@ -1580,7 +1562,8 @@ async def test_event_loop_cycle_before_tools_interrupt_invalid_tool_result_not_d
     agent.hooks.add_callback(BeforeToolsEvent, interrupt_batch)
 
     first_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
-    interrupt = first_events[-1]["stop"][4][0]
+    _, _, _, _, interrupts, _, _ = first_events[-1]["stop"]
+    interrupt = interrupts[0]
     agent._interrupt_state.resume([{"interruptResponse": {"interruptId": interrupt.id, "response": "approved"}}])
 
     resumed_events = await alist(
@@ -1613,14 +1596,16 @@ async def test_event_loop_cycle_before_tools_interrupt_resume_with_checkpoint(ag
     agent.hooks.add_callback(BeforeToolsEvent, interrupt_batch)
 
     interrupted_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
-    interrupt = interrupted_events[-1]["stop"][4][0]
-    assert interrupted_events[-1]["stop"][0] == "interrupt"
+    stop_reason, _, _, _, interrupts, _, _ = interrupted_events[-1]["stop"]
+    interrupt = interrupts[0]
+    assert stop_reason == "interrupt"
 
     agent._interrupt_state.resume([{"interruptResponse": {"interruptId": interrupt.id, "response": "approved"}}])
     resumed_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
 
-    assert resumed_events[-1]["stop"][0] == "checkpoint"
-    assert resumed_events[-1]["stop"][6].position == "after_tools"
+    resumed_stop_reason, _, _, _, _, _, checkpoint = resumed_events[-1]["stop"]
+    assert resumed_stop_reason == "checkpoint"
+    assert checkpoint.position == "after_tools"
     assert response == "approved"
 
 
@@ -1701,14 +1686,16 @@ async def test_event_loop_cycle_before_tools_interrupts_again_on_later_cycle(age
     agent.hooks.add_callback(BeforeToolsEvent, interrupt_batch)
 
     first_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
-    first_interrupt = first_events[-1]["stop"][4][0]
+    _, _, _, _, first_interrupts, _, _ = first_events[-1]["stop"]
+    first_interrupt = first_interrupts[0]
     agent._interrupt_state.resume(
         [{"interruptResponse": {"interruptId": first_interrupt.id, "response": "first-approved"}}]
     )
 
     second_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
-    second_interrupt = second_events[-1]["stop"][4][0]
-    assert second_events[-1]["stop"][0] == "interrupt"
+    second_stop_reason, _, _, _, second_interrupts, _, _ = second_events[-1]["stop"]
+    second_interrupt = second_interrupts[0]
+    assert second_stop_reason == "interrupt"
     agent._interrupt_state.resume(
         [{"interruptResponse": {"interruptId": second_interrupt.id, "response": "second-approved"}}]
     )

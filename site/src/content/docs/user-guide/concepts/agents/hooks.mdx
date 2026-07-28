@@ -197,15 +197,19 @@ flowchart LR
   end
   subgraph Tool["Tool Events"]
     direction TB
+        BeforeToolsEvent["BeforeToolsEvent"]
         BeforeToolCallEvent["BeforeToolCallEvent"]
         ToolStreamUpdateEvent["ToolStreamUpdateEvent"]
         ToolResultEvent["ToolResultEvent"]
         AfterToolCallEvent["AfterToolCallEvent"]
+        AfterToolsEvent["AfterToolsEvent"]
         ToolMessage["MessageAddedEvent"]
+        BeforeToolsEvent --> BeforeToolCallEvent
         BeforeToolCallEvent --> ToolStreamUpdateEvent
         ToolStreamUpdateEvent --> ToolResultEvent
         ToolResultEvent --> AfterToolCallEvent
-        AfterToolCallEvent --> ToolMessage
+        AfterToolCallEvent --> AfterToolsEvent
+        AfterToolsEvent --> ToolMessage
   end
   subgraph End["Request End Events"]
     direction TB
@@ -298,10 +302,10 @@ Init --> Invocation
 | `MessageAddedEvent`                | Triggered when a message is added to the agent's conversation history                                         |
 | `BeforeModelCallEvent`             | Triggered before the model is invoked for inference                                                           |
 | `AfterModelCallEvent`              | Triggered after model invocation completes. Uses reverse callback ordering                                    |
-| `BeforeToolsEvent`                 | Triggered once before a batch of tools is executed, before any `BeforeToolCallEvent`                          |
+| `BeforeToolsEvent`                 | Triggered before tools are executed in a batch                                                                |
 | `BeforeToolCallEvent`              | Triggered before a tool is invoked                                                                            |
 | `AfterToolCallEvent`               | Triggered after tool invocation completes. Uses reverse callback ordering                                     |
-| `AfterToolsEvent`                  | Triggered once after a batch of tools finishes. Always fires (even on cancel). Uses reverse callback ordering |
+| `AfterToolsEvent`                  | Triggered after tools are executed in a batch. Uses reverse callback ordering                                 |
 | `MultiAgentInitializedEvent`       | Triggered when multi-agent orchestrator is initialized                                                        |
 | `BeforeMultiAgentInvocationEvent`  | Triggered before orchestrator execution starts                                                                |
 | `AfterMultiAgentInvocationEvent`   | Triggered after orchestrator execution completes. Uses reverse callback ordering                              |
@@ -398,6 +402,9 @@ Most event properties are read-only to prevent unintended modifications. However
 - `AfterToolCallEvent`
     - `retry` - Request a retry of the tool invocation.
     - `result` - Mutable. Rewrite the `ToolResultBlock` before it propagates to the model. See [Result Modification](#result-modification).
+
+- `AfterToolsEvent`
+    - `endTurn` - Halt the agent loop after the tool batch without calling the model again. Set `true` for a default final assistant message, or a string to use as the final assistant message. The returned result has `stopReason="endTurn"`.
 
 - `AfterInvocationEvent`
     - `resume` - Trigger a follow-up agent invocation with new input. Setting it re-enters the agent loop under the same invocation lock. See [Invocation resume](#invocation-resume).

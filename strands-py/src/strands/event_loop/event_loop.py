@@ -52,7 +52,10 @@ from ._retry import ModelRetryStrategy
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from ..agent import Agent
+    from ..interrupt import Interrupt
 
 logger = logging.getLogger(__name__)
 
@@ -697,6 +700,55 @@ def _make_invoke_model_terminal(
     return terminal
 
 
+async def _stop_for_interrupts(
+    agent: "Agent",
+    message: Message,
+    tool_results: list[ToolResult],
+    interrupts: list["Interrupt"],
+    cycle_start_time: float,
+    cycle_trace: Trace,
+    cycle_span: Any,
+    invocation_state: dict[str, Any],
+    tracer: Tracer,
+    structured_output_result: "BaseModel | None" = None,
+) -> AsyncGenerator[TypedEvent, None]:
+    """Persist interrupt state and emit the interrupt stop event.
+
+    Both the pre-execution (``BeforeToolsEvent``) and post-execution interrupt paths in
+    :func:`_handle_tool_execution` stop in exactly the same way. Keeping that sequence here
+    ensures a future change to interrupt persistence only has to be made in one place, rather
+    than being duplicated across the two paths.
+
+    Args:
+        agent: Agent whose interrupt state is being persisted.
+        message: The assistant tool-use message that triggered the batch.
+        tool_results: Tool results collected so far (including any from a prior resume).
+        interrupts: The interrupts raised during this cycle.
+        cycle_start_time: Start time of the current cycle.
+        cycle_trace: Trace object for the current event loop cycle.
+        cycle_span: Span object for tracing the cycle (type may vary).
+        invocation_state: Additional keyword arguments, including request state.
+        tracer: Tracer instance for span management.
+        structured_output_result: Structured output captured during the batch, if any.
+    """
+    # Session state stored on AfterInvocationEvent.
+    agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+    agent._interrupt_state.activate()
+
+    agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+    yield EventLoopStopEvent(
+        "interrupt",
+        message,
+        agent.event_loop_metrics,
+        invocation_state["request_state"],
+        interrupts,
+        structured_output=structured_output_result,
+    )
+    # End the cycle span before yielding the recursive cycle.
+    if cycle_span:
+        tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+
+
 async def _handle_tool_execution(
     stop_reason: StopReason,
     message: Message,
@@ -736,8 +788,8 @@ async def _handle_tool_execution(
 
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
-        completed_tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
-        tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in completed_tool_use_ids]
+        tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
+        tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
     before_tools_event = BeforeToolsEvent(
         agent=agent,
@@ -747,20 +799,18 @@ async def _handle_tool_execution(
     before_tools_event, interrupts = await agent.hooks.invoke_callbacks_async(before_tools_event)
 
     if interrupts:
-        # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
-        agent._interrupt_state.activate()
-
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "interrupt",
+        async for interrupt_event in _stop_for_interrupts(
+            agent,
             message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
+            tool_results,
             interrupts,
-        )
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+            cycle_start_time,
+            cycle_trace,
+            cycle_span,
+            invocation_state,
+            tracer,
+        ):
+            yield interrupt_event
         return
 
     cancel_message = None
@@ -772,8 +822,6 @@ async def _handle_tool_execution(
         cancel_message = "Tool execution cancelled"
 
     structured_output_result = None
-    tool_result_message: Message = {"role": "user", "content": []}
-    after_tools_event = AfterToolsEvent(agent=agent, message=tool_result_message, invocation_state=invocation_state)
     try:
         if cancel_message:
             logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
@@ -815,7 +863,7 @@ async def _handle_tool_execution(
         # Always pair BeforeToolsEvent with AfterToolsEvent (mirrors the source `finally`
         # dispatch), so batch-level hooks observe the results even on the cancel, interrupt,
         # and error paths.
-        tool_result_message = {
+        tool_result_message: Message = {
             "role": "user",
             "content": [{"toolResult": result} for result in tool_results],
         }
@@ -825,23 +873,19 @@ async def _handle_tool_execution(
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     if interrupts:
-        # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
-        agent._interrupt_state.activate()
-
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "interrupt",
+        async for interrupt_event in _stop_for_interrupts(
+            agent,
             message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
+            tool_results,
             interrupts,
-            structured_output=structured_output_result,
-        )
-        # End the cycle span before yielding the recursive cycle.
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
-
+            cycle_start_time,
+            cycle_trace,
+            cycle_span,
+            invocation_state,
+            tracer,
+            structured_output_result,
+        ):
+            yield interrupt_event
         return
 
     agent._interrupt_state.deactivate()
