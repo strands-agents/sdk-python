@@ -60,7 +60,9 @@ const DEFAULT_MAX_CONSOLIDATION_TURNS = 3
 /**
  * Delimiters wrapping the untrusted stored content in the planner's user message. Stored bodies are
  * JSON-escaped inside them (see {@link serializeEvidence}), so these are the only occurrences of the
- * tags in the message and the planner can always tell evidence from instructions.
+ * tags in the message — evidence is unambiguously delimited, though whether the model honors the
+ * boundary is a prompting property, not one this escaping can enforce. The plan it returns is
+ * validated regardless (see {@link validatePlan}).
  */
 const EVIDENCE_OPEN = '<file-evidence>'
 const EVIDENCE_CLOSE = '</file-evidence>'
@@ -231,6 +233,10 @@ export class FileMemoryStore implements MemoryStore {
    * Guards against overlapping {@link consolidate} runs on this instance. Set synchronously before
    * the first `await` and cleared in a `finally`, so a second concurrent call observes it and throws
    * rather than planning against a stale snapshot and racing on the same keys.
+   *
+   * Instance-scoped only, and not a lock — it is unaware of {@link add}, of other store instances
+   * over the same storage, and of other processes. See {@link consolidate}'s remarks for what that
+   * leaves exposed.
    */
   private _consolidating = false
 
@@ -331,7 +337,8 @@ export class FileMemoryStore implements MemoryStore {
       // filesystem treats Topic.md and topic.md as the same file, which comparing
       // against list()'s exact key spellings in memory would miss. A miss returns null
       // without transferring a body, so the only full reads are on genuine collisions.
-      // Best-effort for a single-writer local store (TOCTOU is acceptable).
+      // Best-effort: two concurrent adds can settle on the same free key and the later
+      // write wins, since Storage offers no create-if-absent to make the claim atomic.
       let suffix = 1
       while (await this._storage.read(key)) {
         key = `${FACTS_PREFIX}${slug}-${suffix}.md`
@@ -353,23 +360,43 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   /**
-   * Run offline consolidation to maintain knowledge quality.
+   * Run consolidation to maintain knowledge quality.
    *
    * Uses a plan-then-execute strategy: one structured-output call produces an action plan
-   * over all files, programmatic guardrails validate the plan atomically, then deterministic
-   * code executes it (writes before deletes). On validation failure, one revise-retry is
-   * attempted; if the revised plan also fails validation, the method throws.
+   * over all files, programmatic guardrails validate the whole plan before anything is mutated,
+   * then deterministic code executes it (writes before deletes). On validation failure, one
+   * revise-retry is attempted; if the revised plan also fails validation, the method throws.
    *
    * Only one consolidation may run at a time per store instance. Each run snapshots the store at
    * the start ({@link _readAllFiles}) and later mutates it, so overlapping runs would plan against
    * stale snapshots and race on the same keys. A call that starts while another is still in flight
-   * throws immediately rather than corrupting the store.
+   * throws immediately rather than executing against a snapshot the other run has invalidated.
    *
    * @remarks
-   * Assumes exclusive write access to the store for the duration of the run. Callers must not
-   * invoke {@link add} or write from another store instance/process while consolidation is in
-   * progress — concurrent writes captured before the snapshot may be silently overwritten.
-   * Cross-instance/external-writer protection is not provided in this version.
+   * Consolidation is not concurrency-safe, and the instance guard above is the only serialization it
+   * has. There is no lock: the {@link Storage} contract exposes only unconditional read/write/delete/
+   * list, so nothing here can hold off or even observe a writer on another store instance, in another
+   * process, or calling {@link add} on this one. Scheduling a run as a background job does not change
+   * this — it is a placement recommendation, not a quiescence guarantee.
+   *
+   * A concurrent {@link add} nevertheless survives, because of where it writes rather than any
+   * coordination: it mints a fresh key, which the snapshot never captured, so no plan action can name
+   * it. Two gaps follow from that, neither closed by a lock:
+   *
+   * - A plan can also create new files (a merge or move target absent from the snapshot), so its
+   *   chosen name can collide with a concurrent `add`'s fresh key. {@link _executePlan} re-reads
+   *   those targets immediately before writing and aborts the run untouched if one is already
+   *   claimed. This is best-effort detection, not mutual exclusion: it shrinks the exposure from the
+   *   whole run (which spans a model call) to the gap between that check and the write, and a write
+   *   landing inside that gap is still overwritten.
+   * - An `add` carrying an explicit `metadata.path` that names a file already in the snapshot is not
+   *   covered at all. The plan was built from that file's pre-`add` content and may merge or delete
+   *   it, discarding what the `add` wrote. Detecting this needs a conditional write or version check
+   *   (ETag, generation number) that {@link Storage} cannot currently express.
+   *
+   * To avoid both, do not write to the store while a consolidation is in flight — either quiesce
+   * writers for the duration, or issue consolidation and explicit-path writes from a single caller
+   * that serializes them.
    *
    * The internal planning agent is bounded by a turn limit (default 3 turns) to prevent runaway
    * loops. The planning agent has no tools registered and is expected to complete in a single turn;
@@ -384,6 +411,8 @@ export class FileMemoryStore implements MemoryStore {
    * @throws Error when the plan's generated content exceeds the byte limit (maxGeneratedBytes)
    * @throws Error when the consolidation plan fails validation after retry
    * @throws Error when the consolidation agent exceeds its turn limit without producing a plan
+   * @throws Error when a path the plan would create was claimed by a writer outside this run
+   *   (the store is left unchanged — no write or delete runs)
    *
    * @example
    * ```typescript
@@ -413,8 +442,8 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   /**
-   * Execute a single consolidation run. Assumes the concurrency guard in {@link consolidate} holds,
-   * so it never overlaps another run on the same instance.
+   * Execute a single consolidation run. The guard in {@link consolidate} keeps this from overlapping
+   * another run on the same instance; it says nothing about runs on other instances or processes.
    *
    * @param config - Model and operation configuration
    */
@@ -502,7 +531,8 @@ export class FileMemoryStore implements MemoryStore {
    * Produce a validated action plan from the model via a single structured-output call.
    *
    * The plan is validated against the guardrails before being returned; if validation fails,
-   * one revise-retry is attempted. A returned plan is always guaranteed to have passed validation.
+   * one revise-retry is attempted. Every returned plan has passed validation — the failure paths
+   * all throw, so callers never receive an unvalidated plan.
    *
    * @throws Error when the model returns no structured output, the plan exceeds the action limit,
    *   or the plan fails validation after retry
@@ -587,13 +617,28 @@ export class FileMemoryStore implements MemoryStore {
   /**
    * Apply a validated plan to storage deterministically.
    *
+   * Opens with a pre-flight pass that re-reads every target the plan expected to create — a path
+   * absent from the snapshot. Validation already proved those paths were free when the plan was
+   * built, so a hit means a writer outside this run (an {@link add} on another instance, a second
+   * process) claimed the key since. Overwriting it would destroy content the planner never saw, so
+   * the run aborts here, before any write or delete, leaving the store untouched. Targets that
+   * already existed in the snapshot are skipped: validation proved the plan either vacates them or
+   * overwrites them from their own content.
+   *
+   * That pass detects a collision; it does not prevent one. A write landing between the check and
+   * the write below is still overwritten — see {@link _assertNewTargetsUnclaimed}.
+   *
    * All writes run before any deletes so merged/moved content lands before its sources are
-   * removed — a crash between the two passes leaves duplicated content, never lost content.
+   * removed — a crash between the two passes leaves duplicated content rather than dropping a
+   * source whose content had nowhere else to live.
    *
    * A failed write throws immediately, before any delete runs and before the changelog is recorded.
    * That is intentional: writes-before-deletes means an aborted write pass has removed nothing, so
-   * no content is lost — the worst case is leftover duplicates from partial writes that already
-   * landed before the failure, and these self-heal on the next successful consolidation run.
+   * the worst case is leftover duplicates from partial writes that already landed. A later run can
+   * fold those away, though only if its planner chooses to — nothing schedules or forces the
+   * cleanup. Note this ordering protects sources, not overwrite targets: an `update` (and a merge
+   * into one of its own sources) replaces a file's content in place by design, so an interrupted
+   * run can leave that file rewritten while the rest of the plan never ran.
    *
    * Deletes use best-effort semantics: every delete is attempted even if earlier ones fail.
    * A missing key is a no-op (per the {@link Storage} contract), so a delete only fails on a
@@ -602,11 +647,14 @@ export class FileMemoryStore implements MemoryStore {
    * so the caller can still record the changelog for the partial run before surfacing the error.
    *
    * @returns The paths whose deletes failed, each with the underlying error (empty when all succeed)
+   * @throws Error when a path the plan expected to create was claimed by a writer outside this run
    */
   private async _executePlan(
     plan: ConsolidationPlan,
     files: Map<string, string>
   ): Promise<Array<{ path: string; error: unknown }>> {
+    await this._assertNewTargetsUnclaimed(plan, files)
+
     // Writes before deletes — merged content lands before sources are removed
     for (const action of plan.actions) {
       if (action.action === 'merge') {
@@ -664,6 +712,59 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   /**
+   * Verify that every path the plan expected to create is still unclaimed in storage.
+   *
+   * The plan was validated against a snapshot taken at the start of the run. A path absent from
+   * that snapshot but present now was written by something outside this run, and its content was
+   * never shown to the planner — so writing over it would silently destroy knowledge.
+   *
+   * This is best-effort detection rather than mutual exclusion, and it is not a lock: the losing
+   * write has already happened by the time it is noticed, and the only remedy is to abort before
+   * adding a second loss. Checking here rather than at snapshot time shrinks the exposure from the
+   * whole run (which spans a model call) to the gap between this read and the write that follows;
+   * a write landing inside that gap is still overwritten. Closing it entirely needs a conditional
+   * write or version check that {@link Storage} does not offer.
+   *
+   * Paths the snapshot already held are excluded: validation proved the plan either vacates them
+   * or rewrites them from their own content, so their presence here is expected. A plan that
+   * creates no new paths reads nothing.
+   *
+   * @throws Error naming the claimed paths, before any write or delete has run
+   */
+  private async _assertNewTargetsUnclaimed(plan: ConsolidationPlan, files: Map<string, string>): Promise<void> {
+    const snapshotKeys = [...files.keys()]
+    const inSnapshot = (target: string): boolean => snapshotKeys.some((key) => pathsResolveSame(key, target))
+
+    const newTargets = new Set<string>()
+    for (const action of plan.actions) {
+      const target = action.action === 'merge' ? action.target : action.action === 'move' ? action.to : undefined
+      // 'update' and 'delete' only ever address snapshot files, so they can never create a path
+      if (target !== undefined && !inSnapshot(target)) newTargets.add(target)
+    }
+    if (newTargets.size === 0) return
+
+    const claimed = (
+      await mapWithConcurrency([...newTargets], SEARCH_READ_CONCURRENCY, async (target) => {
+        // A read error is not evidence the key is claimed — let the write pass surface it instead
+        // of aborting a valid plan on a transient backend failure
+        try {
+          return (await this._storage.read(target)) ? target : null
+        } catch {
+          return null
+        }
+      })
+    ).filter((target): target is string => target !== null)
+
+    if (claimed.length > 0) {
+      throw new Error(
+        `Consolidation aborted before writing: ${claimed.length} target path(s) were created by another writer ` +
+          `since this run began: ${claimed.join(', ')}. The store is unchanged — re-run consolidation to plan ` +
+          `against the current contents.`
+      )
+    }
+  }
+
+  /**
    * Append a human-readable summary of an applied plan to the consolidation changelog.
    *
    * Provides an audit trail of what each run changed and why, one dated entry per consolidation.
@@ -677,20 +778,25 @@ export class FileMemoryStore implements MemoryStore {
   ): Promise<void> {
     const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
 
-    // Sanitize model-generated strings: strip newlines and leading '#' so injected content cannot
-    // forge a '## ' run header or inject arbitrary markdown structure into the changelog
+    // Sanitize every model-controlled string: strip newlines and leading '#' so injected content
+    // cannot forge a '## ' run header or inject arbitrary markdown structure into the changelog.
+    // Paths need this as much as reason/summary do — validatePath constrains the directory segment
+    // but not the filename's charset, so a target could otherwise carry a newline into the log.
     const sanitizeChangelogField = (value: string): string => value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, '')
 
     const actionSummaries = plan.actions.map((action) => {
+      const reason = sanitizeChangelogField(action.reason)
       switch (action.action) {
-        case 'merge':
-          return `  - merge: ${action.sources.join(' + ')} → ${action.target} (${sanitizeChangelogField(action.reason)})`
+        case 'merge': {
+          const sources = action.sources.map(sanitizeChangelogField).join(' + ')
+          return `  - merge: ${sources} → ${sanitizeChangelogField(action.target)} (${reason})`
+        }
         case 'update':
-          return `  - update: ${action.path} (${sanitizeChangelogField(action.reason)})`
+          return `  - update: ${sanitizeChangelogField(action.path)} (${reason})`
         case 'delete':
-          return `  - delete: ${action.path} (${sanitizeChangelogField(action.reason)})`
+          return `  - delete: ${sanitizeChangelogField(action.path)} (${reason})`
         case 'move':
-          return `  - move: ${action.from} → ${action.to} (${sanitizeChangelogField(action.reason)})`
+          return `  - move: ${sanitizeChangelogField(action.from)} → ${sanitizeChangelogField(action.to)} (${reason})`
       }
     })
 

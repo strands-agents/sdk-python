@@ -81,6 +81,91 @@ describe('FileMemoryStore.consolidate', () => {
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).resolves.toBeUndefined()
     })
 
+    // A concurrent add() mints a key the snapshot never captured, so no plan action names it and
+    // consolidation leaves it alone. This is what makes add-during-consolidate safe.
+    it('preserves an entry added concurrently under a fresh key', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/a.md',
+              content: mergedContent,
+              reason: 'Same subject',
+            },
+          ],
+          summary: 'Merged A and B.',
+        })
+      )
+
+      // Add lands after the snapshot is taken but before the plan executes
+      let added: string | undefined
+      const originalRead = storage.read.bind(storage)
+      vi.spyOn(storage, 'read').mockImplementation(async (key) => {
+        if (key === 'facts/b.md' && added === undefined) {
+          added = await store.add('A fact recorded mid-consolidation')
+        }
+        return originalRead(key)
+      })
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      // The plan applied, and the concurrently added entry survived untouched
+      expect(decoder.decode((await originalRead('facts/a.md'))!)).toContain('Content A and B')
+      expect(await originalRead('facts/b.md')).toBeNull()
+      expect(added).toBeDefined()
+      expect(decoder.decode((await originalRead(added!))!)).toContain('A fact recorded mid-consolidation')
+    })
+
+    it('aborts without mutating when a writer outside the run claims a path the plan would create', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/merged.md',
+              content: mergedContent,
+              reason: 'Same subject',
+            },
+          ],
+          summary: 'Merged A and B into a new file.',
+        })
+      )
+
+      // An external writer claims the merge target after the snapshot, so its content was never
+      // shown to the planner and the merge would destroy it
+      const originalRead = storage.read.bind(storage)
+      let claimed = false
+      vi.spyOn(storage, 'read').mockImplementation(async (key) => {
+        if (key === 'facts/b.md' && !claimed) {
+          claimed = true
+          await writeFile(storage, 'facts/merged.md', 'Claimed', 'Written by another writer')
+        }
+        return originalRead(key)
+      })
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+        /created by another writer.*facts\/merged\.md/s
+      )
+
+      // Nothing was written or deleted: sources intact, the claimed file untouched
+      expect(await originalRead('facts/a.md')).not.toBeNull()
+      expect(await originalRead('facts/b.md')).not.toBeNull()
+      expect(decoder.decode((await originalRead('facts/merged.md'))!)).toContain('Written by another writer')
+      // An aborted run mutated nothing, so there is no changelog entry to record
+      expect(await originalRead('consolidation-changelog.md')).toBeNull()
+    })
+
     it('executes a plan with no actions', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
@@ -2052,6 +2137,36 @@ describe('FileMemoryStore.consolidate', () => {
       expect(headers[0]).not.toContain('Another forged header')
       // Newlines in reason/summary were flattened to spaces — no multi-line injection possible
       expect(changelog.split('\n').filter((line) => line.startsWith('## ')).length).toBe(1)
+    })
+
+    // Paths are model-controlled too: validatePath constrains the directory segment's charset but
+    // not the filename's, so a newline in a merge target reaches the changelog unless sanitized.
+    it('sanitizes action paths so a filename cannot forge changelog headers', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
+              content: mergedContent,
+              reason: 'dedup',
+            },
+          ],
+          summary: 'merged',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
+      const headers = changelog.match(/^## .+$/gm) ?? []
+      expect(headers).toHaveLength(1)
+      expect(headers[0]).not.toContain('FORGED-VIA-PATH')
     })
 
     // reason/summary bytes must count against maxGeneratedBytes so large strings cannot bypass cap
