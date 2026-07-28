@@ -1,9 +1,8 @@
 /**
  * Truncate reduction method.
  *
- * Replaces content with a head-tail preview. Used by both Offload (to shrink
- * oversized tool results in L0) and Inject (to restore truncated content
- * from storage with a size budget).
+ * Replaces content with a head-tail preview. Used by Offload to shrink
+ * oversized tool results in L0.
  *
  * @internal
  */

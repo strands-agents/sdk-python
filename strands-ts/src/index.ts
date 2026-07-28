@@ -308,10 +308,8 @@ export { FileStorage } from './session/file-storage.js'
 // Context management
 export { ContextManager } from './context-manager/context-manager.js'
 export { Offload } from './context-manager/strategies/offload.js'
-export { Inject } from './context-manager/strategies/inject.js'
 export type { ContextManagerConfig, ContextStrategy, StashConfig } from './context-manager/types.js'
 export type { OffloadTarget, WhenConditions, StrategyBuilder } from './context-manager/strategies/offload.js'
-export type { InjectSource } from './context-manager/strategies/inject.js'
 export type { TruncateConfig } from './context-manager/strategies/methods/truncate.js'
 export type { SummarizeConfig } from './context-manager/strategies/methods/summarize.js'
 
