@@ -53,10 +53,10 @@ describe('Offload.truncate', () => {
     expect((block.content[0] as TextBlock).text).toContain('[Truncated:')
   })
 
-  it('does not truncate small results', async () => {
+  it('does not truncate results below threshold', async () => {
     const smallText = 'short result'
     const messages = [makeToolResultMessage(smallText)]
-    const strategy = Offload.truncate('toolResults')
+    const strategy = Offload.truncate('toolResults').when({ threshold: 2500 })
     const context = makeContext(messages)
 
     const result = await strategy.apply(context)
@@ -319,7 +319,85 @@ describe('Offload builder', () => {
   })
 
   it('Offload.summarize().when() creates a strategy with conditions', () => {
-    const strategy = Offload.summarize('toolResults', { ratio: 0.5 }).when({ utilization: 0.85 })
+    const strategy = Offload.summarize('toolResults').when({ utilization: 0.85 })
     expect(strategy.name).toBe('offload:summarize')
+  })
+
+  it('Offload.summarize(config) config-only creates untargeted strategy', () => {
+    const strategy = Offload.summarize({ systemPrompt: 'summarize briefly' }).when({ utilization: 0.85 })
+    expect(strategy.name).toBe('offload:summarize')
+  })
+})
+
+describe('Offload with no target (fires on everything)', () => {
+  it('Offload() with no target drops all content', async () => {
+    const assistantMsg = new Message({
+      role: 'assistant',
+      content: [new TextBlock('assistant text')],
+    })
+    const userMsg = new Message({
+      role: 'user',
+      content: [
+        new TextBlock('user text'),
+        new ToolResultBlock({
+          toolUseId: 'tool-1',
+          status: 'success',
+          content: [new TextBlock('tool output')],
+        }),
+      ],
+    })
+    const strategy = Offload()
+    const context = makeContext([assistantMsg, userMsg])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    expect((assistantMsg.content[0] as TextBlock).text).toBe('[Dropped]')
+    expect((userMsg.content[0] as TextBlock).text).toBe('[Dropped]')
+    const toolBlock = userMsg.content[1] as ToolResultBlock
+    expect((toolBlock.content[0] as TextBlock).text).toBe('[Dropped]')
+  })
+
+  it('Offload.truncate() with no target truncates all large content', async () => {
+    const largeText = 'x'.repeat(2500 * 4 + 100)
+    const assistantMsg = new Message({
+      role: 'assistant',
+      content: [new TextBlock(largeText)],
+    })
+    const userMsg = new Message({
+      role: 'user',
+      content: [
+        new TextBlock(largeText),
+        new ToolResultBlock({
+          toolUseId: 'tool-1',
+          status: 'success',
+          content: [new TextBlock(largeText)],
+        }),
+      ],
+    })
+    const strategy = Offload.truncate()
+    const context = makeContext([assistantMsg, userMsg])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(true)
+    expect((assistantMsg.content[0] as TextBlock).text).toContain('[Truncated:')
+    expect((userMsg.content[0] as TextBlock).text).toContain('[Truncated:')
+    const toolBlock = userMsg.content[1] as ToolResultBlock
+    expect((toolBlock.content[0] as TextBlock).text).toContain('[Truncated:')
+  })
+
+  it('Offload.truncate() with no target and threshold skips small content', async () => {
+    const smallText = 'short'
+    const assistantMsg = new Message({
+      role: 'assistant',
+      content: [new TextBlock(smallText)],
+    })
+    const strategy = Offload.truncate().when({ threshold: 2500 })
+    const context = makeContext([assistantMsg])
+
+    const result = await strategy.apply(context)
+
+    expect(result).toBe(false)
   })
 })

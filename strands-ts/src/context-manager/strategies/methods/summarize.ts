@@ -32,9 +32,6 @@ export interface SummarizeConfig {
 
   /** Custom system prompt for the summarization model. */
   systemPrompt?: string
-
-  /** Target compression ratio (0.1 - 0.8). Summarize to ~ratio of the original size. Defaults to 0.3. */
-  ratio?: number
 }
 
 /**

@@ -40,7 +40,7 @@ describe('Offload.summarize', () => {
   })
 
   it('creates a strategy with .when() conditions', () => {
-    const strategy = Offload.summarize('toolResults', { ratio: 0.5 }).when({ utilization: 0.85 })
+    const strategy = Offload.summarize('toolResults').when({ utilization: 0.85 })
     expect(strategy.name).toBe('offload:summarize')
   })
 
@@ -60,7 +60,7 @@ describe('Offload.summarize', () => {
       const smallText = 'short result'
       const messages = [makeToolResultMessage(smallText)]
       const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults')
+      const strategy = Offload.summarize('toolResults').when({ threshold: 2500 })
       const context = makeContext(messages, 0.9, mockModel)
 
       const result = await strategy.apply(context)

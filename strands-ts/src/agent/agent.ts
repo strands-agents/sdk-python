@@ -159,8 +159,9 @@ type ContextManagerPreset = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
  * - `"auto"`: Managed context with proactive compression + offloading.
  * - `"agentic"`: Model-driven context management via injected tools.
  * - `ContextManager` instance: Full control over L1 storage and strategies.
+ * - `false`: Explicitly disable all context management (no compression, no offloading).
  */
-export type ContextManagerStrategy = ContextManagerPreset | ContextManager
+export type ContextManagerStrategy = ContextManagerPreset | ContextManager | false
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -349,6 +350,9 @@ function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
+  if (contextManager === false) {
+    return conversationManager ?? new NullConversationManager()
+  }
   if (contextManager instanceof ContextManager) {
     if (conversationManager) {
       logger.warn('contextManager instance provided alongside conversationManager, conversationManager will be ignored')
