@@ -122,6 +122,7 @@ function matchesToolTarget(
 
 // --- Offload bare: drop from L0 entirely ---
 
+/** Replaces matching content with a [Dropped] marker. */
 class OffloadDropStrategy implements ContextStrategy {
   readonly name = 'offload:drop'
 
@@ -141,6 +142,7 @@ class OffloadDropStrategy implements ContextStrategy {
     this._excludeFilter = resolved.exclude
   }
 
+  /** Registers eager hook to drop content on arrival (disabled when preserveRecent > 0). */
   init(context: StrategyInitContext): void {
     if (this._preserveRecent > 0) return
     const { agent } = context
@@ -150,6 +152,7 @@ class OffloadDropStrategy implements ContextStrategy {
     })
   }
 
+  /** Drops eligible blocks across all messages, respecting preserveRecent. */
   async apply(context: StrategyContext): Promise<boolean> {
     const { messages } = context
     const eligible = this._preserveRecent > 0
@@ -166,6 +169,7 @@ class OffloadDropStrategy implements ContextStrategy {
     return dropped
   }
 
+  /** Routes a single message to the appropriate drop handler based on target. */
   private _processMessage(message: Message, messages: Message[]): boolean {
     let dropped = false
 
@@ -192,6 +196,7 @@ class OffloadDropStrategy implements ContextStrategy {
     return this._dropToolResults(message, messages)
   }
 
+  /** Replaces text blocks in a message with [Dropped] markers. */
   private _dropTextBlocks(message: Message): boolean {
     let dropped = false
     for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
@@ -206,6 +211,7 @@ class OffloadDropStrategy implements ContextStrategy {
     return dropped
   }
 
+  /** Replaces tool result blocks in a message with [Dropped] markers. */
   private _dropToolResults(message: Message, messages: Message[]): boolean {
     let dropped = false
     for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
@@ -234,6 +240,7 @@ class OffloadDropStrategy implements ContextStrategy {
 
 // --- Offload + Truncate strategy ---
 
+/** Replaces matching content with a head-tail preview. */
 class OffloadTruncateStrategy implements ContextStrategy {
   readonly name = 'offload:truncate'
 
@@ -255,6 +262,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     this._excludeFilter = resolved.exclude
   }
 
+  /** Registers eager hook to truncate content on arrival (disabled when preserveRecent > 0). */
   init(context: StrategyInitContext): void {
     if (this._preserveRecent > 0) return
     const { agent } = context
@@ -264,6 +272,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     })
   }
 
+  /** Truncates eligible blocks across all messages, respecting preserveRecent. */
   async apply(context: StrategyContext): Promise<boolean> {
     const { messages } = context
     const eligible = this._preserveRecent > 0
@@ -280,6 +289,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     return truncated
   }
 
+  /** Routes a single message to the appropriate truncate handler based on target. */
   private _processMessage(message: Message, messages: Message[]): boolean {
     let truncated = false
 
@@ -306,6 +316,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     return this._truncateToolResultBlocks(message, messages)
   }
 
+  /** Replaces oversized text blocks with a head-tail preview. */
   private _truncateTextBlocks(message: Message): boolean {
     let truncated = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
@@ -321,6 +332,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     return truncated
   }
 
+  /** Replaces oversized tool result blocks with a head-tail preview. */
   private _truncateToolResultBlocks(message: Message, messages: Message[]): boolean {
     let truncated = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
@@ -345,6 +357,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
 
 // --- Offload + Summarize strategy (block-level) ---
 
+/** Replaces matching content with an LLM-generated summary. */
 class OffloadSummarizeStrategy implements ContextStrategy {
   readonly name = 'offload:summarize'
 
@@ -368,6 +381,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     this._excludeFilter = resolved.exclude
   }
 
+  /** Registers eager hook (disabled when preserveRecent > 0 or utilization is set). */
   init(context: StrategyInitContext): void {
     if (this._preserveRecent > 0) return
     if (this._utilization !== undefined) return
@@ -380,6 +394,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     })
   }
 
+  /** Summarizes eligible blocks across all messages, respecting utilization and preserveRecent. */
   async apply(context: StrategyContext): Promise<boolean> {
     if (this._utilization !== undefined && context.utilization < this._utilization) {
       logger.debug(
@@ -413,6 +428,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     return summarized
   }
 
+  /** Routes a single message to the appropriate summarize handler based on target. */
   private async _processMessage(message: Message, messages: Message[], model: Model): Promise<boolean> {
     let summarized = false
 
@@ -439,6 +455,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     return this._summarizeToolResultBlocks(message, messages, model)
   }
 
+  /** Replaces oversized text blocks with an LLM-generated summary. */
   private async _summarizeTextBlocks(message: Message, model: Model): Promise<boolean> {
     let summarized = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
@@ -458,6 +475,7 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     return summarized
   }
 
+  /** Replaces oversized tool result blocks with an LLM-generated summary. */
   private async _summarizeToolResultBlocks(message: Message, messages: Message[], model: Model): Promise<boolean> {
     let summarized = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
