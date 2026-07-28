@@ -5,10 +5,25 @@ import { InMemoryStorage } from '../../../storage/in-memory-storage.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import type { StrategyContext } from '../../types.js'
 
-vi.mock('../../../conversation-manager/compression/context-compression.js', () => ({
-  adjustSplitPointForToolPairs: vi.fn((messages: Message[], splitPoint: number) => splitPoint),
-  generateSummary: vi.fn(async () => new Message({ role: 'user', content: [new TextBlock('Summary of stash')] })),
-}))
+function createMockModel(): unknown {
+  return {
+    streamAggregated: vi.fn(() => {
+      let called = false
+      return {
+        async next(): Promise<{ done: boolean; value?: { message: { content: unknown[] } } }> {
+          if (!called) {
+            called = true
+            return { done: true, value: { message: { content: [new TextBlock('Summarized content')] } } }
+          }
+          return { done: true, value: undefined }
+        },
+        [Symbol.asyncIterator](): unknown {
+          return this
+        },
+      }
+    }),
+  }
+}
 
 function makeContext(messages: Message[], storage: InMemoryStorage, utilization = 0.5, model?: unknown): StrategyContext {
   const agent = createMockAgent({ messages })
@@ -124,22 +139,21 @@ describe('Inject.summarize', () => {
     await storage.write('stash/msg-1', new TextEncoder().encode('first message'))
     await storage.write('stash/msg-2', new TextEncoder().encode('second message'))
     const messages: Message[] = []
-    const mockModel = { stream: vi.fn() }
-    const strategy = Inject.summarize('stash', { preserveRecent: 0 })
-    const context = makeContext(messages, storage, 0.5, mockModel)
+    const strategy = Inject.summarize('stash')
+    const context = makeContext(messages, storage, 0.5, createMockModel())
 
     const result = await strategy.apply(context)
 
     expect(result).toBe(true)
     expect(messages).toHaveLength(1)
+    expect((messages[0]!.content[0] as TextBlock).text).toContain('Summarized from stash')
   })
 
   it('returns false when storage is empty', async () => {
     const storage = new InMemoryStorage()
     const messages: Message[] = []
-    const mockModel = { stream: vi.fn() }
     const strategy = Inject.summarize('stash')
-    const context = makeContext(messages, storage, 0.5, mockModel)
+    const context = makeContext(messages, storage, 0.5, createMockModel())
 
     const result = await strategy.apply(context)
 

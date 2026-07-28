@@ -13,7 +13,7 @@
  *   strategies: [
  *     Inject.truncate("stash", { previewTokens: 500 })
  *       .when({ utilization: 0.5 }),
- *     Inject.summarize("stash", { ratio: 0.2 })
+ *     Inject.summarize("stash")
  *       .when({ utilization: 0.7 }),
  *   ],
  * })
@@ -26,7 +26,7 @@ import { TextBlock } from '../../types/messages.js'
 import { Message } from '../../types/messages.js'
 import type { ContextStrategy, StrategyContext } from '../types.js'
 import { type TruncateConfig } from './methods/truncate.js'
-import { summarizeMessages, type SummarizeConfig } from './methods/summarize.js'
+import { summarizeText, type SummarizeConfig } from './methods/summarize.js'
 import type { WhenConditions, StrategyBuilder } from './offload.js'
 
 /**
@@ -123,20 +123,20 @@ class InjectSummarizeStrategy implements ContextStrategy {
     const keys = await storage.list(`${this._source}/`)
     if (keys.length === 0) return false
 
-    const storedMessages: Message[] = []
+    const parts: string[] = []
     for (const key of keys) {
       const data = await storage.read(key)
       if (!data) continue
-      const text = new TextDecoder().decode(data)
-      storedMessages.push(new Message({ role: 'user', content: [new TextBlock(text)] }))
+      parts.push(new TextDecoder().decode(data))
     }
 
-    if (storedMessages.length === 0) return false
+    if (parts.length === 0) return false
 
-    const summarized = await summarizeMessages(storedMessages, model, this._summarizeConfig)
-    if (!summarized || storedMessages.length === 0) return false
+    const combined = parts.join('\n\n---\n\n')
+    const summary = await summarizeText(combined, model, this._summarizeConfig)
+    if (!summary) return false
 
-    messages.push(storedMessages[0]!)
+    messages.push(new Message({ role: 'user', content: [new TextBlock(`[Summarized from ${this._source}]\n${summary}`)] }))
     return true
   }
 }
@@ -208,7 +208,7 @@ injectFn.summarize = function summarize(source: InjectSource, config?: Summarize
  * @example
  * ```typescript
  * Inject.truncate("stash", { previewTokens: 500 }).when({ utilization: 0.5 })
- * Inject.summarize("stash", { ratio: 0.2 }).when({ utilization: 0.7 })
+ * Inject.summarize("stash").when({ utilization: 0.7 })
  * Inject("stash")
  * ```
  */
