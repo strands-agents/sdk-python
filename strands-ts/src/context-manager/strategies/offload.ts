@@ -618,19 +618,28 @@ export interface OffloadNamespace {
   /** Replace oversized content with a preview. */
   truncate(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder
 
+  /** Replace oversized content with a preview (config-only, targets everything). */
+  truncate(config: TruncateConfig): OffloadStrategyBuilder
+
   /** Replace oversized content with an LLM-generated summary. */
   summarize(target?: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder
 
-  /** Replace oversized content with an LLM-generated summary (config-only overload). */
-  summarize(config?: SummarizeConfig): OffloadStrategyBuilder
+  /** Replace oversized content with an LLM-generated summary (config-only, targets everything). */
+  summarize(config: SummarizeConfig): OffloadStrategyBuilder
 }
 
 function offloadFn(target?: OffloadTarget): OffloadStrategyBuilder {
   return createDropBuilder(target)
 }
 
-offloadFn.truncate = function truncate(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder {
-  return createTruncateBuilder(target, config)
+offloadFn.truncate = function truncate(targetOrConfig?: OffloadTarget | TruncateConfig, config?: TruncateConfig): OffloadStrategyBuilder {
+  if (targetOrConfig === undefined) {
+    return createTruncateBuilder(undefined, config)
+  }
+  if (isTruncateConfig(targetOrConfig)) {
+    return createTruncateBuilder(undefined, targetOrConfig)
+  }
+  return createTruncateBuilder(targetOrConfig as OffloadTarget, config)
 }
 
 offloadFn.summarize = function summarize(targetOrConfig?: OffloadTarget | SummarizeConfig, config?: SummarizeConfig): OffloadStrategyBuilder {
@@ -641,6 +650,14 @@ offloadFn.summarize = function summarize(targetOrConfig?: OffloadTarget | Summar
     return createSummarizeBuilder(undefined, targetOrConfig)
   }
   return createSummarizeBuilder(targetOrConfig as OffloadTarget, config)
+}
+
+/** Disambiguates the truncate overload: is the first arg a config object or a target? */
+function isTruncateConfig(value: unknown): value is TruncateConfig {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const keys = Object.keys(value)
+  if (keys.length === 0) return true
+  return keys.some((key) => key === 'previewTokens' || key === 'preview')
 }
 
 /** Disambiguates the summarize overload: is the first arg a config object or a target? */

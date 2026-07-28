@@ -327,6 +327,11 @@ describe('Offload builder', () => {
     const strategy = Offload.summarize({ systemPrompt: 'summarize briefly' }).when({ utilization: 0.85 })
     expect(strategy.name).toBe('offload:summarize')
   })
+
+  it('Offload.truncate(config) config-only creates untargeted strategy', () => {
+    const strategy = Offload.truncate({ previewTokens: 200 }).when({ threshold: 1000 })
+    expect(strategy.name).toBe('offload:truncate')
+  })
 })
 
 describe('Offload with no target (fires on everything)', () => {
