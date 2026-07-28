@@ -19,7 +19,7 @@ import '../styles/catalog.css'
 const stats = statsFile as CatalogStatsFile
 const entries = await getCollection('catalog')
 const buildDate = new Date()
-const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.id], buildDate)))
+const cards = sortEntries(entries.map((e) => toCardModel(e.data, stats[e.id], buildDate)))
 
 // The SDK facet renders only when the catalog actually has evals entries;
 // the Verified filter only when at least one entry is actually verified.
@@ -112,7 +112,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
         <div class="cat-cta">
           <h2 class="cat-cta-title">Add your integration</h2>
           <p class="cat-cta-body">Built a tool, model provider, or plugin for Strands? List it here.</p>
-          <a class="cat-cta-btn" href={pathWithBase('/docs/community/get-featured/')}>Get featured</a>
+          <a class="cat-cta-btn" href={pathWithBase('/docs/community/get-featured/')}>Add your integration</a>
         </div>
       </div>
     </div>

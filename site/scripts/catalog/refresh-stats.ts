@@ -47,7 +47,7 @@ export async function buildStats(
         stats.stars = repo.stars
       } catch (err) {
         // Keep the previous value so a transient outage doesn't regress stats.
-        console.warn(`entry=${entry.id}, source=github | fetch failed, keeping previous value`, err)
+        console.warn(`entry=<${entry.id}>, source=github | fetch failed, keeping previous value`, err)
         if (prev?.stars !== undefined) stats.stars = prev.stars
       }
     }
@@ -55,7 +55,7 @@ export async function buildStats(
       try {
         stats.downloads.python = await fetchers.pypiDownloads(entry.python)
       } catch (err) {
-        console.warn(`entry=${entry.id}, source=pypi | fetch failed, keeping previous value`, err)
+        console.warn(`entry=<${entry.id}>, source=pypi | fetch failed, keeping previous value`, err)
         if (prev?.downloads?.python !== undefined) stats.downloads.python = prev.downloads.python
       }
     }
@@ -63,7 +63,7 @@ export async function buildStats(
       try {
         stats.downloads.typescript = await fetchers.npmDownloads(entry.typescript)
       } catch (err) {
-        console.warn(`entry=${entry.id}, source=npm | fetch failed, keeping previous value`, err)
+        console.warn(`entry=<${entry.id}>, source=npm | fetch failed, keeping previous value`, err)
         if (prev?.downloads?.typescript !== undefined) stats.downloads.typescript = prev.downloads.typescript
       }
     }
@@ -74,7 +74,7 @@ export async function buildStats(
 
 // ── Live fetchers ─────────────────────────────────────────────────────────────
 
-export const liveFetchers: StatsFetchers = {
+const liveFetchers: StatsFetchers = {
   async githubRepo(repoUrl) {
     // Keep only the org/repo segments so tree/blob URLs resolve to the repo.
     const slug = new URL(repoUrl).pathname
@@ -117,7 +117,7 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
         languages?: { python?: { package?: string }; typescript?: { package?: string } }
       }
       if (!data?.github || typeof data.github !== 'string') {
-        console.warn(`entry=${id} | malformed yaml, skipping`)
+        console.warn(`entry=<${id}> | malformed yaml, skipping`)
         continue
       }
       const languages = data?.languages ?? {}
@@ -130,30 +130,30 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
       // vendor's product, not the Strands integration, so skip them.
       const hasPackage = Boolean(languages.python?.package || languages.typescript?.package)
       if (repoSlug.startsWith('strands-agents/')) {
-        console.warn(`entry=${id}, source=github | repo is the sdk itself, skipping stats`)
+        console.warn(`entry=<${id}>, source=github | repo is the sdk itself, skipping stats`)
       } else if (!hasPackage) {
-        console.warn(`entry=${id} | guide-only entry, skipping github stats`)
+        console.warn(`entry=<${id}> | guide-only entry, skipping github stats`)
       } else {
         entry.github = data.github
       }
       if (languages.python?.package === 'strands-agents') {
-        console.warn(`entry=${id}, source=pypi | package is the sdk itself, skipping stats`)
+        console.warn(`entry=<${id}>, source=pypi | package is the sdk itself, skipping stats`)
       } else if (languages.python?.package?.endsWith(']')) {
         // An extras-qualified package (`temporalio[strands-agents]`) 404s on
         // pypistats, and the base package's downloads would overstate the
         // integration's popularity — so no download stats at all.
-        console.warn(`entry=${id}, source=pypi | extras-qualified package, skipping download stats`)
+        console.warn(`entry=<${id}>, source=pypi | extras-qualified package, skipping download stats`)
       } else {
         entry.python = languages.python?.package
       }
       if (languages.typescript?.package === '@strands-agents/sdk') {
-        console.warn(`entry=${id}, source=npm | package is the sdk itself, skipping stats`)
+        console.warn(`entry=<${id}>, source=npm | package is the sdk itself, skipping stats`)
       } else {
         entry.typescript = languages.typescript?.package
       }
       entries.push(entry)
     } catch (err) {
-      console.warn(`entry=${id} | malformed yaml, skipping`, err)
+      console.warn(`entry=<${id}> | malformed yaml, skipping`, err)
     }
   }
   return entries

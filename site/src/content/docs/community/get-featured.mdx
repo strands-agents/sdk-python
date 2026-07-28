@@ -2,26 +2,36 @@
 title: Add Your Integration to the Catalog
 description: 'How to list your community integration in the Strands Agents catalog, from package requirements to submitting a catalog entry.'
 sidebar:
-  label: "Get Featured"
+  label: "Add Your Integration"
 ---
 
-Built something useful for Strands Agents? Add it to the [community catalog](/catalog/) so other developers can discover it. A catalog listing is one small YAML file — an on-site documentation page is optional.
+Built something useful for Strands Agents? Add it to the [community catalog](/catalog/) so
+other developers can discover it. A catalog listing is one small YAML file — an on-site
+documentation page is optional.
 
 ## What we list
 
-Reusable packages published to PyPI or npm that extend Strands Agents: model providers, tools, session managers, memory stores, storage backends, plugins, integrations, agent extensions, and interventions. Vendor integrations documented by a dev guide (with no installable Strands package) also qualify — see the `docsUrl` field below.
+Reusable packages published to PyPI or npm that extend Strands Agents: model providers,
+tools, session managers, memory stores, storage backends, plugins, integrations, agent
+extensions, and interventions. Vendor integrations documented by a dev guide (with no
+installable Strands package) also qualify — see the `docsUrl` field below.
 
-**Out of scope:** example agents, demos, and applications *built with* Strands. The catalog lists building blocks you add to your own agent, not finished agents or one-off projects.
+**Out of scope:** example agents, demos, and applications *built with* Strands. The
+catalog lists building blocks you add to your own agent, not finished agents or one-off
+projects.
 
 :::tip[Starting from scratch?]
-The [extension template](https://github.com/strands-agents/extension-template) gives you a ready-made project structure with testing, linting, and publishing already set up.
+The [extension template](https://github.com/strands-agents/extension-template) gives you a
+ready-made project structure with testing, linting, and publishing already set up.
 :::
 
 ## Add your entry
 
 1. Fork [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk)
 2. Add one file: `site/src/content/catalog/<your-package>.yaml`
-3. Open a PR with the **Catalog submission** template: append `?template=catalog-submission.md` to the compare URL, e.g. `https://github.com/strands-agents/harness-sdk/compare/main...<your-fork>:<your-branch>?template=catalog-submission.md`
+3. Open a PR with the **Catalog submission** template: append
+`?template=catalog-submission.md` to the compare URL, e.g.
+`https://github.com/strands-agents/harness-sdk/compare/main...<your-fork>:<your-branch>?template=catalog-submission.md`
 
 Your entry:
 
@@ -50,17 +60,23 @@ addedDate: 2026-07-17        # the date you open the PR
 | `docsUrl` | Optional | Link to your own docs page about the Strands integration; used as the card link when you don't add an on-site docs page. Must start with `https://`. |
 | `docsPage` | Optional | Set only if you also add a docs page (below) |
 
-The maintainer shown on your card and the PyPI/npm links are derived automatically — the maintainer from your `github` URL's owner, the registry links from your `package` names. Don't declare `maintainer` or `registry` fields; the build rejects them.
+The maintainer shown on your card and the PyPI/npm links are derived automatically — the
+maintainer from your `github` URL's owner, the registry links from your `package` names.
+Don't declare `maintainer` or `registry` fields; the build rejects them.
 
-Leave `featured` and `badges` unset — the Strands team grants those, and CI flags submissions that set them for maintainer review.
+Leave `featured` and `badges` unset — the Strands team grants those, and CI flags
+submissions that set them for maintainer review.
 
-The site build validates your file against the schema, so a malformed entry fails CI with a clear error.
+The site build validates your file against the schema, so a malformed entry fails CI with
+a clear error.
 
 ## Optional: add a documentation page
 
-Without a docs page, your catalog card links to your GitHub repo — perfectly fine. If you want an on-site page with install/usage examples:
+Without a docs page, your catalog card links to your GitHub repo — perfectly fine. If you
+want an on-site page with install/usage examples:
 
-1. Add `site/src/content/docs/community/<type-directory>/<your-package>.mdx` (e.g. `community/tools/your-package.mdx`) with frontmatter:
+1. Add `site/src/content/docs/community/<type-directory>/<your-package>.mdx` (e.g.
+`community/tools/your-package.mdx`) with frontmatter:
 
 ```yaml
 ---
@@ -74,10 +90,13 @@ sidebar:
 ---
 ```
 
-2. Keep the page a concise overview: installation, a working usage example, configuration. If your package supports both languages, use `<Tabs>` with `Python` / `TypeScript` labels so the page follows the site-wide language toggle.
+2. Keep the page a concise overview: installation, a working usage example, configuration.
+If your package supports both languages, use `<Tabs>` with `Python` / `TypeScript` labels
+so the page follows the site-wide language toggle.
 3. Add the page under the Community section of `site/src/config/navigation.yml`.
 4. Reference it from your catalog entry: `docsPage: docs/community/tools/your-package`
 
 ## Questions?
 
-Ask in [Discord](https://discord.gg/strands) or open an issue at [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk/issues).
+Ask in [Discord](https://discord.gg/strands) or open an issue at
+[strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk/issues).

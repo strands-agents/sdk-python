@@ -85,4 +85,11 @@ describe('URL state round-trip', () => {
     expect(back.languages.size).toBe(0)
     expect(back.sdk).toBe('agents')
   })
+
+  it('accepts every registered catalog type in type filters', () => {
+    // KNOWN_TYPES derives from CATALOG_TYPES; this guards a newly registered
+    // type (e.g. storage) being filterable without a second manual list.
+    const back = queryToState('type=storage,memory-store')
+    expect(back.types).toEqual(new Set(['storage', 'memory-store']))
+  })
 })

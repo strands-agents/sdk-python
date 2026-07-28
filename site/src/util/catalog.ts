@@ -14,7 +14,6 @@ export interface CatalogStats {
 export type CatalogStatsFile = Record<string, CatalogStats>
 
 export interface CatalogCardModel {
-  id: string
   name: string
   description: string
   integrationType: CatalogEntryData['integrationType']
@@ -35,7 +34,6 @@ export interface CatalogCardModel {
 export const NEW_BADGE_DAYS = 30
 
 export function toCardModel(
-  id: string,
   data: CatalogEntryData,
   stats: CatalogStats | undefined,
   buildDate: Date
@@ -79,7 +77,6 @@ export function toCardModel(
   const totalDownloads = (stats?.downloads?.python ?? 0) + (stats?.downloads?.typescript ?? 0)
 
   return {
-    id,
     name: data.name,
     description: data.description,
     integrationType: data.integrationType,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { getCollection } from 'astro:content'
 import { catalogEntrySchema } from '../src/content.config'
+import { CATALOG_TYPES } from '../src/components/catalog/types'
 
 describe('catalog content collection', () => {
   it('loads catalog entries with validated data', async () => {
@@ -108,6 +109,22 @@ describe('catalog content collection', () => {
       addedDate: '2026-07-17',
     })
     expect(result.success).toBe(false)
+  })
+
+  it('accepts every type in the CATALOG_TYPES registry', () => {
+    // The zod enum and CATALOG_TYPES are cross-referenced by comment only;
+    // this fails loudly when a type is added to the registry but not the schema.
+    for (const { value } of CATALOG_TYPES) {
+      const result = catalogEntrySchema.safeParse({
+        name: `probe-${value}`,
+        description: 'registry/schema sync probe',
+        integrationType: value,
+        languages: { python: { package: 'x' } },
+        github: 'https://github.com/example/x',
+        addedDate: '2026-07-17',
+      })
+      expect(result.success, `type ${value} is in CATALOG_TYPES but rejected by the schema`).toBe(true)
+    }
   })
 
   it('every docsPage points at a real docs collection entry', async () => {
