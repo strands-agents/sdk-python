@@ -307,7 +307,13 @@ export { FileStorage } from './session/file-storage.js'
 
 // Context management
 export { ContextManager } from './context-manager/context-manager.js'
-export type { ContextManagerConfig, StashConfig } from './context-manager/types.js'
+export { Offload } from './context-manager/strategies/offload.js'
+export { TruncateMethod } from './context-manager/strategies/methods/truncate-method.js'
+export { SummarizeMethod } from './context-manager/strategies/methods/summarize-method.js'
+export type { ContextManagerConfig, ContextStrategy, StashConfig } from './context-manager/types.js'
+export type { OffloadTarget, OffloadWhenConditions } from './context-manager/strategies/offload.js'
+export type { TruncateMethodConfig } from './context-manager/strategies/methods/truncate-method.js'
+export type { SummarizeMethodConfig } from './context-manager/strategies/methods/summarize-method.js'
 
 // Local Traces
 export { AgentTrace } from './telemetry/tracer.js'

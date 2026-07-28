@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { SummarizeStrategy } from '../summarize-strategy.js'
+import { SummarizeMethod } from '../methods/summarize-method.js'
+import { Offload } from '../offload.js'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { InMemoryStorage } from '../../../storage/in-memory-storage.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -27,45 +28,41 @@ function makeContext(messages: Message[], utilization = 0.5, model?: unknown): S
   }
 }
 
-describe('SummarizeStrategy', () => {
+describe('SummarizeMethod', () => {
   describe('constructor', () => {
     it('uses default config values', () => {
-      const strategy = new SummarizeStrategy()
-      expect(strategy.name).toBe('summarize')
-      expect(strategy['_summaryRatio']).toBe(0.3)
-      expect(strategy['_preserveRecent']).toBe(10)
-      expect(strategy['_utilization']).toBeUndefined()
+      const method = new SummarizeMethod()
+      expect(method.name).toBe('offload:summarize')
+      expect(method['_summaryRatio']).toBe(0.3)
+      expect(method['_preserveRecent']).toBe(10)
+      expect(method['_utilization']).toBeUndefined()
     })
 
     it('accepts custom config', () => {
-      const strategy = new SummarizeStrategy({
-        summaryRatio: 0.5,
-        preserveRecent: 5,
-        utilization: 0.85,
-      })
-      expect(strategy['_summaryRatio']).toBe(0.5)
-      expect(strategy['_preserveRecent']).toBe(5)
-      expect(strategy['_utilization']).toBe(0.85)
+      const method = new SummarizeMethod({ ratio: 0.5, preserveRecent: 5 }, { utilization: 0.85 })
+      expect(method['_summaryRatio']).toBe(0.5)
+      expect(method['_preserveRecent']).toBe(5)
+      expect(method['_utilization']).toBe(0.85)
     })
 
     it('clamps ratio to min', () => {
-      const strategy = new SummarizeStrategy({ summaryRatio: 0.01 })
-      expect(strategy['_summaryRatio']).toBe(0.1)
+      const method = new SummarizeMethod({ ratio: 0.01 })
+      expect(method['_summaryRatio']).toBe(0.1)
     })
 
     it('clamps ratio to max', () => {
-      const strategy = new SummarizeStrategy({ summaryRatio: 0.99 })
-      expect(strategy['_summaryRatio']).toBe(0.8)
+      const method = new SummarizeMethod({ ratio: 0.99 })
+      expect(method['_summaryRatio']).toBe(0.8)
     })
   })
 
   describe('apply', () => {
     it('returns false when no model is available', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
-      const strategy = new SummarizeStrategy()
+      const method = new SummarizeMethod()
       const context = makeContext(messages)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(false)
     })
@@ -73,10 +70,10 @@ describe('SummarizeStrategy', () => {
     it('returns false when not enough messages to summarize', async () => {
       const messages = [makeUserMessage('hello')]
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy({ preserveRecent: 10 })
+      const method = new SummarizeMethod({ preserveRecent: 10 })
       const context = makeContext(messages, 0.9, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(false)
     })
@@ -84,48 +81,46 @@ describe('SummarizeStrategy', () => {
     it('summarizes oldest messages', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy({ summaryRatio: 0.3, preserveRecent: 5 })
+      const method = new SummarizeMethod({ ratio: 0.3, preserveRecent: 5 })
       const context = makeContext(messages, 0.9, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(true)
-      // 20 * 0.3 = 6 messages summarized, replaced with 1
       expect(messages).toHaveLength(15)
     })
 
-    it('does not exceed preserve_recent', async () => {
+    it('does not exceed preserveRecent', async () => {
       const messages = Array.from({ length: 12 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy({ summaryRatio: 0.8, preserveRecent: 10 })
+      const method = new SummarizeMethod({ ratio: 0.8, preserveRecent: 10 })
       const context = makeContext(messages, 0.9, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(true)
-      // min(floor(12*0.8)=9, 12-10=2) = 2 summarized, replaced with 1
       expect(messages).toHaveLength(11)
     })
 
     it('skips when utilization is below threshold', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy({ utilization: 0.85 })
-      const context = makeContext(messages, 0.5, mockModel) // below 0.85
+      const method = new SummarizeMethod(undefined, { utilization: 0.85 })
+      const context = makeContext(messages, 0.5, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(false)
-      expect(messages).toHaveLength(20) // unchanged
+      expect(messages).toHaveLength(20)
     })
 
     it('fires when utilization exceeds threshold', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy({ utilization: 0.85, preserveRecent: 5 })
-      const context = makeContext(messages, 0.9, mockModel) // above 0.85
+      const method = new SummarizeMethod({ preserveRecent: 5 }, { utilization: 0.85 })
+      const context = makeContext(messages, 0.9, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(true)
     })
@@ -133,22 +128,34 @@ describe('SummarizeStrategy', () => {
     it('fires unconditionally when no utilization threshold set', async () => {
       const messages = Array.from({ length: 20 }, (_, index) => makeUserMessage(`msg-${index}`))
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy({ preserveRecent: 5 })
-      const context = makeContext(messages, 0.1, mockModel) // low utilization but no threshold
+      const method = new SummarizeMethod({ preserveRecent: 5 })
+      const context = makeContext(messages, 0.1, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(true)
     })
 
     it('returns false on empty messages', async () => {
       const mockModel = { stream: vi.fn() }
-      const strategy = new SummarizeStrategy()
+      const method = new SummarizeMethod()
       const context = makeContext([], 0.9, mockModel)
 
-      const result = await strategy.apply(context)
+      const result = await method.apply(context)
 
       expect(result).toBe(false)
+    })
+  })
+
+  describe('Offload.summarize builder', () => {
+    it('creates a strategy via Offload.summarize()', () => {
+      const strategy = Offload.summarize({ ratio: 0.4 })
+      expect(strategy.name).toBe('offload:summarize')
+    })
+
+    it('creates a strategy with conditions via .when()', () => {
+      const strategy = Offload.summarize({ ratio: 0.3 }).when({ utilization: 0.85 })
+      expect(strategy.name).toBe('offload:summarize')
     })
   })
 })
