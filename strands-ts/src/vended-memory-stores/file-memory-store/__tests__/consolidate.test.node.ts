@@ -1331,6 +1331,27 @@ describe('FileMemoryStore.consolidate', () => {
 
       warnSpy.mockRestore()
     })
+
+    it('logs the raw plan at debug on every planner call', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {})
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/a.md', reason: 'prune' }],
+          summary: 'test',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['prune'] })
+
+      expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('raw consolidation plan returned by planner'))
+      expect(debugSpy.mock.calls[0]![0]).toContain('plan=<')
+      expect(debugSpy.mock.calls[0]![0]).toContain('facts/a.md')
+
+      debugSpy.mockRestore()
+    })
   })
 
   describe('input-size guardrails', () => {

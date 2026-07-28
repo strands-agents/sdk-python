@@ -851,6 +851,9 @@ function extractPlan(result: { structuredOutput?: unknown }, maxActionsPerPlan: 
   if (!result.structuredOutput) {
     throw new Error('Model did not return structured output — cannot produce a consolidation plan')
   }
+  // Log before parsing so a plan rejected by the schema or the action-count guard is still
+  // inspectable — the thrown errors carry no plan body
+  logger.debug(`plan=<${JSON.stringify(result.structuredOutput)}> | raw consolidation plan returned by planner`)
   const plan = ConsolidationPlanSchema.parse(result.structuredOutput)
   if (plan.actions.length > maxActionsPerPlan) {
     throw new Error(
