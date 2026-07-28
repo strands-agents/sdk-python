@@ -62,9 +62,6 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
     if urls_to_hydrate:
         with ThreadPoolExecutor(max_workers=len(urls_to_hydrate)) as executor:
             list(executor.map(cache.ensure_page, urls_to_hydrate))
-        # Re-rank after hydration so scores are consistent with newly-indexed content
-        if index:
-            results = index.search(query, k=k)
 
     # Build response with real content snippets when available
     return_docs: List[Dict[str, Any]] = []

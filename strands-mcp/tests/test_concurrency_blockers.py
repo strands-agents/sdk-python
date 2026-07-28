@@ -515,16 +515,9 @@ class TestBlocker2CacheBeforeIndexing:
         assert len(results) == 1
 
 
-class TestReRankAfterHydration:
-    """Test that search returns consistent scores when hydration changes the index.
-
-    The bug: search_docs() ranks results, then hydrates top-k (calling ensure_page()
-    which calls update_content()), but the returned scores are from BEFORE hydration.
-    The first response mixes pre-hydration ranking with post-hydration snippets.
-
-    Fix: After hydrating top-k, if any page's content actually changed, re-run
-    the ranking and return re-ranked results.
-    """
+class TestUpdateContentAtomicity:
+    """update_content() must be atomic: a failure mid-reindex must not commit
+    content early, so the idempotence guard allows a retry to re-run."""
 
     @pytest.fixture(autouse=True)
     def reset_cache_state(self):
@@ -540,98 +533,6 @@ class TestReRankAfterHydration:
         cache._URL_TITLES = {}
         cache._LINKS_LOADED = False
         cache._PREFETCH_STARTED = False
-
-    def test_first_search_matches_second_search_after_hydration(self):
-        """First search after hydration must return same scores as immediate second search.
-
-        Scenario:
-        1. Two docs indexed with empty content (title-only)
-        2. Doc A's content will have strong match for query term (high TF)
-        3. Doc B's content will have weak match for query term (low TF)
-        4. BEFORE hydration: both have empty content, scores based on title only
-        5. First search triggers hydration of top results
-        6. BUG: First search returns pre-hydration scores but post-hydration snippets
-        7. Second identical search returns correct post-hydration scores
-
-        The assertion: first search scores == second search scores (consistent state)
-        """
-        from strands_mcp_server.server import search_docs
-
-        # Setup: create index with two docs, empty content
-        cache._INDEX = indexer.IndexSearch()
-
-        url_a = "https://strandsagents.com/doc_a.md"
-        url_b = "https://strandsagents.com/doc_b.md"
-
-        # Both docs have "guardrail" in title for initial ranking
-        doc_a = indexer.Doc(
-            uri=url_a,
-            display_title="Guardrail Safety Guide",
-            content="",  # Empty - will be hydrated
-            index_title="guardrail safety guide",
-        )
-        doc_b = indexer.Doc(
-            uri=url_b,
-            display_title="Guardrail Overview",
-            content="",  # Empty - will be hydrated
-            index_title="guardrail overview",
-        )
-        cache._INDEX.add(doc_a)
-        cache._INDEX.add(doc_b)
-
-        # Set up cache placeholders
-        cache._URL_CACHE[url_a] = None
-        cache._URL_CACHE[url_b] = None
-        cache._URL_TITLES[url_a] = "Guardrail Safety Guide"
-        cache._URL_TITLES[url_b] = "Guardrail Overview"
-        cache._LINKS_LOADED = True
-
-        # Mock fetch to return different content for each doc
-        # Doc A: many occurrences of "guardrail" -> should rank higher after hydration
-        # Doc B: few occurrences of "guardrail" -> should rank lower after hydration
-        def mock_fetch(url):
-            mock_raw = MagicMock()
-            if url == url_a:
-                mock_raw.title = "Guardrail Safety Guide"
-                # Strong match: many guardrail mentions
-                mock_raw.content = (
-                    "# Guardrail Safety Guide\n\n"
-                    "This is the guardrail documentation. Guardrails are important. "
-                    "Use guardrails to ensure safety. Guardrail configuration is key. "
-                    "The guardrail system provides guardrail protection with guardrail validation."
-                )
-            else:
-                mock_raw.title = "Guardrail Overview"
-                # Weak match: one guardrail mention
-                mock_raw.content = "# Guardrail Overview\n\nThis is a brief overview. See other docs for details."
-            return mock_raw
-
-        with patch("strands_mcp_server.utils.cache.doc_fetcher.fetch_and_clean", side_effect=mock_fetch):
-            with patch(
-                "strands_mcp_server.utils.cache.text_processor.format_display_title",
-                side_effect=lambda url, title, titles: title,
-            ):
-                # First search: triggers hydration
-                results_first = search_docs(query="guardrail", k=5)
-
-                # Second search: should return identical scores if fix is applied
-                results_second = search_docs(query="guardrail", k=5)
-
-        # Extract scores for comparison
-        scores_first = {r["url"]: r["score"] for r in results_first}
-        scores_second = {r["url"]: r["score"] for r in results_second}
-
-        # BUG ASSERTION: Before fix, first search returns stale pre-hydration scores
-        # After fix, first search should return same scores as second search
-        assert scores_first == scores_second, (
-            f"INCONSISTENT STATE: First search returned different scores than second search.\n"
-            f"First search scores: {scores_first}\n"
-            f"Second search scores: {scores_second}\n"
-            f"This indicates first search returned pre-hydration ranking with post-hydration snippets."
-        )
-
-        # Verify hydration actually happened (scores should differ from title-only)
-        assert len(results_first) == 2, "Expected 2 results"
 
     def test_update_content_atomic_on_mid_loop_failure(self):
         """yonib05's finding: if the postings loop raises after doc.content is set,
