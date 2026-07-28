@@ -171,16 +171,26 @@ class BeforeToolsEvent(HookEvent, _Interruptible):
 class AfterToolsEvent(HookEvent):
     """Event triggered once after a batch of tools finishes executing.
 
-    This event is fired after all tools requested in an assistant message have
+    This event is fired after the tools requested in an assistant message have
     completed (or been cancelled), giving hooks aggregate visibility over the
-    full set of tool results before the next model call. It is always paired
-    with a preceding ``BeforeToolsEvent``, including on cancel and error paths.
+    tool results before the next model call. It is always paired with a preceding
+    ``BeforeToolsEvent``, including on cancel and error paths.
+
+    It fires once per event-loop cycle, not once per logical batch. When a per-tool
+    interrupt pauses a batch, the batch is split across cycles: this event fires on
+    the interrupt cycle (with only the results collected so far — the interrupted
+    tool has none yet) and again on the resume cycle (with the results produced that
+    cycle). Hooks that perform side effects here should be prepared to run more than
+    once for a single assistant message. This mirrors the TypeScript SDK, where the
+    equivalent ``finally``-dispatched ``AfterToolsEvent`` also fires per cycle.
 
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.
 
     Attributes:
-        message: The user-role message containing all tool results from the batch.
+        message: The user-role message containing the tool results collected in the
+            current event-loop cycle (the full batch when it completes in one cycle;
+            a partial set on an interrupt cycle).
         invocation_state: State and configuration passed through the agent invocation.
         end_turn: When set, the agent loop halts after this tool batch without
             calling the model again, and the returned result has ``stop_reason``

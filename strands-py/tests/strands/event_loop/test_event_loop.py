@@ -1367,6 +1367,59 @@ async def test_event_loop_cycle_after_tools_fires_on_per_tool_interrupt(agent, m
 
 
 @pytest.mark.asyncio
+async def test_event_loop_cycle_after_tools_fires_per_cycle_across_per_tool_interrupt_resume(
+    agent, model, tool, tool_times_2, agenerator, alist
+):
+    """AfterToolsEvent fires once per event-loop cycle, not once per logical batch.
+
+    A per-tool interrupt splits one batch across two cycles, so the event fires twice: on the
+    interrupt cycle carrying only the results collected so far, then again on resume carrying the
+    full set. This mirrors the TypeScript SDK, where `executeTools` dispatches AfterToolsEvent from
+    a `finally` that also runs on the interrupt (throw) path, so it likewise fires once per cycle.
+    """
+    agent.tool_executor = SequentialToolExecutor()
+    after_tools_ids = []
+
+    def interrupt_second_tool(event):
+        if event.tool_use["name"] == tool_times_2.tool_name:
+            event.interrupt("approval", "Approve?")
+
+    def record_after_tools(event):
+        after_tools_ids.append([content["toolResult"]["toolUseId"] for content in event.message["content"]])
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_second_tool)
+    agent.hooks.add_callback(AfterToolsEvent, record_after_tools)
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": tool.tool_name}}}},
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "first"}'}}}},
+                {"contentBlockStop": {}},
+                {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t2", "name": tool_times_2.tool_name}}}},
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"x": 2}'}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        agenerator([{"contentBlockDelta": {"delta": {"text": "done"}}}, {"contentBlockStop": {}}]),
+    ]
+
+    first_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+    stop_reason, _, _, _, interrupts, _, _ = first_events[-1]["stop"]
+
+    # Interrupt cycle: t1 completed, t2 was interrupted, so the batch message is partial.
+    assert stop_reason == "interrupt"
+    assert after_tools_ids == [["t1"]]
+
+    agent._interrupt_state.resume([{"interruptResponse": {"interruptId": interrupts[0].id, "response": "approved"}}])
+    resumed_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # Resume cycle: fires a second time for the same logical batch, now with the full result set.
+    assert resumed_events[-1]["stop"][0] == "end_turn"
+    assert after_tools_ids == [["t1"], ["t1", "t2"]]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("executor_type", [SequentialToolExecutor, ConcurrentToolExecutor])
 @pytest.mark.parametrize(
     ("cancel", "expected_text"),
