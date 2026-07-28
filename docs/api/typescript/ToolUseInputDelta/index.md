@@ -1,4 +1,4 @@
-Defined in: [src/models/streaming.ts:430](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L430)
+Defined in: [src/models/streaming.ts:430](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/models/streaming.ts#L430)
 
 Tool use input delta within a content block. Represents incremental tool input being generated.
 
@@ -10,7 +10,7 @@ Tool use input delta within a content block. Represents incremental tool input b
 type: "toolUseInputDelta";
 ```
 
-Defined in: [src/models/streaming.ts:434](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L434)
+Defined in: [src/models/streaming.ts:434](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/models/streaming.ts#L434)
 
 Discriminator for tool use input delta.
 
@@ -22,6 +22,6 @@ Discriminator for tool use input delta.
 input: string;
 ```
 
-Defined in: [src/models/streaming.ts:439](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/models/streaming.ts#L439)
+Defined in: [src/models/streaming.ts:439](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/models/streaming.ts#L439)
 
 Partial JSON string representing the tool input.

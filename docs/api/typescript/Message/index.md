@@ -1,4 +1,4 @@
-Defined in: [src/types/messages.ts:70](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L70)
+Defined in: [src/types/messages.ts:70](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L70)
 
 A message in a conversation between user and assistant. Each message has a role (user or assistant) and an array of content blocks.
 
@@ -14,7 +14,7 @@ A message in a conversation between user and assistant. Each message has a role 
 new Message(data): Message;
 ```
 
-Defined in: [src/types/messages.ts:101](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L101)
+Defined in: [src/types/messages.ts:101](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L101)
 
 #### Parameters
 
@@ -38,7 +38,7 @@ Defined in: [src/types/messages.ts:101](https://github.com/strands-agents/harnes
 readonly type: "message";
 ```
 
-Defined in: [src/types/messages.ts:74](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L74)
+Defined in: [src/types/messages.ts:74](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L74)
 
 Discriminator for message type.
 
@@ -50,7 +50,7 @@ Discriminator for message type.
 readonly role: Role;
 ```
 
-Defined in: [src/types/messages.ts:79](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L79)
+Defined in: [src/types/messages.ts:79](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L79)
 
 The role of the message sender.
 
@@ -62,7 +62,7 @@ The role of the message sender.
 readonly content: ContentBlock[];
 ```
 
-Defined in: [src/types/messages.ts:84](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L84)
+Defined in: [src/types/messages.ts:84](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L84)
 
 Array of content blocks that make up this message.
 
@@ -74,7 +74,7 @@ Array of content blocks that make up this message.
 readonly trackingId: string;
 ```
 
-Defined in: [src/types/messages.ts:94](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L94)
+Defined in: [src/types/messages.ts:94](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L94)
 
 Durable, stable UUID for the message, assigned at construction. Every Message has one — a caller-supplied id is preserved, otherwise a fresh UUID is minted (so callers do not normally set it; a caller supplying its own should use a UUID v4, e.g. `crypto.randomUUID()`). Survives session save/restore, and is stripped before model calls. Preserved when a message is copied or restored, so ids are unique within a conversation, but the same message carries the same id across sessions (copying another agent’s messages does not re-key them).
 
@@ -86,7 +86,7 @@ Durable, stable UUID for the message, assigned at construction. Every Message ha
 optional metadata?: MessageMetadata;
 ```
 
-Defined in: [src/types/messages.ts:99](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L99)
+Defined in: [src/types/messages.ts:99](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L99)
 
 Optional metadata, not sent to model providers.
 
@@ -98,7 +98,7 @@ Optional metadata, not sent to model providers.
 static fromMessageData(data): Message;
 ```
 
-Defined in: [src/types/messages.ts:115](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L115)
+Defined in: [src/types/messages.ts:115](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L115)
 
 Creates a Message instance from MessageData.
 
@@ -120,7 +120,7 @@ Creates a Message instance from MessageData.
 toJSON(): MessageData;
 ```
 
-Defined in: [src/types/messages.ts:131](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L131)
+Defined in: [src/types/messages.ts:131](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L131)
 
 Serializes the Message to a JSON-compatible MessageData object. Called automatically by JSON.stringify().
 
@@ -142,7 +142,7 @@ JSONSerializable.toJSON
 static fromJSON(data): Message;
 ```
 
-Defined in: [src/types/messages.ts:147](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L147)
+Defined in: [src/types/messages.ts:147](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L147)
 
 Creates a Message instance from MessageData. Alias for fromMessageData for API consistency.
 
@@ -166,7 +166,7 @@ Message instance
 clone(): Message;
 ```
 
-Defined in: [src/types/messages.ts:154](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/types/messages.ts#L154)
+Defined in: [src/types/messages.ts:154](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/types/messages.ts#L154)
 
 Creates a deep copy of this Message (round-trips through serialization).
 

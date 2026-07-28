@@ -1,4 +1,4 @@
-Defined in: [src/memory/extraction/types.ts:89](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L89)
+Defined in: [src/memory/extraction/types.ts:89](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/memory/extraction/types.ts#L89)
 
 Context handed to [ExtractionTrigger.attach](/docs/api/typescript/ExtractionTrigger/index.md#attach) so a trigger can wire itself into the agent lifecycle and signal when extraction should run for its store.
 
@@ -10,7 +10,7 @@ Context handed to [ExtractionTrigger.attach](/docs/api/typescript/ExtractionTrig
 agent: LocalAgent;
 ```
 
-Defined in: [src/memory/extraction/types.ts:91](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L91)
+Defined in: [src/memory/extraction/types.ts:91](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/memory/extraction/types.ts#L91)
 
 The agent the trigger attaches its hooks to.
 
@@ -22,7 +22,7 @@ The agent the trigger attaches its hooks to.
 fire: () => void;
 ```
 
-Defined in: [src/memory/extraction/types.ts:93](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/memory/extraction/types.ts#L93)
+Defined in: [src/memory/extraction/types.ts:93](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/memory/extraction/types.ts#L93)
 
 Save this store’s unsaved messages now. Runs in the background and returns immediately, so calling it from a hook never blocks the agent. To await completion, see [MemoryManager.flush](/docs/api/typescript/MemoryManager/index.md#flush).
 

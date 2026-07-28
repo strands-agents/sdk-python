@@ -44,7 +44,7 @@ Store data under key, overwriting any existing value.
 
 **Arguments**:
 
--   `key` - Opaque, ’/‘-separated key identifying the value.
+-   `key` - Opaque string key identifying the value.
 -   `data` - Raw bytes to persist.
 
 **Raises**:

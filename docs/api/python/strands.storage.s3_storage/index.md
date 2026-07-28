@@ -60,7 +60,7 @@ Store data as an S3 object.
 
 **Arguments**:
 
--   `key` - Opaque, ’/‘-separated key identifying the value.
+-   `key` - Opaque string key identifying the value.
 -   `data` - Raw bytes to persist.
 
 **Raises**:

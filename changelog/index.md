@@ -1,5 +1,38 @@
 # Strands Agents Changelog
 
+## Harness Python v1.50.2 — 2026-07-27
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.50.2 · Package: https://pypi.org/project/strands-agents/1.50.2/
+
+### Features
+- add per-call MCP tool cancellation [mcp, hil] (https://github.com/strands-agents/harness-sdk/pull/3402)
+- add context manager class design doc [context] (https://github.com/strands-agents/harness-sdk/pull/3307)
+
+### Fixes
+- gemini live mp to use updated api [model, bidirectional-streaming] (https://github.com/strands-agents/harness-sdk/pull/3424)
+- deduplicate inverted-index postings [mcp] (https://github.com/strands-agents/harness-sdk/pull/3417)
+- consume reasoning signature per content block [model, agent] (https://github.com/strands-agents/harness-sdk/pull/3472)
+- legacy file storage accepts bare filenames and stems [persistence] (https://github.com/strands-agents/harness-sdk/pull/3495)
+
+### Other
+- bump google-genai floor to \>=1.67.0 [model, bidirectional-streaming] (https://github.com/strands-agents/harness-sdk/pull/3478)
+- correct search tool contracts [mcp] (https://github.com/strands-agents/harness-sdk/pull/3456)
+- update context offloader comments to deprecate legacy storage [persistence] (https://github.com/strands-agents/harness-sdk/pull/3476)
+- remove security features, accept httpx.AsyncClient [devx, tool] (https://github.com/strands-agents/harness-sdk/pull/3491)
+
+## Harness TypeScript v1.11.2 — 2026-07-27
+Release: https://github.com/strands-agents/harness-sdk/releases/tag/typescript/v1.11.2 · Package: https://www.npmjs.com/package/@strands-agents/sdk/v/1.11.2
+
+### Features
+- add agent-as-tool delegation [multiagent, agent] (https://github.com/strands-agents/harness-sdk/pull/3265)
+- add context manager class design doc [context] (https://github.com/strands-agents/harness-sdk/pull/3307)
+
+### Fixes
+- deduplicate inverted-index postings [mcp] (https://github.com/strands-agents/harness-sdk/pull/3417)
+
+### Other
+- correct search tool contracts [mcp] (https://github.com/strands-agents/harness-sdk/pull/3456)
+- update context offloader comments to deprecate legacy storage [persistence] (https://github.com/strands-agents/harness-sdk/pull/3476)
+
 ## Harness Python v1.50.1 — 2026-07-24
 Release: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.50.1 · Package: https://pypi.org/project/strands-agents/1.50.1/
 

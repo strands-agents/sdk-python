@@ -1,8 +1,8 @@
-Defined in: [src/storage/storage.ts:64](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L64)
+Defined in: [src/storage/storage.ts:74](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/storage/storage.ts#L74)
 
 A backend for storing and retrieving raw bytes under string keys.
 
-The interface is deliberately minimal — four operations over opaque `Uint8Array` values. Implementations must treat keys as opaque path-like strings (segments separated by `/`) and must round-trip the bytes they are given unchanged.
+The interface is deliberately minimal — four operations over opaque `Uint8Array` values. Keys are opaque strings — implementations must round-trip the bytes they are given unchanged. The shipped backends interpret `/` as a logical separator (collapsing runs, rejecting `..`), but custom backends may apply their own key scheme.
 
 The `ListQuery` type parameter controls what `list` accepts. It defaults to `string` (a key prefix), which every backend supports. Implementations may widen it to accept a richer query object (e.g. a DynamoDB partition/sort-key filter) while still accepting a plain string for SDK-internal callers.
 
@@ -22,7 +22,7 @@ Implement this to add a custom backend; the SDK ships InMemoryStorage, LocalFile
 write(key, data): Promise<void>;
 ```
 
-Defined in: [src/storage/storage.ts:72](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L72)
+Defined in: [src/storage/storage.ts:82](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/storage/storage.ts#L82)
 
 Stores `data` under `key`, overwriting any existing value.
 
@@ -30,7 +30,7 @@ Stores `data` under `key`, overwriting any existing value.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `key` | `string` | Opaque, `/`\-separated key identifying the value |
+| `key` | `string` | Opaque string key identifying the value |
 | `data` | `Uint8Array` | Raw bytes to persist |
 
 #### Returns
@@ -49,7 +49,7 @@ Stores `data` under `key`, overwriting any existing value.
 read(key): Promise<Uint8Array<ArrayBufferLike>>;
 ```
 
-Defined in: [src/storage/storage.ts:81](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L81)
+Defined in: [src/storage/storage.ts:91](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/storage/storage.ts#L91)
 
 Retrieves the bytes previously stored under `key`.
 
@@ -77,7 +77,7 @@ The stored bytes, or `null` if no value exists for `key`
 delete(key): Promise<void>;
 ```
 
-Defined in: [src/storage/storage.ts:89](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L89)
+Defined in: [src/storage/storage.ts:99](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/storage/storage.ts#L99)
 
 Deletes the value stored under `key`. A no-op if the key does not exist.
 
@@ -103,7 +103,7 @@ Deletes the value stored under `key`. A no-op if the key does not exist.
 list(query): Promise<string[]>;
 ```
 
-Defined in: [src/storage/storage.ts:105](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L105)
+Defined in: [src/storage/storage.ts:115](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/storage/storage.ts#L115)
 
 Lists keys matching the given query.
 
@@ -135,7 +135,7 @@ The matching keys, sorted ascending
 optional namespace(prefix): Storage;
 ```
 
-Defined in: [src/storage/storage.ts:116](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/storage/storage.ts#L116)
+Defined in: [src/storage/storage.ts:126](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/storage/storage.ts#L126)
 
 Returns a view of this storage with all keys prefixed by `prefix`. The original storage is not mutated.
 

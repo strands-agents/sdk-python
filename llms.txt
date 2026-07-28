@@ -729,6 +729,7 @@
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
 - Harness Python
+  - [v1.50.2](https://strandsagents.com/changelog/harness/python-v1.50.2/index.md): Harness Python v1.50.2 (2026-07-27)
   - [v1.50.1](https://strandsagents.com/changelog/harness/python-v1.50.1/index.md): Harness Python v1.50.1 (2026-07-24)
   - [v1.50.0](https://strandsagents.com/changelog/harness/python-v1.50.0/index.md): Harness Python v1.50.0 (2026-07-24)
   - [v1.48.0](https://strandsagents.com/changelog/harness/python-v1.48.0/index.md): Harness Python v1.48.0 (2026-07-17)
@@ -798,6 +799,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/python-v0.1.1/index.md): Harness Python v0.1.1 (2025-05-17)
   - [v0.1.0](https://strandsagents.com/changelog/harness/python-v0.1.0/index.md): Harness Python v0.1.0 (2025-05-16)
 - Harness TypeScript
+  - [v1.11.2](https://strandsagents.com/changelog/harness/typescript-v1.11.2/index.md): Harness TypeScript v1.11.2 (2026-07-27)
   - [v1.11.1](https://strandsagents.com/changelog/harness/typescript-v1.11.1/index.md): Harness TypeScript v1.11.1 (2026-07-24)
   - [v1.11.0](https://strandsagents.com/changelog/harness/typescript-v1.11.0/index.md): Harness TypeScript v1.11.0 (2026-07-24)
   - [v1.10.0](https://strandsagents.com/changelog/harness/typescript-v1.10.0/index.md): Harness TypeScript v1.10.0 (2026-07-17)

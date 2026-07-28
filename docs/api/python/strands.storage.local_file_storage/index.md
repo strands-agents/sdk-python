@@ -72,7 +72,7 @@ On the host filesystem, writes are atomic via write-to-temp-then-rename.
 
 **Arguments**:
 
--   `key` - Opaque, ’/‘-separated key identifying the value.
+-   `key` - Opaque string key identifying the value.
 -   `data` - Raw bytes to persist.
 
 **Raises**:

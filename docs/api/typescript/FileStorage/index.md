@@ -1,4 +1,4 @@
-Defined in: [src/session/file-storage.ts:28](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L28)
+Defined in: [src/session/file-storage.ts:28](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L28)
 
 File-based implementation of SnapshotStorage. Persists session snapshots to the local filesystem under a configurable base directory.
 
@@ -27,7 +27,7 @@ Directory layout:
 new FileStorage(baseDir): FileStorage;
 ```
 
-Defined in: [src/session/file-storage.ts:35](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L35)
+Defined in: [src/session/file-storage.ts:35](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L35)
 
 #### Parameters
 
@@ -47,7 +47,7 @@ Defined in: [src/session/file-storage.ts:35](https://github.com/strands-agents/h
 saveSnapshot(params): Promise<void>;
 ```
 
-Defined in: [src/session/file-storage.ts:65](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L65)
+Defined in: [src/session/file-storage.ts:65](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L65)
 
 Persists a snapshot to disk. If `isLatest` is true, writes to `snapshot_latest.json` (overwriting any previous). Otherwise, writes to `immutable_history/snapshot_<snapshotId>.json`.
 
@@ -77,7 +77,7 @@ Persists a snapshot to disk. If `isLatest` is true, writes to `snapshot_latest.j
 loadSnapshot(params): Promise<Snapshot>;
 ```
 
-Defined in: [src/session/file-storage.ts:82](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L82)
+Defined in: [src/session/file-storage.ts:82](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L82)
 
 Loads a snapshot from disk. If `snapshotId` is omitted, loads `snapshot_latest.json`. Returns null if the file does not exist.
 
@@ -105,7 +105,7 @@ Loads a snapshot from disk. If `snapshotId` is omitted, loads `snapshot_latest.j
 listSnapshotIds(params): Promise<string[]>;
 ```
 
-Defined in: [src/session/file-storage.ts:97](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L97)
+Defined in: [src/session/file-storage.ts:97](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L97)
 
 Lists immutable snapshot IDs for a scope, sorted chronologically. Since IDs are UUID v7, lexicographic sort equals chronological order. `startAfter` filters to IDs after the given UUID v7 (exclusive cursor). `limit` caps the number of returned IDs. Returns an empty array if no snapshots exist yet.
 
@@ -134,7 +134,7 @@ Lists immutable snapshot IDs for a scope, sorted chronologically. Since IDs are 
 deleteSession(params): Promise<void>;
 ```
 
-Defined in: [src/session/file-storage.ts:129](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L129)
+Defined in: [src/session/file-storage.ts:129](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L129)
 
 Deletes all data for a session by removing its root directory (`<baseDir>/<sessionId>/`) recursively. No-ops if the session directory does not exist.
 
@@ -161,7 +161,7 @@ Deletes all data for a session by removing its root directory (`<baseDir>/<sessi
 loadManifest(params): Promise<SnapshotManifest>;
 ```
 
-Defined in: [src/session/file-storage.ts:143](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L143)
+Defined in: [src/session/file-storage.ts:143](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L143)
 
 Loads the snapshot manifest for a scope. Returns a default manifest with the current timestamp if none exists yet.
 
@@ -188,7 +188,7 @@ Loads the snapshot manifest for a scope. Returns a default manifest with the cur
 saveManifest(params): Promise<void>;
 ```
 
-Defined in: [src/session/file-storage.ts:158](https://github.com/strands-agents/harness-sdk/blob/ec1c0db842d3a9a35c08f7a0b2dc132370baa0fa/strands-ts/src/session/file-storage.ts#L158)
+Defined in: [src/session/file-storage.ts:158](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/session/file-storage.ts#L158)
 
 Persists the snapshot manifest for a scope to disk.
 

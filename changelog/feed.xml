@@ -1,4 +1,12 @@
-<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.50.1</title><link>https://strandsagents.com/changelog/harness/python-v1.50.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.50.1/</guid><description>• thread per-call model through InvokeModelStage
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Strands Agents Changelog</title><description>Releases across the Strands Agents Harness and Evals SDKs.</description><link>https://strandsagents.com/</link><language>en-us</language><item><title>Harness Python v1.50.2</title><link>https://strandsagents.com/changelog/harness/python-v1.50.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.50.2/</guid><description>• add per-call MCP tool cancellation
+• bump google-genai floor to &gt;=1.67.0
+• gemini live mp to use updated api
+• deduplicate inverted-index postings
+• consume reasoning signature per content block</description><pubDate>Mon, 27 Jul 2026 00:00:00 GMT</pubDate><category>mcp</category><category>hil</category><category>model</category><category>bidirectional-streaming</category><category>agent</category><category>context</category><category>persistence</category><category>devx</category><category>tool</category></item><item><title>Harness TypeScript v1.11.2</title><link>https://strandsagents.com/changelog/harness/typescript-v1.11.2/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/typescript-v1.11.2/</guid><description>• add agent-as-tool delegation
+• deduplicate inverted-index postings
+• correct search tool contracts
+• add context manager class design doc
+• update context offloader comments to deprecate legacy storage</description><pubDate>Mon, 27 Jul 2026 00:00:00 GMT</pubDate><category>multiagent</category><category>agent</category><category>mcp</category><category>context</category><category>persistence</category></item><item><title>Harness Python v1.50.1</title><link>https://strandsagents.com/changelog/harness/python-v1.50.1/</link><guid isPermaLink="true">https://strandsagents.com/changelog/harness/python-v1.50.1/</guid><description>• thread per-call model through InvokeModelStage
 • move stop tool to experimental
 • bump hono from 4.12.25 to 4.12.32
 • update ruff requirement from &lt;0.16.0,&gt;=0.13.0 to &gt;=0.13.0,&lt;0.17.0 in /strands-py
