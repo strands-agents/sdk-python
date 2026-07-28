@@ -1,6 +1,6 @@
-import { tool } from '../../tools/tool-factory.js'
-import { AfterToolsEvent } from '../../hooks/events.js'
-import type { LocalAgent } from '../../types/agent.js'
+import { tool } from '../../../tools/tool-factory.js'
+import { AfterToolsEvent } from '../../../hooks/events.js'
+import type { LocalAgent } from '../../../types/agent.js'
 import {
   DEFAULT_MAX_STOP_MESSAGE_LENGTH,
   DEFAULT_STOP_DESCRIPTION,
@@ -75,6 +75,8 @@ function ensureHookInstalled(agent: LocalAgent): void {
 /**
  * Create a stop tool that gracefully ends the agent loop.
  *
+ * **Experimental** — this tool is subject to change in future revisions without notice.
+ *
  * Shims onto the SDK's existing `AfterToolsEvent.endTurn` primitive: the tool
  * records the model's optional final message on `invocationState`, then a
  * lazily-installed hook on the agent reads that marker on the terminating
@@ -84,7 +86,7 @@ function ensureHookInstalled(agent: LocalAgent): void {
  * @example
  * ```typescript
  * import { Agent } from '@strands-agents/sdk'
- * import { stop } from '@strands-agents/sdk/vended-tools/stop'
+ * import { stop } from '@strands-agents/sdk/experimental/vended-tools/stop'
  *
  * const agent = new Agent({ model, tools: [stop] })
  * ```
@@ -120,6 +122,8 @@ export function makeStop(options?: MakeStopOptions): ReturnType<typeof tool> {
 
 /**
  * Default stop tool.
+ *
+ * **Experimental** — this tool is subject to change in future revisions without notice.
  *
  * Ends the agent loop cooperatively when called by the model. Any tools the
  * model requested alongside `stop` in the same turn still run to completion —

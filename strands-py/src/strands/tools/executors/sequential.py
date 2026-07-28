@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from ...telemetry.metrics import Trace
-from ...types._events import ToolInterruptEvent, TypedEvent
+from ...types._events import ToolInterruptEvent, ToolResultEvent, TypedEvent
 from ...types.tools import ToolResult, ToolUse
 from ._executor import ToolExecutor
 
@@ -48,6 +48,16 @@ class SequentialToolExecutor(ToolExecutor):
         interrupted = False
 
         for tool_use in tool_uses:
+            if agent._cancel_signal.is_set():
+                cancel_result: ToolResult = {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": "Tool execution cancelled"}],
+                }
+                tool_results.append(cancel_result)
+                yield ToolResultEvent(cancel_result)
+                continue
+
             events = ToolExecutor._stream_with_trace(
                 agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )

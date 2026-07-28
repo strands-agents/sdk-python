@@ -2,9 +2,12 @@ import logging
 import os
 import unittest.mock
 
+import httpx
 import openai
 import pydantic
 import pytest
+from openai.types.responses import Response, ResponseErrorEvent, ResponseFailedEvent
+from openai.types.responses.response_error import ResponseError
 
 import strands
 from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
@@ -1044,6 +1047,92 @@ async def test_structured_output_forwards_request_params(openai_client, model_id
 
 
 @pytest.mark.asyncio
+async def test_stream_response_failed_raises_provider_error(openai_client, model, messages, agenerator):
+    error = ResponseError(message="The model failed while processing the request.", code="server_error")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(RuntimeError, match="The model failed while processing the request") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.code == "server_error"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_context_overflow(openai_client, model, messages, agenerator):
+    message = "prompt tokens (320666) exceed customer model maximum (278528) for model-id"
+    error = ResponseError(message=message, code="invalid_prompt")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__.code == "invalid_prompt"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_existing_context_pattern(openai_client, model, messages, agenerator):
+    error = ResponseError(message="This model's maximum context length is 4096 tokens.", code="invalid_prompt")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(ContextWindowOverflowException, match="maximum context length"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_without_error_details(openai_client, model, messages, agenerator):
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=None)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(RuntimeError, match="OpenAI Responses API response failed"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["rate_limit_exceeded", None])
+async def test_stream_error_event_as_throttle(openai_client, model, messages, agenerator, code):
+    error_event = ResponseErrorEvent(
+        type="error", sequence_number=1, code=code, message="Rate limit exceeded while streaming."
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([error_event]))
+
+    with pytest.raises(ModelThrottledException, match="Rate limit exceeded while streaming") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__.code == code
+
+
+@pytest.mark.asyncio
+async def test_stream_throttle_precedes_context_overflow(openai_client, model, messages, agenerator):
+    error_event = ResponseErrorEvent(
+        type="error",
+        sequence_number=1,
+        code="rate_limit_exceeded",
+        message="prompt tokens exceed customer model maximum",
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([error_event]))
+
+    with pytest.raises(ModelThrottledException, match="exceed customer model maximum"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     mock_error = openai.BadRequestError(
@@ -1081,6 +1170,20 @@ async def test_stream_context_overflow_exception_api_error_type(openai_client, m
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_http_429_as_throttle(openai_client, model, messages):
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(429, request=request)
+    error = openai.APIStatusError("opaque provider failure", response=response, body=None)
+    openai_client.responses.create.side_effect = error
+
+    with pytest.raises(ModelThrottledException, match="opaque provider failure") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is error
 
 
 @pytest.mark.asyncio
@@ -1185,6 +1288,39 @@ async def test_structured_output_context_overflow_exception(openai_client, model
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_message(openai_client, model, messages, test_output_model_cls):
+    message = "prompt tokens exceed customer model maximum"
+    mock_error = openai.APIError(
+        message=message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": message}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_message(openai_client, model, messages, test_output_model_cls):
+    mock_error = openai.APIError(
+        message="Too many requests from provider",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Too many requests from provider"}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="Too many requests") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
 
 
 @pytest.mark.asyncio
