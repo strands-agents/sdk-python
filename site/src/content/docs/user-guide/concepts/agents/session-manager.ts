@@ -1,4 +1,4 @@
-import { Agent, SessionManager, Graph, Swarm } from '@strands-agents/sdk'
+import { Agent, BedrockModel, SessionManager, Graph, Swarm } from '@strands-agents/sdk'
 import { LocalFileStorage, S3Storage } from '@strands-agents/sdk/storage'
 import type {
   SnapshotStorage,
@@ -308,13 +308,16 @@ async function deleteSessionExample() {
 
 async function perRequestAgentExample() {
   // --8<-- [start:per_request_agent]
+  // Built once per process and shared by every request
+  const model = new BedrockModel()
+
   async function handleRequest(conversationId: string, prompt: string) {
     // One agent per request, scoped to the caller's conversation
     const session = new SessionManager({
       sessionId: conversationId,
       storage: new S3Storage('my-agent-sessions'),
     })
-    const agent = new Agent({ sessionManager: session })
+    const agent = new Agent({ model, sessionManager: session })
 
     const result = await agent.invoke(prompt)
     return result.toString()
