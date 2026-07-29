@@ -115,48 +115,27 @@ export function buildPreview(fullText: string, blockCount: number, config?: Trun
 }
 
 /**
- * Creates a replacement ToolResultBlock with text blocks truncated and non-text blocks preserved in place.
+ * Creates a replacement ToolResultBlock with content truncated.
+ * Text blocks are collected and replaced with a preview. Non-text blocks (JsonBlock, ImageBlock, etc.)
+ * are serialized into the preview text so that JSON-only tool results can still be truncated.
  */
 export function truncateToolResultBlock(block: ToolResultBlock, config?: TruncateConfig): ToolResultBlock {
-  const textParts: string[] = []
-  let hasText = false
-
-  for (const content of block.content) {
-    if (content instanceof TextBlock) {
-      textParts.push(content.text)
-      hasText = true
-    }
-  }
-
-  if (!hasText) {
+  const fullText = extractBlockText(block)
+  if (!fullText) {
     return block
   }
 
-  const fullText = textParts.join('\n')
-  const preview = buildPreview(fullText, textParts.length, config)
+  const blockCount = block.content.length
+  const preview = buildPreview(fullText, blockCount, config)
 
   if (preview === fullText) {
     return block
   }
 
-  const newContent: ToolResultBlock['content'] = []
-  let textReplaced = false
-
-  for (const content of block.content) {
-    if (content instanceof TextBlock) {
-      if (!textReplaced) {
-        newContent.push(new TextBlock(preview))
-        textReplaced = true
-      }
-    } else {
-      newContent.push(content)
-    }
-  }
-
   return new ToolResultBlock({
     toolUseId: block.toolUseId,
     status: block.status,
-    content: newContent,
+    content: [new TextBlock(preview)],
   })
 }
 
