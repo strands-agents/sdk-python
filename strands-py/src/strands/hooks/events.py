@@ -174,9 +174,10 @@ class AfterToolsEvent(HookEvent):
     """Event triggered after all tools complete execution.
 
     This event is fired after tool results are collected and ready to be added to conversation.
-    Always paired with a preceding ``BeforeToolsEvent``, including on cancel and
-    error paths. Fires once per cycle, so may fire more than once per assistant message
-    when a per-tool interrupt splits the batch.
+    Paired with a preceding ``BeforeToolsEvent`` when the batch proceeds past the
+    pre-execution phase (cancel, interrupt, and error paths included). Fires once per
+    cycle, so may fire more than once per assistant message when a per-tool interrupt
+    splits the batch.
 
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.

@@ -815,7 +815,7 @@ async def _handle_tool_execution(
             logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
             for tool_use in tool_uses:
                 cancel_result: ToolResult = {
-                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "toolUseId": tool_use["toolUseId"],
                     "status": "error",
                     "content": [{"text": cancel_message}],
                 }
@@ -854,7 +854,10 @@ async def _handle_tool_execution(
             "content": [{"toolResult": result} for result in tool_results],
         }
         after_tools_event = AfterToolsEvent(agent=agent, message=tool_result_message, invocation_state=invocation_state)
-        after_tools_event, _ = await agent.hooks.invoke_callbacks_async(after_tools_event)
+        try:
+            after_tools_event, _ = await agent.hooks.invoke_callbacks_async(after_tools_event)
+        except Exception:
+            raise
 
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
