@@ -301,3 +301,23 @@ async function deleteSessionExample() {
   await session.deleteSession()
   // --8<-- [end:delete_session]
 }
+
+// =====================
+// Sessions, Agents, and Concurrency
+// =====================
+
+async function perRequestAgentExample() {
+  // --8<-- [start:per_request_agent]
+  async function handleRequest(conversationId: string, prompt: string) {
+    // One agent per request, scoped to the caller's conversation
+    const session = new SessionManager({
+      sessionId: conversationId,
+      storage: new S3Storage('my-agent-sessions'),
+    })
+    const agent = new Agent({ sessionManager: session })
+
+    const result = await agent.invoke(prompt)
+    return result.toString()
+  }
+  // --8<-- [end:per_request_agent]
+}
