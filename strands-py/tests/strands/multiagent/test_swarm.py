@@ -1899,6 +1899,78 @@ async def test_swarm_resume_after_failed_handoff_does_not_mask_failure(mock_stra
     assert resumed_swarm.state.completion_status == Status.PENDING
 
 
+@pytest.mark.asyncio
+async def test_swarm_repeated_crash_at_completed_turn_is_a_fixed_point(mock_strands_tracer, mock_use_span):
+    """Crashing repeatedly at the same completed turn records that turn once, not once per crash.
+
+    A committed turn with no handoff owes nothing, so its checkpoint must be a fixed point: node_history
+    feeds should_continue's limits, the repetitive-handoff window, and each node's prompt, so an entry added
+    per crash would eventually stop the swarm from running anything.
+    """
+    snapshot = None
+    for _generation in range(3):
+        agent = create_mock_agent("solo")
+        swarm = Swarm([agent], max_iterations=2)
+        if snapshot is not None:
+            swarm.deserialize_state(snapshot)
+
+        stream = swarm.stream_async("test")
+        async for event in stream:
+            if event.get("type") == "multiagent_node_stop":
+                break
+        await stream.aclose()
+
+        snapshot = swarm.serialize_state()
+        assert snapshot["node_history"] == ["solo"]
+        # The turn is done and owes no handoff, so nothing is left to resume.
+        assert snapshot["next_nodes_to_execute"] == []
+
+    final_agent = create_mock_agent("solo")
+    final_swarm = Swarm([final_agent], max_iterations=2)
+    final_swarm.deserialize_state(snapshot)
+    result = await final_swarm.invoke_async("test")
+
+    assert result.status == Status.COMPLETED
+    assert result.execution_count == 1
+
+
+@pytest.mark.asyncio
+async def test_swarm_stream_closed_at_self_handoff_completion_keeps_one_pending_turn(
+    mock_strands_tracer, mock_use_span
+):
+    """A node that self-hands-off and completes leaves exactly one pending turn, not two.
+
+    The frontier already carries the self-handoff target, so persisting the handoff beside it would make the
+    restored swarm run that node once for the frontier and again for the handoff.
+    """
+    first_agent = create_mock_agent("first")
+    swarm = Swarm([first_agent, create_mock_agent("second")])
+
+    async def self_handoff_then_succeed(*args, **kwargs):
+        yield {"agent_start": True}
+        swarm._handle_handoff(swarm.nodes["first"], "loop again", {})
+        yield {"result": first_agent.return_value}
+
+    first_agent.stream_async = Mock(side_effect=self_handoff_then_succeed)
+
+    stream = swarm.stream_async("test")
+    async for event in stream:
+        if event.get("type") == "multiagent_node_stop":
+            break
+    await stream.aclose()
+
+    snapshot = swarm.serialize_state()
+    assert snapshot["next_nodes_to_execute"] == ["first"]
+    assert snapshot["context"]["handoff_node"] is None
+
+    resumed_agent = create_mock_agent("first")
+    resumed_swarm = Swarm([resumed_agent, create_mock_agent("second")])
+    resumed_swarm.deserialize_state(snapshot)
+    await resumed_swarm.invoke_async("test")
+
+    resumed_agent.stream_async.assert_called_once()
+
+
 def test_swarm_serialize_omits_handoff_the_resume_frontier_carries():
     """A handoff the resume frontier already carries is not persisted.
 
@@ -2035,9 +2107,19 @@ async def test_swarm_stream_closed_at_node_stop_event_keeps_committed_turn(mock_
 
     snapshot = swarm.serialize_state()
     assert snapshot["next_nodes_to_execute"] == ["second"]
-    assert [node.node_id for node in swarm.state.node_history] == ["first"]
-    assert swarm.state.handoff_message == "message for second"
-    assert swarm.shared_context.context.get("first") == {"finding": "value"}
+    assert snapshot["node_history"] == ["first"]
+    assert snapshot["context"]["handoff_message"] == "message for second"
+    assert snapshot["context"]["shared_context"].get("first") == {"finding": "value"}
+
+    # The restored swarm runs the handoff target with the message the crashed turn had already written.
+    resumed_first = create_mock_agent("first")
+    resumed_second = create_mock_agent("second")
+    resumed_swarm = Swarm([resumed_first, resumed_second])
+    resumed_swarm.deserialize_state(snapshot)
+    await resumed_swarm.invoke_async("test")
+
+    resumed_first.stream_async.assert_not_called()
+    assert "message for second" in resumed_second.stream_async.call_args[0][0][0]["text"]
 
 
 @pytest.mark.asyncio

@@ -1043,9 +1043,15 @@ class Swarm(MultiAgentBase):
         # inherited, and resuming its target would skip the node that never finished.
         turn_committed = self._turn is not None and self._turn.outcome == "committed"
         frontier_carries_handoff = False
-        if self.state.completion_status == Status.EXECUTING and turn_committed and self.state.handoff_node:
-            next_nodes = [self.state.handoff_node.node_id]
-            frontier_carries_handoff = True
+        if self.state.completion_status == Status.EXECUTING and turn_committed:
+            # A committed turn owes only its handoff. Without one the swarm is done, so the frontier is
+            # empty rather than the node this turn just finished — re-listing it would make the checkpoint
+            # claim the node is both done and still owed, and each crash at this point would record it again.
+            if self.state.handoff_node:
+                next_nodes = [self.state.handoff_node.node_id]
+                frontier_carries_handoff = True
+            else:
+                next_nodes = []
         elif self.state.completion_status in (Status.EXECUTING, Status.INTERRUPTED) and self.state.current_node:
             next_nodes = [self.state.current_node.node_id]
         else:
