@@ -281,6 +281,13 @@ class OffloadTruncateStrategy extends BaseOffloadStrategy {
   constructor(target?: OffloadTarget, config?: TruncateConfig, conditions?: OffloadConditions) {
     super(target, conditions)
     this._truncateConfig = config ?? {}
+
+    const previewTokens = this._truncateConfig.previewTokens ?? 1000
+    if (conditions?.threshold !== undefined && conditions.threshold <= previewTokens) {
+      throw new Error(
+        `threshold (${conditions.threshold}) must be greater than previewTokens (${previewTokens}) to ensure truncation converges`
+      )
+    }
   }
 
   protected async _replaceTextBlock(block: TextBlock, tokens: number, message: Message): Promise<TextBlock | null> {
