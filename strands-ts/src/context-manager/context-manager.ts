@@ -147,8 +147,11 @@ export class ContextManager implements Plugin {
   private _truncate(messages: Message[]): void {
     if (messages.length <= 3) return
 
+    const startIndex = this._findSafeStartIndex(messages)
+    if (startIndex >= messages.length - 1) return
+
     const targetRemoval = Math.max(2, Math.floor(messages.length * 0.2))
-    const targetSplitIndex = Math.min(1 + targetRemoval, messages.length - 1)
+    const targetSplitIndex = Math.min(startIndex + targetRemoval, messages.length - 1)
 
     let validSplitIndex: number
     try {
@@ -158,10 +161,33 @@ export class ContextManager implements Plugin {
       return
     }
 
-    const removeCount = validSplitIndex - 1
+    const removeCount = validSplitIndex - startIndex
     if (removeCount <= 0) return
 
-    messages.splice(1, removeCount)
+    messages.splice(startIndex, removeCount)
     logger.debug(`agentId=<${this._agentId}>, removed=<${removeCount}> | truncated oldest messages on overflow`)
+  }
+
+  /**
+   * Finds a safe start index for truncation that doesn't orphan tool-use/tool-result pairs
+   * anchored in the preserved head messages.
+   */
+  private _findSafeStartIndex(messages: Message[]): number {
+    let startIndex = 1
+    const headMessage = messages[0]
+    if (!headMessage) return startIndex
+
+    const headHasToolUse = headMessage.content.some((block) => 'toolUseId' in block && 'name' in block)
+    if (headHasToolUse) {
+      // Skip past the tool result message that pairs with the head's tool use
+      while (startIndex < messages.length) {
+        const message = messages[startIndex]!
+        const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
+        if (!hasToolResult) break
+        startIndex++
+      }
+    }
+
+    return startIndex
   }
 }

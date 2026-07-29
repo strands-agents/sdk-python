@@ -50,13 +50,16 @@ export function estimateTextBlockTokens(block: TextBlock): number {
 }
 
 /**
- * Extracts text content from a tool result block (non-text blocks are skipped).
+ * Extracts a text representation from a tool result block.
+ * Text blocks contribute their text directly; non-text blocks contribute their JSON serialization.
  */
 export function extractBlockText(block: ToolResultBlock): string {
   const parts: string[] = []
   for (const content of block.content) {
     if (content instanceof TextBlock) {
       parts.push(content.text)
+    } else {
+      parts.push(JSON.stringify(content.toJSON()))
     }
   }
   return parts.join('\n')
@@ -68,7 +71,10 @@ export function extractBlockText(block: ToolResultBlock): string {
  * @returns The preview string with truncation metadata header, or the original text if already within budget.
  */
 export function buildPreview(fullText: string, blockCount: number, config?: TruncateConfig): string {
-  const previewTokens = Math.max(0, config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS)
+  const previewTokens =
+    typeof config?.previewTokens === 'number' && Number.isFinite(config.previewTokens)
+      ? Math.max(0, config.previewTokens)
+      : DEFAULT_PREVIEW_TOKENS
   const previewChars = previewTokens * CHARS_PER_TOKEN
   const previewMode = config?.preview ?? 'headTail'
   const totalChars = fullText.length

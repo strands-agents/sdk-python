@@ -16,7 +16,7 @@
  *         .when({ threshold: 1500 }),
  *       Offload.summarize("toolResults")
  *         .when({ threshold: 2000, utilization: 0.85 }),
- *       Offload("toolResultErrors"),
+ *       Offload("toolResultErrors").when({ threshold: 500 }),
  *     ],
  *   }),
  * })

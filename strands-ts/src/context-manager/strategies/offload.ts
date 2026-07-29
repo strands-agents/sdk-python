@@ -129,8 +129,14 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
   constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
     this._target = target
-    this._threshold = conditions?.threshold ?? 0
-    this._preserveRecent = conditions?.preserveRecent ?? 0
+    this._threshold =
+      typeof conditions?.threshold === 'number' && Number.isFinite(conditions.threshold)
+        ? Math.max(0, conditions.threshold)
+        : 0
+    this._preserveRecent =
+      typeof conditions?.preserveRecent === 'number' && Number.isFinite(conditions.preserveRecent)
+        ? Math.max(0, Math.floor(conditions.preserveRecent))
+        : 0
 
     const resolved = resolveToolFilter(target)
     this._toolFilter = resolved.include
@@ -141,10 +147,9 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     if (this._preserveRecent > 0) return
     if (!this._shouldRegisterEagerHook()) return
     agent.addHook(MessageAddedEvent, async (event) => {
+      if (event.message.role !== 'user') return
       const messages = agent.messages
-      const lastMessage = messages[messages.length - 1]
-      if (event.message === lastMessage) return
-      await this._processMessage(event.message, messages)
+      await this._transformToolResultBlocks(event.message, messages)
     })
   }
 
@@ -174,7 +179,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Override to disable eager hook registration (e.g. when utilization is set). */
   protected _shouldRegisterEagerHook(): boolean {
-    return true
+    return this._target !== 'assistantMessages' && this._target !== 'userMessages'
   }
 
   /** Routes a single message to text block or tool result handlers based on target. */
@@ -221,7 +226,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   /** Process tool result blocks in a message. Subclasses implement the transformation. */
-  private async _transformToolResultBlocks(message: Message, messages: Message[]): Promise<boolean> {
+  protected async _transformToolResultBlocks(message: Message, messages: Message[]): Promise<boolean> {
     let acted = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
@@ -236,7 +241,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
       if (tokens <= this._threshold) continue
 
       const replacement = await this._replaceToolResultBlock(block, tokens)
-      if (replacement) {
+      if (replacement && replacement !== block) {
         ;(message.content as unknown[])[blockIndex] = replacement
         acted = true
       }
@@ -282,8 +287,15 @@ class OffloadTruncateStrategy extends BaseOffloadStrategy {
     super(target, conditions)
     this._truncateConfig = config ?? {}
 
-    const previewTokens = this._truncateConfig.previewTokens ?? 1000
-    if (conditions?.threshold !== undefined && conditions.threshold <= previewTokens) {
+    const previewTokens =
+      typeof this._truncateConfig.previewTokens === 'number' && Number.isFinite(this._truncateConfig.previewTokens)
+        ? this._truncateConfig.previewTokens
+        : 1000
+    if (
+      conditions?.threshold !== undefined &&
+      Number.isFinite(conditions.threshold) &&
+      conditions.threshold <= previewTokens
+    ) {
       throw new Error(
         `threshold (${conditions.threshold}) must be greater than previewTokens (${previewTokens}) to ensure truncation converges`
       )
@@ -316,8 +328,22 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     this._utilization = conditions?.utilization
   }
 
+  private _agent: LocalAgent | undefined
+
+  override init(agent: LocalAgent): void {
+    this._agent = agent
+    super.init(agent)
+  }
+
   protected override _shouldRegisterEagerHook(): boolean {
-    return this._utilization === undefined
+    return this._utilization === undefined && super._shouldRegisterEagerHook()
+  }
+
+  protected override async _transformToolResultBlocks(message: Message, messages: Message[]): Promise<boolean> {
+    if (!this._model && this._agent) {
+      this._model = this._resolveModel(this._agent)
+    }
+    return super._transformToolResultBlocks(message, messages)
   }
 
   protected override _shouldApply(context: ContextState): boolean {
