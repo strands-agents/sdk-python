@@ -560,6 +560,18 @@ describe('fileEditor tool', () => {
       expect(unchanged).toBe(content)
     })
 
+    it('rejects a mid-line exact match that is view-equivalent to another span', async () => {
+      const content = 'prefix\tTARGET suffix\nprefix        TARGET suffix\n'
+      const filePath = await createTestFile('view-span-mid-line-ambig.txt', content)
+      await expect(
+        fileEditor.invoke(
+          { command: 'str_replace', path: filePath, old_str: '        TARGET', new_str: 'X' },
+          context
+        )
+      ).rejects.toThrow(/candidates/)
+      await expect(fs.readFile(filePath, 'utf-8')).resolves.toBe(content)
+    })
+
     it('edits a unique partial-line target even when a more-indented line contains it mid-line', async () => {
       const content = '\t    foo\n        foo\n'
       const filePath = await createTestFile('view-span-unique.txt', content)
