@@ -496,16 +496,15 @@ Both file and S3 backends use the same key structure:
 
 ## Sessions, Agents, and Concurrency
 
-Session storage is keyed by session ID and agent ID, or by session ID and orchestrator ID
-for a Graph or Swarm, and a session manager assumes it is the only writer for that key.
-Lost or interleaved conversation history almost always traces back to that assumption
-being broken.
+A session manager assumes it is the only writer for its key: session ID plus agent ID, or
+session ID plus orchestrator ID for a Graph or Swarm. Lost or interleaved conversation
+history almost always traces back to that assumption being broken.
 
-### One conversation per session
+### One Conversation per Session
 
 Give each conversation its own session ID. The session ID and the agent ID
 (<Syntax py="agent_id" ts="id" />) together address one conversation thread in storage,
-so a second conversation needs a second session ID.
+so a second conversation with the same agent needs a second session ID.
 
 Several agents can share one session ID as long as their agent IDs differ. The session
 acts as a namespace, and each agent keeps its own message history and state inside it.
@@ -520,17 +519,19 @@ Handing one session manager to two agents with the same agent ID fails immediate
 a `SessionException`: agent IDs must be unique within a session. The default `agent_id`
 is `"default"`, so two agents that both leave it unset collide.
 
-Two agents in separate processes, each with its own session manager pointed at the same
-session ID and agent ID, is not detected. A manager seeds its message index from the last
-message it saw when it restored the session, then increments that index locally. Managers
-whose invocations overlap claim the same index, and the second write replaces the first
-agent's turn. Invocations that do not overlap merge instead: the later agent restores the
-earlier one's messages and appends to them, leaving one history that holds two
-conversations.
+Nothing detects two agents in separate processes, each with its own session manager,
+addressing the same session ID and agent ID. A manager seeds its message index from the
+last message it saw when it restored the session, then increments that index locally.
+Managers whose invocations overlap claim the same index, and the second write replaces
+the first agent's turn. Invocations that do not overlap merge instead: the later agent
+restores the earlier one's messages and appends to them, leaving one history that holds
+two conversations.
 
-A brand-new session can also fail outright. The session manager creates the session
-record when you construct it, and creating a record that another process just created
-raises `SessionException`.
+A brand-new session can also fail outright: the session manager creates the session
+record when you construct it, and a record that another process just created raises
+`SessionException`. That check is not atomic, so two simultaneous cold starts can instead
+both succeed, with the later write winning. Treat the exception as a symptom of duplicate
+callers, not a guard against them.
 
 </Tab>
 <Tab label="TypeScript">
@@ -546,18 +547,18 @@ earlier one's history and continues it, leaving one history that holds two conve
 </Tab>
 </Tabs>
 
-A single agent instance already rejects overlapping invocations by default, described
-in [Concurrent Invocations](./agent-loop.md#concurrent-invocations). That guard is
+A single agent instance rejects overlapping invocations, described in
+[Concurrent Invocations](./agent-loop.md#concurrent-invocations). That guard is
 in-process, so it sees nothing happening outside the current process.
 
-### Create an agent per conversation
+### Create an Agent per Conversation
 
 Constructing an agent is cheap: it wires up tools, hooks, and plugins in memory and makes
-no model call. The model provider costs more, because its constructor builds the client
-that talks to the service, so create the provider once per process and hand the same
-instance to every agent. Then build an agent per request, invoke it, and let it go out of
-scope. An agent binds to its session at construction time, so a long-lived agent shared
-across conversations cannot switch between them.
+no model call. The model provider usually costs more, since `BedrockModel` and most other
+providers build their client in the constructor, so create the provider once per process
+and hand the same instance to every agent. Then build an agent per request, invoke it, and
+let it go out of scope. An agent binds to its session at construction time, so a
+long-lived agent shared across conversations cannot switch between them.
 
 <Tabs>
 <Tab label="Python">
@@ -565,6 +566,10 @@ across conversations cannot switch between them.
 Creating an agent with a session manager also restores the session. `FileSessionManager`
 and `S3SessionManager` read one object per stored message, so a long conversation costs
 more to restore than a short one.
+
+The session manager is per request as well, since it binds to a single session ID. Its
+constructor builds an S3 client, so in a single-threaded environment such as AWS Lambda,
+pass a `boto_session` created once per process to avoid repeating that work.
 
 ```python
 from strands import Agent
@@ -590,7 +595,8 @@ def handle_request(conversation_id: str, prompt: str) -> str:
 <Tab label="TypeScript">
 
 Restore runs on the first invocation rather than in the constructor, so constructing the
-agent does no I/O.
+agent does no I/O. The storage backend holds no session state, so build it once as well
+and give each request its own session manager.
 
 ```typescript
 --8<-- "user-guide/concepts/agents/session-manager_imports.ts:per_request_agent_imports"
@@ -601,7 +607,7 @@ agent does no I/O.
 </Tab>
 </Tabs>
 
-### Serializing access to a shared session
+### Serializing Access to a Shared Session
 
 When two invocations for the same session ID can overlap, the lock has to live outside
 Strands. The built-in session managers take no lock, and the per-instance invocation
