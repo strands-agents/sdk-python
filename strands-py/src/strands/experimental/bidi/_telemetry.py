@@ -7,8 +7,8 @@ to the shared Tracer class, keeping experimental bidi telemetry self-contained.
 
 from opentelemetry.trace import Span
 
-from ....telemetry.tracer import Tracer, serialize
-from ....types.traces import AttributeValue
+from ...telemetry.tracer import Tracer, serialize
+from ...types.traces import AttributeValue
 
 
 def start_session_span(

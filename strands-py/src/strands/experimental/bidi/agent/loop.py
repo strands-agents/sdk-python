@@ -37,7 +37,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
-from . import _telemetry
+from .. import _telemetry
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
