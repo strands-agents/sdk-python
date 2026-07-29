@@ -521,10 +521,10 @@ is `"default"`, so two agents that both leave it unset collide.
 
 Nothing detects two agents that each have their own session manager, whether they run in
 separate processes or in one process that builds a manager per request, addressing the
-same session ID and agent ID. A manager seeds its message index from the
-last message it saw when it restored the session, then increments that index locally.
-Managers whose invocations overlap claim the same index, and the second write replaces
-the first agent's turn. Invocations that do not overlap merge instead: the later agent
+same session ID and agent ID. A manager seeds its message index from the last message it
+saw when it restored the session, then increments that index locally. Managers whose
+invocations overlap claim the same index, and the second write replaces the first agent's
+turn. Invocations that do not overlap merge instead: the later agent
 restores the earlier one's messages and appends to them, leaving one history that holds
 two conversations.
 
@@ -557,9 +557,9 @@ in-process, so it sees nothing happening outside the current process.
 Constructing an agent is cheap: it wires up tools, hooks, and plugins in memory and makes
 no model call. The model provider often costs more, since providers such as `BedrockModel`
 build their client in the constructor, so create the provider once per process and hand
-the same instance to every agent. Then build an agent per request, invoke it, and
-let it go out of scope. An agent binds to its session at construction time, so a
-long-lived agent shared across conversations cannot switch between them.
+the same instance to every agent. Then build an agent per request, invoke it, and let it
+go out of scope. An agent binds to its session at construction time, so a long-lived
+agent shared across conversations cannot switch between them.
 
 <Tabs>
 <Tab label="Python">
