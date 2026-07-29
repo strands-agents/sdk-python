@@ -232,12 +232,12 @@ export type AgentConfig = {
    */
   conversationManager?: ConversationManager
   /**
-   * Context management strategy that controls how messages are compressed, offloaded,
-   * and durably stored.
+   * Context management strategy that controls how messages are compressed and offloaded.
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
    * - `"agentic"`: Lets the model drive context management via injected tools.
-   * - `ContextManager` instance: First-class component that evaluates strategies on overflow.
+   * - `ContextManager` instance: Strategy-driven offloading with overflow recovery.
+   * - `false`: Explicitly disable context management (no compression, no offloading).
    *
    * When a `ContextManager` instance is provided, any co-provided `conversationManager` is ignored.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).

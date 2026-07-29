@@ -10,7 +10,7 @@ import type { Message } from '../types/messages.js'
 import { AfterModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
-import { findValidTrimPoint } from '../conversation-manager/compression/context-compression.js'
+import { adjustSplitPointForToolPairs } from '../conversation-manager/compression/context-compression.js'
 import type { ContextManagerConfig, ContextStrategy, StrategyContext, StrategyInitContext } from './types.js'
 import { Offload } from './strategies/offload.js'
 
@@ -86,7 +86,12 @@ export class ContextManager implements Plugin {
           `agentId=<${this._agentId}>, error=<${strategyError}> | strategy pipeline failed, falling through to truncate`
         )
       }
-      this._truncate(agent.messages)
+
+      try {
+        this._truncate(agent.messages)
+      } catch (truncateError) {
+        logger.warn(`agentId=<${this._agentId}>, error=<${truncateError}> | truncation failed`)
+      }
 
       overflowRetries++
       event.retry = true
@@ -145,10 +150,13 @@ export class ContextManager implements Plugin {
   private _truncate(messages: Message[]): void {
     if (messages.length <= 3) return
 
-    const targetSplitIndex = Math.min(Math.max(2, Math.floor(messages.length * 0.2) + 1), messages.length - 1)
-    const validSplitIndex = findValidTrimPoint(messages, targetSplitIndex)
+    const targetRemoval = Math.max(2, Math.floor(messages.length * 0.2))
+    const targetSplitIndex = Math.min(1 + targetRemoval, messages.length - 1)
 
-    if (validSplitIndex >= messages.length) {
+    let validSplitIndex: number
+    try {
+      validSplitIndex = adjustSplitPointForToolPairs(messages, targetSplitIndex)
+    } catch {
       logger.warn(`agentId=<${this._agentId}> | no valid split point found, skipping truncation`)
       return
     }

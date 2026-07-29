@@ -27,13 +27,16 @@ export interface TruncateConfig {
 }
 
 /**
- * Estimates token count for text content in a tool result block.
+ * Estimates token count for all content in a tool result block.
+ * Text blocks use character length; non-text blocks use their JSON serialization size.
  */
 export function estimateBlockTokens(block: ToolResultBlock): number {
   let chars = 0
   for (const content of block.content) {
     if (content instanceof TextBlock) {
       chars += content.text.length
+    } else {
+      chars += JSON.stringify(content.toJSON()).length
     }
   }
   return Math.ceil(chars / CHARS_PER_TOKEN)
@@ -65,7 +68,7 @@ export function extractBlockText(block: ToolResultBlock): string {
  * @returns The preview string with truncation metadata header, or the original text if already within budget.
  */
 export function buildPreview(fullText: string, blockCount: number, config?: TruncateConfig): string {
-  const previewTokens = config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS
+  const previewTokens = Math.max(0, config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS)
   const previewChars = previewTokens * CHARS_PER_TOKEN
   const previewMode = config?.preview ?? 'headTail'
   const totalChars = fullText.length
@@ -76,51 +79,73 @@ export function buildPreview(fullText: string, blockCount: number, config?: Trun
 
   let preview: string
   if (previewMode === 'head') {
-    const head = fullText.slice(0, previewChars)
-    const elided = totalChars - previewChars
+    const headChars = Math.max(0, previewChars)
+    const head = headChars > 0 ? fullText.slice(0, headChars) : ''
+    const elided = totalChars - headChars
     preview = `${head}\n\n[... ${elided.toLocaleString()} chars elided ...]`
   } else if (previewMode === 'tail') {
-    const tail = previewChars > 0 ? fullText.slice(-previewChars) : ''
-    const elided = totalChars - previewChars
+    const tailChars = Math.max(0, previewChars)
+    const tail = tailChars > 0 ? fullText.slice(-tailChars) : ''
+    const elided = totalChars - tailChars
     preview = `[... ${elided.toLocaleString()} chars elided ...]\n\n${tail}`
   } else {
-    const headChars = Math.floor(previewChars * 0.6)
-    const tailChars = previewChars - headChars
-    const head = fullText.slice(0, headChars)
+    const headChars = Math.max(0, Math.floor(previewChars * 0.6))
+    const tailChars = Math.max(0, previewChars - headChars)
+    const head = headChars > 0 ? fullText.slice(0, headChars) : ''
     const tail = tailChars > 0 ? fullText.slice(-tailChars) : ''
     const elided = totalChars - headChars - tailChars
     preview = `${head}\n\n[... ${elided.toLocaleString()} chars elided ...]\n\n${tail}`
   }
 
-  return (
-    `${TRUNCATED_PREFIX} ${blockCount} blocks, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n\n` +
+  const result =
+    `${TRUNCATED_PREFIX} ${blockCount} ${blockCount === 1 ? 'block' : 'blocks'}, ~${Math.ceil(totalChars / CHARS_PER_TOKEN).toLocaleString()} tokens]\n\n` +
     preview
-  )
+
+  if (result.length >= totalChars) {
+    return fullText
+  }
+
+  return result
 }
 
 /**
- * Creates a replacement ToolResultBlock with text blocks truncated and non-text blocks preserved.
+ * Creates a replacement ToolResultBlock with text blocks truncated and non-text blocks preserved in place.
  */
 export function truncateToolResultBlock(block: ToolResultBlock, config?: TruncateConfig): ToolResultBlock {
   const textParts: string[] = []
-  const nonTextBlocks: Array<{ index: number; block: ToolResultBlock['content'][number] }> = []
+  let hasText = false
 
-  for (let index = 0; index < block.content.length; index++) {
-    const content = block.content[index]!
+  for (const content of block.content) {
     if (content instanceof TextBlock) {
       textParts.push(content.text)
-    } else {
-      nonTextBlocks.push({ index, block: content })
+      hasText = true
     }
   }
 
-  if (textParts.length === 0) {
+  if (!hasText) {
     return block
   }
 
   const fullText = textParts.join('\n')
   const preview = buildPreview(fullText, textParts.length, config)
-  const newContent: ToolResultBlock['content'] = [new TextBlock(preview), ...nonTextBlocks.map((entry) => entry.block)]
+
+  if (preview === fullText) {
+    return block
+  }
+
+  const newContent: ToolResultBlock['content'] = []
+  let textReplaced = false
+
+  for (const content of block.content) {
+    if (content instanceof TextBlock) {
+      if (!textReplaced) {
+        newContent.push(new TextBlock(preview))
+        textReplaced = true
+      }
+    } else {
+      newContent.push(content)
+    }
+  }
 
   return new ToolResultBlock({
     toolUseId: block.toolUseId,
@@ -131,8 +156,12 @@ export function truncateToolResultBlock(block: ToolResultBlock, config?: Truncat
 
 /**
  * Creates a replacement TextBlock containing the truncated preview.
+ * Returns the original block unchanged if preview would not reduce size.
  */
 export function truncateTextBlock(block: TextBlock, config?: TruncateConfig): TextBlock {
   const preview = buildPreview(block.text, 1, config)
+  if (preview === block.text) {
+    return block
+  }
   return new TextBlock(preview)
 }

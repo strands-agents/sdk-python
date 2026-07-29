@@ -23,8 +23,8 @@
  *     Offload.summarize()
  *       .when({ utilization: 0.85, preserveRecent: 2 }),
  *
- *     // Drop all error tool results from context immediately
- *     Offload("toolResultErrors"),
+ *     // Drop error tool results over 500 tokens
+ *     Offload("toolResultErrors").when({ threshold: 500 }),
  *   ],
  * })
  * ```
@@ -35,6 +35,7 @@ import { MessageAddedEvent } from '../../hooks/events.js'
 import { TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Message } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
+import type { LocalAgent } from '../../types/agent.js'
 import type { ContextStrategy, StrategyContext, StrategyInitContext } from '../types.js'
 import {
   DROPPED_MARKER,
@@ -114,17 +115,17 @@ function matchesToolTarget(
   return true
 }
 
-// --- Offload bare: drop from L0 entirely ---
+// --- Base strategy class ---
 
-/** Replaces matching content with a [Dropped] marker. */
-class OffloadDropStrategy implements ContextStrategy {
-  readonly name = 'offload:drop'
+/** Shared offload logic: target routing, eager hooks, preserveRecent. */
+abstract class BaseOffloadStrategy implements ContextStrategy {
+  abstract readonly name: string
 
-  private readonly _target: OffloadTarget | undefined
-  private readonly _threshold: number
-  private readonly _preserveRecent: number
-  private readonly _toolFilter: Set<string> | undefined
-  private readonly _excludeFilter: Set<string> | undefined
+  protected readonly _target: OffloadTarget | undefined
+  protected readonly _threshold: number
+  protected readonly _preserveRecent: number
+  protected readonly _toolFilter: Set<string> | undefined
+  protected readonly _excludeFilter: Set<string> | undefined
 
   constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
     this._target = target
@@ -136,339 +137,93 @@ class OffloadDropStrategy implements ContextStrategy {
     this._excludeFilter = resolved.exclude
   }
 
-  /** Registers eager hook to drop content on arrival (disabled when preserveRecent \> 0). */
   init(context: StrategyInitContext): void {
     if (this._preserveRecent > 0) return
+    if (!this._shouldRegisterEagerHook()) return
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
-      this._processMessage(event.message, agent.messages)
+      const messages = agent.messages
+      const lastMessage = messages[messages.length - 1]
+      if (event.message === lastMessage) return
+      await this._processMessage(event.message, messages)
     })
   }
 
-  /** Drops eligible blocks across all messages, respecting preserveRecent. */
   async apply(context: StrategyContext): Promise<boolean> {
+    if (!this._shouldApply(context)) return false
+
     const { messages } = context
     const eligible =
       this._preserveRecent > 0
         ? excludeRecentMatches(messages, this._target, this._preserveRecent, this._toolFilter, this._excludeFilter)
         : messages
-    let dropped = false
+    let acted = false
 
     for (const message of eligible) {
-      if (this._processMessage(message, messages)) {
-        dropped = true
+      if (await this._processMessage(message, messages)) {
+        acted = true
       }
     }
 
-    return dropped
+    return acted
   }
 
-  /** Routes a single message to the appropriate drop handler based on target. */
-  private _processMessage(message: Message, messages: Message[]): boolean {
+  /** Override to add extra gates (e.g. utilization check for summarize). */
+  protected _shouldApply(_context: StrategyContext): boolean {
+    return true
+  }
+
+  /** Override to disable eager hook registration (e.g. when utilization is set). */
+  protected _shouldRegisterEagerHook(): boolean {
+    return true
+  }
+
+  /** Routes a single message to text block or tool result handlers based on target. */
+  private async _processMessage(message: Message, messages: Message[]): Promise<boolean> {
     if (this._target === 'assistantMessages') {
       if (message.role !== 'assistant') return false
-      return this._dropTextBlocks(message)
+      return this._transformTextBlocks(message)
     }
 
     if (this._target === 'userMessages') {
       if (message.role !== 'user') return false
-      return this._dropTextBlocks(message)
+      return this._transformTextBlocks(message)
     }
 
     if (this._target === undefined) {
-      let dropped = this._dropTextBlocks(message)
+      let acted = await this._transformTextBlocks(message)
       if (message.role === 'user') {
-        if (this._dropToolResults(message, messages)) dropped = true
+        if (await this._transformToolResultBlocks(message, messages)) acted = true
       }
-      return dropped
+      return acted
     }
 
     // Tool result targets
     if (message.role !== 'user') return false
-    return this._dropToolResults(message, messages)
+    return this._transformToolResultBlocks(message, messages)
   }
 
-  /** Replaces text blocks in a message with [Dropped] markers. */
-  private _dropTextBlocks(message: Message): boolean {
-    let dropped = false
-    for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
-      const block = message.content[blockIndex]!
-      if (!(block instanceof TextBlock)) continue
-      if (this._threshold > 0 && estimateTextBlockTokens(block) <= this._threshold) continue
-      ;(message.content as unknown[])[blockIndex] = new TextBlock(DROPPED_MARKER)
-      dropped = true
-      logger.debug(`trackingId=<${message.trackingId}> | dropped text block from L0`)
-    }
-    return dropped
-  }
-
-  /** Replaces tool result blocks in a message with [Dropped] markers. */
-  private _dropToolResults(message: Message, messages: Message[]): boolean {
-    let dropped = false
-    for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
-      const block = message.content[blockIndex]!
-      if (!(block instanceof ToolResultBlock)) continue
-      if (
-        this._target !== undefined &&
-        !matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)
-      )
-        continue
-
-      if (this._threshold > 0) {
-        const tokens = estimateBlockTokens(block)
-        if (tokens <= this._threshold) continue
-      }
-
-      const replacement = new ToolResultBlock({
-        toolUseId: block.toolUseId,
-        status: block.status,
-        content: [new TextBlock(DROPPED_MARKER)],
-      })
-      ;(message.content as unknown[])[blockIndex] = replacement
-      dropped = true
-      logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from L0`)
-    }
-    return dropped
-  }
-}
-
-// --- Offload + Truncate strategy ---
-
-/** Replaces matching content with a head-tail preview. */
-class OffloadTruncateStrategy implements ContextStrategy {
-  readonly name = 'offload:truncate'
-
-  private readonly _threshold: number
-  private readonly _truncateConfig: TruncateConfig
-  private readonly _target: OffloadTarget | undefined
-  private readonly _preserveRecent: number
-  private readonly _toolFilter: Set<string> | undefined
-  private readonly _excludeFilter: Set<string> | undefined
-
-  constructor(target?: OffloadTarget, config?: TruncateConfig, conditions?: OffloadConditions) {
-    this._threshold = conditions?.threshold ?? 0
-    this._truncateConfig = config ?? {}
-    this._target = target
-    this._preserveRecent = conditions?.preserveRecent ?? 0
-
-    const resolved = resolveToolFilter(target)
-    this._toolFilter = resolved.include
-    this._excludeFilter = resolved.exclude
-  }
-
-  /** Registers eager hook to truncate content on arrival (disabled when preserveRecent \> 0). */
-  init(context: StrategyInitContext): void {
-    if (this._preserveRecent > 0) return
-    const { agent } = context
-    agent.addHook(MessageAddedEvent, async (event) => {
-      this._processMessage(event.message, agent.messages)
-    })
-  }
-
-  /** Truncates eligible blocks across all messages, respecting preserveRecent. */
-  async apply(context: StrategyContext): Promise<boolean> {
-    const { messages } = context
-    const eligible =
-      this._preserveRecent > 0
-        ? excludeRecentMatches(messages, this._target, this._preserveRecent, this._toolFilter, this._excludeFilter)
-        : messages
-    let truncated = false
-
-    for (const message of eligible) {
-      if (this._processMessage(message, messages)) {
-        truncated = true
-      }
-    }
-
-    return truncated
-  }
-
-  /** Routes a single message to the appropriate truncate handler based on target. */
-  private _processMessage(message: Message, messages: Message[]): boolean {
-    if (this._target === 'assistantMessages') {
-      if (message.role !== 'assistant') return false
-      return this._truncateTextBlocks(message)
-    }
-
-    if (this._target === 'userMessages') {
-      if (message.role !== 'user') return false
-      return this._truncateTextBlocks(message)
-    }
-
-    if (this._target === undefined) {
-      let truncated = this._truncateTextBlocks(message)
-      if (message.role === 'user') {
-        if (this._truncateToolResultBlocks(message, messages)) truncated = true
-      }
-      return truncated
-    }
-
-    // Tool result targets
-    if (message.role !== 'user') return false
-    return this._truncateToolResultBlocks(message, messages)
-  }
-
-  /** Replaces oversized text blocks with a head-tail preview. */
-  private _truncateTextBlocks(message: Message): boolean {
-    let truncated = false
-    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
-      const block = message.content[blockIndex]!
-      if (!(block instanceof TextBlock)) continue
-      const tokens = estimateTextBlockTokens(block)
-      if (tokens <= this._threshold) continue
-      ;(message.content as unknown[])[blockIndex] = truncateTextBlock(block, this._truncateConfig)
-      truncated = true
-      logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
-    }
-    return truncated
-  }
-
-  /** Replaces oversized tool result blocks with a head-tail preview. */
-  private _truncateToolResultBlocks(message: Message, messages: Message[]): boolean {
-    let truncated = false
-    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
-      const block = message.content[blockIndex]!
-      if (!(block instanceof ToolResultBlock)) continue
-      if (
-        this._target !== undefined &&
-        !matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)
-      )
-        continue
-
-      const estimatedTokens = estimateBlockTokens(block)
-      if (estimatedTokens <= this._threshold) continue
-
-      const replacement = truncateToolResultBlock(block, this._truncateConfig)
-      ;(message.content as unknown[])[blockIndex] = replacement
-      truncated = true
-      logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${estimatedTokens}> | truncated tool result`)
-    }
-    return truncated
-  }
-}
-
-// --- Offload + Summarize strategy (block-level) ---
-
-/** Replaces matching content with an LLM-generated summary. */
-class OffloadSummarizeStrategy implements ContextStrategy {
-  readonly name = 'offload:summarize'
-
-  private readonly _config: SummarizeConfig
-  private readonly _target: OffloadTarget | undefined
-  private readonly _threshold: number
-  private readonly _utilization: number | undefined
-  private readonly _preserveRecent: number
-  private readonly _toolFilter: Set<string> | undefined
-  private readonly _excludeFilter: Set<string> | undefined
-
-  constructor(target?: OffloadTarget, config?: SummarizeConfig, conditions?: OffloadConditions) {
-    this._config = config ?? {}
-    this._target = target
-    this._threshold = conditions?.threshold ?? 0
-    this._utilization = conditions?.utilization
-    this._preserveRecent = conditions?.preserveRecent ?? 0
-
-    const resolved = resolveToolFilter(target)
-    this._toolFilter = resolved.include
-    this._excludeFilter = resolved.exclude
-  }
-
-  /** Registers eager hook (disabled when preserveRecent \> 0 or utilization is set). */
-  init(context: StrategyInitContext): void {
-    if (this._preserveRecent > 0) return
-    if (this._utilization !== undefined) return
-    const { agent } = context
-    agent.addHook(MessageAddedEvent, async (event) => {
-      const model = this._config.model ?? ((agent as unknown as Record<string, unknown>)['model'] as Model | undefined)
-      if (!model) return
-      await this._processMessage(event.message, agent.messages, model)
-    })
-  }
-
-  /** Summarizes eligible blocks across all messages, respecting utilization and preserveRecent. */
-  async apply(context: StrategyContext): Promise<boolean> {
-    if (this._utilization !== undefined && context.utilization < this._utilization) {
-      logger.debug(
-        `utilization=<${context.utilization}>, threshold=<${this._utilization}> | skipping summarization, below threshold`
-      )
-      return false
-    }
-
-    const { messages, agent } = context
-    const model = this._config.model ?? ((agent as unknown as Record<string, unknown>)['model'] as Model | undefined)
-
-    if (!model) {
-      logger.warn('no model available for summarization')
-      return false
-    }
-
-    if (messages.length === 0) return false
-
-    const eligible =
-      this._preserveRecent > 0
-        ? excludeRecentMatches(messages, this._target, this._preserveRecent, this._toolFilter, this._excludeFilter)
-        : messages
-
-    let summarized = false
-
-    for (const message of eligible) {
-      if (await this._processMessage(message, messages, model)) {
-        summarized = true
-      }
-    }
-
-    return summarized
-  }
-
-  /** Routes a single message to the appropriate summarize handler based on target. */
-  private async _processMessage(message: Message, messages: Message[], model: Model): Promise<boolean> {
-    if (this._target === 'assistantMessages') {
-      if (message.role !== 'assistant') return false
-      return this._summarizeTextBlocks(message, model)
-    }
-
-    if (this._target === 'userMessages') {
-      if (message.role !== 'user') return false
-      return this._summarizeTextBlocks(message, model)
-    }
-
-    if (this._target === undefined) {
-      let summarized = await this._summarizeTextBlocks(message, model)
-      if (message.role === 'user') {
-        if (await this._summarizeToolResultBlocks(message, messages, model)) summarized = true
-      }
-      return summarized
-    }
-
-    // Tool result targets
-    if (message.role !== 'user') return false
-    return this._summarizeToolResultBlocks(message, messages, model)
-  }
-
-  /** Replaces oversized text blocks with an LLM-generated summary. */
-  private async _summarizeTextBlocks(message: Message, model: Model): Promise<boolean> {
-    let summarized = false
+  /** Process text blocks in a message. Subclasses implement the transformation. */
+  private async _transformTextBlocks(message: Message): Promise<boolean> {
+    let acted = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
       if (!(block instanceof TextBlock)) continue
       const tokens = estimateTextBlockTokens(block)
       if (tokens <= this._threshold) continue
 
-      const summary = await summarizeText(block.text, model, this._config)
-      if (summary) {
-        ;(message.content as unknown[])[blockIndex] = new TextBlock(
-          `${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`
-        )
-        summarized = true
-        logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
+      const replacement = await this._replaceTextBlock(block, tokens, message)
+      if (replacement && replacement.text !== block.text) {
+        ;(message.content as unknown[])[blockIndex] = replacement
+        acted = true
       }
     }
-    return summarized
+    return acted
   }
 
-  /** Replaces oversized tool result blocks with an LLM-generated summary. */
-  private async _summarizeToolResultBlocks(message: Message, messages: Message[], model: Model): Promise<boolean> {
-    let summarized = false
+  /** Process tool result blocks in a message. Subclasses implement the transformation. */
+  private async _transformToolResultBlocks(message: Message, messages: Message[]): Promise<boolean> {
+    let acted = false
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
       if (!(block instanceof ToolResultBlock)) continue
@@ -481,20 +236,138 @@ class OffloadSummarizeStrategy implements ContextStrategy {
       const tokens = estimateBlockTokens(block)
       if (tokens <= this._threshold) continue
 
-      const fullText = extractBlockText(block)
-      const summary = await summarizeText(fullText, model, this._config)
-      if (summary) {
-        const replacement = new ToolResultBlock({
-          toolUseId: block.toolUseId,
-          status: block.status,
-          content: [new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
-        })
+      const replacement = await this._replaceToolResultBlock(block, tokens)
+      if (replacement) {
         ;(message.content as unknown[])[blockIndex] = replacement
-        summarized = true
-        logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | summarized tool result`)
+        acted = true
       }
     }
-    return summarized
+    return acted
+  }
+
+  /** Transform a text block. Return the replacement, or null to skip. */
+  protected abstract _replaceTextBlock(block: TextBlock, tokens: number, message: Message): Promise<TextBlock | null>
+
+  /** Transform a tool result block. Return the replacement, or null to skip. */
+  protected abstract _replaceToolResultBlock(block: ToolResultBlock, tokens: number): Promise<ToolResultBlock | null>
+}
+
+// --- Drop strategy ---
+
+class OffloadDropStrategy extends BaseOffloadStrategy {
+  readonly name = 'offload:drop'
+
+  protected async _replaceTextBlock(block: TextBlock, _tokens: number, message: Message): Promise<TextBlock | null> {
+    logger.debug(`trackingId=<${message.trackingId}> | dropped text block from L0`)
+    return new TextBlock(DROPPED_MARKER)
+  }
+
+  protected async _replaceToolResultBlock(block: ToolResultBlock, _tokens: number): Promise<ToolResultBlock | null> {
+    logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from L0`)
+    return new ToolResultBlock({
+      toolUseId: block.toolUseId,
+      status: block.status,
+      content: [new TextBlock(DROPPED_MARKER)],
+    })
+  }
+}
+
+// --- Truncate strategy ---
+
+class OffloadTruncateStrategy extends BaseOffloadStrategy {
+  readonly name = 'offload:truncate'
+
+  private readonly _truncateConfig: TruncateConfig
+
+  constructor(target?: OffloadTarget, config?: TruncateConfig, conditions?: OffloadConditions) {
+    super(target, conditions)
+    this._truncateConfig = config ?? {}
+  }
+
+  protected async _replaceTextBlock(block: TextBlock, tokens: number, message: Message): Promise<TextBlock | null> {
+    logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | truncated text block`)
+    return truncateTextBlock(block, this._truncateConfig)
+  }
+
+  protected async _replaceToolResultBlock(block: ToolResultBlock, tokens: number): Promise<ToolResultBlock | null> {
+    logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | truncated tool result`)
+    return truncateToolResultBlock(block, this._truncateConfig)
+  }
+}
+
+// --- Summarize strategy ---
+
+class OffloadSummarizeStrategy extends BaseOffloadStrategy {
+  readonly name = 'offload:summarize'
+
+  private readonly _config: SummarizeConfig
+  private readonly _utilization: number | undefined
+  private _model: Model | undefined
+
+  constructor(target?: OffloadTarget, config?: SummarizeConfig, conditions?: OffloadConditions) {
+    super(target, conditions)
+    this._config = config ?? {}
+    this._utilization = conditions?.utilization
+  }
+
+  override init(context: StrategyInitContext): void {
+    super.init(context)
+  }
+
+  protected override _shouldRegisterEagerHook(): boolean {
+    return this._utilization === undefined
+  }
+
+  protected override _shouldApply(context: StrategyContext): boolean {
+    if (this._utilization !== undefined && context.utilization < this._utilization) {
+      logger.debug(
+        `utilization=<${context.utilization}>, threshold=<${this._utilization}> | skipping summarization, below threshold`
+      )
+      return false
+    }
+
+    const model = this._resolveModel(context.agent)
+    if (!model) {
+      logger.warn('no model available for summarization')
+      return false
+    }
+    this._model = model
+
+    return context.messages.length > 0
+  }
+
+  override async apply(context: StrategyContext): Promise<boolean> {
+    this._model = this._resolveModel(context.agent)
+    return super.apply(context)
+  }
+
+  protected async _replaceTextBlock(block: TextBlock, tokens: number, message: Message): Promise<TextBlock | null> {
+    if (!this._model) return null
+
+    const summary = await summarizeText(block.text, this._model, this._config)
+    if (!summary) return null
+
+    logger.debug(`trackingId=<${message.trackingId}>, tokens=<${tokens}> | summarized text block`)
+    return new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
+  }
+
+  protected async _replaceToolResultBlock(block: ToolResultBlock, tokens: number): Promise<ToolResultBlock | null> {
+    if (!this._model) return null
+
+    const fullText = extractBlockText(block)
+    const summary = await summarizeText(fullText, this._model, this._config)
+    if (!summary) return null
+
+    logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | summarized tool result`)
+    return new ToolResultBlock({
+      toolUseId: block.toolUseId,
+      status: block.status,
+      content: [new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
+    })
+  }
+
+  private _resolveModel(agent: LocalAgent): Model | undefined {
+    return this._config.model ?? agent.model
   }
 }
 
@@ -553,48 +426,22 @@ function messageMatchesTarget(
 
 // --- Builder ---
 
-/** Creates a drop strategy builder with an optional target. */
-function createDropBuilder(target?: OffloadTarget): OffloadStrategyBuilder {
-  const strategy = new OffloadDropStrategy(target)
-  return {
-    get name(): string {
-      return strategy.name
-    },
-    init: strategy.init.bind(strategy),
-    apply: strategy.apply.bind(strategy),
-    when(conditions: OffloadConditions): ContextStrategy {
-      return new OffloadDropStrategy(target, conditions)
-    },
-  }
-}
-
-/** Creates a truncate strategy builder with an optional target and config. */
-function createTruncateBuilder(target?: OffloadTarget, config?: TruncateConfig): OffloadStrategyBuilder {
-  const strategy = new OffloadTruncateStrategy(target, config)
-  return {
-    get name(): string {
-      return strategy.name
-    },
-    init: strategy.init.bind(strategy),
-    apply: strategy.apply.bind(strategy),
-    when(conditions: OffloadConditions): ContextStrategy {
-      return new OffloadTruncateStrategy(target, config, conditions)
-    },
-  }
-}
-
-/** Creates a summarize strategy builder with an optional target and config. */
-function createSummarizeBuilder(target?: OffloadTarget, config?: SummarizeConfig): OffloadStrategyBuilder {
-  const strategy = new OffloadSummarizeStrategy(target, config)
-  return {
-    get name(): string {
-      return strategy.name
-    },
-    init: strategy.init.bind(strategy),
-    apply: strategy.apply.bind(strategy),
-    when(conditions: OffloadConditions): ContextStrategy {
-      return new OffloadSummarizeStrategy(target, config, conditions)
-    },
+function createBuilder(
+  strategyName: string,
+  createStrategy: (target?: OffloadTarget, conditions?: OffloadConditions) => BaseOffloadStrategy
+): (target?: OffloadTarget) => OffloadStrategyBuilder {
+  return (target?: OffloadTarget): OffloadStrategyBuilder => {
+    const strategy = createStrategy(target)
+    return {
+      get name(): string {
+        return strategyName
+      },
+      init: strategy.init.bind(strategy),
+      apply: strategy.apply.bind(strategy),
+      when(conditions: OffloadConditions): ContextStrategy {
+        return createStrategy(target, conditions)
+      },
+    }
   }
 }
 
@@ -623,33 +470,62 @@ export interface OffloadNamespace {
 }
 
 function offloadFn(target?: OffloadTarget): OffloadStrategyBuilder {
-  return createDropBuilder(target)
+  const buildDrop = createBuilder('offload:drop', (t, c) => new OffloadDropStrategy(t, c))
+  return buildDrop(target)
 }
 
 offloadFn.truncate = function truncate(
   targetOrConfig?: OffloadTarget | TruncateConfig,
   config?: TruncateConfig
 ): OffloadStrategyBuilder {
+  const buildStrategy = (target?: OffloadTarget, truncateConfig?: TruncateConfig): OffloadStrategyBuilder => {
+    const strategy = new OffloadTruncateStrategy(target, truncateConfig)
+    return {
+      get name(): string {
+        return strategy.name
+      },
+      init: strategy.init.bind(strategy),
+      apply: strategy.apply.bind(strategy),
+      when(conditions: OffloadConditions): ContextStrategy {
+        return new OffloadTruncateStrategy(target, truncateConfig, conditions)
+      },
+    }
+  }
+
   if (targetOrConfig === undefined) {
-    return createTruncateBuilder(undefined, config)
+    return buildStrategy(undefined, config)
   }
   if (isTruncateConfig(targetOrConfig)) {
-    return createTruncateBuilder(undefined, targetOrConfig)
+    return buildStrategy(undefined, targetOrConfig)
   }
-  return createTruncateBuilder(targetOrConfig as OffloadTarget, config)
+  return buildStrategy(targetOrConfig as OffloadTarget, config)
 }
 
 offloadFn.summarize = function summarize(
   targetOrConfig?: OffloadTarget | SummarizeConfig,
   config?: SummarizeConfig
 ): OffloadStrategyBuilder {
+  const buildStrategy = (target?: OffloadTarget, summarizeConfig?: SummarizeConfig): OffloadStrategyBuilder => {
+    const strategy = new OffloadSummarizeStrategy(target, summarizeConfig)
+    return {
+      get name(): string {
+        return strategy.name
+      },
+      init: strategy.init.bind(strategy),
+      apply: strategy.apply.bind(strategy),
+      when(conditions: OffloadConditions): ContextStrategy {
+        return new OffloadSummarizeStrategy(target, summarizeConfig, conditions)
+      },
+    }
+  }
+
   if (targetOrConfig === undefined) {
-    return createSummarizeBuilder(undefined, config)
+    return buildStrategy(undefined, config)
   }
   if (isSummarizeConfig(targetOrConfig)) {
-    return createSummarizeBuilder(undefined, targetOrConfig)
+    return buildStrategy(undefined, targetOrConfig)
   }
-  return createSummarizeBuilder(targetOrConfig as OffloadTarget, config)
+  return buildStrategy(targetOrConfig as OffloadTarget, config)
 }
 
 /** Disambiguates the truncate overload: is the first arg a config object or a target? */
