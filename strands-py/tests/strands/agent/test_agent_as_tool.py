@@ -1054,9 +1054,7 @@ def test_two_concurrent_nested_interrupts_through_event_loop():
     orch_2._interrupt_state = _InterruptState.from_dict(serialized_interrupt_state)
 
     # Approve all interrupts.
-    responses = [
-        {"interruptResponse": {"interruptId": iid, "response": "APPROVE"}} for iid in interrupt_ids
-    ]
+    responses = [{"interruptResponse": {"interruptId": iid, "response": "APPROVE"}} for iid in interrupt_ids]
     result_2 = orch_2(responses)
 
     assert result_2.stop_reason == "end_turn"

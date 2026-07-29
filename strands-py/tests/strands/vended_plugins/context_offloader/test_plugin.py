@@ -1019,9 +1019,7 @@ class TestUnifiedStorage:
             "actively-retrieved entry must survive eviction for unified Storage backends"
         )
         # And remains retrievable
-        content_again = await plugin.retrieve_offloaded_content(
-            reference=ref, tool_context=tool_context
-        )
+        content_again = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
         assert "hello world" in content_again
 
     @pytest.mark.asyncio
