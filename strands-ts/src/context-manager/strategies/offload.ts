@@ -371,7 +371,6 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
 
   protected async _replaceTextBlock(block: TextBlock, tokens: number, message: Message): Promise<TextBlock | null> {
     if (!this._model) return null
-    if (block.text.startsWith(SUMMARIZED_PREFIX)) return null
 
     const summary = await summarizeText(block.text, this._model, this._config)
     if (!summary) return null
@@ -384,8 +383,6 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     if (!this._model) return null
 
     const fullText = extractBlockText(block)
-    if (fullText.startsWith(SUMMARIZED_PREFIX)) return null
-
     const summary = await summarizeText(fullText, this._model, this._config)
     if (!summary) return null
 
