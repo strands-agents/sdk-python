@@ -27,15 +27,13 @@ export interface TruncateConfig {
 }
 
 /**
- * Estimates token count for a tool result block.
+ * Estimates token count for text content in a tool result block.
  */
 export function estimateBlockTokens(block: ToolResultBlock): number {
   let chars = 0
   for (const content of block.content) {
     if (content instanceof TextBlock) {
       chars += content.text.length
-    } else {
-      chars += JSON.stringify(content.toJSON()).length
     }
   }
   return Math.ceil(chars / CHARS_PER_TOKEN)
@@ -49,35 +47,16 @@ export function estimateTextBlockTokens(block: TextBlock): number {
 }
 
 /**
- * Extracts full text content from a tool result block.
+ * Extracts text content from a tool result block (non-text blocks are skipped).
  */
 export function extractBlockText(block: ToolResultBlock): string {
   const parts: string[] = []
   for (const content of block.content) {
     if (content instanceof TextBlock) {
       parts.push(content.text)
-    } else {
-      parts.push(JSON.stringify(content.toJSON(), null, 2))
     }
   }
   return parts.join('\n')
-}
-
-/**
- * Checks whether a block has already been processed (truncated, dropped, or summarized).
- */
-export function isAlreadyProcessed(block: ToolResultBlock | TextBlock): boolean {
-  if (block instanceof TextBlock) {
-    return isProcessedText(block.text)
-  }
-  if (block.content.length === 1 && block.content[0] instanceof TextBlock) {
-    return isProcessedText(block.content[0].text)
-  }
-  return false
-}
-
-function isProcessedText(text: string): boolean {
-  return text.startsWith(TRUNCATED_PREFIX) || text.startsWith(DROPPED_MARKER) || text.startsWith(SUMMARIZED_PREFIX)
 }
 
 /**
@@ -120,15 +99,33 @@ export function buildPreview(fullText: string, blockCount: number, config?: Trun
 }
 
 /**
- * Creates a replacement ToolResultBlock containing the truncated preview.
+ * Creates a replacement ToolResultBlock with text blocks truncated and non-text blocks preserved.
  */
 export function truncateToolResultBlock(block: ToolResultBlock, config?: TruncateConfig): ToolResultBlock {
-  const fullText = extractBlockText(block)
-  const preview = buildPreview(fullText, block.content.length, config)
+  const textParts: string[] = []
+  const nonTextBlocks: Array<{ index: number; block: ToolResultBlock['content'][number] }> = []
+
+  for (let index = 0; index < block.content.length; index++) {
+    const content = block.content[index]!
+    if (content instanceof TextBlock) {
+      textParts.push(content.text)
+    } else {
+      nonTextBlocks.push({ index, block: content })
+    }
+  }
+
+  if (textParts.length === 0) {
+    return block
+  }
+
+  const fullText = textParts.join('\n')
+  const preview = buildPreview(fullText, textParts.length, config)
+  const newContent: ToolResultBlock['content'] = [new TextBlock(preview), ...nonTextBlocks.map((entry) => entry.block)]
+
   return new ToolResultBlock({
     toolUseId: block.toolUseId,
     status: block.status,
-    content: [new TextBlock(preview)],
+    content: newContent,
   })
 }
 

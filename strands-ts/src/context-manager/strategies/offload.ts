@@ -42,7 +42,6 @@ import {
   estimateBlockTokens,
   estimateTextBlockTokens,
   extractBlockText,
-  isAlreadyProcessed,
   truncateToolResultBlock,
   truncateTextBlock,
   type TruncateConfig,
@@ -195,7 +194,6 @@ class OffloadDropStrategy implements ContextStrategy {
     for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
       const block = message.content[blockIndex]!
       if (!(block instanceof TextBlock)) continue
-      if (isAlreadyProcessed(block)) continue
       if (this._threshold > 0 && estimateTextBlockTokens(block) <= this._threshold) continue
       ;(message.content as unknown[])[blockIndex] = new TextBlock(DROPPED_MARKER)
       dropped = true
@@ -215,7 +213,6 @@ class OffloadDropStrategy implements ContextStrategy {
         !matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)
       )
         continue
-      if (isAlreadyProcessed(block)) continue
 
       if (this._threshold > 0) {
         const tokens = estimateBlockTokens(block)
@@ -318,7 +315,6 @@ class OffloadTruncateStrategy implements ContextStrategy {
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
       if (!(block instanceof TextBlock)) continue
-      if (isAlreadyProcessed(block)) continue
       const tokens = estimateTextBlockTokens(block)
       if (tokens <= this._threshold) continue
       ;(message.content as unknown[])[blockIndex] = truncateTextBlock(block, this._truncateConfig)
@@ -339,7 +335,6 @@ class OffloadTruncateStrategy implements ContextStrategy {
         !matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)
       )
         continue
-      if (isAlreadyProcessed(block)) continue
 
       const estimatedTokens = estimateBlockTokens(block)
       if (estimatedTokens <= this._threshold) continue
@@ -458,7 +453,6 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex++) {
       const block = message.content[blockIndex]!
       if (!(block instanceof TextBlock)) continue
-      if (isAlreadyProcessed(block)) continue
       const tokens = estimateTextBlockTokens(block)
       if (tokens <= this._threshold) continue
 
@@ -485,7 +479,6 @@ class OffloadSummarizeStrategy implements ContextStrategy {
         !matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)
       )
         continue
-      if (isAlreadyProcessed(block)) continue
 
       const tokens = estimateBlockTokens(block)
       if (tokens <= this._threshold) continue

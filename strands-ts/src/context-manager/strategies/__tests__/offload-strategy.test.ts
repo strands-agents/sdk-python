@@ -103,25 +103,6 @@ describe('Offload.truncate', () => {
     expect(result).toBe(true)
   })
 
-  it('skips already truncated results', async () => {
-    const message = new Message({
-      role: 'user',
-      content: [
-        new ToolResultBlock({
-          toolUseId: 'tool-123',
-          status: 'success',
-          content: [new TextBlock('[Truncated: 1 blocks, ~500 tokens]\npreview...')],
-        }),
-      ],
-    })
-    const strategy = Offload.truncate('toolResults')
-    const context = makeContext([message])
-
-    const result = await strategy.apply(context)
-
-    expect(result).toBe(false)
-  })
-
   it('skips non-user messages when targeting tool results', async () => {
     const largeText = 'x'.repeat(2500 * 4 + 100)
     const message = new Message({

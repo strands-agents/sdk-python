@@ -10,7 +10,7 @@ import type { Message } from '../types/messages.js'
 import { AfterModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
-import { adjustSplitPointForToolPairs } from '../conversation-manager/compression/context-compression.js'
+import { findValidTrimPoint } from '../conversation-manager/compression/context-compression.js'
 import type { ContextManagerConfig, ContextStrategy, StrategyContext, StrategyInitContext } from './types.js'
 import { Offload } from './strategies/offload.js'
 
@@ -143,16 +143,18 @@ export class ContextManager implements Plugin {
    * and respecting tool-use/tool-result pair boundaries).
    */
   private _truncate(messages: Message[]): void {
-    const targetRemoval = Math.max(1, Math.floor(messages.length * 0.2))
     if (messages.length <= 3) return
 
-    let safeSplitPoint: number
-    try {
-      safeSplitPoint = adjustSplitPointForToolPairs(messages, Math.min(targetRemoval + 1, messages.length - 2))
-    } catch {
-      safeSplitPoint = Math.min(targetRemoval + 1, messages.length - 2)
+    const targetSplitIndex = Math.min(Math.max(2, Math.floor(messages.length * 0.2) + 1), messages.length - 1)
+    const validSplitIndex = findValidTrimPoint(messages, targetSplitIndex)
+
+    if (validSplitIndex >= messages.length) {
+      logger.warn(`agentId=<${this._agentId}> | no valid split point found, skipping truncation`)
+      return
     }
-    const removeCount = Math.max(1, safeSplitPoint - 1)
+
+    const removeCount = validSplitIndex - 1
+    if (removeCount <= 0) return
 
     messages.splice(1, removeCount)
     logger.debug(`agentId=<${this._agentId}>, removed=<${removeCount}> | truncated oldest messages on overflow`)

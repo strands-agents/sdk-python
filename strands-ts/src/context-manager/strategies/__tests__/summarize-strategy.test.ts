@@ -140,26 +140,6 @@ describe('Offload.summarize', () => {
       expect(result).toBe(true)
     })
 
-    it('skips already summarized blocks', async () => {
-      const message = new Message({
-        role: 'user',
-        content: [
-          new ToolResultBlock({
-            toolUseId: 'tool-123',
-            status: 'success',
-            content: [new TextBlock('[Summarized: ~500 tokens]\nsome summary')],
-          }),
-        ],
-      })
-      const mockModel = { stream: vi.fn() }
-      const strategy = Offload.summarize('toolResults')
-      const context = makeContext([message], 0.9, mockModel)
-
-      const result = await strategy.apply(context)
-
-      expect(result).toBe(false)
-    })
-
     it('returns false on empty messages', async () => {
       const mockModel = { stream: vi.fn() }
       const strategy = Offload.summarize('toolResults')
