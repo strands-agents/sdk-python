@@ -1,9 +1,8 @@
-"""Reproduction tests for concurrency and failure-path blockers.
+"""Concurrency and failure-path tests for the search index and page cache.
 
-Each test MUST fail on the unfixed code and pass after the fix.
-
-BLOCKER 1: Unlocked read-modify-write on shared index state
-BLOCKER 2: Page cached before indexing succeeds
+Each test MUST fail on the unfixed code and pass after the fix:
+  - lost-update race on the shared inverted index (doc_frequency / postings)
+  - a page being cached before its content is successfully indexed
 """
 
 import threading
@@ -19,10 +18,11 @@ from strands_mcp_server.utils import cache, indexer
 class TestBlocker1DeterministicRace:
     """Deterministic reproduction of BLOCKER 1: race in read-modify-write on doc_frequency.
 
-    Uses the _TEST_YIELD hook to force interleaving at the critical seam:
+    Monkeypatches the extracted ``IndexSearch._bump_df`` seam to force interleaving at
+    the critical read-modify-write:
         current_df = doc_frequency.get(tok, 0)  # READ
-        _TEST_YIELD()                            # <-- forced context switch
-        doc_frequency[tok] = current_df + 1     # WRITE
+        <forced context switch>                 # <-- barrier
+        doc_frequency[tok] = current_df + 1      # WRITE
 
     Without the lock, both threads read the same value (0), then both write 1.
     With the lock, operations are serialized, so no race occurs.
@@ -30,14 +30,7 @@ class TestBlocker1DeterministicRace:
     This test MUST FAIL when the lock is removed/bypassed.
     """
 
-    @pytest.fixture(autouse=True)
-    def reset_test_yield(self):
-        """Ensure _TEST_YIELD is None before and after each test."""
-        indexer._TEST_YIELD = None
-        yield
-        indexer._TEST_YIELD = None
-
-    def test_deterministic_lost_increment_via_forced_interleaving(self):
+    def test_deterministic_lost_increment_via_forced_interleaving(self, monkeypatch):
         """Force two threads to interleave at the read-modify-write seam.
 
         Scenario WITHOUT lock:
@@ -53,7 +46,7 @@ class TestBlocker1DeterministicRace:
         The invariant df == len(postings) catches this.
         """
         # Use threading primitives to force interleaving
-        barrier = threading.Barrier(2, timeout=2)
+        barrier = threading.Barrier(2, timeout=0.1)
         thread_count_at_seam = [0]
         seam_lock = threading.Lock()
 
@@ -73,9 +66,16 @@ class TestBlocker1DeterministicRace:
             except threading.BrokenBarrierError:
                 pass  # Expected when lock serializes access
 
-        indexer._TEST_YIELD = yield_at_seam
-
         idx = indexer.IndexSearch()
+
+        def racy_bump_df(tok: str) -> None:
+            """Replacement _bump_df that yields between the df read and write."""
+            current_df = idx.doc_frequency.get(tok, 0)
+            yield_at_seam()
+            idx.doc_frequency[tok] = current_df + 1
+
+        monkeypatch.setattr(idx, "_bump_df", racy_bump_df)
+
         errors = []
 
         doc_a = indexer.Doc(
@@ -130,14 +130,14 @@ class TestBlocker1DeterministicRace:
             f"Expected df=2 (both docs indexed), got df={df}. Lost increment indicates missing lock protection."
         )
 
-    def test_deterministic_race_with_many_threads(self):
+    def test_deterministic_race_with_many_threads(self, monkeypatch):
         """Stress variant: many threads all racing on the same token.
 
         With N threads each adding a doc with "stresstoken", expected df=N.
         Without locking + forced interleaving, many increments will be lost.
         """
         num_threads = 10
-        barrier = threading.Barrier(num_threads, timeout=2)
+        barrier = threading.Barrier(num_threads, timeout=0.1)
 
         def yield_at_seam():
             try:
@@ -145,9 +145,16 @@ class TestBlocker1DeterministicRace:
             except threading.BrokenBarrierError:
                 pass  # Expected when lock serializes access
 
-        indexer._TEST_YIELD = yield_at_seam
-
         idx = indexer.IndexSearch()
+
+        def racy_bump_df(tok: str) -> None:
+            """Replacement _bump_df that yields between the df read and write."""
+            current_df = idx.doc_frequency.get(tok, 0)
+            yield_at_seam()
+            idx.doc_frequency[tok] = current_df + 1
+
+        monkeypatch.setattr(idx, "_bump_df", racy_bump_df)
+
         errors = []
 
         docs = [
@@ -534,7 +541,7 @@ class TestUpdateContentAtomicity:
         cache._LINKS_LOADED = False
         cache._PREFETCH_STARTED = False
 
-    def test_update_content_atomic_on_mid_loop_failure(self):
+    def test_update_content_atomic_on_mid_loop_failure(self, monkeypatch):
         """yonib05's finding: if the postings loop raises after doc.content is set,
         the idempotence guard must NOT make retries a no-op. Content is committed
         last, so a failed reindex leaves content unchanged and retry re-runs."""
@@ -545,22 +552,23 @@ class TestUpdateContentAtomicity:
 
         body = "You can set a guardrail temperature threshold for the model."
 
-        # Inject a failure partway through the postings update via the _TEST_YIELD seam
+        # Inject a failure on the first token's df write, mid-transaction, via the
+        # extracted _bump_df seam. Later calls delegate to the real increment so the
+        # retry below actually re-runs the reindex.
         calls = {"n": 0}
 
-        def boom():
+        def boom_bump(tok):
             calls["n"] += 1
             if calls["n"] == 1:
                 raise RuntimeError("simulated failure mid-transaction")
+            index.doc_frequency[tok] = index.doc_frequency.get(tok, 0) + 1
 
-        idx_mod._TEST_YIELD = boom
+        monkeypatch.setattr(index, "_bump_df", boom_bump)
+
         try:
-            try:
-                index.update_content("u1", body)
-            except RuntimeError:
-                pass
-        finally:
-            idx_mod._TEST_YIELD = None
+            index.update_content("u1", body)
+        except RuntimeError:
+            pass
 
         # After the failed update, body terms must not be silently lost forever:
         # retry must actually re-run (content was NOT committed on failure)

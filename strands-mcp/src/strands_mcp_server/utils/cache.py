@@ -1,3 +1,4 @@
+import logging
 import os
 import threading
 from typing import Dict
@@ -5,12 +6,20 @@ from typing import Dict
 from ..config import doc_config
 from . import doc_fetcher, indexer, text_processor
 
+logger = logging.getLogger(__name__)
+
 # Global state
 _INDEX: indexer.IndexSearch | None = None
 _URL_CACHE: Dict[str, doc_fetcher.Page | None] = {}  # url -> Page (None if not fetched yet)
 _URL_TITLES: Dict[str, str] = {}  # url -> curated title from llms.txt
 _LINKS_LOADED = False
 _PREFETCH_STARTED = False
+
+# Guard the check-then-act on module-level state so the background prefetch daemon
+# and foreground hydration don't race: _CACHE_LOCK makes the "index then cache" step
+# in ensure_page atomic; _PREFETCH_LOCK makes the prefetch start-once idempotent.
+_CACHE_LOCK = threading.Lock()
+_PREFETCH_LOCK = threading.Lock()
 
 SNIPPET_HYDRATE_MAX = 5  # how many top results to hydrate with content
 
@@ -34,14 +43,28 @@ def _background_prefetch() -> None:
     Iterates through all URLs in the cache and fetches content for any
     that haven't been fetched yet. Updates the index with hydrated content.
     Note: Search may return transiently stale results during hydration (eventual consistency).
+
+    Emits a log record summarizing how many pages hydrated. A run in which every
+    fetch fails is logged at ERROR so the operator can tell "prefetch ran but the
+    network is down" apart from "prefetch was never enabled" (both otherwise leave
+    body-only search returning nothing).
     """
-    global _URL_CACHE, _INDEX
+    attempted = 0
+    succeeded = 0
     for url in list(_URL_CACHE.keys()):
         if _URL_CACHE.get(url) is None:
-            try:
-                ensure_page(url)
-            except Exception:
-                pass  # Silently skip failures in background prefetch
+            attempted += 1
+            # ensure_page catches its own fetch/index errors and returns None on
+            # failure, so a None result is how a failed prefetch surfaces here.
+            if ensure_page(url) is not None:
+                succeeded += 1
+    if attempted and succeeded == 0:
+        logger.error(
+            "Background prefetch: all %d page fetch(es) failed; body-only search will remain unavailable",
+            attempted,
+        )
+    elif attempted:
+        logger.info("Background prefetch: hydrated %d/%d page(s)", succeeded, attempted)
 
 
 def _start_background_prefetch() -> None:
@@ -51,10 +74,11 @@ def _start_background_prefetch() -> None:
     after the first successful start.
     """
     global _PREFETCH_STARTED
-    if _PREFETCH_STARTED or not _is_prefetch_enabled():
-        return
+    with _PREFETCH_LOCK:
+        if _PREFETCH_STARTED or not _is_prefetch_enabled():
+            return
+        _PREFETCH_STARTED = True
 
-    _PREFETCH_STARTED = True
     thread = threading.Thread(target=_background_prefetch, daemon=True)
     thread.start()
 
@@ -138,13 +162,24 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
         page = doc_fetcher.Page(url=url, title=display_title, content=raw.content)
 
-        # Update the search index with the hydrated content BEFORE caching
-        # If this fails, we leave the page un-cached so retry is possible
-        if _INDEX is not None:
-            _INDEX.update_content(url, raw.content)
+        # Commit indexing + caching atomically under _CACHE_LOCK. The network fetch
+        # above runs outside the lock, so a concurrent caller (e.g. the prefetch
+        # daemon) may have hydrated this URL while we were fetching; if so, defer to
+        # its result and skip the redundant reindex. The fetch itself is not
+        # serialized, so a rare concurrent double-fetch is possible - that is
+        # duplicated network work, not index corruption.
+        with _CACHE_LOCK:
+            existing = _URL_CACHE.get(url)
+            if existing is not None:
+                return existing
 
-        # Only cache after indexing succeeds
-        _URL_CACHE[url] = page
+            # Update the search index with the hydrated content BEFORE caching.
+            # If this raises, the page is left un-cached so a retry is possible.
+            if _INDEX is not None:
+                _INDEX.update_content(url, raw.content)
+
+            # Only cache after indexing succeeds
+            _URL_CACHE[url] = page
 
         return page
     except Exception:

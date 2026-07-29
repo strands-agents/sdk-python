@@ -37,12 +37,6 @@ _TITLE_BOOST_SHORT = 5  # boost for short pages (<800 chars)
 _TITLE_BOOST_LONG = 3  # boost for longer pages
 _SHORT_PAGE_THRESHOLD = 800  # character threshold for short pages
 
-# Test-only hook: if set to a callable, called mid-transaction in add()/update_content()
-# after reading shared state but before writing it back. Used by concurrency tests
-# to force deterministic interleaving that exposes races hidden by the GIL.
-# Production: always None (zero overhead - guarded by `if _TEST_YIELD is not None`).
-_TEST_YIELD: object = None
-
 
 class IndexSearch:
     """Lightweight inverted index with TF-IDF scoring and Markdown awareness.
@@ -84,40 +78,25 @@ class IndexSearch:
         self.doc_tokens: Dict[int, Set[str]] = {}  # idx -> set of tokens (for rehydration)
 
     def _index_tokens_for_doc(self, idx: int, doc: Doc) -> Set[str]:
-        """Extract and index tokens from a document."""
-        seen: Set[str] = set()
+        """Extract tokens from a document and add them to the inverted index.
 
-        content = doc.content.lower()
-        title_text = doc.index_title.lower()
-        headers = " ".join(_MD_HEADER.findall(doc.content))
-        code_blocks = " ".join(_MD_CODE_BLOCK.findall(doc.content))
-        inline_code = " ".join(_MD_INLINE_CODE.findall(doc.content))
-        link_text = " ".join(_MD_LINK_TEXT.findall(doc.content))
+        Returns the set of unique tokens indexed, tracked for later rehydration.
+        Must be called with ``self._lock`` held.
+        """
+        tokens = self._extract_tokens(doc)
+        for tok in tokens:
+            self.doc_indices.setdefault(tok, []).append(idx)
+            self._bump_df(tok)
+        return tokens
 
-        haystack_parts = [
-            title_text,
-            headers.lower(),
-            link_text.lower(),
-            code_blocks.lower(),
-            inline_code.lower(),
-            content,
-        ]
+    def _bump_df(self, tok: str) -> None:
+        """Increment the document frequency for a token (read-modify-write).
 
-        haystack = " ".join(part for part in haystack_parts if part)
-
-        for tok in _TOKEN.findall(haystack):
-            tok_lower = tok.lower()
-            if tok_lower not in seen:
-                self.doc_indices.setdefault(tok_lower, []).append(idx)
-                # Read-modify-write on doc_frequency: the vulnerable seam.
-                # Test hook called between read and write to force interleaving.
-                current_df = self.doc_frequency.get(tok_lower, 0)
-                if _TEST_YIELD is not None:
-                    _TEST_YIELD()  # type: ignore[operator]
-                self.doc_frequency[tok_lower] = current_df + 1
-                seen.add(tok_lower)
-
-        return seen
+        Isolated into its own method so concurrency tests can monkeypatch it to
+        force the deterministic interleaving that exposes the lost-update race the
+        index lock guards against. Must be called with ``self._lock`` held.
+        """
+        self.doc_frequency[tok] = self.doc_frequency.get(tok, 0) + 1
 
     def add(self, doc: Doc) -> None:
         """Add a document to the search index.
@@ -190,11 +169,7 @@ class IndexSearch:
             # Add new tokens to index
             for tok in tokens_to_add:
                 self.doc_indices.setdefault(tok, []).append(idx)
-                # Read-modify-write on doc_frequency: the vulnerable seam.
-                current_df = self.doc_frequency.get(tok, 0)
-                if _TEST_YIELD is not None:
-                    _TEST_YIELD()  # type: ignore[operator]
-                self.doc_frequency[tok] = current_df + 1
+                self._bump_df(tok)
 
             # Update tracked tokens and commit content last — if anything above
             # raised, doc.content is unchanged and the idempotence guard allows retry
@@ -203,33 +178,32 @@ class IndexSearch:
 
             return True
 
-    def _extract_tokens(self, doc: Doc, content_override: str | None = None) -> Set[str]:
-        """Extract unique tokens from a document without indexing."""
-        seen: Set[str] = set()
+    @staticmethod
+    def _build_haystack(doc: Doc, content_override: str | None = None) -> str:
+        """Assemble the combined searchable text for a document.
 
+        Concatenates the index title with Markdown-structural extracts (headers,
+        link text, code blocks, inline code) and the raw body. This is the single
+        source of truth for what counts as a token source, shared by both indexing
+        (:meth:`_index_tokens_for_doc`) and reindexing (:meth:`_extract_tokens`),
+        so the two can never drift and silently corrupt ``doc_frequency`` via the
+        ``old_tokens - new_tokens`` diff in :meth:`update_content`.
+        """
         raw_content = content_override if content_override is not None else doc.content
-        content = raw_content.lower()
-        title_text = doc.index_title.lower()
-        headers = " ".join(_MD_HEADER.findall(raw_content))
-        code_blocks = " ".join(_MD_CODE_BLOCK.findall(raw_content))
-        inline_code = " ".join(_MD_INLINE_CODE.findall(raw_content))
-        link_text = " ".join(_MD_LINK_TEXT.findall(raw_content))
-
         haystack_parts = [
-            title_text,
-            headers.lower(),
-            link_text.lower(),
-            code_blocks.lower(),
-            inline_code.lower(),
-            content,
+            doc.index_title.lower(),
+            " ".join(_MD_HEADER.findall(raw_content)).lower(),
+            " ".join(_MD_LINK_TEXT.findall(raw_content)).lower(),
+            " ".join(_MD_CODE_BLOCK.findall(raw_content)).lower(),
+            " ".join(_MD_INLINE_CODE.findall(raw_content)).lower(),
+            raw_content.lower(),
         ]
+        return " ".join(part for part in haystack_parts if part)
 
-        haystack = " ".join(part for part in haystack_parts if part)
-
-        for tok in _TOKEN.findall(haystack):
-            seen.add(tok.lower())
-
-        return seen
+    def _extract_tokens(self, doc: Doc, content_override: str | None = None) -> Set[str]:
+        """Return the set of unique lowercased tokens for a document (no indexing)."""
+        haystack = self._build_haystack(doc, content_override)
+        return {tok.lower() for tok in _TOKEN.findall(haystack)}
 
     def search(self, query: str, k: int = 8) -> List[Tuple[float, Doc]]:
         """Search the index and return ranked results.
