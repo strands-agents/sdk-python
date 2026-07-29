@@ -26,11 +26,6 @@
 export { ContextManager } from './context-manager.js'
 export { Offload } from './strategies/offload.js'
 export type { ContextManagerConfig, ContextStrategy, StrategyContext } from './types.js'
-export type {
-  OffloadTarget,
-  OffloadConditions,
-  OffloadStrategyBuilder,
-  OffloadNamespace,
-} from './strategies/offload.js'
+export type { OffloadTarget, OffloadConditions } from './strategies/offload.js'
 export type { TruncateConfig } from './strategies/methods/truncate.js'
 export type { SummarizeConfig } from './strategies/methods/summarize.js'

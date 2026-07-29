@@ -309,10 +309,6 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     this._utilization = conditions?.utilization
   }
 
-  override init(agent: LocalAgent): void {
-    super.init(agent)
-  }
-
   protected override _shouldRegisterEagerHook(): boolean {
     return this._utilization === undefined
   }
@@ -425,23 +421,29 @@ function messageMatchesTarget(
 
 // --- Builder ---
 
-function createBuilder(
-  strategyName: string,
-  createStrategy: (target?: OffloadTarget, conditions?: OffloadConditions) => BaseOffloadStrategy
-): (target?: OffloadTarget) => OffloadStrategyBuilder {
-  return (target?: OffloadTarget): OffloadStrategyBuilder => {
-    const strategy = createStrategy(target)
-    return {
-      get name(): string {
-        return strategyName
-      },
-      init: strategy.init.bind(strategy),
-      apply: strategy.apply.bind(strategy),
-      when(conditions: OffloadConditions): ContextStrategy {
-        return createStrategy(target, conditions)
-      },
-    }
+/** Wraps a strategy instance as an OffloadStrategyBuilder with a `.when()` chain. */
+function wrapAsBuilder(
+  strategy: BaseOffloadStrategy,
+  createWithConditions: (conditions: OffloadConditions) => BaseOffloadStrategy
+): OffloadStrategyBuilder {
+  return {
+    get name(): string {
+      return strategy.name
+    },
+    init: strategy.init.bind(strategy),
+    apply: strategy.apply.bind(strategy),
+    when(conditions: OffloadConditions): ContextStrategy {
+      return createWithConditions(conditions)
+    },
   }
+}
+
+/** Disambiguates whether the first argument is a config object or a target. */
+function isConfigObject(value: unknown, configKeys: string[]): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const keys = Object.keys(value)
+  if (keys.length === 0) return true
+  return keys.some((key) => configKeys.includes(key))
 }
 
 /**
@@ -451,7 +453,7 @@ function createBuilder(
  * - `Offload.truncate(target, config)` — replace with a preview
  * - `Offload.summarize(target, config)` — replace with LLM-generated summary
  */
-export interface OffloadNamespace {
+interface OffloadNamespace {
   /** Drop matching content from L0 entirely. */
   (target?: OffloadTarget): OffloadStrategyBuilder
 
@@ -469,78 +471,51 @@ export interface OffloadNamespace {
 }
 
 function offloadFn(target?: OffloadTarget): OffloadStrategyBuilder {
-  const buildDrop = createBuilder('offload:drop', (t, c) => new OffloadDropStrategy(t, c))
-  return buildDrop(target)
+  return wrapAsBuilder(new OffloadDropStrategy(target), (c) => new OffloadDropStrategy(target, c))
 }
 
 offloadFn.truncate = function truncate(
   targetOrConfig?: OffloadTarget | TruncateConfig,
   config?: TruncateConfig
 ): OffloadStrategyBuilder {
-  const buildStrategy = (target?: OffloadTarget, truncateConfig?: TruncateConfig): OffloadStrategyBuilder => {
-    const strategy = new OffloadTruncateStrategy(target, truncateConfig)
-    return {
-      get name(): string {
-        return strategy.name
-      },
-      init: strategy.init.bind(strategy),
-      apply: strategy.apply.bind(strategy),
-      when(conditions: OffloadConditions): ContextStrategy {
-        return new OffloadTruncateStrategy(target, truncateConfig, conditions)
-      },
-    }
-  }
+  let target: OffloadTarget | undefined
+  let truncateConfig: TruncateConfig | undefined
 
   if (targetOrConfig === undefined) {
-    return buildStrategy(undefined, config)
+    truncateConfig = config
+  } else if (isConfigObject(targetOrConfig, ['previewTokens', 'preview'])) {
+    truncateConfig = targetOrConfig as TruncateConfig
+  } else {
+    target = targetOrConfig as OffloadTarget
+    truncateConfig = config
   }
-  if (isTruncateConfig(targetOrConfig)) {
-    return buildStrategy(undefined, targetOrConfig)
-  }
-  return buildStrategy(targetOrConfig as OffloadTarget, config)
+
+  return wrapAsBuilder(
+    new OffloadTruncateStrategy(target, truncateConfig),
+    (c) => new OffloadTruncateStrategy(target, truncateConfig, c)
+  )
 }
 
 offloadFn.summarize = function summarize(
   targetOrConfig?: OffloadTarget | SummarizeConfig,
   config?: SummarizeConfig
 ): OffloadStrategyBuilder {
-  const buildStrategy = (target?: OffloadTarget, summarizeConfig?: SummarizeConfig): OffloadStrategyBuilder => {
-    const strategy = new OffloadSummarizeStrategy(target, summarizeConfig)
-    return {
-      get name(): string {
-        return strategy.name
-      },
-      init: strategy.init.bind(strategy),
-      apply: strategy.apply.bind(strategy),
-      when(conditions: OffloadConditions): ContextStrategy {
-        return new OffloadSummarizeStrategy(target, summarizeConfig, conditions)
-      },
-    }
-  }
+  let target: OffloadTarget | undefined
+  let summarizeConfig: SummarizeConfig | undefined
 
   if (targetOrConfig === undefined) {
-    return buildStrategy(undefined, config)
+    summarizeConfig = config
+  } else if (isConfigObject(targetOrConfig, ['model', 'systemPrompt'])) {
+    summarizeConfig = targetOrConfig as SummarizeConfig
+  } else {
+    target = targetOrConfig as OffloadTarget
+    summarizeConfig = config
   }
-  if (isSummarizeConfig(targetOrConfig)) {
-    return buildStrategy(undefined, targetOrConfig)
-  }
-  return buildStrategy(targetOrConfig as OffloadTarget, config)
-}
 
-/** Disambiguates the truncate overload: is the first arg a config object or a target? */
-function isTruncateConfig(value: unknown): value is TruncateConfig {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const keys = Object.keys(value)
-  if (keys.length === 0) return true
-  return keys.some((key) => key === 'previewTokens' || key === 'preview')
-}
-
-/** Disambiguates the summarize overload: is the first arg a config object or a target? */
-function isSummarizeConfig(value: unknown): value is SummarizeConfig {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-  const keys = Object.keys(value)
-  if (keys.length === 0) return true
-  return keys.some((key) => key === 'model' || key === 'systemPrompt')
+  return wrapAsBuilder(
+    new OffloadSummarizeStrategy(target, summarizeConfig),
+    (c) => new OffloadSummarizeStrategy(target, summarizeConfig, c)
+  )
 }
 
 /**
@@ -550,7 +525,7 @@ function isSummarizeConfig(value: unknown): value is SummarizeConfig {
  * ```typescript
  * Offload.truncate("toolResults", { previewTokens: 750 }).when({ threshold: 1500 })
  * Offload.summarize().when({ utilization: 0.85, preserveRecent: 2 })
- * Offload("toolResultErrors")  // drop from L0 entirely
+ * Offload("toolResultErrors").when({ threshold: 500 })
  * ```
  */
 export const Offload: OffloadNamespace = offloadFn as OffloadNamespace
