@@ -58,13 +58,19 @@ Now show *how* it's hard. Ground the reader in the existing system — how it wo
 - What are the paper cuts — the small, recurring frictions that add up — not just the outright failures?
 - How often does this come up, and how costly is it when it does?
 
-## Goals and Non-Goals
+## Goals
 
-What are we optimizing for, and what is explicitly out of scope?
-
+- What are the user outcomes?
+- What future opportunities might be unlocked?
 - What does a good solution need to do?
 - What constraints does it operate under?
-- What is explicitly *not* being addressed here?
+
+## Key Decisions
+
+1. What key decisions in the past are relevant to this topic?
+2. What assumptions/invariants/risks does the proposed solution include?
+3. What alternatives were determined as less fruitful and, concisely, why were they not pursued?
+4. Which of the above does the team need to align on during this review meeting?
 
 ## Proposal
 
