@@ -13,7 +13,7 @@ import type { ConsolidationPlan } from './plan.js'
 import { Agent } from '../../../agent/agent.js'
 import { logger } from '../../../logging/logger.js'
 import { CONSOLIDATION_CHANGELOG, encoder } from '../internal.js'
-import { ConsolidationPlanSchema, extractPlan } from './plan.js'
+import { ConsolidationPlanSchema, extractPlan, summarizeForLog, truncateForLog } from './plan.js'
 import { validatePlan } from './validate.js'
 
 /**
@@ -75,7 +75,7 @@ export async function generatePlan(
   const validationError = validatePlan(plan, files, operations, maxDirectories)
   if (validationError) {
     logger.warn(
-      `validation_errors=<${validationError}>, plan=<${JSON.stringify(plan)}> | consolidation plan rejected on initial attempt`
+      `validation_errors=<${truncateForLog(validationError)}>, plan=<${summarizeForLog(plan)}> | consolidation plan rejected on initial attempt`
     )
     plan = await revisePlan(agent, plan, validationError, files, operations, maxDirectories, maxActionsPerPlan)
   }
@@ -114,7 +114,7 @@ async function revisePlan(
   const revisedValidationError = validatePlan(revisedPlan, files, operations, maxDirectories)
   if (revisedValidationError) {
     logger.warn(
-      `validation_errors=<${revisedValidationError}>, plan=<${JSON.stringify(revisedPlan)}> | consolidation plan rejected after retry`
+      `validation_errors=<${truncateForLog(revisedValidationError)}>, plan=<${summarizeForLog(revisedPlan)}> | consolidation plan rejected after retry`
     )
     throw new Error(`Consolidation plan validation failed after retry: ${revisedValidationError}`)
   }

@@ -107,9 +107,11 @@ export async function executePlan(
   // Writes before deletes — merged content lands before sources are removed
   for (const action of plan.actions) {
     if (action.action === 'merge') {
-      // Raw target: expresses the desired key — case-only renames are intentional; case-variant
-      // collisions with existing files are rejected during validation (pathsResolveSame)
-      await storage.write(action.target, encoder.encode(action.content))
+      // Resolve to the stored canonical key so a differently-cased target folds into the existing
+      // file instead of creating a duplicate on case-sensitive backends. A target absent from the
+      // snapshot resolves to itself, so brand-new paths are written verbatim.
+      const canonicalTarget = resolveCanonicalKey(files, action.target) ?? action.target
+      await storage.write(canonicalTarget, encoder.encode(action.content))
     } else if (action.action === 'update') {
       // Resolve to the stored canonical key so a differently-cased echo from the model overwrites
       // the existing file instead of creating a duplicate on case-sensitive backends
@@ -125,9 +127,10 @@ export async function executePlan(
           `Invariant violated: move source '${action.from}' missing from working set — plan not validated`
         )
       }
-      // Raw target: expresses the desired key — case-only renames are intentional; case-variant
-      // collisions with existing files are rejected during validation (pathsResolveSame)
-      await storage.write(action.to, encoder.encode(content))
+      // Resolve the destination the same way, so a case-only rename rewrites the file in place
+      // rather than minting a second key the delete pass then skips
+      const canonicalTo = resolveCanonicalKey(files, action.to) ?? action.to
+      await storage.write(canonicalTo, encoder.encode(content))
     }
   }
 
@@ -248,10 +251,11 @@ export async function recordChangelog(
 ): Promise<void> {
   const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
 
-  // Sanitize every model-controlled string: strip newlines and leading '#' so injected content
-  // cannot forge a '## ' run header or inject arbitrary markdown structure into the changelog.
-  // Paths need this as much as reason/summary do — validatePath constrains the directory segment
-  // but not the filename's charset, so a target could otherwise carry a newline into the log.
+  // Sanitize every interpolated string: strip newlines and leading '#' so injected content cannot
+  // forge a '## ' run header or inject arbitrary markdown structure into the changelog. Paths need
+  // this as much as reason/summary do — validatePath constrains the directory segment but not the
+  // filename's charset, so a target could otherwise carry a newline into the log. Backend error
+  // text gets it too: the message typically echoes the key, carrying that key's newlines with it.
   const sanitizeChangelogField = (value: string): string => value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, '')
 
   const actionSummaries = plan.actions.map((action) => {
@@ -286,7 +290,12 @@ export async function recordChangelog(
   if (deleteErrors.length > 0) {
     parts.push(``, `Failed deletes (${deleteErrors.length}) — sources may remain until next consolidation:`)
     for (const deleteError of deleteErrors) {
-      parts.push(`  - ${deleteError.path}: ${String(deleteError.error)}`)
+      // Both fields need the same treatment as the action summaries above: the path can carry a
+      // newline (normalizeKey does not strip them, so an add() with an explicit metadata.path puts
+      // one in the store), and the backend's error text is influenced by the key it was given
+      parts.push(
+        `  - ${sanitizeChangelogField(deleteError.path)}: ${sanitizeChangelogField(String(deleteError.error))}`
+      )
     }
   }
   parts.push('')

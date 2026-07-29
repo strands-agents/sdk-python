@@ -6,6 +6,7 @@ import { logger } from '../../../logging/logger.js'
 import { NAMESPACED } from '../../../storage/storage.js'
 import type { JSONValue } from '../../../types/json.js'
 import type { Storage } from '../../../storage/storage.js'
+import { summarizeForLog, truncateForLog } from '../consolidation/plan.js'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -1352,6 +1353,91 @@ describe('FileMemoryStore.consolidate', () => {
 
       debugSpy.mockRestore()
     })
+
+    // Log payloads are bounded when the string is built, not gated on whether the level is enabled:
+    // the Logger interface cannot be asked, and an injected logger's debug is a real function even
+    // when it discards the record. A plan whose content is large but under the per-action schema cap
+    // fails validation before the maxGeneratedBytes check runs, so these logs are the only place its
+    // bytes would surface.
+    describe('bounded log payloads', () => {
+      const OVERSIZE_CONTENT = `---\ndescription: "Big"\n---\n\n${'x'.repeat(200_000)}\n`
+
+      it('bounds the plan payload in both validation-failure warns', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const badPlan = buildPlanTurn({
+          actions: [{ action: 'update', path: 'facts/does-not-exist.md', content: OVERSIZE_CONTENT, reason: 'test' }],
+          summary: 'test',
+        })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
+
+        // Both warns fire, and neither carries the 200KB body
+        expect(warnSpy).toHaveBeenCalledTimes(2)
+        const totalChars = warnSpy.mock.calls.flat().reduce<number>((sum, arg) => sum + String(arg).length, 0)
+        expect(totalChars).toBeLessThan(20_000)
+
+        // Still diagnostic: the offending path and the reason for rejection survive truncation
+        for (const call of warnSpy.mock.calls) {
+          const message = String(call[0])
+          expect(message).toContain('facts/does-not-exist.md')
+          expect(message).toContain('validation_errors=<')
+          expect(message).toContain('chars)')
+        }
+
+        warnSpy.mockRestore()
+      })
+
+      it('bounds the debug payload for a logger whose debug discards the record', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'update', path: 'facts/a.md', content: OVERSIZE_CONTENT, reason: 'test' }],
+            summary: 'test',
+          })
+        )
+
+        // Mirrors an injected logger configured above debug level: a real function that drops the
+        // record. The payload must already be bounded before it is handed over.
+        let debugChars = 0
+        const debugSpy = vi.spyOn(logger, 'debug').mockImplementation((...args: unknown[]) => {
+          debugChars += args.reduce((sum: number, arg) => sum + String(arg).length, 0)
+        })
+
+        await store.consolidate({ model, operations: ['resolveContradictions'] })
+
+        expect(debugSpy).toHaveBeenCalled()
+        expect(debugChars).toBeLessThan(20_000)
+
+        debugSpy.mockRestore()
+      })
+
+      it('bounds a validation error that grows with the plan action count', async () => {
+        for (let index = 0; index < 60; index++) {
+          await writeFile(storage, `facts/file-${index}.md`, `File ${index}`, `Content ${index}`)
+        }
+
+        // Every action names a nonexistent path, so validation emits one message per action
+        const actions = Array.from({ length: 60 }, (_unused, index) => ({
+          action: 'delete',
+          path: `facts/missing-${index}.md`,
+          reason: 'test',
+        })) as JSONValue[]
+        const badPlan = buildPlanTurn({ actions, summary: 'test' })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+        await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow()
+
+        const totalChars = warnSpy.mock.calls.flat().reduce<number>((sum, arg) => sum + String(arg).length, 0)
+        expect(totalChars).toBeLessThan(20_000)
+
+        warnSpy.mockRestore()
+      })
+    })
   })
 
   describe('input-size guardrails', () => {
@@ -1573,10 +1659,12 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/a.md')).not.toBeNull()
     })
 
-    // Guards against data loss from case-only moves: on a case-insensitive filesystem,
-    // 'topic.md' and 'Topic.md' resolve to the same file. Deleting the source after writing
-    // the target would destroy the file's content.
-    it('case-only move does not delete the source data', async () => {
+    // A case-only move addresses one file under two spellings: on a case-insensitive filesystem
+    // 'topic.md' and 'Topic.md' are the same file, so the delete pass skips the source to avoid
+    // destroying what the write just produced. The write must therefore land on the stored
+    // canonical key — writing the new spelling on a case-sensitive backend would leave the
+    // skipped source behind as an orphaned duplicate holding pre-move content.
+    it('case-only move rewrites the canonical key without duplicating the file', async () => {
       await writeFile(storage, 'facts/topic.md', 'Topic', 'Important content about topic')
 
       const model = new MockMessageModel().addTurn(
@@ -1588,11 +1676,12 @@ describe('FileMemoryStore.consolidate', () => {
 
       await store.consolidate({ model, operations: ['reorganize'] })
 
-      // The content is still accessible — the source was not deleted because the paths
-      // resolve to the same identity on a case-insensitive backend
-      const content = await storage.read('facts/Topic.md')
+      // Content survives at the stored spelling, and the requested variant is not a second file
+      const content = await storage.read('facts/topic.md')
       expect(content).not.toBeNull()
       expect(decoder.decode(content!)).toContain('Important content about topic')
+      expect(await storage.read('facts/Topic.md')).toBeNull()
+      expect(await storage.list('')).toEqual(['consolidation-changelog.md', 'facts/topic.md'])
     })
 
     // Guards against silent clobber: two actions writing case-variant paths would resolve to
@@ -2239,6 +2328,37 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/b.md')).not.toBeNull()
     })
 
+    // The failed-delete branch interpolates a path that never passed validatePath: add() accepts an
+    // explicit metadata.path and normalizeKey strips neither newlines nor '#', so a key already in
+    // the store can carry a forged header into the log when its delete fails.
+    it('sanitizes the failed-delete path so a stored key cannot forge changelog headers', async () => {
+      const forgedPath = 'facts/evil\n## FORGED-VIA-DELETE\n\nActions (99):.md'
+      await store.add('Content A', { path: forgedPath })
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: forgedPath, reason: 'prune' }],
+          summary: 'test',
+        })
+      )
+
+      // The backend refuses the delete, routing the path into the failed-delete branch. The error
+      // message echoes the key, so it carries the same newlines.
+      vi.spyOn(storage, 'delete').mockRejectedValueOnce(new Error(`Storage delete failed for '${forgedPath}'`))
+
+      await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow(/1 delete\(s\) failed/)
+
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
+      // Exactly one run header — the legitimate timestamp for this run
+      const headers = changelog.match(/^## .+$/gm) ?? []
+      expect(headers).toHaveLength(1)
+      expect(headers[0]).not.toContain('FORGED-VIA-DELETE')
+      // The failure is still recorded, just flattened onto its own single line
+      expect(changelog).toContain('Failed deletes (1)')
+      expect(changelog).toContain('FORGED-VIA-DELETE')
+      expect(changelog.split('\n').filter((line) => line.startsWith('## ')).length).toBe(1)
+    })
+
     // reason/summary bytes must count against maxGeneratedBytes so large strings cannot bypass cap
     it('includes reason and summary bytes in the generatedByteSize computation', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
@@ -2500,26 +2620,55 @@ describe('FileMemoryStore.consolidate', () => {
         )
       })
 
-      it('rejects filenames with invisible/zero-width characters in stem', async () => {
+      // Property-matched, not enumerated: a stem hiding any invisible codepoint is rejected. Drawn
+      // from classes the implementation matches by property plus U+2800, which no property covers.
+      const invisibleStemChars: [string, number][] = [
+        ['zero-width space', 0x200b],
+        ['zero-width joiner', 0x200d],
+        ['bidi isolate', 0x2066],
+        ['deprecated format character', 0x206a],
+        ['Hangul filler', 0x3164],
+        ['braille pattern blank', 0x2800],
+        ['variation selector', 0xfe0f],
+        ['combining grapheme joiner', 0x034f],
+        ['tag character', 0xe0001],
+        ['unassigned codepoint', 0x0378],
+      ]
+
+      it.each(invisibleStemChars)('rejects a filename stem hiding a %s', async (_label, codePoint) => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-        const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\u200Bname.md', reason: 'test' }],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\u200Bname.md', reason: 'test' }],
-              summary: 'test',
-            })
-          )
+        const target = `facts/bad${String.fromCodePoint(codePoint)}name.md`
+        const badPlan = buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: target, reason: 'test' }],
+          summary: 'test',
+        })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
 
         await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
           'Consolidation plan validation failed after retry'
         )
+      })
+
+      // The stem check must not reject legitimate non-ASCII names — combining marks attached to a
+      // base letter are valid in a filename even though a bare mark is not valid as file content.
+      it.each([
+        ['ASCII with hyphens and digits', 'my-note-2024'],
+        ['Japanese', '\u65e5\u672c\u8a9e'],
+        ['Latin with combining accent', 'cafe\u0301'],
+      ])('accepts a filename stem of %s', async (_label, stem) => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: `facts/${stem}.md`, reason: 'test' }],
+            summary: 'test',
+          })
+        )
+
+        await store.consolidate({ model, operations: ['reorganize'] })
+
+        expect(decoder.decode((await storage.read(`facts/${stem}.md`))!)).toContain('Content A')
       })
     })
 
@@ -2617,48 +2766,93 @@ describe('FileMemoryStore.consolidate', () => {
       })
     })
 
-    // Guarantees: content consisting solely of invisible/zero-width codepoints is treated as empty.
+    // Guarantees the invariant rather than a codepoint list: content with zero visible length is
+    // rejected. The cases below are drawn from Unicode classes the implementation matches by
+    // property (Cc, Cf, Cn, Cs, Default_Ignorable, bare combining marks) plus U+2800, which no
+    // property covers — so narrowing the implementation back to an enumerated list fails this test.
     describe('invisible-only content rejection', () => {
-      it('rejects content whose body is only invisible codepoints', async () => {
+      const cp = (...codePoints: number[]): string => codePoints.map((point) => String.fromCodePoint(point)).join('')
+
+      const invisibleBodies: [string, string][] = [
+        ['C0 control characters including NUL', cp(0x0000, 0x0001, 0x001b)],
+        ['C1 control characters', cp(0x0085, 0x009f)],
+        ['zero-width space, joiner and non-joiner', cp(0x200b, 0x200c, 0x200d)],
+        ['bidi marks and embeddings', cp(0x200e, 0x200f, 0x202a, 0x202e)],
+        ['bidi isolates', cp(0x2066, 0x2067, 0x2068, 0x2069)],
+        ['deprecated format characters', cp(0x206a, 0x206b, 0x206f)],
+        ['word joiner and invisible operators', cp(0x2060, 0x2061, 0x2064)],
+        ['soft hyphen and Mongolian vowel separator', cp(0x00ad, 0x180e)],
+        ['combining grapheme joiner', cp(0x034f)],
+        ['Arabic letter mark', cp(0x061c)],
+        ['Hangul fillers', cp(0x3164, 0xffa0, 0x115f, 0x1160)],
+        ['braille pattern blank', cp(0x2800)],
+        ['variation selectors', cp(0xfe00, 0xfe0f, 0xe0100)],
+        ['tag characters', cp(0xe0001)],
+        ['interlinear annotation anchor', cp(0xfff9)],
+        ['bare combining marks with no base character', cp(0x0300, 0x0301, 0x0483)],
+        ['unassigned codepoints', cp(0x0378, 0x05ff)],
+        ["the reviewed report's mixed body", cp(0x000a, 0x2066, 0x3164, 0x2800, 0x0000, 0xfe0f, 0x034f, 0x000a)],
+      ]
+
+      it.each(invisibleBodies)('rejects a merge body of %s', async (_label, invisibleBody) => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
         await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
-        // Body made entirely of zero-width chars (soft hyphen + word joiner + BOM)
-        const invisibleBody = '\u00AD\u2060\uFEFF'
         const content = `---\ndescription: "Merged"\n---\n\n${invisibleBody}\n`
-        const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [
-                {
-                  action: 'merge',
-                  sources: ['facts/a.md', 'facts/b.md'],
-                  target: 'facts/a.md',
-                  content,
-                  reason: 'dedup',
-                },
-              ],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [
-                {
-                  action: 'merge',
-                  sources: ['facts/a.md', 'facts/b.md'],
-                  target: 'facts/a.md',
-                  content,
-                  reason: 'dedup',
-                },
-              ],
-              summary: 'test',
-            })
-          )
+        const badPlan = buildPlanTurn({
+          actions: [
+            { action: 'merge', sources: ['facts/a.md', 'facts/b.md'], target: 'facts/a.md', content, reason: 'dedup' },
+          ],
+          summary: 'test',
+        })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
 
         await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
           /has no body after its frontmatter/
         )
+
+        // Both sources survive — the merge never executed, so no knowledge was erased
+        expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+        expect(decoder.decode((await storage.read('facts/b.md'))!)).toContain('Content B')
+      })
+
+      // The complement of the invariant: content carrying real text must still pass. Guards against
+      // a class so broad it strips legitimate scripts, marks, or emoji down to nothing.
+      const visibleBodies: [string, string][] = [
+        ['ASCII text', 'Content A and B'],
+        ['a single character', 'x'],
+        ['a digit', '0'],
+        ['Japanese', '\u65e5\u672c\u8a9e\u306e\u30e1\u30e2'],
+        ['Devanagari with combining marks', '\u0928\u092e\u0938\u094d\u0924\u0947'],
+        ['Arabic', '\u0645\u0631\u062d\u0628\u0627'],
+        ['Latin with combining accent', 'cafe\u0301'],
+        ['emoji with variation selector', '\u2764\ufe0f'],
+        ['a flag sequence', '\ud83c\uddfa\ud83c\uddf8'],
+      ]
+
+      it.each(visibleBodies)('accepts a merge body of %s', async (_label, visibleBody) => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        const content = `---\ndescription: "Merged"\n---\n\n${visibleBody}\n`
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/merged.md',
+                content,
+                reason: 'dedup',
+              },
+            ],
+            summary: 'test',
+          })
+        )
+
+        await store.consolidate({ model, operations: ['deduplicate'] })
+
+        expect(decoder.decode((await storage.read('facts/merged.md'))!)).toContain(visibleBody)
       })
     })
 
@@ -2900,6 +3094,40 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/note.md')).toBeNull()
     })
 
+    // PR #3429 — a merge folding into one of its own sources under a different spelling must
+    // rewrite the stored key. Validation accepts it as a self-overwrite and the delete pass skips
+    // the source as already-covered, so writing the model's spelling would strand the original
+    // file with its pre-merge content — the duplicate deduplicate exists to remove.
+    it('merge into a case-variant of its own source rewrites the canonical file', async () => {
+      await writeFile(storage, 'facts/FileA.md', 'File A', 'Content A')
+      await writeFile(storage, 'facts/FileB.md', 'File B', 'Content B')
+
+      const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/filea.md', 'facts/FileB.md'],
+              target: 'facts/filea.md', // case-variant of the stored source key
+              content: mergedContent,
+              reason: 'Same subject',
+            },
+          ],
+          summary: 'Merged A into itself.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      // The stored key holds the merged content, and no case-variant duplicate remains
+      const canonical = await storage.read('facts/FileA.md')
+      expect(canonical).not.toBeNull()
+      expect(decoder.decode(canonical!)).toContain('Content A and B')
+      expect(await storage.read('facts/filea.md')).toBeNull()
+      expect(await storage.list('')).toEqual(['consolidation-changelog.md', 'facts/FileA.md'])
+    })
+
     // PR #3429 — guarantees an update action with a case-variant path rewrites the existing
     // canonical file and does not create a second file on case-sensitive backends
     it('update with case-variant path rewrites the canonical file without creating a duplicate', async () => {
@@ -2930,6 +3158,86 @@ describe('FileMemoryStore.consolidate', () => {
       const variant = await storage.read('facts/note.md')
       // On a case-sensitive store the variant key must be null (no duplicate written)
       expect(variant).toBeNull()
+    })
+  })
+})
+
+// summarizeForLog and truncateForLog bound every plan-derived log payload. They are unit-tested
+// directly because two of their branches — an unserializable value, and a plan made large by action
+// count rather than content size — are awkward to drive through a full consolidate() run.
+describe('log payload summarizing', () => {
+  describe('summarizeForLog', () => {
+    it('truncates a long string value and reports how much was dropped', () => {
+      const summary = summarizeForLog({ content: 'x'.repeat(5000) })
+
+      expect(summary).toContain('…(+4500 chars)')
+      expect(summary.length).toBeLessThan(1000)
+    })
+
+    it("leaves a schema-length reason intact so the model's rationale survives", () => {
+      // reason and summary are schema-capped at the same length as the per-string log cap, so a
+      // maximal-but-valid reason must reach the log whole
+      const reason = 'r'.repeat(500)
+
+      const summary = summarizeForLog({ actions: [{ action: 'delete', path: 'facts/a.md', reason }], summary: 'ok' })
+
+      expect(summary).toContain(reason)
+      expect(summary).not.toContain('chars)')
+    })
+
+    it('leaves a small plan fully intact so ordinary diagnostics are unchanged', () => {
+      const plan = { actions: [{ action: 'delete', path: 'facts/a.md', reason: 'prune' }], summary: 'ok' }
+
+      expect(summarizeForLog(plan)).toBe(JSON.stringify(plan))
+    })
+
+    it('bounds the total even when no single string is oversized', () => {
+      // 400 short actions: each value is under the per-string cap, the whole is not
+      const actions = Array.from({ length: 400 }, (_unused, index) => ({
+        action: 'delete',
+        path: `facts/file-${index}.md`,
+        reason: 'prune',
+      }))
+
+      const summary = summarizeForLog({ actions, summary: 'bulk' })
+
+      expect(summary.length).toBeLessThan(4200)
+      expect(summary).toContain('chars)')
+    })
+
+    it('returns a placeholder instead of throwing on a circular value', () => {
+      const circular: Record<string, unknown> = { actions: [] }
+      circular['self'] = circular
+
+      expect(summarizeForLog(circular)).toBe('<unserializable>')
+    })
+
+    it('returns a placeholder instead of throwing on a BigInt value', () => {
+      expect(summarizeForLog({ count: 1n })).toBe('<unserializable>')
+    })
+
+    it('renders undefined without throwing', () => {
+      expect(summarizeForLog(undefined)).toBe('undefined')
+    })
+  })
+
+  describe('truncateForLog', () => {
+    it('passes a short validation error through unchanged', () => {
+      expect(truncateForLog("Delete target 'facts/a.md' does not exist")).toBe(
+        "Delete target 'facts/a.md' does not exist"
+      )
+    })
+
+    it('bounds an error that accumulated one message per action', () => {
+      const joined = Array.from(
+        { length: 500 },
+        (_unused, index) => `Delete target 'facts/${index}.md' does not exist`
+      ).join('\n')
+
+      const truncated = truncateForLog(joined)
+
+      expect(truncated.length).toBeLessThan(4200)
+      expect(truncated).toContain('chars)')
     })
   })
 })

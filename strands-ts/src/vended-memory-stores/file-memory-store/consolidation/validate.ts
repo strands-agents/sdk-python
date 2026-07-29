@@ -139,20 +139,37 @@ function validateActionPaths(
 }
 
 /**
- * Strip zero-width and other invisible characters that would defeat a non-empty check.
+ * Unicode classes that render as nothing, matched by property rather than enumeration.
  *
- * Covers:
- * - U+00AD soft hyphen
- * - U+180E Mongolian vowel separator
- * - U+200B-U+200F zero-width space/joiner/non-joiner, LRM, RLM
- * - U+2028-U+202F line/paragraph separators, directional overrides
- * - U+2060-U+2064 word joiner, invisible operators
- * - U+FEFF BOM / zero-width no-break space
+ * An explicit codepoint list is the wrong shape for this: the set of invisible codepoints is large
+ * and grows with each Unicode revision, so any list is a denylist that a plan can step around by
+ * picking a codepoint nobody thought of. Matching the categories closes the class instead of moving
+ * its boundary.
  *
- * Trims surrounding whitespace so invisible-only content is treated as empty.
+ * - `Cc` C0/C1 control characters, including NUL
+ * - `Cf` format characters — soft hyphen, zero-width joiners, bidi embeddings and isolates, tag chars
+ * - `Cn` unassigned codepoints, which no font can render
+ * - `Cs` lone surrogates, which are not renderable text
+ * - `Default_Ignorable_Code_Point` the Unicode-designated invisibles: Hangul fillers, variation
+ *   selectors, and Mongolian vowel separator — several of which fall outside `Cc`/`Cf`/`Cn`
+ *
+ * U+2800 BRAILLE PATTERN BLANK is named explicitly: it is category `Lo` and not default-ignorable,
+ * so no property covers it, yet it renders as blank space.
+ */
+const INVISIBLE_CLASSES = String.raw`\p{Cc}\p{Cf}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u{2800}`
+
+/**
+ * Strip characters that render as nothing, so content carrying no readable text is treated as empty.
+ *
+ * Covers {@link INVISIBLE_CLASSES} plus non-spacing and enclosing marks (`Mn`/`Me`). Bare combining
+ * marks are included because a body of accents with no base characters to attach to displays as
+ * nothing; they are stripped only here, never from filenames, where a mark following a base letter
+ * is legitimate (`café`).
+ *
+ * Trims surrounding whitespace so whitespace-and-invisibles-only content is treated as empty.
  */
 function stripInvisible(text: string): string {
-  return text.replace(/[\u00AD\u180E\u200B-\u200F\u2028-\u202F\u2060-\u2064\uFEFF]/g, '').trim()
+  return text.replace(new RegExp(`[${INVISIBLE_CLASSES}\\p{Mn}\\p{Me}]`, 'gu'), '').trim()
 }
 
 /**
@@ -360,11 +377,16 @@ function validatePath(path: string, existingDirs: Set<string>, maxDirectories: n
   if (stem.length > 80) {
     return `Filename stem exceeds 80 characters: ${path}`
   }
+  // A strict subset of the `Cc` class the next check matches, tested first only to name what is
+  // wrong precisely: validation errors are fed back to the planner as a repair spec, and 'control
+  // character' is actionable where calling a NUL 'invisible or zero-width' would misdirect.
   // eslint-disable-next-line no-control-regex -- intentional: reject NUL, BEL, newlines, tabs, etc.
   if (/[\u0000-\u001F\u007F]/.test(stem)) {
     return `Filename stem must not contain control characters: ${path}`
   }
-  if (/[\u200B-\u200F\u2028-\u202F\u2060-\u2064\u180E\uFEFF\u00AD]/.test(stem)) {
+  // Property-matched rather than enumerated, for the reason given on INVISIBLE_CLASSES. Combining
+  // marks are deliberately not rejected here — unlike a file body, a stem like 'café' is legitimate.
+  if (new RegExp(`[${INVISIBLE_CLASSES}]`, 'u').test(stem)) {
     return `Filename stem must not contain invisible or zero-width characters: ${path}`
   }
   if (stem !== stem.trim()) {
