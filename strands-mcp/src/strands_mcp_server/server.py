@@ -57,7 +57,7 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
 
     top = results[: min(len(results), cache.SNIPPET_HYDRATE_MAX)]
     urls_to_hydrate = list(
-        dict.fromkeys(doc.uri for _, doc in top if (page := url_cache.get(doc.uri)) is None)
+        dict.fromkeys(doc.uri for _, doc in top if cache.needs_hydration(doc.uri))
     )
     if urls_to_hydrate:
         with ThreadPoolExecutor(max_workers=len(urls_to_hydrate)) as executor:

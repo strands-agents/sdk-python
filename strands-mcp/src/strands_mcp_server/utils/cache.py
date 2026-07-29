@@ -115,6 +115,26 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         return None
 
 
+def needs_hydration(url: str) -> bool:
+    """Check whether a URL needs to be fetched (or re-fetched after TTL expiry).
+
+    Args:
+        url: The URL to check
+
+    Returns:
+        True if the URL should be hydrated (not yet fetched, or failed entry with
+        expired TTL), False if a valid Page is cached or a non-expired failed entry
+        exists.
+
+    The TTL evaluation lives here so both ensure_page and the search_docs hydration
+    loop use the same expiry logic.
+    """
+    cached = _URL_CACHE.get(url)
+    if isinstance(cached, _FailedEntry):
+        return cached.expired
+    return cached is None
+
+
 def get_index() -> indexer.IndexSearch | None:
     """Get the current search index instance.
 
