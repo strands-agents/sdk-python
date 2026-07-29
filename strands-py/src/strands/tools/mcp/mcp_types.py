@@ -7,9 +7,28 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp.client.streamable_http import GetSessionIdCallback
 from mcp.shared.memory import MessageStream
 from mcp.shared.message import SessionMessage
-from typing_extensions import NotRequired
+from typing_extensions import NotRequired, TypedDict
 
 from ...types.tools import ToolResult
+
+
+class MCPClientCredentials(TypedDict):
+    """OAuth client credentials for machine-to-machine authentication.
+
+    Used with the `MCPClient` `auth` parameter, or the `auth` key of a server entry in a
+    `load_servers` config, to authenticate against a streamable HTTP MCP server with the
+    OAuth client_credentials grant.
+
+    Attributes:
+        client_id: The OAuth client ID.
+        client_secret: The OAuth client secret.
+        scopes: OAuth scopes to request. Joined with spaces before sending to the token endpoint.
+    """
+
+    client_id: str
+    client_secret: str
+    scopes: NotRequired[list[str]]
+
 
 """
 MCPTransport defines the interface for MCP transport implementations. This abstracts

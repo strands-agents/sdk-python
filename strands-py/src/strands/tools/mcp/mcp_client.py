@@ -28,10 +28,13 @@ from types import TracebackType
 from typing import Any, TypeVar, cast
 
 import anyio
+import httpx
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
+from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
 from mcp.client.session import ElicitationFnT
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
@@ -63,7 +66,7 @@ from ..tool_provider import ToolProvider
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
-from .mcp_types import MCPToolResult, MCPTransport
+from .mcp_types import MCPClientCredentials, MCPToolResult, MCPTransport
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +110,9 @@ class MCPServerConfig(TypedDict, total=False):
     omitted it is auto-detected from the fields present. String values support '${VAR}' /
     '${env:VAR}' interpolation, and '~' in 'command' and 'cwd' is expanded to the home directory.
 
+    'auth' holds client credentials for OAuth machine-to-machine (client_credentials grant)
+    authentication and is only supported for streamable-http transport.
+
     'disabled' skips the server entirely. 'continue_on_error' keeps the rest of the servers usable
     when this one fails: a config-resolution failure (e.g. a missing env var) skips it during
     load_servers instead of raising, and a connection failure yields no tools instead of raising
@@ -120,6 +126,7 @@ class MCPServerConfig(TypedDict, total=False):
     url: str
     headers: dict[str, str]
     transport: str
+    auth: MCPClientCredentials
     disabled: bool
     continue_on_error: bool
     prefix: str
@@ -222,8 +229,12 @@ class MCPClient(ToolProvider):
 
     def __init__(
         self,
-        transport_callable: Callable[[], MCPTransport],
+        transport_callable: Callable[[], MCPTransport] | None = None,
         *,
+        url: str | None = None,
+        headers: dict[str, str] | None = None,
+        auth: MCPClientCredentials | None = None,
+        auth_provider: httpx.Auth | None = None,
         startup_timeout: int = 30,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
@@ -238,6 +249,14 @@ class MCPClient(ToolProvider):
 
         Args:
             transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple.
+                Mutually exclusive with `url`.
+            url: Server URL. When provided, a streamable HTTP transport is constructed automatically.
+                Mutually exclusive with `transport_callable`.
+            headers: HTTP headers to include on every request to the server. Requires `url`.
+            auth: Client credentials for OAuth machine-to-machine (client_credentials grant)
+                authentication. Requires `url`. Mutually exclusive with `auth_provider`.
+            auth_provider: Custom `httpx.Auth` for advanced auth flows, passed through to the
+                streamable HTTP transport. Requires `url`. Mutually exclusive with `auth`.
             startup_timeout: Timeout after which MCP server initialization should be cancelled.
                 Defaults to 30.
             tool_filters: Optional filters to apply to tools.
@@ -247,17 +266,22 @@ class MCPClient(ToolProvider):
                 Defaults to None (uses the MCP SDK default "mcp").
             application_version: Optional version string to report alongside application_name.
                 Defaults to None (uses the Strands SDK version).
-            continue_on_error: When True, a connection failure during ``load_tools`` is logged and
+            continue_on_error: When True, a connection failure during `load_tools` is logged and
                 yields no tools instead of raising, so one unavailable server does not prevent an
-                agent from using the others. Only the connection (``start()``) is swallowed; an error
+                agent from using the others. Only the connection (`start()`) is swallowed; an error
                 while listing tools after a successful connect still propagates. Defaults to False.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
             progress_callback: Optional callback to receive progress notifications during tool execution.
-                Called with ``(progress, total, message)`` as the server reports progress. The ``total``
-                and ``message`` parameters may be ``None`` if the server does not provide them.
+                Called with `(progress, total, message)` as the server reports progress. The `total`
+                and `message` parameters may be `None` if the server does not provide them.
             tasks_config: Configuration for MCP task-augmented execution for long-running tools.
                 If provided (not None), enables task-augmented execution for tools that support it.
                 See TasksConfig for details. This feature is experimental and subject to change.
+
+        Raises:
+            ValueError: If neither or both of `transport_callable` and `url` are provided, if
+                `headers`, `auth`, or `auth_provider` is provided without `url`, or if both `auth`
+                and `auth_provider` are provided.
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
@@ -279,7 +303,9 @@ class MCPClient(ToolProvider):
         self._close_future: asyncio.futures.Future[None] | None = None
         self._close_exception: None | Exception = None
         # Do not want to block other threads while close event is false
-        self._transport_callable = transport_callable
+        self._transport_callable = _resolve_transport_callable(
+            transport_callable, url=url, headers=headers, auth=auth, auth_provider=auth_provider
+        )
 
         self._background_thread: threading.Thread | None = None
         self._background_thread_session: ClientSession | None = None
@@ -1645,6 +1671,75 @@ class MCPClient(ToolProvider):
         return self._create_task_error_result(f"Unexpected task status: {final_status.status}")
 
 
+class _InMemoryTokenStorage:
+    """Process-lifetime OAuth token storage for machine-to-machine credentials.
+
+    The client_credentials grant re-authenticates with the stored secret whenever the access
+    token expires, so tokens only need to live as long as the client instance.
+    """
+
+    def __init__(self) -> None:
+        self._tokens: OAuthToken | None = None
+        self._client_info: OAuthClientInformationFull | None = None
+
+    async def get_tokens(self) -> OAuthToken | None:
+        return self._tokens
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        self._tokens = tokens
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        return self._client_info
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        self._client_info = client_info
+
+
+def _build_client_credentials_auth(url: str, auth: MCPClientCredentials) -> httpx.Auth:
+    """Build an httpx.Auth performing the OAuth client_credentials grant against the server."""
+    scopes = auth.get("scopes")
+    return ClientCredentialsOAuthProvider(
+        server_url=url,
+        storage=_InMemoryTokenStorage(),
+        client_id=auth["client_id"],
+        client_secret=auth["client_secret"],
+        scopes=" ".join(scopes) if scopes else None,
+    )
+
+
+def _resolve_transport_callable(
+    transport_callable: Callable[[], MCPTransport] | None,
+    *,
+    url: str | None,
+    headers: dict[str, str] | None,
+    auth: MCPClientCredentials | None,
+    auth_provider: httpx.Auth | None,
+) -> Callable[[], MCPTransport]:
+    """Resolve the MCPClient constructor arguments into a single transport callable.
+
+    Enforces the constructor invariants: exactly one of `transport_callable` and `url`;
+    `headers`, `auth`, and `auth_provider` require `url`; `auth` and `auth_provider` are
+    mutually exclusive.
+    """
+    if transport_callable is not None and url is not None:
+        raise ValueError("MCPClient: provide either 'transport_callable' or 'url', not both")
+    if transport_callable is None and url is None:
+        raise ValueError("MCPClient: either 'transport_callable' or 'url' must be provided")
+    if transport_callable is not None:
+        if auth is not None or auth_provider is not None or headers is not None:
+            raise ValueError(
+                "MCPClient: 'auth', 'auth_provider', and 'headers' require 'url' "
+                "(not compatible with 'transport_callable')"
+            )
+        return transport_callable
+    if auth is not None and auth_provider is not None:
+        raise ValueError("MCPClient: provide either 'auth' or 'auth_provider', not both")
+
+    server_url = cast(str, url)
+    resolved_auth = _build_client_credentials_auth(server_url, auth) if auth is not None else auth_provider
+    return lambda: streamablehttp_client(url=server_url, headers=headers, auth=resolved_auth)
+
+
 # Matches ${VAR} and ${env:VAR} where VAR is a valid environment variable identifier.
 _ENV_VAR_PATTERN = re.compile(r"\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -1707,6 +1802,12 @@ def _build_client_from_config(name: str, server: dict[str, Any]) -> MCPClient:
 
 def _config_transport_callable(name: str, transport: str, server: dict[str, Any]) -> Callable[[], MCPTransport]:
     """Return a zero-arg callable that opens the transport for the given server entry."""
+    if transport != "streamable-http" and server.get("auth"):
+        raise ValueError(
+            f"server '{name}': 'auth' is only supported for streamable-http transport — "
+            "use streamable-http or provide a pre-configured transport"
+        )
+
     match transport:
         case "stdio":
             command = server.get("command")
@@ -1725,7 +1826,8 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
             if not url:
                 raise ValueError(f"server '{name}': streamable-http transport requires 'url'")
             headers = server.get("headers")
-            return lambda: streamablehttp_client(url=cast(str, url), headers=headers)
+            resolved_auth = _parse_config_auth(name, cast(str, url), server.get("auth"))
+            return lambda: streamablehttp_client(url=cast(str, url), headers=headers, auth=resolved_auth)
 
         case "sse":
             url = server.get("url")
@@ -1736,6 +1838,26 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
 
         case _:
             raise ValueError(f"server '{name}': unsupported transport type '{transport}'")
+
+
+def _parse_config_auth(name: str, url: str, auth: dict[str, Any] | None) -> httpx.Auth | None:
+    """Validate a config 'auth' entry and build the client_credentials httpx.Auth from it."""
+    if not auth:
+        return None
+    if not isinstance(auth, dict):
+        raise ValueError(f"server '{name}': 'auth' must be an object with 'client_id' and 'client_secret'")
+
+    missing_keys = sorted({"client_id", "client_secret"} - auth.keys())
+    if missing_keys:
+        raise ValueError(f"server '{name}': 'auth' is missing required keys: {missing_keys}")
+    unknown_keys = sorted(auth.keys() - MCPClientCredentials.__annotations__.keys())
+    if unknown_keys:
+        logger.warning("server_name=<%s>, unknown_keys=<%s> | ignoring unrecognized auth keys", name, unknown_keys)
+
+    credentials = MCPClientCredentials(client_id=auth["client_id"], client_secret=auth["client_secret"])
+    if auth.get("scopes") is not None:
+        credentials["scopes"] = auth["scopes"]
+    return _build_client_credentials_auth(url, credentials)
 
 
 def _parse_config_tool_filters(name: str, config: dict[str, Any] | None) -> ToolFilters | None:
