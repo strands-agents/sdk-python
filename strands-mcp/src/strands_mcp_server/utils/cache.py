@@ -1,11 +1,38 @@
-from typing import Dict
+import logging
+import time
+from typing import Any, Dict
 
 from ..config import doc_config
 from . import doc_fetcher, indexer, text_processor
 
+logger = logging.getLogger(__name__)
+
+# TTL for negatively cached (failed) fetches — transient failures are retried
+# after this duration
+_FAILED_TTL_SECONDS = 300  # 5 minutes
+
+
+class _FailedEntry:
+    """Sentinel for a negatively cached fetch failure with TTL expiry.
+
+    A page whose fetch failed is stored as a _FailedEntry instead of
+    being re-fetched immediately. Once TTL expires, the entry is treated
+    as stale and the next ensure_page call will retry the fetch.
+    """
+
+    __slots__ = ("_timestamp",)
+
+    def __init__(self) -> None:
+        self._timestamp = time.monotonic()
+
+    @property
+    def expired(self) -> bool:
+        return time.monotonic() - self._timestamp >= _FAILED_TTL_SECONDS
+
+
 # Global state
 _INDEX: indexer.IndexSearch | None = None
-_URL_CACHE: Dict[str, doc_fetcher.Page | None] = {}  # url -> Page (None if not fetched yet)
+_URL_CACHE: Dict[str, Any] = {}  # url -> Page, None (not fetched), or _FailedEntry (failed)
 _URL_TITLES: Dict[str, str] = {}  # url -> curated title from llms.txt
 _LINKS_LOADED = False
 
@@ -65,9 +92,17 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         The cached or newly fetched Page object, or None if fetch failed
 
     """
-    page = _URL_CACHE.get(url)
-    if page is not None:
-        return page
+    cached = _URL_CACHE.get(url)
+    # Short-circuit on known transient failures — don't re-fetch
+    if isinstance(cached, _FailedEntry):
+        if cached.expired:
+            # TTL expired — clear and fall through to re-fetch
+            _URL_CACHE[url] = None
+        else:
+            return None
+    else:
+        if cached is not None:
+            return cached
     try:
         raw = doc_fetcher.fetch_and_clean(url)
         display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
@@ -75,6 +110,8 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         _URL_CACHE[url] = page
         return page
     except Exception:
+        logger.exception("Failed to fetch page: %s", url)
+        _URL_CACHE[url] = _FailedEntry()  # negatively cache the failure
         return None
 
 
@@ -87,7 +124,7 @@ def get_index() -> indexer.IndexSearch | None:
     return _INDEX
 
 
-def get_url_cache() -> Dict[str, doc_fetcher.Page | None]:
+def get_url_cache() -> Dict[str, Any]:
     """Get the URL cache dictionary.
 
     Returns:
