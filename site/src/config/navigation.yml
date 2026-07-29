@@ -196,6 +196,7 @@ sidebar:
           - docs/user-guide/safety-security/responsible-ai
           - docs/user-guide/safety-security/guardrails
           - docs/user-guide/safety-security/prompt-engineering
+          - docs/user-guide/safety-security/trusted-message-history
           - docs/user-guide/safety-security/pii-redaction
       - label: Observability & Debugging
         items:

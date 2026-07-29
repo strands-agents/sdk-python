@@ -981,6 +981,50 @@ class TestUnifiedStorage:
         assert len(await unified_storage.list("")) == 0
 
     @pytest.mark.asyncio
+    async def test_retrieve_refreshes_eviction_cycle_unified(self, unified_storage, unified_mock_agent):
+        """Retrieving offloaded content refreshes its stored cycle for unified Storage
+        backends so actively-retrieved entries survive eviction, mirroring
+        InMemoryStorage.retrieve's last-access refresh."""
+        plugin = ContextOffloader(
+            storage=unified_storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=True,
+            evict_after_cycles=3,
+        )
+
+        # Offload at cycle 1 (stored_cycle == 1)
+        unified_mock_agent.event_loop_metrics.cycle_count = 1
+        event = _make_event(unified_mock_agent, "hello world " * 50)
+        await plugin._handle_tool_result(event)
+
+        # Extract the reference from the offloaded placeholder
+        result_text = event.result["content"][0]["text"]
+        ref_line = [line for line in result_text.split("\n") if "tool_123_0" in line][0]
+        ref = ref_line.strip().split(" ")[0]
+
+        # Cycle 3: retrieve -> must refresh stored_cycle to 3
+        unified_mock_agent.event_loop_metrics.cycle_count = 3
+        tool_context = MagicMock(spec=ToolContext)
+        tool_context.agent = unified_mock_agent
+        content = await plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
+        assert "hello world" in content
+
+        # Cycle 5: without the refresh, stored_cycle=1 < threshold (5-3=2) -> evicted.
+        # With the refresh, stored_cycle=3 >= 2 -> survives.
+        bmc_event = BeforeModelCallEvent(agent=unified_mock_agent, invocation_state={})
+        unified_mock_agent.event_loop_metrics.cycle_count = 5
+        await plugin._on_before_model_call(bmc_event)
+        assert len(await unified_storage.list("")) == 1, (
+            "actively-retrieved entry must survive eviction for unified Storage backends"
+        )
+        # And remains retrievable
+        content_again = await plugin.retrieve_offloaded_content(
+            reference=ref, tool_context=tool_context
+        )
+        assert "hello world" in content_again
+
+    @pytest.mark.asyncio
     async def test_eviction_scoped_per_agent(self, unified_storage):
         plugin = ContextOffloader(
             storage=unified_storage,
