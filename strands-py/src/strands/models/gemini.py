@@ -338,7 +338,7 @@ class GeminiModel(Model):
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
             tool_choice: Selection strategy for tool invocation. Applied only alongside tool specs, since there
-                is nothing to choose from without them.
+                is nothing to choose from without them. Takes precedence over a tool config set in params.
 
         Returns:
             Gemini request config.
@@ -347,8 +347,8 @@ class GeminiModel(Model):
 
         tool_config = self._format_tool_choice(tool_choice) if tool_specs else None
         if tool_config is not None:
-            # A tool config set directly through params is the more specific instruction, so it wins.
-            config_params.setdefault("tool_config", tool_config)
+            # A per-request tool choice is more specific than the tool config in params, so it takes precedence.
+            config_params["tool_config"] = tool_config
 
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -574,7 +574,8 @@ class GeminiModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-            tool_choice: Selection strategy for tool invocation. Applied only when tool specs are provided.
+            tool_choice: Selection strategy for tool invocation. Applied only when tool specs are provided,
+                and takes precedence over a tool config set through the params config.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

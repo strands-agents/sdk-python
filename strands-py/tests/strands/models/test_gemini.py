@@ -1106,14 +1106,48 @@ async def test_stream_request_with_tool_choice_and_no_tool_specs(gemini_client, 
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
 
 
-@pytest.mark.asyncio
-async def test_stream_request_with_tool_choice_and_tool_config_param(gemini_client, messages, tool_spec, model_id):
+@pytest.fixture
+def tool_config_param_model(gemini_client, model_id):
+    _ = gemini_client
+
     tool_config = genai.types.ToolConfig(
         function_calling_config=genai.types.FunctionCallingConfig(mode=genai.types.FunctionCallingConfigMode.NONE)
     )
-    model = GeminiModel(model_id=model_id, params={"tool_config": tool_config})
+    return GeminiModel(model_id=model_id, params={"tool_config": tool_config})
 
-    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+
+@pytest.mark.asyncio
+async def test_stream_request_tool_choice_takes_precedence_over_tool_config_param(
+    gemini_client, tool_config_param_model, messages, tool_spec, model_id
+):
+    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+            "tool_config": {"function_calling_config": {"mode": "ANY"}},
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_tool_config_param_without_tool_choice(
+    gemini_client, tool_config_param_model, messages, tool_spec, model_id
+):
+    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec]))
 
     exp_request = {
         "config": {
