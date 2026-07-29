@@ -265,6 +265,87 @@ describe('VercelModel', () => {
         expect(events[4]).toMatchObject({ type: 'modelContentBlockStopEvent' })
         expect(events[6]).toMatchObject({ type: 'modelMessageStopEvent', stopReason: 'toolUse' })
       })
+
+      // A community provider (e.g. ai-sdk-ollama) can stream tool-call blocks yet report
+      // finish_reason "stop". The adapter must decide from the streamed content, promoting the
+      // otherwise-endTurn stop reason to toolUse so the agent still executes the tools. See #3185.
+      it('promotes endTurn to toolUse when a complete tool-call is streamed with finish_reason stop', async () => {
+        const { model } = setupCaptureTest([
+          { type: 'stream-start', warnings: [] },
+          { type: 'tool-call', toolCallId: 'call_1', toolName: 'calculator', input: '{"expr":"2+2"}' },
+          { type: 'finish', usage: testUsage, finishReason: stopFinish },
+        ])
+
+        const events = await collectIterator(model.stream([]))
+        const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
+        expect(stopEvent).toMatchObject({ stopReason: 'toolUse' })
+      })
+
+      it('promotes endTurn to toolUse when incremental tool-input is streamed with finish_reason stop', async () => {
+        const { model } = setupCaptureTest([
+          { type: 'stream-start', warnings: [] },
+          { type: 'tool-input-start', id: 'call_1', toolName: 'calculator' },
+          { type: 'tool-input-delta', id: 'call_1', delta: '{"expr":"2+2"}' },
+          { type: 'tool-input-end', id: 'call_1' },
+          { type: 'finish', usage: testUsage, finishReason: stopFinish },
+        ])
+
+        const events = await collectIterator(model.stream([]))
+        const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
+        expect(stopEvent).toMatchObject({ stopReason: 'toolUse' })
+      })
+
+      // Guard the scoping: promotion is intentionally limited to endTurn, so a genuine truncation
+      // that happens to carry a tool block keeps its maxTokens stop reason. See #3185.
+      it('does not promote maxTokens to toolUse when a tool-call is streamed', async () => {
+        const { model } = setupCaptureTest([
+          { type: 'stream-start', warnings: [] },
+          { type: 'tool-call', toolCallId: 'call_1', toolName: 'calculator', input: '{"expr":"2+2"}' },
+          { type: 'finish', usage: testUsage, finishReason: { unified: 'length', raw: 'length' } },
+        ])
+
+        const events = await collectIterator(model.stream([]))
+        const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
+        expect(stopEvent).toMatchObject({ stopReason: 'maxTokens' })
+      })
+
+      // Provider-executed tool calls were already run by the provider; promoting them would make the
+      // agent re-execute or report a missing tool, so they must not drive the endTurn->toolUse promotion.
+      it('does not promote endTurn for a provider-executed tool-call with finish_reason stop', async () => {
+        const { model } = setupCaptureTest([
+          { type: 'stream-start', warnings: [] },
+          {
+            type: 'tool-call',
+            toolCallId: 'call_1',
+            toolName: 'calculator',
+            input: '{"expr":"2+2"}',
+            providerExecuted: true,
+          },
+          { type: 'finish', usage: testUsage, finishReason: stopFinish },
+        ])
+
+        const events = await collectIterator(model.stream([]))
+        const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
+        expect(stopEvent).toMatchObject({ stopReason: 'endTurn' })
+      })
+
+      // A malformed stream can open a client tool block and finish without ever closing it (no
+      // tool-input-end, no complete tool-call). The aggregator never builds a ToolUseBlock for the
+      // half-streamed input, so promoting would hand the agent stopReason toolUse with zero tool
+      // blocks — an invariant violation that throws. Only a completed client tool block promotes;
+      // a truncated one keeps the endTurn mapping.
+      it('does not promote endTurn for a truncated tool block that never completes', async () => {
+        const { model } = setupCaptureTest([
+          { type: 'stream-start', warnings: [] },
+          { type: 'tool-input-start', id: 'call_1', toolName: 'calculator' },
+          { type: 'tool-input-delta', id: 'call_1', delta: '{"expr":' },
+          { type: 'finish', usage: testUsage, finishReason: stopFinish },
+        ])
+
+        const events = await collectIterator(model.stream([]))
+        const stopEvent = events.find((e) => e.type === 'modelMessageStopEvent')
+        expect(stopEvent).toMatchObject({ stopReason: 'endTurn' })
+      })
     })
 
     describe('finish reasons', () => {

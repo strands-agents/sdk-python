@@ -9,6 +9,7 @@ import remarkReadingTime from './src/plugins/remark-reading-time.ts'
 import watchNavigationPlugin from './src/plugins/vite-plugin-watch-navigation.ts'
 
 import { loadSidebarFromConfig } from "./src/sidebar.ts"
+import { buildStaticRedirects } from "./src/util/redirect.static.ts"
 import { sitemapWithLastmod } from "./src/plugins/sitemap-lastmod.ts"
 import AutoImport from './src/plugins/astro-auto-import.ts'
 import astroExpressiveCode from "astro-expressive-code"
@@ -22,10 +23,19 @@ const sidebar = loadSidebarFromConfig(
   path.resolve('./src/content')
 )
 
+const base = process.env.ASTRO_BASE_PATH || '/'
+
+// Static HTML redirect stubs for known legacy MkDocs URLs (meta refresh +
+// canonical link), so crawlers follow renames that the client-side 404
+// fallback only handles for humans. Dynamic legacy URLs (/latest/*, /1.x/*)
+// can't be enumerated and stay with the 404 fallback (Redirect404.astro).
+const redirects = buildStaticRedirects(path.resolve('./src/content'), base)
+
 // https://astro.build/config
 export default defineConfig({
   site: 'https://strandsagents.com',
-  base: process.env.ASTRO_BASE_PATH || '/',
+  base,
+  redirects,
   vite: {
     plugins: [sdkSetupPlugin(), watchNavigationPlugin()],
     // TODO once we separate out CMS build from TS verification, fix this
@@ -58,6 +68,9 @@ export default defineConfig({
       social: [],
       head: [
         { tag: 'meta', attrs: { property: 'og:image', content: 'https://strandsagents.com/og-image.png' } },
+        { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
+        { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
+        { tag: 'meta', attrs: { property: 'og:image:alt', content: 'Strands Agents — open source AI agent SDK' } },
         { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://strandsagents.com/og-image.png' } },
       ],
       markdown: {

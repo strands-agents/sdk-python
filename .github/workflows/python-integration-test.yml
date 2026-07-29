@@ -121,7 +121,7 @@ jobs:
           persist-credentials: false
           allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.10'
       - name: Install dependencies

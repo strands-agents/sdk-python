@@ -1584,3 +1584,35 @@ async def test_event_loop_cycle_cancel_mid_cycle_beats_after_tools_checkpoint(
 
     assert tru_stop_reason == "cancelled"
     assert tru_checkpoint is None
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_cancel_after_tools_stops_without_checkpointing(
+    agent,
+    model,
+    tool,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """Cancel set during tool execution stops the invocation before another model call."""
+    original_execute = agent.tool_executor._execute
+
+    def execute_then_cancel(*args, **kwargs):
+        stream = original_execute(*args, **kwargs)
+
+        async def wrapped():
+            async for event in stream:
+                yield event
+            agent._cancel_signal.set()
+
+        return wrapped()
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    with unittest.mock.patch.object(agent.tool_executor, "_execute", side_effect=execute_then_cancel):
+        stream = strands.event_loop.event_loop.event_loop_cycle(agent=agent, invocation_state={})
+        events = await alist(stream)
+
+    assert events[-1]["stop"][0] == "cancelled"
+    assert model.stream.call_count == 1

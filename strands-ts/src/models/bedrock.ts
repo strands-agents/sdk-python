@@ -877,7 +877,31 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }
-        lastMsg.content.push({ cachePoint })
+
+        const content = lastMsg.content
+
+        // Locate the first non-PDF document block
+        let firstNonPdfDocIdx: number | null = null
+        for (let i = 0; i < content.length; i++) {
+          const block = content[i]
+          if (block && 'document' in block && block.document?.format !== 'pdf') {
+            firstNonPdfDocIdx = i
+            break
+          }
+        }
+
+        // Insert the cache point before the first non-PDF document so it is not directly
+        // preceded by that block, which Bedrock rejects with a ValidationException
+        if (firstNonPdfDocIdx === null) {
+          content.push({ cachePoint })
+        } else if (firstNonPdfDocIdx > 0) {
+          content.splice(firstNonPdfDocIdx, 0, { cachePoint })
+        } else {
+          // A leading non-PDF document leaves no prefix to cache and Bedrock rejects it
+          logger.debug(`msg_idx=<${lastUserIdx}> | skipped cache point for leading non-PDF document`)
+          return
+        }
+
         logger.debug(`msg_idx=<${lastUserIdx}> | added cache point to last user message`)
       }
     }
