@@ -597,6 +597,9 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
     This is the stateless/distributed case: the sub-agent was rebuilt from scratch (no live
     interrupt state), so the in-process object-identity path cannot apply. The response must
     reach the sub-agent purely as data.
+
+    Uses non-default model_state and conversation_manager_state to lock in that the restore
+    half of the round trip actually applies these fields (not just messages/interrupt_state).
     """
     sub_tool_use_message = {
         "role": "assistant",
@@ -612,8 +615,8 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
                 "state": {"k": "v"},
                 "conversation_manager_state": {
                     "__name__": "SlidingWindowConversationManager",
-                    "removed_message_count": 0,
-                    "model_call_count": 0,
+                    "removed_message_count": 5,
+                    "model_call_count": 3,
                 },
                 "interrupt_state": {
                     "interrupts": {
@@ -627,7 +630,7 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
                     "context": {"tool_use_message": sub_tool_use_message, "tool_results": []},
                     "activated": True,
                 },
-                "model_state": {},
+                "model_state": {"response_id": "resp_x"},
             },
             "app_data": {},
         },
@@ -643,8 +646,10 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
         }
     }
 
-    # The sub-agent is freshly built: not currently interrupted.
+    # The sub-agent is freshly built: not currently interrupted, default conversation manager state.
     assert fake_agent._interrupt_state.activated is False
+    assert fake_agent._model_state == {}
+    assert fake_agent.conversation_manager.removed_message_count == 0
 
     normal_result = AgentResult(
         stop_reason="end_turn",
@@ -664,6 +669,13 @@ async def test_stream_data_routed_resume_restores_snapshot_and_forwards_response
     assert fake_agent.state.get() == {"k": "v"}
     assert fake_agent._interrupt_state.activated is True
     assert "interrupt-1" in fake_agent._interrupt_state.interrupts
+
+    # model_state was restored from the snapshot (not left as the default empty dict).
+    assert fake_agent._model_state == {"response_id": "resp_x"}
+
+    # conversation_manager_state was restored (non-default values prove the restore path ran).
+    assert fake_agent.conversation_manager.removed_message_count == 5
+    assert fake_agent.conversation_manager._model_call_count == 3
 
     # The user's response was forwarded as the resume prompt, not the original tool input.
     agent_input = fake_agent.stream_async.call_args[0][0]
@@ -926,6 +938,147 @@ async def test_concurrent_sub_agents_with_same_local_interrupt_id_are_disambigua
 
     assert set(id_map_a.keys()) == {"outer-tool-A:same-local-id"}
     assert set(id_map_b.keys()) == {"outer-tool-B:same-local-id"}
+
+
+def test_two_concurrent_nested_interrupts_through_event_loop():
+    """Two sub-agents interrupt in a single orchestrator cycle and both resume correctly.
+
+    This exercises the actual accumulation site in the event loop (sub_agent_snapshots dict
+    update at event_loop.py) rather than calling _namespace_interrupts in isolation.
+    A mutation that rebinds sub_agent_snapshots instead of updating it would fail this test
+    because only the last snapshot would survive.
+    """
+    calls_a: list[str] = []
+    calls_b: list[str] = []
+
+    @strands_tool(name="sensitive_op_a")
+    def sensitive_op_a() -> str:
+        calls_a.append("executed")
+        return "result A"
+
+    @strands_tool(name="sensitive_op_b")
+    def sensitive_op_b() -> str:
+        calls_b.append("executed")
+        return "result B"
+
+    def _interrupt_hook(event):
+        """Hook that interrupts before any sensitive_op_* tool."""
+        tool_name = event.tool_use["name"]
+        if tool_name.startswith("sensitive_op_"):
+            event.interrupt("confirm", reason=f"Confirm {tool_name}?")
+
+    # --- Turn 1: orchestrator calls both sub-agents, both interrupt ---
+    sub_model_a = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "sub-a-1", "name": "sensitive_op_a", "input": {}}}],
+            },
+            {"role": "assistant", "content": [{"text": "A done."}]},
+        ]
+    )
+    sub_agent_a = Agent(name="agent_a", model=sub_model_a, tools=[sensitive_op_a], callback_handler=None)
+    sub_agent_a.hooks.add_callback(BeforeToolCallEvent, _interrupt_hook)
+
+    sub_model_b = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "sub-b-1", "name": "sensitive_op_b", "input": {}}}],
+            },
+            {"role": "assistant", "content": [{"text": "B done."}]},
+        ]
+    )
+    sub_agent_b = Agent(name="agent_b", model=sub_model_b, tools=[sensitive_op_b], callback_handler=None)
+    sub_agent_b.hooks.add_callback(BeforeToolCallEvent, _interrupt_hook)
+
+    # Orchestrator model produces a single message with two tool_use blocks (concurrent invocation).
+    orch_model_1 = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"toolUseId": "orch-a", "name": "agent_a", "input": {"input": "do A"}}},
+                    {"toolUse": {"toolUseId": "orch-b", "name": "agent_b", "input": {"input": "do B"}}},
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "All done."}]},
+        ]
+    )
+    orch = Agent(
+        name="orchestrator",
+        model=orch_model_1,
+        tools=[sub_agent_a.as_tool(preserve_context=False), sub_agent_b.as_tool(preserve_context=False)],
+        callback_handler=None,
+    )
+
+    result_1 = orch("do both tasks")
+
+    # Both sub-agents interrupted (neither tool actually ran).
+    assert result_1.stop_reason == "interrupt"
+    assert calls_a == []
+    assert calls_b == []
+
+    # The orchestrator accumulated both snapshots.
+    sub_agent_snapshots = orch._interrupt_state.context.get("sub_agent_snapshots")
+    assert sub_agent_snapshots is not None
+    assert "orch-a" in sub_agent_snapshots
+    assert "orch-b" in sub_agent_snapshots
+
+    # Both interrupt IDs are distinct at the parent level.
+    interrupt_ids = list(orch._interrupt_state.interrupts.keys())
+    assert len(interrupt_ids) == 2
+    assert interrupt_ids[0] != interrupt_ids[1]
+
+    # --- Turn 2: resume with approval for both ---
+    serialized_interrupt_state = json.loads(json.dumps(orch._interrupt_state.to_dict()))
+    restored_messages = json.loads(json.dumps(orch.messages))
+
+    # Fresh sub-agents for turn 2 (simulating stateless rebuild).
+    sub_model_a2 = MockedModelProvider([{"role": "assistant", "content": [{"text": "A done."}]}])
+    sub_agent_a2 = Agent(name="agent_a", model=sub_model_a2, tools=[sensitive_op_a], callback_handler=None)
+    sub_agent_a2.hooks.add_callback(BeforeToolCallEvent, _interrupt_hook)
+
+    sub_model_b2 = MockedModelProvider([{"role": "assistant", "content": [{"text": "B done."}]}])
+    sub_agent_b2 = Agent(name="agent_b", model=sub_model_b2, tools=[sensitive_op_b], callback_handler=None)
+    sub_agent_b2.hooks.add_callback(BeforeToolCallEvent, _interrupt_hook)
+
+    orch_model_2 = MockedModelProvider([{"role": "assistant", "content": [{"text": "All done."}]}])
+    orch_2 = Agent(
+        name="orchestrator",
+        model=orch_model_2,
+        tools=[sub_agent_a2.as_tool(preserve_context=False), sub_agent_b2.as_tool(preserve_context=False)],
+        callback_handler=None,
+    )
+    orch_2.messages = restored_messages
+    orch_2._interrupt_state = _InterruptState.from_dict(serialized_interrupt_state)
+
+    # Approve all interrupts.
+    responses = [
+        {"interruptResponse": {"interruptId": iid, "response": "APPROVE"}} for iid in interrupt_ids
+    ]
+    result_2 = orch_2(responses)
+
+    assert result_2.stop_reason == "end_turn"
+    # Both pending tools executed exactly once.
+    assert calls_a == ["executed"]
+    assert calls_b == ["executed"]
+
+    # Both sub-agents resumed the correct original tool call IDs.
+    sub_a_tool_result_ids = [
+        content["toolResult"]["toolUseId"]
+        for msg in sub_agent_a2.messages
+        for content in msg.get("content", [])
+        if "toolResult" in content
+    ]
+    sub_b_tool_result_ids = [
+        content["toolResult"]["toolUseId"]
+        for msg in sub_agent_b2.messages
+        for content in msg.get("content", [])
+        if "toolResult" in content
+    ]
+    assert "sub-a-1" in sub_a_tool_result_ids
+    assert "sub-b-1" in sub_b_tool_result_ids
 
 
 @pytest.mark.asyncio
