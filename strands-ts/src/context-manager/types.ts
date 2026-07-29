@@ -23,13 +23,13 @@ export interface ContextStrategy {
    * Attempt to reduce context. Returns true if it made changes, false if it
    * decided not to act (e.g., conditions not met, nothing to offload).
    */
-  apply(context: StrategyContext): Promise<boolean>
+  apply(context: ContextState): Promise<boolean>
 }
 
 /**
  * State passed to strategies during apply().
  */
-export interface StrategyContext {
+export interface ContextState {
   /** The agent's current message array (L0). Strategies mutate this in place. */
   messages: import('../types/messages.js').Message[]
 

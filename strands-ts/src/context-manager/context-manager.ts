@@ -11,7 +11,7 @@ import { AfterModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import { adjustSplitPointForToolPairs } from '../conversation-manager/compression/context-compression.js'
-import type { ContextManagerConfig, ContextStrategy, StrategyContext } from './types.js'
+import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
 import { Offload } from './strategies/offload.js'
 
 /**
@@ -114,7 +114,7 @@ export class ContextManager implements Plugin {
     const messages = this._agent.messages
     const utilization = await this._estimateUtilization()
 
-    const strategyContext: StrategyContext = {
+    const strategyContext: ContextState = {
       messages,
       agent: this._agent,
       utilization,

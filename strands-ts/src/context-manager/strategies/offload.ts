@@ -36,7 +36,7 @@ import { TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Message } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import type { LocalAgent } from '../../types/agent.js'
-import type { ContextStrategy, StrategyContext } from '../types.js'
+import type { ContextStrategy, ContextState } from '../types.js'
 import {
   DROPPED_MARKER,
   SUMMARIZED_PREFIX,
@@ -148,7 +148,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     })
   }
 
-  async apply(context: StrategyContext): Promise<boolean> {
+  async apply(context: ContextState): Promise<boolean> {
     if (!this._shouldApply(context)) return false
 
     const { messages } = context
@@ -168,7 +168,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   }
 
   /** Override to add extra gates (e.g. utilization check for summarize). */
-  protected _shouldApply(_context: StrategyContext): boolean {
+  protected _shouldApply(_context: ContextState): boolean {
     return true
   }
 
@@ -320,7 +320,7 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     return this._utilization === undefined
   }
 
-  protected override _shouldApply(context: StrategyContext): boolean {
+  protected override _shouldApply(context: ContextState): boolean {
     if (this._utilization !== undefined && context.utilization < this._utilization) {
       logger.debug(
         `utilization=<${context.utilization}>, threshold=<${this._utilization}> | skipping summarization, below threshold`
@@ -338,7 +338,7 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     return context.messages.length > 0
   }
 
-  override async apply(context: StrategyContext): Promise<boolean> {
+  override async apply(context: ContextState): Promise<boolean> {
     this._model = this._resolveModel(context.agent)
     return super.apply(context)
   }

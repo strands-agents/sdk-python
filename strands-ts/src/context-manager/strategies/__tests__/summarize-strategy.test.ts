@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { Offload } from '../offload.js'
 import { Message, TextBlock, ToolResultBlock } from '../../../types/messages.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
-import type { StrategyContext } from '../../types.js'
+import type { ContextState } from '../../types.js'
 
 vi.mock('../methods/summarize.js', () => ({
   summarizeText: vi.fn(async (text: string) => `Summary of: ${text.slice(0, 20)}`),
@@ -21,7 +21,7 @@ function makeToolResultMessage(text: string, toolUseId = 'tool-123'): Message {
   })
 }
 
-function makeContext(messages: Message[], utilization = 0.5, model?: unknown): StrategyContext {
+function makeContext(messages: Message[], utilization = 0.5, model?: unknown): ContextState {
   const agent = createMockAgent({ messages })
   if (model) {
     ;(agent as unknown as Record<string, unknown>)['model'] = model
