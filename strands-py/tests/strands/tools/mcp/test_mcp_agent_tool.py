@@ -110,6 +110,24 @@ def test_tool_spec_with_empty_annotations(mock_mcp_tool, mock_mcp_client):
     assert "annotations" not in tool_spec
 
 
+def test_tool_spec_preserves_explicit_false_hints(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=False)
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert tool_spec["annotations"] == {"readOnlyHint": False, "destructiveHint": False}
+
+
+def test_tool_spec_preserves_unknown_annotation_keys(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations(readOnlyHint=True, futureHint="x")
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert tool_spec["annotations"] == {"readOnlyHint": True, "futureHint": "x"}
+
+
 @pytest.mark.asyncio
 async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}

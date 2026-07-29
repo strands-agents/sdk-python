@@ -34,12 +34,13 @@ export interface ToolSpec {
   outputSchema?: JSONSchema
 
   /**
-   * Metadata describing tool behavior (e.g. MCP tool annotations such as `readOnlyHint`
-   * or `destructiveHint`). Annotations are untrusted hints from the tool provider, not
-   * guarantees; consumers such as permission layers must not treat them as a security
-   * boundary. This field is not sent to model provider APIs.
+   * Untrusted tool-behavior hints (e.g. MCP `readOnlyHint`, `destructiveHint`); never a security boundary.
+   *
+   * Not sent to model provider APIs. A missing key means unknown, not `false` — per MCP spec
+   * `destructiveHint` and `openWorldHint` default to `true` when absent — and the field is absent
+   * entirely for non-MCP tools.
    */
-  annotations?: Record<string, JSONValue>
+  annotations?: Record<string, JSONValue | undefined>
 }
 
 /**

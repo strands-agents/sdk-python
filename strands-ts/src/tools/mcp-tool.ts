@@ -14,7 +14,7 @@ export interface McpToolConfig {
   description: string
   inputSchema: JSONSchema
   outputSchema?: JSONSchema
-  annotations?: Record<string, JSONValue>
+  annotations?: Record<string, JSONValue | undefined>
   client: McpClient
 }
 
