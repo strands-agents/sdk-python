@@ -382,9 +382,11 @@ export class McpClient {
           ...(toolSpec.outputSchema !== undefined && { outputSchema: toolSpec.outputSchema as JSONSchema }),
           // Annotations pass through opaquely: the MCP spec treats them as untrusted hints,
           // and the annotation vocabulary is still evolving (SEP-1984, SEP-1913).
-          ...(toolSpec.annotations !== undefined && {
-            annotations: toolSpec.annotations as Record<string, JSONValue>,
-          }),
+          // An empty annotations object is treated the same as no annotations.
+          ...(toolSpec.annotations !== undefined &&
+            Object.keys(toolSpec.annotations).length > 0 && {
+              annotations: toolSpec.annotations as Record<string, JSONValue>,
+            }),
           client: this,
         })
         this._serverToolNames.set(tool, toolSpec.name)

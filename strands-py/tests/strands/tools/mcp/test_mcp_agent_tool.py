@@ -101,6 +101,15 @@ def test_tool_spec_without_annotations(mock_mcp_tool, mock_mcp_client):
     assert "annotations" not in tool_spec
 
 
+def test_tool_spec_with_empty_annotations(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.annotations = ToolAnnotations()
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert "annotations" not in tool_spec
+
+
 @pytest.mark.asyncio
 async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}

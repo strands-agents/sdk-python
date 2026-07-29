@@ -85,8 +85,11 @@ class MCPAgentTool(AgentTool):
 
         # Pass annotations through opaquely: per MCP spec they are untrusted hints,
         # and the annotation vocabulary is still evolving (SEP-1984, SEP-1913).
+        # An annotations object with no set fields is treated the same as no annotations.
         if self.mcp_tool.annotations:
-            spec["annotations"] = self.mcp_tool.annotations.model_dump(exclude_none=True)
+            annotations = self.mcp_tool.annotations.model_dump(exclude_none=True)
+            if annotations:
+                spec["annotations"] = annotations
 
         return spec
 
