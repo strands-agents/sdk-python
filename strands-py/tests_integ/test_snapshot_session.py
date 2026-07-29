@@ -92,7 +92,7 @@ def test_snapshot_session_time_travel(temp_dir):
     """Immutable checkpoints allow restoring an agent to an earlier turn."""
     test_session_id = str(uuid4())
     store = LocalFileStorage(temp_dir)
-    manager = SnapshotSessionManager(test_session_id, storage=store, snapshot_trigger=lambda *, agent, **_: True)
+    manager = SnapshotSessionManager(test_session_id, storage=store, snapshot_trigger=lambda *, agent_data, **_: True)
     agent = Agent(session_manager=manager)
     agent("My favorite color is blue.")
     agent("My favorite number is seven.")

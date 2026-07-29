@@ -3,13 +3,15 @@
 import asyncio
 import tempfile
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
-from strands.multiagent import GraphBuilder
+from strands.experimental.hooks.events import BidiAgentInitializedEvent
+from strands.hooks.registry import HookRegistry
+from strands.multiagent import GraphBuilder, Swarm
 from strands.session.snapshot_session_manager import (
     SnapshotSessionManager,
     _new_snapshot_id,
@@ -81,6 +83,30 @@ def test_graph_is_rejected_rather_than_silently_not_persisted(storage):
         builder.build()
 
 
+def test_swarm_is_rejected_rather_than_silently_not_persisted(storage):
+    """Attaching this single-agent manager to a Swarm fails loudly instead of persisting nothing."""
+    with pytest.raises(NotImplementedError, match="does not support multi-agent"):
+        Swarm(
+            nodes=[Agent(model=_model("done"), agent_id="n1")],
+            session_manager=SnapshotSessionManager("sw1", storage=storage),
+        )
+
+
+def test_bidi_agent_is_rejected_rather_than_silently_not_persisted(storage):
+    """Attaching this single-agent manager to a BidiAgent fails loudly instead of persisting nothing.
+
+    The base SessionManager wires BidiAgent hooks to message-log methods; this manager replaces
+    that wiring, so without an explicit rejection a BidiAgent would appear persisted while
+    nothing was ever written.
+    """
+    manager = SnapshotSessionManager("b1", storage=storage)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    with pytest.raises(NotImplementedError, match="does not support BidiAgent"):
+        registry.invoke_callbacks(BidiAgentInitializedEvent(agent=Mock()))
+
+
 def test_child_agent_session_manager_still_blocked(storage):
     """Child agents inside a Graph still may not carry their own session manager."""
     builder = GraphBuilder()
@@ -103,6 +129,26 @@ def test_raising_snapshot_trigger_still_saves_latest(storage):
     agent_2 = Agent(model=_model("x"), session_manager=manager_2, agent_id="a1")
     tru_texts = [content["text"] for message in agent_2.messages for content in message["content"] if "text" in content]
     assert "go" in tru_texts  # the turn survived despite the raising trigger
+
+
+def test_raising_snapshot_trigger_still_saves_latest_under_trigger_strategy(storage):
+    """Under ``save_latest_on="trigger"`` a raising trigger must not lose the turn entirely.
+
+    The trigger is the only save under this strategy, so a failing trigger has to fall back to a
+    latest save; otherwise the whole invocation is silently dropped with only a log line.
+    """
+
+    def boom(*, agent_data, **kwargs):
+        raise RuntimeError("trigger blew up")
+
+    manager = SnapshotSessionManager("s1", storage=storage, save_latest_on="trigger", snapshot_trigger=boom)
+    agent = Agent(model=_model("saved"), session_manager=manager, agent_id="a1")
+    agent("go")
+
+    manager_2 = SnapshotSessionManager("s1", storage=storage, save_latest_on="trigger")
+    agent_2 = Agent(model=_model("x"), session_manager=manager_2, agent_id="a1")
+    tru_texts = [content["text"] for message in agent_2.messages for content in message["content"] if "text" in content]
+    assert "go" in tru_texts
 
 
 @pytest.mark.asyncio

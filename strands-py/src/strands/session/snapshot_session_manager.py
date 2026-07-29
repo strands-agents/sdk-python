@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, get_args, runtime_chec
 from .._async import run_async
 from .._identifier import Identifier
 from .._identifier import validate as validate_identifier
+from ..experimental.hooks.events import BidiAgentInitializedEvent
 from ..hooks.events import (
     AfterInvocationEvent,
     AgentInitializedEvent,
@@ -271,8 +272,10 @@ class SnapshotSessionManager(SessionManager):
         registry.add_callback(AfterInvocationEvent, self._on_after_invocation)
 
         # Fail loudly rather than silently persisting nothing: this manager handles single agents
-        # only, so an orchestrator must not be able to attach it and appear to be persisted.
+        # only, so an orchestrator or BidiAgent must not be able to attach it and appear to be
+        # persisted. Both are rejected at their initialization event, before any turn runs.
         registry.add_callback(MultiAgentInitializedEvent, self._reject_multi_agent)
+        registry.add_callback(BidiAgentInitializedEvent, self._reject_bidi_agent)
 
     def _reject_multi_agent(self, event: MultiAgentInitializedEvent) -> None:
         """Raise on orchestrator init; multi-agent snapshot persistence is not supported yet."""
@@ -280,6 +283,14 @@ class SnapshotSessionManager(SessionManager):
             f"{type(self).__name__} does not support multi-agent (Graph/Swarm) persistence. "
             "Use a message-log session manager (FileSessionManager, S3SessionManager) for "
             "orchestrators."
+        )
+
+    def _reject_bidi_agent(self, event: BidiAgentInitializedEvent) -> None:
+        """Raise on BidiAgent init; bidirectional-streaming snapshot persistence is not supported yet."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support BidiAgent persistence. "
+            "Use a message-log session manager (FileSessionManager, S3SessionManager) for "
+            "bidirectional-streaming agents."
         )
 
     # -- ABC methods (invoked synchronously by the Agent; bridge to async storage) --
@@ -508,12 +519,13 @@ class SnapshotSessionManager(SessionManager):
         persist pre-management messages and a stale ``removed_message_count``.
         """
         triggered = False
+        trigger_failed = False
         if self._snapshot_trigger is not None:
             try:
                 triggered = self._snapshot_trigger(agent_data=event.agent)
             except Exception:
-                # A caller's trigger raising must not discard the completed turn's latest save;
-                # log and fall through to the normal save below.
+                # A caller's trigger raising must not discard the completed turn's latest save
+                trigger_failed = True
                 logger.exception(
                     "agent_id=<%s>, session_id=<%s> | snapshot_trigger raised; skipping immutable checkpoint",
                     event.agent.agent_id,
@@ -521,7 +533,7 @@ class SnapshotSessionManager(SessionManager):
                 )
         if triggered:
             await self._save_immutable_and_latest(event.agent)
-        elif self._save_latest_on in ("invocation", "message"):
+        elif trigger_failed or self._save_latest_on in ("invocation", "message"):
             await self._save_latest(event.agent)
 
     def _capture(self, agent: "Agent") -> Snapshot:
