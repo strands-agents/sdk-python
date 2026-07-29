@@ -1212,6 +1212,102 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     assert "test_agent" in final_state["node_results"]
 
 
+def test_swarm_serialize_deserialize_serialize_preserves_state():
+    """serialize -> deserialize -> serialize is value-preserving on the resume path.
+
+    Guarantees that a resumed swarm re-serializes the same shared_context and cumulative
+    accounting (execution_time / accumulated_usage / accumulated_metrics) it was restored with,
+    and that the restored SwarmState and Swarm share the same shared_context object.
+    """
+    agent = create_mock_agent("first")
+    swarm = Swarm([agent])
+
+    payload = {
+        "type": "swarm",
+        "id": "default_swarm",
+        "status": "executing",
+        "node_history": [],
+        "node_results": {},
+        "next_nodes_to_execute": ["first"],
+        "current_task": "resume me",
+        "accumulated_usage": {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33},
+        "accumulated_metrics": {"latencyMs": 44},
+        "execution_time": 555,
+        "context": {
+            "shared_context": {"first": {"fact": "persist-me"}},
+            "handoff_node": None,
+            "handoff_message": None,
+        },
+        "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+    }
+
+    swarm.deserialize_state(payload)
+
+    # The swarm-owned and state-owned shared contexts must be the same restored object.
+    assert swarm.shared_context.context == {"first": {"fact": "persist-me"}}
+    assert swarm.state.shared_context.context == {"first": {"fact": "persist-me"}}
+    assert swarm.state.shared_context is swarm.shared_context
+
+    # Cumulative accounting is restored, not reset to zero.
+    assert swarm.state.accumulated_usage == {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33}
+    assert swarm.state.accumulated_metrics == {"latencyMs": 44}
+    assert swarm.state.execution_time == 555
+
+    serialize1 = swarm.serialize_state()
+    swarm.deserialize_state(serialize1)
+    serialize2 = swarm.serialize_state()
+
+    assert serialize2["context"]["shared_context"] == serialize1["context"]["shared_context"]
+    assert serialize2["context"]["shared_context"] == {"first": {"fact": "persist-me"}}
+    assert serialize2["accumulated_usage"] == serialize1["accumulated_usage"]
+    assert serialize2["accumulated_metrics"] == serialize1["accumulated_metrics"]
+    assert serialize2["execution_time"] == serialize1["execution_time"]
+
+
+def test_swarm_checkpoint_persists_in_flight_execution_time():
+    """A mid-run per-node checkpoint persists elapsed time so a resumed swarm keeps its timeout budget.
+
+    Guards the crash-restart path: the AfterNodeCall session sync serializes before the invocation's
+    finally commits the interval, so serialize_state must fold the in-flight interval into
+    execution_time rather than persisting the stale pre-invocation value (which would reset the budget).
+    """
+    clock = {"now": 3000.6}
+
+    swarm = Swarm([create_mock_agent("first")])
+
+    with patch("strands.multiagent.swarm.time.time", lambda: clock["now"]):
+        # Marker set at invocation start; a checkpoint taken 600ms in must reflect that interval.
+        swarm._invocation_start_time = 3000.0
+        swarm.state.completion_status = Status.EXECUTING
+        swarm.state.current_node = swarm.nodes["first"]
+        checkpoint = swarm.serialize_state()
+
+    assert checkpoint["execution_time"] == 600
+
+
+@pytest.mark.asyncio
+async def test_swarm_tracing_setup_failure_does_not_leak_timer(mock_strands_tracer, mock_use_span):
+    """A tracing setup failure must not leave the invocation timer running.
+
+    The timer starts inside the span context so its clearing finally is guaranteed to run. If span
+    setup raises before then, no interval is started, and a later serialize_state must not accrue
+    wall time against an abandoned invocation.
+    """
+    clock = {"now": 2000.0}
+    mock_strands_tracer.start_multiagent_span.side_effect = RuntimeError("span setup failed")
+
+    swarm = Swarm([create_mock_agent("first")])
+
+    with patch("strands.multiagent.swarm.time.time", lambda: clock["now"]):
+        with pytest.raises(RuntimeError, match="span setup failed"):
+            await swarm.invoke_async("go")
+        clock["now"] = 2000.5  # 500ms later
+        checkpoint = swarm.serialize_state()
+
+    assert swarm._invocation_start_time is None
+    assert checkpoint["execution_time"] == 0
+
+
 @pytest.mark.asyncio
 async def test_swarm_handle_handoff():
     first_agent = create_mock_agent("first")

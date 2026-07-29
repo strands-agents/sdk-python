@@ -85,6 +85,15 @@ print(len(agent.messages))  # Only the messages from before the jokes
 
 Only fields present in the snapshot are restored. If a field was not included when the snapshot was taken, the agent's current value for that field is left unchanged.
 
+:::caution[Snapshots are restored verbatim]
+A snapshot's `messages` are loaded into the agent as-is, including any tool-call
+content they carry. Load snapshots only from a source you control. A snapshot
+influenced by an untrusted party is untrusted input: its content reaches the
+model, and in the Python SDK a trailing tool-call block runs a tool directly on
+the next invocation. See
+[Trusted Message History](../../safety-security/trusted-message-history.md).
+:::
+
 ## Field Selection
 
 Snapshots support flexible field selection through presets, includes, and excludes. The resolution order is: **preset → include → exclude** — start with the fields defined by the preset, add any fields listed in `include`, then remove any fields listed in `exclude`.

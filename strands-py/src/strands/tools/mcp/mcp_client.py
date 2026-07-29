@@ -36,6 +36,9 @@ from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     BlobResourceContents,
+    CancelledNotification,
+    CancelledNotificationParams,
+    ClientNotification,
     ElicitationRequiredErrorData,
     GetPromptResult,
     Implementation,
@@ -67,6 +70,10 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
 
+class _MCPCallCancelledError(RuntimeError):
+    """Raised internally when a per-call MCP cancellation signal is observed."""
+
+
 class _ToolFilterCallback(Protocol):
     def __call__(self, tool: AgentTool, **kwargs: Any) -> bool: ...
 
@@ -84,6 +91,13 @@ class ToolFilters(TypedDict, total=False):
 
     allowed: list[_ToolMatcher]
     rejected: list[_ToolMatcher]
+
+
+class _CallCancellationState(TypedDict, total=False):
+    session: ClientSession
+    request_id: int
+    task_id: str
+    notification_sent: bool
 
 
 class MCPServerConfig(TypedDict, total=False):
@@ -274,6 +288,9 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self.server_instructions: str | None = None
         self._consumers: set[Any] = set()
+        # Keep detached cleanup tasks alive until they finish; asyncio only retains weak references.
+        self._background_cleanup_tasks: set[asyncio.Task[Any]] = set()
+        self._accept_background_cleanup_tasks = True
 
         # Task support configuration and caching
         self._tasks_config = tasks_config
@@ -318,6 +335,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session is currently running")
 
         self._log_debug_with_thread("entering MCPClient context")
+        self._accept_background_cleanup_tasks = True
         # Copy context vars to propagate to the background thread
         # This ensures that context set in the main thread is accessible in the background thread
         # See: https://github.com/strands-agents/harness-sdk/issues/1440
@@ -538,6 +556,7 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self._connection_failed = False
         self._consumers = set()
+        self._background_cleanup_tasks.clear()
         self._server_task_capable = None
         self._tool_task_support_cache = {}
 
@@ -735,6 +754,7 @@ class MCPClient(ToolProvider):
         read_timeout_seconds: timedelta | None,
         meta: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
+        cancellation_state: _CallCancellationState | None = None,
     ) -> Coroutine[Any, Any, MCPCallToolResult]:
         """Create the appropriate coroutine for calling a tool.
 
@@ -748,6 +768,7 @@ class MCPClient(ToolProvider):
             meta: Optional metadata to pass to the tool call per MCP spec (_meta).
             progress_callback: Optional callback to receive progress notifications.
                 If None, falls back to the instance-level callback set at construction time.
+            cancellation_state: Internal state used to cancel the exact MCP request or task.
 
         Returns:
             A coroutine that will execute the tool call.
@@ -767,7 +788,11 @@ class MCPClient(ToolProvider):
                 # When task-augmented execution is used, use the read_timeout_seconds parameter
                 # (which is a timedelta) for the polling timeout.
                 return await self._call_tool_as_task_and_poll_async(
-                    name, arguments, poll_timeout=read_timeout_seconds, meta=meta
+                    name,
+                    arguments,
+                    poll_timeout=read_timeout_seconds,
+                    meta=meta,
+                    cancellation_state=cancellation_state,
                 )
 
             return _call_as_task()
@@ -775,7 +800,16 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("tool=<%s> | using direct call_tool", name)
 
             async def _call_tool_direct() -> MCPCallToolResult:
-                return await cast(ClientSession, self._background_thread_session).call_tool(
+                session = cast(ClientSession, self._background_thread_session)
+                if cancellation_state is not None:
+                    cancellation_state["session"] = session
+                    # MCP assigns the captured private ID synchronously at the start of
+                    # send_request(). If that invariant changes, omit remote notification rather
+                    # than risk cancelling a different request; local cancellation still works.
+                    request_id = getattr(session, "_request_id", None)
+                    if isinstance(request_id, int):
+                        cancellation_state["request_id"] = request_id
+                return await session.call_tool(
                     name, arguments, read_timeout_seconds, progress_callback=effective_callback, meta=meta
                 )
 
@@ -789,6 +823,8 @@ class MCPClient(ToolProvider):
         read_timeout_seconds: timedelta | None = None,
         meta: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
+        *,
+        cancel_signal: threading.Event | None = None,
     ) -> MCPToolResult:
         """Synchronously calls a tool on the MCP server.
 
@@ -803,19 +839,34 @@ class MCPClient(ToolProvider):
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
+            cancel_signal: Optional caller-owned, thread-safe event for this call. A pre-set event
+                cancels before the MCP request starts. If set while the request is in flight,
+                cancellation wins over a concurrently arriving result. The returned error result has
+                ``cancelled=True``. Remote cancellation is best-effort and bounded; the shared MCP
+                session remains reusable. Clear the event before reusing it for another call.
 
         Returns:
-            MCPToolResult: The result of the tool call
+            MCPToolResult: The tool result. Locally observed cancellation returns an error result with
+                ``cancelled=True`` rather than raising. Cancelling the outer asyncio task is separate
+                and still raises ``asyncio.CancelledError`` for ``call_tool_async``.
         """
         self._log_debug_with_thread("calling MCP tool '%s' synchronously with tool_use_id=%s", name, tool_use_id)
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         try:
+            cancellation_state = _CallCancellationState()
             coro = self._create_call_tool_coroutine(
-                name, arguments, read_timeout_seconds, meta=meta, progress_callback=progress_callback
+                name,
+                arguments,
+                read_timeout_seconds,
+                meta=meta,
+                progress_callback=progress_callback,
+                cancellation_state=cancellation_state,
             )
-            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(coro).result()
+            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(
+                coro, cancel_signal=cancel_signal, cancellation_state=cancellation_state
+            ).result()
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
             logger.exception("tool execution failed")
@@ -829,6 +880,8 @@ class MCPClient(ToolProvider):
         read_timeout_seconds: timedelta | None = None,
         meta: dict[str, Any] | None = None,
         progress_callback: ProgressFnT | None = None,
+        *,
+        cancel_signal: threading.Event | None = None,
     ) -> MCPToolResult:
         """Asynchronously calls a tool on the MCP server.
 
@@ -843,19 +896,34 @@ class MCPClient(ToolProvider):
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
             progress_callback: Optional callback to receive progress notifications for this
                 call. Overrides the instance-level callback set at construction time.
+            cancel_signal: Optional caller-owned, thread-safe event for this call. A pre-set event
+                cancels before the MCP request starts. If set while the request is in flight,
+                cancellation wins over a concurrently arriving result. The returned error result has
+                ``cancelled=True``. Remote cancellation is best-effort and bounded; the shared MCP
+                session remains reusable. Clear the event before reusing it for another call.
 
         Returns:
-            MCPToolResult: The result of the tool call
+            MCPToolResult: The tool result. Locally observed cancellation returns an error result with
+                ``cancelled=True`` rather than raising. Cancelling the outer asyncio task is separate
+                and still raises ``asyncio.CancelledError`` for ``call_tool_async``.
         """
         self._log_debug_with_thread("calling MCP tool '%s' asynchronously with tool_use_id=%s", name, tool_use_id)
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         try:
+            cancellation_state = _CallCancellationState()
             coro = self._create_call_tool_coroutine(
-                name, arguments, read_timeout_seconds, meta=meta, progress_callback=progress_callback
+                name,
+                arguments,
+                read_timeout_seconds,
+                meta=meta,
+                progress_callback=progress_callback,
+                cancellation_state=cancellation_state,
             )
-            future = self._invoke_on_background_thread(coro)
+            future = self._invoke_on_background_thread(
+                coro, cancel_signal=cancel_signal, cancellation_state=cancellation_state
+            )
             call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
@@ -888,11 +956,20 @@ class MCPClient(ToolProvider):
             except Exception:
                 logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
 
-        return MCPToolResult(
-            status="error",
-            toolUseId=tool_use_id,
-            content=[{"text": f"Tool execution failed: {str(exception)}"}],
-        )
+        if isinstance(exception, _MCPCallCancelledError):
+            result = MCPToolResult(
+                status="error",
+                toolUseId=tool_use_id,
+                content=[{"text": "Tool execution cancelled locally; remote execution may have continued"}],
+                cancelled=True,
+            )
+        else:
+            result = MCPToolResult(
+                status="error",
+                toolUseId=tool_use_id,
+                content=[{"text": f"Tool execution failed: {str(exception)}"}],
+            )
+        return result
 
     def _handle_tool_result(self, tool_use_id: str, call_tool_result: MCPCallToolResult) -> MCPToolResult:
         """Maps MCP tool result to the agent's MCPToolResult format.
@@ -993,6 +1070,7 @@ class MCPClient(ToolProvider):
                     await self._close_future
 
                     self._log_debug_with_thread("close signal received")
+                    await self._drain_background_cleanup_tasks()
         except Exception as e:
             # If we encounter an exception and the future is still running,
             # it means it was encountered during the initialization phase.
@@ -1127,7 +1205,77 @@ class MCPClient(ToolProvider):
             "[Thread: %s, Session: %s] %s", threading.current_thread().name, self._session_id, formatted_msg, **kwargs
         )
 
-    def _invoke_on_background_thread(self, coro: Coroutine[Any, Any, T]) -> futures.Future[T]:
+    def _track_background_cleanup_task(self, task: asyncio.Task[Any]) -> None:
+        """Retain a detached cleanup task while the MCP session can still service it."""
+        if not self._accept_background_cleanup_tasks:
+            task.cancel()
+            task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+            return
+        self._background_cleanup_tasks.add(task)
+        task.add_done_callback(self._background_cleanup_tasks.discard)
+
+    async def _drain_background_cleanup_tasks(self) -> None:
+        """Give detached MCP cancellation cleanup a bounded window before session shutdown."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 1
+        while self._background_cleanup_tasks and loop.time() < deadline:
+            timeout = max(0, deadline - loop.time())
+            await asyncio.wait(set(self._background_cleanup_tasks), timeout=timeout)
+
+        # Stop delayed callbacks from enqueueing work after the session has started closing.
+        self._accept_background_cleanup_tasks = False
+        pending = set(self._background_cleanup_tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
+            done, still_pending = await asyncio.wait(pending, timeout=0.1)
+            for task in done:
+                if not task.cancelled():
+                    task.exception()
+            for task in still_pending:
+                task.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        self._background_cleanup_tasks.clear()
+
+    async def _cancel_tool_call(self, cancellation_state: _CallCancellationState) -> None:
+        """Cancel the exact MCP task or request represented by the per-call state."""
+        session = cancellation_state.get("session")
+        if session is None or cancellation_state.get("notification_sent"):
+            return
+
+        try:
+            cancellation: Coroutine[Any, Any, Any]
+            if task_id := cancellation_state.get("task_id"):
+                cancellation = session.experimental.cancel_task(task_id)
+            elif (request_id := cancellation_state.get("request_id")) is not None:
+                cancellation = session.send_notification(
+                    ClientNotification(
+                        CancelledNotification(
+                            params=CancelledNotificationParams(
+                                requestId=request_id, reason="Strands agent invocation cancelled"
+                            )
+                        )
+                    )
+                )
+            else:
+                return
+            cancellation_state["notification_sent"] = True
+            cancellation_task = asyncio.create_task(cancellation)
+            self._track_background_cleanup_task(cancellation_task)
+            done, pending = await asyncio.wait({cancellation_task}, timeout=1)
+            if done:
+                await cancellation_task
+            else:
+                cancellation_task.cancel()
+                cancellation_task.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+        except Exception as error:
+            self._log_debug_with_thread("error=<%s> | failed to notify MCP server of cancellation", str(error))
+
+    def _invoke_on_background_thread(
+        self,
+        coro: Coroutine[Any, Any, T],
+        cancel_signal: threading.Event | None = None,
+        cancellation_state: _CallCancellationState | None = None,
+    ) -> futures.Future[T]:
         # save a reference to this so that even if it's reset we have the original
         close_future = self._close_future
 
@@ -1139,20 +1287,66 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session was not initialized")
 
         async def run_async() -> T:
-            # Fix for strands-agents/harness-sdk/issues/995 - cancel all pending invocations if/when the session closes
+            if cancel_signal is not None and cancel_signal.is_set():
+                coro.close()
+                raise _MCPCallCancelledError("Tool execution cancelled")
+
             invoke_event = asyncio.create_task(coro)
-            tasks: list[asyncio.Task | asyncio.Future] = [
-                invoke_event,
-                close_future,
-            ]
+            invoke_cancel_requested = False
+            cancel_event: asyncio.Task[None] | None = None
 
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            if cancel_signal is not None:
 
-            if done.pop() == close_future:
+                async def wait_for_cancel() -> None:
+                    # threading.Event has no async notification hook. Poll on this loop rather than
+                    # running Event.wait() in an executor: cancelling that await cannot stop a worker
+                    # already blocked in Event.wait(), so successful calls could strand worker threads.
+                    while not cancel_signal.is_set():
+                        await asyncio.sleep(0.05)
+
+                cancel_event = asyncio.create_task(wait_for_cancel())
+
+            tasks: list[asyncio.Task[Any] | asyncio.Future[Any]] = [invoke_event, close_future]
+            if cancel_event is not None:
+                tasks.append(cancel_event)
+
+            try:
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+                if cancel_signal is not None and cancel_signal.is_set():
+                    self._log_debug_with_thread("cancellation detected during MCP invocation")
+                    invoke_cancel_requested = True
+                    invoke_event.cancel()
+                    _, pending = await asyncio.wait({invoke_event}, timeout=1)
+                    if pending:
+                        self._log_debug_with_thread("timed out cleaning up cancelled MCP invocation")
+                    if cancellation_state is not None:
+                        await self._cancel_tool_call(cancellation_state)
+                    raise _MCPCallCancelledError("Tool execution cancelled")
+                if invoke_event in done:
+                    return await invoke_event
+
                 self._log_debug_with_thread("event loop for the server closed before the invoke completed")
+                invoke_event.cancel()
+                await asyncio.wait({invoke_event}, timeout=1)
                 raise RuntimeError("Connection to the MCP server was closed")
-            else:
-                return await invoke_event
+            finally:
+                if not invoke_event.done() and not invoke_cancel_requested:
+                    invoke_event.cancel()
+                    # asyncio.wait reports expiration through pending; it does not raise TimeoutError.
+                    # The original caller cancellation or exception continues after this bounded cleanup.
+                    _, pending = await asyncio.wait({invoke_event}, timeout=1)
+                    if pending:
+                        self._log_debug_with_thread("MCP invocation did not finish within bounded cancellation cleanup")
+                    if cancellation_state is not None:
+                        await self._cancel_tool_call(cancellation_state)
+                else:
+                    pending = {invoke_event} if not invoke_event.done() else set()
+                if pending:
+                    self._track_background_cleanup_task(invoke_event)
+                if cancel_event is not None and not cancel_event.done():
+                    cancel_event.cancel()
+                    await asyncio.gather(cancel_event, return_exceptions=True)
 
         invoke_future = asyncio.run_coroutine_threadsafe(coro=run_async(), loop=self._background_thread_event_loop)
         return invoke_future
@@ -1298,6 +1492,7 @@ class MCPClient(ToolProvider):
         ttl: timedelta | None = None,
         poll_timeout: timedelta | None = None,
         meta: dict[str, Any] | None = None,
+        cancellation_state: _CallCancellationState | None = None,
     ) -> MCPCallToolResult:
         """Call a tool using task-augmented execution and poll until completion.
 
@@ -1312,6 +1507,7 @@ class MCPClient(ToolProvider):
             ttl: Task time-to-live. Uses configured value if not specified.
             poll_timeout: Timeout for polling. Uses configured value if not specified.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta).
+            cancellation_state: Internal state used to cancel the exact MCP request or task.
 
         Returns:
             MCPCallToolResult: The final tool result after task completion.
@@ -1328,13 +1524,45 @@ class MCPClient(ToolProvider):
 
         # Step 1: Create the task
         self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl_ms)
-        create_result = await session.experimental.call_tool_as_task(
-            name=name,
-            arguments=arguments,
-            ttl=ttl_ms,
-            meta=meta,
+        if cancellation_state is not None:
+            cancellation_state["session"] = session
+        create_task = asyncio.create_task(
+            session.experimental.call_tool_as_task(
+                name=name,
+                arguments=arguments,
+                ttl=ttl_ms,
+                meta=meta,
+            )
         )
+        try:
+            create_result = await asyncio.shield(create_task)
+        except asyncio.CancelledError:
+            done, _ = await asyncio.wait({create_task}, timeout=1)
+            if done:
+                create_result = create_task.result()
+                if cancellation_state is not None:
+                    cancellation_state["task_id"] = create_result.task.taskId
+                    await self._cancel_tool_call(cancellation_state)
+            else:
+
+                def cancel_delayed_task(task: asyncio.Task[Any]) -> None:
+                    if task.cancelled():
+                        return
+                    try:
+                        result = task.result()
+                    except Exception:
+                        return
+                    if cancellation_state is not None:
+                        cancellation_state["task_id"] = result.task.taskId
+                        cleanup_task = asyncio.create_task(self._cancel_tool_call(cancellation_state))
+                        self._track_background_cleanup_task(cleanup_task)
+
+                self._track_background_cleanup_task(create_task)
+                create_task.add_done_callback(cancel_delayed_task)
+            raise
         task_id = create_result.task.taskId
+        if cancellation_state is not None:
+            cancellation_state["task_id"] = task_id
         self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task created", name, task_id)
 
         # Step 2: Poll until terminal status (with timeout protection)
