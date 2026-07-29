@@ -16,6 +16,7 @@ import {
   FRONTMATTER_OPEN,
   isConsolidationChangelog,
   pathsResolveSame,
+  resolveCanonicalKey,
 } from '../internal.js'
 
 /**
@@ -114,22 +115,22 @@ function validateActionPaths(
   switch (action.action) {
     case 'merge': {
       for (const source of action.sources) {
-        if (!files.has(source)) errors.push(`Merge source '${source}' does not exist`)
+        if (!resolveCanonicalKey(files, source)) errors.push(`Merge source '${source}' does not exist`)
       }
       const pathError = validatePath(action.target, existingDirs, maxDirectories)
       if (pathError) errors.push(pathError)
       return errors
     }
     case 'update': {
-      if (!files.has(action.path)) errors.push(`Update target '${action.path}' does not exist`)
+      if (!resolveCanonicalKey(files, action.path)) errors.push(`Update target '${action.path}' does not exist`)
       return errors
     }
     case 'delete': {
-      if (!files.has(action.path)) errors.push(`Delete target '${action.path}' does not exist`)
+      if (!resolveCanonicalKey(files, action.path)) errors.push(`Delete target '${action.path}' does not exist`)
       return errors
     }
     case 'move': {
-      if (!files.has(action.from)) errors.push(`Move source '${action.from}' does not exist`)
+      if (!resolveCanonicalKey(files, action.from)) errors.push(`Move source '${action.from}' does not exist`)
       const pathError = validatePath(action.to, existingDirs, maxDirectories)
       if (pathError) errors.push(pathError)
       return errors
@@ -139,11 +140,19 @@ function validateActionPaths(
 
 /**
  * Strip zero-width and other invisible characters that would defeat a non-empty check.
- * Removes U+200B-U+200D (zero-width space/joiner), U+FEFF (BOM/zero-width no-break space),
- * and trims surrounding whitespace so zero-width-only content is treated as empty.
+ *
+ * Covers:
+ * - U+00AD soft hyphen
+ * - U+180E Mongolian vowel separator
+ * - U+200B-U+200F zero-width space/joiner/non-joiner, LRM, RLM
+ * - U+2028-U+202F line/paragraph separators, directional overrides
+ * - U+2060-U+2064 word joiner, invisible operators
+ * - U+FEFF BOM / zero-width no-break space
+ *
+ * Trims surrounding whitespace so invisible-only content is treated as empty.
  */
 function stripInvisible(text: string): string {
-  return text.replace(/[\u200B-\u200D\uFEFF]/g, '').trim()
+  return text.replace(/[\u00AD\u180E\u200B-\u200F\u2028-\u202F\u2060-\u2064\uFEFF]/g, '').trim()
 }
 
 /**
@@ -170,9 +179,17 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
   if (!action.content.startsWith(FRONTMATTER_OPEN)) {
     return `${label} must start with YAML frontmatter ('---' on the first line)`
   }
-  const closingIndex = action.content.indexOf(FRONTMATTER_CLOSE, FRONTMATTER_OPEN.length - 1)
+  // Search from FRONTMATTER_OPEN.length (not length-1) so the close delimiter cannot overlap the
+  // open — '---\n---\n' would otherwise match by reusing the opening newline as the close's prefix
+  const closingIndex = action.content.indexOf(FRONTMATTER_CLOSE, FRONTMATTER_OPEN.length)
   if (closingIndex === -1) {
     return `${label} is missing the closing frontmatter delimiter ('---' on its own line)`
+  }
+  // Require a non-empty frontmatter region — an empty region (no description) would produce an
+  // unparseable file that contradicts the contract of staying parseable by parseFrontmatter
+  const frontmatterRegion = action.content.slice(FRONTMATTER_OPEN.length, closingIndex + 1)
+  if (frontmatterRegion.trim().length === 0) {
+    return `${label} has empty frontmatter — a description field is required`
   }
   if (stripInvisible(action.content.slice(closingIndex + FRONTMATTER_CLOSE.length)).length === 0) {
     return `${label} has no body after its frontmatter`
@@ -259,6 +276,22 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
     }
   }
 
+  // Reject plans where multiple move actions share the same source — a single file cannot be
+  // meaningfully moved to N destinations. Without this guard an adversarial plan can amplify one
+  // source into arbitrarily many copies, wedging the store past its file/byte limits permanently.
+  const moveSourcesSeen = new Set<string>()
+  for (const action of plan.actions) {
+    if (action.action === 'move') {
+      const normalizedFrom = action.from.toLowerCase()
+      if (moveSourcesSeen.has(normalizedFrom)) {
+        errors.push(
+          `Multiple move actions share the same source '${action.from}' — a file can only be moved to one destination`
+        )
+      }
+      moveSourcesSeen.add(normalizedFrom)
+    }
+  }
+
   return errors
 }
 
@@ -316,14 +349,37 @@ function validatePath(path: string, existingDirs: Set<string>, maxDirectories: n
     return `Path must end with .md: ${path}`
   }
 
-  const segments = path.split('/')
+  // Validate the filename stem: reject control characters, zero-width/invisible codepoints,
+  // leading/trailing whitespace, empty stems, and over-long names. Mirrors the directory segment's
+  // charset discipline so hostile filenames cannot crash the storage backend mid-write.
+  const filename = rawSegments[rawSegments.length - 1]!
+  const stem = filename.slice(0, -3) // strip '.md'
+  if (stem.length === 0) {
+    return `Filename must have a non-empty stem before .md: ${path}`
+  }
+  if (stem.length > 80) {
+    return `Filename stem exceeds 80 characters: ${path}`
+  }
+  // eslint-disable-next-line no-control-regex -- intentional: reject NUL, BEL, newlines, tabs, etc.
+  if (/[\u0000-\u001F\u007F]/.test(stem)) {
+    return `Filename stem must not contain control characters: ${path}`
+  }
+  if (/[\u200B-\u200F\u2028-\u202F\u2060-\u2064\u180E\uFEFF\u00AD]/.test(stem)) {
+    return `Filename stem must not contain invisible or zero-width characters: ${path}`
+  }
+  if (stem !== stem.trim()) {
+    return `Filename stem must not have leading or trailing whitespace: ${path}`
+  }
+  if (/[\\/:*?"<>|]/.test(stem)) {
+    return `Filename stem contains path-hostile characters: ${path}`
+  }
 
-  if (segments.length > 2) {
+  if (rawSegments.length > 2) {
     return `Only one level of nesting allowed: ${path}`
   }
 
-  if (segments.length === 2) {
-    const dirName = segments[0]!
+  if (rawSegments.length === 2) {
+    const dirName = rawSegments[0]!
     if (!/^[a-z0-9-]{1,30}$/.test(dirName)) {
       return `Directory name must be lowercase alphanumeric + hyphens, ≤30 chars: '${dirName}'`
     }

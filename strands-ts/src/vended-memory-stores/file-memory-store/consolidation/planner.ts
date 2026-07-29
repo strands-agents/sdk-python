@@ -217,5 +217,11 @@ function buildPlannerUserMessage(files: Map<string, string>): string {
  * and decode back to the original characters, so the planner still sees each body exactly as stored.
  */
 function serializeEvidence(files: Map<string, string>): string {
-  return JSON.stringify(Object.fromEntries(files), null, 2).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  // Angle brackets escaped to prevent bodies from reproducing evidence tags.
+  // U+2028/U+2029 escaped because they are line terminators in some JS/ECMAScript consumers.
+  return JSON.stringify(Object.fromEntries(files), null, 2)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
 }

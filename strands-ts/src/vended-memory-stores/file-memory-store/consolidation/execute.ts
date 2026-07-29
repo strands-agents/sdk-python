@@ -20,6 +20,7 @@ import {
   isConsolidationChangelog,
   mapWithConcurrency,
   pathsResolveSame,
+  resolveCanonicalKey,
   STORAGE_READ_CONCURRENCY,
 } from '../internal.js'
 
@@ -46,11 +47,15 @@ export interface DeleteFailure {
 export async function readAllFiles(storage: Storage): Promise<Map<string, string>> {
   const files = new Map<string, string>()
   const allKeys = await storage.list('')
-  for (const key of allKeys) {
-    // Exclude the changelog so consolidation never ingests and rewrites its own audit log
-    if (isConsolidationChangelog(key)) continue
+  const keysToRead = allKeys.filter((key) => !isConsolidationChangelog(key))
+
+  const entries = await mapWithConcurrency(keysToRead, STORAGE_READ_CONCURRENCY, async (key) => {
     const bytes = await storage.read(key)
-    if (bytes) files.set(key, decoder.decode(bytes))
+    return bytes ? ([key, decoder.decode(bytes)] as const) : null
+  })
+
+  for (const entry of entries) {
+    if (entry) files.set(entry[0], entry[1])
   }
   return files
 }
@@ -102,18 +107,26 @@ export async function executePlan(
   // Writes before deletes — merged content lands before sources are removed
   for (const action of plan.actions) {
     if (action.action === 'merge') {
+      // Raw target: expresses the desired key — case-only renames are intentional; case-variant
+      // collisions with existing files are rejected during validation (pathsResolveSame)
       await storage.write(action.target, encoder.encode(action.content))
     } else if (action.action === 'update') {
-      await storage.write(action.path, encoder.encode(action.content))
+      // Resolve to the stored canonical key so a differently-cased echo from the model overwrites
+      // the existing file instead of creating a duplicate on case-sensitive backends
+      const canonicalPath = resolveCanonicalKey(files, action.path) ?? action.path
+      await storage.write(canonicalPath, encoder.encode(action.content))
     } else if (action.action === 'move') {
-      // validatePlan guarantees every move source exists in `files`; a miss here means
-      // validation and execution have diverged, so fail loud rather than write empty content
-      const content = files.get(action.from)
+      // validatePlan guarantees every move source exists in `files`; resolve via canonical key so
+      // a differently-cased path the model echoed still finds the stored content
+      const canonicalFrom = resolveCanonicalKey(files, action.from)
+      const content = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
       if (content === undefined) {
         throw new Error(
           `Invariant violated: move source '${action.from}' missing from working set — plan not validated`
         )
       }
+      // Raw target: expresses the desired key — case-only renames are intentional; case-variant
+      // collisions with existing files are rejected during validation (pathsResolveSame)
       await storage.write(action.to, encoder.encode(content))
     }
   }
@@ -122,20 +135,24 @@ export async function executePlan(
   const deleteErrors: DeleteFailure[] = []
   for (const action of plan.actions) {
     if (action.action === 'delete') {
+      // Resolve via canonical key so a case-variant delete path still removes the stored file
+      const canonicalPath = resolveCanonicalKey(files, action.path) ?? action.path
       try {
-        await storage.delete(action.path)
+        await storage.delete(canonicalPath)
       } catch (error) {
-        deleteErrors.push({ path: action.path, error })
+        deleteErrors.push({ path: canonicalPath, error })
       }
     } else if (action.action === 'merge') {
       for (const source of action.sources) {
         // Skip the target when it is one of its own sources — the merge folded into an existing
         // file, so deleting it here would remove the content just written
         if (!pathsResolveSame(source, action.target)) {
+          // Resolve via canonical key so a case-variant source path still deletes the stored file
+          const canonicalSource = resolveCanonicalKey(files, source) ?? source
           try {
-            await storage.delete(source)
+            await storage.delete(canonicalSource)
           } catch (error) {
-            deleteErrors.push({ path: source, error })
+            deleteErrors.push({ path: canonicalSource, error })
           }
         }
       }
@@ -143,10 +160,12 @@ export async function executePlan(
       // Skip delete when source and target resolve to the same identity (case-only rename) —
       // deleting would remove the content the write pass just produced
       if (!pathsResolveSame(action.from, action.to)) {
+        // Resolve via canonical key so a case-variant source path still deletes the stored file
+        const canonicalFrom = resolveCanonicalKey(files, action.from) ?? action.from
         try {
-          await storage.delete(action.from)
+          await storage.delete(canonicalFrom)
         } catch (error) {
-          deleteErrors.push({ path: action.from, error })
+          deleteErrors.push({ path: canonicalFrom, error })
         }
       }
     }

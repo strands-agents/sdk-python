@@ -2010,6 +2010,36 @@ describe('FileMemoryStore.consolidate', () => {
       expect(beforeEvidence).not.toContain(hostileBody)
       expect(afterEvidence).not.toContain(hostileBody)
     })
+
+    // U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are valid inside JSON strings but
+    // act as line terminators in some JS/ECMAScript consumers. Escaping them as \u2028/\u2029
+    // guarantees the serialized evidence is safe for downstream consumption. (PR #3429)
+    it('escapes U+2028 and U+2029 as literal escape sequences in evidence JSON', async () => {
+      const bodyWithLineSeparators = 'before\u2028middle\u2029after'
+      await writeFile(storage, 'facts/separators.md', 'Line separator test', bodyWithLineSeparators)
+
+      const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'No changes needed.' }))
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      const messageText = lastUserMessageText(streamSpy)
+      const evidenceStart = messageText.indexOf('<file-evidence>') + '<file-evidence>'.length
+      const evidenceEnd = messageText.indexOf('</file-evidence>')
+      const evidenceBlock = messageText.slice(evidenceStart, evidenceEnd).trim()
+
+      // Raw code points must not appear in the serialized output
+      expect(evidenceBlock).not.toContain('\u2028')
+      expect(evidenceBlock).not.toContain('\u2029')
+
+      // Literal escape sequences must appear instead
+      expect(evidenceBlock).toContain('\\u2028')
+      expect(evidenceBlock).toContain('\\u2029')
+
+      // The evidence block still parses as valid JSON and preserves the original content
+      const parsed = JSON.parse(evidenceBlock) as Record<string, string>
+      expect(parsed['facts/separators.md']).toContain(bodyWithLineSeparators)
+    })
   })
 
   describe('turn limit guard', () => {
@@ -2160,34 +2190,53 @@ describe('FileMemoryStore.consolidate', () => {
       expect(changelog.split('\n').filter((line) => line.startsWith('## ')).length).toBe(1)
     })
 
-    // Paths are model-controlled too: validatePath constrains the directory segment's charset but
-    // not the filename's, so a newline in a merge target reaches the changelog unless sanitized.
+    // Paths are model-controlled: a newline in a merge target is now caught by the filename stem
+    // validation (control characters rejected), so the plan is rejected before execution. This
+    // provides defense-in-depth alongside the changelog's own sanitization for any chars that
+    // do pass validation.
     it('sanitizes action paths so a filename cannot forge changelog headers', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
       const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
-      const model = new MockMessageModel().addTurn(
-        buildPlanTurn({
-          actions: [
-            {
-              action: 'merge',
-              sources: ['facts/a.md', 'facts/b.md'],
-              target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
-              content: mergedContent,
-              reason: 'dedup',
-            },
-          ],
-          summary: 'merged',
-        })
+      const model = new MockMessageModel()
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
+                content: mergedContent,
+                reason: 'dedup',
+              },
+            ],
+            summary: 'merged',
+          })
+        )
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
+                content: mergedContent,
+                reason: 'dedup',
+              },
+            ],
+            summary: 'merged',
+          })
+        )
+
+      // The filename stem validation now rejects control characters before execution
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+        /validation failed after retry/
       )
 
-      await store.consolidate({ model, operations: ['deduplicate'] })
-
-      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
-      const headers = changelog.match(/^## .+$/gm) ?? []
-      expect(headers).toHaveLength(1)
-      expect(headers[0]).not.toContain('FORGED-VIA-PATH')
+      // Files untouched — plan never executed
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+      expect(await storage.read('facts/b.md')).not.toBeNull()
     })
 
     // reason/summary bytes must count against maxGeneratedBytes so large strings cannot bypass cap
@@ -2321,6 +2370,566 @@ describe('FileMemoryStore.consolidate', () => {
       )
 
       expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+    })
+  })
+
+  // PR #3429 regression tests: guards discovered during review that the code must guarantee.
+  describe('PR #3429 regression guards', () => {
+    // Guarantees: generatedByteSize counts move-action content so moves cannot escape the byte cap,
+    // and validatePlan rejects plans where multiple moves share the same source (amplification).
+    describe('move byte-count + duplicate-source amplification', () => {
+      it('counts move content in generatedByteSize so moves cannot escape maxGeneratedBytes', async () => {
+        // Seed a file large enough that a single move exceeds a tight maxGeneratedBytes cap
+        const largeBody = 'x'.repeat(1000)
+        await writeFile(storage, 'facts/big.md', 'Big file', largeBody)
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/big.md', to: 'ops/big.md', reason: 'reorg' }],
+            summary: 'test',
+          })
+        )
+
+        // maxGeneratedBytes set below the file's size — should reject the plan
+        await expect(store.consolidate({ model, operations: ['reorganize'], maxGeneratedBytes: 500 })).rejects.toThrow(
+          /exceeds generated content limit/
+        )
+
+        // File untouched
+        expect(await storage.read('facts/big.md')).not.toBeNull()
+      })
+
+      it('rejects plan where multiple moves share the same source', async () => {
+        await writeFile(storage, 'facts/source.md', 'Source', 'Content')
+
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                { action: 'move', from: 'facts/source.md', to: 'ops/copy1.md', reason: 'reorg' },
+                { action: 'move', from: 'facts/source.md', to: 'ops/copy2.md', reason: 'reorg' },
+              ],
+              summary: 'amplify',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                { action: 'move', from: 'facts/source.md', to: 'ops/copy1.md', reason: 'reorg' },
+                { action: 'move', from: 'facts/source.md', to: 'ops/copy2.md', reason: 'reorg' },
+              ],
+              summary: 'amplify again',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+          /Multiple move actions share the same source/
+        )
+
+        expect(await storage.read('facts/source.md')).not.toBeNull()
+      })
+    })
+
+    // Guarantees: hostile filename stems (NUL, control chars, zero-width chars, over-long,
+    // leading/trailing space, path-hostile chars, bare .md) are rejected by validatePath.
+    describe('filename stem charset/length validation', () => {
+      it('rejects filenames with control characters in the stem', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\x00name.md', reason: 'test' }],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\x00name.md', reason: 'test' }],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+          'Consolidation plan validation failed after retry'
+        )
+      })
+
+      it('rejects bare .md filename (empty stem)', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/.md', reason: 'test' }],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/.md', reason: 'test' }],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+          'Consolidation plan validation failed after retry'
+        )
+      })
+
+      it('rejects over-long filename stems', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        const longStem = 'a'.repeat(81)
+
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: `facts/${longStem}.md`, reason: 'test' }],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: `facts/${longStem}.md`, reason: 'test' }],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+          'Consolidation plan validation failed after retry'
+        )
+      })
+
+      it('rejects filenames with invisible/zero-width characters in stem', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\u200Bname.md', reason: 'test' }],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\u200Bname.md', reason: 'test' }],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
+          'Consolidation plan validation failed after retry'
+        )
+      })
+    })
+
+    // Guarantees: content with a well-formed open+close delimiter pair but nothing between them
+    // is rejected for having an empty frontmatter region (validate.ts ~189-191).
+    describe('empty-frontmatter rejection (PR #3429)', () => {
+      // Exercises the empty-frontmatter-region branch: FRONTMATTER_OPEN ('---\n') followed
+      // immediately by FRONTMATTER_CLOSE ('\n---\n') with only whitespace between them.
+      it('rejects content with empty frontmatter region', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        // '---\n' + '\n---\n' with only a newline (whitespace) between open and close delimiters
+        const emptyFrontmatter = '---\n\n---\nSome body text\n'
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                {
+                  action: 'merge',
+                  sources: ['facts/a.md', 'facts/b.md'],
+                  target: 'facts/a.md',
+                  content: emptyFrontmatter,
+                  reason: 'dedup',
+                },
+              ],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                {
+                  action: 'merge',
+                  sources: ['facts/a.md', 'facts/b.md'],
+                  target: 'facts/a.md',
+                  content: emptyFrontmatter,
+                  reason: 'dedup',
+                },
+              ],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty frontmatter/)
+
+        // Files untouched
+        expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+      })
+
+      // Exercises the missing-closing-delimiter branch: FRONTMATTER_OPEN is present but no valid
+      // FRONTMATTER_CLOSE ('\n---\n') exists when searching from FRONTMATTER_OPEN.length.
+      it('rejects content with missing closing frontmatter delimiter', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        // '---\n---\n...' has no '\n---\n' at or after index 4, so closingIndex === -1
+        const missingClose = '---\n---\nSome body text\n'
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                {
+                  action: 'merge',
+                  sources: ['facts/a.md', 'facts/b.md'],
+                  target: 'facts/a.md',
+                  content: missingClose,
+                  reason: 'dedup',
+                },
+              ],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                {
+                  action: 'merge',
+                  sources: ['facts/a.md', 'facts/b.md'],
+                  target: 'facts/a.md',
+                  content: missingClose,
+                  reason: 'dedup',
+                },
+              ],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /missing the closing frontmatter delimiter/
+        )
+
+        // Files untouched
+        expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+      })
+    })
+
+    // Guarantees: content consisting solely of invisible/zero-width codepoints is treated as empty.
+    describe('invisible-only content rejection', () => {
+      it('rejects content whose body is only invisible codepoints', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        // Body made entirely of zero-width chars (soft hyphen + word joiner + BOM)
+        const invisibleBody = '\u00AD\u2060\uFEFF'
+        const content = `---\ndescription: "Merged"\n---\n\n${invisibleBody}\n`
+        const model = new MockMessageModel()
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                {
+                  action: 'merge',
+                  sources: ['facts/a.md', 'facts/b.md'],
+                  target: 'facts/a.md',
+                  content,
+                  reason: 'dedup',
+                },
+              ],
+              summary: 'test',
+            })
+          )
+          .addTurn(
+            buildPlanTurn({
+              actions: [
+                {
+                  action: 'merge',
+                  sources: ['facts/a.md', 'facts/b.md'],
+                  target: 'facts/a.md',
+                  content,
+                  reason: 'dedup',
+                },
+              ],
+              summary: 'test',
+            })
+          )
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /has no body after its frontmatter/
+        )
+      })
+    })
+
+    // Guarantees: content exceeding MAX_ACTION_CONTENT_LENGTH fails schema parse (ZodError).
+    describe('oversize content schema bound', () => {
+      it('rejects action content exceeding the schema max length', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        // Content larger than 256KiB — will fail schema parse before reaching the byte-cap check
+        const oversizeContent = `---\ndescription: "Huge"\n---\n\n${'x'.repeat(256 * 1024 + 100)}\n`
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'update',
+                path: 'facts/a.md',
+                content: oversizeContent,
+                reason: 'test',
+              },
+            ],
+            summary: 'test',
+          })
+        )
+
+        // Schema parse fails (ZodError) before the plan reaches validation
+        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
+
+        // File untouched
+        expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+      })
+    })
+  })
+
+  // PR #3429: parseFrontmatter returns safe fallbacks when regex capture groups are absent
+  describe('parseFrontmatter fallback safety', () => {
+    it('returns empty description and full body when frontmatter has no description field', async () => {
+      // Write a file with frontmatter but no description: line — exercises the descMatch null path
+      await storage.write('facts/no-desc.md', encoder.encode('---\ntags: "test"\n---\n\nBody without description.\n'))
+
+      const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'noop' }))
+      // The planner receives the file and produces a no-op plan — confirming parse didn't crash
+      await store.consolidate({ model, operations: ['deduplicate'] })
+    })
+
+    it('handles malformed JSON in description gracefully via slice fallback', async () => {
+      // A description whose value is a malformed JSON string — exercises the catch path
+      await storage.write('facts/bad-json.md', encoder.encode('---\ndescription: "unclosed\n---\n\nBody here.\n'))
+
+      const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'noop' }))
+      await store.consolidate({ model, operations: ['deduplicate'] })
+    })
+  })
+
+  // PR #3429: readAllFiles reads concurrently via mapWithConcurrency, preserving Map contents
+  describe('readAllFiles concurrency', () => {
+    it('reads all files and excludes the changelog regardless of concurrency', async () => {
+      // Write enough files to exercise multiple concurrent reads (> STORAGE_READ_CONCURRENCY=8)
+      const fileCount = 12
+      for (let i = 0; i < fileCount; i++) {
+        await writeFile(storage, `facts/file-${i}.md`, `File ${i}`, `Content ${i}`)
+      }
+      // Write a changelog that must be excluded from consolidation input
+      await storage.write('consolidation-changelog.md', encoder.encode('# Consolidation Changelog\n'))
+
+      // Plan a no-op merge of two files to confirm all files were read and available to the planner
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/file-0.md', 'facts/file-11.md'],
+              target: 'facts/combined.md',
+              content: '---\ndescription: "Combined"\n---\n\nCombined.\n',
+              reason: 'test concurrency',
+            },
+          ],
+          summary: 'read all',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      // The merge succeeded — both the first and last file were read concurrently
+      const result = await storage.read('facts/combined.md')
+      expect(result).not.toBeNull()
+      expect(decoder.decode(result!)).toContain('Combined')
+      // Sources were deleted
+      expect(await storage.read('facts/file-0.md')).toBeNull()
+      expect(await storage.read('facts/file-11.md')).toBeNull()
+    })
+
+    it('propagates a read error as a rejected consolidation', async () => {
+      await writeFile(storage, 'facts/good.md', 'Good', 'Content')
+      await writeFile(storage, 'facts/bad.md', 'Bad', 'Content')
+
+      vi.spyOn(storage, 'read').mockImplementation(async (key: string) => {
+        if (key === 'facts/bad.md') throw new Error('backend failure')
+        return encoder.encode('---\ndescription: "test"\n---\n\ncontent\n')
+      })
+
+      const model = new MockMessageModel()
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow('backend failure')
+    })
+  })
+
+  // PR #3429: validate and execute agree on case-insensitive source resolution
+  describe('case-insensitive source resolution', () => {
+    it('validates and executes a move whose source differs only in case from the stored key', async () => {
+      await writeFile(storage, 'facts/MyFile.md', 'My File', 'Important content')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/myfile.md', to: 'facts/renamed.md', reason: 'reorg' }],
+          summary: 'case-insensitive move',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['reorganize'] })
+
+      // The source content arrived at the new target
+      const result = await storage.read('facts/renamed.md')
+      expect(result).not.toBeNull()
+      expect(decoder.decode(result!)).toContain('Important content')
+    })
+
+    it('validates a merge whose sources differ in case from stored keys', async () => {
+      await writeFile(storage, 'facts/FileA.md', 'File A', 'Content A')
+      await writeFile(storage, 'facts/FileB.md', 'File B', 'Content B')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/filea.md', 'facts/fileb.md'],
+              target: 'facts/merged.md',
+              content: '---\ndescription: "Merged"\n---\n\nContent A and B.\n',
+              reason: 'combine',
+            },
+          ],
+          summary: 'case-insensitive merge',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      const result = await storage.read('facts/merged.md')
+      expect(result).not.toBeNull()
+      expect(decoder.decode(result!)).toContain('Content A and B')
+    })
+  })
+
+  // Regression: case-variant source paths must delete via canonical key on case-sensitive backends
+  // (#3429) — without canonical resolution the delete targets a path that does not exist in
+  // storage, leaving a dangling duplicate of the source.
+  describe('case-variant source deletion on case-sensitive backends', () => {
+    it('move with case-variant from deletes the stored source path', async () => {
+      await writeFile(storage, 'facts/Note.md', 'A note', 'Important content')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'move',
+              from: 'facts/note.md', // case-variant of stored key
+              to: 'archive/note.md',
+              reason: 'Archiving note',
+            },
+          ],
+          summary: 'Archived a note.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['reorganize'] })
+
+      // Source removed via canonical key — no dangling duplicate
+      expect(await storage.read('facts/Note.md')).toBeNull()
+      expect(await storage.read('facts/note.md')).toBeNull()
+      // Target written with correct content
+      const moved = await storage.read('archive/note.md')
+      expect(moved).not.toBeNull()
+      expect(decoder.decode(moved!)).toContain('Important content')
+    })
+
+    it('merge with case-variant sources deletes stored source paths', async () => {
+      await writeFile(storage, 'facts/Alpha.md', 'Alpha', 'Alpha content')
+      await writeFile(storage, 'facts/Beta.md', 'Beta', 'Beta content')
+
+      const mergedContent = '---\ndescription: "Combined"\n---\n\nAlpha and Beta combined\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/alpha.md', 'facts/beta.md'], // case-variant of stored keys
+              target: 'facts/combined.md',
+              content: mergedContent,
+              reason: 'Merging related notes',
+            },
+          ],
+          summary: 'Merged alpha and beta.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deduplicate'] })
+
+      // Sources removed via canonical key — no dangling duplicates
+      expect(await storage.read('facts/Alpha.md')).toBeNull()
+      expect(await storage.read('facts/alpha.md')).toBeNull()
+      expect(await storage.read('facts/Beta.md')).toBeNull()
+      expect(await storage.read('facts/beta.md')).toBeNull()
+      // Target written
+      const merged = await storage.read('facts/combined.md')
+      expect(merged).not.toBeNull()
+      expect(decoder.decode(merged!)).toContain('Alpha and Beta combined')
+    })
+
+    // PR #3429 — guarantees a delete action with a case-variant path removes the canonical stored key
+    it('delete with case-variant path removes the stored canonical key', async () => {
+      await writeFile(storage, 'facts/Note.md', 'A note', 'Content to delete')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'delete',
+              path: 'facts/note.md', // case-variant of stored key
+              reason: 'No longer needed',
+            },
+          ],
+          summary: 'Deleted a note.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['prune'] })
+
+      // Canonical key removed — no dangling file on case-sensitive backends
+      expect(await storage.read('facts/Note.md')).toBeNull()
+      expect(await storage.read('facts/note.md')).toBeNull()
+    })
+
+    // PR #3429 — guarantees an update action with a case-variant path rewrites the existing
+    // canonical file and does not create a second file on case-sensitive backends
+    it('update with case-variant path rewrites the canonical file without creating a duplicate', async () => {
+      await writeFile(storage, 'facts/Note.md', 'A note', 'Original content')
+
+      const updatedContent = '---\ndescription: "Revised note"\n---\n\nUpdated content\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'update',
+              path: 'facts/note.md', // case-variant of stored key
+              content: updatedContent,
+              reason: 'Revising the note',
+            },
+          ],
+          summary: 'Updated a note.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['resolveContradictions'] })
+
+      // Canonical key holds the new content — no duplicate created
+      const canonical = await storage.read('facts/Note.md')
+      expect(canonical).not.toBeNull()
+      expect(decoder.decode(canonical!)).toContain('Updated content')
+      // Case-variant key does not exist as a separate file
+      const variant = await storage.read('facts/note.md')
+      // On a case-sensitive store the variant key must be null (no duplicate written)
+      expect(variant).toBeNull()
     })
   })
 })

@@ -291,6 +291,21 @@ describe('FileMemoryStore', () => {
         /reserved.*consolidation-changelog\.md/i
       )
     })
+
+    // PR #3429: dot-path segments bypass the changelog guard because normalizeKey keeps '.' but
+    // the OS collapses './' — the resolved key aliases the reserved changelog on disk.
+    // Guarantees: add() rejects any path containing single-dot segments before the changelog check.
+    it('rejects dot-segment paths that would alias the changelog via OS collapse', async () => {
+      await expect(store.add('forged', { path: './consolidation-changelog.md' })).rejects.toThrow(
+        /must not contain '\.' segments/
+      )
+      await expect(store.add('forged', { path: './/consolidation-changelog.md' })).rejects.toThrow(
+        /must not contain '\.' segments/
+      )
+      await expect(store.add('forged', { path: 'facts/./sneaky.md' })).rejects.toThrow(/must not contain '\.' segments/)
+      // Verify nothing was written
+      expect(await scoped.read('consolidation-changelog.md')).toBeNull()
+    })
   })
 
   describe('search', () => {

@@ -20,7 +20,10 @@ import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 import {
   CONSOLIDATION_CHANGELOG,
+  containsDotSegments,
   decoder,
+  DEFAULT_MAX_GENERATED_BYTES,
+  DEFAULT_MAX_INPUT_BYTES,
   encoder,
   isConsolidationChangelog,
   mapWithConcurrency,
@@ -41,16 +44,6 @@ const STORAGE_NAMESPACE = 'memory'
 
 /** Default subdirectory (within the store's namespace) for entries added without an explicit path. */
 const FACTS_PREFIX = 'facts/'
-
-/** Default cap on total UTF-8 bytes of knowledge files accepted as planner input. */
-const DEFAULT_MAX_INPUT_BYTES = 128 * 1024
-
-/**
- * Default cap for total generated content bytes across all write actions in a plan. Consolidation
- * reorganizes the corpus it was given, so 2x the input cap leaves headroom for content split across
- * merge targets while still catching a planner that generates instead of reorganizing.
- */
-const DEFAULT_MAX_GENERATED_BYTES = 2 * DEFAULT_MAX_INPUT_BYTES
 
 /** Extract the filename stem (without `.md` extension) from a storage key. */
 function basename(key: string): string {
@@ -225,6 +218,14 @@ export class FileMemoryStore implements MemoryStore {
     // returned receipt matches the key search() and the backend's list() report.
     const canonicalKey = normalizeKey(key)
 
+    // Reject single-dot path segments that normalizeKey does not strip. The OS collapses './' so
+    // a key like './consolidation-changelog.md' would alias the reserved changelog on disk despite
+    // failing the string-equality guard below. Consolidation's validatePath already rejects dots;
+    // this closes the same gap in the public add() path.
+    if (containsDotSegments(canonicalKey)) {
+      throw new Error("Path must not contain '.' segments: use a direct path without dot-directory references")
+    }
+
     if (isConsolidationChangelog(canonicalKey)) {
       throw new Error(`Path must not be the reserved '${CONSOLIDATION_CHANGELOG}' file`)
     }
@@ -363,7 +364,7 @@ export class FileMemoryStore implements MemoryStore {
 
     // Like the action-count guard, an oversized plan is a runaway signal rather than a fixable
     // mistake, so this throws instead of routing into the revise-retry
-    const generatedBytes = generatedByteSize(plan)
+    const generatedBytes = generatedByteSize(plan, files)
     if (generatedBytes > maxGeneratedBytes) {
       throw new Error(
         `Consolidation plan exceeds generated content limit: ${generatedBytes} bytes (maxGeneratedBytes: ${maxGeneratedBytes})`
