@@ -11,7 +11,7 @@ import { AfterModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import { adjustSplitPointForToolPairs } from '../conversation-manager/compression/context-compression.js'
-import type { ContextManagerConfig, ContextStrategy, StrategyContext, StrategyInitContext } from './types.js'
+import type { ContextManagerConfig, ContextStrategy, StrategyContext } from './types.js'
 import { Offload } from './strategies/offload.js'
 
 /**
@@ -58,12 +58,9 @@ export class ContextManager implements Plugin {
     this._agent = agent
     this._agentId = agent.id
 
-    const initContext: StrategyInitContext = {
-      agent,
-    }
     const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies
     for (const strategy of strategies) {
-      strategy.init?.(initContext)
+      strategy.init?.(agent)
     }
 
     let overflowRetries = 0

@@ -36,7 +36,7 @@ import { TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Message } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import type { LocalAgent } from '../../types/agent.js'
-import type { ContextStrategy, StrategyContext, StrategyInitContext } from '../types.js'
+import type { ContextStrategy, StrategyContext } from '../types.js'
 import {
   DROPPED_MARKER,
   SUMMARIZED_PREFIX,
@@ -137,10 +137,9 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     this._excludeFilter = resolved.exclude
   }
 
-  init(context: StrategyInitContext): void {
+  init(agent: LocalAgent): void {
     if (this._preserveRecent > 0) return
     if (!this._shouldRegisterEagerHook()) return
-    const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
       const messages = agent.messages
       const lastMessage = messages[messages.length - 1]
@@ -310,8 +309,8 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     this._utilization = conditions?.utilization
   }
 
-  override init(context: StrategyInitContext): void {
-    super.init(context)
+  override init(agent: LocalAgent): void {
+    super.init(agent)
   }
 
   protected override _shouldRegisterEagerHook(): boolean {

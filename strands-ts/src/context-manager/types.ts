@@ -17,21 +17,13 @@ export interface ContextStrategy {
    * Called once when the ContextManager is attached to an agent.
    * Strategies can use this to register hooks (e.g., eager offloading on message arrival).
    */
-  init?(context: StrategyInitContext): void
+  init?(agent: import('../types/agent.js').LocalAgent): void
 
   /**
    * Attempt to reduce context. Returns true if it made changes, false if it
    * decided not to act (e.g., conditions not met, nothing to offload).
    */
   apply(context: StrategyContext): Promise<boolean>
-}
-
-/**
- * Context passed to strategies during initialization.
- */
-export interface StrategyInitContext {
-  /** The agent instance. */
-  agent: import('../types/agent.js').LocalAgent
 }
 
 /**
