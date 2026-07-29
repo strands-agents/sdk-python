@@ -158,7 +158,7 @@ type ContextManagerPreset = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
  *
  * - `"auto"`: Managed context with proactive compression + offloading.
  * - `"agentic"`: Model-driven context management via injected tools.
- * - `ContextManager` instance: Full control over L1 storage and strategies.
+ * - `ContextManager` instance: Full control over strategy-driven offloading.
  * - `false`: Explicitly disable all context management (no compression, no offloading).
  */
 export type ContextManagerStrategy = ContextManagerPreset | ContextManager | false
@@ -237,15 +237,10 @@ export type AgentConfig = {
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
    * - `"agentic"`: Lets the model drive context management via injected tools.
-   * - `ContextManager` instance: First-class component that writes every message to L1
-   *   on arrival and (in future) evaluates strategies before each model call.
+   * - `ContextManager` instance: First-class component that evaluates strategies on overflow.
    *
-   * If `conversationManager` is also provided, the user's conversation manager is used instead.
+   * When a `ContextManager` instance is provided, any co-provided `conversationManager` is ignored.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
-   *
-   * @remarks When using the string presets, the offloader uses in-memory storage that does not
-   * persist across process restarts. Pass a `ContextManager` instance with durable storage for
-   * agents that need session persistence.
    */
   contextManager?: ContextManagerStrategy
   /**
@@ -351,6 +346,9 @@ function resolveConversationManager(
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
   if (contextManager === false) {
+    if (conversationManager) {
+      logger.warn('contextManager=<false> | conversationManager was also provided and remains active')
+    }
     return conversationManager ?? new NullConversationManager()
   }
   if (contextManager instanceof ContextManager) {
@@ -465,7 +463,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   public readonly description?: string
 
   /**
-   * The context manager for L1 durable storage and strategy-driven offloading, if configured.
+   * The context manager for strategy-driven offloading, if configured.
    */
   public readonly contextManager?: ContextManager | undefined
   /**

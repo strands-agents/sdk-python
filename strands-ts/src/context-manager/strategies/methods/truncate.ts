@@ -85,32 +85,30 @@ function isProcessedText(text: string): boolean {
  *
  * @returns The preview string with truncation metadata header.
  */
-export function buildPreview(
-  fullText: string,
-  blockCount: number,
-  config?: TruncateConfig
-): string {
+export function buildPreview(fullText: string, blockCount: number, config?: TruncateConfig): string {
   const previewTokens = config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS
   const previewChars = previewTokens * CHARS_PER_TOKEN
   const previewMode = config?.preview ?? 'headTail'
   const totalChars = fullText.length
 
-  let preview: string
   if (totalChars <= previewChars) {
-    preview = fullText
-  } else if (previewMode === 'head') {
+    return fullText
+  }
+
+  let preview: string
+  if (previewMode === 'head') {
     const head = fullText.slice(0, previewChars)
     const elided = totalChars - previewChars
     preview = `${head}\n\n[... ${elided.toLocaleString()} chars elided ...]`
   } else if (previewMode === 'tail') {
-    const tail = fullText.slice(-previewChars)
+    const tail = previewChars > 0 ? fullText.slice(-previewChars) : ''
     const elided = totalChars - previewChars
     preview = `[... ${elided.toLocaleString()} chars elided ...]\n\n${tail}`
   } else {
     const headChars = Math.floor(previewChars * 0.6)
     const tailChars = previewChars - headChars
     const head = fullText.slice(0, headChars)
-    const tail = fullText.slice(-tailChars)
+    const tail = tailChars > 0 ? fullText.slice(-tailChars) : ''
     const elided = totalChars - headChars - tailChars
     preview = `${head}\n\n[... ${elided.toLocaleString()} chars elided ...]\n\n${tail}`
   }
@@ -124,10 +122,7 @@ export function buildPreview(
 /**
  * Creates a replacement ToolResultBlock containing the truncated preview.
  */
-export function truncateToolResultBlock(
-  block: ToolResultBlock,
-  config?: TruncateConfig
-): ToolResultBlock {
+export function truncateToolResultBlock(block: ToolResultBlock, config?: TruncateConfig): ToolResultBlock {
   const fullText = extractBlockText(block)
   const preview = buildPreview(fullText, block.content.length, config)
   return new ToolResultBlock({
@@ -140,10 +135,7 @@ export function truncateToolResultBlock(
 /**
  * Creates a replacement TextBlock containing the truncated preview.
  */
-export function truncateTextBlock(
-  block: TextBlock,
-  config?: TruncateConfig
-): TextBlock {
+export function truncateTextBlock(block: TextBlock, config?: TruncateConfig): TextBlock {
   const preview = buildPreview(block.text, 1, config)
   return new TextBlock(preview)
 }

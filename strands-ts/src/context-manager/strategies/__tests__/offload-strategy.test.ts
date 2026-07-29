@@ -32,8 +32,7 @@ describe('Offload.truncate', () => {
   })
 
   it('creates a strategy with .when() conditions', () => {
-    const strategy = Offload.truncate('toolResults', { previewTokens: 500 })
-      .when({ threshold: 1000 })
+    const strategy = Offload.truncate('toolResults', { previewTokens: 500 }).when({ threshold: 1000 })
     expect(strategy.name).toBe('offload:truncate')
   })
 
@@ -262,9 +261,7 @@ describe('Offload builder', () => {
     const largeText = 'x'.repeat(2500 * 4 + 100)
     const assistantMsg = new Message({
       role: 'assistant',
-      content: [
-        new ToolUseBlock({ name: 'bash', toolUseId: 'tool-bash', input: {} }),
-      ],
+      content: [new ToolUseBlock({ name: 'bash', toolUseId: 'tool-bash', input: {} })],
     })
     const userMsg = new Message({
       role: 'user',
@@ -290,9 +287,7 @@ describe('Offload builder', () => {
     const largeText = 'x'.repeat(2500 * 4 + 100)
     const assistantMsg = new Message({
       role: 'assistant',
-      content: [
-        new ToolUseBlock({ name: 'read_file', toolUseId: 'tool-read', input: {} }),
-      ],
+      content: [new ToolUseBlock({ name: 'read_file', toolUseId: 'tool-read', input: {} })],
     })
     const userMsg = new Message({
       role: 'user',

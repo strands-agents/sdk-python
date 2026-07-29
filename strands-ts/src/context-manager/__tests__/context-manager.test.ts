@@ -39,7 +39,9 @@ describe('ContextManager', () => {
       let initCalled = false
       const strategy = {
         name: 'test',
-        init: () => { initCalled = true },
+        init: () => {
+          initCalled = true
+        },
         apply: async () => false,
       }
       const cm = new ContextManager({ strategies: [strategy] })
@@ -59,11 +61,17 @@ describe('ContextManager', () => {
       const order: string[] = []
       const strategy1 = {
         name: 'first',
-        apply: async () => { order.push('first'); return false },
+        apply: async () => {
+          order.push('first')
+          return false
+        },
       }
       const strategy2 = {
         name: 'second',
-        apply: async () => { order.push('second'); return false },
+        apply: async () => {
+          order.push('second')
+          return false
+        },
       }
       const cm = new ContextManager({ strategies: [strategy1, strategy2] })
       const agent = makeMockAgent()

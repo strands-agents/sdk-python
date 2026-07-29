@@ -39,11 +39,7 @@ export interface SummarizeConfig {
  *
  * @returns The summarized text, or null if summarization failed.
  */
-export async function summarizeText(
-  text: string,
-  model: Model,
-  config?: SummarizeConfig
-): Promise<string | null> {
+export async function summarizeText(text: string, model: Model, config?: SummarizeConfig): Promise<string | null> {
   const messages = [
     new Message({
       role: 'user',

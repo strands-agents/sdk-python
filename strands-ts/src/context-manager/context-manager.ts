@@ -11,12 +11,7 @@ import { AfterModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import { adjustSplitPointForToolPairs } from '../conversation-manager/compression/context-compression.js'
-import type {
-  ContextManagerConfig,
-  ContextStrategy,
-  StrategyContext,
-  StrategyInitContext,
-} from './types.js'
+import type { ContextManagerConfig, ContextStrategy, StrategyContext, StrategyInitContext } from './types.js'
 import { Offload } from './strategies/offload.js'
 
 /**
@@ -57,6 +52,9 @@ export class ContextManager implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
+    if (this._agent && this._agent !== agent) {
+      throw new Error('ContextManager instance cannot be shared across multiple agents')
+    }
     this._agent = agent
     this._agentId = agent.id
 
@@ -81,7 +79,13 @@ export class ContextManager implements Plugin {
         return
       }
 
-      await this._runStrategies()
+      try {
+        await this._runStrategies()
+      } catch (strategyError) {
+        logger.warn(
+          `agentId=<${this._agentId}>, error=<${strategyError}> | strategy pipeline failed, falling through to truncate`
+        )
+      }
       this._truncate(agent.messages)
 
       overflowRetries++
