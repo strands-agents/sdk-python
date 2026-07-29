@@ -175,3 +175,20 @@ async function pinFirstExample() {
   })
   // --8<-- [end:pin_first]
 }
+
+async function cacheAlignedSummarization() {
+  // --8<-- [start:cache_aligned]
+  // Prompt caching must be enabled on the model for alignment to pay off
+  const model = new BedrockModel({
+    cacheConfig: { strategy: 'auto' },
+  })
+
+  const agent = new Agent({
+    model,
+    conversationManager: new SummarizingConversationManager({
+      cacheAligned: true,
+      proactiveCompression: true,
+    }),
+  })
+  // --8<-- [end:cache_aligned]
+}

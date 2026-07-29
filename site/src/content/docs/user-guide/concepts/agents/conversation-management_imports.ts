@@ -55,4 +55,6 @@ import { Agent, SummarizingConversationManager } from '@strands-agents/sdk'
 import { Agent, SlidingWindowConversationManager } from '@strands-agents/sdk'
 // --8<-- [end:pin_first_imports]
 
-
+// --8<-- [start:cache_aligned_imports]
+import { Agent, SummarizingConversationManager, BedrockModel } from '@strands-agents/sdk'
+// --8<-- [end:cache_aligned_imports]

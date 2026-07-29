@@ -182,6 +182,7 @@ Configuration parameters:
 - **`preserveRecentMessages`** (number, default: 10): Minimum number of recent messages to always keep
 - **`summarizationSystemPrompt`** (string, optional): Custom system prompt for summarization. If not provided, uses a default prompt that creates structured bullet-point summaries focusing on key topics, tools used, and technical information in third-person format.
 - **`proactiveCompression`** (`boolean | { compressionThreshold: number }`, optional): Enable proactive context compression before the model call. Pass `true` for the default 0.7 threshold, or an object with a custom threshold. See [Proactive Context Compression](#proactive-context-compression).
+- **`cacheAligned`** (boolean, default: false): Reuse the provider prompt cache for proactive summarization requests by aligning them with the live conversation's request. Only takes effect when `proactiveCompression` is enabled. See [Cache-Aligned Summarization](#cache-aligned-summarization).
 
 </Tab>
 </Tabs>
@@ -325,6 +326,51 @@ Pass a custom `model` to `SummarizingConversationManager` to override the model 
 
 --8<-- "user-guide/concepts/agents/conversation-management.ts:summarizing_conversation_manager_advanced"
 ```
+
+</Tab>
+</Tabs>
+
+#### Cache-Aligned Summarization
+
+When your model serves the conversation from a prompt cache, you can have summarization read from that same cache instead of paying full input-token price to re-read the history. By default it cannot: the summarization request (a slice of history under a dedicated summarization system prompt) looks nothing like the live conversation's requests, so the provider re-reads every token.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+# Not supported in Python
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+Enable cache alignment alongside proactive compression:
+
+```typescript
+--8<-- "user-guide/concepts/agents/conversation-management_imports.ts:cache_aligned_imports"
+
+--8<-- "user-guide/concepts/agents/conversation-management.ts:cache_aligned"
+```
+
+When proactive compression triggers, the summarization request reuses the agent's live system prompt, tool specs, and full message history, delivering the summarization instruction at the tail of the conversation. The request prefix is byte-identical to the live conversation's request, so the provider serves the history from its prompt cache at the cached-read price instead of re-reading it. The outcome is unchanged: the oldest messages are still replaced by the summary according to `summaryRatio` and `preserveRecentMessages`. One semantic difference: the summarizing model sees the entire history, including the recent messages kept verbatim, and the default instruction directs it to leave those out of the summary.
+
+Cache alignment pays off when the cache is warm and the history is large:
+
+- Prompt caching must be enabled on the model (see [Caching](../model-providers/amazon-bedrock/#caching) for Amazon Bedrock), and a live turn must have run recently. Anthropic's prompt cache expires after roughly five minutes of inactivity.
+- The larger the history, the bigger the saving: cache reads are billed at a fraction of the regular input-token price.
+
+With a cold cache or a small history it does not pay off. The aligned request is a superset of the live request (the full history plus the instruction), so an uncached read costs more than the slice a standard summarization request would send, and histories below the provider's minimum cacheable prompt size are never cached at all.
+
+Two cases always use slice-based summarization even when `cacheAligned` is enabled:
+
+- **Reactive overflow recovery.** The aligned request only fits under the proactive threshold; after a context window overflow it would overflow again.
+- **An unresolved tool-use tail.** When the last message is an assistant tool use still awaiting its result, the summarization instruction cannot be delivered without breaking the tool-use/result pair, so that pass falls back to slice-based summarization.
+
+:::caution[Model override disables cache alignment]
+Do not combine `cacheAligned` with the `model` override. A different model cannot reuse the live model's prompt cache, so when both are configured the manager ignores `cacheAligned` and uses slice-based summarization. The constructor logs a warning.
+:::
+
+**Summarizing on idle.** The short cache TTL makes idle time the cheapest moment to summarize: a few minutes after a turn completes, the cache entry written by that turn is still warm, but once the user walks away for longer it expires and the next read costs full price. The [cache-aligned-summarization example](https://github.com/strands-agents/harness-sdk/tree/main/strands-ts/examples/cache-aligned-summarization) wires this up: a 3-minute idle timer armed when a turn completes, cancelled if the user replies first, skipping unresolved tool-use tails, and calling the conversation manager's `reduce()` directly when it fires.
 
 </Tab>
 </Tabs>
