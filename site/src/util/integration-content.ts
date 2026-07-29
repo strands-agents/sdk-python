@@ -15,9 +15,11 @@ export type IntegrationType =
   | 'tool'
   | 'session-manager'
   | 'memory-store'
+  | 'storage'
   | 'integration'
   | 'plugin'
   | 'agent-extension'
+  | 'intervention'
 
 /**
  * Represents language support for an integration.

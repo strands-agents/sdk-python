@@ -411,7 +411,7 @@ class Agent(AgentBase):
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
 
-            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 
         self._plugin_registry = _PluginRegistry(self)
 
@@ -428,12 +428,10 @@ class Agent(AgentBase):
 
         self._concurrency = _ConcurrencyController(concurrent_invocation_mode)
 
-        # In the future, we'll have a RetryStrategy base class but until
-        # that API is determined we only allow ModelRetryStrategy
         if (
             retry_strategy is not None
             and not isinstance(retry_strategy, _DefaultRetryStrategySentinel)
-            and type(retry_strategy) is not ModelRetryStrategy
+            and not isinstance(retry_strategy, ModelRetryStrategy)
         ):
             raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
 
@@ -595,6 +593,8 @@ class Agent(AgentBase):
         The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
+        - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 

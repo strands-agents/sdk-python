@@ -1,4 +1,3 @@
-import json
 import logging
 import unittest.mock
 
@@ -921,11 +920,16 @@ async def test_stream_response_empty_stream(gemini_client, model, messages, agen
 
 @pytest.mark.asyncio
 async def test_stream_response_throttled_exception(gemini_client, model, messages):
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/3226.
+
+    Vertex AI returns 429s whose message is plain text rather than a JSON document; the status
+    attribute alone must be enough to classify them as throttling.
+    """
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
-        429, {"message": '{"error": {"status": "RESOURCE_EXHAUSTED"}}'}
+        429, {"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource exhausted. Please try again later."}}
     )
 
-    with pytest.raises(ModelThrottledException, match="RESOURCE_EXHAUSTED"):
+    with pytest.raises(ModelThrottledException, match="Resource exhausted. Please try again later."):
         await anext(model.stream(messages))
 
 
@@ -934,18 +938,14 @@ async def test_stream_response_context_overflow_exception(gemini_client, model, 
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
         400,
         {
-            "message": json.dumps(
-                {
-                    "error": {
-                        "message": "request exceeds the maximum number of tokens (100)",
-                        "status": "INVALID_ARGUMENT",
-                    },
-                }
-            ),
+            "error": {
+                "message": "request exceeds the maximum number of tokens (100)",
+                "status": "INVALID_ARGUMENT",
+            },
         },
     )
 
-    with pytest.raises(ContextWindowOverflowException, match="INVALID_ARGUMENT"):
+    with pytest.raises(ContextWindowOverflowException, match="exceeds the maximum number of tokens"):
         await anext(model.stream(messages))
 
 
@@ -1060,18 +1060,14 @@ async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client
 
 
 @pytest.mark.asyncio
-async def test_stream_handles_non_json_error(gemini_client, model, messages, caplog, alist):
+async def test_stream_handles_non_json_error(gemini_client, model, messages, alist):
     error_message = "Invalid API key"
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
-        error_message, {"message": error_message}
+        400, {"error": {"message": error_message}}
     )
 
-    with caplog.at_level(logging.WARNING):
-        with pytest.raises(genai.errors.ClientError, match=error_message):
-            await alist(model.stream(messages))
-
-    assert "Gemini API returned non-JSON error" in caplog.text
-    assert f"error_message=<{error_message}>" in caplog.text
+    with pytest.raises(genai.errors.ClientError, match=error_message):
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio

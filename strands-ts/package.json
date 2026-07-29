@@ -68,6 +68,14 @@
       "types": "./dist/src/vended-tools/bash/index.d.ts",
       "default": "./dist/src/vended-tools/bash/index.js"
     },
+    "./vended-tools/sleep": {
+      "types": "./dist/src/vended-tools/sleep/index.d.ts",
+      "default": "./dist/src/vended-tools/sleep/index.js"
+    },
+    "./experimental/vended-tools/stop": {
+      "types": "./dist/src/experimental/vended-tools/stop/index.d.ts",
+      "default": "./dist/src/experimental/vended-tools/stop/index.js"
+    },
     "./a2a": {
       "types": "./dist/src/a2a/index.d.ts",
       "default": "./dist/src/a2a/index.js"
@@ -127,6 +135,10 @@
     "./vended-plugins": {
       "types": "./dist/src/vended-plugins/index.d.ts",
       "default": "./dist/src/vended-plugins/index.js"
+    },
+    "./storage": {
+      "types": "./dist/src/storage/index.d.ts",
+      "default": "./dist/src/storage/index.js"
     },
     "./sandbox": {
       "types": "./dist/src/sandbox/index.d.ts",
@@ -205,7 +217,6 @@
     "@smithy/types": "^4.15.1",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.4",
-    "@types/uuid": "^11.0.0",
     "@typescript-eslint/eslint-plugin": "^8.62.1",
     "@typescript-eslint/parser": "^8.0.0",
     "@vitest/browser": "^4.1.10",

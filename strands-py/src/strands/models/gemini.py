@@ -594,21 +594,11 @@ class GeminiModel(Model):
                 yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
 
         except genai.errors.ClientError as error:
-            if not error.message:
-                raise
-
-            try:
-                message = json.loads(error.message) if error.message else {}
-            except json.JSONDecodeError as e:
-                logger.warning("error_message=<%s> | Gemini API returned non-JSON error", error.message)
-                # Re-raise the original ClientError (not JSONDecodeError) and make the JSON error the explicit cause
-                raise error from e
-
-            match message["error"]["status"]:
+            match error.status:
                 case "RESOURCE_EXHAUSTED" | "UNAVAILABLE":
-                    raise ModelThrottledException(error.message) from error
+                    raise ModelThrottledException(error.message or str(error)) from error
                 case "INVALID_ARGUMENT":
-                    if "exceeds the maximum number of tokens" in message["error"]["message"]:
+                    if error.message and "exceeds the maximum number of tokens" in error.message:
                         raise ContextWindowOverflowException(error.message) from error
                     raise error
                 case _:

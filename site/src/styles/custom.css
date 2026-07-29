@@ -7,7 +7,9 @@
  * - Dark bg: #0E0E0E
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap');
+/* The Figtree web font is loaded via preconnect + <link rel="stylesheet"> in
+   src/components/SiteScripts.astro (included by Head.astro and LandingLayout.astro)
+   rather than an @import here, which would chain a render-blocking fetch. */
 
 /* Dark mode colors. */
 :root {
