@@ -60,9 +60,9 @@ export function extractBlockText(block: ToolResultBlock): string {
 }
 
 /**
- * Builds a head-tail preview of the given text.
+ * Builds a preview of the given text (head, tail, or head-tail depending on config).
  *
- * @returns The preview string with truncation metadata header.
+ * @returns The preview string with truncation metadata header, or the original text if already within budget.
  */
 export function buildPreview(fullText: string, blockCount: number, config?: TruncateConfig): string {
   const previewTokens = config?.previewTokens ?? DEFAULT_PREVIEW_TOKENS

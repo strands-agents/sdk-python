@@ -49,7 +49,8 @@ import {
 import { summarizeText, type SummarizeConfig } from './methods/summarize.js'
 
 /**
- * Target for offload operations.
+ * Target for offload operations. This union is intentionally extensible — new
+ * string-literal members can be added freely as new content categories emerge.
  *
  * - `"toolResults"` — all successful tool result blocks
  * - `"toolResultErrors"` — all failed tool result blocks
@@ -101,7 +102,7 @@ function matchesToolTarget(
   toolFilter: Set<string> | undefined,
   excludeFilter: Set<string> | undefined
 ): boolean {
-  if (target === 'toolResults') return block.status !== 'error'
+  if (target === 'toolResults') return block.status === 'success'
   if (target === 'toolResultErrors') return block.status === 'error'
 
   const toolName = resolveToolName(block, messages)
@@ -140,8 +141,7 @@ class OffloadDropStrategy implements ContextStrategy {
     if (this._preserveRecent > 0) return
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
-      const message = event.message
-      this._processMessage(message, [message])
+      this._processMessage(event.message, agent.messages)
     })
   }
 
@@ -261,8 +261,7 @@ class OffloadTruncateStrategy implements ContextStrategy {
     if (this._preserveRecent > 0) return
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
-      const message = event.message
-      this._processMessage(message, [message])
+      this._processMessage(event.message, agent.messages)
     })
   }
 
@@ -380,10 +379,9 @@ class OffloadSummarizeStrategy implements ContextStrategy {
     if (this._utilization !== undefined) return
     const { agent } = context
     agent.addHook(MessageAddedEvent, async (event) => {
-      const message = event.message
       const model = this._config.model ?? ((agent as unknown as Record<string, unknown>)['model'] as Model | undefined)
       if (!model) return
-      await this._processMessage(message, [message], model)
+      await this._processMessage(event.message, agent.messages, model)
     })
   }
 
