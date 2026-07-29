@@ -1303,6 +1303,31 @@ async def test_event_loop_cycle_after_tools_fires_when_tool_hook_raises(agent, m
 
 
 @pytest.mark.asyncio
+async def test_event_loop_cycle_interrupts_preserved_when_after_tools_hook_raises(
+    agent, model, tool_stream, agenerator, alist
+):
+    """Per-tool interrupts are persisted even when an AfterToolsEvent hook raises."""
+
+    def interrupt_tool(event):
+        event.interrupt("approval", "Approve?")
+
+    def raise_in_after_tools(event):
+        raise RuntimeError("after tools hook failed")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_tool)
+    agent.hooks.add_callback(AfterToolsEvent, raise_in_after_tools)
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    with pytest.raises(EventLoopException, match="after tools hook failed"):
+        await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+
+    # Interrupt state was preserved before the exception propagated.
+    assert agent._interrupt_state.activated
+    assert agent._interrupt_state.context["tool_use_message"] == agent.messages[-1]
+    assert agent._interrupt_state.context["tool_results"] == []
+
+
+@pytest.mark.asyncio
 async def test_event_loop_cycle_after_tools_not_fired_on_before_tools_interrupt(
     agent, model, tool_stream, agenerator, alist
 ):

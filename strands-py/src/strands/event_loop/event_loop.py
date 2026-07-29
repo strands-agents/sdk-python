@@ -857,6 +857,10 @@ async def _handle_tool_execution(
         try:
             after_tools_event, _ = await agent.hooks.invoke_callbacks_async(after_tools_event)
         except Exception:
+            # Persist pending interrupts before re-raising so they aren't lost.
+            if interrupts:
+                agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+                agent._interrupt_state.activate()
             raise
 
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
