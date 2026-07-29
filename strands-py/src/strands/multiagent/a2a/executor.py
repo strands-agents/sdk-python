@@ -679,8 +679,8 @@ class StrandsA2AExecutor(AgentExecutor):
             caller should fall back to generic content-block conversion.
 
         Raises:
-            ServerError: If an interrupt response is malformed, repeats an interrupt id, or is
-                accompanied by unrelated content in the same message.
+            ServerError: If an interrupt response is malformed, carries a null response, repeats an
+                interrupt id, or is accompanied by unrelated content in the same message.
         """
         responses: list[InterruptResponseContent] = []
         seen_ids: set[str] = set()
@@ -707,11 +707,13 @@ class StrandsA2AExecutor(AgentExecutor):
                     error=InvalidParamsError(message="Interrupt response is missing a non-empty 'interruptId'")
                 ) from None
 
-            # A null response is a legitimate answer, so presence of the key is what matters.
-            if "response" not in response:
+            # `Interrupt.response` of None means "not yet answered", so a null answer would leave
+            # the interrupt unsatisfied and re-raise it — the client would see an identical
+            # input_required and no error. Falsy answers such as False are fine.
+            if response.get("response") is None:
                 raise ServerError(
                     error=InvalidParamsError(
-                        message=f"Interrupt response for '{interrupt_id}' is missing a 'response' field"
+                        message=f"Interrupt response for '{interrupt_id}' must provide a non-null 'response'"
                     )
                 ) from None
 

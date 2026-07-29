@@ -5,7 +5,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from a2a.types import DataPart, FilePart, InternalError, TextPart, UnsupportedOperationError
+from a2a.types import DataPart, FilePart, InternalError, InvalidParamsError, TextPart, UnsupportedOperationError
 from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
@@ -2389,10 +2389,24 @@ async def test_execute_multiple_interrupt_responses_all_delivered(
 
 
 @pytest.mark.asyncio
-async def test_execute_interrupt_response_with_null_response_is_valid(
-    mock_strands_agent, mock_request_context, mock_event_queue
-):
-    """A null response is a legitimate answer; only an absent 'response' key is malformed."""
+async def test_execute_null_interrupt_response_rejected(mock_strands_agent, mock_request_context, mock_event_queue):
+    """A null answer leaves the interrupt unsatisfied, so it is refused instead of silently re-firing."""
+    _park_interrupt(mock_strands_agent, "int-1")
+    mock_strands_agent.stream_async = MagicMock()
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    _request_with_parts(mock_request_context, [_interrupt_response_part("int-1", None)])
+
+    with pytest.raises(ServerError) as exc_info:
+        await executor.execute(mock_request_context, mock_event_queue)
+
+    assert isinstance(exc_info.value.error, InvalidParamsError)
+    mock_strands_agent.stream_async.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_falsy_interrupt_response_is_valid(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Only null is refused: False answers an interrupt just as well as True."""
     _park_interrupt(mock_strands_agent, "int-1")
 
     mock_result = MagicMock(spec=SAAgentResult)
@@ -2406,11 +2420,11 @@ async def test_execute_interrupt_response_with_null_response_is_valid(
     mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
     executor = StrandsA2AExecutor(mock_strands_agent)
 
-    _request_with_parts(mock_request_context, [_interrupt_response_part("int-1", None)])
+    _request_with_parts(mock_request_context, [_interrupt_response_part("int-1", False)])
     await executor.execute(mock_request_context, mock_event_queue)
 
     tru_input = mock_strands_agent.stream_async.call_args[0][0]
-    exp_input = [{"interruptResponse": {"interruptId": "int-1", "response": None}}]
+    exp_input = [{"interruptResponse": {"interruptId": "int-1", "response": False}}]
     assert tru_input == exp_input
 
 
@@ -2425,9 +2439,10 @@ async def test_execute_interrupt_response_for_unknown_id_fails_closed(
 
     _request_with_parts(mock_request_context, [_interrupt_response_part("int-other", {"approved": True})])
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     mock_strands_agent.stream_async.assert_not_called()
 
 
@@ -2441,9 +2456,10 @@ async def test_execute_interrupt_response_when_not_parked_fails_closed(
 
     _request_with_parts(mock_request_context, [_interrupt_response_part("int-1", {"approved": True})])
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     mock_strands_agent.stream_async.assert_not_called()
 
 
@@ -2458,9 +2474,10 @@ async def test_execute_rejected_resume_leaves_interrupt_parked(
 
     _request_with_parts(mock_request_context, [_interrupt_response_part("int-other", "yes")])
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     assert state.activated
     assert "int-1" in state.interrupts
 
@@ -2479,9 +2496,10 @@ async def test_execute_duplicate_interrupt_responses_rejected(
         [_interrupt_response_part("int-1", {"approved": True}), _interrupt_response_part("int-1", {"approved": False})],
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     mock_strands_agent.stream_async.assert_not_called()
 
 
@@ -2506,9 +2524,10 @@ async def test_execute_malformed_interrupt_response_rejected(
 
     _request_with_parts(mock_request_context, [_data_part(malformed)])
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     mock_strands_agent.stream_async.assert_not_called()
 
 
@@ -2526,9 +2545,10 @@ async def test_execute_interrupt_response_mixed_with_other_parts_rejected(
         [_interrupt_response_part("int-1", {"approved": True}), _text_part("and also do something else")],
     )
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     mock_strands_agent.stream_async.assert_not_called()
 
 
@@ -2543,9 +2563,10 @@ async def test_execute_new_message_while_parked_fails_closed(
 
     _request_with_parts(mock_request_context, [_text_part("never mind, do something else")])
 
-    with pytest.raises(ServerError):
+    with pytest.raises(ServerError) as exc_info:
         await executor.execute(mock_request_context, mock_event_queue)
 
+    assert isinstance(exc_info.value.error, InvalidParamsError)
     mock_strands_agent.stream_async.assert_not_called()
 
 

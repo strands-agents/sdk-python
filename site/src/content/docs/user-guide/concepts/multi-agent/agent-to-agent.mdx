@@ -381,11 +381,13 @@ In single-agent mode the server reuses one agent across every context, swapping 
 
 ### Answering Interrupts
 
-When a tool or hook on the served agent raises an [interrupt](../interrupts.md), the task moves to the A2A `input_required` state and waits. The client answers it, and the task resumes the paused tool exactly where it stopped.
-
 :::note[Python only]
 This feature is currently available in the Python SDK only.
 :::
+
+When a tool or hook on the served agent raises an [interrupt](../interrupts.md), the task moves to the A2A `input_required` state and waits. The client answers it, and the task resumes the paused tool exactly where it stopped.
+
+Answering an interrupt is the one flow on this page that needs the raw [`a2a-sdk`](https://github.com/a2aproject/a2a-python) client rather than `A2AAgent`. `A2AAgent` speaks in text, so it raises `ValueError` if you pass it interrupt responses, and it drops the `DataPart` carrying the interrupt ids when it reads the reply. The examples below build A2A messages directly.
 
 Each interrupt has a server-generated id, and an answer is bound to the id of the interrupt that raised it. The server advertises the pending interrupts on the `input_required` status message as a `DataPart`, alongside the human-readable `TextPart`:
 
@@ -418,7 +420,7 @@ To answer, send a new message on the same `taskId` containing a `DataPart` that 
 }
 ```
 
-The `response` is any JSON value, and it becomes the return value of the `interrupt()` call that paused the tool. Answer several interrupts in one message by sending one `DataPart` for each.
+The `response` becomes the return value of the `interrupt()` call that paused the tool. It is any JSON value except `null`, which the server refuses — a null answer would leave the interrupt unsatisfied and re-raise it. `false` and `0` are fine. Answer several interrupts in one message by sending one `DataPart` for each.
 
 Reading the ids off the status message and answering them:
 
@@ -441,7 +443,15 @@ answers = [
 ]
 ```
 
-The server rejects an answer it cannot bind, before the agent runs, so a refused answer leaves the interrupt pending and the task still answerable. An answer is rejected when its `interruptId` does not match an interrupt the task is waiting on, when no interrupt is pending, when the same `interruptId` is answered twice in one message, when the payload is missing `interruptId` or `response`, or when it is sent alongside other content parts. A task with a pending interrupt also rejects an ordinary conversational message — answer the interrupt, or cancel the task.
+The server rejects an answer it cannot bind, before the agent runs, so a refused answer leaves the interrupt pending and the task still answerable. An answer is rejected when:
+
+- its `interruptId` does not match an interrupt the task is waiting on
+- no interrupt is pending
+- the same `interruptId` is answered twice in one message
+- the payload is missing `interruptId`, or its `response` is missing or `null`
+- it is sent alongside other content parts
+
+A task with a pending interrupt also rejects an ordinary conversational message — answer the interrupt, or cancel the task.
 
 A `DataPart` without an `interruptResponse` key is unaffected and continues to reach the agent as structured data.
 
