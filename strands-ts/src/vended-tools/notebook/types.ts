@@ -42,6 +42,18 @@ export interface ReadInput {
 }
 
 /**
+ * Input parameters for write operation (append to the end).
+ * - mode: Operation mode, must be 'write'
+ * - name: Name of the notebook to append to
+ * - newStr: Text to append to the end of the notebook
+ */
+export interface WriteAppendInput {
+  mode: 'write'
+  name?: string
+  newStr: string
+}
+
+/**
  * Input parameters for write operation (string replacement).
  * - mode: Operation mode, must be 'write'
  * - name: Name of the notebook to write to
@@ -82,4 +94,5 @@ export interface ClearInput {
 /**
  * Union type of all valid notebook inputs.
  */
-export type NotebookInput = CreateInput | ListInput | ReadInput | WriteReplaceInput | WriteInsertInput | ClearInput
+export type NotebookInput =
+  CreateInput | ListInput | ReadInput | WriteAppendInput | WriteReplaceInput | WriteInsertInput | ClearInput

@@ -77,6 +77,7 @@ The agent can perform these operations through natural language:
 - **List**: "List all notebooks"
 - **Read**: "Read the notes notebook" or "Read lines 5-10 from notes"
 - **Write**:
+  - Append: "Append 'new line' to the notes notebook"
   - Replace: "Replace 'old text' with 'new text' in notes"
   - Insert: "Add 'new line' to the notes notebook"
 - **Clear**: "Clear the notes notebook"
@@ -162,7 +163,7 @@ const content = await notebook.invoke(
 type NotebookInput = {
   mode: 'create' | 'list' | 'read' | 'write' | 'clear'
   name?: string // Notebook name (defaults to 'default')
-  newStr?: string // Content for create/write operations
+  newStr?: string // Content for create or append; replacement/insertion text for write
   oldStr?: string // Text to replace (write mode)
   insertLine?: string | number // Line to insert after (write mode)
   readRange?: [number, number] // Line range for read (1-indexed)

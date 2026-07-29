@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { notebook } from '../notebook.js'
-import type { NotebookState } from '../types.js'
+import type { NotebookInput, NotebookState } from '../types.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -250,8 +250,9 @@ describe('notebook tool', () => {
     it('appends newStr to a populated notebook', async () => {
       const { state, context } = createFreshContext()
       state.set('notebooks', { notes: 'First entry' })
+      const input: NotebookInput = { mode: 'write', name: 'notes', newStr: 'Second entry' }
 
-      const result = await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'Second entry' }, context)
+      const result = await notebook.invoke(input, context)
 
       expect(result).toBe("Appended text to notebook 'notes'")
       expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry\nSecond entry')
@@ -261,8 +262,9 @@ describe('notebook tool', () => {
       const { state, context } = createFreshContext()
       state.set('notebooks', { notes: '' })
 
-      await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'First entry' }, context)
+      const result = await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'First entry' }, context)
 
+      expect(result).toBe("Appended text to notebook 'notes'")
       expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry')
     })
 
@@ -270,9 +272,23 @@ describe('notebook tool', () => {
       const { state, context } = createFreshContext()
       state.set('notebooks', { notes: 'First entry\n' })
 
-      await notebook.invoke({ mode: 'write', name: 'notes', newStr: 'Second entry\nThird entry' }, context)
+      const result = await notebook.invoke(
+        { mode: 'write', name: 'notes', newStr: 'Second entry\nThird entry' },
+        context
+      )
 
+      expect(result).toBe("Appended text to notebook 'notes'")
       expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry\nSecond entry\nThird entry')
+    })
+
+    it('leaves the notebook unchanged when newStr is empty', async () => {
+      const { state, context } = createFreshContext()
+      state.set('notebooks', { notes: 'First entry' })
+
+      const result = await notebook.invoke({ mode: 'write', name: 'notes', newStr: '' }, context)
+
+      expect(result).toBe("No changes made to notebook 'notes'")
+      expect(state.get<NotebookState>('notebooks')!.notes).toBe('First entry')
     })
 
     it('throws for a notebook that does not exist', async () => {
