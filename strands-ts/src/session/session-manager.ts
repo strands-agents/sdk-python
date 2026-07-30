@@ -36,7 +36,8 @@ import type { Swarm } from '../multiagent/swarm.js'
  *
  * `SaveLatestStrategy` controls how frequently `snapshot_latest` is updated:
  * - `'invocation'`: after every agent invocation completes (default; balances durability and I/O)
- * - `'message'`: after every message added (most durable, highest I/O)
+ * - `'message'`: after every message added and when an invocation completes
+ *   (most durable, highest I/O)
  * - `'trigger'`: only when a `snapshotTrigger` fires (or manually via `saveSnapshot`)
  *
  * Under `'invocation'` and `'message'`, guardrail redactions are persisted immediately so
@@ -245,9 +246,9 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     }
   }
 
-  /** Saves latest on invocation and fires the snapshot trigger if configured. */
+  /** Saves latest for auto-save strategies and fires the snapshot trigger if configured. */
   private async _onAfterAgentInvocation(event: AfterInvocationEvent): Promise<void> {
-    if (this._saveLatestOn === 'invocation') {
+    if (this._saveLatestOn !== 'trigger') {
       await this.saveSnapshot({ target: event.agent, isLatest: true })
     }
 

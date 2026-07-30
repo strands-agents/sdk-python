@@ -713,6 +713,43 @@ async def test_executor_stream_retry_true(executor, agent, tool_results, invocat
     assert tool_results[0] == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_2"}]}
 
 
+@pytest.mark.parametrize("cancel_agent", [False, True])
+@pytest.mark.asyncio
+async def test_executor_stream_does_not_retry_cancelled_tool_result(
+    cancel_agent, executor, agent, tool_results, invocation_state, alist
+):
+    """Test cancellation remains terminal when an after hook requests retry."""
+    call_count = 0
+
+    @strands.tool(name="cancelled_tool")
+    def cancelled_tool():
+        nonlocal call_count
+        call_count += 1
+        if cancel_agent:
+            agent._cancel_signal.set()
+        return {
+            "status": "error",
+            "content": [{"text": "cancelled"}],
+            **({} if cancel_agent else {"cancelled": True}),
+        }
+
+    def retry_on_error(event):
+        if isinstance(event, AfterToolCallEvent) and event.result["status"] == "error":
+            event.retry = True
+        return event
+
+    agent.tool_registry.register_tool(cancelled_tool)
+    agent.hooks.add_callback(AfterToolCallEvent, retry_on_error)
+    tool_use: ToolUse = {"name": "cancelled_tool", "toolUseId": "1", "input": {}}
+
+    tru_events = await alist(executor._stream(agent, tool_use, tool_results, invocation_state))
+
+    assert call_count == 1
+    assert len(tru_events) == 1
+    assert tru_events[0].tool_result["status"] == "error"
+    assert len(tool_results) == 1
+
+
 @pytest.mark.asyncio
 async def test_executor_stream_retry_true_emits_events_from_both_attempts(
     executor, agent, tool_results, invocation_state, alist

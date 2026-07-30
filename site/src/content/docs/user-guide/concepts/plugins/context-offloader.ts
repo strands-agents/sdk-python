@@ -1,10 +1,6 @@
 import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  InMemoryStorage,
-  FileStorage,
-  S3Storage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { ContextOffloader } from '@strands-agents/sdk/vended-plugins/context-offloader'
+import { InMemoryStorage, LocalFileStorage, S3Storage } from '@strands-agents/sdk/storage'
 import { bash } from '@strands-agents/sdk/vended-tools/bash'
 import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
@@ -18,7 +14,7 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
     tools: [bash, fileEditor],
     plugins: [
       new ContextOffloader({
-        storage: new FileStorage('./artifacts'),
+        storage: new LocalFileStorage('./artifacts/'),
         includeRetrievalTool: false,
       }),
     ],
@@ -35,7 +31,9 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 {
   // --8<-- [start:getting_started]
   const agent = new Agent({
-    plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
+    plugins: [
+      new ContextOffloader({ storage: new InMemoryStorage() }),
+    ],
   })
   // --8<-- [end:getting_started]
 
@@ -68,22 +66,29 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
 {
   // --8<-- [start:in_memory_storage]
-  // Default: entries evicted after 20 cycles of disuse
   const agent = new Agent({
-    plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
+    plugins: [
+      new ContextOffloader({ storage: new InMemoryStorage() }),
+    ],
   })
 
   // Custom eviction window
   const agent2 = new Agent({
     plugins: [
-      new ContextOffloader({ storage: new InMemoryStorage(50) }),
+      new ContextOffloader({
+        storage: new InMemoryStorage(),
+        evictAfterCycles: 50,
+      }),
     ],
   })
 
-  // Disable eviction (accumulates until clear() is called)
+  // Disable eviction
   const agent3 = new Agent({
     plugins: [
-      new ContextOffloader({ storage: new InMemoryStorage(null) }),
+      new ContextOffloader({
+        storage: new InMemoryStorage(),
+        evictAfterCycles: null,
+      }),
     ],
   })
   // --8<-- [end:in_memory_storage]
@@ -94,19 +99,19 @@ import { fileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 }
 
 // =====================
-// File Storage
+// Local File Storage
 // =====================
 
 {
-  // --8<-- [start:file_storage]
+  // --8<-- [start:local_file_storage]
   const agent = new Agent({
     plugins: [
       new ContextOffloader({
-        storage: new FileStorage('./artifacts'),
+        storage: new LocalFileStorage('./artifacts/'),
       }),
     ],
   })
-  // --8<-- [end:file_storage]
+  // --8<-- [end:local_file_storage]
 
   void agent
 }

@@ -114,12 +114,14 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
 <Tabs>
   <Tab label="Python">
 
-  The agent checks for cancellation at two checkpoints:
+  The agent checks for cancellation at four checkpoints:
 
   | Checkpoint | Behavior | Note |
   |---|---|---|
   | Model response streaming | Partial output is discarded | Usage metrics may be inaccurate since the stream is closed before the model sends its final metadata event |
   | Before tool execution | Tool calls are skipped with error results added to maintain valid conversation state | |
+  | During MCP tool execution | The in-flight MCP request is cancelled without closing the shared MCP session | Remote cancellation is best-effort; the agent stops locally even if the server does not acknowledge cancellation |
+  | After tool execution | The agent stops before the next model call | Non-MCP tools finish before cancellation is observed |
 
   The agent returns a result with `stop_reason="cancelled"`. `cancel()` is thread-safe and idempotent. Calling it multiple times or from different threads is safe.
 

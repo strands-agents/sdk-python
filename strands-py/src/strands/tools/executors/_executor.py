@@ -93,6 +93,19 @@ class ToolExecutor(abc.ABC):
         return await agent.hooks.invoke_callbacks_async(event)
 
     @staticmethod
+    def _should_retry(agent: "Agent | BidiAgent", after_event: AfterToolCallEvent | BidiAfterToolCallEvent) -> bool:
+        """Return whether a hook-requested retry should run.
+
+        Cancellation is terminal: retrying a locally cancelled tool can spin indefinitely
+        while delaying the caller's requested agent stop.
+        """
+        if not getattr(after_event, "retry", False):
+            return False
+        if cast(dict[str, Any], after_event.result).get("cancelled") is True:
+            return False
+        return not (ToolExecutor._is_agent(agent) and agent._cancel_signal.is_set())
+
+    @staticmethod
     async def _stream(
         agent: "Agent | BidiAgent",
         tool_use: ToolUse,
@@ -265,8 +278,7 @@ class ToolExecutor(abc.ABC):
                     agent, selected_tool, tool_use, invocation_state, result, exception=exception
                 )
 
-                # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
-                if getattr(after_event, "retry", False):
+                if ToolExecutor._should_retry(agent, after_event):
                     logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                     continue
 
@@ -296,8 +308,7 @@ class ToolExecutor(abc.ABC):
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, error_result, exception=e
                 )
-                # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
-                if getattr(after_event, "retry", False):
+                if ToolExecutor._should_retry(agent, after_event):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
                     continue
                 yield ToolResultEvent(after_event.result, exception=after_event.exception)
