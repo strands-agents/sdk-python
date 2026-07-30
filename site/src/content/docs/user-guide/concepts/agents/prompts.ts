@@ -1,4 +1,5 @@
 import { Agent, ImageBlock, TextBlock, Message } from '@strands-agents/sdk'
+import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 import { readFileSync } from 'fs'
 
 // System prompt configuration example
@@ -39,4 +40,15 @@ async function multimodalPromptExample() {
     }),
   ])
   // --8<-- [end:multimodalPrompt]
+}
+
+async function directToolCallsExample() {
+  // --8<-- [start:direct_tool_calls]
+  const agent = new Agent({
+    tools: [notebook],
+  })
+
+  const result = await agent.tool.notebook!.invoke({ mode: 'list' })
+  console.log(result)
+  // --8<-- [end:direct_tool_calls]
 }
