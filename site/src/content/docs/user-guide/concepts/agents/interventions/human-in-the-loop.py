@@ -1,5 +1,8 @@
 from strands import Agent, tool
-from strands.vended_interventions.hitl import HumanInTheLoop
+from strands.vended_interventions.hitl import (
+    ClassifierConfig,
+    HumanInTheLoop,
+)
 
 
 @tool
@@ -160,3 +163,59 @@ def custom_evaluate_example():
     # Prompt: Tool "delete_files" requires human approval. Input: {...}
     # User must type "confirm" to approve (not just "y" or "yes")
     # --8<-- [end:custom_evaluate]
+
+
+# =====================
+# Classifier (LLM Risk Classification)
+# =====================
+
+
+def classifier_example():
+    # --8<-- [start:classifier]
+    agent = Agent(
+        tools=[read_file, delete_files],
+        interventions=[
+            HumanInTheLoop(
+                allowed_tools=["read_file"],
+                classifier=True,
+            ),
+        ],
+    )
+
+    agent("Read config.json then delete /tmp/old-logs")
+    # read_file: allowed (bypasses classifier)
+    # delete_files: classifier evaluates -> risky -> prompts human
+    # --8<-- [end:classifier]
+
+
+def classifier_custom_example():
+    # --8<-- [start:classifier_custom]
+    # Custom system prompt and model
+    agent = Agent(
+        tools=[delete_files],
+        interventions=[
+            HumanInTheLoop(
+                classifier=ClassifierConfig(
+                    system_prompt="Only flag destructive operations.",
+                ),
+            ),
+        ],
+    )
+
+    # Or provide your own classification function
+    def my_classifier(event, **kwargs):
+        from strands.vended_interventions.hitl.classifier import (
+            ClassifierResult,
+        )
+
+        is_dangerous = event.tool_use["name"].startswith("delete")
+        return ClassifierResult(
+            requires_approval=is_dangerous,
+            reason="destructive tool" if is_dangerous else None,
+        )
+
+    agent = Agent(
+        tools=[delete_files],
+        interventions=[HumanInTheLoop(classifier=my_classifier)],
+    )
+    # --8<-- [end:classifier_custom]

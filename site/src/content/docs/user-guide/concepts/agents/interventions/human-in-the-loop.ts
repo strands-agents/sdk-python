@@ -174,6 +174,62 @@ async function customEvaluateExample() {
   // --8<-- [end:custom_evaluate]
 }
 
+// =====================
+// Classifier (LLM Risk Classification)
+// =====================
+
+async function classifierExample() {
+  // --8<-- [start:classifier]
+  // const readFile = tool({ ... })
+  // const deleteFiles = tool({ ... })
+
+  const agent = new Agent({
+    tools: [readFile, deleteFiles],
+    interventions: [
+      new HumanInTheLoop({
+        allowedTools: ['read_file'],
+        classifier: true,
+      }),
+    ],
+  })
+
+  await agent.invoke('Read config.json then delete /tmp/old-logs')
+  // read_file: allowed (bypasses classifier)
+  // delete_files: classifier evaluates -> risky -> prompts human
+  // --8<-- [end:classifier]
+}
+
+async function classifierCustomExample() {
+  // --8<-- [start:classifier_custom]
+  // Custom system prompt and model
+  const agent = new Agent({
+    tools: [deleteFiles],
+    interventions: [
+      new HumanInTheLoop({
+        classifier: {
+          systemPrompt: 'Only flag destructive operations.',
+        },
+      }),
+    ],
+  })
+
+  // Or provide your own classification function
+  const agentCustom = new Agent({
+    tools: [deleteFiles],
+    interventions: [
+      new HumanInTheLoop({
+        classifier: async (event) => ({
+          requiresApproval: event.toolUse.name.startsWith('delete'),
+          reason: 'destructive tool',
+        }),
+      }),
+    ],
+  })
+  // --8<-- [end:classifier_custom]
+  void agent
+  void agentCustom
+}
+
 // Suppress unused function warnings
 void basicInterruptExample
 void stdioModeExample
@@ -181,5 +237,7 @@ void customAskExample
 void allowedToolsExample
 void trustModeExample
 void customEvaluateExample
+void classifierExample
+void classifierCustomExample
 
 declare function askUserViaSlack(prompt: string): Promise<string>
