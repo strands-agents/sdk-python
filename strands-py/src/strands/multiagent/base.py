@@ -343,6 +343,11 @@ def _parse_usage(usage_data: Any) -> Usage:
     disjoint and the missing total is recoverable by addition. Whether ``inputTokens`` itself
     contained the cache count is never recoverable, so it is left as persisted rather than guessed at.
 
+    A payload outside that case therefore keeps a total the :class:`Usage` invariant does not hold
+    for, which the event loop reports once on the next model call. Guessing would erase real input
+    tokens and produce a payload that satisfies the invariant while under-reporting the prompt, which
+    nothing downstream could detect; the counts correct themselves after that call.
+
     Args:
         usage_data: The persisted usage payload. Session state is user-editable JSON, so anything
             that is not a mapping of counts is read as no usage at all.
