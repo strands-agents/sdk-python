@@ -1788,3 +1788,80 @@ def test_format_request_citations_content_round_trips_as_text(model):
         "role": "assistant",
         "content": [{"type": "text", "text": "Agents are autonomous."}],
     }
+
+
+@pytest.mark.asyncio
+async def test_stream_server_tool_block_index_is_released_on_stop(anthropic_client, model, alist):
+    """Anthropic reuses block indexes across turns; a real tool_use at a recycled index must stream."""
+
+    def event(payload, **attrs):
+        return unittest.mock.Mock(model_dump=lambda: payload, **attrs)
+
+    server_block = types.SimpleNamespace(type="server_tool_use", id="srvtoolu_1", name="web_search", input={})
+    tool_block = types.SimpleNamespace(type="tool_use", id="tu1", name="calc", input={})
+
+    events = [
+        event(
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "server_tool_use"}},
+            type="content_block_start",
+            index=0,
+            content_block=server_block,
+        ),
+        event(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{}"}},
+            type="content_block_delta",
+            index=0,
+        ),
+        event({"type": "content_block_stop", "index": 0}, type="content_block_stop", index=0),
+        # Same index, now a genuine function tool call.
+        event(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "tool_use", "name": "calc", "id": "tu1"},
+            },
+            type="content_block_start",
+            index=0,
+            content_block=tool_block,
+        ),
+        event(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"a": 1}'},
+            },
+            type="content_block_delta",
+            index=0,
+        ),
+        event({"type": "content_block_stop", "index": 0}, type="content_block_stop", index=0),
+    ]
+
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        events, final_message=mock_final_message()
+    )
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    tool_starts = [c for c in chunks if "toolUse" in c.get("contentBlockStart", {}).get("start", {})]
+    tool_deltas = [c for c in chunks if "toolUse" in c.get("contentBlockDelta", {}).get("delta", {})]
+
+    assert len(tool_starts) == 1
+    assert tool_starts[0]["contentBlockStart"]["start"]["toolUse"] == {"name": "calc", "toolUseId": "tu1"}
+    assert len(tool_deltas) == 1
+    assert tool_deltas[0]["contentBlockDelta"]["delta"]["toolUse"] == {"input": '{"a": 1}'}
+
+
+def test_format_chunk_citations_delta_malformed_url_omits_domain(model):
+    """A url the parser cannot resolve must still yield a usable citation."""
+    formatted = model.format_chunk(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "citations_delta",
+                "citation": {"type": "web_search_result_location", "url": "not a url", "cited_text": "t"},
+            },
+        }
+    )
+
+    assert formatted["contentBlockDelta"]["delta"]["citation"]["location"] == {"web": {"url": "not a url"}}

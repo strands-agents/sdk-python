@@ -1222,6 +1222,49 @@ describe('AnthropicModel', () => {
       })
     })
 
+    it('releases a server-side block index on stop so a recycled index still streams a real tool', async () => {
+      // Anthropic reuses block indexes; a genuine tool_use at a recycled index must not be suppressed.
+      async function* recycledIndexStream(): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
+        yield {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} },
+        }
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } }
+        yield { type: 'content_block_stop', index: 0 }
+        yield {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'tool_use', id: 'tu1', name: 'calc', input: {} },
+        }
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{"a": 1}' },
+        }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_stop' }
+      }
+
+      const provider = new AnthropicModel({ client: createMockClient(recycledIndexStream) })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      const toolStarts = events.filter(
+        (event) => event.type === 'modelContentBlockStartEvent' && event.start?.type === 'toolUseStart'
+      )
+      const toolInputDeltas = events.flatMap((event) =>
+        event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'toolUseInputDelta'
+          ? [event.delta.input]
+          : []
+      )
+
+      expect(toolStarts).toHaveLength(1)
+      expect(toolInputDeltas).toEqual(['{"a": 1}'])
+    })
+
     it('warns when a server-side tool result is an error', async () => {
       const logSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
 
