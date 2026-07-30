@@ -769,7 +769,7 @@ async def _handle_tool_execution(
             - The updated event loop metrics,
             - The updated request state.
     """
-    tool_uses = [content["toolUse"] for content in message["content"] if "toolUse" in content]
+    tool_uses: list[ToolUse] = [content["toolUse"] for content in message["content"] if "toolUse" in content]
     tool_results: list[ToolResult] = []
 
     if agent._interrupt_state.activated:
