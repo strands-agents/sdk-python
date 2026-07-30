@@ -1,5 +1,7 @@
 """Tool for gracefully ending the agent loop.
 
+This tool is experimental and subject to change in future revisions without notice.
+
 Provides :func:`make_stop` (a factory for customized stop tools) and :data:`stop`
 (the default instance). The tool shims onto the SDK's existing loop-termination
 primitive: it sets ``invocation_state["request_state"]["stop_event_loop"] = True``,
@@ -24,11 +26,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ...tools.decorator import tool
-from ...types.tools import ToolContext
+from ....tools.decorator import tool
+from ....types.tools import ToolContext
 
 if TYPE_CHECKING:
-    from ...tools.decorator import DecoratedFunctionTool
+    from ....tools.decorator import DecoratedFunctionTool
 
 _DEFAULT_MESSAGE = "Agent loop stopped."
 DEFAULT_MAX_MESSAGE_LENGTH = 4096

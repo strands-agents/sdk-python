@@ -6,6 +6,7 @@ import { collectGenerator } from '../../__fixtures__/model-test-helpers.js'
 import { createMockContext } from '../../__fixtures__/tool-helpers.js'
 import { ToolValidationError } from '../../errors.js'
 import { Tool, ToolStreamEvent } from '../../tools/tool.js'
+import { DELEGATION_DESCRIPTION_SUFFIX } from '../agent-as-tool.js'
 import { ToolResultBlock } from '../../types/messages.js'
 import { SessionManager } from '../../session/session-manager.js'
 import type { SnapshotStorage } from '../../session/storage.js'
@@ -405,6 +406,28 @@ describe('AgentAsTool', () => {
 
       expect(tool.name).toBe('custom-name')
       expect(tool.description).toBe('Custom desc')
+    })
+
+    it('sets delegate and appends description suffix when delegate is true', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
+      const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
+
+      const tool = agent.asTool({ delegate: true }) as AgentAsTool
+
+      expect(tool.delegate).toBe(true)
+      expect(tool.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
+      expect(tool.toolSpec.description).toBe('Handles billing' + DELEGATION_DESCRIPTION_SUFFIX)
+    })
+
+    it('does not set delegate or append description suffix when delegate is false', () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'Hi' })
+      const agent = new Agent({ model, name: 'specialist', description: 'Handles billing', printer: false })
+
+      const tool = agent.asTool({ delegate: false }) as AgentAsTool
+
+      expect(tool.delegate).toBe(false)
+      expect(tool.description).toBe('Handles billing')
+      expect(tool.description).not.toContain(DELEGATION_DESCRIPTION_SUFFIX)
     })
   })
 
