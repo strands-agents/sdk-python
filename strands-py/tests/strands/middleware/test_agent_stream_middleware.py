@@ -286,6 +286,42 @@ def test_input_transforms_context_reaches_event_loop(agent):
     assert marker_seen_by_model
 
 
+def test_messages_in_place_edit_reaches_history_but_replace_is_dropped(agent):
+    """`messages` is shared by reference for in-place edits; ``replace(messages=...)`` is dropped.
+
+    Input messages are appended to ``agent.messages`` before the chain runs, so mutating a message
+    in place reaches the model, but swapping the list on the context does not (the terminal streams
+    against ``agent.messages``, not ``ctx.messages``). This documents the deliberate asymmetry with
+    ``invocation_state`` (which the terminal does read from the context).
+    """
+
+    async def edit_in_place(context, next_fn):
+        context.messages[0]["content"] = [{"text": "mutated-in-place"}]
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, edit_in_place)
+    agent("original")
+
+    user_texts = [m["content"][0].get("text") for m in agent.messages if m["role"] == "user"]
+    assert user_texts == ["mutated-in-place"]
+
+    # A replace()-swapped list, by contrast, is not honored: history keeps the original input.
+    other_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "ok"}]}])
+    other = Agent(model=other_model, callback_handler=None)
+
+    async def swap_list(context, next_fn):
+        modified = replace(context, messages=[{"role": "user", "content": [{"text": "replaced-list"}]}])
+        async for event in next_fn(modified):
+            yield event
+
+    other._middleware_registry.add_middleware(AgentStreamStage, swap_list)
+    other("original")
+
+    other_user_texts = [m["content"][0].get("text") for m in other.messages if m["role"] == "user"]
+    assert other_user_texts == ["original"]
+
+
 def test_phase_ordering_at_agent_level(agent):
     """Input/Wrap/Output run in canonical order regardless of registration order."""
     order: list[str] = []
@@ -793,6 +829,59 @@ def test_after_invocation_hook_fires_when_middleware_short_circuits(agent):
     agent("Test prompt")
 
     assert after_fired
+
+
+def test_user_message_added_hook_fires_before_the_chain(agent):
+    """The input MessageAddedEvent fires before the AgentStreamStage chain, not inside it.
+
+    Input messages are appended to history before the chain runs, so a wrap middleware sees the
+    user turn already in ``agent.messages`` when it starts. This pins that ordering (a divergence
+    from TS, which appends inside the terminal) so it can't regress silently.
+    """
+    from strands.hooks import MessageAddedEvent
+
+    order: list[str] = []
+
+    agent.hooks.add_callback(
+        MessageAddedEvent, lambda event: order.append(f"msg_added:{event.message['role']}")
+    )
+
+    async def middleware(context, next_fn):
+        order.append("middleware-before")
+        async for event in next_fn(context):
+            yield event
+        order.append("middleware-after")
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, middleware)
+    agent("Test prompt")
+
+    # The user message is added before the chain starts; the assistant message during it.
+    assert order == ["msg_added:user", "middleware-before", "msg_added:assistant", "middleware-after"]
+
+
+def test_user_message_added_hook_fires_even_when_middleware_short_circuits(agent):
+    """The input MessageAddedEvent fires even when a middleware short-circuits the pass.
+
+    Because the input is appended before the chain, a short-circuit (which never runs the
+    terminal) still records the user turn in history and still fires MessageAddedEvent — unlike
+    TS, where the append lives in the terminal and is skipped on short-circuit.
+    """
+    from strands.hooks import MessageAddedEvent
+
+    added_roles: list[str] = []
+
+    agent.hooks.add_callback(MessageAddedEvent, lambda event: added_roles.append(event.message["role"]))
+
+    async def short_circuit(context, next_fn):
+        message = {"role": "assistant", "content": [{"text": "Short-circuited"}]}
+        yield EventLoopStopEvent("end_turn", message, EventLoopMetrics(), {})
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, short_circuit)
+    agent("Test prompt")
+
+    assert added_roles == ["user"]
+    assert agent.messages[-1]["role"] == "user"
+    assert agent.messages[-1]["content"] == [{"text": "Test prompt"}]
 
 
 def test_context_replace_preserves_interrupt(agent):

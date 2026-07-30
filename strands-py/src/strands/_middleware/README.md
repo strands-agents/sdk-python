@@ -157,6 +157,39 @@ carries — `cancel_signal`, structured-output config, `limits` — from the age
 those remain reachable on `agent` but are not surfaced as first-class context fields here. Since
 the stage is internal, that surface is not yet finalized.
 
+### Transforming `messages` vs `invocation_state`
+
+The two agent-stream context fields have **different** transform semantics, and only one is fully
+transformable via `dataclasses.replace()`:
+
+- **`invocation_state`** — fully transformable. The terminal reads `ctx.invocation_state`, so a
+  handler returning `replace(context, invocation_state=...)` reaches the event loop and the model.
+- **`messages`** — shared by reference for **in-place** edits only. Mutating a message in place
+  (`context.messages[0]["content"] = ...`) is visible to the model because those same dict objects
+  are already in `agent.messages`. But `replace(context, messages=[...])` is **silently dropped**:
+  the pass's input messages are appended to `agent.messages` *before* the middleware chain runs,
+  and the terminal streams against `agent.messages`, not `ctx.messages`.
+
+This asymmetry is deliberate, and it is a consequence of *when* history is appended, which is a
+lifecycle event — not just a middleware concern. Appending the input fires `MessageAddedEvent`
+**before** the AgentStreamStage chain, and it fires **even when a middleware short-circuits** (the
+user turn always lands in history and hooks always observe it). Moving the append into the terminal
+to make `replace(messages=...)` work would change that hook timing for *every* agent (middleware or
+not) and would stop `MessageAddedEvent` firing on short-circuit — an observable behavior change we
+chose not to make. Middleware that must rewrite the input for the model should mutate `messages` in
+place, or use an `InvokeModelStage` Input handler (whose `messages` *are* transformable via
+`replace()`, since that stage's terminal reads them from the context).
+
+**Divergence from TS.** TypeScript makes the opposite trade-off: it appends the input *inside*
+the chain terminal (`_streamCore` → `_stream` normalizes and appends `ctx.args`), so there a
+`{...ctx, args}` swap *does* reach the model — but as a direct consequence, TS's short-circuit
+does **not** append the user message and does **not** fire its `MessageAddedEvent` (the terminal
+never runs), and that hook fires *inside* the chain rather than before it. Python keeps the append
+before the chain so the user turn and its `MessageAddedEvent` are unconditional (including on
+short-circuit), at the cost of `replace(messages=...)` not being honored. Both SDKs keep
+`AgentStreamStage` internal partly because this input contract is not yet finalized. (In both,
+`BeforeInvocationEvent`/`AfterInvocationEvent` bracket the chain from outside and fire regardless.)
+
 ## AgentStreamStage interrupt resume
 
 Python interrupts were tool-only: the event loop keyed resume behavior on interrupt state being
