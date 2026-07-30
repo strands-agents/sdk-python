@@ -8,9 +8,16 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
 
+# One run per PR: a rapid follow-up push cancels the in-flight run so two runs
+# can't interleave label/comment mutations. Cancellation isn't instantaneous,
+# so the script additionally re-checks the head SHA before mutating anything.
+concurrency:
+  group: catalog-editorial-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 # pull_request_target runs in the base-repo context so the job can label and
 # comment on fork PRs. It never checks out or executes PR head code — the
-# diff is read via the REST API only.
+# diff and file contents are read via the REST API only.
 permissions:
   contents: read
   pull-requests: write
@@ -37,16 +44,39 @@ jobs:
             // indicator, not a merge gate.
             //
             // The same sticky comment also carries a package-provenance
-            // section: for each `package:` a PR adds, the package's registry
-            // metadata (PyPI/npm — data-only fetches, no PR code is checked
-            // out or executed) must declare the same github owner/repo the
-            // entry links, or reviewers are told to verify ownership manually.
+            // section: for each `package:` in an entry a PR touches, the
+            // package's registry metadata (PyPI/npm — data-only fetches, no
+            // PR code is checked out or executed) must declare the same
+            // github owner/repo the entry links, or reviewers are told to
+            // verify ownership manually.
+            //
+            // Detection compares each changed entry's FULL content at the PR
+            // head against the base version (contents API, data-only), not
+            // the patch text: patch-line regexes are trivially evaded by
+            // flow-style YAML (`{ featured: true }`) or reformatting, while
+            // the editorial state of the two full versions is not. The diff
+            // (listFiles) is used only as a cheap pre-filter for which
+            // catalog files changed.
 
             const pr = context.payload.pull_request;
             const label = process.env.EDITORIAL_LABEL;
             const marker = '<!-- catalog-editorial-review -->';
             const maintainerRoles = process.env.MAINTAINER_ROLES
               .split(',').map(r => r.trim()).filter(Boolean);
+
+            // A cancelled-but-still-racing older run must not clobber the
+            // flags computed for a newer push: re-fetch the PR immediately
+            // before any label/comment mutation and bail if the head moved.
+            async function headStillCurrent() {
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+              });
+              if (data.head.sha === pr.head.sha) return true;
+              console.log(`run head=${pr.head.sha}, current head=${data.head.sha} | head moved — skipping mutations`);
+              return false;
+            }
 
             async function findStickyComment() {
               const comments = await github.paginate(github.rest.issues.listComments, {
@@ -73,6 +103,7 @@ jobs:
             // A previous push may have flagged this PR; clear the stale
             // label and comment so reviewers aren't misled.
             async function clearStaleFlag() {
+              if (!(await headStillCurrent())) return;
               await removeEditorialLabel();
               const stale = await findStickyComment();
               if (stale) {
@@ -90,107 +121,108 @@ jobs:
               }
             }
 
-            // --- Does the diff touch editorial fields? --------------------
+            // --- Which catalog entries did the PR touch? -------------------
             const files = await github.paginate(github.rest.pulls.listFiles, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: pr.number,
             });
 
-            const catalogFiles = files.filter(f => f.filename.startsWith('site/src/content/catalog/'));
+            const catalogFiles = files.filter(f =>
+              f.filename.startsWith('site/src/content/catalog/') && /\.ya?ml$/.test(f.filename));
             if (catalogFiles.length === 0) {
               console.log('PR touches no catalog files — clearing any stale flag.');
               await clearStaleFlag();
               return;
             }
 
-            // Both directions are editorial: adding a grant a submitter isn't
-            // entitled to, and removing one that a maintainer made. A change
-            // like `featured: true` → `featured: false` appears in the diff
-            // as a removal plus an addition, so the removal patterns cover it.
-            //
-            // YAML 1.2 (Astro's content loader) parses yes/on as strings, which
-            // the schema's z.boolean() rejects at the build gate — only the
-            // true spellings can reach main.
-            const addedFeaturedRe = /^\+\s*featured:\s*(true|True|TRUE)\b/;
-            const removedFeaturedRe = /^-\s*featured:\s*(true|True|TRUE)\b/;
-            // Inline non-empty value: `badges: [x]` or `badges: verified` —
-            // but not an explicitly empty `badges: []`.
-            const addedBadgesInlineRe = /^\+\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
-            const removedBadgesInlineRe = /^-\s*badges:\s*(?!\[\s*\]\s*(#.*)?$)\S/;
-            const addedBadgesBlockRe = /^\+\s*badges:\s*(#.*)?$/;
-            // `verified` is the only badge value the schema accepts, so match
-            // it exactly rather than any added list item in the rest of the
-            // patch (which could belong to a different block-style field).
-            const addedListItemRe = /^\+\s*-\s*['"]?verified['"]?\s*$/;
-            // A removed `- verified` list item can only be a badge, so match
-            // it directly without requiring a `badges:` line in the diff (the
-            // header often survives as context when only items are removed).
-            const removedListItemRe = /^-\s*-\s*['"]?verified['"]?\s*$/;
-
-            const flagged = [];
-            for (const file of catalogFiles) {
-              if (!/\.ya?ml$/.test(file.filename)) continue;
-              // Catalog entries are small, so a patch is always present;
-              // a missing one means no reviewable text diff — skip.
-              const lines = (file.patch || '').split('\n');
-              let editorial = false;
-              for (let i = 0; i < lines.length; i++) {
-                if (addedFeaturedRe.test(lines[i]) ||
-                    removedFeaturedRe.test(lines[i]) ||
-                    addedBadgesInlineRe.test(lines[i]) ||
-                    removedBadgesInlineRe.test(lines[i]) ||
-                    removedListItemRe.test(lines[i])) {
-                  editorial = true;
-                  break;
-                }
-                // Block-style list: an added `badges:` is only editorial when
-                // list items are actually added under it.
-                if (addedBadgesBlockRe.test(lines[i]) &&
-                    lines.slice(i + 1).some(l => addedListItemRe.test(l))) {
-                  editorial = true;
-                  break;
-                }
+            // Raw file text at a ref; '' when the file doesn't exist there
+            // (new file at base, deleted file at head).
+            async function fileText(path, ref) {
+              try {
+                const res = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path,
+                  ref,
+                  mediaType: { format: 'raw' },
+                });
+                return typeof res.data === 'string' ? res.data : '';
+              } catch (error) {
+                if (error.status === 404) return '';
+                throw error;
               }
-              if (editorial) flagged.push(file.filename);
             }
 
-            // --- Package provenance: extract added packages from patches ---
-            // The registry links and maintainer shown on a catalog card
-            // derive from the entry's `package:` names and `github:` URL, so
-            // a submission could name a popular package it doesn't own. For
-            // each package a PR adds, the package's own registry metadata
-            // should declare the repo the entry links. Parsing and fetching
-            // below never touch PR code — patches via the REST API, registry
-            // reads are data-only.
-            function parseGithubSlug(url) {
-              // owner/repo only, so tree/blob URLs compare equal to the repo.
-              const m = /github\.com[/:]([^/\s"']+)\/([^/\s"'#?]+)/i.exec(url || '');
-              return m ? `${m[1]}/${m[2].replace(/\.git$/i, '')}`.toLowerCase() : undefined;
+            // Editorial state of one version of an entry. Deliberately broad
+            // — a false positive costs a maintainer a glance, a false
+            // negative defeats the flag. Matches block and flow style,
+            // quoted keys/items, and any-true spelling. YAML 1.2 (Astro's
+            // content loader) parses yes/on as strings, which the schema's
+            // z.boolean() rejects at the build gate — only the true
+            // spellings can reach main.
+            function editorialState(text) {
+              const featured = /['"]?featured['"]?\s*:\s*['"]?(true|True|TRUE)\b/.test(text);
+              const badges =
+                // Flow / JSON-ish non-empty list: badges: [verified]
+                /['"]?badges['"]?\s*:\s*\[\s*[^\s\]]/.test(text) ||
+                // Block-style list: a badges: line with at least one item
+                /['"]?badges['"]?\s*:\s*(#[^\n]*)?\r?\n(?:\s*(?:#[^\n]*)?\r?\n)*\s*-\s*\S/.test(text);
+              return { featured, badges };
             }
+
+            // Package/github data of one version of an entry, for the
+            // provenance check. Reading the head content (not added diff
+            // lines) means a github-only edit re-triggers the check against
+            // the unchanged packages.
             const unquote = (v) => v.replace(/^['"]|['"]$/g, '');
-
-            const addedPackages = [];
-            for (const file of catalogFiles) {
-              if (!/\.ya?ml$/.test(file.filename)) continue;
-              const lines = (file.patch || '').split('\n');
-              // github/language lines may survive only as context when a push
-              // edits just the package, so read added and context lines both.
-              let lang, github;
+            function extractEntryData(text) {
+              const ghMatch = /^github:\s*(\S+)/m.exec(text);
+              const github = ghMatch ? unquote(ghMatch[1]) : undefined;
               const pkgs = [];
-              for (const line of lines) {
-                const langMatch = /^[+ ]\s+(python|typescript):/.exec(line);
+              let lang;
+              for (const line of text.split('\n')) {
+                const langMatch = /^\s+(python|typescript):/.exec(line);
                 if (langMatch) lang = langMatch[1];
-                const ghMatch = /^[+ ]github:\s*(\S+)/.exec(line);
-                if (ghMatch) github = unquote(ghMatch[1]);
-                const pkgMatch = /^\+\s+package:\s*(\S+)/.exec(line);
-                if (pkgMatch) pkgs.push({ lang, pkg: unquote(pkgMatch[1]) });
+                const pkgMatch = /^\s+package:\s*(\S+)/.exec(line);
+                if (pkgMatch && lang) pkgs.push({ lang, pkg: unquote(pkgMatch[1]) });
               }
-              for (const p of pkgs) addedPackages.push({ file: file.filename, github, ...p });
+              // Flow style: languages: { python: { package: x } }
+              const flowRe = /(python|typescript):\s*\{[^{}]*?package:\s*['"]?([^'"},\s]+)/g;
+              for (let m; (m = flowRe.exec(text)); ) {
+                if (!pkgs.some(p => p.lang === m[1] && p.pkg === m[2])) {
+                  pkgs.push({ lang: m[1], pkg: m[2] });
+                }
+              }
+              return { github, pkgs };
             }
 
-            if (flagged.length === 0 && addedPackages.length === 0) {
-              console.log('No editorial fields or added packages — nothing to flag.');
+            // Both directions are editorial: adding a grant a submitter
+            // isn't entitled to, and removing one a maintainer made — so an
+            // entry is flagged whenever its head state differs from its
+            // base state (a brand-new file compares against empty).
+            const flagged = [];
+            const changedPackages = [];
+            for (const file of catalogFiles) {
+              const [headText, baseText] = await Promise.all([
+                fileText(file.filename, pr.head.sha),
+                fileText(file.filename, pr.base.sha),
+              ]);
+              const head = editorialState(headText);
+              const base = editorialState(baseText);
+              if (head.featured !== base.featured || head.badges !== base.badges) {
+                flagged.push(file.filename);
+              }
+              if (headText) {
+                const { github: entryGithub, pkgs } = extractEntryData(headText);
+                for (const p of pkgs) {
+                  changedPackages.push({ file: file.filename, github: entryGithub, ...p });
+                }
+              }
+            }
+
+            if (flagged.length === 0 && changedPackages.length === 0) {
+              console.log('No editorial changes or packages in touched entries — nothing to flag.');
               await clearStaleFlag();
               return;
             }
@@ -216,10 +248,19 @@ jobs:
             }
 
             // --- Package provenance: cross-check registry metadata ---------
+            // The registry links and maintainer shown on a catalog card
+            // derive from the entry's `package:` names and `github:` URL, so
+            // a submission could name a popular package it doesn't own.
             // Three outcomes per package: MATCH (registry metadata declares
             // the same owner/repo the entry links — silent), MISMATCH (it
             // declares a different repo), UNVERIFIABLE (no repo metadata, or
             // the registry fetch failed).
+            function parseGithubSlug(url) {
+              // owner/repo only, so tree/blob URLs compare equal to the repo.
+              const m = /github\.com[/:]([^/\s"']+)\/([^/\s"'#?]+)/i.exec(url || '');
+              return m ? `${m[1]}/${m[2].replace(/\.git$/i, '')}`.toLowerCase() : undefined;
+            }
+
             async function fetchRepoSlugs(lang, pkg) {
               if (lang === 'python') {
                 // Extras-qualified packages (`temporalio[strands-agents]`)
@@ -231,7 +272,7 @@ jobs:
                 const urls = [...Object.values(info.project_urls || {}), info.home_page];
                 return urls.map(parseGithubSlug).filter(Boolean);
               }
-              const res = await fetch(`https://registry.npmjs.org/${pkg}`);
+              const res = await fetch(`https://registry.npmjs.org/${encodeURIComponent(pkg)}`);
               if (!res.ok) throw new Error(`npm status=${res.status}`);
               const data = await res.json();
               const repoUrl = typeof data.repository === 'string' ? data.repository : data.repository?.url;
@@ -239,12 +280,12 @@ jobs:
             }
 
             const provenance = [];
-            for (const p of addedPackages) {
+            for (const p of changedPackages) {
               const entrySlug = parseGithubSlug(p.github);
               let status, detail;
-              if (!p.lang || !entrySlug) {
+              if (!entrySlug) {
                 status = 'UNVERIFIABLE';
-                detail = 'could not determine the language or github repo from the diff';
+                detail = 'entry declares no github repo to compare against';
               } else {
                 try {
                   const slugs = await fetchRepoSlugs(p.lang, p.pkg);
@@ -267,7 +308,7 @@ jobs:
             }
 
             if (flagged.length === 0 && provenance.length === 0) {
-              console.log('Provenance verified and no editorial fields — nothing to flag.');
+              console.log('Provenance verified and no editorial changes — nothing to flag.');
               await clearStaleFlag();
               return;
             }
@@ -275,6 +316,8 @@ jobs:
             if (flagged.length > 0) {
               console.log(`Editorial fields changed by non-maintainer "${author}" in: ${flagged.join(', ')}`);
             }
+
+            if (!(await headStillCurrent())) return;
 
             // --- Label ----------------------------------------------------
             // The label marks editorial-field changes only; a provenance
