@@ -41,6 +41,30 @@ describe('normalizeUsage', () => {
         cacheReadInputTokens: 1920,
       })
     })
+
+    // The counters are asserted to SUM to the total rather than to match literals, because a
+    // literal passes under either convention: the whole point of this contract is that the four
+    // billed counters account for totalTokens whichever way a provider reported them. Payloads
+    // captured from live responses -- Bedrock Converse reports cache alongside the prompt count,
+    // Bedrock Mantle Responses and Google report it inside.
+    it.each([
+      { name: 'converse write', raw: { inputTokens: 10, outputTokens: 4, cacheWriteTokens: 5848 }, inclusive: false },
+      { name: 'converse read', raw: { inputTokens: 10, outputTokens: 4, cacheReadTokens: 5848 }, inclusive: false },
+      { name: 'mantle write', raw: { inputTokens: 6452, outputTokens: 5, cacheWriteTokens: 6450 }, inclusive: true },
+      { name: 'mantle read', raw: { inputTokens: 6452, outputTokens: 5, cacheReadTokens: 6450 }, inclusive: true },
+      {
+        name: 'google cached with thoughts',
+        raw: { inputTokens: 23292, outputTokens: 35, cacheReadTokens: 23284, reasoningTokens: 20 },
+        inclusive: true,
+      },
+      { name: 'no cache at all', raw: { inputTokens: 100, outputTokens: 20 }, inclusive: true },
+    ])('$name has counters that account for the total', ({ raw, inclusive }) => {
+      const usage = normalizeUsage({ ...raw, inputIncludesCache: inclusive })
+
+      expect(billedTotal(usage)).toBe(usage.totalTokens)
+      // Reasoning tokens are a subset of the output, so they must never inflate the total.
+      expect(usage.reasoningOutputTokens ?? 0).toBeLessThanOrEqual(usage.outputTokens)
+    })
   })
 
   describe('optional fields', () => {

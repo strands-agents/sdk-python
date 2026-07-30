@@ -1143,6 +1143,18 @@ describe('GoogleModel', () => {
         output: 172,
       },
       {
+        // Every streaming chunk before the last omits the total, leaving nothing to say whether
+        // the candidate count already covers the thoughts. Adding them would report 342 for a
+        // turn that generated 172, and the size helpers read the last metadata event they saw.
+        name: 'candidates and thoughts, no total',
+        metadata: {
+          promptTokenCount: 13,
+          candidatesTokenCount: 172,
+          thoughtsTokenCount: 170,
+        },
+        output: 172,
+      },
+      {
         // The same counts on a response whose total shows the candidate count already covers
         // the thoughts, so adding them again would bill them twice.
         name: 'candidates inclusive of thoughts',

@@ -1370,6 +1370,17 @@ class TestCountTokens:
             },
             172,
         ),
+        # Every streaming chunk before the last omits the total, leaving nothing to say whether the
+        # candidate count already covers the thoughts. Adding them would report 342 for a turn that
+        # generated 172, and the size helpers read the last metadata event they saw.
+        (
+            {
+                "prompt_token_count": 13,
+                "candidates_token_count": 172,
+                "thoughts_token_count": 170,
+            },
+            172,
+        ),
     ],
 )
 def test_format_chunk_metadata_infers_output_tokens(model, metadata_kwargs, exp_output_tokens):

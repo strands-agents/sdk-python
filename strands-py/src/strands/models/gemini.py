@@ -439,8 +439,16 @@ class GeminiModel(Model):
                 # absent (as it is on a response carrying no candidates), and it says whether
                 # candidates_token_count already covers the thoughts: when the other three
                 # counts alone reach the total, adding the thoughts again would double-count.
+                # Only the total can say whether the candidate count already covers the thoughts.
+                # Without one -- as on every streaming chunk before the last -- the thoughts are a
+                # floor rather than an addend, since they are a subset of the generated tokens:
+                # adding them to a candidate count that already contains them would double-count,
+                # and ignoring them would report no output at all on a response carrying only a
+                # thought count.
                 output_tokens = metadata.candidates_token_count or 0
-                if metadata.candidates_token_count is None and metadata.total_token_count is not None:
+                if metadata.total_token_count is None:
+                    output_tokens = max(output_tokens, thoughts_tokens)
+                elif metadata.candidates_token_count is None:
                     output_tokens = max(0, metadata.total_token_count - input_tokens)
                 elif input_tokens + output_tokens != metadata.total_token_count:
                     output_tokens += thoughts_tokens

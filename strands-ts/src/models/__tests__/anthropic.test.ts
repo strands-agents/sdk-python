@@ -240,6 +240,48 @@ describe('AnthropicModel', () => {
       })
     })
 
+    it('takes the cumulative cache counts from a later message_delta', async () => {
+      // Anthropic documents every count on message_delta as cumulative, so one carried there
+      // supersedes what message_start opened with. Keeping only the opening count would drop a
+      // cache entry the model reports partway through a response.
+      const mockClient = createMockClient(async function* () {
+        yield {
+          type: 'message_start',
+          message: {
+            role: 'assistant',
+            usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        }
+        yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+        yield { type: 'content_block_stop', index: 0 }
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: {
+            output_tokens: 5,
+            input_tokens: 13,
+            cache_creation_input_tokens: 2000,
+            cache_read_input_tokens: 3000,
+          },
+        }
+        yield { type: 'message_stop' }
+      })
+
+      const provider = new AnthropicModel({ client: mockClient })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+      const metadata = events.find((event) => event.type === 'modelMetadataEvent')
+
+      expect(metadata?.type === 'modelMetadataEvent' && metadata.usage).toEqual({
+        inputTokens: 13,
+        outputTokens: 5,
+        totalTokens: 5018,
+        cacheReadInputTokens: 3000,
+        cacheWriteInputTokens: 2000,
+      })
+    })
+
     it('yields correct event sequence for simple text response', async () => {
       const mockClient = createMockClient(async function* () {
         yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }

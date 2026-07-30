@@ -374,8 +374,15 @@ export function mapChunkToEvents(chunk: GenerateContentResponse, streamState: Go
     const metadata = chunk.usageMetadata
     const promptTokens = (metadata.promptTokenCount || 0) + (metadata.toolUsePromptTokenCount || 0)
     const thoughtsTokens = metadata.thoughtsTokenCount || 0
+    // Only the total can say whether the candidate count already covers the thoughts. Without one
+    // -- as on every streaming chunk before the last -- the thoughts are a floor rather than an
+    // addend, since they are a subset of the generated tokens: adding them to a candidate count
+    // that already contains them would double-count, and ignoring them would report no output at
+    // all on a response that carries only a thought count.
     let outputTokens = metadata.candidatesTokenCount ?? 0
-    if (metadata.candidatesTokenCount == null && metadata.totalTokenCount != null) {
+    if (metadata.totalTokenCount == null) {
+      outputTokens = Math.max(outputTokens, thoughtsTokens)
+    } else if (metadata.candidatesTokenCount == null) {
       outputTokens = Math.max(0, metadata.totalTokenCount - promptTokens)
     } else if (promptTokens + outputTokens !== metadata.totalTokenCount) {
       outputTokens += thoughtsTokens
