@@ -13,7 +13,7 @@ import type { ConsolidationPlan } from './plan.js'
 import { Agent } from '../../../agent/agent.js'
 import { logger } from '../../../logging/logger.js'
 import { CONSOLIDATION_CHANGELOG, encoder } from '../internal.js'
-import { ConsolidationPlanSchema, extractPlan, summarizeForLog, truncateForLog } from './plan.js'
+import { ConsolidationPlanSchema, extractPlan, generatedByteSize, summarizePayload, truncatePayload } from './plan.js'
 import { validatePlan } from './validate.js'
 
 /**
@@ -37,11 +37,11 @@ const EVIDENCE_CLOSE = '</file-evidence>'
  * Produce a validated action plan from the model via a single structured-output call.
  *
  * The plan is validated against the guardrails before being returned; if validation fails,
- * one revise-retry is attempted. Every returned plan has passed validation — the failure paths
- * all throw, so callers never receive an unvalidated plan.
+ * one revise-retry is attempted. Every returned plan has passed validation and both size caps —
+ * the failure paths all throw, so callers never receive an unvalidated plan.
  *
  * @throws Error when the model returns no structured output, the plan exceeds the action limit,
- *   or the plan fails validation after retry
+ *   the plan exceeds the generated-byte limit, or the plan fails validation after retry
  *
  * @internal
  */
@@ -50,7 +50,8 @@ export async function generatePlan(
   operations: ConsolidateOperation[],
   files: Map<string, string>,
   maxDirectories: number,
-  maxActionsPerPlan: number
+  maxActionsPerPlan: number,
+  maxGeneratedBytes: number
 ): Promise<ConsolidationPlan> {
   const systemPrompt = buildPlannerSystemPrompt(operations)
   const userMessage = buildPlannerUserMessage(files)
@@ -71,16 +72,48 @@ export async function generatePlan(
     )
   }
   let plan = extractPlan(result, maxActionsPerPlan)
+  assertWithinByteBudget(plan, files, maxGeneratedBytes)
 
   const validationError = validatePlan(plan, files, operations, maxDirectories)
   if (validationError) {
     logger.warn(
-      `validation_errors=<${truncateForLog(validationError)}>, plan=<${summarizeForLog(plan)}> | consolidation plan rejected on initial attempt`
+      `validation_errors=<${truncatePayload(validationError)}>, plan=<${summarizePayload(plan)}> | consolidation plan rejected on initial attempt`
     )
-    plan = await revisePlan(agent, plan, validationError, files, operations, maxDirectories, maxActionsPerPlan)
+    plan = await revisePlan(
+      agent,
+      plan,
+      validationError,
+      files,
+      operations,
+      maxDirectories,
+      maxActionsPerPlan,
+      maxGeneratedBytes
+    )
   }
 
   return plan
+}
+
+/**
+ * Reject a plan whose generated content exceeds the byte budget, before it is used for anything else.
+ *
+ * Ordering is the point. This runs on the initial plan — ahead of the revise round-trip — so an
+ * oversized plan is never echoed back to the provider, which would pay for its bytes a second time on
+ * a plan that could not be applied even if the revision fixed every validation error. It runs again
+ * on the revised plan, since a revision is free to grow.
+ *
+ * Like the action-count guard, this throws instead of routing into the revise-retry: an oversized plan
+ * is a runaway signal rather than a fixable mistake.
+ *
+ * @throws Error when the plan's generated content exceeds `maxGeneratedBytes`
+ */
+function assertWithinByteBudget(plan: ConsolidationPlan, files: Map<string, string>, maxGeneratedBytes: number): void {
+  const generatedBytes = generatedByteSize(plan, files)
+  if (generatedBytes > maxGeneratedBytes) {
+    throw new Error(
+      `Consolidation plan exceeds generated content limit: ${generatedBytes} bytes (maxGeneratedBytes: ${maxGeneratedBytes})`
+    )
+  }
 }
 
 /**
@@ -89,7 +122,13 @@ export async function generatePlan(
  * Only one retry is attempted: if the revised plan also fails validation, this throws rather
  * than looping, so consolidation never runs an unvalidated plan.
  *
- * @throws Error when the revised plan exceeds the action limit, or also fails validation
+ * The echoed plan is bounded by {@link summarizePayload}, not serialized verbatim. The model needs
+ * the offending actions plus enough surrounding context to fix them, and the validation error already
+ * names every rejected path — so a pathologically large body is not load-bearing, while sending it
+ * verbatim would ship a whole plan's worth of model-controlled text back over the wire on the retry
+ * turn, for a plan that was already rejected.
+ *
+ * @throws Error when the revised plan exceeds the action or generated-byte limit, or also fails validation
  */
 async function revisePlan(
   agent: Agent,
@@ -98,10 +137,11 @@ async function revisePlan(
   files: Map<string, string>,
   operations: ConsolidateOperation[],
   maxDirectories: number,
-  maxActionsPerPlan: number
+  maxActionsPerPlan: number,
+  maxGeneratedBytes: number
 ): Promise<ConsolidationPlan> {
   const reviseResult = await agent.invoke(
-    `Your plan was rejected: ${validationError}. Here is the plan you produced:\n\n${JSON.stringify(originalPlan)}\n\nModify ONLY the offending actions to fix the violations above. Keep all other actions unchanged.\n\nRevise your plan to fix this issue.`,
+    `Your plan was rejected: ${truncatePayload(validationError)}. Here is the plan you produced (a very long value may be abbreviated with a '…(+N chars)' marker):\n\n${summarizePayload(originalPlan)}\n\nModify ONLY the offending actions to fix the violations above. Keep all other actions unchanged, re-emitting in full any value that was abbreviated.\n\nRevise your plan to fix this issue.`,
     { limits: { turns: DEFAULT_MAX_CONSOLIDATION_TURNS } }
   )
   if (reviseResult.stopReason === 'limitTurns') {
@@ -110,11 +150,12 @@ async function revisePlan(
     )
   }
   const revisedPlan = extractPlan(reviseResult, maxActionsPerPlan)
+  assertWithinByteBudget(revisedPlan, files, maxGeneratedBytes)
 
   const revisedValidationError = validatePlan(revisedPlan, files, operations, maxDirectories)
   if (revisedValidationError) {
     logger.warn(
-      `validation_errors=<${truncateForLog(revisedValidationError)}>, plan=<${summarizeForLog(revisedPlan)}> | consolidation plan rejected after retry`
+      `validation_errors=<${truncatePayload(revisedValidationError)}>, plan=<${summarizePayload(revisedPlan)}> | consolidation plan rejected after retry`
     )
     throw new Error(`Consolidation plan validation failed after retry: ${revisedValidationError}`)
   }

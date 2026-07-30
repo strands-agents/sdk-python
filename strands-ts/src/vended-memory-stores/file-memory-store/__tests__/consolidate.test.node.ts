@@ -6,7 +6,8 @@ import { logger } from '../../../logging/logger.js'
 import { NAMESPACED } from '../../../storage/storage.js'
 import type { JSONValue } from '../../../types/json.js'
 import type { Storage } from '../../../storage/storage.js'
-import { summarizeForLog, truncateForLog } from '../consolidation/plan.js'
+import { summarizePayload, truncatePayload } from '../consolidation/plan.js'
+import { resolveWriteTarget } from '../internal.js'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -953,45 +954,6 @@ describe('FileMemoryStore.consolidate', () => {
       // File untouched
       expect(await storage.read('facts/a.md')).not.toBeNull()
     })
-
-    it('rejects merge with fewer than 2 sources via guardrail validation', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-      // Both attempts produce a merge with only 1 source — guardrail rejects both
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md'],
-                target: 'facts/a.md',
-                content: 'rewritten',
-                reason: 'test',
-              },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md'],
-                target: 'facts/a.md',
-                content: 'rewritten again',
-                reason: 'test',
-              },
-            ],
-            summary: 'still bad',
-          })
-        )
-
-      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
-      )
-    })
   })
 
   describe('target-collision guard', () => {
@@ -1301,6 +1263,102 @@ describe('FileMemoryStore.consolidate', () => {
       expect(messageText).toContain('Keep all other actions unchanged')
     })
 
+    // The revise prompt echoes model-controlled text back to the provider, so it is bounded at
+    // construction like the log payloads are. Ordering carries most of the weight: the byte cap now
+    // gates before the retry, so an oversized plan is never echoed at all. This covers what is left —
+    // a plan under the byte cap whose echo would still be large.
+    describe('bounded revise prompt', () => {
+      /** Concatenated text of the last user message in a `stream` spy's `callIndex`-th call. */
+      function userPromptText(streamSpy: ReturnType<typeof vi.spyOn>, callIndex: number): string {
+        const messages = streamSpy.mock.calls[callIndex]![0] as Array<{ role: string; content: unknown }>
+        const userMessages = messages.filter((message) => message.role === 'user')
+        const content = userMessages[userMessages.length - 1]!.content
+        if (typeof content === 'string') return content
+        return (content as Array<{ type: string; text?: string }>)
+          .filter((block) => block.type === 'textBlock')
+          .map((block) => block.text ?? '')
+          .join('')
+      }
+
+      /**
+       * The serialized plan the revise prompt echoes, isolated from the instructions around it.
+       *
+       * Whether a value was clipped can only be asserted against the echo: the instruction line
+       * quotes the `…(+N chars)` marker verbatim to teach the model what it means, so the marker is
+       * present in every prompt regardless of what the echo contains.
+       */
+      function echoedPlan(prompt: string): string {
+        return prompt.split('\n\n')[1] ?? ''
+      }
+
+      const CLIP_MARKER = '…(+'
+
+      it('bounds the echoed plan so a large rejected plan is not re-sent verbatim', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        // Under the default 256 KiB byte cap, so it reaches the revise turn — but far past the
+        // prompt echo cap. The path is nonexistent, so validation rejects it.
+        const largeContent = `---\ndescription: "Big"\n---\n\n${'x'.repeat(200_000)}\n`
+        const badPlan = buildPlanTurn({
+          actions: [{ action: 'update', path: 'facts/missing.md', content: largeContent, reason: 'test' }],
+          summary: 'large rejected plan',
+        })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+        const streamSpy = vi.spyOn(model, 'stream')
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
+
+        // The retry happened, and its prompt does not carry the 200 KB body
+        expect(streamSpy).toHaveBeenCalledTimes(2)
+        const revisePrompt = userPromptText(streamSpy, 1)
+        expect(revisePrompt).not.toContain('x'.repeat(10_000))
+        expect(revisePrompt.length).toBeLessThan(50_000)
+
+        // Still a usable repair spec: the violation and the offending path survive, and the model is
+        // told which value was abbreviated so it re-emits rather than echoing the marker back
+        expect(revisePrompt).toContain('facts/missing.md')
+        expect(revisePrompt).toContain('does not exist')
+        expect(echoedPlan(revisePrompt)).toContain(CLIP_MARKER)
+        expect(revisePrompt).toContain('re-emitting in full any value that was abbreviated')
+
+        warnSpy.mockRestore()
+      })
+
+      it('echoes an ordinary multi-action plan without abbreviating its content', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        // A realistic body: well under the prompt's per-string cap, so it must survive whole —
+        // clipping here would make the model re-emit content it was told to keep unchanged
+        const realisticContent = `---\ndescription: "Merged"\n---\n\n${'Merged prose. '.repeat(50)}\n`
+        const badPlan = buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/merged.md',
+              content: realisticContent,
+              reason: 'dedup',
+            },
+            { action: 'delete', path: 'facts/missing.md', reason: 'the offending action' },
+          ],
+          summary: 'one bad action among good ones',
+        })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+        const streamSpy = vi.spyOn(model, 'stream')
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+        await expect(store.consolidate({ model, operations: ['deduplicate', 'prune'] })).rejects.toThrow()
+
+        const revisePrompt = userPromptText(streamSpy, 1)
+        expect(revisePrompt).toContain(JSON.stringify(realisticContent).slice(1, -1))
+        expect(echoedPlan(revisePrompt)).not.toContain(CLIP_MARKER)
+
+        warnSpy.mockRestore()
+      })
+    })
+
     it('logs rejected plans with structured format', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
@@ -1356,9 +1414,8 @@ describe('FileMemoryStore.consolidate', () => {
 
     // Log payloads are bounded when the string is built, not gated on whether the level is enabled:
     // the Logger interface cannot be asked, and an injected logger's debug is a real function even
-    // when it discards the record. A plan whose content is large but under the per-action schema cap
-    // fails validation before the maxGeneratedBytes check runs, so these logs are the only place its
-    // bytes would surface.
+    // when it discards the record. A plan whose content is large but under maxGeneratedBytes reaches
+    // validation, so these logs are the only place its bytes would surface.
     describe('bounded log payloads', () => {
       const OVERSIZE_CONTENT = `---\ndescription: "Big"\n---\n\n${'x'.repeat(200_000)}\n`
 
@@ -1919,6 +1976,89 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/combined.md')).toBeNull()
     })
 
+    // The byte cap must gate ahead of the revise round-trip, not after it. An oversized plan cannot
+    // be applied even if a revision fixed every validation error, so echoing it back to the provider
+    // pays for its bytes a second time on a plan that was already doomed.
+    it('rejects a plan exceeding maxGeneratedBytes before echoing it back on a revise turn', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      // Oversized AND invalid (nonexistent source), so the old ordering would have revised first
+      const oversizeContent = `---\ndescription: "Large"\n---\n\n${'X'.repeat(5000)}\n`
+      const badPlan = buildPlanTurn({
+        actions: [
+          {
+            action: 'merge',
+            sources: ['facts/a.md', 'facts/missing.md'],
+            target: 'facts/combined.md',
+            content: oversizeContent,
+            reason: 'dedup',
+          },
+        ],
+        summary: 'oversized and invalid',
+      })
+      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'], maxGeneratedBytes: 500 })).rejects.toThrow(
+        /exceeds generated content limit/
+      )
+
+      // Only the initial plan call — the oversized plan never went back over the wire
+      expect(streamSpy).toHaveBeenCalledTimes(1)
+      expect(await storage.read('facts/combined.md')).toBeNull()
+    })
+
+    // A revision is free to grow, so the cap applies to the revised plan too
+    it('rejects a revised plan that exceeds maxGeneratedBytes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+      const smallContent = '---\ndescription: "Small"\n---\n\nSmall body\n'
+      const oversizeContent = `---\ndescription: "Large"\n---\n\n${'X'.repeat(5000)}\n`
+      const model = new MockMessageModel()
+        // Invalid but within budget — routes into the revise-retry
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/missing.md'],
+                target: 'facts/combined.md',
+                content: smallContent,
+                reason: 'dedup',
+              },
+            ],
+            summary: 'invalid but small',
+          })
+        )
+        // The revision fixes the violation but blows the budget
+        .addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/combined.md',
+                content: oversizeContent,
+                reason: 'dedup',
+              },
+            ],
+            summary: 'valid but oversized',
+          })
+        )
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+      await expect(store.consolidate({ model, operations: ['deduplicate'], maxGeneratedBytes: 500 })).rejects.toThrow(
+        /exceeds generated content limit/
+      )
+
+      expect(await storage.read('facts/combined.md')).toBeNull()
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+
+      warnSpy.mockRestore()
+    })
+
     // Content validation must not block legitimate dedup: a well-formed merge still writes its
     // target and deletes the redundant sources.
     it('allows a valid merge that deduplicates sources into a well-formed target', async () => {
@@ -2193,18 +2333,24 @@ describe('FileMemoryStore.consolidate', () => {
     })
   })
 
-  describe('duplicate merge source guard (PR #3429 Blocker 3)', () => {
-    // Duplicate sources launder an in-place overwrite past the operations allow-list: a merge with
-    // sources:['a','a'] and target:'a' bypasses the ≥2 source length check and rewrites 'a' under
-    // 'deduplicate' where 'update' is not authorized.
-    it('rejects merge with duplicate sources that would launder an update under deduplicate', async () => {
+  // A merge must draw on two genuinely different files. A short list and a padded one are the same
+  // violation: sources ['a','a'] or ['a','A'] with target 'a' would rewrite 'a' in place under
+  // 'deduplicate', where the 'update' action is not authorized.
+  describe('distinct merge source guard', () => {
+    const insufficientSources: [string, string[]][] = [
+      ['a single source', ['facts/keep.md']],
+      ['a duplicated source', ['facts/keep.md', 'facts/keep.md']],
+      ['case-variant sources that resolve to one file', ['facts/keep.md', 'facts/Keep.md']],
+    ]
+
+    it.each(insufficientSources)('rejects a merge with %s', async (_label, sources) => {
       await writeFile(storage, 'facts/keep.md', 'Fact Keep', 'Original content')
 
       const badPlan = buildPlanTurn({
         actions: [
           {
             action: 'merge',
-            sources: ['facts/keep.md', 'facts/keep.md'],
+            sources,
             target: 'facts/keep.md',
             content: '---\ndescription: "Rewritten"\n---\n\nFully arbitrary content\n',
             reason: 'dedup',
@@ -2220,30 +2366,6 @@ describe('FileMemoryStore.consolidate', () => {
 
       // Original file untouched — the laundered overwrite was blocked
       expect(decoder.decode((await storage.read('facts/keep.md'))!)).toContain('Original content')
-    })
-
-    // Case-variant duplicates must also be caught: 'Facts/Keep.md' and 'facts/keep.md' resolve to
-    // the same file on a case-insensitive backend.
-    it('rejects merge with case-variant duplicate sources', async () => {
-      await writeFile(storage, 'facts/keep.md', 'Fact Keep', 'Original content')
-
-      const badPlan = buildPlanTurn({
-        actions: [
-          {
-            action: 'merge',
-            sources: ['facts/keep.md', 'facts/Keep.md'],
-            target: 'facts/keep.md',
-            content: '---\ndescription: "Rewritten"\n---\n\nArbitrary\n',
-            reason: 'dedup',
-          },
-        ],
-        summary: 'case-variant duplicate',
-      })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
-
-      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        /at least 2 distinct source paths/
-      )
     })
   })
 
@@ -2438,63 +2560,33 @@ describe('FileMemoryStore.consolidate', () => {
     })
   })
 
-  describe('zero-width character content bypass guard (PR #3429 Blocker 2b)', () => {
-    // Zero-width characters defeat the non-empty content check: a string of zero-width joiners
-    // has .trim().length > 0 but carries no visible or meaningful content.
-    it('rejects content that is only zero-width characters as empty', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+  // Whole-content invisibility, which the body-level table below does not reach: content with no
+  // frontmatter at all fails the empty-content check rather than the missing-body one.
+  it('rejects content that is only zero-width characters as empty', async () => {
+    await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+    await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
-      // Content is entirely zero-width characters (U+200B, U+200C, U+200D, U+FEFF)
-      const zeroWidthOnly = '\u200B\u200C\u200D\uFEFF'
-      const badPlan = buildPlanTurn({
-        actions: [
-          {
-            action: 'merge',
-            sources: ['facts/a.md', 'facts/b.md'],
-            target: 'facts/combined.md',
-            content: zeroWidthOnly,
-            reason: 'dedup',
-          },
-        ],
-        summary: 'invisible content',
-      })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
-
-      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty content/)
-
-      expect(await storage.read('facts/a.md')).not.toBeNull()
-      expect(await storage.read('facts/b.md')).not.toBeNull()
+    const badPlan = buildPlanTurn({
+      actions: [
+        {
+          action: 'merge',
+          sources: ['facts/a.md', 'facts/b.md'],
+          target: 'facts/combined.md',
+          content: '\u200B\u200C\u200D\uFEFF',
+          reason: 'dedup',
+        },
+      ],
+      summary: 'invisible content',
     })
+    const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
 
-    // Zero-width body after valid frontmatter must also be treated as empty
-    it('rejects content with valid frontmatter but zero-width-only body', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+    await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty content/)
 
-      const zeroWidthBody = '---\ndescription: "test"\n---\n\u200B\u200C\u200D\uFEFF'
-      const badPlan = buildPlanTurn({
-        actions: [
-          {
-            action: 'update',
-            path: 'facts/a.md',
-            content: zeroWidthBody,
-            reason: 'update',
-          },
-        ],
-        summary: 'invisible body',
-      })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
-
-      await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
-        /has no body after its frontmatter/
-      )
-
-      expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
-    })
+    expect(await storage.read('facts/a.md')).not.toBeNull()
+    expect(await storage.read('facts/b.md')).not.toBeNull()
   })
 
-  // PR #3429 regression tests: guards discovered during review that the code must guarantee.
-  describe('PR #3429 regression guards', () => {
+  describe('regression guards', () => {
     // Guarantees: generatedByteSize counts move-action content so moves cannot escape the byte cap,
     // and validatePlan rejects plans where multiple moves share the same source (amplification).
     describe('move byte-count + duplicate-source amplification', () => {
@@ -2517,6 +2609,104 @@ describe('FileMemoryStore.consolidate', () => {
 
         // File untouched
         expect(await storage.read('facts/big.md')).not.toBeNull()
+      })
+
+      // A merge consumes its sources exactly as a move does, so the source-claim guard must cover
+      // both. N merges over one shared pair write N targets and still delete the pair, leaving the
+      // store over maxFiles — and permanently unconsolidatable, since every later run aborts on the
+      // file-count limit before a plan could fold the copies away.
+      it('rejects plan where multiple merges share the same sources', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        const mergedContent = '---\ndescription: "Merged"\n---\n\nA and B\n'
+        const amplifyingPlan = buildPlanTurn({
+          actions: Array.from({ length: 10 }, (_unused, index) => ({
+            action: 'merge',
+            sources: ['facts/a.md', 'facts/b.md'],
+            target: `facts/copy-${index}.md`,
+            content: mergedContent,
+            reason: 'dedup',
+          })) as JSONValue[],
+          summary: 'amplify via merge',
+        })
+        const model = new MockMessageModel().addTurn(amplifyingPlan).addTurn(amplifyingPlan)
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /Multiple actions claim 'facts\/a\.md' as a source/
+        )
+
+        // The invariant: the store is exactly as it was — no copies written, no sources deleted
+        expect(await storage.list('')).toEqual(['facts/a.md', 'facts/b.md'])
+      })
+
+      // A merge and a move competing for one source amplify the same way a pair of merges does
+      it('rejects plan where a merge and a move claim the same source', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
+
+        const mixedPlan = buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/merged.md',
+              content: '---\ndescription: "Merged"\n---\n\nA and B\n',
+              reason: 'dedup',
+            },
+            { action: 'move', from: 'facts/a.md', to: 'archive/a.md', reason: 'reorg' },
+          ],
+          summary: 'merge and move one source',
+        })
+        const model = new MockMessageModel().addTurn(mixedPlan).addTurn(mixedPlan)
+
+        await expect(store.consolidate({ model, operations: ['deduplicate', 'reorganize'] })).rejects.toThrow(
+          /Multiple actions claim 'facts\/a\.md' as a source/
+        )
+
+        expect(await storage.list('')).toEqual(['facts/a.md', 'facts/b.md'])
+      })
+
+      // The guard must not reject legitimate work: distinct merges over distinct sources, and a
+      // merge folding into one of its own sources (a self-overwrite, not a claim on that file)
+      it('allows distinct merges and a merge into its own source', async () => {
+        for (const name of ['a', 'b', 'c', 'd', 'e', 'f']) {
+          await writeFile(storage, `facts/${name}.md`, `Fact ${name}`, `Content ${name}`)
+        }
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/a.md', 'facts/b.md'],
+                target: 'facts/ab.md',
+                content: '---\ndescription: "AB"\n---\n\nA and B\n',
+                reason: 'dedup',
+              },
+              {
+                action: 'merge',
+                sources: ['facts/c.md', 'facts/d.md'],
+                target: 'facts/c.md',
+                content: '---\ndescription: "CD"\n---\n\nC and D\n',
+                reason: 'dedup into own source',
+              },
+              { action: 'move', from: 'facts/e.md', to: 'archive/e.md', reason: 'reorg' },
+            ],
+            summary: 'legitimate plan',
+          })
+        )
+
+        await store.consolidate({ model, operations: ['deduplicate', 'reorganize'] })
+
+        expect(await storage.list('')).toEqual([
+          'archive/e.md',
+          'consolidation-changelog.md',
+          'facts/ab.md',
+          'facts/c.md',
+          'facts/f.md',
+        ])
+        expect(decoder.decode((await storage.read('facts/c.md'))!)).toContain('C and D')
       })
 
       it('rejects plan where multiple moves share the same source', async () => {
@@ -2543,7 +2733,7 @@ describe('FileMemoryStore.consolidate', () => {
           )
 
         await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-          /Multiple move actions share the same source/
+          /Multiple actions claim 'facts\/source\.md' as a source/
         )
 
         expect(await storage.read('facts/source.md')).not.toBeNull()
@@ -2856,12 +3046,10 @@ describe('FileMemoryStore.consolidate', () => {
       })
     })
 
-    // Guarantees: content exceeding MAX_ACTION_CONTENT_LENGTH fails schema parse (ZodError).
-    describe('oversize content schema bound', () => {
-      it('rejects action content exceeding the schema max length', async () => {
+    describe('oversize content bound', () => {
+      it('rejects action content exceeding the default generated-byte budget', async () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-        // Content larger than 256KiB — will fail schema parse before reaching the byte-cap check
         const oversizeContent = `---\ndescription: "Huge"\n---\n\n${'x'.repeat(256 * 1024 + 100)}\n`
         const model = new MockMessageModel().addTurn(
           buildPlanTurn({
@@ -2877,10 +3065,11 @@ describe('FileMemoryStore.consolidate', () => {
           })
         )
 
-        // Schema parse fails (ZodError) before the plan reaches validation
-        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
+        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
+          /exceeds generated content limit/
+        )
 
-        // File untouched
+        // File untouched — the guard fires before any execution
         expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
       })
     })
@@ -3128,6 +3317,125 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.list('')).toEqual(['consolidation-changelog.md', 'facts/FileA.md'])
     })
 
+    // PR #3429 — an ambiguous write target (two stored keys differing only by case, which two
+    // ordinary add() calls produce on a case-sensitive backend) must abort rather than write the
+    // model's own spelling. Writing it would mint a third copy and leave the plan's own declared
+    // sources undeleted, a state no later plan can repair: validation rejects a merge of two
+    // case-variants (distinct-source rule) and the update+delete pair that would fold them back.
+    describe('ambiguous write targets', () => {
+      /** Seed the two case-variant keys an ambiguous target resolves against. */
+      async function seedCaseVariants(): Promise<void> {
+        await store.add('Content lower', { path: 'facts/note.md' })
+        await store.add('Content upper', { path: 'facts/Note.md' })
+      }
+
+      it('aborts a merge onto an ambiguous target without writing a third spelling', async () => {
+        await seedCaseVariants()
+        await writeFile(storage, 'facts/other.md', 'Other', 'Content other')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: ['facts/other.md', 'facts/note.md'],
+                target: 'facts/NOTE.md',
+                content: '---\ndescription: "Merged"\n---\n\nMerged content\n',
+                reason: 'dedup',
+              },
+            ],
+            summary: 'merge onto ambiguous target',
+          })
+        )
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /write target 'facts\/NOTE\.md' is ambiguous/
+        )
+
+        // The invariant: no third spelling minted, and the declared sources are still present —
+        // the abort happens before any write or delete, so the store is exactly as it was
+        expect(await storage.list('')).toEqual(['facts/Note.md', 'facts/note.md', 'facts/other.md'])
+      })
+
+      // The ambiguity check runs as a pre-flight pass over every write target, not inline in the
+      // write loop, so a plan whose earlier actions are applicable does not land before the abort
+      it('aborts before applying an earlier valid action in the same plan', async () => {
+        await seedCaseVariants()
+        await writeFile(storage, 'facts/other.md', 'Other', 'Content other')
+        await writeFile(storage, 'facts/stale.md', 'Stale', 'Content stale')
+        await writeFile(storage, 'facts/keep.md', 'Keep', 'Content keep')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'update',
+                path: 'facts/keep.md',
+                content: '---\ndescription: "Revised"\n---\n\nRevised keep\n',
+                reason: 'resolve',
+              },
+              { action: 'delete', path: 'facts/stale.md', reason: 'prune' },
+              {
+                action: 'merge',
+                sources: ['facts/other.md', 'facts/note.md'],
+                target: 'facts/NOTE.md',
+                content: '---\ndescription: "Merged"\n---\n\nMerged content\n',
+                reason: 'dedup',
+              },
+            ],
+            summary: 'valid actions ahead of an ambiguous one',
+          })
+        )
+
+        await expect(
+          store.consolidate({ model, operations: ['deduplicate', 'resolveContradictions', 'prune'] })
+        ).rejects.toThrow(/is ambiguous/)
+
+        // Neither the earlier update nor the delete ran — the whole plan aborted untouched
+        expect(decoder.decode((await storage.read('facts/keep.md'))!)).toContain('Content keep')
+        expect(await storage.read('facts/stale.md')).not.toBeNull()
+      })
+
+      // An ambiguous update or move destination never reaches execution: resolveCanonicalKey returns
+      // undefined for the ambiguous pair, so the update reads as a nonexistent target, and the move
+      // destination reads as an existing file no action vacates. Both are safe rejections rather than
+      // the raw write the merge path allowed — asserted here so a future change to either validation
+      // rule cannot quietly re-open the raw-write path that resolveWriteTarget now backstops.
+      it.each([
+        {
+          label: 'update on an ambiguous path',
+          operations: ['resolveContradictions'] as const,
+          action: {
+            action: 'update',
+            path: 'facts/NOTE.md',
+            content: '---\ndescription: "Revised"\n---\n\nRevised content\n',
+            reason: 'resolve',
+          },
+        },
+        {
+          label: 'move onto an ambiguous destination',
+          operations: ['reorganize'] as const,
+          action: { action: 'move', from: 'facts/source.md', to: 'facts/NOTE.md', reason: 'reorg' },
+        },
+      ])('rejects an $label without writing a third spelling', async ({ operations, action }) => {
+        await seedCaseVariants()
+        await writeFile(storage, 'facts/source.md', 'Source', 'Content source')
+
+        const badPlan = buildPlanTurn({ actions: [action as JSONValue], summary: 'ambiguous target' })
+        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+        await expect(store.consolidate({ model, operations: [...operations] })).rejects.toThrow()
+
+        // Both variants keep their original content and no third spelling exists
+        expect(await storage.list('')).toEqual(['facts/Note.md', 'facts/note.md', 'facts/source.md'])
+        expect(decoder.decode((await storage.read('facts/note.md'))!)).toContain('Content lower')
+        expect(decoder.decode((await storage.read('facts/Note.md'))!)).toContain('Content upper')
+
+        warnSpy.mockRestore()
+      })
+    })
+
     // PR #3429 — guarantees an update action with a case-variant path rewrites the existing
     // canonical file and does not create a second file on case-sensitive backends
     it('update with case-variant path rewrites the canonical file without creating a duplicate', async () => {
@@ -3162,46 +3470,53 @@ describe('FileMemoryStore.consolidate', () => {
   })
 })
 
-// summarizeForLog and truncateForLog bound every plan-derived log payload. They are unit-tested
-// directly because two of their branches — an unserializable value, and a plan made large by action
-// count rather than content size — are awkward to drive through a full consolidate() run.
-describe('log payload summarizing', () => {
-  describe('summarizeForLog', () => {
-    it('truncates a long string value and reports how much was dropped', () => {
-      const summary = summarizeForLog({ content: 'x'.repeat(5000) })
-
-      expect(summary).toContain('…(+4500 chars)')
-      expect(summary.length).toBeLessThan(1000)
-    })
-
-    it("leaves a schema-length reason intact so the model's rationale survives", () => {
-      // reason and summary are schema-capped at the same length as the per-string log cap, so a
-      // maximal-but-valid reason must reach the log whole
-      const reason = 'r'.repeat(500)
-
-      const summary = summarizeForLog({ actions: [{ action: 'delete', path: 'facts/a.md', reason }], summary: 'ok' })
-
-      expect(summary).toContain(reason)
-      expect(summary).not.toContain('chars)')
-    })
-
+// summarizePayload and truncatePayload bound every untrusted plan-derived payload — the plan echoed
+// back on a revise turn, and the same plan in a diagnostic log field. Unit-tested directly because
+// two of their branches — an unserializable value, and a plan made large by action count rather than
+// content size — are awkward to drive through a full consolidate() run.
+describe('payload bounding', () => {
+  describe('summarizePayload', () => {
     it('leaves a small plan fully intact so ordinary diagnostics are unchanged', () => {
       const plan = { actions: [{ action: 'delete', path: 'facts/a.md', reason: 'prune' }], summary: 'ok' }
 
-      expect(summarizeForLog(plan)).toBe(JSON.stringify(plan))
+      expect(summarizePayload(plan)).toBe(JSON.stringify(plan))
     })
 
-    it('bounds the total even when no single string is oversized', () => {
-      // 400 short actions: each value is under the per-string cap, the whole is not
-      const actions = Array.from({ length: 400 }, (_unused, index) => ({
+    // The cap is set by what the revise prompt needs: the model must re-emit every action it is told
+    // to keep unchanged, so an ordinary plan has to survive whole.
+    it('leaves a realistic multi-KB plan whole so the model can re-emit it unchanged', () => {
+      const plan = {
+        actions: Array.from({ length: 6 }, (_unused, index) => ({
+          action: 'merge',
+          sources: [`facts/a-${index}.md`, `facts/b-${index}.md`],
+          target: `facts/merged-${index}.md`,
+          content: `---\ndescription: "Merged ${index}"\n---\n\n${'Prose. '.repeat(100)}\n`,
+          reason: 'dedup',
+        })),
+        summary: 'ordinary plan',
+      }
+
+      expect(summarizePayload(plan)).toBe(JSON.stringify(plan))
+    })
+
+    it('abbreviates a pathologically large body and reports how much was dropped', () => {
+      const summary = summarizePayload({ content: 'x'.repeat(200_000) })
+
+      expect(summary).toContain('chars)')
+      expect(summary.length).toBeLessThan(5000)
+    })
+
+    it('bounds the total for a plan made large by action count', () => {
+      // Each value is under the per-string cap, the whole is not
+      const actions = Array.from({ length: 2000 }, (_unused, index) => ({
         action: 'delete',
         path: `facts/file-${index}.md`,
         reason: 'prune',
       }))
 
-      const summary = summarizeForLog({ actions, summary: 'bulk' })
+      const summary = summarizePayload({ actions, summary: 'bulk' })
 
-      expect(summary.length).toBeLessThan(4200)
+      expect(summary.length).toBeLessThan(33_000)
       expect(summary).toContain('chars)')
     })
 
@@ -3209,35 +3524,84 @@ describe('log payload summarizing', () => {
       const circular: Record<string, unknown> = { actions: [] }
       circular['self'] = circular
 
-      expect(summarizeForLog(circular)).toBe('<unserializable>')
+      expect(summarizePayload(circular)).toBe('<unserializable>')
     })
 
     it('returns a placeholder instead of throwing on a BigInt value', () => {
-      expect(summarizeForLog({ count: 1n })).toBe('<unserializable>')
+      expect(summarizePayload({ count: 1n })).toBe('<unserializable>')
     })
 
     it('renders undefined without throwing', () => {
-      expect(summarizeForLog(undefined)).toBe('undefined')
+      expect(summarizePayload(undefined)).toBe('undefined')
     })
   })
 
-  describe('truncateForLog', () => {
+  describe('truncatePayload', () => {
     it('passes a short validation error through unchanged', () => {
-      expect(truncateForLog("Delete target 'facts/a.md' does not exist")).toBe(
+      expect(truncatePayload("Delete target 'facts/a.md' does not exist")).toBe(
         "Delete target 'facts/a.md' does not exist"
       )
     })
 
-    it('bounds an error that accumulated one message per action', () => {
+    // Validation names every offending action, and the model repairs against that list — a cap tight
+    // enough for a compact log line would hide violations it is being asked to fix.
+    it('keeps a violation list long enough to name every offending action', () => {
       const joined = Array.from(
-        { length: 500 },
+        { length: 200 },
         (_unused, index) => `Delete target 'facts/${index}.md' does not exist`
       ).join('\n')
 
-      const truncated = truncateForLog(joined)
+      expect(truncatePayload(joined)).toBe(joined)
+    })
 
-      expect(truncated.length).toBeLessThan(4200)
+    it('bounds a violation list that grows past the cap', () => {
+      const joined = Array.from(
+        { length: 5000 },
+        (_unused, index) => `Delete target 'facts/${index}.md' does not exist`
+      ).join('\n')
+
+      const truncated = truncatePayload(joined)
+
+      expect(truncated.length).toBeLessThan(33_000)
       expect(truncated).toContain('chars)')
     })
+  })
+})
+
+// resolveWriteTarget distinguishes the two reasons a path fails to resolve to a single stored key.
+// Unit-tested directly because the three-or-more-variant case cannot be reached through consolidate()
+// without seeding it by hand, and the distinction is the whole point of the helper.
+describe('resolveWriteTarget', () => {
+  it('returns the stored spelling when exactly one key matches case-insensitively', () => {
+    const files = new Map([['facts/Note.md', 'content']])
+
+    expect(resolveWriteTarget(files, 'facts/note.md')).toBe('facts/Note.md')
+  })
+
+  it('returns the path verbatim when no stored key matches, so new paths are written as given', () => {
+    const files = new Map([['facts/other.md', 'content']])
+
+    expect(resolveWriteTarget(files, 'facts/BrandNew.md')).toBe('facts/BrandNew.md')
+  })
+
+  it('throws naming every variant when two stored keys differ only by case', () => {
+    const files = new Map([
+      ['facts/note.md', 'lower'],
+      ['facts/Note.md', 'upper'],
+    ])
+
+    expect(() => resolveWriteTarget(files, 'facts/NOTE.md')).toThrow(/is ambiguous/)
+    expect(() => resolveWriteTarget(files, 'facts/NOTE.md')).toThrow(/facts\/note\.md, facts\/Note\.md/)
+  })
+
+  it('throws when the ambiguous path is itself one of the stored spellings', () => {
+    const files = new Map([
+      ['facts/note.md', 'lower'],
+      ['facts/Note.md', 'upper'],
+    ])
+
+    // An exact match must not shortcut the ambiguity check — writing this spelling still leaves the
+    // other variant behind as an unmergeable duplicate
+    expect(() => resolveWriteTarget(files, 'facts/note.md')).toThrow(/is ambiguous/)
   })
 })

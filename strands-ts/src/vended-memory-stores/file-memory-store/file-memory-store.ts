@@ -30,7 +30,6 @@ import {
   parseFrontmatter,
   STORAGE_READ_CONCURRENCY,
 } from './internal.js'
-import { generatedByteSize } from './consolidation/plan.js'
 import { generatePlan } from './consolidation/planner.js'
 import { executePlan, readAllFiles, recordChangelog } from './consolidation/execute.js'
 
@@ -289,6 +288,8 @@ export class FileMemoryStore implements MemoryStore {
    * @throws Error when the consolidation agent exceeds its turn limit without producing a plan
    * @throws Error when a path the plan would create was claimed by a writer outside this run
    *   (the store is left unchanged — no write or delete runs)
+   * @throws Error when a path the plan writes matches several stored keys differing only by case
+   *   (the store is left unchanged — no write or delete runs)
    *
    * @example
    * ```typescript
@@ -360,16 +361,9 @@ export class FileMemoryStore implements MemoryStore {
       )
     }
 
-    const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
-
-    // Like the action-count guard, an oversized plan is a runaway signal rather than a fixable
-    // mistake, so this throws instead of routing into the revise-retry
-    const generatedBytes = generatedByteSize(plan, files)
-    if (generatedBytes > maxGeneratedBytes) {
-      throw new Error(
-        `Consolidation plan exceeds generated content limit: ${generatedBytes} bytes (maxGeneratedBytes: ${maxGeneratedBytes})`
-      )
-    }
+    // generatePlan owns the generated-byte cap as well as the action-count one, so an oversized plan
+    // is rejected before it can be echoed back to the model on the revise turn
+    const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan, maxGeneratedBytes)
 
     const deleteErrors = await executePlan(this._storage, plan, files)
     // Record the changelog even on partial failure — writes and some deletes already hit disk,

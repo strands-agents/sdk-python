@@ -21,6 +21,7 @@ import {
   mapWithConcurrency,
   pathsResolveSame,
   resolveCanonicalKey,
+  resolveWriteTarget,
   STORAGE_READ_CONCURRENCY,
 } from '../internal.js'
 
@@ -102,6 +103,7 @@ export async function executePlan(
   plan: ConsolidationPlan,
   files: Map<string, string>
 ): Promise<DeleteFailure[]> {
+  assertPathsUnambiguous(plan, files)
   await assertNewTargetsUnclaimed(storage, plan, files)
 
   // Writes before deletes — merged content lands before sources are removed
@@ -109,13 +111,14 @@ export async function executePlan(
     if (action.action === 'merge') {
       // Resolve to the stored canonical key so a differently-cased target folds into the existing
       // file instead of creating a duplicate on case-sensitive backends. A target absent from the
-      // snapshot resolves to itself, so brand-new paths are written verbatim.
-      const canonicalTarget = resolveCanonicalKey(files, action.target) ?? action.target
+      // snapshot resolves to itself, so brand-new paths are written verbatim; an ambiguous target
+      // (several stored keys differing only by case) throws rather than minting a third spelling
+      const canonicalTarget = resolveWriteTarget(files, action.target)
       await storage.write(canonicalTarget, encoder.encode(action.content))
     } else if (action.action === 'update') {
       // Resolve to the stored canonical key so a differently-cased echo from the model overwrites
       // the existing file instead of creating a duplicate on case-sensitive backends
-      const canonicalPath = resolveCanonicalKey(files, action.path) ?? action.path
+      const canonicalPath = resolveWriteTarget(files, action.path)
       await storage.write(canonicalPath, encoder.encode(action.content))
     } else if (action.action === 'move') {
       // validatePlan guarantees every move source exists in `files`; resolve via canonical key so
@@ -129,7 +132,7 @@ export async function executePlan(
       }
       // Resolve the destination the same way, so a case-only rename rewrites the file in place
       // rather than minting a second key the delete pass then skips
-      const canonicalTo = resolveCanonicalKey(files, action.to) ?? action.to
+      const canonicalTo = resolveWriteTarget(files, action.to)
       await storage.write(canonicalTo, encoder.encode(content))
     }
   }
@@ -175,6 +178,39 @@ export async function executePlan(
   }
 
   return deleteErrors
+}
+
+/**
+ * Verify that every path the plan writes resolves to exactly one key, before anything is written.
+ *
+ * {@link resolveWriteTarget} throws on an ambiguous path, and doing that from inside the write loop
+ * would abort a run that had already written earlier actions. Running the same resolution over every
+ * write target up front means the abort happens with the store untouched, the way the pre-flight
+ * claim check does — and the error names every ambiguous path at once rather than only the first.
+ *
+ * @throws Error when a write target matches two or more stored keys differing only by case
+ */
+function assertPathsUnambiguous(plan: ConsolidationPlan, files: Map<string, string>): void {
+  const ambiguityErrors: string[] = []
+  for (const action of plan.actions) {
+    const target =
+      action.action === 'merge'
+        ? action.target
+        : action.action === 'update'
+          ? action.path
+          : action.action === 'move'
+            ? action.to
+            : undefined
+    if (target === undefined) continue
+    try {
+      resolveWriteTarget(files, target)
+    } catch (error) {
+      ambiguityErrors.push(String(error instanceof Error ? error.message : error))
+    }
+  }
+  if (ambiguityErrors.length > 0) {
+    throw new Error(ambiguityErrors.join('\n'))
+  }
 }
 
 /**

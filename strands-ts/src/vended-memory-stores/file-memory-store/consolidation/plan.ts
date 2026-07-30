@@ -9,80 +9,66 @@
 
 import { z } from 'zod'
 import { logger } from '../../../logging/logger.js'
-import { DEFAULT_MAX_GENERATED_BYTES, encoder, resolveCanonicalKey } from '../internal.js'
+import { DEFAULT_MAX_INPUT_BYTES, encoder, resolveCanonicalKey } from '../internal.js'
 
 /**
- * Cap on model-generated reason/summary text written into the consolidation changelog.
- * Keeps plan metadata concise without truncating useful context.
+ * Cap on model-generated reason/summary text written into the consolidation changelog. Chosen, not
+ * derived: a couple of sentences per action, enough to explain one action without letting metadata
+ * dominate the log.
  *
  * @internal
  */
 const MAX_PLAN_TEXT_LENGTH = 500
 
 /**
- * Cap on any single string value inside a logged plan, set to {@link MAX_PLAN_TEXT_LENGTH} so the
- * only field it truncates is the one the schema does not already bound.
+ * Caps on an untrusted plan-derived payload — the plan echoed back in the revise prompt, and the
+ * same plan in a diagnostic log field. Sized as a fraction of the input the planner was given: the
+ * retry re-sends that input anyway, so the echo stays a bounded share of a cost already paid rather
+ * than scaling with whatever the model generated.
  *
- * `reason` and `summary` are schema-capped at that same length, so they reach the log whole — and
- * `reason` is the model's own account of why an action exists, which is worth having in full when
- * diagnosing a rejection. Action `content` is what makes a plan large; a truncated body still shows
- * the frontmatter and opening line, and the appended length reports how much was dropped, which is
- * itself the diagnostic when a plan is rejected for size.
+ * Set by what the revise prompt needs, since that is the binding constraint — the model must re-emit
+ * the actions it is told to keep unchanged, so a cap tight enough to make a compact log line would
+ * break the revise path on ordinary plans. The per-string cap only stops one pathological `content`
+ * from consuming the whole budget; the total cap bounds a plan made large by action count instead.
  */
-const MAX_LOGGED_STRING_LENGTH = MAX_PLAN_TEXT_LENGTH
-
-/**
- * Cap on a whole logged plan payload. A plan can hold up to `maxActionsPerPlan` actions (default
- * 1000), so per-string truncation alone still leaves the total unbounded — this bounds the
- * accumulation across actions rather than the size of any one value.
- *
- * Chosen, not derived. Serialized actions run roughly 96 chars for a delete, 120 for a move, and 159
- * for a merge, so this holds about 40, 32, or 24 of them respectively — the first page of a plan,
- * which is where a systematic mistake shows itself (every path pointing at one directory, every
- * merge naming the same source). It is not sized to hold a whole plan, because the errors this
- * payload accompanies already identify the offending action: a `ZodError` names the failing path,
- * and {@link validatePlan} names every rejected path in its message. The payload corroborates those
- * errors rather than replacing them.
- *
- * Raise it if plans are routinely rejected for reasons the first page does not explain.
- */
-const MAX_LOGGED_PLAN_LENGTH = 4000
+const MAX_PAYLOAD_LENGTH = DEFAULT_MAX_INPUT_BYTES / 4
+const MAX_PAYLOAD_STRING_LENGTH = MAX_PAYLOAD_LENGTH / 8
 
 /**
  * Clip `text` to `limit`, appending how many characters were dropped.
  *
  * The dropped count is load-bearing, not decoration: it distinguishes a value that merely reached
  * the cap from one that blew far past it, which is often the whole diagnosis when a plan is rejected
- * for size. Shared by every log-bounding path here so the truncation marker reads identically
- * whether a single `content` value or a whole plan payload was clipped.
+ * for size. Shared by both bounding paths so the truncation marker reads identically whether a
+ * single `content` value or a whole plan payload was clipped.
  */
 function clipWithCount(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit)}…(+${text.length - limit} chars)` : text
 }
 
 /**
- * Render an untrusted plan-shaped value as a bounded single-line string for a log field.
+ * Render an untrusted plan-shaped value as a bounded single-line string, for the revise prompt or a
+ * log field.
  *
- * Log payloads must be bounded at the point of construction rather than gated on log level. The
- * {@link Logger} interface exposes no way to ask whether a level is enabled, so a caller cannot
- * know if a payload will be discarded, and an injected logger's `debug` is a real function even
- * when configured to drop the record — the string gets built either way. Bounding the value here
- * means the cost is the same whether the record is kept or dropped.
+ * Per-string truncation happens inside the `JSON.stringify` replacer, so an oversized `content` never
+ * becomes part of the output string at all. The `…(+N chars)` marker tells the model a value was
+ * clipped so it re-emits that value rather than treating the truncation as the intended content.
  *
- * Truncation happens inside the `JSON.stringify` replacer, so an oversized `content` never becomes
- * part of the output string at all; the total cap then bounds a plan made large by action count.
+ * Bounding happens here, at construction, rather than being gated on log level: the {@link Logger}
+ * interface exposes no way to ask whether a level is enabled, and an injected logger's `debug` is a
+ * real function even when configured to drop the record — the string gets built either way.
  *
  * Accepts `unknown` because the pre-schema call site logs raw model output, whose shape is not yet
- * proven. Never throws: a value that cannot be serialized logs as a placeholder, since failing to
+ * proven. Never throws: a value that cannot be serialized renders as a placeholder, since failing to
  * build a diagnostic must not fail the run.
  *
  * @internal
  */
-export function summarizeForLog(value: unknown): string {
+export function summarizePayload(value: unknown): string {
   let json: string | undefined
   try {
     json = JSON.stringify(value, (_key, entry: unknown) =>
-      typeof entry === 'string' ? clipWithCount(entry, MAX_LOGGED_STRING_LENGTH) : entry
+      typeof entry === 'string' ? clipWithCount(entry, MAX_PAYLOAD_STRING_LENGTH) : entry
     )
   } catch {
     // Circular references and BigInt both make stringify throw
@@ -90,33 +76,20 @@ export function summarizeForLog(value: unknown): string {
   }
   // stringify returns undefined for undefined and for a function value
   if (json === undefined) return String(value)
-  return clipWithCount(json, MAX_LOGGED_PLAN_LENGTH)
+  return clipWithCount(json, MAX_PAYLOAD_LENGTH)
 }
 
 /**
- * Bound a plain string destined for a log field, on the same reasoning as {@link summarizeForLog}.
+ * Bound a plain string — a joined validation error — for the revise prompt or a log field.
  *
- * Validation accumulates one message per offending action, so the joined error grows with the
- * plan's action count and needs the same cap the plan payload gets.
+ * Validation emits one message per offending action, so the joined error grows with the plan's action
+ * count and needs the same cap the plan payload gets.
  *
  * @internal
  */
-export function truncateForLog(text: string): string {
-  return clipWithCount(text, MAX_LOGGED_PLAN_LENGTH)
+export function truncatePayload(text: string): string {
+  return clipWithCount(text, MAX_PAYLOAD_LENGTH)
 }
-
-/**
- * Cap on model-generated content per action (characters). Derived from the default maxGeneratedBytes
- * budget so a single oversized action fails at parse time rather than after a multi-MB warn/revise
- * cycle. The byte-level cap in _consolidate still applies to the plan as a whole.
- *
- * Note: z.string().max() counts characters while the budget is in UTF-8 bytes; for ASCII-dominant
- * content they are equal, and the schema cap is an upper bound — the byte-level guard remains
- * authoritative.
- *
- * @internal
- */
-const MAX_ACTION_CONTENT_LENGTH = DEFAULT_MAX_GENERATED_BYTES
 
 /**
  * Schema for a consolidation plan, used both as the planner's structured-output contract and as the
@@ -131,13 +104,13 @@ export const ConsolidationPlanSchema = z.object({
         action: z.literal('merge'),
         sources: z.array(z.string()),
         target: z.string(),
-        content: z.string().max(MAX_ACTION_CONTENT_LENGTH),
+        content: z.string(),
         reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
       }),
       z.object({
         action: z.literal('update'),
         path: z.string(),
-        content: z.string().max(MAX_ACTION_CONTENT_LENGTH),
+        content: z.string(),
         reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
       }),
       z.object({
@@ -181,9 +154,8 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
     throw new Error('Model did not return structured output — cannot produce a consolidation plan')
   }
   // Log before parsing so a plan rejected by the schema or the action-count guard is still
-  // inspectable — the thrown errors carry no plan body. The payload is bounded rather than gated on
-  // whether debug is enabled, which the Logger interface gives no way to ask; see summarizeForLog.
-  logger.debug(`plan=<${summarizeForLog(result.structuredOutput)}> | raw consolidation plan returned by planner`)
+  // inspectable — the thrown errors carry no plan body
+  logger.debug(`plan=<${summarizePayload(result.structuredOutput)}> | raw consolidation plan returned by planner`)
   const plan = ConsolidationPlanSchema.parse(result.structuredOutput)
   if (plan.actions.length > maxActionsPerPlan) {
     throw new Error(

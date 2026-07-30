@@ -167,3 +167,33 @@ export function resolveCanonicalKey(files: Map<string, string>, path: string): s
   }
   return found
 }
+
+/**
+ * Resolve the key a write action should land on, distinguishing the two reasons
+ * {@link resolveCanonicalKey} returns `undefined`.
+ *
+ * A write cannot treat those two cases alike. Zero matches means the path is genuinely new, so the
+ * model's spelling is the right key. Two or more matches means the backend is case-sensitive and
+ * already holds keys differing only by case: every spelling is equally defensible, and writing the
+ * model's own mints a *third* file whose sources the delete pass will not clean up — a state no later
+ * plan can repair, since validation rejects both the merge and the update+delete that would fold the
+ * variants back together. Aborting is the only safe outcome, matching how `assertNewTargetsUnclaimed`
+ * treats a target it cannot write safely.
+ *
+ * @returns The stored key when exactly one matches, or `path` verbatim when none do
+ * @throws Error when two or more stored keys differ from `path` only by case
+ *
+ * @internal
+ */
+export function resolveWriteTarget(files: Map<string, string>, path: string): string {
+  const normalized = path.toLowerCase()
+  const matches = [...files.keys()].filter((key) => key.toLowerCase() === normalized)
+  if (matches.length > 1) {
+    throw new Error(
+      `Consolidation aborted: write target '${path}' is ambiguous — the store holds ${matches.length} keys that ` +
+        `differ from it only by case (${matches.join(', ')}). Writing either spelling would create a third copy ` +
+        `no later consolidation could fold away. Remove the duplicate spellings, then re-run consolidation.`
+    )
+  }
+  return matches[0] ?? path
+}

@@ -68,15 +68,11 @@ export function validatePlan(
       violations.push(`Action '${action.action}' is not allowed for operations: ${operations.join(', ')}`)
     }
 
-    // Kept here rather than as a schema `.min(2)` so a too-short merge flows through the same
-    // accumulate-and-revise path as every other guardrail, instead of failing as a raw ZodError
-    // at parse time before the model gets a chance to fix it.
-    if (action.action === 'merge' && action.sources.length < 2) {
-      violations.push('Merge action requires at least 2 sources')
-    }
-
-    // Distinct-source guard: duplicate sources launder an in-place overwrite past the operations
-    // allow-list (e.g. a self-overwrite under 'deduplicate' where 'update' is not allowed)
+    // A merge must draw on two genuinely different files. Counting distinct sources covers both a
+    // too-short list and a padded one — duplicate or case-variant sources would otherwise launder an
+    // in-place overwrite past the operations allow-list (a self-overwrite under 'deduplicate', where
+    // 'update' is not authorized). Kept here rather than as a schema `.min(2)` so it flows through the
+    // same accumulate-and-revise path as every other guardrail instead of failing as a raw ZodError.
     if (action.action === 'merge') {
       const distinctSources = new Set(action.sources.map((source) => source.toLowerCase()))
       if (distinctSources.size < 2) {
@@ -216,8 +212,9 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
 }
 
 /**
- * Reject plans that would clobber data: two actions writing the same path, or a write landing on
- * an existing file that no other action vacates (a self-overwrite like an update is allowed).
+ * Reject plans that would clobber or amplify data: two actions writing the same path, a write landing
+ * on an existing file that no other action vacates (a self-overwrite like an update is allowed), or
+ * two actions claiming the same source.
  *
  * @returns An array of human-readable error strings for every collision (empty when the plan is safe)
  */
@@ -293,19 +290,34 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
     }
   }
 
-  // Reject plans where multiple move actions share the same source — a single file cannot be
-  // meaningfully moved to N destinations. Without this guard an adversarial plan can amplify one
-  // source into arbitrarily many copies, wedging the store past its file/byte limits permanently.
-  const moveSourcesSeen = new Set<string>()
+  // Reject plans where two content-producing actions claim the same source. A merge and a move both
+  // consume their sources — they write the source's content (or a synthesis of it) elsewhere and then
+  // delete it — so a file can only be claimed once. Without this guard a plan amplifies one source
+  // into arbitrarily many copies (N merges over the same pair write N targets and still delete the
+  // pair), which wedges the store past maxFiles and leaves it permanently unconsolidatable: every
+  // later run aborts on the file-count limit before a plan can fold the copies away.
+  //
+  // Deliberately strict: two merges drawing on one shared source may be a well-meant plan, but it is
+  // indistinguishable from the amplifying one, and the planner prompt directs one action per path.
+  const claimedSources = new Set<string>()
+  const claimSource = (path: string): void => {
+    const normalized = path.toLowerCase()
+    if (claimedSources.has(normalized)) {
+      errors.push(
+        `Multiple actions claim '${path}' as a source — a file can only be merged or moved into one destination`
+      )
+    }
+    claimedSources.add(normalized)
+  }
   for (const action of plan.actions) {
     if (action.action === 'move') {
-      const normalizedFrom = action.from.toLowerCase()
-      if (moveSourcesSeen.has(normalizedFrom)) {
-        errors.push(
-          `Multiple move actions share the same source '${action.from}' — a file can only be moved to one destination`
-        )
+      claimSource(action.from)
+    } else if (action.action === 'merge') {
+      // A merge folding into one of its own sources rewrites that file in place rather than consuming
+      // it, so the target spelling is not a claim — the write-vs-vacate rules above already govern it
+      for (const source of action.sources) {
+        if (!pathsResolveSame(source, action.target)) claimSource(source)
       }
-      moveSourcesSeen.add(normalizedFrom)
     }
   }
 
