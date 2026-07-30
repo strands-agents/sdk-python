@@ -73,7 +73,7 @@ export function createRiskClassifier(config?: ClassifierConfig): HumanInTheLoopC
     const model = configuredModel ?? event.agent.model
     if (!model) {
       throw new Error(
-        'HITL risk classifier has no model — pass `model` in classifierConfig, or ensure the parent agent has a model.',
+        'HITL risk classifier has no model — pass `model` in `classifier: { model }`, or ensure the parent agent has a model.',
       )
     }
 

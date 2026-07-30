@@ -79,6 +79,9 @@ export interface HumanInTheLoopConfig {
    *
    * Negated tools (`!tool`) cannot be trusted.
    *
+   * With a `classifier`, trusting a tool disables argument-level risk
+   * classification for that tool name for the rest of the session.
+   *
    * Defaults to `false`.
    */
   enableTrust?: boolean
@@ -234,7 +237,12 @@ export class HumanInTheLoop extends InterventionHandler {
     if (this._allowedTools.has(toolName)) return { requiresApproval: false }
 
     if (this._classifier) {
-      return this._classifier(event)
+      try {
+        return await this._classifier(event)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { requiresApproval: true, reason: `Classifier failed, defaulting to approval required: ${message}` }
+      }
     }
 
     return { requiresApproval: true }
