@@ -1865,3 +1865,285 @@ def test_format_chunk_citations_delta_malformed_url_omits_domain(model):
     )
 
     assert formatted["contentBlockDelta"]["delta"]["citation"]["location"] == {"web": {"url": "not a url"}}
+
+
+# --- fixes from adversarial review of PR #3568 -------------------------------------------------------
+
+
+def test_format_request_skips_citations_block_with_no_generated_text(model):
+    """Anthropic rejects empty text blocks, so a content-less citations block must be dropped.
+
+    Reachable in practice: BedrockModel streams citation deltas with an empty `content`, so replaying
+    a Bedrock-produced history through AnthropicModel would otherwise be a guaranteed 400.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "hi"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"citationsContent": {"citations": [{"title": "A"}], "content": []}},
+                {"text": "real answer"},
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    assert request["messages"][1] == {"role": "assistant", "content": [{"type": "text", "text": "real answer"}]}
+
+
+def test_format_request_drops_message_that_is_only_an_empty_citations_block(model):
+    """The whole message goes away rather than becoming an empty content list."""
+    messages = [
+        {"role": "user", "content": [{"text": "hi"}]},
+        {"role": "assistant", "content": [{"citationsContent": {"citations": [{"title": "A"}], "content": []}}]},
+    ]
+
+    request = model.format_request(messages)
+
+    assert request["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
+
+
+@pytest.mark.parametrize(
+    "bad_tools",
+    [
+        "web_search",
+        123,
+    ],
+)
+def test_format_request_params_tools_rejects_values_that_would_be_exploded(
+    anthropic_client, model_id, max_tokens, messages, bad_tools
+):
+    """`extend()` on a str/int would spray characters or raise; name the option instead."""
+    _ = anthropic_client
+
+    model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, params={"tools": bad_tools})
+
+    with pytest.warns(UserWarning), pytest.raises(ValueError, match=r"params\[.tools.\] must be a list"):
+        model.format_request(messages)
+
+
+def test_format_request_params_tools_wraps_a_bare_mapping(anthropic_client, model_id, max_tokens, messages, tool_spec):
+    """A single tool dict is unambiguous, so wrap it rather than iterating its keys."""
+    _ = anthropic_client
+
+    model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, params={"tools": WEB_SEARCH_TOOL})
+
+    with pytest.warns(UserWarning):
+        request = model.format_request(messages, [tool_spec])
+
+    assert request["tools"] == [
+        {
+            "name": tool_spec["name"],
+            "description": tool_spec["description"],
+            "input_schema": tool_spec["inputSchema"]["json"],
+        },
+        WEB_SEARCH_TOOL,
+    ]
+
+
+def test_anthropic_tools_rejects_a_bare_string(anthropic_client, model_id, max_tokens):
+    _ = anthropic_client
+
+    with pytest.raises(ValueError, match="anthropic_tools must be a list"):
+        AnthropicModel(model_id=model_id, max_tokens=max_tokens, anthropic_tools="web_search")
+
+
+def test_update_config_anthropic_tools_none_resets_without_raising(model, messages):
+    """`None` is a plausible reset value and must not raise TypeError."""
+    model.update_config(anthropic_tools=[WEB_SEARCH_TOOL])
+    model.update_config(anthropic_tools=None)
+
+    assert model.format_request(messages)["tools"] == []
+
+
+def test_format_chunk_citations_delta_web_location_domain_excludes_port(model):
+    """Must match the TS provider, which uses URL().hostname."""
+    formatted = model.format_chunk(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "citations_delta",
+                "citation": {
+                    "type": "web_search_result_location",
+                    "url": "https://example.com:8443/a",
+                    "cited_text": "c",
+                },
+            },
+        }
+    )
+
+    assert formatted["contentBlockDelta"]["delta"]["citation"]["location"] == {
+        "web": {"url": "https://example.com:8443/a", "domain": "example.com"}
+    }
+
+
+def test_format_chunk_citations_delta_page_location(model):
+    formatted = model.format_chunk(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "citations_delta",
+                "citation": {
+                    "type": "page_location",
+                    "document_index": 2,
+                    "document_title": "Doc",
+                    "cited_text": "c",
+                    "start_page_number": 3,
+                    "end_page_number": 4,
+                },
+            },
+        }
+    )
+
+    assert formatted["contentBlockDelta"]["delta"]["citation"] == {
+        "title": "Doc",
+        "sourceContent": [{"text": "c"}],
+        "location": {"documentPage": {"documentIndex": 2, "start": 3, "end": 4}},
+    }
+
+
+def test_format_chunk_citations_delta_content_block_location(model):
+    formatted = model.format_chunk(
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {
+                "type": "citations_delta",
+                "citation": {
+                    "type": "content_block_location",
+                    "document_index": 1,
+                    "document_title": "Doc",
+                    "cited_text": "c",
+                    "start_block_index": 0,
+                    "end_block_index": 2,
+                },
+            },
+        }
+    )
+
+    assert formatted["contentBlockDelta"]["delta"]["citation"]["location"] == {
+        "documentChunk": {"documentIndex": 1, "start": 0, "end": 2}
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_suppresses_mcp_tool_use_input_deltas(anthropic_client, model, alist, caplog):
+    """The suppression list must cover every server-resolved block, not just web search."""
+    caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
+
+    def event(payload, **attrs):
+        return unittest.mock.Mock(model_dump=lambda: payload, **attrs)
+
+    mcp_block = types.SimpleNamespace(type="mcp_tool_use", id="mcptoolu_1", name="remote_tool", input={})
+    events = [
+        event(
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "mcp_tool_use"}},
+            type="content_block_start",
+            index=0,
+            content_block=mcp_block,
+        ),
+        event(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "input_json_delta", "partial_json": "{}"}},
+            type="content_block_delta",
+            index=0,
+        ),
+        event({"type": "content_block_stop", "index": 0}, type="content_block_stop", index=0),
+    ]
+
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        events, final_message=mock_final_message()
+    )
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    assert not any("toolUse" in c.get("contentBlockDelta", {}).get("delta", {}) for c in chunks)
+    assert "incomplete tool use block" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_forwards_unrecognized_block_types_with_a_warning(anthropic_client, model, alist, caplog):
+    """A block type we do not know must not vanish; losing content silently is the worse failure."""
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+
+    def event(payload, **attrs):
+        return unittest.mock.Mock(model_dump=lambda: payload, **attrs)
+
+    unknown = types.SimpleNamespace(type="brand_new_block_20991231")
+    events = [
+        event(
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "brand_new_block_20991231"}},
+            type="content_block_start",
+            index=0,
+            content_block=unknown,
+        ),
+        event(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello"}},
+            type="content_block_delta",
+            index=0,
+        ),
+        event({"type": "content_block_stop", "index": 0}, type="content_block_stop", index=0),
+    ]
+
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        events, final_message=mock_final_message()
+    )
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    assert {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "hello"}}} in chunks
+    assert "unrecognized content block type" in caplog.text
+    assert "brand_new_block_20991231" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_server_tool_blocks_leave_no_empty_content_block(
+    anthropic_client, model, alist, server_tool_stream_events
+):
+    """Suppressed blocks are skipped whole - no stray start/stop pair per web search."""
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        server_tool_stream_events, final_message=mock_final_message()
+    )
+
+    chunks = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    # One text block only: the server_tool_use and web_search_tool_result blocks are gone.
+    assert len([c for c in chunks if "contentBlockStart" in c]) == 1
+    assert len([c for c in chunks if "contentBlockStop" in c]) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_forwards_initial_text_attached_to_content_block_start(anthropic_client, model, alist):
+    """Anthropic can put the first characters on content_block_start; TS forwards them, so must we."""
+
+    def event(payload, **attrs):
+        return unittest.mock.Mock(model_dump=lambda: payload, **attrs)
+
+    text_block = types.SimpleNamespace(type="text", text="Hello")
+    events = [
+        event(
+            {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": "Hello"}},
+            type="content_block_start",
+            index=0,
+            content_block=text_block,
+        ),
+        event(
+            {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": " world"}},
+            type="content_block_delta",
+            index=0,
+        ),
+        event({"type": "content_block_stop", "index": 0}, type="content_block_stop", index=0),
+        event({"type": "message_stop"}, type="message_stop", message=unittest.mock.Mock(stop_reason="end_turn")),
+    ]
+
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        events, final_message=mock_final_message()
+    )
+
+    stream = model.stream([{"role": "user", "content": [{"text": "hi"}]}])
+    stream_events = await alist(strands.event_loop.streaming.process_stream(stream))
+    _, message, _, _ = stream_events[-1]["stop"]
+
+    assert message["content"] == [{"text": "Hello world"}]

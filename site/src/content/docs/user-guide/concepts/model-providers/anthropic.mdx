@@ -222,8 +222,15 @@ the agent's own tools.
 <Tab label="Python">
 
 ```python
-from strands import Agent
+from strands import Agent, tool
 from strands.models.anthropic import AnthropicModel
+
+
+@tool
+def record_finding(summary: str) -> str:
+    """Record a finding for later review."""
+    return f"recorded: {summary}"
+
 
 model = AnthropicModel(
     client_args={"api_key": "<KEY>"},
@@ -232,10 +239,10 @@ model = AnthropicModel(
     anthropic_tools=[{"type": "web_search_20260318", "name": "web_search", "max_uses": 5}],
 )
 
-# Function tools registered on the agent still reach the model: anthropic_tools
-# is appended to them rather than replacing them.
-agent = Agent(model=model)
-response = agent("What did Anthropic announce this week?")
+# `record_finding` still reaches the model: anthropic_tools is appended to the agent's
+# function tools rather than replacing them.
+agent = Agent(model=model, tools=[record_finding])
+response = agent("Search for what Anthropic announced this week, then record your finding.")
 print(response)
 ```
 </Tab>

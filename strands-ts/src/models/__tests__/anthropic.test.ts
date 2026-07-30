@@ -1265,6 +1265,211 @@ describe('AnthropicModel', () => {
       expect(toolInputDeltas).toEqual(['{"a": 1}'])
     })
 
+    // --- fixes from adversarial review of PR #3568 ---------------------------------------------
+
+    it('drops a citations block with no generated text instead of sending an empty text block', async () => {
+      // Reachable in practice: bedrock.ts streams citation deltas with an empty `content`, so replaying
+      // a Bedrock-produced history through AnthropicModel would otherwise be a guaranteed 400
+      // ("text content blocks must contain non-whitespace text").
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('hi')] }),
+        new Message({
+          role: 'assistant',
+          content: [
+            new CitationsBlock({
+              citations: [
+                {
+                  location: { type: 'web', url: 'https://docs.example.com/a' },
+                  source: 'https://docs.example.com/a',
+                  sourceContent: [{ text: 'cited source text' }],
+                  title: 'A',
+                },
+              ],
+              content: [],
+            }),
+            new TextBlock('real answer'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages[1]).toEqual({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'real answer' }],
+      })
+    })
+
+    it.each([
+      ['a string', 'web_search'],
+      ['a number', 123],
+    ])('rejects params.tools that is %s rather than spreading it', async (_label, badTools) => {
+      const { mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, params: { tools: badTools } })
+
+      await expect(
+        collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      ).rejects.toThrow(/params\.tools must be an array/)
+    })
+
+    it('wraps a bare params.tools object rather than discarding it', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, params: { tools: WEB_SEARCH_TOOL } })
+
+      await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
+          toolSpecs: [FUNCTION_TOOL_SPEC],
+        })
+      )
+
+      expect(captured.request.tools.map((tool: { name: string }) => tool.name)).toEqual(['calc', 'web_search'])
+    })
+
+    it('rejects anthropicTools entries that are function tool definitions', () => {
+      expect(
+        () =>
+          new AnthropicModel({
+            apiKey: 'sk-ant-test',
+            anthropicTools: [{ name: 'my_tool', description: 'd', input_schema: { type: 'object' } }] as never,
+          })
+      ).toThrow(/should not contain function tool definitions/)
+    })
+
+    it('rejects anthropicTools entries missing the versioned type string', () => {
+      expect(
+        () => new AnthropicModel({ apiKey: 'sk-ant-test', anthropicTools: [{ name: 'web_search' }] as never })
+      ).toThrow(/versioned `type` string/)
+    })
+
+    it('rejects a bare string for anthropicTools', () => {
+      expect(() => new AnthropicModel({ apiKey: 'sk-ant-test', anthropicTools: 'web_search' as never })).toThrow(
+        /anthropicTools must be an array/
+      )
+    })
+
+    it('validates anthropicTools on updateConfig too', () => {
+      const provider = new AnthropicModel({ apiKey: 'sk-ant-test' })
+
+      expect(() =>
+        provider.updateConfig({
+          anthropicTools: [{ name: 'my_tool', description: 'd', input_schema: { type: 'object' } }] as never,
+        })
+      ).toThrow(/should not contain function tool definitions/)
+
+      provider.updateConfig({ anthropicTools: [WEB_SEARCH_TOOL] })
+      expect(provider.getConfig().anthropicTools).toEqual([WEB_SEARCH_TOOL])
+    })
+
+    it('derives the citation domain without the port, matching the Python provider', async () => {
+      async function* portStream(): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
+        yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'A' } }
+        yield {
+          type: 'content_block_delta',
+          index: 0,
+          delta: {
+            type: 'citations_delta',
+            citation: {
+              type: 'web_search_result_location',
+              url: 'https://example.com:8443/a',
+              title: 'T',
+              cited_text: 'c',
+              encrypted_index: 'i',
+            },
+          },
+        }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } }
+        yield { type: 'message_stop' }
+      }
+
+      const provider = new AnthropicModel({ client: createMockClient(portStream) })
+      const { result } = await collectGenerator(
+        provider.streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      const block = result.message.content[0] as CitationsBlock
+      expect(block.citations[0]?.location).toEqual({
+        type: 'web',
+        url: 'https://example.com:8443/a',
+        domain: 'example.com',
+      })
+    })
+
+    it('suppresses mcp_tool_use input deltas, not just web search blocks', async () => {
+      async function* mcpStream(): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
+        yield {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'mcp_tool_use', id: 'mcptoolu_1', name: 'remote_tool', input: {} },
+        }
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{}' } }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_stop' }
+      }
+
+      const provider = new AnthropicModel({ client: createMockClient(mcpStream) })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      const deltaTypes = events.flatMap((event) =>
+        event.type === 'modelContentBlockDeltaEvent' ? [event.delta.type] : []
+      )
+      expect(deltaTypes).not.toContain('toolUseInputDelta')
+    })
+
+    it('forwards an unrecognized block type with a warning rather than dropping content', async () => {
+      const logSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+      async function* unknownStream(): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
+        yield { type: 'content_block_start', index: 0, content_block: { type: 'brand_new_block_20991231' } }
+        yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hello' } }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } }
+        yield { type: 'message_stop' }
+      }
+
+      const provider = new AnthropicModel({ client: createMockClient(unknownStream) })
+      const { result } = await collectGenerator(
+        provider.streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      expect((result.message.content[0] as TextBlock).text).toBe('hello')
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('brand_new_block_20991231'))
+      logSpy.mockRestore()
+    })
+
+    it('leaves no empty content block behind for suppressed server-side blocks', async () => {
+      const provider = new AnthropicModel({ client: createMockClient(webSearchStream) })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      expect(events.filter((event) => event.type === 'modelContentBlockStartEvent')).toHaveLength(1)
+      expect(events.filter((event) => event.type === 'modelContentBlockStopEvent')).toHaveLength(1)
+    })
+
+    it('does not duplicate the cited text across textDelta and citationsDelta events', async () => {
+      const provider = new AnthropicModel({ client: createMockClient(webSearchStream) })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      const citationsContent = events.flatMap((event) =>
+        event.type === 'modelContentBlockDeltaEvent' && event.delta.type === 'citationsDelta' ? event.delta.content : []
+      )
+
+      // The text streams only as textDeltas; model.ts recovers it for the citations block.
+      expect(citationsContent).toEqual([])
+    })
+
     it('warns when a server-side tool result is an error', async () => {
       const logSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
 
