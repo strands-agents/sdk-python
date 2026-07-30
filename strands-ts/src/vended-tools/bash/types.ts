@@ -1,10 +1,15 @@
 /**
- * Type definitions for the bash tool.
+ * Type definitions for the bash and sandbox-routed shell tools.
  */
 
-export const SANDBOX_BASH_DESCRIPTION =
-  'Executes bash shell commands. Each call runs in a fresh shell; ' +
+export const SANDBOX_SHELL_DESCRIPTION =
+  'Executes shell commands. Each call runs in a fresh shell; ' +
   'state such as variables and the working directory does not persist across calls.'
+
+/**
+ * @deprecated SANDBOX_BASH_DESCRIPTION is deprecated and will be removed in v2.0.0. Use SANDBOX_SHELL_DESCRIPTION instead. The tool routes commands through the sandbox, which runs sh or the remote login shell rather than bash specifically.
+ */
+export const SANDBOX_BASH_DESCRIPTION = SANDBOX_SHELL_DESCRIPTION
 
 /**
  * Input parameters for execute operation.
