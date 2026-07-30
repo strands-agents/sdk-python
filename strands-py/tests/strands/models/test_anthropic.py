@@ -1,3 +1,4 @@
+import copy
 import logging
 import mimetypes
 import unittest.mock
@@ -9,6 +10,7 @@ import pytest
 
 import strands
 from strands.models.anthropic import AnthropicModel
+from strands.models.model import CacheConfig, CacheToolsConfig
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
@@ -1327,3 +1329,290 @@ class TestCountTokens:
         anthropic_client.messages.count_tokens.assert_not_called()
         assert isinstance(result, int)
         assert result >= 0
+
+
+class TestPromptCaching:
+    """Prompt caching via ``cache_config`` / ``cache_tools``.
+
+    Anthropic accepts at most 4 cache breakpoints per request and ``ephemeral`` is the only cache type.
+    https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+    """
+
+    MAX_BREAKPOINTS = 4
+
+    @staticmethod
+    def _breakpoints(request):
+        """Every cache_control in a formatted request, across tools, system and messages."""
+        found = []
+        for tool in request.get("tools", []):
+            if "cache_control" in tool:
+                found.append(("tools", tool["name"], tool["cache_control"]))
+        system = request.get("system")
+        if isinstance(system, list):
+            for block in system:
+                if "cache_control" in block:
+                    found.append(("system", block.get("type"), block["cache_control"]))
+        for msg_idx, message in enumerate(request["messages"]):
+            for block in message["content"]:
+                if "cache_control" in block:
+                    found.append(("messages", msg_idx, block["cache_control"]))
+        return found
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {"description": "tool one", "name": "t1", "inputSchema": {"json": {"key": "a"}}},
+            {"description": "tool two", "name": "t2", "inputSchema": {"json": {"key": "b"}}},
+        ]
+
+    def test_off_when_unset(self, model, messages, tool_specs):
+        """Caching is opt-in: no config means no cache_control anywhere in the request."""
+        request = model.format_request(messages, tool_specs)
+
+        assert self._breakpoints(request) == []
+
+    def test_cache_config_adds_breakpoint_to_last_user_message(self, model, messages, model_id, max_tokens):
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        assert model.format_request(messages) == {
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "test", "cache_control": {"type": "ephemeral"}}]}
+            ],
+            "model": model_id,
+            "tools": [],
+        }
+
+    def test_auto_and_anthropic_strategies_coincide(self, model, messages, tool_specs):
+        """Documented behavior: the Anthropic API caches on every active Claude model, so ``auto`` has no
+        model-support check to apply and the two strategies produce the same request."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        auto_request = model.format_request(messages, tool_specs)
+
+        model.update_config(cache_config=CacheConfig(strategy="anthropic"))
+        anthropic_request = model.format_request(messages, tool_specs)
+
+        assert auto_request == anthropic_request
+
+    def test_cache_config_ttl_is_carried_onto_cache_control(self, model, messages):
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral", "ttl": "1h"})]
+
+    def test_cache_tools_caches_only_the_last_tool(self, model, messages, tool_specs):
+        """One cache_control on the final tool caches the whole tool block, so one breakpoint is enough."""
+        model.update_config(cache_tools="default")
+
+        request = model.format_request(messages, tool_specs)
+
+        assert self._breakpoints(request) == [("tools", "t2", {"type": "ephemeral"})]
+        assert "cache_control" not in request["tools"][0]
+
+    def test_cache_tools_ttl(self, model, messages, tool_specs):
+        model.update_config(cache_tools=CacheToolsConfig(ttl="1h"))
+
+        request = model.format_request(messages, tool_specs)
+
+        assert self._breakpoints(request) == [("tools", "t2", {"type": "ephemeral", "ttl": "1h"})]
+
+    def test_cache_tools_normalizes_bedrock_cache_point_type(self, model, messages, tool_specs):
+        """``ephemeral`` is Anthropic's only cache type; Bedrock's ``type`` has no equivalent."""
+        model.update_config(cache_tools=CacheToolsConfig(type="default"))
+
+        request = model.format_request(messages, tool_specs)
+
+        assert self._breakpoints(request) == [("tools", "t2", {"type": "ephemeral"})]
+
+    def test_cache_tools_without_tools_is_a_noop(self, model, messages):
+        model.update_config(cache_tools="default")
+
+        request = model.format_request(messages, tool_specs=None)
+
+        assert request["tools"] == []
+        assert self._breakpoints(request) == []
+
+    def test_cache_tools_is_independent_of_cache_config(self, model, messages, tool_specs):
+        """Mirrors Bedrock: ``cache_tools`` applies on its own, without ``cache_config``."""
+        model.update_config(cache_tools="default")
+
+        assert self._breakpoints(model.format_request(messages, tool_specs)) == [("tools", "t2", {"type": "ephemeral"})]
+
+    def test_both_options_produce_two_breakpoints(self, model, messages, tool_specs):
+        model.update_config(cache_config=CacheConfig(strategy="auto"), cache_tools="default")
+
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert breakpoints == [
+            ("tools", "t2", {"type": "ephemeral"}),
+            ("messages", 0, {"type": "ephemeral"}),
+        ]
+        assert len(breakpoints) <= self.MAX_BREAKPOINTS
+
+    def test_breakpoints_do_not_accumulate_across_turns(self, model, tool_specs):
+        """A cache point per turn would blow the 4-breakpoint limit on the 5th turn.
+
+        Simulates a long tool-using conversation whose history already carries a cache point on every
+        turn, as it would if each turn appended one. Exactly one must survive.
+        """
+        messages = []
+        for turn in range(25):
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [{"text": f"question {turn}"}, {"cachePoint": {"type": "default"}}],
+                }
+            )
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": [{"toolUse": {"toolUseId": f"t{turn}", "name": "t1", "input": {}}}],
+                }
+            )
+            messages.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "toolResult": {
+                                "toolUseId": f"t{turn}",
+                                "content": [{"text": f"result {turn}"}],
+                                "status": "success",
+                            }
+                        },
+                        {"cachePoint": {"type": "default"}},
+                    ],
+                }
+            )
+
+        model.update_config(cache_config=CacheConfig(strategy="auto"), cache_tools="default")
+        breakpoints = self._breakpoints(model.format_request(messages, tool_specs))
+
+        assert len(breakpoints) <= self.MAX_BREAKPOINTS
+        message_breakpoints = [bp for bp in breakpoints if bp[0] == "messages"]
+        assert len(message_breakpoints) == 1
+        # The surviving breakpoint is on the final tool result, the last cacheable block of the last turn.
+        assert message_breakpoints[0][1] == len(messages) - 1
+
+    def test_existing_cache_points_are_stripped(self, model, tool_specs):
+        """``cache_config`` owns placement, so hand-placed message cache points are replaced, not added to."""
+        messages = [
+            {"role": "user", "content": [{"text": "one"}, {"cachePoint": {"type": "default"}}]},
+            {"role": "assistant", "content": [{"text": "two"}]},
+            {"role": "user", "content": [{"text": "three"}]},
+        ]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages, tool_specs)
+
+        assert self._breakpoints(request) == [("messages", 2, {"type": "ephemeral"})]
+
+    def test_caller_messages_are_not_mutated(self, model):
+        messages = [{"role": "user", "content": [{"text": "one"}, {"cachePoint": {"type": "default"}}]}]
+        before = copy.deepcopy(messages)
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        model.format_request(messages)
+
+        assert messages == before
+
+    def test_breakpoint_lands_after_last_cacheable_block(self, model):
+        """Anthropic rejects cache_control on a thinking block, so the cache point skips back past it."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "question"},
+                    {"reasoningContent": {"reasoningText": {"text": "thinking", "signature": "sig"}}},
+                ],
+            }
+        ]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages)
+
+        content = request["messages"][0]["content"]
+        assert content[0] == {"type": "text", "text": "question", "cache_control": {"type": "ephemeral"}}
+        assert "cache_control" not in content[1]
+
+    def test_no_cacheable_content_is_skipped(self, model, caplog):
+        caplog.set_level(logging.DEBUG, logger="strands.models.anthropic")
+        messages = [
+            {
+                "role": "user",
+                "content": [{"reasoningContent": {"reasoningText": {"text": "thinking", "signature": "sig"}}}],
+            }
+        ]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == []
+        assert "skipped cache point" in caplog.text
+
+    def test_assistant_only_history_is_skipped(self, model):
+        messages = [{"role": "assistant", "content": [{"text": "hello"}]}]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        assert self._breakpoints(model.format_request(messages)) == []
+
+    def test_unknown_strategy_disables_caching(self, model, messages, caplog):
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        model.update_config(cache_config=CacheConfig(strategy="nonsense"))
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == []
+        assert "unknown cache strategy" in caplog.text
+
+    def test_manual_cache_point_ttl_is_honored(self, model):
+        """A hand-placed cache point carries its own TTL; ``cache_config`` need not be set."""
+        messages = [{"role": "user", "content": [{"text": "one"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]}]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral", "ttl": "1h"})]
+
+    def test_leading_cache_point_is_skipped(self, model, caplog):
+        """A cache point marks the preceding block; with none there is no prefix to cache."""
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        messages = [{"role": "user", "content": [{"cachePoint": {"type": "default"}}, {"text": "one"}]}]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == []
+        assert "no preceding content block" in caplog.text
+
+    def test_cross_sdk_request_parity(self, model, tool_specs):
+        """Pins the exact request body strands-ts must produce for the same config.
+
+        The mirror of this test lives in strands-ts/src/models/__tests__/anthropic.test.ts. Update both
+        together or the two SDKs will drift.
+        """
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"), cache_tools=CacheToolsConfig(ttl="1h"))
+        messages = [
+            {"role": "user", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "hi"}]},
+            {"role": "user", "content": [{"text": "again"}]},
+        ]
+
+        request = model.format_request(messages, tool_specs)
+
+        assert request["tools"] == [
+            {"name": "t1", "description": "tool one", "input_schema": {"key": "a"}},
+            {
+                "name": "t2",
+                "description": "tool two",
+                "input_schema": {"key": "b"},
+                "cache_control": {"type": "ephemeral", "ttl": "1h"},
+            },
+        ]
+        assert request["messages"] == [
+            {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": "again", "cache_control": {"type": "ephemeral", "ttl": "1h"}}],
+            },
+        ]

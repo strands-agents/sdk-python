@@ -16,14 +16,14 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import CachePoint, ContentBlock, Message, Messages, SystemContentBlock
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,15 @@ _IMAGE_MEDIA_TYPES = {
     "png": "image/png",
     "webp": "image/webp",
 }
+
+# Anthropic accepts ``cache_control`` on these block types only. A cache point placed after any
+# other block (for example a ``thinking`` block) is rejected by the API.
+# https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+_CACHEABLE_CONTENT_KEYS = frozenset({"document", "image", "text", "toolResult", "toolUse"})
+
+# ``ephemeral`` is the only cache type the Anthropic API supports. Bedrock's cache point ``type``
+# (e.g. "default") has no Anthropic equivalent and is normalized to it.
+_ANTHROPIC_CACHE_TYPE = "ephemeral"
 
 
 class AnthropicModel(Model):
@@ -60,6 +69,10 @@ class AnthropicModel(Model):
         """Configuration options for Anthropic models.
 
         Attributes:
+            cache_config: Configuration for prompt caching. Use ``CacheConfig(strategy="auto")`` to add a
+                cache breakpoint to the last user message. Caching is off when unset.
+            cache_tools: Cache point type for tool definitions. Pass a string (e.g. "default") for the
+                default TTL, or ``CacheToolsConfig(ttl="1h")`` to set one. Independent of ``cache_config``.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
                 For a complete list of supported models, see
@@ -71,6 +84,8 @@ class AnthropicModel(Model):
                 When False (default), skips the API call and uses the local estimator.
         """
 
+        cache_config: CacheConfig | None
+        cache_tools: str | CacheToolsConfig | None
         max_tokens: Required[int]
         model_id: Required[str]
         params: dict[str, Any] | None
@@ -204,7 +219,14 @@ class AnthropicModel(Model):
 
             for content in message["content"]:
                 if "cachePoint" in content:
-                    formatted_contents[-1]["cache_control"] = {"type": "ephemeral"}
+                    # A cache point marks the preceding block as a breakpoint; with nothing before it
+                    # there is no prefix to cache.
+                    if formatted_contents:
+                        formatted_contents[-1]["cache_control"] = self._format_cache_control(
+                            content["cachePoint"].get("ttl")
+                        )
+                    else:
+                        logger.warning("cache point has no preceding content block | skipping")
                     continue
 
                 # Check for location sources in image, document, or video content
@@ -218,6 +240,119 @@ class AnthropicModel(Model):
                 formatted_messages.append({"content": formatted_contents, "role": message["role"]})
 
         return formatted_messages
+
+    def _caching_enabled(self) -> bool:
+        """Whether ``cache_config`` asks for a cache breakpoint on the last user message.
+
+        Both documented strategies enable caching on this provider. ``"auto"`` carries a model-support
+        check on Bedrock, but the Anthropic API supports prompt caching on every active Claude model, so
+        there is nothing for that check to decide here and the two strategies coincide.
+
+        Returns:
+            True if a cache point should be injected into the messages.
+        """
+        cache_config = self.config.get("cache_config")
+        if not cache_config:
+            return False
+
+        if cache_config.strategy not in ("auto", "anthropic"):
+            logger.warning("strategy=<%s> | unknown cache strategy, prompt caching disabled", cache_config.strategy)
+            return False
+
+        return True
+
+    @staticmethod
+    def _format_cache_control(ttl: str | None) -> dict[str, Any]:
+        """Build an Anthropic ``cache_control`` value.
+
+        Args:
+            ttl: Optional TTL duration (e.g. "5m", "1h"). Omitted when None, which leaves the API default.
+
+        Returns:
+            An Anthropic cache_control dict.
+        """
+        cache_control: dict[str, Any] = {"type": _ANTHROPIC_CACHE_TYPE}
+        if ttl:
+            cache_control["ttl"] = ttl
+        return cache_control
+
+    def _inject_cache_point(self, messages: Messages) -> Messages:
+        """Return a copy of messages carrying exactly one cache point on the last user message.
+
+        Pre-existing cache points are stripped first, so the breakpoint count stays constant as a
+        conversation grows instead of accumulating one per turn. The cache point is placed after the last
+        block the Anthropic API accepts ``cache_control`` on.
+
+        Args:
+            messages: List of message objects to inject a cache point into.
+
+        Returns:
+            A new list of messages. The input is never modified.
+        """
+        cache_point: CachePoint = {"type": "default"}
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.ttl:
+            cache_point["ttl"] = cache_config.ttl
+
+        # Copy each message and drop pre-existing cache points; auto mode owns cache point placement.
+        copied: list[Message] = []
+        stripped = 0
+        for message in messages:
+            content = [block for block in message["content"] if "cachePoint" not in block]
+            stripped += len(message["content"]) - len(content)
+            copied.append({"role": message["role"], "content": content})
+
+        if stripped:
+            logger.debug("count=<%d> | stripped existing cache points, cache_config manages placement", stripped)
+
+        last_user_idx = next(
+            (idx for idx in reversed(range(len(copied))) if copied[idx]["role"] == "user" and copied[idx]["content"]),
+            None,
+        )
+        if last_user_idx is None:
+            logger.debug("no user message with content | skipped cache point")
+            return copied
+
+        content = copied[last_user_idx]["content"]
+        last_cacheable_idx = next(
+            (idx for idx in reversed(range(len(content))) if _CACHEABLE_CONTENT_KEYS & content[idx].keys()),
+            None,
+        )
+        if last_cacheable_idx is None:
+            logger.debug("msg_idx=<%d> | no cacheable content block, skipped cache point", last_user_idx)
+            return copied
+
+        content.insert(last_cacheable_idx + 1, cast(ContentBlock, {"cachePoint": cache_point}))
+        logger.debug("msg_idx=<%d> | added cache point to last user message", last_user_idx)
+
+        return copied
+
+    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[dict[str, Any]]:
+        """Format tool definitions, caching them when ``cache_tools`` is configured.
+
+        A ``cache_control`` on the final tool caches the whole tool block, so one breakpoint is enough.
+
+        Args:
+            tool_specs: List of tool specifications to make available to the model.
+
+        Returns:
+            An Anthropic tools array.
+        """
+        tools: list[dict[str, Any]] = [
+            {
+                "name": tool_spec["name"],
+                "description": tool_spec["description"],
+                "input_schema": tool_spec["inputSchema"]["json"],
+            }
+            for tool_spec in tool_specs or []
+        ]
+
+        cache_tools = self.config.get("cache_tools")
+        if cache_tools and tools:
+            ttl = cache_tools.ttl if isinstance(cache_tools, CacheToolsConfig) else None
+            tools[-1]["cache_control"] = self._format_cache_control(ttl)
+
+        return tools
 
     def format_request(
         self,
@@ -241,18 +376,14 @@ class AnthropicModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
                 format.
         """
+        if self._caching_enabled():
+            messages = self._inject_cache_point(messages)
+
         return {
             "max_tokens": self.config["max_tokens"],
             "messages": self._format_request_messages(messages),
             "model": self.config["model_id"],
-            "tools": [
-                {
-                    "name": tool_spec["name"],
-                    "description": tool_spec["description"],
-                    "input_schema": tool_spec["inputSchema"]["json"],
-                }
-                for tool_spec in tool_specs or []
-            ],
+            "tools": self._format_request_tools(tool_specs),
             **(self._format_tool_choice(tool_choice)),
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
