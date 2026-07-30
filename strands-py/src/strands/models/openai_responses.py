@@ -709,7 +709,7 @@ class OpenAIResponsesModel(Model):
         if "document" in content:
             doc = content["document"]
             data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-            return {"type": "input_file", "file_url": data_url}
+            return {"type": "input_file", "filename": doc["name"], "file_data": data_url}
 
         if "image" in content:
             img = content["image"]
@@ -779,7 +779,7 @@ class OpenAIResponsesModel(Model):
                 has_media = True
                 doc = content["document"]
                 data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-                output_parts.append({"type": "input_file", "file_url": data_url})
+                output_parts.append({"type": "input_file", "filename": doc["name"], "file_data": data_url})
 
         # Return array if has media content, otherwise join as string for simpler text-only cases
         output: list[dict[str, Any]] | str

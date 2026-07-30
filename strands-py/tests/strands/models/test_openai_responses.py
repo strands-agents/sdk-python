@@ -121,7 +121,8 @@ def test_update_config(model, model_id):
             },
             {
                 "type": "input_file",
-                "file_url": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+                "filename": "test doc",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
         # Image
@@ -264,7 +265,9 @@ def test_format_request_tool_message_with_document():
     assert isinstance(tru_result["output"], list)
     assert len(tru_result["output"]) == 1
     assert tru_result["output"][0]["type"] == "input_file"
-    assert "file_url" in tru_result["output"][0]
+    assert tru_result["output"][0]["filename"] == "test.pdf"
+    assert "file_data" in tru_result["output"][0]
+    assert "file_url" not in tru_result["output"][0]
 
 
 def test_format_request_messages(system_prompt):
