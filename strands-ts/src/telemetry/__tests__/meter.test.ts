@@ -300,6 +300,18 @@ describe('Meter', () => {
       expect(meter.metrics.latestContextSize).toBe(100)
     })
 
+    it('counts cached prompt tokens, which occupy the context window', () => {
+      // inputTokens excludes cache tokens for cost accounting, but a prompt that was a
+      // 6450-token cache hit still fills the context window by that much.
+      meter.updateCycle({
+        type: 'modelMetadataEvent',
+        usage: { inputTokens: 2, outputTokens: 5, totalTokens: 6457, cacheReadInputTokens: 6450 },
+      })
+
+      expect(meter.metrics.latestContextSize).toBe(6452)
+      expect(meter.metrics.projectedContextSize).toBe(6457)
+    })
+
     it('updates across multiple cycles', () => {
       meter.updateCycle({
         type: 'modelMetadataEvent',

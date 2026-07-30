@@ -16,6 +16,7 @@ from .._async import run_async
 from ..agent import AgentResult
 from ..hooks.registry import HookCallback, HookOrder
 from ..interrupt import Interrupt
+from ..types._usage import coerce_usage_counters
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.traces import AttributeValue
@@ -330,18 +331,32 @@ class MultiAgentBase(ABC):
 # Private helper function to avoid duplicate code
 
 
-def _parse_usage(usage_data: dict[str, Any]) -> Usage:
-    """Parse Usage from dict data."""
-    usage = Usage(
-        inputTokens=usage_data.get("inputTokens", 0),
-        outputTokens=usage_data.get("outputTokens", 0),
-        totalTokens=usage_data.get("totalTokens", 0),
-    )
-    # Add optional fields if they exist
-    if "cacheReadInputTokens" in usage_data:
-        usage["cacheReadInputTokens"] = usage_data["cacheReadInputTokens"]
-    if "cacheWriteInputTokens" in usage_data:
-        usage["cacheWriteInputTokens"] = usage_data["cacheWriteInputTokens"]
+def _parse_usage(usage_data: Any) -> Usage:
+    """Parse Usage from dict data, repairing totals persisted before the disjoint contract.
+
+    A session written by an SDK version that predates the :class:`Usage` invariant reports
+    ``totalTokens`` as only ``inputTokens + outputTokens``, so resuming it and adding live counts
+    yields a total that no combination of counters accounts for.
+
+    Only ``totalTokens`` is repaired, and only where the cache count exceeds ``inputTokens``: a
+    subset cannot be larger than the set containing it, so that case proves the counters are already
+    disjoint and the missing total is recoverable by addition. Whether ``inputTokens`` itself
+    contained the cache count is never recoverable, so it is left as persisted rather than guessed at.
+
+    Args:
+        usage_data: The persisted usage payload. Session state is user-editable JSON, so anything
+            that is not a mapping of counts is read as no usage at all.
+
+    Returns:
+        A :class:`Usage` matching the disjoint contract where that is unambiguous.
+    """
+    usage = coerce_usage_counters(usage_data)
+
+    cache_tokens = usage.get("cacheReadInputTokens", 0) + usage.get("cacheWriteInputTokens", 0)
+    if cache_tokens > usage["inputTokens"] and usage["totalTokens"] == usage["inputTokens"] + usage["outputTokens"]:
+        usage["totalTokens"] += cache_tokens
+        logger.debug("usage=<%s> | repaired a total persisted before the disjoint token contract", usage)
+
     return usage
 
 

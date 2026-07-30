@@ -1126,9 +1126,10 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
     usage = Usage(
         inputTokens=10,
         outputTokens=20,
-        totalTokens=30,
+        totalTokens=38,
         cacheReadInputTokens=5,
         cacheWriteInputTokens=3,
+        reasoningOutputTokens=8,
     )
     stop_reason: StopReason = "end_turn"
     metrics = Metrics(latencyMs=10, timeToFirstByteMs=5)
@@ -1137,13 +1138,16 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
 
     mock_span.set_attributes.assert_called_once_with(
         {
-            "gen_ai.usage.prompt_tokens": 10,
-            "gen_ai.usage.input_tokens": 10,
+            # gen_ai.usage.input_tokens is the whole prompt per the OTel GenAI conventions, so the
+            # cache counters are added back onto the disjoint Usage.inputTokens.
+            "gen_ai.usage.prompt_tokens": 18,
+            "gen_ai.usage.input_tokens": 18,
             "gen_ai.usage.completion_tokens": 20,
             "gen_ai.usage.output_tokens": 20,
-            "gen_ai.usage.total_tokens": 30,
+            "gen_ai.usage.total_tokens": 38,
             "gen_ai.usage.cache_read_input_tokens": 5,
             "gen_ai.usage.cache_write_input_tokens": 3,
+            "gen_ai.usage.reasoning_output_tokens": 8,
             "gen_ai.server.request.duration": 10,
             "gen_ai.server.time_to_first_token": 5,
         }
@@ -1164,6 +1168,7 @@ def test_end_agent_span_with_cache_metrics(mock_span):
         "totalTokens": 150,
         "cacheReadInputTokens": 25,
         "cacheWriteInputTokens": 10,
+        "reasoningOutputTokens": 12,
     }
 
     mock_response = mock.MagicMock()
@@ -1175,13 +1180,16 @@ def test_end_agent_span_with_cache_metrics(mock_span):
 
     mock_span.set_attributes.assert_called_once_with(
         {
-            "gen_ai.usage.prompt_tokens": 50,
-            "gen_ai.usage.input_tokens": 50,
+            # The cache counters are added back onto the disjoint Usage.inputTokens because
+            # gen_ai.usage.input_tokens is defined as the whole prompt.
+            "gen_ai.usage.prompt_tokens": 85,
+            "gen_ai.usage.input_tokens": 85,
             "gen_ai.usage.completion_tokens": 100,
             "gen_ai.usage.output_tokens": 100,
             "gen_ai.usage.total_tokens": 150,
             "gen_ai.usage.cache_read_input_tokens": 25,
             "gen_ai.usage.cache_write_input_tokens": 10,
+            "gen_ai.usage.reasoning_output_tokens": 12,
         }
     )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)

@@ -469,12 +469,15 @@ class BidiUsageEvent(TypedEvent):
     during bidirectional streaming sessions.
 
     Parameters:
-        input_tokens: Total tokens used for all input modalities.
+        input_tokens: Total tokens used for all input modalities, cache tokens included.
         output_tokens: Total tokens used for all output modalities.
-        total_tokens: Sum of input and output tokens.
+        total_tokens: The total the provider reported. On a provider that reports a cache, those
+            tokens are already counted inside ``input_tokens``: unlike
+            :class:`~strands.types.event_loop.Usage`, the cache counters here are a breakdown of
+            the input rather than counters to add to it.
         modality_details: Optional list of token usage per modality.
-        cache_read_input_tokens: Optional tokens read from cache.
-        cache_write_input_tokens: Optional tokens written to cache.
+        cache_read_input_tokens: Optional tokens read from cache, part of ``input_tokens``.
+        cache_write_input_tokens: Optional tokens written to cache, part of ``input_tokens``.
     """
 
     def __init__(
@@ -513,7 +516,7 @@ class BidiUsageEvent(TypedEvent):
 
     @property
     def total_tokens(self) -> int:
-        """Sum of input and output tokens."""
+        """The total the provider reported, counting any cache tokens inside ``input_tokens``."""
         return cast(int, self["totalTokens"])
 
     @property

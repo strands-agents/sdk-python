@@ -342,11 +342,13 @@ describe('Tracer', () => {
           totalTokens: 300,
           cacheReadInputTokens: 50,
           cacheWriteInputTokens: 25,
+          reasoningOutputTokens: 8,
         },
       })
 
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_read_input_tokens')).toBe(50)
       expect(mockSpan.getAttributeValue('gen_ai.usage.cache_write_input_tokens')).toBe(25)
+      expect(mockSpan.getAttributeValue('gen_ai.usage.reasoning_output_tokens')).toBe(8)
     })
 
     it('skips cache token attributes when zero', () => {

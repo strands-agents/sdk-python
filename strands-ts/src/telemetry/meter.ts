@@ -13,7 +13,14 @@
 import type { Counter, Histogram, Meter as OtelMeter } from '@opentelemetry/api'
 import { metrics as otelMetrics } from '@opentelemetry/api'
 import type { Usage, Metrics, ModelMetadataEventData } from '../models/streaming.js'
-import { accumulateUsage, createEmptyUsage } from '../models/streaming.js'
+import {
+  accumulateUsage,
+  contextTokenCount,
+  createEmptyUsage,
+  promptTokenCount,
+  readReportedUsage,
+  warnIfUsageInconsistent,
+} from '../models/streaming.js'
 import type { ToolUse } from '../tools/types.js'
 import type { JSONSerializable } from '../types/json.js'
 import { getServiceName } from './utils.js'
@@ -109,13 +116,13 @@ export interface AgentMetricsData {
   toolMetrics: Record<string, ToolMetricsData>
 
   /**
-   * The most recent input token count from the last model invocation.
+   * The full prompt token count from the last model invocation, including cached tokens.
    * Represents the current context window utilization.
    */
   latestContextSize?: number
 
   /**
-   * Projected context size for the next model call (inputTokens + outputTokens from the last call).
+   * Projected context size for the next model call (last prompt + its output).
    * Represents the baseline token count the next invocation will start with.
    */
   projectedContextSize?: number
@@ -192,14 +199,14 @@ export class AgentMetrics implements JSONSerializable<AgentMetricsData> {
   readonly toolMetrics: Record<string, ToolMetricsData>
 
   /**
-   * The most recent input token count from the last model invocation.
+   * The full prompt token count from the last model invocation, including cached tokens.
    * Represents the current context window utilization.
    * Returns `undefined` when no invocations have occurred.
    */
   readonly latestContextSize: number | undefined
 
   /**
-   * Projected context size for the next model call (inputTokens + outputTokens from the last call).
+   * Projected context size for the next model call (last prompt + its output).
    * Represents the baseline token count the next invocation will start with.
    * Returns `undefined` when no invocations have occurred.
    */
@@ -323,12 +330,12 @@ export class Meter {
   private readonly _toolMetrics: Record<string, ToolMetricsData> = {}
 
   /**
-   * The most recent input token count from the last model invocation.
+   * The full prompt token count from the last model invocation, including cached tokens.
    */
   private _latestContextSize: number | undefined
 
   /**
-   * Projected context size for the next model call (inputTokens + outputTokens).
+   * Projected context size for the next model call (last prompt + its output).
    */
   private _projectedContextSize: number | undefined
 
@@ -542,10 +549,18 @@ export class Meter {
    *
    * @param usage - The usage data to accumulate
    */
-  private _updateUsage(usage: Usage): void {
+  private _updateUsage(reported: Usage): void {
+    // A metadata event does not only come from a model adapter: middleware is public API and may
+    // supply its own. Reading the counts here rather than trusting the caller keeps the
+    // OpenTelemetry counters, which drop an add() of anything other than a number, from silently
+    // under-reporting. Reading an already-read usage changes nothing.
+    const usage = readReportedUsage(reported)
+    warnIfUsageInconsistent(usage)
     accumulateUsage(this._accumulatedUsage, usage)
-    this._latestContextSize = usage.inputTokens
-    this._projectedContextSize = usage.inputTokens + usage.outputTokens
+    // Cached prompt tokens occupy the context window like any other, so context size counts them
+    // even though `inputTokens` excludes them.
+    this._latestContextSize = promptTokenCount(usage)
+    this._projectedContextSize = contextTokenCount(usage)
 
     this._otelInputTokens.add(usage.inputTokens)
     this._otelOutputTokens.add(usage.outputTokens)

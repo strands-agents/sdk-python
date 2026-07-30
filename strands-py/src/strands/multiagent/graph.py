@@ -51,6 +51,7 @@ from ..types._events import (
     MultiAgentNodeStreamEvent,
     MultiAgentResultEvent,
 )
+from ..types._usage import accumulate_usage
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
@@ -1144,9 +1145,7 @@ class Graph(MultiAgentBase):
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""
-        self.state.accumulated_usage["inputTokens"] += node_result.accumulated_usage.get("inputTokens", 0)
-        self.state.accumulated_usage["outputTokens"] += node_result.accumulated_usage.get("outputTokens", 0)
-        self.state.accumulated_usage["totalTokens"] += node_result.accumulated_usage.get("totalTokens", 0)
+        accumulate_usage(self.state.accumulated_usage, node_result.accumulated_usage)
         self.state.accumulated_metrics["latencyMs"] += node_result.accumulated_metrics.get("latencyMs", 0)
         self.state.execution_count += node_result.execution_count
 

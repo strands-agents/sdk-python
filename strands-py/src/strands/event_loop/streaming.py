@@ -23,6 +23,12 @@ from ..types._events import (
     ToolUseStreamEvent,
     TypedEvent,
 )
+from ..types._usage import (
+    USAGE_COUNTERS,
+    as_token_count,
+    coerce_usage_counters,
+    usage_count,
+)
 from ..types.citations import CitationsContentBlock
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.streaming import (
@@ -389,8 +395,41 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> N
         state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
 
 
+def _warn_if_usage_inconsistent(usage: Usage) -> None:
+    """Log when a model's usage violates the :class:`Usage` contract.
+
+    ``Usage`` requires its four billed counters to be disjoint and to sum to ``totalTokens``.
+    The built-in providers normalize to this; a custom :class:`~strands.models.model.Model`
+    implementation reporting cache tokens as a subset of ``inputTokens`` would silently inflate
+    cost calculations, so surface it instead.
+
+    Counts are coerced the same way a model provider's are, so a model reporting a malformed count
+    is reported on rather than raising out of the stream.
+
+    Args:
+        usage: The usage reported by the model.
+    """
+    counted = sum(
+        as_token_count(usage.get(key))
+        for key in ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheWriteInputTokens")
+    )
+    total_tokens = as_token_count(usage.get("totalTokens"))
+    if counted != total_tokens:
+        logger.warning(
+            "counted_tokens=<%s>, total_tokens=<%s> | "
+            "model usage does not satisfy input + output + cacheRead + cacheWrite == total "
+            "| derived cost may be inaccurate",
+            counted,
+            total_tokens,
+        )
+
+
 def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]:
     """Extracts usage metrics from the metadata chunk.
+
+    Every count is coerced to a non-negative int so that a model reporting a malformed one degrades
+    the metric rather than raising out of the stream, or later out of whichever consumer first does
+    arithmetic on it.
 
     Args:
         event: metadata.
@@ -402,7 +441,28 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
     # MetadataEvent has total=False, making all fields optional, but Usage and Metrics types
     # have Required fields. Provide defaults to handle cases where custom models don't
     # provide usage/metrics (e.g., when latency info is unavailable).
-    usage = Usage(**{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, **event.get("usage", {})})
+    # Every counter is read once, into a snapshot both the coercion and the check below read from.
+    # Reading one twice would report the difference between the two reads as an unusable count.
+    reported_usage = event.get("usage", {})
+    reported_counts = {key: usage_count(reported_usage, key) for key in USAGE_COUNTERS}
+    usage = coerce_usage_counters(reported_counts)
+    # A whole float such as 10.0 is how JSON may carry a count, so that stays usable, while a bool
+    # is rejected explicitly: False equals the zero it coerces to and would otherwise pass.
+    unusable = [
+        key
+        for key, raw in reported_counts.items()
+        if raw is not None and (isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw != usage.get(key))
+    ]
+    if unusable:
+        # A count reported as something other than a non-negative integer leaves consumers with
+        # nothing to work from, including the token caps, and coercing it can still satisfy the
+        # invariant, so the consistency check would not see it.
+        logger.warning(
+            "fields=<%s>, usage=<%s> | model reported token counts that are not usable numbers",
+            ", ".join(sorted(unusable)),
+            usage,
+        )
+    _warn_if_usage_inconsistent(usage)
     metrics = Metrics(**{"latencyMs": 0, **event.get("metrics", {})})
     if time_to_first_byte_ms:
         metrics["timeToFirstByteMs"] = time_to_first_byte_ms

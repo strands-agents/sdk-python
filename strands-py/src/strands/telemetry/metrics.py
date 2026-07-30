@@ -12,6 +12,7 @@ import opentelemetry.metrics as metrics_api
 from opentelemetry.metrics import Counter, Histogram, Meter
 
 from ..telemetry import metrics_constants as constants
+from ..types._usage import accumulate_usage, coerce_usage_counters, context_token_count, prompt_token_count
 from ..types.content import Message
 from ..types.event_loop import Metrics, Usage
 from ..types.tools import ToolUse
@@ -204,36 +205,43 @@ class EventLoopMetrics:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
     @property
+    def _latest_cycle_usage(self) -> Usage | None:
+        """Usage from the most recent cycle of the most recent invocation, if any."""
+        if self.agent_invocations and self.agent_invocations[-1].cycles:
+            return self.agent_invocations[-1].cycles[-1].usage
+        return None
+
+    @property
     def latest_context_size(self) -> int | None:
         """Most recent context size from the last LLM call.
 
-        This represents the current context size as reported by the model.
+        This represents the current context size as reported by the model. Cached prompt tokens
+        occupy the context window like any other, so they count towards the size even though
+        ``Usage.inputTokens`` excludes them.
 
         Returns:
-            The input token count from the most recent cycle, or None if no data is available.
+            The full prompt token count from the most recent cycle, or None if no data is available.
         """
-        if self.agent_invocations and self.agent_invocations[-1].cycles:
-            return self.agent_invocations[-1].cycles[-1].usage.get("inputTokens")
-        return None
+        usage = self._latest_cycle_usage
+        if usage is None or "inputTokens" not in usage:
+            return None
+        return prompt_token_count(usage)
 
     @property
     def projected_context_size(self) -> int | None:
         """Projected context size for the next model call.
 
-        Computed as inputTokens + outputTokens from the most recent cycle's usage,
-        representing the approximate input token count for the next model call
-        (prior input + generated output that is now part of the conversation).
+        Computed as the most recent cycle's full prompt plus its output, representing the
+        approximate prompt size for the next model call (prior prompt + generated output that is
+        now part of the conversation).
 
         Returns:
             The projected token count, or None if no data is available.
         """
-        if self.agent_invocations and self.agent_invocations[-1].cycles:
-            usage = self.agent_invocations[-1].cycles[-1].usage
-            input_tokens = usage.get("inputTokens")
-            output_tokens = usage.get("outputTokens")
-            if input_tokens is not None and output_tokens is not None:
-                return input_tokens + output_tokens
-        return None
+        usage = self._latest_cycle_usage
+        if usage is None or "inputTokens" not in usage or "outputTokens" not in usage:
+            return None
+        return context_token_count(usage)
 
     @property
     def _metrics_client(self) -> "MetricsClient":
@@ -335,45 +343,31 @@ class EventLoopMetrics:
         )
         tool_trace.end()
 
-    def _accumulate_usage(self, target: Usage, source: Usage) -> None:
-        """Helper method to accumulate usage from source to target.
-
-        Args:
-            target: The Usage object to accumulate into.
-            source: The Usage object to accumulate from.
-        """
-        target["inputTokens"] += source["inputTokens"]
-        target["outputTokens"] += source["outputTokens"]
-        target["totalTokens"] += source["totalTokens"]
-
-        if "cacheReadInputTokens" in source:
-            target["cacheReadInputTokens"] = target.get("cacheReadInputTokens", 0) + source["cacheReadInputTokens"]
-
-        if "cacheWriteInputTokens" in source:
-            target["cacheWriteInputTokens"] = target.get("cacheWriteInputTokens", 0) + source["cacheWriteInputTokens"]
-
     def update_usage(self, usage: Usage) -> None:
         """Update the accumulated token usage with new usage data.
 
         Args:
-            usage: The usage data to add to the accumulated totals.
+            usage: The usage data to add to the accumulated totals. A metadata event does not only
+                come from a model adapter, so the counts are read rather than trusted: the
+                OpenTelemetry histograms below raise on anything that is not a number.
         """
+        counts = coerce_usage_counters(usage)
         # Record metrics to OpenTelemetry
-        self._metrics_client.event_loop_input_tokens.record(usage["inputTokens"])
-        self._metrics_client.event_loop_output_tokens.record(usage["outputTokens"])
+        self._metrics_client.event_loop_input_tokens.record(counts["inputTokens"])
+        self._metrics_client.event_loop_output_tokens.record(counts["outputTokens"])
 
         # Handle optional cached token metrics for OpenTelemetry
-        if "cacheReadInputTokens" in usage:
-            self._metrics_client.event_loop_cache_read_input_tokens.record(usage["cacheReadInputTokens"])
-        if "cacheWriteInputTokens" in usage:
-            self._metrics_client.event_loop_cache_write_input_tokens.record(usage["cacheWriteInputTokens"])
+        if "cacheReadInputTokens" in counts:
+            self._metrics_client.event_loop_cache_read_input_tokens.record(counts["cacheReadInputTokens"])
+        if "cacheWriteInputTokens" in counts:
+            self._metrics_client.event_loop_cache_write_input_tokens.record(counts["cacheWriteInputTokens"])
 
-        self._accumulate_usage(self.accumulated_usage, usage)
-        self._accumulate_usage(self.agent_invocations[-1].usage, usage)
+        accumulate_usage(self.accumulated_usage, counts)
+        accumulate_usage(self.agent_invocations[-1].usage, counts)
 
         if self.agent_invocations[-1].cycles:
             current_cycle = self.agent_invocations[-1].cycles[-1]
-            self._accumulate_usage(current_cycle.usage, usage)
+            accumulate_usage(current_cycle.usage, counts)
 
     def reset_usage_metrics(self) -> None:
         """Start a new agent invocation by creating a new AgentInvocation.

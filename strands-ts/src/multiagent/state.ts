@@ -1,7 +1,7 @@
 import { StateStore } from '../state-store.js'
 import { type ContentBlock, contentBlockFromData } from '../types/messages.js'
 import type { Usage } from '../models/streaming.js'
-import { accumulateUsage, createEmptyUsage } from '../models/streaming.js'
+import { accumulateUsage, createEmptyUsage, repairPersistedUsage } from '../models/streaming.js'
 import type { z } from 'zod'
 import type { JSONValue } from '../types/json.js'
 import { normalizeError, serializeError } from '../errors.js'
@@ -108,7 +108,7 @@ export class NodeResult {
       content: (json.content as JSONValue[]).map((c) => contentBlockFromData(c as never)),
       ...(json.error && { error: normalizeError(json.error) }),
       ...(json.structuredOutput !== undefined && { structuredOutput: json.structuredOutput }),
-      ...(json.usage && { usage: json.usage as unknown as Usage }),
+      ...(json.usage && { usage: repairPersistedUsage(json.usage as unknown as Usage) }),
       ...(json.interrupts && {
         interrupts: (json.interrupts as JSONValue[]).map((i) => Interrupt.fromJSON(i as never)),
       }),

@@ -17,6 +17,7 @@ from opentelemetry.instrumentation.threading import ThreadingInstrumentor
 from opentelemetry.trace import Link, Span, SpanContext, StatusCode
 
 from ..agent.agent_result import AgentResult
+from ..types._usage import prompt_token_count
 from ..types.content import ContentBlock, Message, Messages
 from ..types.interrupt import InterruptResponseContent
 from ..types.multiagent import MultiAgentInput
@@ -264,6 +265,9 @@ class Tracer:
         if "cacheWriteInputTokens" in usage:
             attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
 
+        if "reasoningOutputTokens" in usage:
+            attributes["gen_ai.usage.reasoning_output_tokens"] = usage["reasoningOutputTokens"]
+
         if metrics.get("timeToFirstByteMs", 0) > 0:
             attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
 
@@ -434,9 +438,14 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
+        # gen_ai.usage.input_tokens is defined as the whole prompt — "This value SHOULD include all
+        # types of input tokens, including cached tokens" — with the cache attributes reported
+        # alongside as breakdowns of it, so the cache counters are added back onto the disjoint
+        # Usage.inputTokens.
+        prompt_tokens = prompt_token_count(usage)
         attributes: dict[str, AttributeValue] = {
-            "gen_ai.usage.prompt_tokens": usage["inputTokens"],
-            "gen_ai.usage.input_tokens": usage["inputTokens"],
+            "gen_ai.usage.prompt_tokens": prompt_tokens,
+            "gen_ai.usage.input_tokens": prompt_tokens,
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
@@ -799,17 +808,20 @@ class Tracer:
                         usage = latest_invocation.usage
                 else:
                     usage = response.metrics.accumulated_usage
+                prompt_tokens = prompt_token_count(usage)
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+                        "gen_ai.usage.prompt_tokens": prompt_tokens,
                         "gen_ai.usage.completion_tokens": usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": usage["inputTokens"],
+                        "gen_ai.usage.input_tokens": prompt_tokens,
                         "gen_ai.usage.output_tokens": usage["outputTokens"],
                         "gen_ai.usage.total_tokens": usage["totalTokens"],
                         "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
                         "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
+                if "reasoningOutputTokens" in usage:
+                    attributes["gen_ai.usage.reasoning_output_tokens"] = usage["reasoningOutputTokens"]
 
         self._end_span(span, attributes, error)
 

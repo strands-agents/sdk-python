@@ -36,6 +36,7 @@ from ..types._events import (
     ToolResultMessageEvent,
     TypedEvent,
 )
+from ..types._usage import context_token_count
 from ..types.agent import Limits
 from ..types.content import Message, Messages, split_system_prompt
 from ..types.event_loop import Metrics, Usage
@@ -123,7 +124,7 @@ def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
 async def _estimate_input_tokens(agent: "Agent") -> int:
     """Estimate the input token count for the next model call.
 
-    Reads inputTokens + outputTokens from the last assistant message's metadata as a known
+    Reads the full prompt plus output tokens from the last assistant message's metadata as a known
     baseline, then estimates only new messages added after it. Falls back to full estimation
     when no metadata is available (cold start or first call). On cold start, tool specs are
     resolved lazily so that the caller does not need to resolve them before BeforeModelCallEvent.
@@ -145,7 +146,7 @@ async def _estimate_input_tokens(agent: "Agent") -> int:
 
     if last_assistant_idx >= 0:
         usage = messages[last_assistant_idx]["metadata"]["usage"]
-        known_baseline = usage["inputTokens"] + usage["outputTokens"]
+        known_baseline = context_token_count(usage)
         new_messages = messages[last_assistant_idx + 1 :]
         if not new_messages:
             return known_baseline

@@ -55,6 +55,7 @@ import type {
 } from './types.js'
 import type { ContentBlock, Message, SystemPrompt } from '../types/messages.js'
 import type { JSONSerializable } from '../types/json.js'
+import { promptTokenCount } from '../models/streaming.js'
 import { jsonReplacer } from './json.js'
 import { getServiceName } from './utils.js'
 
@@ -1121,8 +1122,13 @@ export class Tracer {
    * attribute names for compatibility with different OTEL backends.
    */
   private _setUsageAttributes(attributes: Record<string, AttributeValue>, usage: Usage): void {
-    attributes['gen_ai.usage.prompt_tokens'] = usage.inputTokens
-    attributes['gen_ai.usage.input_tokens'] = usage.inputTokens
+    // `Usage.inputTokens` is net new tokens only, whereas `gen_ai.usage.input_tokens` is defined as
+    // the whole prompt — "This value SHOULD include all types of input tokens, including cached
+    // tokens" — with the cache attributes reported alongside as breakdowns of it. Adding the cache
+    // counters back keeps the emitted telemetry conformant.
+    const promptTokens = promptTokenCount(usage)
+    attributes['gen_ai.usage.prompt_tokens'] = promptTokens
+    attributes['gen_ai.usage.input_tokens'] = promptTokens
     attributes['gen_ai.usage.completion_tokens'] = usage.outputTokens
     attributes['gen_ai.usage.output_tokens'] = usage.outputTokens
     attributes['gen_ai.usage.total_tokens'] = usage.totalTokens
@@ -1132,6 +1138,9 @@ export class Tracer {
     }
     if ((usage.cacheWriteInputTokens ?? 0) > 0) {
       attributes['gen_ai.usage.cache_write_input_tokens'] = usage.cacheWriteInputTokens!
+    }
+    if ((usage.reasoningOutputTokens ?? 0) > 0) {
+      attributes['gen_ai.usage.reasoning_output_tokens'] = usage.reasoningOutputTokens!
     }
   }
 

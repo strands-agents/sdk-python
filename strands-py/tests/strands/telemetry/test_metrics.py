@@ -653,6 +653,20 @@ def test_latest_context_size_missing_input_tokens_key(event_loop_metrics):
     assert event_loop_metrics.latest_context_size is None
 
 
+def test_latest_context_size_counts_cached_prompt_tokens(event_loop_metrics, mock_get_meter_provider):
+    """Cached tokens occupy the context window, so context size must include them.
+
+    ``Usage.inputTokens`` excludes cache tokens for cost accounting, but a prompt that was a
+    6450-token cache hit still fills the context window by that much.
+    """
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(Usage(inputTokens=2, outputTokens=5, totalTokens=6457, cacheReadInputTokens=6450))
+
+    assert event_loop_metrics.latest_context_size == 6452
+    assert event_loop_metrics.projected_context_size == 6457
+
+
 def test_projected_context_size_no_invocations(event_loop_metrics):
     assert event_loop_metrics.projected_context_size is None
 
@@ -692,3 +706,22 @@ def test_projected_context_size_missing_tokens_key(event_loop_metrics):
         )
     )
     assert event_loop_metrics.projected_context_size is None
+
+
+def test_event_loop_metrics_update_usage_reads_counts_it_cannot_trust(event_loop_metrics, mock_get_meter_provider):
+    """A metadata event does not only come from a model adapter, so the counts are read here.
+
+    The OpenTelemetry histograms below raise on anything that is not a number, and middleware may
+    supply its own metadata event without passing through a model adapter first.
+    """
+    _ = mock_get_meter_provider
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "test-cycle"})
+
+    # Called by keyword, which is part of the signature this class exposes.
+    event_loop_metrics.update_usage(usage={"inputTokens": "10", "outputTokens": None, "totalTokens": 10})
+
+    tru_usage = event_loop_metrics.accumulated_usage
+    exp_usage = Usage(inputTokens=10, outputTokens=0, totalTokens=10)
+
+    assert tru_usage == exp_usage

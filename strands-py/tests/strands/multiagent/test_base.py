@@ -1,7 +1,7 @@
 import pytest
 
 from strands.agent import AgentResult
-from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status, _parse_usage
 
 
 @pytest.fixture
@@ -240,3 +240,70 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "result" in serialized_exception
     assert serialized_exception["result"]["type"] == "exception"
     assert serialized_exception["result"]["message"] == "Test error"
+
+
+@pytest.mark.parametrize(
+    "usage_data, exp_usage",
+    [
+        # A cache count larger than inputTokens proves the counters are already disjoint, so the
+        # total is the only thing that can be wrong.
+        (
+            {"inputTokens": 10, "outputTokens": 4, "totalTokens": 14, "cacheReadInputTokens": 5848},
+            {"inputTokens": 10, "outputTokens": 4, "totalTokens": 5862, "cacheReadInputTokens": 5848},
+        ),
+        (
+            {"inputTokens": 10, "outputTokens": 4, "totalTokens": 14, "cacheWriteInputTokens": 5848},
+            {"inputTokens": 10, "outputTokens": 4, "totalTokens": 5862, "cacheWriteInputTokens": 5848},
+        ),
+    ],
+)
+def test_parse_usage_repairs_totals_persisted_before_the_disjoint_contract(usage_data, exp_usage):
+    """A resumed session's totals are reconciled rather than summed with live disjoint counts.
+
+    A total persisted as only input + output would otherwise leave a total that no combination of
+    counters accounts for.
+    """
+    assert _parse_usage(usage_data) == exp_usage
+
+
+@pytest.mark.parametrize(
+    "usage_data",
+    [
+        # Ambiguous: whether inputTokens contained the cache count is unrecoverable once it is at
+        # least as large as that count, so the counters are preserved rather than guessed at.
+        {"inputTokens": 5000, "outputTokens": 4, "totalTokens": 5004, "cacheReadInputTokens": 3000},
+        {"inputTokens": 100, "outputTokens": 4, "totalTokens": 104, "cacheReadInputTokens": 80},
+        {"inputTokens": 80, "outputTokens": 4, "totalTokens": 84, "cacheReadInputTokens": 80},
+        # Already disjoint (an OpenAI-style payload written by a current SDK).
+        {"inputTokens": 452, "outputTokens": 10, "totalTokens": 6462, "cacheReadInputTokens": 6000},
+        # Bedrock Converse, which has always reported cache tokens on top of inputTokens.
+        {"inputTokens": 10, "outputTokens": 4, "totalTokens": 5862, "cacheReadInputTokens": 5848},
+        # No cache counters at all.
+        {"inputTokens": 100, "outputTokens": 20, "totalTokens": 120},
+    ],
+)
+def test_parse_usage_leaves_unrepairable_and_conforming_payloads_unchanged(usage_data):
+    assert _parse_usage(usage_data) == usage_data
+
+
+@pytest.mark.parametrize(
+    "usage_data",
+    [
+        # Persisted session state is user-editable JSON, so a count can arrive as null, as a
+        # string, or not at all. Restoring one must not raise out of session deserialization.
+        {"inputTokens": None, "outputTokens": 4, "totalTokens": 4, "cacheReadInputTokens": 100},
+        {"inputTokens": "10", "outputTokens": "4", "totalTokens": "14", "cacheReadInputTokens": "100"},
+        {"inputTokens": 10, "outputTokens": 4, "totalTokens": 14, "cacheReadInputTokens": None},
+        {"inputTokens": 10, "outputTokens": 4, "totalTokens": None},
+        {},
+        # The payload itself can be edited into something that is not a mapping of counts.
+        None,
+        "not-a-mapping",
+        42,
+        [1, 2, 3],
+    ],
+)
+def test_parse_usage_returns_well_formed_counts_for_malformed_payloads(usage_data):
+    tru_usage = _parse_usage(usage_data)
+
+    assert all(type(count) is int for count in tru_usage.values())

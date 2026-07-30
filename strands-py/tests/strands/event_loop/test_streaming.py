@@ -1,4 +1,6 @@
+import logging
 import unittest.mock
+from enum import IntEnum
 from typing import cast
 
 import pytest
@@ -6,6 +8,7 @@ import pytest
 import strands
 import strands.event_loop
 from strands.types._events import ModelStopReason, TypedEvent
+from strands.types._usage import USAGE_COUNTERS, accumulate_usage, context_token_count, prompt_token_count
 from strands.types.content import Message, Messages
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
@@ -13,6 +16,12 @@ from strands.types.streaming import (
     MessageStartEvent,
     MessageStopEvent,
 )
+
+
+class _CountEnum(IntEnum):
+    """A vendor may model a count as an enum member, which is an int subclass."""
+
+    TEN = 10
 
 
 @pytest.fixture(autouse=True)
@@ -650,6 +659,47 @@ def test_extract_usage_metrics_empty_metadata():
     exp_metrics = {"latencyMs": 0}
 
     assert tru_usage == exp_usage and tru_metrics == exp_metrics
+
+
+def test_extract_usage_metrics_reads_the_event_and_each_counter_once(caplog):
+    """Reading either the event or a counter twice would assemble a usage out of separate answers.
+
+    Neither accessor need answer with the same value twice, so the coercion and the usability check
+    read from one snapshot. Reading twice reports the difference between the two answers as a count
+    the model failed to make usable, and reading the event twice can compose one usage out of
+    several, satisfying no invariant.
+    """
+
+    class CountingUsage(dict):
+        def __init__(self):
+            super().__init__(inputTokens=10, outputTokens=5, totalTokens=15)
+            self.reads = {}
+
+        def get(self, key, default=None):
+            self.reads[key] = self.reads.get(key, 0) + 1
+            return super().get(key, default)
+
+    class CountingEvent(dict):
+        def __init__(self, usage):
+            super().__init__(metrics={"latencyMs": 100})
+            self.usage = usage
+            self.reads = 0
+
+        def get(self, key, default=None):
+            if key == "usage":
+                self.reads += 1
+                return self.usage
+            return super().get(key, default)
+
+    reported = CountingUsage()
+    event = CountingEvent(reported)
+
+    tru_usage, _ = strands.event_loop.streaming.extract_usage_metrics(event)
+
+    assert event.reads == 1
+    assert reported.reads == dict.fromkeys(USAGE_COUNTERS, 1)
+    assert tru_usage == {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}
+    assert "not usable numbers" not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -1662,3 +1712,156 @@ async def test_process_stream_tool_use_info_in_delta(agenerator, alist):
     assert len(message["content"]) == 1
     tool_use = message["content"][0]["toolUse"]
     assert tool_use == {"toolUseId": "xyz789", "name": "output_slide", "input": {"title": "Test"}}
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+        {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        # Cache counters that account for the total, as every built-in provider reports them.
+        {"inputTokens": 10, "outputTokens": 4, "totalTokens": 5862, "cacheReadInputTokens": 5848},
+        {"inputTokens": 2, "outputTokens": 5, "totalTokens": 6457, "cacheWriteInputTokens": 6450},
+    ],
+)
+def test_extract_usage_metrics_accepts_conforming_usage_without_warning(usage, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
+
+    strands.event_loop.streaming.extract_usage_metrics({"usage": usage, "metrics": {"latencyMs": 1}})
+
+    assert caplog.text == ""
+
+
+def test_extract_usage_metrics_warns_when_counters_do_not_account_for_the_total(caplog):
+    """A custom model reporting cache tokens inside inputTokens would inflate cost silently."""
+    caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
+    usage = {"inputTokens": 6452, "outputTokens": 5, "totalTokens": 6457, "cacheReadInputTokens": 6450}
+
+    strands.event_loop.streaming.extract_usage_metrics({"usage": usage, "metrics": {"latencyMs": 1}})
+
+    assert "counted_tokens=<12907>, total_tokens=<6457>" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        # A gateway reporting counts as strings, a provider omitting a counter, and a provider
+        # sending null for one: the check reports on malformed usage rather than raising out of
+        # the stream, matching how a provider's own counts are coerced.
+        {"inputTokens": "10", "outputTokens": "5", "totalTokens": "15"},
+        {"inputTokens": None, "outputTokens": 5, "totalTokens": 5},
+        {"inputTokens": 12, "outputTokens": 4, "totalTokens": 16, "cacheReadInputTokens": None},
+        {"inputTokens": 12, "outputTokens": 4},
+        {"inputTokens": 12, "outputTokens": 4, "totalTokens": None},
+        # A model that reports no usage at all commonly yields the field as null rather than
+        # omitting it, and nothing constrains what it puts there.
+        None,
+        "usage",
+        42,
+        [1, 2, 3],
+    ],
+)
+def test_extract_usage_metrics_returns_well_formed_counts_for_malformed_usage(usage):
+    tru_usage, _ = strands.event_loop.streaming.extract_usage_metrics({"usage": usage, "metrics": {"latencyMs": 1}})
+
+    # Every consumer does arithmetic on these counts, so a malformed one must not survive the
+    # boundary — otherwise the raise merely moves to whichever consumer touches it first.
+    assert all(type(count) is int for count in tru_usage.values())
+    accumulate_usage({"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}, tru_usage)
+    context_token_count(tru_usage)
+    prompt_token_count(tru_usage)
+
+
+@pytest.mark.parametrize(
+    "usage, exp_warning",
+    [
+        # A count reported as something other than a non-negative integer is coerced away, which
+        # can still satisfy the invariant, so it is reported on separately.
+        ({"inputTokens": "abc", "outputTokens": 4, "totalTokens": 4}, True),
+        ({"inputTokens": "10", "outputTokens": 5, "totalTokens": 15}, True),
+        ({"inputTokens": -5, "outputTokens": 4, "totalTokens": 4}, True),
+        ({"inputTokens": 10.7, "outputTokens": 4, "totalTokens": 14}, True),
+        # A model reporting nothing, or a genuinely empty turn, is not a fault.
+        ({"inputTokens": None, "outputTokens": None, "totalTokens": None}, False),
+        ({"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}, False),
+        ({}, False),
+        # Bedrock reports cacheDetails alongside the counters; a structured field is not a count.
+        (
+            {
+                "inputTokens": 12,
+                "outputTokens": 1,
+                "totalTokens": 5857,
+                "cacheWriteInputTokens": 5844,
+                "cacheDetails": [{"ttl": "5m", "inputTokens": 5844}],
+            },
+            False,
+        ),
+    ],
+)
+def test_extract_usage_metrics_reports_counts_it_could_not_use(usage, exp_warning, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
+
+    strands.event_loop.streaming.extract_usage_metrics({"usage": usage, "metrics": {"latencyMs": 1}})
+
+    assert ("not usable numbers" in caplog.text) is exp_warning
+
+
+def test_extract_usage_metrics_does_not_run_a_reported_counts_own_equality():
+    """A reported count can be an object whose __eq__ raises.
+
+    The unusable check compares the coerced count against what was reported, so comparing by value
+    would run model-supplied code and fail the invocation the counts merely describe.
+    """
+
+    class RaisingEquality:
+        def __eq__(self, other):
+            raise RuntimeError("comparison should never run")
+
+        def __hash__(self):
+            return 0
+
+    class VendorUsage:
+        def __init__(self):
+            self.inputTokens = RaisingEquality()
+            self.outputTokens = 1
+            self.totalTokens = 1
+
+    tru_usage, _ = strands.event_loop.streaming.extract_usage_metrics(
+        {"usage": VendorUsage(), "metrics": {"latencyMs": 1}}
+    )
+
+    assert tru_usage == {"inputTokens": 0, "outputTokens": 1, "totalTokens": 1}
+
+
+@pytest.mark.parametrize(
+    "usage, exp_warning",
+    [
+        # JSON may carry a whole count as a float, which survives coercion and is usable.
+        ({"inputTokens": 10.0, "outputTokens": 5, "totalTokens": 15.0}, False),
+        ({"inputTokens": 10.7, "outputTokens": 5, "totalTokens": 15}, True),
+    ],
+)
+def test_extract_usage_metrics_accepts_a_whole_float_count(usage, exp_warning, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
+
+    strands.event_loop.streaming.extract_usage_metrics({"usage": usage, "metrics": {"latencyMs": 1}})
+
+    assert ("not usable numbers" in caplog.text) is exp_warning
+
+
+def test_extract_usage_metrics_reads_an_int_subclass_as_a_usable_count(caplog):
+    """An ``IntEnum`` is a count a provider legitimately reports, and must not read as unusable.
+
+    Coercion returns a plain int so no model-supplied type reaches a consumer. Reporting such a
+    count as unusable would tell an operator a good count is bad, and that warning is the only
+    signal the SDK gives for one it genuinely could not read.
+    """
+    caplog.set_level(logging.WARNING, logger="strands.event_loop.streaming")
+
+    tru_usage, _ = strands.event_loop.streaming.extract_usage_metrics(
+        {"usage": {"inputTokens": _CountEnum.TEN, "outputTokens": 5, "totalTokens": 15}, "metrics": {"latencyMs": 1}}
+    )
+
+    assert tru_usage == {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}
+    assert all(type(value) is int for value in tru_usage.values())
+    assert "not usable numbers" not in caplog.text
