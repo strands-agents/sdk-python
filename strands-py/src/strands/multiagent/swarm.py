@@ -886,6 +886,9 @@ class Swarm(MultiAgentBase):
 
                     self.state.handoff_node = None
                     self.state.current_node = current_node
+                    # The handoff is applied, so the finished turn no longer speaks for the frontier: the node
+                    # it promoted now owes a turn of its own, and no turn is in flight until that one starts.
+                    self._turn = None
 
                     handoff_event = MultiAgentHandoffEvent(
                         from_node_ids=[previous_node.node_id],

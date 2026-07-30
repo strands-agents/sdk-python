@@ -1900,6 +1900,52 @@ async def test_swarm_resume_after_failed_handoff_does_not_mask_failure(mock_stra
 
 
 @pytest.mark.asyncio
+async def test_swarm_teardown_between_nodes_keeps_the_handoff_target_as_frontier(mock_strands_tracer, mock_use_span):
+    """A teardown after a handoff is applied but before the target starts keeps that target as the frontier.
+
+    The finished turn stops speaking for the frontier once its handoff is applied: the target now owes a turn
+    of its own, and no turn is in flight until it starts, so the checkpoint must still name the target.
+    """
+    first_agent = create_mock_agent("first")
+    second_agent = create_mock_agent("second")
+    swarm = Swarm([first_agent, second_agent])
+
+    async def handoff_to_second(*args, **kwargs):
+        yield {"agent_start": True}
+        swarm._handle_handoff(swarm.nodes["second"], "message for second", {})
+        yield {"result": first_agent.return_value}
+
+    first_agent.stream_async = Mock(side_effect=handoff_to_second)
+
+    # Tear down where the swarm has advanced to 'second' but has not begun its turn.
+    def exit_before_second(event):
+        if event.node_id == "second":
+            raise SystemExit("controlled exit before second")
+
+    swarm.hooks.add_callback(BeforeNodeCallEvent, exit_before_second)
+
+    with pytest.raises(SystemExit):
+        await swarm.invoke_async("test")
+
+    snapshot = swarm.serialize_state()
+    assert snapshot["status"] == "executing"
+    assert snapshot["node_history"] == ["first"]
+    tru_frontier = snapshot["next_nodes_to_execute"]
+    exp_frontier = ["second"]
+    assert tru_frontier == exp_frontier
+
+    resumed_first = create_mock_agent("first")
+    resumed_second = create_mock_agent("second")
+    resumed_swarm = Swarm([resumed_first, resumed_second])
+    resumed_swarm.deserialize_state(snapshot)
+    result = await resumed_swarm.invoke_async("test")
+
+    assert result.status == Status.COMPLETED
+    resumed_second.stream_async.assert_called_once()
+    resumed_first.stream_async.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_swarm_repeated_crash_at_completed_turn_is_a_fixed_point(mock_strands_tracer, mock_use_span):
     """Crashing repeatedly at the same completed turn records that turn once, not once per crash.
 
