@@ -968,4 +968,319 @@ describe('AnthropicModel', () => {
       expect(result).toBe(2) // heuristic: Math.ceil('hello'.length / 4)
     })
   })
+
+  /**
+   * Prompt caching via `cacheConfig` / `cacheTools`.
+   *
+   * Anthropic accepts at most 4 cache breakpoints per request and `ephemeral` is the only cache type.
+   * @see https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+   */
+  describe('prompt caching', () => {
+    const MAX_BREAKPOINTS = 4
+
+    const setupCapture = (): { captured: { request: any }; mockClient: Anthropic } => {
+      const captured: { request: any } = { request: null }
+      const mockClient = {
+        messages: {
+          stream: vi.fn((req) => {
+            captured.request = req
+            return (async function* () {})()
+          }),
+        },
+      } as any
+      return { captured, mockClient }
+    }
+
+    /** Every cache_control in a formatted request, across tools, system and messages. */
+    const breakpoints = (request: any): unknown[] => {
+      const found: unknown[] = []
+      for (const tool of request.tools ?? []) {
+        if (tool.cache_control) found.push(['tools', tool.name, tool.cache_control])
+      }
+      if (Array.isArray(request.system)) {
+        for (const block of request.system) {
+          if (block.cache_control) found.push(['system', block.type, block.cache_control])
+        }
+      }
+      request.messages.forEach((message: any, messageIndex: number) => {
+        for (const block of message.content) {
+          if (block.cache_control) found.push(['messages', messageIndex, block.cache_control])
+        }
+      })
+      return found
+    }
+
+    const toolSpecs = [
+      { name: 't1', description: 'tool one', inputSchema: { type: 'object' as const } },
+      { name: 't2', description: 'tool two', inputSchema: { type: 'object' as const } },
+    ]
+
+    const userMessage = (text: string): Message => new Message({ role: 'user', content: [new TextBlock(text)] })
+
+    it('is off when unset', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('adds a breakpoint to the last user message', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+
+      await collectIterator(provider.stream([userMessage('one'), userMessage('two')]))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 1, { type: 'ephemeral' }]])
+    })
+
+    it('treats auto and anthropic strategies the same', async () => {
+      // The Anthropic API caches on every active Claude model, so auto has no model-support check to
+      // apply and the two strategies produce the same request.
+      const auto = setupCapture()
+      await collectIterator(
+        new AnthropicModel({ client: auto.mockClient, cacheConfig: { strategy: 'auto' } }).stream([userMessage('Hi')], {
+          toolSpecs,
+        })
+      )
+
+      const explicit = setupCapture()
+      await collectIterator(
+        new AnthropicModel({ client: explicit.mockClient, cacheConfig: { strategy: 'anthropic' } }).stream(
+          [userMessage('Hi')],
+          { toolSpecs }
+        )
+      )
+
+      expect(auto.captured.request).toEqual(explicit.captured.request)
+    })
+
+    it('carries cacheConfig ttl onto cache_control', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
+
+      await collectIterator(provider.stream([userMessage('Hi')]))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
+    })
+
+    it('caches only the last tool definition', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral' }]])
+      expect(captured.request.tools[0].cache_control).toBeUndefined()
+    })
+
+    it('carries cacheTools ttl onto cache_control', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: { ttl: '1h' } })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral', ttl: '1h' }]])
+    })
+
+    it('normalizes a Bedrock cache point type to ephemeral', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: { type: 'default' } })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral' }]])
+    })
+
+    it('is a no-op when cacheTools is set without tools', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+
+      await collectIterator(provider.stream([userMessage('Hi')]))
+
+      expect(captured.request.tools).toBeUndefined()
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('applies cacheTools independently of cacheConfig', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral' }]])
+    })
+
+    it('produces two breakpoints when both options are set', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto' },
+        cacheTools: 'default',
+      })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      const found = breakpoints(captured.request)
+      expect(found).toEqual([
+        ['tools', 't2', { type: 'ephemeral' }],
+        ['messages', 0, { type: 'ephemeral' }],
+      ])
+      expect(found.length).toBeLessThanOrEqual(MAX_BREAKPOINTS)
+    })
+
+    it('does not accumulate breakpoints across turns', async () => {
+      // A cache point per turn would blow the 4-breakpoint limit on the 5th turn. This history already
+      // carries one per turn, as it would if each turn appended one; exactly one must survive.
+      const messages: Message[] = []
+      for (let turn = 0; turn < 25; turn++) {
+        messages.push(
+          new Message({
+            role: 'user',
+            content: [new TextBlock(`question ${turn}`), new CachePointBlock({ cacheType: 'default' })],
+          })
+        )
+        messages.push(
+          new Message({
+            role: 'user',
+            content: [
+              new ToolResultBlock({
+                toolUseId: `t${turn}`,
+                status: 'success',
+                content: [new TextBlock(`result ${turn}`)],
+              }),
+              new CachePointBlock({ cacheType: 'default' }),
+            ],
+          })
+        )
+      }
+
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto' },
+        cacheTools: 'default',
+      })
+
+      await collectIterator(provider.stream(messages, { toolSpecs }))
+
+      const found = breakpoints(captured.request)
+      expect(found.length).toBeLessThanOrEqual(MAX_BREAKPOINTS)
+      const messageBreakpoints = found.filter((bp) => (bp as unknown[])[0] === 'messages')
+      expect(messageBreakpoints).toEqual([['messages', messages.length - 1, { type: 'ephemeral' }]])
+    })
+
+    it('replaces hand-placed message cache points', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('one'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+        new Message({ role: 'assistant', content: [new TextBlock('two')] }),
+        userMessage('three'),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 2, { type: 'ephemeral' }]])
+      // The stripped cache point leaves the text block behind untouched.
+      expect(captured.request.messages[0].content).toEqual([{ type: 'text', text: 'one' }])
+    })
+
+    it('places the breakpoint after the last cacheable block', async () => {
+      // Anthropic rejects cache_control on a reasoning block, so the cache point skips back past it.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('question'), new ReasoningBlock({ text: 'thinking', signature: 'sig' })],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(captured.request.messages[0].content[0]).toEqual({
+        type: 'text',
+        text: 'question',
+        cache_control: { type: 'ephemeral' },
+      })
+      expect(captured.request.messages[0].content[1].cache_control).toBeUndefined()
+    })
+
+    it('skips a history with no cacheable user content', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [new Message({ role: 'assistant', content: [new TextBlock('hello')] })]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('honors the ttl on a hand-placed cache point', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('one'), new CachePointBlock({ cacheType: 'default', ttl: '1h' })],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
+    })
+
+    it('honors the ttl on a system prompt cache point', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+      const systemPrompt = [new TextBlock('Heavy context'), new CachePointBlock({ cacheType: 'default', ttl: '1h' })]
+
+      await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt }))
+
+      expect(captured.request.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+    })
+
+    it('pins the request body shared with strands-py', async () => {
+      // The mirror of this test is test_cross_sdk_request_parity in
+      // strands-py/tests/strands/models/test_anthropic.py. Update both together or the SDKs will drift.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto', ttl: '1h' },
+        cacheTools: { ttl: '1h' },
+      })
+      const messages = [
+        userMessage('hello'),
+        new Message({ role: 'assistant', content: [new TextBlock('hi')] }),
+        userMessage('again'),
+      ]
+
+      await collectIterator(provider.stream(messages, { toolSpecs }))
+
+      expect(captured.request.tools).toEqual([
+        { name: 't1', description: 'tool one', input_schema: { type: 'object' } },
+        {
+          name: 't2',
+          description: 'tool two',
+          input_schema: { type: 'object' },
+          cache_control: { type: 'ephemeral', ttl: '1h' },
+        },
+      ])
+      expect(captured.request.messages).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'again', cache_control: { type: 'ephemeral', ttl: '1h' } }],
+        },
+      ])
+    })
+  })
 })

@@ -5,8 +5,11 @@ import {
   type CountTokensOptions,
   type StreamOptions,
   resolveConfigMetadata,
+  type CacheConfig,
+  type CacheToolsConfig,
 } from '../models/model.js'
 import type { Message, ContentBlock } from '../types/messages.js'
+import type { ToolSpec } from '../tools/types.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
@@ -27,6 +30,20 @@ const CONTEXT_WINDOW_OVERFLOW_ERRORS = [
   'input length exceeds context window',
   'input and output tokens exceed your context limit',
 ]
+/**
+ * Block discriminators Anthropic accepts `cache_control` on. A cache point placed after any other
+ * block (for example a reasoning block) is rejected by the API.
+ *
+ * @see https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+ */
+const CACHEABLE_BLOCK_TYPES = ['textBlock', 'imageBlock', 'documentBlock', 'toolUseBlock', 'toolResultBlock']
+
+/**
+ * `ephemeral` is the only cache type the Anthropic API supports. Bedrock's cache point type
+ * (e.g. `'default'`) has no Anthropic equivalent and is normalized to it.
+ */
+const ANTHROPIC_CACHE_TYPE = 'ephemeral' as const
+
 const TEXT_FILE_FORMATS = ['txt', 'md', 'markdown', 'csv', 'json', 'xml', 'html', 'yml', 'yaml', 'js', 'ts', 'py']
 
 export interface AnthropicModelConfig extends BaseModelConfig {
@@ -60,6 +77,32 @@ export interface AnthropicModelConfig extends BaseModelConfig {
    * @defaultValue false
    */
   useNativeTokenCount?: boolean
+
+  /**
+   * Prompt caching configuration. When set, a cache breakpoint is added to the last user message so
+   * the conversation prefix is read from cache instead of reprocessed. Caching is off when unset.
+   *
+   * Both strategies behave the same on this provider. `'auto'` carries a model-support check on
+   * Bedrock, but the Anthropic API caches on every active Claude model, so there is nothing for that
+   * check to decide here; `'anthropic'` is accepted so a config can move between providers unchanged.
+   *
+   * @example
+   * ```typescript
+   * new AnthropicModel({ cacheConfig: { strategy: 'auto', ttl: '1h' } })
+   * ```
+   */
+  cacheConfig?: CacheConfig
+
+  /**
+   * Cache point applied to tool definitions. Pass a string (e.g. `'default'`) for the API default
+   * TTL, or an object to set one. Independent of {@link AnthropicModelConfig.cacheConfig}.
+   *
+   * @example
+   * ```typescript
+   * new AnthropicModel({ cacheTools: { ttl: '1h' } })
+   * ```
+   */
+  cacheTools?: string | CacheToolsConfig
 }
 
 export interface AnthropicModelOptions extends AnthropicModelConfig {
@@ -302,13 +345,104 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return { headers: { 'anthropic-beta': betas.join(',') } }
   }
 
+  /**
+   * Whether `cacheConfig` asks for a cache breakpoint on the last user message.
+   *
+   * @returns True if a cache point should be applied to the messages.
+   */
+  private _cachingEnabled(): boolean {
+    const strategy = this._config.cacheConfig?.strategy
+    if (strategy === undefined) {
+      return false
+    }
+
+    if (strategy !== 'auto' && strategy !== 'anthropic') {
+      logger.warn(`strategy=<${strategy}> | unknown cache strategy, prompt caching disabled`)
+      return false
+    }
+
+    return true
+  }
+
+  /**
+   * Builds an Anthropic `cache_control` value.
+   *
+   * @param ttl - Optional TTL duration (e.g. `'5m'`, `'1h'`). Omitted leaves the API default.
+   * @returns An Anthropic cache_control value.
+   */
+  private _formatCacheControl(ttl?: string): Anthropic.CacheControlEphemeral {
+    const cacheControl: Anthropic.CacheControlEphemeral = { type: ANTHROPIC_CACHE_TYPE }
+    if (ttl !== undefined) {
+      // The API validates TTL values server-side, so accept any string here rather than requiring an
+      // SDK bump whenever a new duration ships.
+      cacheControl.ttl = ttl as NonNullable<Anthropic.CacheControlEphemeral['ttl']>
+    }
+    return cacheControl
+  }
+
+  /**
+   * Locates the block that should carry the auto-injected cache breakpoint.
+   *
+   * Picks the last block Anthropic accepts `cache_control` on, in the last user message. Existing
+   * cache point blocks are ignored, so the breakpoint count stays constant as a conversation grows
+   * rather than accumulating one per turn.
+   *
+   * @param messages - Conversation messages to search.
+   * @returns The target message and block index, or undefined when there is nothing cacheable.
+   */
+  private _findCacheTarget(messages: Message[]): { messageIndex: number; blockIndex: number } | undefined {
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+      const message = messages[messageIndex]
+      if (!message) continue
+
+      // A tool result arrives with role 'tool' but is sent to Anthropic as a user turn.
+      const role = (message.role as string) === 'tool' ? 'user' : message.role
+      if (role !== 'user') continue
+
+      for (let blockIndex = message.content.length - 1; blockIndex >= 0; blockIndex--) {
+        const block = message.content[blockIndex]
+        if (block && CACHEABLE_BLOCK_TYPES.includes(block.type)) {
+          return { messageIndex, blockIndex }
+        }
+      }
+    }
+
+    logger.debug('no cacheable content block in a user message | skipped cache point')
+    return undefined
+  }
+
+  /**
+   * Formats tool definitions, caching them when `cacheTools` is configured.
+   *
+   * A `cache_control` on the final tool caches the whole tool block, so one breakpoint is enough.
+   *
+   * @param toolSpecs - Tool specifications to make available to the model.
+   * @returns An Anthropic tools array.
+   */
+  private _formatTools(toolSpecs: ToolSpec[]): Anthropic.ToolUnion[] {
+    const tools = toolSpecs.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+    })) as Anthropic.Tool[]
+
+    const cacheTools = this._config.cacheTools
+    const lastTool = tools[tools.length - 1]
+    if (cacheTools !== undefined && lastTool) {
+      const ttl = typeof cacheTools === 'string' ? undefined : cacheTools.ttl
+      lastTool.cache_control = this._formatCacheControl(ttl)
+    }
+
+    return tools
+  }
+
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
     if (!this._config.modelId) throw new Error('Model ID is required')
 
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
       max_tokens: this._config.maxTokens ?? MODEL_DEFAULTS.anthropic.maxTokens,
-      messages: this._formatMessages(messages),
+      messages: this._formatMessages(messages, this._cachingEnabled() ? this._findCacheTarget(messages) : undefined),
       stream: true,
     }
 
@@ -323,7 +457,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
           if (block.type === 'textBlock') {
             const nextBlock = options.systemPrompt[i + 1]
-            const cacheControl = nextBlock?.type === 'cachePointBlock' ? { type: 'ephemeral' as const } : undefined
+            const cacheControl =
+              nextBlock?.type === 'cachePointBlock' ? this._formatCacheControl(nextBlock.ttl) : undefined
 
             systemBlocks.push({
               type: 'text',
@@ -343,11 +478,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     }
 
     if (options?.toolSpecs?.length) {
-      request.tools = options.toolSpecs.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-      }))
+      request.tools = this._formatTools(options.toolSpecs)
 
       if (options.toolChoice) {
         if ('auto' in options.toolChoice) {
@@ -368,8 +499,11 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     return request
   }
 
-  private _formatMessages(messages: Message[]): Anthropic.MessageParam[] {
-    return messages.map((msg) => {
+  private _formatMessages(
+    messages: Message[],
+    cacheTarget?: { messageIndex: number; blockIndex: number }
+  ): Anthropic.MessageParam[] {
+    return messages.map((msg, messageIndex) => {
       const role = (msg.role as string) === 'tool' ? 'user' : msg.role
 
       const content: Anthropic.ContentBlockParam[] = []
@@ -378,15 +512,23 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         const block = msg.content[i]
         if (!block) continue
 
+        // While cacheConfig manages placement it owns every message breakpoint, so hand-placed cache
+        // points are dropped instead of adding to the count.
+        if (cacheTarget && block.type === 'cachePointBlock') continue
+
         const nextBlock = msg.content[i + 1]
-        const hasCachePoint = nextBlock?.type === 'cachePointBlock'
+        const cachePointTTL = nextBlock?.type === 'cachePointBlock' ? nextBlock.ttl : undefined
+        const hasCachePoint = !cacheTarget && nextBlock?.type === 'cachePointBlock'
+        const isCacheTarget = cacheTarget?.messageIndex === messageIndex && cacheTarget.blockIndex === i
 
         const formattedBlock = this._formatContentBlock(block)
 
         if (formattedBlock) {
           if (hasCachePoint && this._isCacheableBlock(formattedBlock)) {
-            formattedBlock.cache_control = { type: 'ephemeral' }
+            formattedBlock.cache_control = this._formatCacheControl(cachePointTTL)
             i++
+          } else if (isCacheTarget && this._isCacheableBlock(formattedBlock)) {
+            formattedBlock.cache_control = this._formatCacheControl(this._config.cacheConfig?.ttl)
           }
           content.push(formattedBlock)
         }

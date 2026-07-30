@@ -148,10 +148,16 @@ export type BedrockCacheTTL = '5m' | '1h' | (string & {})
  * {@link CacheConfig} for the Bedrock provider.
  */
 export interface BedrockCacheConfig extends CacheConfig {
-  /** TTL applied to the auto-injected cache point appended after `toolConfig.tools`. */
+  /**
+   * TTL applied to the auto-injected cache point appended after `toolConfig.tools`.
+   * Takes precedence over {@link CacheConfig.ttl}.
+   */
   toolsTTL?: BedrockCacheTTL
 
-  /** TTL applied to the auto-injected cache point appended to the last user message. */
+  /**
+   * TTL applied to the auto-injected cache point appended to the last user message.
+   * Takes precedence over {@link CacheConfig.ttl}.
+   */
   messagesTTL?: BedrockCacheTTL
 }
 
@@ -710,7 +716,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
       if (this._shouldEnableCaching()) {
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.toolsTTL
+        const ttl = this._config.cacheConfig?.toolsTTL ?? this._config.cacheConfig?.ttl
         if (ttl !== undefined) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
@@ -872,7 +878,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       const lastMsg = messages[lastUserIdx]
       if (lastMsg && lastMsg.content) {
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.messagesTTL
+        const ttl = this._config.cacheConfig?.messagesTTL ?? this._config.cacheConfig?.ttl
         if (ttl !== undefined) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL

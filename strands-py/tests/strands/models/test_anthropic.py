@@ -1361,8 +1361,8 @@ class TestPromptCaching:
     @pytest.fixture
     def tool_specs(self):
         return [
-            {"description": "tool one", "name": "t1", "inputSchema": {"json": {"key": "a"}}},
-            {"description": "tool two", "name": "t2", "inputSchema": {"json": {"key": "b"}}},
+            {"description": "tool one", "name": "t1", "inputSchema": {"json": {"type": "object"}}},
+            {"description": "tool two", "name": "t2", "inputSchema": {"json": {"type": "object"}}},
         ]
 
     def test_off_when_unset(self, model, messages, tool_specs):
@@ -1600,11 +1600,11 @@ class TestPromptCaching:
         request = model.format_request(messages, tool_specs)
 
         assert request["tools"] == [
-            {"name": "t1", "description": "tool one", "input_schema": {"key": "a"}},
+            {"name": "t1", "description": "tool one", "input_schema": {"type": "object"}},
             {
                 "name": "t2",
                 "description": "tool two",
-                "input_schema": {"key": "b"},
+                "input_schema": {"type": "object"},
                 "cache_control": {"type": "ephemeral", "ttl": "1h"},
             },
         ]
