@@ -10,6 +10,7 @@ import type { Message, ContentBlock } from '../types/messages.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
 import { createEmptyUsage } from '../models/streaming.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
+import type { Citation } from '../types/citations.js'
 import type { ImageBlock, DocumentBlock } from '../types/media.js'
 import { encodeBase64 } from '../types/media.js'
 import { logger } from '../logging/logger.js'
@@ -27,6 +28,29 @@ const CONTEXT_WINDOW_OVERFLOW_ERRORS = [
   'input length exceeds context window',
   'input and output tokens exceed your context limit',
 ]
+// Content block types Anthropic produces for tools it executes server side. The search / fetch /
+// execution already happened inside Anthropic's infrastructure, so these must not be replayed as
+// toolUse blocks: the event loop would try to run them locally, and the resulting dangling tool_use
+// ids would be rejected on the next request.
+const SERVER_TOOL_USE_BLOCK_TYPES = new Set(['server_tool_use'])
+
+const SERVER_TOOL_RESULT_BLOCK_TYPES = new Set([
+  'bash_code_execution_tool_result',
+  'code_execution_tool_result',
+  'text_editor_code_execution_tool_result',
+  'tool_search_tool_result',
+  'web_fetch_tool_result',
+  'web_search_tool_result',
+])
+
+const SERVER_TOOL_BLOCK_TYPES = new Set([...SERVER_TOOL_USE_BLOCK_TYPES, ...SERVER_TOOL_RESULT_BLOCK_TYPES])
+
+const PARAMS_TOOLS_WARNING =
+  'params.tools is deprecated and previously overwrote every function tool definition, silently ' +
+  "disabling the agent's tools. The value is now appended to the request instead. Use the " +
+  '`anthropicTools` config option for Anthropic server-side tools (e.g. web_search) and the standard ' +
+  'tools interface for function tools.'
+
 const TEXT_FILE_FORMATS = ['txt', 'md', 'markdown', 'csv', 'json', 'xml', 'html', 'yml', 'yaml', 'js', 'ts', 'py']
 
 export interface AnthropicModelConfig extends BaseModelConfig {
@@ -38,7 +62,28 @@ export interface AnthropicModelConfig extends BaseModelConfig {
    */
   maxTokens?: number
   stopSequences?: string[]
+  /**
+   * Additional parameters merged into the request (e.g. `temperature`, `thinking`).
+   *
+   * Do not pass `tools` here. Use {@link AnthropicModelConfig.anthropicTools} instead so that
+   * server-side tools are appended to, rather than replacing, the agent's function tools.
+   */
   params?: Record<string, unknown>
+
+  /**
+   * Anthropic-specific tools that are not function tools (e.g. `web_search`, `web_fetch`,
+   * `code_execution`, `memory`, `text_editor`, `bash`).
+   *
+   * These run server side inside Anthropic's infrastructure and are appended alongside the function
+   * tool definitions rather than replacing them. Use the standard tools interface for function
+   * calling tools.
+   *
+   * The versioned `type` string is supplied by the caller, e.g.
+   * `{ type: 'web_search_20260318', name: 'web_search' }`.
+   *
+   * @see https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview
+   */
+  anthropicTools?: Anthropic.ToolUnion[]
 
   /**
    * Beta features to enable via the `anthropic-beta` header.
@@ -165,6 +210,15 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
       let stopReason = 'endTurn'
 
+      // Indexes of content blocks Anthropic ran server side. Their input_json_delta events describe a
+      // tool the agent never executes, so replaying them would corrupt the streaming tool-use state.
+      const serverToolBlockIndexes = new Set<number>()
+
+      // Anthropic interleaves citations_delta with text_delta inside a single text block. Buffer both
+      // so the citations can be emitted together with the text they ground (see content_block_stop).
+      let blockText = ''
+      let blockCitations: Citation[] = []
+
       for await (const event of stream) {
         switch (event.type) {
           case 'message_start': {
@@ -186,7 +240,15 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
           }
 
           case 'content_block_start':
-            if (event.content_block.type === 'tool_use') {
+            blockText = ''
+            blockCitations = []
+
+            if (SERVER_TOOL_BLOCK_TYPES.has(event.content_block.type)) {
+              // Anthropic already ran this tool; surface an empty block so indexes stay aligned.
+              serverToolBlockIndexes.add(event.index)
+              this._logServerToolBlock(event.content_block)
+              yield { type: 'modelContentBlockStartEvent' }
+            } else if (event.content_block.type === 'tool_use') {
               yield {
                 type: 'modelContentBlockStartEvent',
                 start: {
@@ -219,6 +281,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             } else {
               yield { type: 'modelContentBlockStartEvent' }
               if (event.content_block.type === 'text' && event.content_block.text) {
+                blockText += event.content_block.text
                 yield {
                   type: 'modelContentBlockDeltaEvent',
                   delta: { type: 'textDelta', text: event.content_block.text },
@@ -228,11 +291,17 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             break
 
           case 'content_block_delta':
+            if (serverToolBlockIndexes.has(event.index)) break
+
             if (event.delta.type === 'text_delta') {
+              blockText += event.delta.text
               yield {
                 type: 'modelContentBlockDeltaEvent',
                 delta: { type: 'textDelta', text: event.delta.text },
               }
+            } else if (event.delta.type === 'citations_delta') {
+              const citation = this._formatCitation(event.delta.citation)
+              if (citation) blockCitations.push(citation)
             } else if (event.delta.type === 'input_json_delta') {
               yield {
                 type: 'modelContentBlockDeltaEvent',
@@ -252,6 +321,25 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             break
 
           case 'content_block_stop':
+            serverToolBlockIndexes.delete(event.index)
+
+            if (blockCitations.length > 0) {
+              // Finalization in model.ts picks ONE block kind per open block and citations win over
+              // text, so the generated text has to ride along inside the citations delta or it would
+              // be dropped when the block stops.
+              yield {
+                type: 'modelContentBlockDeltaEvent',
+                delta: {
+                  type: 'citationsDelta',
+                  citations: blockCitations,
+                  content: blockText ? [{ text: blockText }] : [],
+                },
+              }
+            }
+
+            blockText = ''
+            blockCitations = []
+
             yield { type: 'modelContentBlockStopEvent' }
             break
 
@@ -342,28 +430,41 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       }
     }
 
-    if (options?.toolSpecs?.length) {
-      request.tools = options.toolSpecs.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
-      }))
+    const tools: Anthropic.ToolUnion[] = (options?.toolSpecs ?? []).map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+    }))
 
-      if (options.toolChoice) {
-        if ('auto' in options.toolChoice) {
-          request.tool_choice = { type: 'auto' }
-        } else if ('any' in options.toolChoice) {
-          request.tool_choice = { type: 'any' }
-        } else if ('tool' in options.toolChoice) {
-          request.tool_choice = { type: 'tool', name: options.toolChoice.tool.name }
-        }
+    if (options?.toolSpecs?.length && options.toolChoice) {
+      if ('auto' in options.toolChoice) {
+        request.tool_choice = { type: 'auto' }
+      } else if ('any' in options.toolChoice) {
+        request.tool_choice = { type: 'any' }
+      } else if ('tool' in options.toolChoice) {
+        request.tool_choice = { type: 'tool', name: options.toolChoice.tool.name }
       }
     }
+
+    // Server-side tools are additive: they extend the function tool definitions instead of replacing
+    // them (mirrors GoogleModel's builtInTools).
+    if (this._config.anthropicTools?.length) tools.push(...this._config.anthropicTools)
 
     if (this._config.temperature !== undefined) request.temperature = this._config.temperature
     if (this._config.topP !== undefined) request.top_p = this._config.topP
     if (this._config.stopSequences !== undefined) request.stop_sequences = this._config.stopSequences
-    if (this._config.params) Object.assign(request, this._config.params)
+
+    if (this._config.params) {
+      const { tools: paramsTools, ...restParams } = this._config.params
+      if (paramsTools !== undefined) {
+        warnOnce(logger, PARAMS_TOOLS_WARNING)
+        if (Array.isArray(paramsTools)) tools.push(...(paramsTools as Anthropic.ToolUnion[]))
+      }
+      Object.assign(request, restParams)
+    }
+
+    // Assigned after params so a stale `tools` key can never clobber the merged list.
+    if (tools.length > 0) request.tools = tools
 
     return request
   }
@@ -556,6 +657,128 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       default:
         return undefined
     }
+  }
+
+  /**
+   * Maps an Anthropic citation onto a Strands citation.
+   *
+   * Server-side web search attaches `web_search_result_location` citations to the text blocks it
+   * grounds; those carry the source url, title and cited source text, and the url also yields the
+   * domain that the `web` location exposes.
+   *
+   * @param citation - Citation from a `citations_delta` event
+   * @returns The mapped citation, or `undefined` when the location type has no Strands equivalent
+   */
+  private _formatCitation(citation: Anthropic.TextCitation): Citation | undefined {
+    const citedText = 'cited_text' in citation && citation.cited_text ? [{ text: citation.cited_text }] : []
+
+    switch (citation.type) {
+      case 'web_search_result_location': {
+        const url = citation.url ?? ''
+        let domain: string | undefined
+        try {
+          domain = new URL(url).hostname
+        } catch {
+          domain = undefined
+        }
+        return {
+          location: { type: 'web', url, ...(domain ? { domain } : {}) },
+          source: url,
+          sourceContent: citedText,
+          title: citation.title ?? '',
+        }
+      }
+
+      case 'search_result_location':
+        return {
+          location: {
+            type: 'searchResult',
+            searchResultIndex: citation.search_result_index,
+            start: citation.start_block_index,
+            end: citation.end_block_index,
+          },
+          source: citation.source,
+          sourceContent: citedText,
+          title: citation.title ?? '',
+        }
+
+      case 'char_location':
+        return {
+          location: {
+            type: 'documentChar',
+            documentIndex: citation.document_index,
+            start: citation.start_char_index,
+            end: citation.end_char_index,
+          },
+          source: citation.document_title ?? '',
+          sourceContent: citedText,
+          title: citation.document_title ?? '',
+        }
+
+      case 'page_location':
+        return {
+          location: {
+            type: 'documentPage',
+            documentIndex: citation.document_index,
+            start: citation.start_page_number,
+            end: citation.end_page_number,
+          },
+          source: citation.document_title ?? '',
+          sourceContent: citedText,
+          title: citation.document_title ?? '',
+        }
+
+      case 'content_block_location':
+        return {
+          location: {
+            type: 'documentChunk',
+            documentIndex: citation.document_index,
+            start: citation.start_block_index,
+            end: citation.end_block_index,
+          },
+          source: citation.document_title ?? '',
+          sourceContent: citedText,
+          title: citation.document_title ?? '',
+        }
+
+      default:
+        logger.warn(`citation_type=<${(citation as { type: string }).type}> | unsupported citation location | skipping`)
+        return undefined
+    }
+  }
+
+  /**
+   * Logs a server-side tool block that has no equivalent Strands content block type.
+   *
+   * Result errors (e.g. `max_uses_exceeded`, `unavailable`) are logged as warnings so a server-side
+   * search that returned nothing is never silent.
+   *
+   * @param contentBlock - The `content_block` from a `content_block_start` event
+   */
+  private _logServerToolBlock(contentBlock: { type: string; name?: string; content?: unknown }): void {
+    if (SERVER_TOOL_USE_BLOCK_TYPES.has(contentBlock.type)) {
+      logger.debug(
+        `block_type=<${contentBlock.type}>, tool_name=<${contentBlock.name}> | anthropic executed this tool server side`
+      )
+      return
+    }
+
+    const content = contentBlock.content
+    const errorCode =
+      content && typeof content === 'object' && 'error_code' in content
+        ? (content as { error_code?: string }).error_code
+        : undefined
+
+    if (errorCode !== undefined) {
+      logger.warn(`block_type=<${contentBlock.type}>, error_code=<${errorCode}> | server-side tool returned an error`)
+      return
+    }
+
+    logger.debug(
+      `block_type=<${contentBlock.type}>, result_count=<${Array.isArray(content) ? content.length : 'n/a'}> | ` +
+        'server-side tool result has no content block representation | citations on the following text blocks ' +
+        'carry the cited sources'
+    )
   }
 
   private _mapStopReason(anthropicReason: string): string {

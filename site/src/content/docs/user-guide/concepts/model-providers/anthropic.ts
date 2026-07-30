@@ -76,4 +76,23 @@ async function structuredOutputExample() {
   // --8<-- [end:structured_output]
 }
 
+// Server-side tools
+async function serverSideTools() {
+  // --8<-- [start:server_side_tools]
+  const model = new AnthropicModel({
+    apiKey: '<KEY>',
+    modelId: 'claude-sonnet-4-6',
+    maxTokens: 1028,
+    anthropicTools: [{ type: 'web_search_20260318', name: 'web_search', max_uses: 5 }],
+  })
+
+  // Function tools registered on the agent still reach the model: `anthropicTools`
+  // is appended to them rather than replacing them.
+  const agent = new Agent({ model })
+  const response = await agent.invoke('What did Anthropic announce this week?')
+  console.log(response)
+  // --8<-- [end:server_side_tools]
+}
+
 void structuredOutputExample
+void serverSideTools

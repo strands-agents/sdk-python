@@ -3,7 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { isNode } from '../../__fixtures__/environment.js'
 import { AnthropicModel } from '../anthropic.js'
 import { ContextWindowOverflowError, ModelThrottledError } from '../../errors.js'
-import { collectIterator } from '../../__fixtures__/model-test-helpers.js'
+import { collectGenerator, collectIterator } from '../../__fixtures__/model-test-helpers.js'
 import {
   Message,
   TextBlock,
@@ -15,6 +15,8 @@ import {
 } from '../../types/messages.js'
 import { ImageBlock, DocumentBlock, VideoBlock } from '../../types/media.js'
 import { warnOnce } from '../../logging/warn-once.js'
+import { logger } from '../../logging/logger.js'
+import { CitationsBlock } from '../../types/citations.js'
 
 /**
  * Helper to create a mock Anthropic client with streaming support
@@ -966,6 +968,250 @@ describe('AnthropicModel', () => {
 
       expect(mockCountTokens).not.toHaveBeenCalled()
       expect(result).toBe(2) // heuristic: Math.ceil('hello'.length / 4)
+    })
+  })
+
+  // -------------------------------------------------------------------------------------------------
+  // Anthropic server-side tools (web search)
+  //
+  // Versioned tool type strings below are from the Anthropic tool catalog:
+  // https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/web-search-tool
+  // -------------------------------------------------------------------------------------------------
+  describe('server-side tools (anthropicTools)', () => {
+    const WEB_SEARCH_TOOL = { type: 'web_search_20260318' as const, name: 'web_search' as const, max_uses: 3 }
+    const WEB_FETCH_TOOL = { type: 'web_fetch_20260318' as const, name: 'web_fetch' as const }
+
+    const FUNCTION_TOOL_SPEC = {
+      name: 'calc',
+      description: 'calculate',
+      inputSchema: { type: 'object' as const, properties: {} },
+    }
+
+    const setupCapture = () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = {
+        messages: {
+          stream: vi.fn((req) => {
+            captured.request = req
+            return (async function* () {})()
+          }),
+        },
+      } as any
+      return { captured, mockClient }
+    }
+
+    /** A realistic stream for one server-side web search followed by a cited answer. */
+    async function* webSearchStream(): AsyncGenerator<unknown> {
+      yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }
+
+      // Anthropic runs the search itself; this block and its input deltas describe a tool the agent
+      // never executes.
+      yield {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} },
+      }
+      yield {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'input_json_delta', partial_json: '{"query": "agents"}' },
+      }
+      yield { type: 'content_block_stop', index: 0 }
+
+      yield {
+        type: 'content_block_start',
+        index: 1,
+        content_block: {
+          type: 'web_search_tool_result',
+          tool_use_id: 'srvtoolu_1',
+          content: [
+            {
+              type: 'web_search_result',
+              url: 'https://docs.example.com/agents',
+              title: 'Agents guide',
+              encrypted_content: 'enc',
+              page_age: '1 day ago',
+            },
+          ],
+        },
+      }
+      yield { type: 'content_block_stop', index: 1 }
+
+      yield { type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } }
+      yield { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'Agents are ' } }
+      yield {
+        type: 'content_block_delta',
+        index: 2,
+        delta: {
+          type: 'citations_delta',
+          citation: {
+            type: 'web_search_result_location',
+            url: 'https://docs.example.com/agents',
+            title: 'Agents guide',
+            cited_text: 'Agents are autonomous programs.',
+            encrypted_index: 'idx',
+          },
+        },
+      }
+      yield { type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: 'autonomous.' } }
+      yield { type: 'content_block_stop', index: 2 }
+
+      yield { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 5 } }
+      yield { type: 'message_stop' }
+    }
+
+    it('appends server-side tools alongside function tools', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, anthropicTools: [WEB_SEARCH_TOOL] })
+
+      await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
+          toolSpecs: [FUNCTION_TOOL_SPEC],
+        })
+      )
+
+      expect(captured.request.tools).toEqual([
+        { name: 'calc', description: 'calculate', input_schema: { type: 'object', properties: {} } },
+        WEB_SEARCH_TOOL,
+      ])
+    })
+
+    it('keeps every function tool when server-side tools are enabled', async () => {
+      const { captured, mockClient } = setupCapture()
+      const toolSpecs = Array.from({ length: 5 }, (_, index) => ({ ...FUNCTION_TOOL_SPEC, name: `tool_${index}` }))
+      const provider = new AnthropicModel({
+        client: mockClient,
+        anthropicTools: [WEB_SEARCH_TOOL, WEB_FETCH_TOOL],
+      })
+
+      await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], { toolSpecs })
+      )
+
+      expect(captured.request.tools.map((tool: { name: string }) => tool.name)).toEqual([
+        'tool_0',
+        'tool_1',
+        'tool_2',
+        'tool_3',
+        'tool_4',
+        'web_search',
+        'web_fetch',
+      ])
+    })
+
+    it('sends server-side tools when the agent has no function tools', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, anthropicTools: [WEB_SEARCH_TOOL] })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(captured.request.tools).toEqual([WEB_SEARCH_TOOL])
+    })
+
+    it('omits tools entirely when unset', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect('tools' in captured.request).toBe(false)
+      expect(warnOnce).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('anthropicTools'))
+    })
+
+    it('warns and merges instead of clobbering when tools are passed via params', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        params: { temperature: 0.5, tools: [WEB_SEARCH_TOOL] },
+      })
+
+      await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })], {
+          toolSpecs: [FUNCTION_TOOL_SPEC],
+        })
+      )
+
+      expect(captured.request.tools.map((tool: { name: string }) => tool.name)).toEqual(['calc', 'web_search'])
+      expect(captured.request.temperature).toBe(0.5)
+      expect(warnOnce).toHaveBeenCalledWith(expect.anything(), expect.stringContaining('anthropicTools'))
+    })
+
+    it('does not accumulate params.tools into the stored config across requests', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, params: { tools: [WEB_SEARCH_TOOL] } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+      await collectIterator(provider.stream(messages, { toolSpecs: [FUNCTION_TOOL_SPEC] }))
+      const first = captured.request.tools
+      await collectIterator(provider.stream(messages, { toolSpecs: [FUNCTION_TOOL_SPEC] }))
+
+      expect(captured.request.tools).toEqual(first)
+      expect(provider.getConfig().params).toEqual({ tools: [WEB_SEARCH_TOOL] })
+    })
+
+    it('round-trips web search citations into a citations content block without losing the text', async () => {
+      const provider = new AnthropicModel({ client: createMockClient(webSearchStream) })
+
+      const { result } = await collectGenerator(
+        provider.streamAggregated([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      expect(result.stopReason).toBe('endTurn')
+      expect(result.message.content).toHaveLength(1)
+
+      const block = result.message.content[0] as CitationsBlock
+      expect(block.type).toBe('citationsBlock')
+      expect(block.content).toEqual([{ text: 'Agents are autonomous.' }])
+      expect(block.citations).toEqual([
+        {
+          location: { type: 'web', url: 'https://docs.example.com/agents', domain: 'docs.example.com' },
+          source: 'https://docs.example.com/agents',
+          sourceContent: [{ text: 'Agents are autonomous programs.' }],
+          title: 'Agents guide',
+        },
+      ])
+    })
+
+    it('does not replay server-side tool input as function tool input', async () => {
+      const provider = new AnthropicModel({ client: createMockClient(webSearchStream) })
+
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+
+      const deltaTypes = events.flatMap((event) =>
+        event.type === 'modelContentBlockDeltaEvent' ? [event.delta.type] : []
+      )
+
+      expect(deltaTypes).not.toContain('toolUseInputDelta')
+      expect(
+        events.some((event) => event.type === 'modelContentBlockStartEvent' && event.start !== undefined)
+      ).toBe(false)
+    })
+
+    it('warns when a server-side tool result is an error', async () => {
+      const logSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+
+      async function* errorStream(): AsyncGenerator<unknown> {
+        yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 1 } } }
+        yield {
+          type: 'content_block_start',
+          index: 0,
+          content_block: {
+            type: 'web_search_tool_result',
+            tool_use_id: 'srvtoolu_1',
+            content: { type: 'web_search_tool_result_error', error_code: 'max_uses_exceeded' },
+          },
+        }
+        yield { type: 'content_block_stop', index: 0 }
+        yield { type: 'message_stop' }
+      }
+
+      const provider = new AnthropicModel({ client: createMockClient(errorStream) })
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('max_uses_exceeded'))
+      logSpy.mockRestore()
     })
   })
 })
