@@ -1115,61 +1115,23 @@ def tool_config_param_model(gemini_client, model_id):
             mode=genai.types.FunctionCallingConfigMode.NONE,
             allowed_function_names=["safe_tool"],
         ),
-        # A field no ToolChoice can express, so a tool choice must leave it in place.
+        # A full tool config, so the assertions below pin that a tool choice leaves all of it in place.
         retrieval_config=genai.types.RetrievalConfig(language_code="en-GB"),
     )
     return GeminiModel(model_id=model_id, params={"tool_config": tool_config})
 
 
 @pytest.mark.parametrize(
-    ("tool_choice", "exp_function_calling_config"),
-    [
-        # No choice and an "auto" choice both leave the params tool config exactly as configured.
-        (None, {"mode": "NONE", "allowed_function_names": ["safe_tool"]}),
-        ({"auto": {}}, {"mode": "NONE", "allowed_function_names": ["safe_tool"]}),
-        # A forcing choice replaces the whole function calling config, allowlist included - the forced tool
-        # need not appear in a user's allowlist - while the fields it cannot express survive.
-        ({"any": {}}, {"mode": "ANY"}),
-        ({"tool": {"name": "name"}}, {"mode": "ANY", "allowed_function_names": ["name"]}),
-    ],
+    "tool_choice",
+    [None, {"auto": {}}, {"any": {}}, {"tool": {"name": "name"}}],
+    ids=["no-choice", "auto", "any", "tool"],
 )
 @pytest.mark.asyncio
-async def test_stream_request_tool_config_param_precedence(
-    gemini_client, tool_config_param_model, messages, tool_spec, model_id, tool_choice, exp_function_calling_config
+async def test_stream_request_tool_config_param_takes_precedence(
+    gemini_client, tool_config_param_model, messages, tool_spec, model_id, tool_choice
 ):
+    """An explicit tool config wins over any per-request choice, matching the other providers."""
     await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice=tool_choice))
-
-    exp_request = {
-        "config": {
-            "tools": [
-                {
-                    "function_declarations": [
-                        {
-                            "description": tool_spec["description"],
-                            "name": tool_spec["name"],
-                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
-                        }
-                    ]
-                }
-            ],
-            "tool_config": {
-                "function_calling_config": exp_function_calling_config,
-                "retrieval_config": {"language_code": "en-GB"},
-            },
-        },
-        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
-        "model": model_id,
-    }
-    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
-
-
-@pytest.mark.asyncio
-async def test_stream_forcing_tool_choice_does_not_leak_into_the_next_request(
-    gemini_client, tool_config_param_model, messages, tool_spec, model_id
-):
-    """A forced choice applies to its own request only, leaving the params tool config for the next one."""
-    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
-    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec]))
 
     exp_request = {
         "config": {
@@ -1188,6 +1150,67 @@ async def test_stream_forcing_tool_choice_does_not_leak_into_the_next_request(
                 "function_calling_config": {"mode": "NONE", "allowed_function_names": ["safe_tool"]},
                 "retrieval_config": {"language_code": "en-GB"},
             },
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_config_param_set_to_none_still_takes_precedence(
+    gemini_client, messages, tool_spec, model_id
+):
+    """Params owns the key, so an explicit None keeps a tool choice out of the request.
+
+    Matches the sibling providers, which spread params last and therefore let an explicit None win.
+    """
+    model = GeminiModel(model_id=model_id, params={"tool_config": None})
+
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_choice_does_not_persist_into_the_next_request(gemini_client, messages, tool_spec, model_id):
+    """A tool choice configures its own request only, so it never lands in the model's own params."""
+    model = GeminiModel(model_id=model_id, params={"temperature": 0.5})
+
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    exp_request = {
+        "config": {
+            "temperature": 0.5,
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,

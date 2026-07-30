@@ -337,9 +337,7 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
-            tool_choice: Selection strategy for tool invocation. Applied only alongside tool specs, since there
-                is nothing to choose from without them. A forcing tool choice takes precedence over the function
-                calling config of a tool config set in params.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             Gemini request config.
@@ -348,16 +346,10 @@ class GeminiModel(Model):
 
         tool_config = self._format_tool_choice(tool_choice) if tool_specs else None
         if tool_config is not None:
-            existing = config_params.get("tool_config")
-            if existing is None:
-                config_params["tool_config"] = tool_config
-            elif tool_choice is not None and ("any" in tool_choice or "tool" in tool_choice):
-                # A per-request choice that forces a tool is more specific than the tool config in params, so it
-                # wins - but only over the field a ToolChoice can express. An "auto" choice imposes no constraint,
-                # so it never clobbers an explicit params config.
-                config_params["tool_config"] = genai.types.ToolConfig.model_validate(existing).model_copy(
-                    update={"function_calling_config": tool_config.function_calling_config}
-                )
+            # A tool config set in params wins, matching the other providers and the TypeScript SDK. A tool
+            # config expresses more than a ToolChoice can, so the explicit one is left whole rather than
+            # merged with, or replaced by, the narrower per-request choice.
+            config_params.setdefault("tool_config", tool_config)
 
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -584,9 +576,8 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation. Applied only when tool specs are provided,
-                since there is nothing to choose from without them. A forcing tool choice takes precedence over
-                the function calling config of a tool config set through the params config; an "auto" choice
-                leaves it in place.
+                since there is nothing to choose from without them, and only when params sets no tool config of
+                its own - an explicit tool config takes precedence.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
