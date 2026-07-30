@@ -62,11 +62,16 @@ def main():
     new_tag = os.environ.get("NEW_TAG", "")
     prev_tag = os.environ.get("PREV_TAG", "")
 
+    # An empty prev_tag means the initial release: there is no baseline to
+    # diff against, so describe the range as "all commits up to" the new tag
+    # instead of rendering a dangling `..{new_tag}` range.
+    range_desc = f"`{prev_tag}..{new_tag}`" if prev_tag else f"all commits up to `{new_tag}`"
+
     out = []
     out.append(f"## {new_tag}")
     out.append("")
     out.append(
-        f"_Auto-drafted from commits in `{prev_tag}..{new_tag}`, grouped by "
+        f"_Auto-drafted from commits in {range_desc}, grouped by "
         "conventional-commit type. Edit on the release page after publish if "
         "you want a polished writeup; the canonical release notes live on the "
         "website._"

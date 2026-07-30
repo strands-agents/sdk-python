@@ -77,36 +77,50 @@ jobs:
             RELEASE_SHA=$(git rev-parse origin/main)
           fi
 
-          # 3. Pick tag prefix and resolve previous tag.
+          # 3. Pick tag prefix and resolve previous tag. An empty PREV_TAG
+          #    means this is the first release of this package (no prior
+          #    baseline exists in history) — bootstrap it rather than refuse.
           TAG_PREFIX="mcp/v"
           PREV_TAG=$(git tag --list "${TAG_PREFIX}*" --sort=-v:refname | head -n1)
           if [ -z "$PREV_TAG" ]; then
-            echo "::error::No prior tag matching ${TAG_PREFIX}* — refusing to release without a baseline. (Fork-testing? Run \`git fetch upstream --tags && git push origin --tags\` first.)"
-            exit 1
+            echo "::notice::No prior tag matching ${TAG_PREFIX}* — treating this as the initial release. Monotonic and commit-count checks are skipped for the first release."
+            PREV_VERSION=""
+          else
+            PREV_VERSION="${PREV_TAG#"${TAG_PREFIX}"}"
           fi
-          PREV_VERSION="${PREV_TAG#"${TAG_PREFIX}"}"
           NEW_TAG="${TAG_PREFIX}${NEW_VERSION}"
 
-          # 4. Reject duplicate / non-monotonic / pre-existing tags.
-          if [ "$NEW_VERSION" = "$PREV_VERSION" ]; then
-            echo "::error::version $NEW_VERSION matches existing tag $PREV_TAG."
-            exit 1
-          fi
-          HIGHER=$(printf '%s\n%s\n' "$PREV_VERSION" "$NEW_VERSION" | sort -V | tail -n1)
-          if [ "$HIGHER" != "$NEW_VERSION" ]; then
-            echo "::error::version $NEW_VERSION is not greater than previous $PREV_VERSION."
-            exit 1
+          # 4. Reject duplicate / non-monotonic / pre-existing tags. The
+          #    version-comparison checks need a baseline, so they only run
+          #    when a previous tag exists; the pre-existing-tag check always
+          #    runs so a re-typed initial version can't clobber a tag.
+          if [ -n "$PREV_TAG" ]; then
+            if [ "$NEW_VERSION" = "$PREV_VERSION" ]; then
+              echo "::error::version $NEW_VERSION matches existing tag $PREV_TAG."
+              exit 1
+            fi
+            HIGHER=$(printf '%s\n%s\n' "$PREV_VERSION" "$NEW_VERSION" | sort -V | tail -n1)
+            if [ "$HIGHER" != "$NEW_VERSION" ]; then
+              echo "::error::version $NEW_VERSION is not greater than previous $PREV_VERSION."
+              exit 1
+            fi
           fi
           if git rev-parse --verify "refs/tags/$NEW_TAG" >/dev/null 2>&1; then
             echo "::error::tag $NEW_TAG already exists."
             exit 1
           fi
 
-          # 5. Sanity-check: at least one commit since prev tag.
-          COUNT=$(git rev-list --count "$PREV_TAG..$RELEASE_SHA")
-          if [ "$COUNT" = "0" ]; then
-            echo "::error::no commits between $PREV_TAG and $RELEASE_SHA — nothing to release."
-            exit 1
+          # 5. Sanity-check: at least one commit to release. With a baseline,
+          #    count commits since it; on the initial release, count all
+          #    commits reachable from the pinned SHA.
+          if [ -n "$PREV_TAG" ]; then
+            COUNT=$(git rev-list --count "$PREV_TAG..$RELEASE_SHA")
+            if [ "$COUNT" = "0" ]; then
+              echo "::error::no commits between $PREV_TAG and $RELEASE_SHA — nothing to release."
+              exit 1
+            fi
+          else
+            COUNT=$(git rev-list --count "$RELEASE_SHA")
           fi
 
           {
@@ -115,15 +129,22 @@ jobs:
             echo "new_tag=$NEW_TAG"
           } >> "$GITHUB_OUTPUT"
 
+          if [ -n "$PREV_TAG" ]; then
+            PREV_TAG_CELL="\`$PREV_TAG\` (v$PREV_VERSION)"
+            COUNT_LABEL="Commits since prev tag"
+          else
+            PREV_TAG_CELL="_none — initial release_"
+            COUNT_LABEL="Commits in initial release"
+          fi
           {
             echo "### Release scan"
             echo ""
             echo "| | |"
             echo "|---|---|"
-            echo "| Previous tag | \`$PREV_TAG\` (v$PREV_VERSION) |"
+            echo "| Previous tag | $PREV_TAG_CELL |"
             echo "| Proposed tag | \`$NEW_TAG\` (v$NEW_VERSION) |"
             echo "| Pinned SHA | \`$RELEASE_SHA\` |"
-            echo "| Commits since prev tag | **$COUNT** |"
+            echo "| $COUNT_LABEL | **$COUNT** |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ── Lint + unit-test gates ─────────────────────────────────────────────
@@ -274,7 +295,16 @@ jobs:
           set -euo pipefail
           # Feed commits to the grouper as `hash<TAB>subject` lines and let
           # it bucket them by conventional-commit type (feat, fix, ...).
-          git log --no-merges --pretty=format:'%h%x09%s' "$PREV_TAG..$NEW_REF" \
+          # On the initial release PREV_TAG is empty, so there is no baseline
+          # to diff against — list every commit reachable from NEW_REF instead
+          # of the `PREV_TAG..NEW_REF` range (an empty left side is an invalid
+          # range and would abort the run).
+          if [ -n "$PREV_TAG" ]; then
+            LOG_RANGE="$PREV_TAG..$NEW_REF"
+          else
+            LOG_RANGE="$NEW_REF"
+          fi
+          git log --no-merges --pretty=format:'%h%x09%s' "$LOG_RANGE" \
             | NEW_TAG="$NEW_TAG" PREV_TAG="$PREV_TAG" \
               python .github/scripts/group-release-notes.py > release-notes.md
 
