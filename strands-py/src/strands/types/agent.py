@@ -38,10 +38,12 @@ class Limits(TypedDict, total=False):
             Distinct from per-call provider-level caps, which bound a single model call's
             output. Soft cap: a single oversized response can overshoot the budget;
             checked at turn boundaries, not within an individual model call.
-        total_tokens: Maximum cumulative input + output tokens
-            (``metrics.latest_agent_invocation.usage["totalTokens"]``). Each model call's
-            input includes prior turns, so this counter compounds across the run and
-            approximates total token spend. Soft cap, same caveat as ``output_tokens``.
+        total_tokens: Maximum cumulative billed tokens, across net new input, output, and any
+            cache reads and writes (``metrics.latest_agent_invocation.usage["totalTokens"]``).
+            Each model call's input includes prior turns, so this counter compounds across the
+            run and approximates total token spend. A cached prompt is billed on every call, so
+            a cap set for an uncached workload is reached far sooner once caching is enabled.
+            Soft cap, same caveat as ``output_tokens``.
     """
 
     turns: int

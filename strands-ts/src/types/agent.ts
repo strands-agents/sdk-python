@@ -175,11 +175,12 @@ export interface InvokeOptions {
     outputTokens?: number
 
     /**
-     * Maximum cumulative input + output tokens
-     * (`metrics.latestAgentInvocation.usage.totalTokens`). Each model
+     * Maximum cumulative billed tokens, across net new input, output, and any cache
+     * reads and writes (`metrics.latestAgentInvocation.usage.totalTokens`). Each model
      * call's input includes prior turns, so this counter compounds across
      * the run — it approximates the total token spend you would be billed
-     * for.
+     * for. A cached prompt is billed on every call, so a cap set for an uncached
+     * workload is reached far sooner once caching is enabled.
      *
      * Soft cap: a single oversized model response can overshoot the budget.
      * The agent stops at the first turn boundary on or after the budget is
@@ -485,7 +486,7 @@ export class AgentResult {
   }
 
   /**
-   * The most recent input token count from the last model invocation.
+   * The full prompt token count from the last model invocation, including cached tokens.
    * Convenience accessor that delegates to `metrics.latestContextSize`.
    * Returns `undefined` when no metrics or invocations are available.
    */
@@ -494,7 +495,7 @@ export class AgentResult {
   }
 
   /**
-   * Projected context size for the next model call (inputTokens + outputTokens from the last call).
+   * Projected context size for the next model call (last prompt + its output).
    * Convenience accessor that delegates to `metrics.projectedContextSize`.
    * Returns `undefined` when no metrics or invocations are available.
    */
