@@ -12,6 +12,7 @@
 import type { Storage } from '../../../storage/storage.js'
 import type { ConsolidateOperation } from '../types.js'
 import type { ConsolidationPlan } from './plan.js'
+import { clipWithCount } from './plan.js'
 import { logger } from '../../../logging/logger.js'
 import {
   CONSOLIDATION_CHANGELOG,
@@ -24,6 +25,12 @@ import {
   resolveWriteTarget,
   STORAGE_READ_CONCURRENCY,
 } from '../internal.js'
+
+/**
+ * Cap on a single interpolated changelog field — a path, reason, summary, or backend error message.
+ * Generous for a real one-line audit entry, tight enough that no field can dominate the log.
+ */
+const MAX_CHANGELOG_FIELD_LENGTH = 500
 
 /**
  * A delete that failed during execution, paired with the error the backend raised.
@@ -292,7 +299,13 @@ export async function recordChangelog(
   // this as much as reason/summary do — validatePath constrains the directory segment but not the
   // filename's charset, so a target could otherwise carry a newline into the log. Backend error
   // text gets it too: the message typically echoes the key, carrying that key's newlines with it.
-  const sanitizeChangelogField = (value: string): string => value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, '')
+  //
+  // Clipped to {@link MAX_CHANGELOG_FIELD_LENGTH} as well: `reason` and `summary` are bounded only by
+  // the plan's aggregate byte budget, so a single field can legally carry the whole budget's worth of
+  // text. The changelog is a one-line-per-action audit artifact, and its bytes count toward the input
+  // cap on the next run, so an unbounded field would wedge later consolidations.
+  const sanitizeChangelogField = (value: string): string =>
+    clipWithCount(value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, ''), MAX_CHANGELOG_FIELD_LENGTH)
 
   const actionSummaries = plan.actions.map((action) => {
     const reason = sanitizeChangelogField(action.reason)

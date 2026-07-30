@@ -30,10 +30,12 @@ const MAX_PAYLOAD_STRING_LENGTH = MAX_PAYLOAD_LENGTH / 8
  *
  * The dropped count is load-bearing, not decoration: it distinguishes a value that merely reached
  * the cap from one that blew far past it, which is often the whole diagnosis when a plan is rejected
- * for size. Shared by both bounding paths so the truncation marker reads identically whether a
- * single `content` value or a whole plan payload was clipped.
+ * for size. Shared across every bounding path — the revise-prompt payload, a log field, and the
+ * changelog — so the truncation marker reads identically wherever a value is clipped.
+ *
+ * @internal
  */
-function clipWithCount(text: string, limit: number): string {
+export function clipWithCount(text: string, limit: number): string {
   return text.length > limit ? `${text.slice(0, limit)}…(+${text.length - limit} chars)` : text
 }
 
@@ -81,6 +83,12 @@ export function summarizePayload(value: unknown): string {
 export function truncatePayload(text: string): string {
   return clipWithCount(text, MAX_PAYLOAD_LENGTH)
 }
+
+/**
+ * Wire cost charged per array entry — the quotes and comma JSON spends on it regardless of its text.
+ * Makes {@link generatedByteSize} sensitive to array *cardinality*, not just total text length.
+ */
+const JSON_ARRAY_ENTRY_BYTES = 3
 
 /**
  * Schema for a consolidation plan, used both as the planner's structured-output contract and as the
@@ -165,10 +173,14 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
  * and can amplify a single source past the cap.
  *
  * Paths, reasons, and the summary count too: nothing else bounds them, and a delete-only plan
- * generates no content at all. Every field is measured here rather than capped with a schema `.max()`
- * because a schema violation comes back as a tool *error result* that stays in history and re-drives
- * the agent loop — the model retries against a prompt carrying the oversized value, growing the
- * payload each turn until the turn limit trips. Measuring throws out of the run on the first turn.
+ * generates no content at all. Array entries are additionally charged {@link JSON_ARRAY_ENTRY_BYTES}
+ * each, so cardinality is bounded as well as text length — a `sources` array of empty strings costs
+ * real wire bytes per entry while measuring zero by content alone.
+ *
+ * Every field is measured here rather than capped with a schema `.max()` because a schema violation
+ * comes back as a tool *error result* that stays in history and re-drives the agent loop — the model
+ * retries against a prompt carrying the oversized value, growing the payload each turn until the turn
+ * limit trips. Measuring throws out of the run on the first turn.
  *
  * @param plan - The validated consolidation plan
  * @param files - The snapshot map from readAllFiles, used to measure move source content
@@ -184,7 +196,7 @@ export function generatedByteSize(plan: ConsolidationPlan, files: Map<string, st
     switch (action.action) {
       case 'merge':
         bytes += size(action.content) + size(action.target)
-        for (const source of action.sources) bytes += size(source)
+        for (const source of action.sources) bytes += size(source) + JSON_ARRAY_ENTRY_BYTES
         break
       case 'update':
         bytes += size(action.content) + size(action.path)

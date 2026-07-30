@@ -30,7 +30,7 @@ import {
   parseFrontmatter,
   STORAGE_READ_CONCURRENCY,
 } from './internal.js'
-import { generatePlan } from './consolidation/planner.js'
+import { generatePlan, plannerInputByteSize } from './consolidation/planner.js'
 import { executePlan, readAllFiles, recordChangelog } from './consolidation/execute.js'
 
 /**
@@ -351,14 +351,11 @@ export class FileMemoryStore implements MemoryStore {
       throw new Error(`Knowledge store exceeds consolidation file limit: ${files.size} files (maxFiles: ${maxFiles})`)
     }
 
-    // Count keys as well as contents: the planner's user message serializes the whole map, so a key
-    // is as much of a payload as the body it addresses. `add()` takes `metadata.path` verbatim and
-    // no layer caps its length, so a corpus of tiny files under enormous keys would otherwise clear
-    // this cap and still build a multi-megabyte prompt.
-    let totalBytes = 0
-    for (const [key, content] of files) {
-      totalBytes += encoder.encode(key).byteLength + encoder.encode(content).byteLength
-    }
+    // Measure the serialized evidence block, not a raw key+content sum: the prompt pretty-prints the
+    // map and escapes angle brackets, so the transmitted size can be several times a raw sum on
+    // hostile-but-legal content. Keys are covered because they are serialized too — `add()` takes
+    // `metadata.path` verbatim and no layer caps its length.
+    const totalBytes = plannerInputByteSize(files)
     if (totalBytes > maxInputBytes) {
       throw new Error(
         `Knowledge store exceeds consolidation input size limit: ${totalBytes} bytes (maxInputBytes: ${maxInputBytes})`

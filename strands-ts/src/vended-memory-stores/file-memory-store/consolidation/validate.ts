@@ -80,8 +80,11 @@ export function validatePlan(
       }
     }
 
+    // Append without spreading: an action carries one violation per source path, so a plan with a
+    // huge sources array would blow the argument limit and crash with RangeError instead of being
+    // rejected with the message it was about to produce
     const pathErrors = validateActionPaths(action, files, plannedDirs, maxDirectories)
-    violations.push(...pathErrors)
+    for (const pathError of pathErrors) violations.push(pathError)
 
     const contentError = validateActionContent(action)
     if (contentError) violations.push(contentError)
@@ -89,7 +92,7 @@ export function validatePlan(
 
   // Reject plans where multiple actions write to the same target path
   const collisionErrors = validateNoTargetCollisions(plan, files)
-  violations.push(...collisionErrors)
+  for (const collisionError of collisionErrors) violations.push(collisionError)
 
   return violations.length > 0 ? violations.join('\n') : undefined
 }

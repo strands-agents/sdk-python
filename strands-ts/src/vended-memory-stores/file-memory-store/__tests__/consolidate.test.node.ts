@@ -7,6 +7,7 @@ import { NAMESPACED } from '../../../storage/storage.js'
 import type { JSONValue } from '../../../types/json.js'
 import type { Storage } from '../../../storage/storage.js'
 import { summarizePayload, truncatePayload } from '../consolidation/plan.js'
+import { plannerInputByteSize } from '../consolidation/planner.js'
 import { resolveWriteTarget } from '../internal.js'
 
 const encoder = new TextEncoder()
@@ -1529,6 +1530,23 @@ describe('FileMemoryStore.consolidate', () => {
       expect(model.callCount).toBe(0)
     })
 
+    // The cap must track what is transmitted, not the raw map: the evidence block escapes each angle
+    // bracket to a six-character \\uXXXX sequence, so bracket-heavy content expands ~5x on the wire.
+    it('measures the escaped, serialized prompt rather than raw file bytes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', '<'.repeat(200))
+
+      const model = new MockMessageModel()
+      const stored = decoder.decode((await storage.read('facts/a.md'))!)
+      const rawBytes = encoder.encode('facts/a.md').byteLength + encoder.encode(stored).byteLength
+
+      // Budgeted at the raw sum, the store is rejected anyway — the serialized form is far larger
+      await expect(store.consolidate({ model, maxInputBytes: rawBytes })).rejects.toThrow(
+        /exceeds consolidation input size limit/
+      )
+      expect(plannerInputByteSize(new Map([['facts/a.md', stored]]))).toBeGreaterThan(rawBytes * 2)
+      expect(model.callCount).toBe(0)
+    })
+
     it('succeeds at exactly the file limit', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
@@ -1544,11 +1562,10 @@ describe('FileMemoryStore.consolidate', () => {
       const body = 'X'
       await writeFile(storage, 'facts/a.md', 'Fact A', body)
 
-      // Compute the exact budgeted size to set maxInputBytes precisely. The cap covers the key as
-      // well as the content, since the planner prompt serializes both.
+      // Compute the exact budgeted size to set maxInputBytes precisely. The cap measures the
+      // serialized evidence block, which carries both the key and its content.
       const stored = await storage.read('facts/a.md')
-      const exactBytes =
-        encoder.encode('facts/a.md').byteLength + encoder.encode(new TextDecoder().decode(stored!)).byteLength
+      const exactBytes = plannerInputByteSize(new Map([['facts/a.md', decoder.decode(stored!)]]))
 
       const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'All good.' }))
 
@@ -1660,6 +1677,28 @@ describe('FileMemoryStore.consolidate', () => {
       // the oversized reason leaves the run immediately instead.
       expect(streamSpy).toHaveBeenCalledTimes(1)
       expect(await storage.read('facts/a.md')).not.toBeNull()
+    })
+
+    // The aggregate budget is the only bound on `reason`, so a single field can legally carry the
+    // whole budget's worth of text into the changelog — whose bytes then count toward the input cap
+    // on the next run. The clip at the changelog boundary keeps one field from dominating the log.
+    it('clips an oversized reason at the changelog boundary on a plan that executes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/a.md', reason: 'R'.repeat(10_000) }],
+          summary: 'S'.repeat(10_000),
+        })
+      )
+
+      await store.consolidate({ model, operations: ['prune'] })
+
+      expect(await storage.read('facts/a.md')).toBeNull()
+      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
+      expect(changelog).toContain(`${'R'.repeat(500)}…(+9500 chars)`)
+      expect(changelog).toContain(`${'S'.repeat(500)}…(+9500 chars)`)
+      expect(changelog).not.toContain('R'.repeat(501))
     })
   })
 
@@ -2672,6 +2711,69 @@ describe('FileMemoryStore.consolidate', () => {
         )
 
         expect(await storage.read('facts/a.md')).not.toBeNull()
+      })
+
+      // Array cardinality is a payload axis of its own: empty strings contribute no content bytes, so
+      // a sources array measured by text alone reports ~0 however long it is, while the raw array
+      // still reaches the provider and is replayed through history on the revise turn.
+      it('charges per-entry framing so a high-cardinality sources array cannot escape the cap', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: Array.from({ length: 100_000 }, () => ''),
+                target: 'facts/merged.md',
+                content: 'Merged',
+                reason: 'dedup',
+              },
+            ],
+            summary: 'merge with a huge empty-source array',
+          })
+        )
+        const streamSpy = vi.spyOn(model, 'stream')
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /exceeds generated content limit/
+        )
+
+        // Rejected on the first turn, so the oversized array is never echoed back on a revise turn
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        expect(await storage.read('facts/a.md')).not.toBeNull()
+      })
+
+      // Violations are appended one at a time rather than spread as call arguments: a merge emits one
+      // violation per source path, so a plan naming enough nonexistent sources would exceed the
+      // argument limit and die with RangeError instead of the rejection it was about to produce.
+      it('rejects a plan with a huge nonexistent-source array instead of overflowing the stack', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'merge',
+                sources: Array.from({ length: 200_000 }, (_value, index) => `${index}`),
+                target: 'facts/merged.md',
+                content: 'Merged',
+                reason: 'dedup',
+              },
+            ],
+            summary: 'merge over many nonexistent sources',
+          })
+        )
+
+        // Budget raised so validation is reached — the byte cap would otherwise reject it first
+        const consolidation = store.consolidate({
+          model,
+          operations: ['deduplicate'],
+          maxGeneratedBytes: 5_000_000,
+        })
+
+        await expect(consolidation).rejects.toThrow(/validation failed after retry/)
+        await expect(consolidation).rejects.not.toThrow(RangeError)
       })
 
       // A merge consumes its sources exactly as a move does, so the source-claim guard must cover
