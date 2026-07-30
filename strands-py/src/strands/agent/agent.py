@@ -124,7 +124,12 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported values for the ``context_manager`` parameter."""
+"""Supported values for the ``context_manager`` parameter.
+
+- ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
+- ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
+  This mode may change in future versions.
+"""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
