@@ -107,8 +107,8 @@ class IndexSearch:
         haystack = " ".join(part for part in haystack_parts if part)
 
         for tok in _TOKEN.findall(haystack):
-            self.doc_indices.setdefault(tok, []).append(idx)
             if tok not in seen:
+                self.doc_indices.setdefault(tok, []).append(idx)
                 self.doc_frequency[tok] = self.doc_frequency.get(tok, 0) + 1
                 seen.add(tok)
 

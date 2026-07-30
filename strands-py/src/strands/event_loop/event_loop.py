@@ -849,9 +849,18 @@ async def _handle_tool_execution(
         )
         return
 
+    if agent._cancel_signal.is_set():
+        yield EventLoopStopEvent(
+            "cancelled",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        return
+
     # Emit after_tools checkpoint. Only fires on tool_use cycles: a model that
     # returns end_turn first never reaches this branch.
-    if agent._checkpointing and not agent._cancel_signal.is_set():
+    if agent._checkpointing:
         cycle_index = agent._checkpoint_cycle_index
         agent._checkpoint_cycle_index = cycle_index + 1
         yield _build_checkpoint_stop_event(
@@ -860,17 +869,6 @@ async def _handle_tool_execution(
             cycle_index=cycle_index,
             message=message,
             request_state=invocation_state["request_state"],
-        )
-        return
-
-    # If checkpointing is on and cancel suppressed the checkpoint above, emit
-    # "cancelled" now to avoid an extra model call.
-    if agent._checkpointing and agent._cancel_signal.is_set():
-        yield EventLoopStopEvent(
-            "cancelled",
-            message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
         )
         return
 
