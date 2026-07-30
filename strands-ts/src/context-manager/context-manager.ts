@@ -5,6 +5,7 @@
  */
 
 import type { Plugin } from '../plugins/plugin.js'
+import type { Tool } from '../tools/tool.js'
 import type { LocalAgent } from '../types/agent.js'
 import type { Message } from '../types/messages.js'
 import { AfterModelCallEvent } from '../hooks/events.js'
@@ -13,6 +14,8 @@ import { logger } from '../logging/logger.js'
 import { adjustSplitPointForToolPairs } from '../conversation-manager/compression/context-compression.js'
 import type { ContextManagerConfig, ContextStrategy, ContextState } from './types.js'
 import { Offload } from './strategies/offload.js'
+import { Stash } from './stash.js'
+import { createRetrievalTool } from './retrieval-tool.js'
 
 /**
  * Manages context reduction for an agent's conversation.
@@ -39,6 +42,8 @@ export class ContextManager implements Plugin {
 
   private readonly _strategies: ContextStrategy[]
   private readonly _defaultStrategies: ContextStrategy[]
+  private readonly _stash: Stash | undefined
+  private _retrievalTool: Tool | undefined
 
   private _agent: LocalAgent | undefined
   private _agentId: string | undefined
@@ -49,6 +54,17 @@ export class ContextManager implements Plugin {
       Offload.truncate('toolResults').when({ threshold: 2500 }),
       Offload.summarize('toolResults').when({ threshold: 2500, utilization: 0.85 }),
     ]
+    if (config?.storage) {
+      this._stash = new Stash(config.storage)
+    }
+  }
+
+  getTools(): Tool[] {
+    if (!this._stash) return []
+    if (!this._retrievalTool) {
+      this._retrievalTool = createRetrievalTool(this._stash)
+    }
+    return [this._retrievalTool]
   }
 
   initAgent(agent: LocalAgent): void {
@@ -60,7 +76,7 @@ export class ContextManager implements Plugin {
 
     const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies
     for (const strategy of strategies) {
-      strategy.init?.(agent)
+      strategy.init?.(agent, this._stash)
     }
 
     let overflowRetries = 0
@@ -118,6 +134,7 @@ export class ContextManager implements Plugin {
       messages,
       agent: this._agent,
       utilization,
+      ...(this._stash ? { stash: this._stash } : {}),
     }
 
     const strategies = this._strategies.length > 0 ? this._strategies : this._defaultStrategies

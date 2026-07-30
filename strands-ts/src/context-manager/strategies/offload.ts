@@ -36,6 +36,7 @@ import { TextBlock, ToolResultBlock } from '../../types/messages.js'
 import type { Message } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import type { LocalAgent } from '../../types/agent.js'
+import type { Stash } from '../stash.js'
 import type { ContextStrategy, ContextState } from '../types.js'
 import {
   DROPPED_MARKER,
@@ -126,6 +127,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   protected readonly _preserveRecent: number
   protected readonly _toolFilter: Set<string> | undefined
   protected readonly _excludeFilter: Set<string> | undefined
+  protected _stash: Stash | undefined
 
   constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
     this._target = target
@@ -143,7 +145,8 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     this._excludeFilter = resolved.exclude
   }
 
-  init(agent: LocalAgent): void {
+  init(agent: LocalAgent, stash?: Stash): void {
+    this._stash = stash
     if (this._preserveRecent > 0) return
     if (!this._shouldRegisterEagerHook()) return
     agent.addHook(MessageAddedEvent, async (event) => {
@@ -155,6 +158,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
   async apply(context: ContextState): Promise<boolean> {
     if (!this._shouldApply(context)) return false
+    if (context.stash) this._stash = context.stash
 
     const { messages } = context
     const eligible =
@@ -240,7 +244,8 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
       const tokens = estimateBlockTokens(block)
       if (tokens <= this._threshold) continue
 
-      const replacement = await this._replaceToolResultBlock(block, tokens)
+      const stashRef = await this._stashBlock(block)
+      const replacement = await this._replaceToolResultBlock(block, tokens, stashRef)
       if (replacement && replacement !== block) {
         ;(message.content as unknown[])[blockIndex] = replacement
         acted = true
@@ -249,11 +254,31 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     return acted
   }
 
+  /**
+   * Persist the original tool result content to L1 stash before replacing.
+   * Returns the stash reference, or undefined if no stash is configured.
+   */
+  private async _stashBlock(block: ToolResultBlock): Promise<string | undefined> {
+    if (!this._stash) return undefined
+    const text = extractBlockText(block)
+    if (!text) return undefined
+    try {
+      return await this._stash.store(block.toolUseId, 0, new TextEncoder().encode(text), 'text/plain')
+    } catch (error) {
+      logger.warn(`toolUseId=<${block.toolUseId}>, error=<${error}> | failed to stash content, continuing without`)
+      return undefined
+    }
+  }
+
   /** Transform a text block. Return the replacement, or null to skip. */
   protected abstract _replaceTextBlock(block: TextBlock, tokens: number, message: Message): Promise<TextBlock | null>
 
   /** Transform a tool result block. Return the replacement, or null to skip. */
-  protected abstract _replaceToolResultBlock(block: ToolResultBlock, tokens: number): Promise<ToolResultBlock | null>
+  protected abstract _replaceToolResultBlock(
+    block: ToolResultBlock,
+    tokens: number,
+    stashRef?: string
+  ): Promise<ToolResultBlock | null>
 }
 
 // --- Drop strategy ---
@@ -266,12 +291,17 @@ class OffloadDropStrategy extends BaseOffloadStrategy {
     return new TextBlock(DROPPED_MARKER)
   }
 
-  protected async _replaceToolResultBlock(block: ToolResultBlock, _tokens: number): Promise<ToolResultBlock | null> {
+  protected async _replaceToolResultBlock(
+    block: ToolResultBlock,
+    _tokens: number,
+    stashRef?: string
+  ): Promise<ToolResultBlock | null> {
     logger.debug(`toolUseId=<${block.toolUseId}> | dropped tool result from L0`)
+    const marker = stashRef ? `${DROPPED_MARKER} ref: ${stashRef}` : DROPPED_MARKER
     return new ToolResultBlock({
       toolUseId: block.toolUseId,
       status: block.status,
-      content: [new TextBlock(DROPPED_MARKER)],
+      content: [new TextBlock(marker)],
     })
   }
 }
@@ -307,9 +337,17 @@ class OffloadTruncateStrategy extends BaseOffloadStrategy {
     return truncateTextBlock(block, this._truncateConfig)
   }
 
-  protected async _replaceToolResultBlock(block: ToolResultBlock, tokens: number): Promise<ToolResultBlock | null> {
+  protected async _replaceToolResultBlock(
+    block: ToolResultBlock,
+    tokens: number,
+    stashRef?: string
+  ): Promise<ToolResultBlock | null> {
     logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | truncated tool result`)
-    return truncateToolResultBlock(block, this._truncateConfig)
+    const truncated = truncateToolResultBlock(block, this._truncateConfig)
+    if (stashRef && truncated !== block) {
+      return appendStashRef(truncated, stashRef)
+    }
+    return truncated
   }
 }
 
@@ -379,7 +417,11 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     return new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)
   }
 
-  protected async _replaceToolResultBlock(block: ToolResultBlock, tokens: number): Promise<ToolResultBlock | null> {
+  protected async _replaceToolResultBlock(
+    block: ToolResultBlock,
+    tokens: number,
+    stashRef?: string
+  ): Promise<ToolResultBlock | null> {
     if (!this._model) return null
 
     const fullText = extractBlockText(block)
@@ -387,10 +429,11 @@ class OffloadSummarizeStrategy extends BaseOffloadStrategy {
     if (!summary) return null
 
     logger.debug(`toolUseId=<${block.toolUseId}>, tokens=<${tokens}> | summarized tool result`)
+    const refSuffix = stashRef ? ` ref: ${stashRef}` : ''
     return new ToolResultBlock({
       toolUseId: block.toolUseId,
       status: block.status,
-      content: [new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens]\n\n${summary}`)],
+      content: [new TextBlock(`${SUMMARIZED_PREFIX} ~${tokens.toLocaleString()} tokens |${refSuffix}]\n\n${summary}`)],
     })
   }
 
@@ -564,6 +607,25 @@ offloadFn.summarize = function summarize(
 export const Offload: OffloadNamespace = offloadFn as OffloadNamespace
 
 // --- Helpers ---
+
+/**
+ * Appends a stash reference line to the first TextBlock in a ToolResultBlock.
+ */
+function appendStashRef(block: ToolResultBlock, stashRef: string): ToolResultBlock {
+  const content = [...block.content]
+  for (let index = 0; index < content.length; index++) {
+    const item = content[index]!
+    if (item instanceof TextBlock) {
+      content[index] = new TextBlock(`${item.text}\n\n[Stashed: ref=${stashRef}]`)
+      return new ToolResultBlock({
+        toolUseId: block.toolUseId,
+        status: block.status,
+        content,
+      })
+    }
+  }
+  return block
+}
 
 /**
  * Resolves the tool name for a ToolResultBlock by finding the corresponding ToolUseBlock
