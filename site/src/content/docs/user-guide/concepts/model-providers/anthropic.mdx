@@ -95,6 +95,8 @@ The `model_config` configures the underlying model selected for inference. The s
 | `max_tokens` | Maximum number of tokens to generate before stopping | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens)
 | `model_id` | ID of a model to use | `claude-sonnet-4-6` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.model)
 | `params` | Additional pass-through parameters | `{"metadata": {"user_id": "u1"}}` | [reference](https://platform.claude.com/docs/en/api/messages/create)
+| `cache_config` | Enables [prompt caching](#prompt-caching) on the conversation | `CacheConfig(strategy="auto")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
+| `cache_tools` | Caches the tool definitions | `"default"` or `CacheToolsConfig(ttl="1h")` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching)
 </Tab>
 <Tab label="TypeScript">
 
@@ -104,6 +106,8 @@ The `model_config` configures the underlying model selected for inference. The s
 | `maxTokens` | Maximum tokens to generate | `1028` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.max_tokens) |
 | `stopSequences` | Sequences that stop generation | `['END']` | [reference](https://platform.claude.com/docs/en/api/messages/create#create.stop_sequences) |
 | `params` | Additional pass-through parameters | `{ metadata: { user_id: 'u1' } }` | [reference](https://platform.claude.com/docs/en/api/messages/create) |
+| `cacheConfig` | Enables [prompt caching](#prompt-caching) on the conversation | `{ strategy: 'auto' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
+| `cacheTools` | Caches the tool definitions | `'default'` or `{ ttl: '1h' }` | [reference](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) |
 </Tab>
 </Tabs>
 
@@ -203,6 +207,91 @@ Define a Zod schema and pass it as `structuredOutputSchema`. Validated output is
 </Tabs>
 
 For schema patterns, error handling, and per-invocation overrides, see [Structured Output](../agents/structured-output/).
+
+### Prompt Caching
+
+[Prompt caching](https://docs.claude.com/en/docs/build-with-claude/prompt-caching) lets Claude reuse
+an already-processed prefix of your prompt instead of reprocessing it on every call. In a long
+session, the system prompt, the tool definitions, and every earlier turn are identical from one
+request to the next, so caching them stops you paying full input price for them again.
+
+Caching is off unless you ask for it. Set `cache_config` to add a cache breakpoint to the last user
+message, which caches everything before it, and `cache_tools` to cache the tool definitions:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models.anthropic import AnthropicModel
+from strands.models.model import CacheConfig, CacheToolsConfig
+
+model = AnthropicModel(
+    model_id="claude-sonnet-4-6",
+    max_tokens=1028,
+    cache_config=CacheConfig(strategy="auto"),
+    cache_tools=CacheToolsConfig(ttl="1h"),
+)
+
+agent = Agent(model=model)
+result = agent("Summarize the attached report.")
+print(result.metrics.accumulated_usage)
+# {'inputTokens': 12, ..., 'cacheReadInputTokens': 2505}
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+import { Agent } from '@strands-agents/sdk'
+import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
+
+const model = new AnthropicModel({
+  modelId: 'claude-sonnet-4-6',
+  maxTokens: 1028,
+  cacheConfig: { strategy: 'auto' },
+  cacheTools: { ttl: '1h' },
+})
+
+const agent = new Agent({ model })
+const result = await agent.invoke('Summarize the attached report.')
+console.log(result.metrics.accumulatedUsage)
+// { inputTokens: 12, ..., cacheReadInputTokens: 2505 }
+```
+</Tab>
+</Tabs>
+
+Cache activity is reported in the usage metrics: `cacheWriteInputTokens` counts tokens written to the
+cache and `cacheReadInputTokens` counts tokens served from it.
+
+#### Choosing a strategy
+
+`cache_config` accepts two strategies, and **on this provider they behave identically**:
+
+| Strategy | Meaning |
+|----------|---------|
+| `"auto"` (default) | Cache the conversation. On providers that serve non-Claude models this also checks that the selected model supports caching. |
+| `"anthropic"` | Cache the conversation, skipping that support check. |
+
+The check is what makes them differ elsewhere: [Amazon Bedrock](./amazon-bedrock/)
+serves models from several vendors, so `"auto"` inspects the model ID and does nothing when the model
+cannot cache. The Anthropic API serves only Claude models and prompt caching is supported on all
+active ones, so there is nothing to check and nothing to skip. Both values are accepted so the same
+`CacheConfig` can move between providers unchanged.
+
+#### Things to know
+
+- **A prompt below the minimum length is not cached, and no error is raised.** The minimum cacheable
+  prefix depends on the model (1,024 tokens for Claude Sonnet 4.5, more for some others — see the
+  [cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations)).
+  If both `cacheReadInputTokens` and `cacheWriteInputTokens` stay at zero, the prompt was too short.
+- **The breakpoint moves with the conversation instead of accumulating.** Each request carries exactly
+  one message breakpoint, on the newest turn, so a long session never approaches the API's limit of
+  four breakpoints per request. Cache points you place by hand in the messages are replaced while
+  `cache_config` is set, because it owns their placement.
+- **`ttl` defaults to 5 minutes; `"1h"` costs more to write.** See
+  [pricing](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#pricing).
+- **`cache_tools` works on its own.** It does not require `cache_config`, so tool definitions can be
+  cached without caching the conversation.
 
 ### Token Counting
 
