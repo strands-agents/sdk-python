@@ -239,12 +239,13 @@ async def test_model_stream_tool_choice_tool_forces_the_named_tool(model, tool_s
         model.stream(messages, tool_specs=tool_specs, tool_choice={"tool": {"name": "tool_time"}}),
     )
 
-    tru_tool_names = [
+    # ANY mode may emit more than one call, so only the narrowing to tool_time is guaranteed.
+    tru_tool_names = {
         event["contentBlockStart"]["start"]["toolUse"]["name"]
         for event in events
         if "contentBlockStart" in event and "toolUse" in event["contentBlockStart"]["start"]
-    ]
-    exp_tool_names = ["tool_time"]
+    }
+    exp_tool_names = {"tool_time"}
     assert tru_tool_names == exp_tool_names
 
 

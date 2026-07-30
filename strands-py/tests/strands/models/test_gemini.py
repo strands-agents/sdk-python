@@ -1111,16 +1111,33 @@ def tool_config_param_model(gemini_client, model_id):
     _ = gemini_client
 
     tool_config = genai.types.ToolConfig(
-        function_calling_config=genai.types.FunctionCallingConfig(mode=genai.types.FunctionCallingConfigMode.NONE)
+        function_calling_config=genai.types.FunctionCallingConfig(
+            mode=genai.types.FunctionCallingConfigMode.NONE,
+            allowed_function_names=["safe_tool"],
+        ),
+        # A field no ToolChoice can express, so a tool choice must leave it in place.
+        retrieval_config=genai.types.RetrievalConfig(language_code="en-GB"),
     )
     return GeminiModel(model_id=model_id, params={"tool_config": tool_config})
 
 
+@pytest.mark.parametrize(
+    ("tool_choice", "exp_function_calling_config"),
+    [
+        # No choice and an "auto" choice both leave the params tool config exactly as configured.
+        (None, {"mode": "NONE", "allowed_function_names": ["safe_tool"]}),
+        ({"auto": {}}, {"mode": "NONE", "allowed_function_names": ["safe_tool"]}),
+        # A forcing choice replaces the whole function calling config, allowlist included - the forced tool
+        # need not appear in a user's allowlist - while the fields it cannot express survive.
+        ({"any": {}}, {"mode": "ANY"}),
+        ({"tool": {"name": "name"}}, {"mode": "ANY", "allowed_function_names": ["name"]}),
+    ],
+)
 @pytest.mark.asyncio
-async def test_stream_request_tool_choice_takes_precedence_over_tool_config_param(
-    gemini_client, tool_config_param_model, messages, tool_spec, model_id
+async def test_stream_request_tool_config_param_precedence(
+    gemini_client, tool_config_param_model, messages, tool_spec, model_id, tool_choice, exp_function_calling_config
 ):
-    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice=tool_choice))
 
     exp_request = {
         "config": {
@@ -1135,7 +1152,10 @@ async def test_stream_request_tool_choice_takes_precedence_over_tool_config_para
                     ]
                 }
             ],
-            "tool_config": {"function_calling_config": {"mode": "ANY"}},
+            "tool_config": {
+                "function_calling_config": exp_function_calling_config,
+                "retrieval_config": {"language_code": "en-GB"},
+            },
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
@@ -1144,9 +1164,11 @@ async def test_stream_request_tool_choice_takes_precedence_over_tool_config_para
 
 
 @pytest.mark.asyncio
-async def test_stream_request_tool_config_param_without_tool_choice(
+async def test_stream_forcing_tool_choice_does_not_leak_into_the_next_request(
     gemini_client, tool_config_param_model, messages, tool_spec, model_id
 ):
+    """A forced choice applies to its own request only, leaving the params tool config for the next one."""
+    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
     await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec]))
 
     exp_request = {
@@ -1162,7 +1184,10 @@ async def test_stream_request_tool_config_param_without_tool_choice(
                     ]
                 }
             ],
-            "tool_config": {"function_calling_config": {"mode": "NONE"}},
+            "tool_config": {
+                "function_calling_config": {"mode": "NONE", "allowed_function_names": ["safe_tool"]},
+                "retrieval_config": {"language_code": "en-GB"},
+            },
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
