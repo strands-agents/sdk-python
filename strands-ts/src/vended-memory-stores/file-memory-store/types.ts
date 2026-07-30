@@ -71,12 +71,12 @@ export interface ConsolidateConfig {
   maxFiles?: number
 
   /**
-   * Maximum total UTF-8 byte size of all knowledge file contents allowed as planner input.
-   * Defaults to 128 KiB.
+   * Maximum total UTF-8 byte size of the knowledge files allowed as planner input, counting each
+   * file's storage key as well as its content. Defaults to 128 KiB.
    *
-   * Bounds the single-call planner input; plan output scales with touched files. The default is a
-   * conservative fraction of a typical context window — large enough for a healthy store, small
-   * enough to keep the single planner call fast and affordable.
+   * Bounds the single-call planner input; plan output scales with touched files. Override it when
+   * your model's context window is unusually small or large — the default is a fixed byte count, not
+   * one derived from the model.
    */
   maxInputBytes?: number
 
@@ -90,8 +90,9 @@ export interface ConsolidateConfig {
   maxActionsPerPlan?: number
 
   /**
-   * Maximum total UTF-8 bytes of model-generated content across all write actions (merge and
-   * update) in a single plan. Defaults to 256 KiB — twice the `maxInputBytes` default.
+   * Maximum total UTF-8 bytes of model-generated text in a single plan — write content, the paths
+   * every action names, each reason, and the summary. Defaults to 256 KiB — twice the
+   * `maxInputBytes` default.
    *
    * Bounds the planner *output volume*: even within the action limit, a few large write actions
    * could generate unbounded content. The entire plan is rejected before any storage mutation

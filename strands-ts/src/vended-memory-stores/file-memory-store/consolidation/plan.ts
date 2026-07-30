@@ -12,15 +12,6 @@ import { logger } from '../../../logging/logger.js'
 import { DEFAULT_MAX_INPUT_BYTES, encoder, resolveCanonicalKey } from '../internal.js'
 
 /**
- * Cap on model-generated reason/summary text written into the consolidation changelog. Chosen, not
- * derived: a couple of sentences per action, enough to explain one action without letting metadata
- * dominate the log.
- *
- * @internal
- */
-const MAX_PLAN_TEXT_LENGTH = 500
-
-/**
  * Caps on an untrusted plan-derived payload — the plan echoed back in the revise prompt, and the
  * same plan in a diagnostic log field. Sized as a fraction of the input the planner was given: the
  * retry re-sends that input anyway, so the echo stays a bounded share of a cost already paid rather
@@ -105,28 +96,28 @@ export const ConsolidationPlanSchema = z.object({
         sources: z.array(z.string()),
         target: z.string(),
         content: z.string(),
-        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
+        reason: z.string(),
       }),
       z.object({
         action: z.literal('update'),
         path: z.string(),
         content: z.string(),
-        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
+        reason: z.string(),
       }),
       z.object({
         action: z.literal('delete'),
         path: z.string(),
-        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
+        reason: z.string(),
       }),
       z.object({
         action: z.literal('move'),
         from: z.string(),
         to: z.string(),
-        reason: z.string().max(MAX_PLAN_TEXT_LENGTH),
+        reason: z.string(),
       }),
     ])
   ),
-  summary: z.string().max(MAX_PLAN_TEXT_LENGTH),
+  summary: z.string(),
 })
 
 /** A validated consolidation plan. @internal */
@@ -166,12 +157,18 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
 }
 
 /**
- * Total UTF-8 bytes of model-generated content across a plan's write actions.
+ * Total UTF-8 bytes of model-generated text across a plan — write content, paths, reasons, summary.
  *
  * Bounds planner output volume independently of the action count: a plan within the action limit
  * can still carry a few very large writes. Move actions write a snapshot copy of their source, so
  * their byte contribution equals the source content length — without this, moves report 0 bytes
  * and can amplify a single source past the cap.
+ *
+ * Paths, reasons, and the summary count too: nothing else bounds them, and a delete-only plan
+ * generates no content at all. Every field is measured here rather than capped with a schema `.max()`
+ * because a schema violation comes back as a tool *error result* that stays in history and re-drives
+ * the agent loop — the model retries against a prompt carrying the oversized value, growing the
+ * payload each turn until the turn limit trips. Measuring throws out of the run on the first turn.
  *
  * @param plan - The validated consolidation plan
  * @param files - The snapshot map from readAllFiles, used to measure move source content
@@ -179,20 +176,31 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
  * @internal
  */
 export function generatedByteSize(plan: ConsolidationPlan, files: Map<string, string>): number {
+  const size = (text: string): number => encoder.encode(text).byteLength
+
   let bytes = 0
   for (const action of plan.actions) {
-    if (action.action === 'merge' || action.action === 'update') {
-      bytes += encoder.encode(action.content).byteLength
-    } else if (action.action === 'move') {
-      // A move writes the source's content to the new target — count it so N moves from one
-      // large source cannot escape the generated-bytes cap
-      const canonicalFrom = resolveCanonicalKey(files, action.from)
-      const sourceContent = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
-      if (sourceContent !== undefined) {
-        bytes += encoder.encode(sourceContent).byteLength
+    bytes += size(action.reason)
+    switch (action.action) {
+      case 'merge':
+        bytes += size(action.content) + size(action.target)
+        for (const source of action.sources) bytes += size(source)
+        break
+      case 'update':
+        bytes += size(action.content) + size(action.path)
+        break
+      case 'delete':
+        bytes += size(action.path)
+        break
+      case 'move': {
+        // A move writes the source's content to the new target — count it so N moves from one
+        // large source cannot escape the generated-bytes cap
+        const canonicalFrom = resolveCanonicalKey(files, action.from)
+        const sourceContent = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
+        bytes += size(action.from) + size(action.to) + (sourceContent !== undefined ? size(sourceContent) : 0)
+        break
       }
     }
-    bytes += encoder.encode(action.reason).byteLength
   }
   bytes += encoder.encode(plan.summary).byteLength
   return bytes

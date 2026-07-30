@@ -1544,9 +1544,11 @@ describe('FileMemoryStore.consolidate', () => {
       const body = 'X'
       await writeFile(storage, 'facts/a.md', 'Fact A', body)
 
-      // Compute exact byte size of the stored file to set maxInputBytes precisely
+      // Compute the exact budgeted size to set maxInputBytes precisely. The cap covers the key as
+      // well as the content, since the planner prompt serializes both.
       const stored = await storage.read('facts/a.md')
-      const exactBytes = encoder.encode(new TextDecoder().decode(stored!)).byteLength
+      const exactBytes =
+        encoder.encode('facts/a.md').byteLength + encoder.encode(new TextDecoder().decode(stored!)).byteLength
 
       const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'All good.' }))
 
@@ -1635,6 +1637,29 @@ describe('FileMemoryStore.consolidate', () => {
 
       expect(await storage.read('facts/a.md')).toBeNull()
       expect(await storage.read('facts/b.md')).toBeNull()
+    })
+
+    it('counts an oversized reason toward the byte cap and aborts on the first turn', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/a.md', reason: 'X'.repeat(2000) }],
+          summary: 'oversized reason',
+        })
+      )
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      await expect(store.consolidate({ model, operations: ['prune'], maxGeneratedBytes: 500 })).rejects.toThrow(
+        /exceeds generated content limit/
+      )
+
+      // Reasons are bounded by measurement, not a schema `.max()`: a schema violation returns as a
+      // tool error result that stays in history and re-drives the loop, so the model would retry
+      // against a prompt carrying the oversized value and grow the payload each turn. One call proves
+      // the oversized reason leaves the run immediately instead.
+      expect(streamSpy).toHaveBeenCalledTimes(1)
+      expect(await storage.read('facts/a.md')).not.toBeNull()
     })
   })
 
@@ -2611,6 +2636,44 @@ describe('FileMemoryStore.consolidate', () => {
         expect(await storage.read('facts/big.md')).not.toBeNull()
       })
 
+      // The byte budget must cover path strings, not just content. add() takes metadata.path verbatim
+      // and nothing caps its length, so a corpus of tiny bodies under enormous keys would otherwise
+      // clear maxInputBytes and still build a multi-megabyte planner prompt.
+      it('counts stored keys toward maxInputBytes so a huge path cannot escape the input cap', async () => {
+        const hugeKey = `facts/${'a'.repeat(200_000)}.md`
+        await writeFile(storage, hugeKey, 'D', 'Tiny body')
+
+        const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [], summary: 'ok' }))
+        const streamSpy = vi.spyOn(model, 'stream')
+
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /exceeds consolidation input size limit/
+        )
+
+        // The abort happens before the planner is invoked, so the oversized key is never sent
+        expect(streamSpy).not.toHaveBeenCalled()
+      })
+
+      // A delete-only plan generates no content, so paths are the only thing its byte total can
+      // measure. Without counting them the plan reports ~0 bytes and its paths reach the provider
+      // unbounded — including replayed in history on the revise turn.
+      it('counts action paths in generatedByteSize so a delete-only plan cannot escape the cap', async () => {
+        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'delete', path: `facts/${'p'.repeat(1000)}.md`, reason: 'prune' }],
+            summary: 'delete with a huge path',
+          })
+        )
+
+        await expect(store.consolidate({ model, operations: ['prune'], maxGeneratedBytes: 500 })).rejects.toThrow(
+          /exceeds generated content limit/
+        )
+
+        expect(await storage.read('facts/a.md')).not.toBeNull()
+      })
+
       // A merge consumes its sources exactly as a move does, so the source-claim guard must cover
       // both. N merges over one shared pair write N targets and still delete the pair, leaving the
       // store over maxFiles — and permanently unconsolidatable, since every later run aborts on the
@@ -3318,10 +3381,10 @@ describe('FileMemoryStore.consolidate', () => {
     })
 
     // PR #3429 — an ambiguous write target (two stored keys differing only by case, which two
-    // ordinary add() calls produce on a case-sensitive backend) must abort rather than write the
-    // model's own spelling. Writing it would mint a third copy and leave the plan's own declared
-    // sources undeleted, a state no later plan can repair: validation rejects a merge of two
-    // case-variants (distinct-source rule) and the update+delete pair that would fold them back.
+    // ordinary add() calls produce on a case-sensitive backend) must abort rather than write a
+    // spelling of its own, which would mint a third copy and leave the plan's declared sources
+    // undeleted. A plan naming one of the stored keys exactly is not ambiguous and still applies;
+    // the pair is repairable in-band by a delete-only or move-out plan.
     describe('ambiguous write targets', () => {
       /** Seed the two case-variant keys an ambiguous target resolves against. */
       async function seedCaseVariants(): Promise<void> {
@@ -3433,6 +3496,50 @@ describe('FileMemoryStore.consolidate', () => {
         expect(decoder.decode((await storage.read('facts/Note.md'))!)).toContain('Content upper')
 
         warnSpy.mockRestore()
+      })
+
+      // A plan naming a stored key by its exact spelling is unambiguous — it addresses that file
+      // directly and cannot mint a third one. Guards against a regression where the ambiguity check
+      // had no exact-match exemption and aborted the whole run, taking unrelated actions with it.
+      it('applies a plan targeting a stored key exactly, alongside unrelated actions', async () => {
+        await seedCaseVariants()
+        await writeFile(storage, 'facts/cd-a.md', 'CD A', 'Content CD A')
+        await writeFile(storage, 'facts/cd-b.md', 'CD B', 'Content CD B')
+
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [
+              {
+                action: 'update',
+                path: 'facts/Note.md',
+                content: '---\ndescription: "Revised"\n---\n\nRevised upper\n',
+                reason: 'resolve',
+              },
+              {
+                action: 'merge',
+                sources: ['facts/cd-a.md', 'facts/cd-b.md'],
+                target: 'facts/cd.md',
+                content: '---\ndescription: "Merged CD"\n---\n\nMerged CD\n',
+                reason: 'dedup',
+              },
+            ],
+            summary: 'exact-spelling update plus an unrelated merge',
+          })
+        )
+
+        await store.consolidate({ model, operations: ['deduplicate', 'resolveContradictions'] })
+
+        // The exact-spelling update landed on its own key, its twin is untouched, no third spelling
+        // was minted, and the unrelated merge was not lost to an abort
+        expect(decoder.decode((await storage.read('facts/Note.md'))!)).toContain('Revised upper')
+        expect(decoder.decode((await storage.read('facts/note.md'))!)).toContain('Content lower')
+        expect(decoder.decode((await storage.read('facts/cd.md'))!)).toContain('Merged CD')
+        expect(await storage.list('')).toEqual([
+          'consolidation-changelog.md',
+          'facts/Note.md',
+          'facts/cd.md',
+          'facts/note.md',
+        ])
       })
     })
 
@@ -3594,14 +3701,15 @@ describe('resolveWriteTarget', () => {
     expect(() => resolveWriteTarget(files, 'facts/NOTE.md')).toThrow(/facts\/note\.md, facts\/Note\.md/)
   })
 
-  it('throws when the ambiguous path is itself one of the stored spellings', () => {
+  it('returns an exact match verbatim even when a case-variant of it is also stored', () => {
     const files = new Map([
       ['facts/note.md', 'lower'],
       ['facts/Note.md', 'upper'],
     ])
 
-    // An exact match must not shortcut the ambiguity check — writing this spelling still leaves the
-    // other variant behind as an unmergeable duplicate
-    expect(() => resolveWriteTarget(files, 'facts/note.md')).toThrow(/is ambiguous/)
+    // An exact match addresses a stored file directly, so writing it cannot mint a third spelling —
+    // aborting here would refuse a plan that targets an existing key by its own name
+    expect(resolveWriteTarget(files, 'facts/note.md')).toBe('facts/note.md')
+    expect(resolveWriteTarget(files, 'facts/Note.md')).toBe('facts/Note.md')
   })
 })

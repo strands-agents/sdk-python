@@ -351,9 +351,13 @@ export class FileMemoryStore implements MemoryStore {
       throw new Error(`Knowledge store exceeds consolidation file limit: ${files.size} files (maxFiles: ${maxFiles})`)
     }
 
+    // Count keys as well as contents: the planner's user message serializes the whole map, so a key
+    // is as much of a payload as the body it addresses. `add()` takes `metadata.path` verbatim and
+    // no layer caps its length, so a corpus of tiny files under enormous keys would otherwise clear
+    // this cap and still build a multi-megabyte prompt.
     let totalBytes = 0
-    for (const content of files.values()) {
-      totalBytes += encoder.encode(content).byteLength
+    for (const [key, content] of files) {
+      totalBytes += encoder.encode(key).byteLength + encoder.encode(content).byteLength
     }
     if (totalBytes > maxInputBytes) {
       throw new Error(
