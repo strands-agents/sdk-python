@@ -5,8 +5,9 @@ through ``model=``. Its ``RoutingStrategy`` selects a candidate once per agent i
 choice is cached and reused for every model call in that invocation, including tool-loop turns.
 When the selected model fails and no hook has claimed the retry, the router advances to the next
 untried candidate in declaration order (ordered fallback), re-arming the chain after any successful
-call. A nested ``ModelRouter`` candidate is a single atomic fallback slot: its own strategy chooses
-its model, but the outer router does not fall back among the nested candidates.
+call. Each candidate receives a fresh model retry budget. A nested ``ModelRouter`` candidate is one
+atomic fallback slot: its own strategy chooses its model, but the outer router does not fall back
+among the nested candidates.
 """
 
 from __future__ import annotations
@@ -81,7 +82,7 @@ class ModelRouter(Plugin):
         if not candidates:
             raise ValueError("ModelRouter requires at least one candidate model")
         _reject_stateful(candidates)
-        _reject_duplicate_names(candidates)
+        _reject_duplicates(candidates)
         self._candidates = candidates
         self._strategy: RoutingStrategy = strategy or FallbackStrategy()
 
@@ -104,7 +105,7 @@ class ModelRouter(Plugin):
         return model
 
     def init_agent(self, agent: Agent) -> None:
-        """Register the fallback and state-cleanup hooks; reject attachment through ``plugins=[...]``.
+        """Register routing middleware and hooks; reject attachment through ``plugins=[...]``.
 
         Args:
             agent: The agent the router is attached to.
@@ -114,7 +115,11 @@ class ModelRouter(Plugin):
         """
         if agent._model_router is not self:
             raise ValueError("ModelRouter must be passed through Agent(model=...), not plugins=[...]")
-        # SDK_LAST so fallback runs after ModelRetryStrategy has decided whether to retry.
+
+        from ..._middleware.stages import InvokeModelStage
+
+        agent._middleware_registry.add_middleware(InvokeModelStage.Input, self._selection_middleware())
+        # SDK_LAST makes fallback run after ModelRetryStrategy decides whether to retry.
         agent.hooks.add_callback(AfterModelCallEvent, self._on_model_result, order=HookOrder.SDK_LAST)
         agent.hooks.add_callback(AfterInvocationEvent, self._clear_state, order=HookOrder.SDK_LAST)
 
@@ -140,8 +145,8 @@ class ModelRouter(Plugin):
         """Build an ``InvokeModelStage.Input`` handler that selects the per-invocation model."""
 
         async def middleware(context: InvokeModelContext) -> InvokeModelContext:
-            state = context.invocation_state.get(_ROUTING_KEY)
-            if state is None or state.get("router") is not self:
+            state = _owned_state(context.invocation_state.get(_ROUTING_KEY), self, context.agent)
+            if state is None:
                 routing_context = self._routing_context(
                     context.messages, context.system_prompt, context.tool_specs, context.invocation_state
                 )
@@ -149,6 +154,7 @@ class ModelRouter(Plugin):
                 index = self._index_of(candidate)
                 state = {
                     "router": self,
+                    "agent": context.agent,
                     "index": index,
                     "model": await self._resolve(candidate, routing_context),
                     "tried": {index},
@@ -161,8 +167,8 @@ class ModelRouter(Plugin):
 
     async def _on_model_result(self, event: AfterModelCallEvent) -> None:
         """Re-arm the fallback chain on success; on an unretried failure, advance to the next candidate."""
-        state = event.invocation_state.get(_ROUTING_KEY)
-        if state is None or state.get("router") is not self:
+        state = _owned_state(event.invocation_state.get(_ROUTING_KEY), self, event.agent)
+        if state is None:
             return
         if event.stop_response is not None:
             state["tried"] = {state["index"]}  # a successful call re-arms the rest of the chain
@@ -202,8 +208,8 @@ class ModelRouter(Plugin):
 
     async def _clear_state(self, event: AfterInvocationEvent) -> None:
         """Drop this router's routing state at the end of the invocation so it does not leak."""
-        state = event.invocation_state.get(_ROUTING_KEY)
-        if state is not None and state.get("router") is self:
+        state = _owned_state(event.invocation_state.get(_ROUTING_KEY), self, event.agent)
+        if state is not None:
             del event.invocation_state[_ROUTING_KEY]
 
     def _index_of(self, candidate: RoutingCandidate) -> int:
@@ -221,6 +227,18 @@ class ModelRouter(Plugin):
             candidates=self._candidates,
             invocation_state=invocation_state,
         )
+
+
+def _owned_state(value: Any, router: ModelRouter, agent: Agent) -> dict[str, Any] | None:
+    """Return valid routing state owned by the given router and agent."""
+    if not isinstance(value, dict) or value.get("router") is not router or value.get("agent") is not agent:
+        return None
+    if not isinstance(value.get("index"), int) or not isinstance(value.get("model"), Model):
+        return None
+    tried = value.get("tried")
+    if not isinstance(tried, set) or not all(isinstance(index, int) for index in tried):
+        return None
+    return value
 
 
 def _normalize(models: object) -> tuple[RoutingCandidate, ...]:
@@ -253,12 +271,18 @@ def _reject_stateful(candidates: tuple[RoutingCandidate, ...]) -> None:
             raise ValueError(f"candidate=<{label}> is stateful; routing among stateful models is not supported")
 
 
-def _reject_duplicate_names(candidates: tuple[RoutingCandidate, ...]) -> None:
-    """Reject colliding candidate names; unnamed candidates and repeated models are allowed."""
-    seen: set[str] = set()
+def _reject_duplicates(candidates: tuple[RoutingCandidate, ...]) -> None:
+    """Reject repeated candidate instances or colliding names; repeated models are allowed."""
+    seen_candidates: set[int] = set()
+    seen_names: set[str] = set()
     for candidate in candidates:
+        identity = id(candidate)
+        if identity in seen_candidates:
+            raise ValueError("duplicate RoutingCandidate instance")
+        seen_candidates.add(identity)
+
         if candidate.name is None:
             continue
-        if candidate.name in seen:
+        if candidate.name in seen_names:
             raise ValueError(f"duplicate candidate name=<{candidate.name}>")
-        seen.add(candidate.name)
+        seen_names.add(candidate.name)

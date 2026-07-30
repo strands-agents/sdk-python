@@ -45,9 +45,17 @@ def _routing_context(candidates, invocation_state=None):
     )
 
 
+_TEST_AGENT = object()
+
+
 def _invoke_context(invocation_state, model):
     return types.SimpleNamespace(
-        messages=[], system_prompt=None, tool_specs=[], invocation_state=invocation_state, model=model
+        agent=_TEST_AGENT,
+        messages=[],
+        system_prompt=None,
+        tool_specs=[],
+        invocation_state=invocation_state,
+        model=model,
     )
 
 
@@ -449,24 +457,26 @@ async def test_selection_middleware_reselects_when_state_belongs_to_another_rout
 async def test_clear_state_removes_only_own_routing_state():
     router = ModelRouter(models=[_model()])
     other = ModelRouter(models=[_model()])
+    agent = object()
 
-    own = {"router": router, "index": 0, "model": _model(), "tried": {0}}
+    own = {"router": router, "agent": agent, "index": 0, "model": _model(), "tried": {0}}
     invocation_state = {_ROUTING_KEY: own}
-    await router._clear_state(types.SimpleNamespace(invocation_state=invocation_state))
+    await router._clear_state(types.SimpleNamespace(invocation_state=invocation_state, agent=agent))
     assert _ROUTING_KEY not in invocation_state
 
-    foreign = {"router": other, "index": 0, "model": _model(), "tried": {0}}
+    foreign = {"router": other, "agent": agent, "index": 0, "model": _model(), "tried": {0}}
     invocation_state = {_ROUTING_KEY: foreign}
-    await router._clear_state(types.SimpleNamespace(invocation_state=invocation_state))
+    await router._clear_state(types.SimpleNamespace(invocation_state=invocation_state, agent=agent))
     assert _ROUTING_KEY in invocation_state  # another router's state is left untouched
 
 
 @pytest.mark.asyncio
 async def test_successful_call_rearms_the_fallback_chain():
     router = ModelRouter(models=[_model(), _model(), _model()])
-    state = {"router": router, "index": 1, "model": _model(), "tried": {0, 1}}
+    agent = object()
+    state = {"router": router, "agent": agent, "index": 1, "model": _model(), "tried": {0, 1}}
     event = types.SimpleNamespace(
-        retry=False, stop_response=object(), exception=None, invocation_state={_ROUTING_KEY: state}, agent=None
+        retry=False, stop_response=object(), exception=None, invocation_state={_ROUTING_KEY: state}, agent=agent
     )
 
     await router._on_model_result(event)
@@ -476,16 +486,15 @@ async def test_successful_call_rearms_the_fallback_chain():
 
 @pytest.mark.asyncio
 async def test_fallback_resolution_error_is_contained():
-    router = ModelRouter(
-        models=[_model(), RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()))]
-    )
-    state = {"router": router, "index": 0, "model": _model(), "tried": {0}}
+    router = ModelRouter(models=[_model(), RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()))])
+    agent = _agent_stub()
+    state = {"router": router, "agent": agent, "index": 0, "model": _model(), "tried": {0}}
     event = types.SimpleNamespace(
         retry=False,
         stop_response=None,
         exception=ValueError("original model error"),
         invocation_state={_ROUTING_KEY: state},
-        agent=_agent_stub(),
+        agent=agent,
     )
 
     await router._on_model_result(event)
