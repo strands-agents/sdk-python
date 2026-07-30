@@ -4,7 +4,11 @@ on:
   release:
     types: [published]
   schedule:
-    - cron: '17 7 * * *'   # daily backstop for missed release events
+    # Backstop for missed release events, and the only same-day path for evals
+    # releases (evals cannot dispatch cross-repo with its GITHUB_TOKEN, and the
+    # bot PAT has no write here). skip-existing makes a no-op run nearly free,
+    # so a 2-hourly cadence costs little and caps changelog lag at ~2h.
+    - cron: '17 */2 * * *'
   workflow_dispatch:
     inputs:
       tag:

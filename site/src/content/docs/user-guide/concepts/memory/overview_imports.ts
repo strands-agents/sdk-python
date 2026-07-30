@@ -2,7 +2,7 @@
 
 // --8<-- [start:getting_started_imports]
 import { Agent, BedrockModel } from '@strands-agents/sdk'
-import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+import { TestMemoryStore } from '@strands-agents/sdk/vended-memory-stores/test-memory-store'
 // --8<-- [end:getting_started_imports]
 
 // --8<-- [start:turn_on_writes_imports]
