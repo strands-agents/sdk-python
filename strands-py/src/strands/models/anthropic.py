@@ -225,6 +225,20 @@ class AnthropicModel(Model):
         if "text" in content:
             return {"text": content["text"], "type": "text"}
 
+        if "citationsContent" in content:
+            # Citations are output-only for Anthropic: `web_search_result_location` citations describe
+            # a search Anthropic already ran and cannot be sent back as input. Preserve the generated
+            # text so a cited answer survives into the next turn instead of raising on an unsupported
+            # content type.
+            return {
+                "text": "".join(
+                    citation_content["text"]
+                    for citation_content in content["citationsContent"].get("content", [])
+                    if "text" in citation_content
+                ),
+                "type": "text",
+            }
+
         if "toolUse" in content:
             return {
                 "id": content["toolUse"]["toolUseId"],

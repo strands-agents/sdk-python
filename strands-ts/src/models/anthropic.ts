@@ -651,6 +651,12 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         }
         return undefined
 
+      case 'citationsBlock':
+        // Citations are output-only for Anthropic: `web_search_result_location` citations describe a
+        // search Anthropic already ran and cannot be sent back as input. Preserve the generated text
+        // so a cited answer survives into the next turn instead of being silently dropped.
+        return { type: 'text', text: block.content.map((generated) => generated.text).join('') }
+
       case 'cachePointBlock':
         return undefined
 

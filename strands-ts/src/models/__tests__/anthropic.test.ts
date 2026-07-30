@@ -1184,9 +1184,42 @@ describe('AnthropicModel', () => {
       )
 
       expect(deltaTypes).not.toContain('toolUseInputDelta')
-      expect(
-        events.some((event) => event.type === 'modelContentBlockStartEvent' && event.start !== undefined)
-      ).toBe(false)
+      expect(events.some((event) => event.type === 'modelContentBlockStartEvent' && event.start !== undefined)).toBe(
+        false
+      )
+    })
+
+    it('round-trips a cited answer back into the request as text', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('hi')] }),
+        new Message({
+          role: 'assistant',
+          content: [
+            new CitationsBlock({
+              citations: [
+                {
+                  location: { type: 'web', url: 'https://docs.example.com/agents' },
+                  source: 'https://docs.example.com/agents',
+                  sourceContent: [{ text: 'Agents are autonomous programs.' }],
+                  title: 'Agents guide',
+                },
+              ],
+              content: [{ text: 'Agents are autonomous.' }],
+            }),
+          ],
+        }),
+        new Message({ role: 'user', content: [new TextBlock('and?')] }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages[1]).toEqual({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Agents are autonomous.' }],
+      })
     })
 
     it('warns when a server-side tool result is an error', async () => {

@@ -1756,3 +1756,35 @@ async def test_stream_server_tool_result_error_is_logged(anthropic_client, model
     await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
 
     assert "max_uses_exceeded" in caplog.text
+
+
+def test_format_request_citations_content_round_trips_as_text(model):
+    """A cited answer from a previous turn must survive back into the request."""
+    messages = [
+        {"role": "user", "content": [{"text": "hi"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "citationsContent": {
+                        "citations": [
+                            {
+                                "title": "Agents guide",
+                                "sourceContent": [{"text": "Agents are autonomous programs."}],
+                                "location": {"web": {"url": "https://docs.example.com/agents"}},
+                            }
+                        ],
+                        "content": [{"text": "Agents are autonomous."}],
+                    }
+                }
+            ],
+        },
+        {"role": "user", "content": [{"text": "and?"}]},
+    ]
+
+    request = model.format_request(messages)
+
+    assert request["messages"][1] == {
+        "role": "assistant",
+        "content": [{"type": "text", "text": "Agents are autonomous."}],
+    }
