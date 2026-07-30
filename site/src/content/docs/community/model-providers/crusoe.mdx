@@ -1,0 +1,77 @@
+---
+title: Crusoe
+community: true
+description: Crusoe Managed Inference
+integrationType: model-provider
+languages: Python
+---
+
+
+[Crusoe](https://www.crusoe.ai/cloud/managed-inference) provides managed inference for leading open-weight language models on renewable-powered GPU infrastructure. Crusoe Managed Inference is accessible through OpenAI's SDK via full API compatibility, allowing easy and portable integration with the Strands Agents SDK using the familiar OpenAI interface.
+
+## Installation
+
+The Strands Agents SDK provides access to Crusoe Managed Inference models through the OpenAI compatibility layer, configured as an optional dependency. To install, run:
+
+```bash
+pip install 'strands-agents[openai]' strands-agents-tools
+```
+
+## Usage
+
+After installing the `openai` package, you can import and initialize the Strands Agents' OpenAI-compatible provider for Crusoe models as follows:
+
+```python
+from strands import Agent
+from strands.models.openai import OpenAIModel
+from strands_tools import calculator
+
+model = OpenAIModel(
+    client_args={
+        "api_key": "<CRUSOE_API_KEY>",
+        "base_url": "https://api.inference.crusoecloud.com/v1/",
+    },
+    model_id="zai/GLM-5.2",  # or see https://docs.crusoecloud.com/managed-inference/overview
+    params={
+        "max_tokens": 5000,
+        "temperature": 0.1
+    }
+)
+
+agent = Agent(model=model, tools=[calculator])
+agent("What is 2+2?")
+```
+
+## Configuration
+
+### Client Configuration
+
+The `client_args` configure the underlying OpenAI-compatible client. When using Crusoe Managed Inference, you must set:
+
+* `api_key`: Your Crusoe Inference API key. Generate one in the **Security** tab of the [Crusoe Cloud Console](https://console.crusoecloud.com/).
+* `base_url`: `https://api.inference.crusoecloud.com/v1/`
+
+Refer to [OpenAI Python SDK GitHub](https://github.com/openai/openai-python) for full client options.
+
+### Model Configuration
+
+The `model_config` specifies which Crusoe model to use and any additional parameters.
+
+| Parameter  | Description               | Example                                                   | Options                                                                        |
+| ---------- | ------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `model_id` | Model name                | `zai/GLM-5.2`                                             | See [Crusoe Managed Inference models](https://docs.crusoecloud.com/managed-inference/overview) |
+| `params`   | Model-specific parameters | `{"max_tokens": 5000, "temperature": 0.7, "top_p": 0.9}`  | OpenAI-compatible chat completion parameters                                   |
+
+## Troubleshooting
+
+### `ModuleNotFoundError: No module named 'openai'`
+
+You must install the `openai` dependency to use this provider:
+
+```bash
+pip install 'strands-agents[openai]'
+```
+
+### Unexpected model behavior?
+
+Ensure you're using a model ID available on Crusoe Managed Inference (e.g., `zai/GLM-5.2`, `nvidia/Nemotron-3-Super-120B-A12B`, `google/gemma-4-31b-it`), and your `base_url` is set to `https://api.inference.crusoecloud.com/v1/`.
