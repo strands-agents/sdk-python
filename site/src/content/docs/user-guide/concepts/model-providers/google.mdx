@@ -506,6 +506,13 @@ When disabled (or if the API call fails), falls back to estimation using the cha
 </Tab>
 </Tabs>
 
+## Token Usage
+
+Google reports cached content in `cacheReadInputTokens` and thinking tokens in
+`reasoningOutputTokens`. Cached tokens are counted separately from `inputTokens`, and
+tokens from tool results count as input. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting).
+
 ## References
 
 - [Python API](@api/python/strands.models.model)

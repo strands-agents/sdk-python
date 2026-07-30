@@ -234,8 +234,18 @@ Strands traces include rich attributes that provide context for each operation:
 | `gen_ai.usage.completion_tokens` | Total tokens used for completions |
 | `gen_ai.usage.output_tokens` | Total tokens used for completions (duplicate) |
 | `gen_ai.usage.total_tokens` | Total token usage |
-| `gen_ai.usage.cache_read_input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
-| `gen_ai.usage.cache_write_input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_read_input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. Python reports 0 in that case; TypeScript omits the attribute) |
+| `gen_ai.usage.cache_write_input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. Python reports 0 in that case; TypeScript omits the attribute) |
+| `gen_ai.usage.reasoning_output_tokens` | Tokens spent on internal reasoning, a subset of the output tokens (emitted only when the provider reports it) |
+
+Per the [OpenTelemetry GenAI conventions][semconv], the prompt token attributes here count
+the **whole** prompt, cached tokens included, with the cache attributes reported alongside
+as a breakdown of it. `AgentResult.metrics` instead reports cache tokens as separate
+counters, so `gen_ai.usage.input_tokens` is legitimately larger than
+`accumulated_usage["inputTokens"]` on a cached call. See [Token
+Accounting](metrics#token-accounting).
+
+[semconv]: https://opentelemetry.io/docs/specs/semconv/gen-ai/
 
 ### Cycle-Level Attributes
 
@@ -266,8 +276,9 @@ Strands traces include rich attributes that provide context for each operation:
 | `gen_ai.usage.completion_tokens` | Total tokens used for completions |
 | `gen_ai.usage.output_tokens` | Total tokens used for completions (duplicate) |
 | `gen_ai.usage.total_tokens` | Total token usage |
-| `gen_ai.usage.cache_read_input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
-| `gen_ai.usage.cache_write_input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. This defaults to 0 in that case) |
+| `gen_ai.usage.cache_read_input_tokens` | Number of input tokens read from cache (Note: Not all model providers support cache tokens. The attribute is omitted in that case) |
+| `gen_ai.usage.cache_write_input_tokens` | Number of input tokens written to cache (Note: Not all model providers support cache tokens. The attribute is omitted in that case) |
+| `gen_ai.usage.reasoning_output_tokens` | Tokens spent on internal reasoning, a subset of the output tokens (emitted only when the provider reports it) |
 
 ### Tool-Level Attributes
 

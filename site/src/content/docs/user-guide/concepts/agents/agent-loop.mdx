@@ -194,6 +194,11 @@ To cap how much work an agent does in a single invocation, pass
 a `limits` object. You can bound turns (loop iterations), output
 tokens, or total tokens. All three are optional.
 
+The token budget counts every billed token, cache reads and writes included. A cached
+prompt is billed on each call, so a budget sized for an uncached workload is reached
+sooner once prompt caching is enabled. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting).
+
 <Tabs>
   <Tab label="Python">
 

@@ -18,6 +18,11 @@ LiteLLM is configured as an optional dependency in Strands Agents. To install, r
 pip install 'strands-agents[litellm]' strands-agents-tools
 ```
 
+Requires `litellm>=1.78.0`, and the extra caps it at `1.91.1` until LiteLLM supports
+Python 3.14. Earlier releases report a prompt-cache write outside `prompt_tokens` on some
+of the backends they proxy, with nothing to distinguish those from the ones that report it
+inside, so `inputTokens` under-reports the prompt on a cache write.
+
 ## Usage
 
 After installing `litellm`, you can import and initialize Strands Agents' LiteLLM provider as follows:

@@ -13,6 +13,11 @@ One concept, one term. Never vary for stylistic reasons. This file is the canoni
 | Pre-built tools from strands-agents-tools | community tools | built-in tools, standard tools, default tools |
 | The MCP protocol for tool integration | MCP tools | MCP functions, MCP integrations, protocol tools |
 | Configuring which model to use | model provider | model backend, LLM provider, inference provider |
+| Token counters that never overlap | disjoint (token counts) | non-overlapping, exclusive, mutually exclusive |
+| Prompt tokens neither read from nor written to the cache | net new (input tokens) | uncached tokens, fresh tokens, new tokens |
+| Output tokens a model spent on internal reasoning | reasoning tokens (a provider page may say "thinking tokens" where that is the provider's own term, but the field is always `reasoningOutputTokens`) | thought tokens, chain-of-thought tokens |
+| The whole prompt, cache reads and writes included | full prompt | total input, input tokens (ambiguous) |
+| Window a call consumed, prompt plus generated output | context size (matching the `context_size`/`contextSize` property) | context length, window size, total tokens (that is the name of the `totalTokens` counter, which is a different quantity) |
 | Maintaining conversation across turns (user-facing concept) | session management | context persistence, memory, conversation history |
 | The SDK class that implements session management | conversation manager | session handler, context manager (note: `ConversationManager` is the API class name; "session management" is the user-facing concept in docs) |
 | Durable knowledge an agent recalls across sessions | memory (or long-term memory) | knowledge store, recall, persistent memory |

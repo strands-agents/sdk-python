@@ -144,6 +144,106 @@ This allows you to track metrics at both the individual invocation level and acr
 </Tab>
 </Tabs>
 
+## Token Accounting
+
+:::caution[Token counts became disjoint, changing these values]
+Cache tokens are now always reported as separate counters, where some providers previously
+counted them inside `inputTokens`. If you chart or store these numbers, expect a step
+change:
+
+| Provider | Field | Change |
+|---|---|---|
+| OpenAI, Google, LiteLLM, Writer, Vercel AI SDK, Amazon SageMaker | `inputTokens` | Drops by the cached amount |
+| Anthropic (direct) | `totalTokens` | Grows to include cache reads and writes |
+| Google | `outputTokens` | Drops on tool-result turns, which now count as input |
+| Any cached provider | `context_size` / `contextSize` and its projected form | Grows to the full prompt |
+| Any cached provider | `gen_ai.usage.input_tokens` (OTel) | Grows to the full prompt, per the GenAI conventions |
+| Anthropic (direct) | `limits.total_tokens` | Reached sooner, since the cap counts cache tokens |
+| Amazon Bedrock (Converse) | `inputTokens`, `totalTokens` | Unchanged; the rows above still apply |
+
+A formula that summed the four counters was over-charging cached calls at both the input
+and the cache rate, and is now correct without change. A formula that multiplied
+`inputTokens` by the input rate and ignored the cache counters should add the terms shown
+below.
+:::
+
+Token counts are **disjoint**: every billed token is counted in exactly one counter. Cache
+tokens are *not* also included in the input count, so the four counters always sum to the
+total:
+
+```
+inputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens == totalTokens
+```
+
+This holds for every model provider on the standard agent loop, which makes cost a plain
+weighted sum. Because cache reads are billed at a discount and cache writes at a premium,
+each counter gets its own rate:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+usage = result.metrics.accumulated_usage
+
+cost = (
+    usage["inputTokens"] * INPUT_RATE
+    + usage.get("cacheReadInputTokens", 0) * CACHE_READ_RATE
+    + usage.get("cacheWriteInputTokens", 0) * CACHE_WRITE_RATE
+    + usage["outputTokens"] * OUTPUT_RATE
+)
+```
+
+To recover the full prompt size a provider received, add the cache counters back to
+`inputTokens`.
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/observability-evaluation/metrics.ts:token_cost"
+```
+
+To recover the full prompt size a provider received, add the cache counters back to
+`inputTokens`.
+</Tab>
+</Tabs>
+
+Three things behave differently from the four counters above:
+
+- `reasoningOutputTokens` is a *subset* of `outputTokens`, reported for visibility into
+  how much of a response was internal reasoning. It is already billed at the output rate,
+  so it must **not** be added to a cost total.
+- Bidirectional streaming reports usage through its own experimental `BidiUsageEvent`,
+  which does not yet follow this contract.
+- The OpenTelemetry attribute `gen_ai.usage.input_tokens` follows the [GenAI semantic
+  conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) rather than this
+  contract, and therefore *includes* cache tokens. Metrics read from `accumulated_usage`
+  and traces read from an OTel backend will legitimately differ on this field.
+
+### Provider support
+
+Providers report cache tokens under different conventions, and each normalizes to the
+contract above. What varies is only which counters a provider reports at all:
+
+| Provider | SDK | Cache read | Cache write | Reasoning tokens |
+|---|---|---|---|---|
+| Amazon Bedrock (Converse) | Both | Yes | Yes | — |
+| Anthropic | Both | Yes | Yes | Yes |
+| OpenAI (Chat Completions / Responses) | Both | Yes | GPT-5.6 and later | Yes |
+| Google | Both | Yes | — | Yes |
+| Vercel AI SDK | TypeScript | Backend-dependent | Backend-dependent | Backend-dependent |
+| LiteLLM | Python | Yes | Backend-dependent | Backend-dependent |
+| Amazon SageMaker | Python | Endpoint-dependent | Endpoint-dependent | Endpoint-dependent |
+| Writer | Python | Yes | — | Yes |
+| Mistral | Python | Endpoint-dependent | — | — |
+| Ollama, Llama API, llama.cpp | Python | — | — | — |
+
+A dash means the provider's API does not report that counter, so the field is absent
+rather than zero. OpenAI reports cache writes from GPT-5.6 onwards, billed at 1.25x the
+uncached input rate; earlier models cache implicitly at no extra cost and report nothing.
+Amazon Bedrock's OpenAI-compatible endpoint is served by the same adapter as OpenAI and so
+reports the same counters. "Backend-dependent" and "endpoint-dependent" mean the counters
+are passed through when the underlying model reports them.
+
 ## Tool Metrics
 
 <Tabs>

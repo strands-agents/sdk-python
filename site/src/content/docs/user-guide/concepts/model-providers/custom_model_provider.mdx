@@ -369,12 +369,14 @@ The Python SDK uses dictionary-based [StreamEvent](@api/python/strands.types.str
         "latencyMs": 123 # Latency of the model request in milliseconds.
     },
     "usage": {
-        "inputTokens": 234, # Number of tokens sent in the request to the model.
-        "outputTokens": 234, # Number of tokens that the model generated for the request.
-        "totalTokens": 468 # Total number of tokens (input + output).
+        "inputTokens": 234,          # Net new prompt tokens, excluding cache.
+        "outputTokens": 234,         # Generated tokens, reasoning included.
+        "cacheReadInputTokens": 800, # Optional; omit when there are no reads.
+        "totalTokens": 1268          # Sum of all four billed counters.
     }
 }
 ```
+
 * [`redactContent`](@api/python/strands.types.streaming#RedactContentEvent): Event that is used to redact the users input message, or the generated response of a model. This is useful for redacting content if a guardrail gets triggered.
 ```python
 {
@@ -384,6 +386,22 @@ The Python SDK uses dictionary-based [StreamEvent](@api/python/strands.types.str
     }
 }
 ```
+
+The token counts are **disjoint**: every billed token belongs to exactly one counter, so
+`inputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens ==
+totalTokens`. If your provider reports the full prompt in its input field with cache
+tokens broken out as a subset of it (as OpenAI and Google do), subtract the cache counts
+out of `inputTokens` so cost calculations downstream don't count them twice. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting) for the full
+contract.
+
+The SDK logs a warning when the counters don't sum to `totalTokens`, and a separate one
+naming any count it could not read as a non-negative whole number. Every count is coerced
+before anything downstream reads it. A mapping and an object carrying the counters as
+attributes are both read, but the names must be the ones above — a vendor's own usage
+object names its fields in that vendor's convention, so it reads as no usage rather than
+being translated for you. A malformed count degrades the metric rather than failing the
+invocation.
 </Tab>
 <Tab label="TypeScript">
 
@@ -461,15 +479,32 @@ const messageStop: ModelMessageStopEventData = {
 const metadata: ModelMetadataEventData = {
   type: 'modelMetadataEvent',
   usage: {
-    inputTokens: 234,
-    outputTokens: 234,
-    totalTokens: 468,
+    inputTokens: 234, // Net new prompt tokens, excluding cache reads and writes.
+    outputTokens: 234, // Tokens generated, including any reasoning tokens.
+    cacheReadInputTokens: 800, // Optional; omit when there are no cache reads.
+    totalTokens: 1268, // Sum of all four billed counters.
   },
   metrics: {
     latencyMs: 123,
   },
 }
 ```
+
+The token counts are **disjoint**: every billed token belongs to exactly one counter, so
+`inputTokens + outputTokens + cacheReadInputTokens + cacheWriteInputTokens ===
+totalTokens`. If your provider reports the full prompt in its input field with cache
+tokens broken out as a subset of it (as OpenAI and Google do), subtract the cache counts
+out of `inputTokens` so cost calculations downstream don't count them twice. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting) for the full
+contract.
+
+The SDK logs a warning when the counters don't sum to `totalTokens`, and a separate one
+naming any count it could not read as a non-negative whole number. Every count is coerced
+before anything downstream reads it. A plain object and a class instance carrying the
+counters as properties are both read, but the names must be the ones above — a vendor's
+own usage object names its fields in that vendor's convention, so it reads as no usage
+rather than being translated for you. A malformed count degrades the metric rather than
+failing the invocation.
 </Tab>
 </Tabs>
 

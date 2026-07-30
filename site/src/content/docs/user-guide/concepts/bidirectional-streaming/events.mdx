@@ -373,12 +373,18 @@ Emitted periodically to report token usage with modality breakdown.
 
 **Properties:**
 
-- `inputTokens`: Total tokens used for all input modalities
+- `inputTokens`: Total tokens used for all input modalities, cache tokens included
 - `outputTokens`: Total tokens used for all output modalities
-- `totalTokens`: Sum of input and output tokens
+- `totalTokens`: The total the provider reported, which on a provider that reports a
+  cache already counts those tokens inside `inputTokens`
 - `modality_details`: Optional list of token usage per modality
-- `cacheReadInputTokens`: Optional tokens read from cache
-- `cacheWriteInputTokens`: Optional tokens written to cache
+- `cacheReadInputTokens`: Optional tokens read from cache, part of `inputTokens`
+- `cacheWriteInputTokens`: Optional tokens written to cache, part of `inputTokens`
+
+Unlike the standard agent loop, bidirectional streaming counts cache tokens inside
+`inputTokens` rather than reporting them as separate counters, so adding them to a cost
+total would charge them twice. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting).
 
 ### Error Events
 

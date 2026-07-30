@@ -505,7 +505,8 @@ If `contextWindowLimit` is not set and the model ID is not in the built-in looku
 
 The agent estimates input tokens using the following strategy:
 
-1. **Known baseline**: Reads `inputTokens + outputTokens` from the last assistant message's `metadata.usage`
+1. **Known baseline**: Reads the full prompt (`inputTokens` plus any cache read/write
+   tokens) and `outputTokens` from the last assistant message's `metadata.usage`
 2. **Delta estimation**: Only estimates tokens for new messages added since that assistant message using the model's `countTokens()` method
 3. **Cold start fallback**: When no prior usage metadata exists (first call or after session restore without metadata), estimates all messages via `countTokens()`
 

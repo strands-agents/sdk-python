@@ -733,8 +733,12 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 
 When using prompt caching, Amazon Bedrock provides cache statistics to help you monitor cache performance:
 
-- `CacheWriteInputTokens`: Number of input tokens written to the cache (occurs on first request with new content)
-- `CacheReadInputTokens`: Number of input tokens read from the cache (occurs on subsequent requests with cached content)
+- `cacheWriteInputTokens`: Number of input tokens written to the cache (occurs on first request with new content)
+- `cacheReadInputTokens`: Number of input tokens read from the cache (occurs on subsequent requests with cached content)
+
+These are counted separately from `inputTokens` rather than included in it. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting) for how to combine
+them into a cost.
 
 Strands automatically captures these metrics and makes them available:
 

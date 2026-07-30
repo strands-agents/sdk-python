@@ -468,7 +468,7 @@ type TokenBudget = {
 }
 ```
 
-**Where the data comes from**: `limit` reads from `agent.model.context_window_limit` (already exists on the model config). `used` reads from `BeforeModelCallEvent.projected_input_tokens` (already computed by the existing proactive compression hook). The ContextManager wraps the existing infrastructure into a typed object that strategies, tools, and 3P code can consume uniformly.
+**Where the data comes from**: `limit` reads from `agent.model.context_window_limit` (already exists on the model config). `used` reads from `BeforeModelCallEvent.projected_input_tokens` (already computed by the existing proactive compression hook), which counts the whole prompt the model saw — cache reads and writes included — plus the last call's output. The ContextManager wraps the existing infrastructure into a typed object that strategies, tools, and 3P code can consume uniformly.
 
 
 ---

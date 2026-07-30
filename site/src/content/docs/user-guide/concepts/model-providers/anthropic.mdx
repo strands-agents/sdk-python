@@ -241,6 +241,15 @@ When disabled (or if the API call fails), falls back to estimation with a charac
 </Tab>
 </Tabs>
 
+## Token Usage
+
+Anthropic reports prompt cache reads in `cacheReadInputTokens` and cache writes in
+`cacheWriteInputTokens`. Both are counted separately from `inputTokens`, and all four
+counters sum to `totalTokens`. Thinking tokens appear in `reasoningOutputTokens`, which
+reports how many of the billed output tokens were internal reasoning and is therefore part
+of `outputTokens` rather than additional to it. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting).
+
 ## References
 
 - [Python API](@api/python/strands.models.model)

@@ -97,3 +97,26 @@ async function metricsSummaryExample() {
   console.log(JSON.stringify(result?.metrics, null, 2))
   // --8<-- [end:metrics_summary]
 }
+
+// Token cost calculation example
+async function tokenCostExample() {
+  const INPUT_RATE = 0
+  const CACHE_READ_RATE = 0
+  const CACHE_WRITE_RATE = 0
+  const OUTPUT_RATE = 0
+
+  const agent = new Agent({ tools: [notebook] })
+  const result = await agent.invoke('What is the square root of 144?')
+
+  // --8<-- [start:token_cost]
+  const usage = result.metrics!.accumulatedUsage
+
+  const cost =
+    usage.inputTokens * INPUT_RATE +
+    (usage.cacheReadInputTokens ?? 0) * CACHE_READ_RATE +
+    (usage.cacheWriteInputTokens ?? 0) * CACHE_WRITE_RATE +
+    usage.outputTokens * OUTPUT_RATE
+  // --8<-- [end:token_cost]
+
+  console.log(cost)
+}

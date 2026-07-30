@@ -351,6 +351,14 @@ The OpenAI Responses provider does not currently implement native token counting
 </Tab>
 </Tabs>
 
+## Token Usage
+
+The Responses API reports prompt cache reads in `cacheReadInputTokens`, cache writes in
+`cacheWriteInputTokens` for GPT-5.6 and later, and reasoning tokens in
+`reasoningOutputTokens`. The cache counters are separate from `inputTokens` rather than
+included in it. See [Token
+Accounting](../../observability-evaluation/metrics#token-accounting).
+
 ## References
 
 - [Python API](@api/python/strands.models.openai_responses)
