@@ -33,8 +33,6 @@ function createStdioAsk(includeTrust: boolean): (prompt: string) => Promise<JSON
   }
 }
 
-export type { HumanInTheLoopClassifier, ClassifierConfig } from './classifier.js'
-
 /**
  * Configuration for the {@link HumanInTheLoop} intervention handler.
  */
