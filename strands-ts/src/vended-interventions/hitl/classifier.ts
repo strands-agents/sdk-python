@@ -32,7 +32,7 @@ const RISK_DECISION = z.object({
   requiresApproval: z
     .boolean()
     .describe('Whether this tool call requires human approval before executing'),
-  reason: z.string().describe('Explanation of why approval is or is not required'),
+  reason: z.string().describe('Brief reason (under 10 words) why approval is or is not required'),
 })
 
 const DEFAULT_SYSTEM_PROMPT = `You are a risk evaluator for an AI agent's tool calls. Your job is to decide whether each tool call requires human approval before executing.
@@ -56,7 +56,9 @@ Do not require approval when the tool call:
 
 ## Instructions
 
-Evaluate the tool name and its input arguments. Consider what could go wrong if this specific call executes with these specific arguments. When uncertain, require approval.`
+Evaluate the tool name and its input arguments. Consider what could go wrong if this specific call executes with these specific arguments. When uncertain, require approval.
+
+Keep your reason under 10 words — it is shown to a human in a CLI prompt.`
 
 /**
  * Creates the built-in LLM risk classifier used when `classifier: true`.

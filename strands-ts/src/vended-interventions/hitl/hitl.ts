@@ -179,9 +179,9 @@ export class HumanInTheLoop extends InterventionHandler {
       return proceed()
     }
 
-    const prompt = classifierResult.reason
-      ? `Tool "${toolName}" requires human approval: ${classifierResult.reason}. Input: ${JSON.stringify(event.toolUse.input)}`
-      : `Tool "${toolName}" requires human approval. Input: ${JSON.stringify(event.toolUse.input)}`
+    const reason = classifierResult.reason ? ` — ${classifierResult.reason}` : ''
+    const input = JSON.stringify(event.toolUse.input)
+    const prompt = `Approve "${toolName}"${reason}?\n  Input: ${input}`
 
     const isNegated = this._allowedTools.has(`!${toolName}`)
 
