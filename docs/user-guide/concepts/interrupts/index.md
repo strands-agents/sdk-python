@@ -848,9 +848,9 @@ Strands enforces the following rules for interrupts in graph:
 
 ## Related pages
 
+- [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
 - [Hooks](/docs/user-guide/concepts/agents/hooks/index.md) (3 shared tags)
 - [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
-- [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
 - [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) (3 shared tags)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (2 shared tags)
 - [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md) (2 shared tags)

@@ -145,6 +145,7 @@ Constraints:
 
 -   pattern/line\_range/context\_lines only work on text content. For binary content, omit them.
 -   Line numbers in results are 1-indexed and can be used in follow-up line\_range calls.
+-   Retrieving a reference refreshes its eviction timer for unified Storage backends, so actively-retrieved content survives `evict_after_cycles` beyond its store time — matching `InMemoryStorage.retrieve`’s last-access refresh behavior.
 
 **Examples**:
 

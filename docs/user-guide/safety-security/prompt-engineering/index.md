@@ -172,6 +172,7 @@ Only after validation, process the request to:
 
 - [Prompts](/docs/user-guide/concepts/agents/prompts/index.md) (3 shared tags)
 - [Instruction Following Evaluator](/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md) (2 shared tags)
+- [Trusted Message History](/docs/user-guide/safety-security/trusted-message-history/index.md) (2 shared tags)
 - [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
 - [Coherence Evaluator](/docs/user-guide/evals-sdk/evaluators/coherence_evaluator/index.md) (1 shared tag)
 - [Conciseness Evaluator](/docs/user-guide/evals-sdk/evaluators/conciseness_evaluator/index.md) (1 shared tag)
@@ -179,4 +180,3 @@ Only after validation, process the request to:
 - [Helpfulness Evaluator](/docs/user-guide/evals-sdk/evaluators/helpfulness_evaluator/index.md) (1 shared tag)
 - [Interactions Evaluator](/docs/user-guide/evals-sdk/evaluators/interactions_evaluator/index.md) (1 shared tag)
 - [Output Evaluator](/docs/user-guide/evals-sdk/evaluators/output_evaluator/index.md) (1 shared tag)
-- [Attack Strategies](/docs/user-guide/evals-sdk/red-teaming/strategies/index.md) (1 shared tag)

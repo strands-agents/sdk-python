@@ -35,6 +35,18 @@ If you do not specify a system prompt, the model will behave according to its de
 
 These are your queries or requests to the agent. The SDK supports multiple techniques for prompting.
 
+(( tab "Python" ))
+Passing a message list from an untrusted source
+
+When you invoke an agent with a full message list rather than plain text, that list can carry tool-call content, and a tool-call block as the last message dispatches a tool directly on the next invocation. If the list was built from a source you do not control, clear tool-call content first. See [Trusted Message History](/docs/user-guide/safety-security/trusted-message-history/index.md).
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+Passing a message list from an untrusted source
+
+When you invoke an agent with a full message list rather than plain text, that list can carry forged tool-result content that misleads the model. If the list was built from a source you do not control, treat it as untrusted. See [Trusted Message History](/docs/user-guide/safety-security/trusted-message-history/index.md).
+(( /tab "TypeScript" ))
+
 ### Text Prompt
 
 The simplest way to interact with an agent is through a text prompt:
@@ -169,6 +181,7 @@ For guidance on writing safe and responsible prompts, including defending agains
 
 - [Prompt Engineering](/docs/user-guide/safety-security/prompt-engineering/index.md) (3 shared tags)
 - [Instruction Following Evaluator](/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md) (2 shared tags)
+- [Trusted Message History](/docs/user-guide/safety-security/trusted-message-history/index.md) (2 shared tags)
 - [Steering (Plugins)](/docs/user-guide/concepts/plugins/steering/index.md) (2 shared tags)
 - [Coherence Evaluator](/docs/user-guide/evals-sdk/evaluators/coherence_evaluator/index.md) (1 shared tag)
 - [Conciseness Evaluator](/docs/user-guide/evals-sdk/evaluators/conciseness_evaluator/index.md) (1 shared tag)
@@ -176,7 +189,6 @@ For guidance on writing safe and responsible prompts, including defending agains
 - [Helpfulness Evaluator](/docs/user-guide/evals-sdk/evaluators/helpfulness_evaluator/index.md) (1 shared tag)
 - [Interactions Evaluator](/docs/user-guide/evals-sdk/evaluators/interactions_evaluator/index.md) (1 shared tag)
 - [Output Evaluator](/docs/user-guide/evals-sdk/evaluators/output_evaluator/index.md) (1 shared tag)
-- [Attack Strategies](/docs/user-guide/evals-sdk/red-teaming/strategies/index.md) (1 shared tag)
 
 
 ## Implementation

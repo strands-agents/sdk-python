@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:656](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L656)
+Defined in: [src/hooks/events.ts:656](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L656)
 
 Event triggered for each streaming progress event from a tool during execution. Wraps a [ToolStreamEvent](/docs/api/typescript/ToolStreamEvent/index.md) with agent context, keeping the tool authoring interface unchanged — tools construct `ToolStreamEvent` without knowledge of agents or hooks, and the agent layer wraps them at the boundary.
 
@@ -16,7 +16,7 @@ Consistent with [ModelStreamUpdateEvent](/docs/api/typescript/ModelStreamUpdateE
 new ToolStreamUpdateEvent(data): ToolStreamUpdateEvent;
 ```
 
-Defined in: [src/hooks/events.ts:662](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L662)
+Defined in: [src/hooks/events.ts:662](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L662)
 
 #### Parameters
 
@@ -43,7 +43,7 @@ Defined in: [src/hooks/events.ts:662](https://github.com/strands-agents/harness-
 readonly type: "toolStreamUpdateEvent";
 ```
 
-Defined in: [src/hooks/events.ts:657](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L657)
+Defined in: [src/hooks/events.ts:657](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L657)
 
 ---
 
@@ -53,7 +53,7 @@ Defined in: [src/hooks/events.ts:657](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:658](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L658)
+Defined in: [src/hooks/events.ts:658](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L658)
 
 ---
 
@@ -63,7 +63,7 @@ Defined in: [src/hooks/events.ts:658](https://github.com/strands-agents/harness-
 readonly event: ToolStreamEvent;
 ```
 
-Defined in: [src/hooks/events.ts:659](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L659)
+Defined in: [src/hooks/events.ts:659](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L659)
 
 ---
 
@@ -73,7 +73,7 @@ Defined in: [src/hooks/events.ts:659](https://github.com/strands-agents/harness-
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/hooks/events.ts:660](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L660)
+Defined in: [src/hooks/events.ts:660](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L660)
 
 ## Methods
 
@@ -83,7 +83,7 @@ Defined in: [src/hooks/events.ts:660](https://github.com/strands-agents/harness-
 toJSON(): Pick<ToolStreamUpdateEvent, "type" | "event">;
 ```
 
-Defined in: [src/hooks/events.ts:673](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L673)
+Defined in: [src/hooks/events.ts:673](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L673)
 
 Serializes for wire transport, excluding the agent reference and invocationState. Called automatically by JSON.stringify().
 

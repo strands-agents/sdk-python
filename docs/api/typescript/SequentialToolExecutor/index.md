@@ -1,4 +1,4 @@
-Defined in: [src/tools/executors/sequential.ts:23](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/tools/executors/sequential.ts#L23)
+Defined in: [src/tools/executors/sequential.ts:23](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/tools/executors/sequential.ts#L23)
 
 Executes tool calls one at a time.
 
@@ -47,7 +47,7 @@ protected executeTool(
 invocationState): AsyncGenerator<AgentStreamEvent, ToolResultBlock, undefined>;
 ```
 
-Defined in: [src/tools/executors/executor.ts:75](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/tools/executors/executor.ts#L75)
+Defined in: [src/tools/executors/executor.ts:75](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/tools/executors/executor.ts#L75)
 
 #### Parameters
 
@@ -78,7 +78,7 @@ protected _storePendingToolExecution(
    completedToolResults): void;
 ```
 
-Defined in: [src/tools/executors/executor.ts:175](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/tools/executors/executor.ts#L175)
+Defined in: [src/tools/executors/executor.ts:175](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/tools/executors/executor.ts#L175)
 
 #### Parameters
 

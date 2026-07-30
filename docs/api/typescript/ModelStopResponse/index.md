@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:444](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L444)
+Defined in: [src/hooks/events.ts:444](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L444)
 
 Response from a model invocation containing the message and stop reason.
 
@@ -10,7 +10,7 @@ Response from a model invocation containing the message and stop reason.
 readonly message: Message;
 ```
 
-Defined in: [src/hooks/events.ts:448](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L448)
+Defined in: [src/hooks/events.ts:448](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L448)
 
 The message returned by the model.
 
@@ -22,7 +22,7 @@ The message returned by the model.
 readonly stopReason: StopReason;
 ```
 
-Defined in: [src/hooks/events.ts:452](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L452)
+Defined in: [src/hooks/events.ts:452](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L452)
 
 The reason the model stopped generating.
 
@@ -34,6 +34,6 @@ The reason the model stopped generating.
 readonly optional redaction?: Redaction;
 ```
 
-Defined in: [src/hooks/events.ts:458](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/hooks/events.ts#L458)
+Defined in: [src/hooks/events.ts:458](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L458)
 
 Optional redaction info when guardrails blocked input. When present, indicates the last user message was redacted. The redacted message is available in `agent.messages` (last message).

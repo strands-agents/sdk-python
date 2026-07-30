@@ -114,6 +114,7 @@
   - [responsible-ai](https://strandsagents.com/docs/user-guide/safety-security/responsible-ai/index.md): Build AI agents responsibly with Strands: least-privilege tool design, input validation, audit logging, and ethical deployment practices.
   - [guardrails](https://strandsagents.com/docs/user-guide/safety-security/guardrails/index.md): Add safety guardrails to AI agents. Control tool permissions, validate outputs, and enforce responsible AI policies in production.
   - [prompt-engineering](https://strandsagents.com/docs/user-guide/safety-security/prompt-engineering/index.md): Write secure system prompts for Strands agents: defend against prompt injection, sanitize inputs, and validate parameters and outputs.
+  - [trusted-message-history](https://strandsagents.com/docs/user-guide/safety-security/trusted-message-history/index.md): An agent treats its message history as trusted input. Treat history from a source you do not control as untrusted, and clear tool-call content from it.
   - [pii-redaction](https://strandsagents.com/docs/user-guide/safety-security/pii-redaction/index.md): Protect personal data in agent telemetry: integrate PII redaction with third-party libraries or OpenTelemetry Collector masking in Strands.
 - Observability & Debugging
   - [observability](https://strandsagents.com/docs/user-guide/observability-evaluation/observability/index.md): Monitor AI agents with OpenTelemetry traces, metrics, and logs. Debug agent behavior and measure performance in production.
@@ -215,7 +216,7 @@
 - Labs
   - [labs](https://strandsagents.com/docs/labs/index.md): Explore Strands Labs, the experimental arm of Strands Agents: open source projects covering robotics, simulation, and new programming abstractions.
   - Projects
-    - [robots](https://strandsagents.com/docs/labs/robots/index.md): Control physical robots with natural language through Strands Agents: vision-language-action policy inference, camera capture, and control loops.
+    - [robots](https://strandsagents.com/docs/labs/robots/index.md): Control, simulate, and train physical robots with natural language through Strands Agents: one Robot() call returns a MuJoCo simulation or real hardware, with pluggable vision-language-action policies and a peer-to-peer mesh.
     - [robots-sim](https://strandsagents.com/docs/labs/robots-sim/index.md): Control robots in simulated environments with natural language through Strands Agents: test vision-language-action policies without hardware.
     - [ai-functions](https://strandsagents.com/docs/labs/ai-functions/index.md): Build reliable AI-powered applications with Strands AI Functions: Python functions evaluated by reasoning agents, with post-condition checking.
 - Integrations

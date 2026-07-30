@@ -10,7 +10,7 @@ The A2A AgentExecutor ensures clients receive responses for synchronous and stre
 class StrandsA2AExecutor(AgentExecutor)
 ```
 
-Defined in: [src/strands/multiagent/a2a/executor.py:66](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L66)
+Defined in: [src/strands/multiagent/a2a/executor.py:109](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L109)
 
 Executor that adapts a Strands Agent to the A2A protocol.
 
@@ -28,7 +28,7 @@ def __init__(agent: SAAgent | None = None,
              max_contexts: int = DEFAULT_MAX_CONTEXTS)
 ```
 
-Defined in: [src/strands/multiagent/a2a/executor.py:88](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L88)
+Defined in: [src/strands/multiagent/a2a/executor.py:131](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L131)
 
 Initialize a StrandsA2AExecutor.
 
@@ -60,7 +60,7 @@ At most `max_contexts` contexts are retained; beyond that the least-recently-use
 async def execute(context: RequestContext, event_queue: EventQueue) -> None
 ```
 
-Defined in: [src/strands/multiagent/a2a/executor.py:255](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L255)
+Defined in: [src/strands/multiagent/a2a/executor.py:315](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L315)
 
 Execute a request using the Strands Agent and send the response as A2A events.
 
@@ -81,7 +81,7 @@ This method executes the user’s input using the Strands Agent in streaming mod
 async def cancel(context: RequestContext, event_queue: EventQueue) -> None
 ```
 
-Defined in: [src/strands/multiagent/a2a/executor.py:470](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L470)
+Defined in: [src/strands/multiagent/a2a/executor.py:547](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/a2a/executor.py#L547)
 
 Cancel an ongoing execution.
 

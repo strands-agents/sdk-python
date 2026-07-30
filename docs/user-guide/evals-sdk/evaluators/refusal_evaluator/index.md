@@ -132,5 +132,5 @@ evaluators = [
 - [Scoring Attacks](/docs/user-guide/evals-sdk/red-teaming/evaluators/index.md) (1 shared tag)
 - [Stereotyping Evaluator](/docs/user-guide/evals-sdk/evaluators/stereotyping_evaluator/index.md) (1 shared tag)
 - [Writing Custom Cases](/docs/user-guide/evals-sdk/red-teaming/custom_cases/index.md) (1 shared tag)
+- [Trusted Message History](/docs/user-guide/safety-security/trusted-message-history/index.md) (1 shared tag)
 - [Instruction Following Evaluator](/docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator/index.md) (1 shared tag)
-- [Red Teaming Quickstart](/docs/user-guide/evals-sdk/red-teaming/quickstart/index.md) (1 shared tag)

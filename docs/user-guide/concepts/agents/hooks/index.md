@@ -1597,8 +1597,8 @@ const agent = new Agent({ plugins: [new LoggingPlugin()] })
 
 ## Related pages
 
-- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
 - [Agent Loop](/docs/user-guide/concepts/agents/agent-loop/index.md) (3 shared tags)
+- [Steering (Interventions)](/docs/user-guide/concepts/agents/interventions/steering/index.md) (3 shared tags)
 - [Interrupts](/docs/user-guide/concepts/interrupts/index.md) (3 shared tags)
 - [Interventions](/docs/user-guide/concepts/agents/interventions/index.md) (3 shared tags)
 - [Plugins](/docs/user-guide/concepts/plugins/index.md) (2 shared tags)

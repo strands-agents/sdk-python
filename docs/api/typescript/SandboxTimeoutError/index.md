@@ -1,4 +1,4 @@
-Defined in: [src/sandbox/errors.ts:11](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/sandbox/errors.ts#L11)
+Defined in: [src/sandbox/errors.ts:11](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/sandbox/errors.ts#L11)
 
 Thrown by sandbox execution when the configured `timeout` elapses.
 
@@ -14,7 +14,7 @@ Thrown by sandbox execution when the configured `timeout` elapses.
 new SandboxTimeoutError(seconds): SandboxTimeoutError;
 ```
 
-Defined in: [src/sandbox/errors.ts:12](https://github.com/strands-agents/harness-sdk/blob/fe4cbb9486566154b1f94e3ea3c6a85a2bd81f43/strands-ts/src/sandbox/errors.ts#L12)
+Defined in: [src/sandbox/errors.ts:12](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/sandbox/errors.ts#L12)
 
 #### Parameters
 
