@@ -286,7 +286,11 @@ class IndexSearch:
 
         q_tokens = [t.lower() for t in _TOKEN.findall(query)]
 
-        # Snapshot index state under lock for consistent reads
+        # Snapshot the posting/df structures under the lock so ranking sees a
+        # point-in-time-consistent view of them. doc.content is read live during
+        # scoring below, so a concurrent hydration may pair these postings with
+        # newer content — eventually consistent, never corrupt (attribute writes
+        # are atomic under the GIL).
         with self._lock:
             docs_snapshot = list(self.docs)
             doc_frequency_snapshot = dict(self.doc_frequency)
