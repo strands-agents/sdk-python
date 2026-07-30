@@ -1557,6 +1557,17 @@ class TestPromptCaching:
 
         assert self._breakpoints(model.format_request(messages)) == []
 
+    def test_existing_cache_points_are_stripped_even_with_nothing_to_cache(self, model):
+        """cache_config owns message breakpoints whenever it is set, not only when it found a block to mark.
+
+        The mirror of this test is "strips hand-placed cache points even when there is nothing to cache"
+        in strands-ts/src/models/__tests__/anthropic.test.ts.
+        """
+        messages = [{"role": "assistant", "content": [{"text": "hello"}, {"cachePoint": {"type": "default"}}]}]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        assert self._breakpoints(model.format_request(messages)) == []
+
     def test_unknown_strategy_disables_caching(self, model, messages, caplog):
         caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
         model.update_config(cache_config=CacheConfig(strategy="nonsense"))

@@ -1222,6 +1222,23 @@ describe('AnthropicModel', () => {
       expect(breakpoints(captured.request)).toEqual([])
     })
 
+    it('strips hand-placed cache points even when there is nothing to cache', async () => {
+      // cacheConfig owns message breakpoints whenever it is set, not only when it found a block to
+      // mark. strands-py strips unconditionally, so failing to do so here diverges the two SDKs.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new TextBlock('hello'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
     it('honors the ttl on a hand-placed cache point', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient })

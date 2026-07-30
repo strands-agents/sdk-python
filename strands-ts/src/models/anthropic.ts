@@ -439,10 +439,16 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
   private _formatRequest(messages: Message[], options?: StreamOptions): Anthropic.MessageStreamParams {
     if (!this._config.modelId) throw new Error('Model ID is required')
 
+    // Caching owns every message breakpoint whenever it is enabled, even if this particular
+    // conversation has no block to put one on. Otherwise a hand-placed cache point would survive here
+    // but not in an otherwise identical request that does have one.
+    const cacheManaged = this._cachingEnabled()
+    const cacheTarget = cacheManaged ? this._findCacheTarget(messages) : undefined
+
     const request: Anthropic.MessageStreamParams = {
       model: this._config.modelId,
       max_tokens: this._config.maxTokens ?? MODEL_DEFAULTS.anthropic.maxTokens,
-      messages: this._formatMessages(messages, this._cachingEnabled() ? this._findCacheTarget(messages) : undefined),
+      messages: this._formatMessages(messages, cacheManaged, cacheTarget),
       stream: true,
     }
 
@@ -501,6 +507,7 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
   private _formatMessages(
     messages: Message[],
+    cacheManaged = false,
     cacheTarget?: { messageIndex: number; blockIndex: number }
   ): Anthropic.MessageParam[] {
     return messages.map((msg, messageIndex) => {
@@ -514,11 +521,11 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
         // While cacheConfig manages placement it owns every message breakpoint, so hand-placed cache
         // points are dropped instead of adding to the count.
-        if (cacheTarget && block.type === 'cachePointBlock') continue
+        if (cacheManaged && block.type === 'cachePointBlock') continue
 
         const nextBlock = msg.content[i + 1]
         const cachePointTTL = nextBlock?.type === 'cachePointBlock' ? nextBlock.ttl : undefined
-        const hasCachePoint = !cacheTarget && nextBlock?.type === 'cachePointBlock'
+        const hasCachePoint = !cacheManaged && nextBlock?.type === 'cachePointBlock'
         const isCacheTarget = cacheTarget?.messageIndex === messageIndex && cacheTarget.blockIndex === i
 
         const formattedBlock = this._formatContentBlock(block)
