@@ -802,7 +802,8 @@ def test_format_chunk_metadata_with_cache_tokens(model):
             "usage": {
                 "inputTokens": 5,
                 "outputTokens": 7,
-                "totalTokens": 12,
+                # Anthropic bills cache tokens on top of input_tokens, so they belong in the total.
+                "totalTokens": 162,
                 "cacheReadInputTokens": 100,
                 "cacheWriteInputTokens": 50,
             },
@@ -1327,3 +1328,66 @@ class TestCountTokens:
         anthropic_client.messages.count_tokens.assert_not_called()
         assert isinstance(result, int)
         assert result >= 0
+
+
+def test_format_chunk_metadata_reports_thinking_tokens(model):
+    """Anthropic reports how many of the billed output tokens were internal reasoning."""
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 500,
+            "cache_read_input_tokens": 5848,
+            "output_tokens_details": {"thinking_tokens": 400},
+        },
+    }
+
+    tru_usage = model.format_chunk(event)["metadata"]["usage"]
+    # Reasoning is a subset of outputTokens, so it is reported without inflating the total.
+    exp_usage = {
+        "inputTokens": 10,
+        "outputTokens": 500,
+        "totalTokens": 6358,
+        "cacheReadInputTokens": 5848,
+        "reasoningOutputTokens": 400,
+    }
+
+    assert tru_usage == exp_usage
+
+
+@pytest.mark.asyncio
+async def test_stream_reports_thinking_tokens_from_message_delta(anthropic_client, model, alist):
+    """The vendor SDK omits output_tokens_details from the accumulated snapshot.
+
+    Anthropic sends the reasoning breakdown only on message_delta, so the adapter has to capture it
+    as it streams rather than reading it off the final message.
+    """
+    delta_event = unittest.mock.Mock(
+        type="message_delta",
+        usage=unittest.mock.Mock(
+            output_tokens_details=unittest.mock.Mock(model_dump=lambda: {"thinking_tokens": 400}),
+        ),
+        model_dump=lambda: {"type": "message_delta"},
+    )
+    anthropic_client.messages.stream.return_value = generate_mock_stream_context(
+        [delta_event],
+        # The snapshot carries no output_tokens_details, matching the vendor accumulator.
+        final_message=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                model_dump=lambda: {"input_tokens": 10, "output_tokens": 500, "cache_read_input_tokens": 5848},
+            )
+        ),
+    )
+
+    events = await alist(model.stream([{"role": "user", "content": [{"text": "hello"}]}], None, None))
+    tru_usage = next(event["metadata"]["usage"] for event in events if "metadata" in event)
+    # Reasoning is a subset of outputTokens, so it is reported without inflating the total.
+    exp_usage = {
+        "inputTokens": 10,
+        "outputTokens": 500,
+        "totalTokens": 6358,
+        "cacheReadInputTokens": 5848,
+        "reasoningOutputTokens": 400,
+    }
+
+    assert tru_usage == exp_usage

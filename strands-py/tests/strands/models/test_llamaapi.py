@@ -576,3 +576,28 @@ async def test_stream_non_overflow_bad_request_propagates(model, messages, alist
     with unittest.mock.patch.object(model.client.chat.completions, "create", side_effect=error):
         with pytest.raises(llama_api_client.BadRequestError, match="invalid 'model' parameter"):
             await alist(model.stream(messages))
+
+
+@pytest.mark.parametrize(
+    "metrics, exp_usage",
+    [
+        # num_total_tokens is reported as a float and can disagree with the counts it should sum,
+        # so the total is derived rather than read.
+        (
+            [("num_prompt_tokens", 100.0), ("num_completion_tokens", 20.0), ("num_total_tokens", 200.0)],
+            {"inputTokens": 100, "outputTokens": 20, "totalTokens": 120},
+        ),
+        (
+            [("num_total_tokens", 120.0)],
+            {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        ),
+        ([], {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}),
+    ],
+)
+def test_format_chunk_metadata_derives_the_total_from_the_reported_counts(model, metrics, exp_usage):
+    data = [unittest.mock.Mock(metric=metric, value=value) for metric, value in metrics]
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": data})["metadata"]["usage"]
+
+    assert tru_usage == exp_usage
+    assert all(type(count) is int for count in tru_usage.values())

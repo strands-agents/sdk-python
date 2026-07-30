@@ -26,6 +26,7 @@ import { APICallError } from '@ai-sdk/provider'
 import type { SystemPrompt, StopReason } from '../types/messages.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import type { ModelStreamEvent, Usage } from './streaming.js'
+import { normalizeUsage } from './usage.js'
 import { Message, TextBlock, type ToolResultContent } from '../types/messages.js'
 import { encodeBase64, ImageBlock, DocumentBlock, VideoBlock } from '../types/media.js'
 import { Model, type BaseModelConfig, type StreamOptions } from './model.js'
@@ -367,15 +368,18 @@ function mapFinishReason(finishReason: LanguageModelV3FinishReason): StopReason 
  * Maps LanguageModelV3 usage to Strands Usage.
  */
 function mapUsage(usage: LanguageModelV3Usage): Usage {
-  const inputTokens = usage.inputTokens.total ?? 0
-  const outputTokens = usage.outputTokens.total ?? 0
-  return {
-    inputTokens,
-    outputTokens,
-    totalTokens: inputTokens + outputTokens,
-    ...(usage.inputTokens.cacheRead != null && { cacheReadInputTokens: usage.inputTokens.cacheRead }),
-    ...(usage.inputTokens.cacheWrite != null && { cacheWriteInputTokens: usage.inputTokens.cacheWrite }),
-  }
+  // `inputTokens.total` includes the cache counts, while `noCache` is the net new count the
+  // disjoint Usage contract wants. Providers that report no breakdown leave `noCache` unset, in
+  // which case `total` is already cache-free.
+  const noCache = usage.inputTokens.noCache
+  return normalizeUsage({
+    inputTokens: noCache ?? usage.inputTokens.total,
+    outputTokens: usage.outputTokens.total,
+    cacheReadTokens: usage.inputTokens.cacheRead,
+    cacheWriteTokens: usage.inputTokens.cacheWrite,
+    reasoningTokens: usage.outputTokens.reasoning,
+    inputIncludesCache: noCache == null,
+  })
 }
 
 /**

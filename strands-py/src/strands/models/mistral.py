@@ -18,6 +18,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
+from ._usage import normalize_usage, token_detail
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -349,11 +350,21 @@ class MistralModel(Model):
                 usage = event["data"]
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": usage.prompt_tokens,
-                            "outputTokens": usage.completion_tokens,
-                            "totalTokens": usage.total_tokens,
-                        },
+                        "usage": normalize_usage(
+                            input_tokens=usage.prompt_tokens,
+                            output_tokens=usage.completion_tokens,
+                            # Mistral reports the whole prompt in prompt_tokens and breaks a cache
+                            # hit out of it. Its own usage type declares no cache counter but
+                            # allows extras, so a hit arrives under whichever of these names the
+                            # endpoint sends: a details payload under either spelling, or a count
+                            # on the usage object itself.
+                            cache_read_tokens=(
+                                token_detail(getattr(usage, "prompt_tokens_details", None), "cached_tokens")
+                                or token_detail(getattr(usage, "prompt_token_details", None), "cached_tokens")
+                                or token_detail(usage, "num_cached_tokens")
+                            ),
+                            input_includes_cache=True,
+                        ),
                         "metrics": {
                             "latencyMs": event.get("latency_ms", 0),
                         },

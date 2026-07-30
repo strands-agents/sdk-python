@@ -18,8 +18,9 @@ from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.streaming import StreamEvent, Usage
+from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._usage import normalize_usage
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -314,19 +315,20 @@ class LlamaAPIModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                # Llama API reports each count as a separate metric and has no prompt cache, so the
+                # total is derived from the prompt and completion counts rather than read from
+                # num_total_tokens, which is reported as a float and can disagree with them.
                 usage = {}
                 for metrics in event["data"]:
                     if metrics.metric == "num_prompt_tokens":
                         usage["inputTokens"] = metrics.value
                     elif metrics.metric == "num_completion_tokens":
                         usage["outputTokens"] = metrics.value
-                    elif metrics.metric == "num_total_tokens":
-                        usage["totalTokens"] = metrics.value
 
-                usage_type = Usage(
-                    inputTokens=usage["inputTokens"],
-                    outputTokens=usage["outputTokens"],
-                    totalTokens=usage["totalTokens"],
+                usage_type = normalize_usage(
+                    input_tokens=usage.get("inputTokens"),
+                    output_tokens=usage.get("outputTokens"),
+                    input_includes_cache=False,
                 )
                 return {
                     "metadata": {

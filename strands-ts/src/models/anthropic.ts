@@ -8,7 +8,8 @@ import {
 } from '../models/model.js'
 import type { Message, ContentBlock } from '../types/messages.js'
 import type { ModelStreamEvent } from '../models/streaming.js'
-import { createEmptyUsage } from '../models/streaming.js'
+import type { RawUsage } from '../models/usage.js'
+import { normalizeUsage } from '../models/usage.js'
 import { ContextWindowOverflowError, ModelThrottledError, normalizeError } from '../errors.js'
 import type { ImageBlock, DocumentBlock } from '../types/media.js'
 import { encodeBase64 } from '../types/media.js'
@@ -161,22 +162,20 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         ? this._client.messages.stream(request, requestOptions)
         : this._client.messages.stream(request)
 
-      const usage = createEmptyUsage()
+      // Anthropic reports cache tokens separately from input_tokens, and spreads the counts across
+      // message_start (input) and message_delta (output), so they are collected raw and
+      // normalized once the stream ends.
+      const rawCounts: RawUsage = { inputTokens: 0, outputTokens: 0, inputIncludesCache: false }
 
       let stopReason = 'endTurn'
 
       for await (const event of stream) {
         switch (event.type) {
           case 'message_start': {
-            usage.inputTokens = event.message.usage.input_tokens
-
             const rawUsage = event.message.usage as unknown as Record<string, number | undefined>
-            if (rawUsage.cache_creation_input_tokens !== undefined) {
-              usage.cacheWriteInputTokens = rawUsage.cache_creation_input_tokens
-            }
-            if (rawUsage.cache_read_input_tokens !== undefined) {
-              usage.cacheReadInputTokens = rawUsage.cache_read_input_tokens
-            }
+            rawCounts.inputTokens = event.message.usage.input_tokens
+            rawCounts.cacheWriteTokens = rawUsage.cache_creation_input_tokens
+            rawCounts.cacheReadTokens = rawUsage.cache_read_input_tokens
 
             yield {
               type: 'modelMessageStartEvent',
@@ -257,7 +256,24 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
           case 'message_delta':
             if (event.usage) {
-              usage.outputTokens = event.usage.output_tokens
+              rawCounts.outputTokens = event.usage.output_tokens
+              // Anthropic reports how many of the billed output tokens were internal reasoning,
+              // and on the streaming path that breakdown arrives only on this event. output_tokens
+              // stays the authoritative total, so the count is a subset of it.
+              rawCounts.reasoningTokens = event.usage.output_tokens_details?.thinking_tokens ?? undefined
+              // Anthropic documents every count on this event as cumulative, so a cache count it
+              // carries supersedes the one message_start opened with. Keeping only the opening
+              // count would drop a cache entry the model reports partway through a response.
+              const deltaUsage = event.usage as unknown as Record<string, number | null | undefined>
+              if (deltaUsage.cache_creation_input_tokens != null) {
+                rawCounts.cacheWriteTokens = deltaUsage.cache_creation_input_tokens
+              }
+              if (deltaUsage.cache_read_input_tokens != null) {
+                rawCounts.cacheReadTokens = deltaUsage.cache_read_input_tokens
+              }
+              if (deltaUsage.input_tokens != null) {
+                rawCounts.inputTokens = deltaUsage.input_tokens
+              }
             }
             if (event.delta.stop_reason) {
               stopReason = this._mapStopReason(event.delta.stop_reason)
@@ -265,10 +281,9 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
             break
 
           case 'message_stop':
-            usage.totalTokens = usage.inputTokens + usage.outputTokens
             yield {
               type: 'modelMetadataEvent',
-              usage,
+              usage: normalizeUsage(rawCounts),
             }
             yield {
               type: 'modelMessageStopEvent',

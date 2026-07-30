@@ -13,7 +13,8 @@ import type { ResponseStreamEvent } from 'openai/resources/responses/responses'
 import { Model, resolveConfigMetadata } from '../model.js'
 import type { StreamOptions } from '../model.js'
 import type { Message } from '../../types/messages.js'
-import type { ModelStreamEvent } from '../streaming.js'
+import type { ModelStreamEvent, Usage } from '../streaming.js'
+import { cacheReadCount, cacheWriteCount, normalizeUsage } from '../usage.js'
 import { ContextWindowOverflowError, ModelThrottledError } from '../../errors.js'
 import { logger } from '../../logging/logger.js'
 import { warnOnce } from '../../logging/warn-once.js'
@@ -192,19 +193,26 @@ export class OpenAIModel extends Model<OpenAIModelConfig> {
 
       let bufferedUsage: {
         type: 'modelMetadataEvent'
-        usage: { inputTokens: number; outputTokens: number; totalTokens: number }
+        usage: Usage
       } | null = null
 
       for await (const chunk of stream) {
         if (!chunk.choices || chunk.choices.length === 0) {
           if (chunk.usage) {
+            // prompt_tokens covers the whole prompt, with cached tokens broken out as a subset. A
+            // cache write is absent from the openai package's types but present on the wire for
+            // GPT-5.6 and later, where it bills at 1.25x the input rate.
+            const promptDetails = chunk.usage.prompt_tokens_details as { cached_tokens?: number } | undefined
             bufferedUsage = {
               type: 'modelMetadataEvent',
-              usage: {
-                inputTokens: chunk.usage.prompt_tokens ?? 0,
-                outputTokens: chunk.usage.completion_tokens ?? 0,
-                totalTokens: chunk.usage.total_tokens ?? 0,
-              },
+              usage: normalizeUsage({
+                inputTokens: chunk.usage.prompt_tokens,
+                outputTokens: chunk.usage.completion_tokens,
+                cacheReadTokens: cacheReadCount(chunk.usage, promptDetails),
+                cacheWriteTokens: cacheWriteCount(chunk.usage, promptDetails),
+                reasoningTokens: chunk.usage.completion_tokens_details?.reasoning_tokens,
+                inputIncludesCache: true,
+              }),
             }
           }
           continue

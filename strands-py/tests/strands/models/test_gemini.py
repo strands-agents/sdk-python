@@ -565,7 +565,9 @@ def test_format_chunk_metadata_with_cache_tokens(model):
     assert result == {
         "metadata": {
             "usage": {
-                "inputTokens": 100,
+                # cached_content_token_count is part of prompt_token_count and is subtracted
+                # out of it; outputTokens falls back to total - prompt without a candidate count.
+                "inputTokens": 75,
                 "outputTokens": 50,
                 "totalTokens": 150,
                 "cacheReadInputTokens": 25,
@@ -1327,3 +1329,55 @@ class TestCountTokens:
         gemini_client.aio.models.count_tokens.assert_not_called()
         assert isinstance(result, int)
         assert result >= 0
+
+
+@pytest.mark.parametrize(
+    "metadata_kwargs, exp_output_tokens",
+    [
+        # Google omits candidates_token_count on some responses. Expected values match the
+        # TypeScript SDK's google/adapters.ts exactly.
+        ({"prompt_token_count": 100, "thoughts_token_count": 40}, 40),
+        ({"prompt_token_count": 100, "total_token_count": 160}, 60),
+        (
+            {
+                "prompt_token_count": 1000,
+                "tool_use_prompt_token_count": 300,
+                "candidates_token_count": 100,
+                "thoughts_token_count": 200,
+                "total_token_count": 1600,
+            },
+            300,
+        ),
+        # A live gemini-2.5-pro response, where the total confirms the candidate count excludes
+        # the thoughts.
+        (
+            {
+                "prompt_token_count": 13,
+                "candidates_token_count": 2,
+                "thoughts_token_count": 170,
+                "total_token_count": 185,
+            },
+            172,
+        ),
+        # The same counts on a response whose total shows the candidate count already covers the
+        # thoughts, so adding them again would bill them twice.
+        (
+            {
+                "prompt_token_count": 13,
+                "candidates_token_count": 172,
+                "thoughts_token_count": 170,
+                "total_token_count": 185,
+            },
+            172,
+        ),
+    ],
+)
+def test_format_chunk_metadata_infers_output_tokens(model, metadata_kwargs, exp_output_tokens):
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(**metadata_kwargs),
+    }
+
+    tru_usage = model._format_chunk(event)["metadata"]["usage"]
+
+    assert tru_usage["outputTokens"] == exp_output_tokens

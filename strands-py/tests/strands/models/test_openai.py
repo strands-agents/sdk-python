@@ -960,12 +960,77 @@ def test_format_chunk_metadata_with_cache_tokens(model):
 
     event = {"chunk_type": "metadata", "data": mock_usage}
 
-    result = model.format_chunk(event)
+    tru_usage = model.format_chunk(event)["metadata"]["usage"]
+    # OpenAI's prompt_tokens already contains cached_tokens, so the cached tokens are
+    # subtracted out of inputTokens to keep the four counters disjoint.
+    exp_usage = {
+        "inputTokens": 75,
+        "outputTokens": 50,
+        "totalTokens": 150,
+        "cacheReadInputTokens": 25,
+    }
 
-    assert result["metadata"]["usage"]["inputTokens"] == 100
-    assert result["metadata"]["usage"]["outputTokens"] == 50
-    assert result["metadata"]["usage"]["totalTokens"] == 150
-    assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
+    assert tru_usage == exp_usage
+
+
+@pytest.mark.parametrize(
+    ("write_name", "on_usage"),
+    [("cache_write_tokens", False), ("cache_creation_tokens", False), ("cache_creation_input_tokens", True)],
+)
+def test_format_chunk_metadata_reads_a_cache_write_under_every_name(model, write_name, on_usage):
+    """A gateway speaking the OpenAI shape reports a cache write under one of three names.
+
+    This provider is the documented way to reach an OpenAI-compatible server, including a LiteLLM
+    proxy, which lifts an Anthropic-shaped write onto the usage object rather than leaving it on the
+    prompt details. Reading a single name leaves the write folded inside the prompt count, billed at
+    the full input rate, and nothing downstream can see it because the counters still sum.
+
+    The payload carries only the names a gateway would send, rather than a Mock: a Mock answers
+    every attribute, so it could not tell a name that is read from one that is missed.
+    """
+    details = {"cached_tokens": 3000} if on_usage else {"cached_tokens": 3000, write_name: 2000}
+    usage = openai.types.CompletionUsage(
+        prompt_tokens=5100,
+        completion_tokens=50,
+        total_tokens=5150,
+        prompt_tokens_details=openai.types.completion_usage.PromptTokensDetails(**details),
+    )
+    if on_usage:
+        usage.cache_creation_input_tokens = 2000
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": usage})["metadata"]["usage"]
+    exp_usage = {
+        "inputTokens": 100,
+        "outputTokens": 50,
+        "totalTokens": 5150,
+        "cacheReadInputTokens": 3000,
+        "cacheWriteInputTokens": 2000,
+    }
+
+    assert tru_usage == exp_usage
+
+
+@pytest.mark.parametrize("read_name", ["cache_read_input_tokens", "prompt_cache_hit_tokens"])
+def test_format_chunk_metadata_reads_a_cache_hit_off_the_usage_object(model, read_name):
+    """A gateway lifts both cache counters onto the usage object, leaving no details payload to read.
+
+    It builds that payload only from counts arriving as ints, so a gateway reporting one as a JSON
+    float leaves it absent while both counters sit on the usage object. Reading only the details name
+    bills a cache hit at the full input rate, which is the discount the cache exists for, and nothing
+    warns because the counters still sum to the reported total.
+    """
+    usage = openai.types.CompletionUsage(prompt_tokens=5000, completion_tokens=50, total_tokens=5050)
+    setattr(usage, read_name, 3000.0)
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": usage})["metadata"]["usage"]
+    exp_usage = {
+        "inputTokens": 2000,
+        "outputTokens": 50,
+        "totalTokens": 5050,
+        "cacheReadInputTokens": 3000,
+    }
+
+    assert tru_usage == exp_usage
 
 
 def test_format_chunk_metadata_with_zero_cached_tokens(model):

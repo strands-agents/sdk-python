@@ -364,12 +364,26 @@ function formatToolResultBlock(block: ToolResultBlock, toolUseIdToName: Map<stri
 export function mapChunkToEvents(chunk: GenerateContentResponse, streamState: GoogleStreamState): ModelStreamEvent[] {
   const events: ModelStreamEvent[] = []
 
-  // Extract usage metadata if available
+  // Extract usage metadata if available. promptTokenCount covers the whole prompt including
+  // cached content, and tool-result tokens are reported separately but are prompt tokens too.
+  // candidatesTokenCount is the real generated count; totalTokenCount only backfills it when
+  // absent, since it also folds in the tool-use and thought counts, and it says whether
+  // candidatesTokenCount already covers the thoughts: when the other counts alone reach the
+  // total, adding the thoughts again would double-count them.
   if (chunk.usageMetadata) {
-    const promptTokens = chunk.usageMetadata.promptTokenCount || 0
-    const totalTokens = chunk.usageMetadata.totalTokenCount || 0
+    const metadata = chunk.usageMetadata
+    const promptTokens = (metadata.promptTokenCount || 0) + (metadata.toolUsePromptTokenCount || 0)
+    const thoughtsTokens = metadata.thoughtsTokenCount || 0
+    let outputTokens = metadata.candidatesTokenCount ?? 0
+    if (metadata.candidatesTokenCount == null && metadata.totalTokenCount != null) {
+      outputTokens = Math.max(0, metadata.totalTokenCount - promptTokens)
+    } else if (promptTokens + outputTokens !== metadata.totalTokenCount) {
+      outputTokens += thoughtsTokens
+    }
     streamState.inputTokens = promptTokens
-    streamState.outputTokens = totalTokens - promptTokens
+    streamState.outputTokens = outputTokens
+    streamState.cacheReadTokens = metadata.cachedContentTokenCount || 0
+    streamState.reasoningTokens = thoughtsTokens
   }
 
   const candidates = chunk.candidates

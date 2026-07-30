@@ -22,6 +22,7 @@ import {
   ModelMetadataEvent,
   ModelRedactionEvent,
   type ModelStreamEvent,
+  readReportedUsage,
 } from './streaming.js'
 import { MaxTokensError, ModelError, normalizeError } from '../errors.js'
 import type { Redaction } from '../hooks/events.js'
@@ -448,8 +449,14 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
             break
 
           case 'modelMetadataEvent':
-            // Store metadata, keeping the last one if multiple events occur
-            metadata = event
+            // Store metadata, keeping the last one if multiple events occur. The counts are read
+            // here rather than where they are attached to the message so that every consumer of
+            // this event sees numbers, including the OpenTelemetry counters, which silently drop
+            // an add() of anything else.
+            metadata =
+              event.usage !== undefined
+                ? new ModelMetadataEvent({ ...event, usage: readReportedUsage(event.usage) })
+                : event
             break
 
           case 'modelRedactionEvent':

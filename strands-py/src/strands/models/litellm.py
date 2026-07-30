@@ -17,10 +17,10 @@ from typing_extensions import Unpack, override
 
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages, SystemContentBlock
-from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec, ToolUse
+from ._usage import cache_read_count, cache_write_count, normalize_usage, token_detail
 from ._validation import validate_config_keys
 from .model import BaseModelConfig
 from .openai import OpenAIModel
@@ -282,19 +282,18 @@ class LiteLLMModel(OpenAIModel):
         """
         # Handle metadata case with prompt caching support
         if event["chunk_type"] == "metadata":
-            usage_data: Usage = {
-                "inputTokens": event["data"].prompt_tokens,
-                "outputTokens": event["data"].completion_tokens,
-                "totalTokens": event["data"].total_tokens,
-            }
-
-            # Only LiteLLM over Anthropic supports cache write tokens
-            # Waiting until a more general approach is available to set cacheWriteInputTokens
-            if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
-                if cached := getattr(tokens_details, "cached_tokens", None):
-                    usage_data["cacheReadInputTokens"] = cached
-            if creation := getattr(event["data"], "cache_creation_input_tokens", None):
-                usage_data["cacheWriteInputTokens"] = creation
+            prompt_details = getattr(event["data"], "prompt_tokens_details", None)
+            completion_details = getattr(event["data"], "completion_tokens_details", None)
+            # LiteLLM reports prompt_tokens as the whole prompt, with both cache counters folded
+            # into it, and breaks each one out separately.
+            usage_data = normalize_usage(
+                input_tokens=event["data"].prompt_tokens,
+                output_tokens=event["data"].completion_tokens,
+                cache_read_tokens=cache_read_count(event["data"], prompt_details),
+                cache_write_tokens=cache_write_count(event["data"], prompt_details),
+                reasoning_tokens=token_detail(completion_details, "reasoning_tokens"),
+                input_includes_cache=True,
+            )
 
             return StreamEvent(
                 metadata=MetadataEvent(

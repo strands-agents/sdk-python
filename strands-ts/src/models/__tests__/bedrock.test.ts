@@ -864,6 +864,41 @@ describe('BedrockModel', () => {
     { mode: 'streaming', stream: true },
     { mode: 'non-streaming', stream: false },
   ])('BedrockModel in $mode mode', ({ stream }) => {
+    it('carries cache token counters through to usage', async () => {
+      // Converse reports cache tokens on top of inputTokens and includes them in totalTokens, so
+      // dropping them would leave the total unaccounted for by any counter.
+      const usage = { inputTokens: 10, outputTokens: 4, totalTokens: 5862, cacheReadInputTokens: 5848 }
+      const mockSend = vi.fn(async () => {
+        if (stream) {
+          return {
+            stream: (async function* (): AsyncGenerator<unknown> {
+              yield { messageStart: { role: 'assistant' } }
+              yield { contentBlockStart: {} }
+              yield { contentBlockDelta: { delta: { text: 'OK' } } }
+              yield { contentBlockStop: {} }
+              yield { messageStop: { stopReason: 'end_turn' } }
+              yield { metadata: { usage, metrics: { latencyMs: 100 } } }
+            })(),
+          }
+        }
+        return {
+          output: { message: { role: 'assistant', content: [{ text: 'OK' }] } },
+          stopReason: 'end_turn',
+          usage,
+          metrics: { latencyMs: 100 },
+        }
+      })
+      mockBedrockClientImplementation({ send: mockSend })
+
+      const provider = new BedrockModel({ stream })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+      const metadataEvent = events.find((event) => event.type === 'modelMetadataEvent')
+
+      expect(metadataEvent?.type === 'modelMetadataEvent' && metadataEvent.usage).toEqual(usage)
+    })
+
     it('yields and validates text events correctly', async () => {
       const mockSend = vi.fn(async () => {
         if (stream) {

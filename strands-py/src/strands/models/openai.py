@@ -17,13 +17,13 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages, SystemContentBlock
-from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
 from ._openai_errors import classify_openai_error
+from ._usage import cache_read_count, cache_write_count, normalize_usage, token_detail
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -583,15 +583,17 @@ class OpenAIModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
-                usage_data: Usage = {
-                    "inputTokens": event["data"].prompt_tokens,
-                    "outputTokens": event["data"].completion_tokens,
-                    "totalTokens": event["data"].total_tokens,
-                }
-
-                if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
-                    if cached := getattr(tokens_details, "cached_tokens", None):
-                        usage_data["cacheReadInputTokens"] = cached
+                prompt_details = getattr(event["data"], "prompt_tokens_details", None)
+                completion_details = getattr(event["data"], "completion_tokens_details", None)
+                # OpenAI reports the full prompt in prompt_tokens, with cache tokens as a subset.
+                usage_data = normalize_usage(
+                    input_tokens=event["data"].prompt_tokens,
+                    output_tokens=event["data"].completion_tokens,
+                    cache_read_tokens=cache_read_count(event["data"], prompt_details),
+                    cache_write_tokens=cache_write_count(event["data"], prompt_details),
+                    reasoning_tokens=token_detail(completion_details, "reasoning_tokens"),
+                    input_includes_cache=True,
+                )
 
                 return {
                     "metadata": {

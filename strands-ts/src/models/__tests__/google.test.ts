@@ -1109,6 +1109,69 @@ describe('GoogleModel', () => {
     })
   })
 
+  describe('usage metadata', () => {
+    // Expected values match the Python SDK's gemini.py exactly; Google omits
+    // candidatesTokenCount on some responses.
+    it.each([
+      { name: 'thoughts only, no total', metadata: { promptTokenCount: 100, thoughtsTokenCount: 40 }, output: 40 },
+      {
+        name: 'total present, candidates absent',
+        metadata: { promptTokenCount: 100, totalTokenCount: 160 },
+        output: 60,
+      },
+      {
+        name: 'tool-result turn',
+        metadata: {
+          promptTokenCount: 1000,
+          toolUsePromptTokenCount: 300,
+          candidatesTokenCount: 100,
+          thoughtsTokenCount: 200,
+          totalTokenCount: 1600,
+        },
+        output: 300,
+      },
+      {
+        // A live gemini-2.5-pro response, where the total confirms the candidate count
+        // excludes the thoughts.
+        name: 'candidates exclusive of thoughts',
+        metadata: {
+          promptTokenCount: 13,
+          candidatesTokenCount: 2,
+          thoughtsTokenCount: 170,
+          totalTokenCount: 185,
+        },
+        output: 172,
+      },
+      {
+        // The same counts on a response whose total shows the candidate count already covers
+        // the thoughts, so adding them again would bill them twice.
+        name: 'candidates inclusive of thoughts',
+        metadata: {
+          promptTokenCount: 13,
+          candidatesTokenCount: 172,
+          thoughtsTokenCount: 170,
+          totalTokenCount: 185,
+        },
+        output: 172,
+      },
+    ])('infers outputTokens for $name', ({ metadata, output }) => {
+      const streamState = {
+        messageStarted: false,
+        textContentBlockStarted: false,
+        reasoningContentBlockStarted: false,
+        hasToolCalls: false,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
+      }
+
+      mapChunkToEvents({ usageMetadata: metadata } as never, streamState)
+
+      expect(streamState.outputTokens).toBe(output)
+    })
+  })
+
   describe('tool use streaming', () => {
     function createStreamState(): GoogleStreamState {
       return {
@@ -1118,6 +1181,8 @@ describe('GoogleModel', () => {
         hasToolCalls: false,
         inputTokens: 0,
         outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
       }
     }
 

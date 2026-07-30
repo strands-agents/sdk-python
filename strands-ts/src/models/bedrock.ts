@@ -1358,13 +1358,23 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     })
 
     const usage = ensureDefined(event.usage, 'output.usage')
+    const usageInfo: Usage = {
+      inputTokens: ensureDefined(usage.inputTokens, 'usage.inputTokens'),
+      outputTokens: ensureDefined(usage.outputTokens, 'usage.outputTokens'),
+      totalTokens: ensureDefined(usage.totalTokens, 'usage.totalTokens'),
+    }
+    // Converse reports cache tokens on top of inputTokens, and its totalTokens already includes
+    // them, so they are carried across to keep the four counters summing to that total.
+    if (usage.cacheReadInputTokens !== undefined) {
+      usageInfo.cacheReadInputTokens = usage.cacheReadInputTokens
+    }
+    if (usage.cacheWriteInputTokens !== undefined) {
+      usageInfo.cacheWriteInputTokens = usage.cacheWriteInputTokens
+    }
+
     const metadataEvent: ModelStreamEvent = {
       type: 'modelMetadataEvent',
-      usage: {
-        inputTokens: ensureDefined(usage.inputTokens, 'usage.inputTokens'),
-        outputTokens: ensureDefined(usage.outputTokens, 'usage.outputTokens'),
-        totalTokens: ensureDefined(usage.totalTokens, 'usage.totalTokens'),
-      },
+      usage: usageInfo,
     }
 
     if (event.metrics) {

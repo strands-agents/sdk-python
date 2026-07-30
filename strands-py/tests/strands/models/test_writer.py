@@ -635,3 +635,27 @@ async def test_structured_output_non_overflow_bad_request_propagates(
     messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(writerai.BadRequestError, match="invalid 'model' parameter"):
         await alist(model.structured_output(test_output_model_cls, messages))
+
+
+def test_format_chunk_metadata_reads_writer_cache_and_reasoning_counts():
+    """Writer names its prompt breakdown ``prompt_token_details``, not OpenAI's plural form."""
+    model = WriterModel(client_args={"api_key": "k"}, model_id="palmyra-x5")
+    usage = unittest.mock.Mock(
+        prompt_tokens=1000,
+        completion_tokens=50,
+        total_tokens=1050,
+        prompt_token_details=unittest.mock.Mock(cached_tokens=800),
+        completion_tokens_details=unittest.mock.Mock(reasoning_tokens=30),
+    )
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": usage})["metadata"]["usage"]
+    # prompt_tokens covers the whole prompt, so the cached tokens come out of the input count.
+    exp_usage = {
+        "inputTokens": 200,
+        "outputTokens": 50,
+        "totalTokens": 1050,
+        "cacheReadInputTokens": 800,
+        "reasoningOutputTokens": 30,
+    }
+
+    assert tru_usage == exp_usage

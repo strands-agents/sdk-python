@@ -1,6 +1,7 @@
 import logging
 import unittest.mock
 
+import mistralai.client.models.usageinfo
 import pydantic
 import pytest
 
@@ -492,6 +493,36 @@ def test_format_chunk_metadata(model):
     }
 
     assert actual_chunk == exp_chunk
+
+
+@pytest.mark.parametrize(
+    "reported",
+    [
+        {"prompt_tokens_details": {"cached_tokens": 3000}},
+        {"prompt_token_details": {"cached_tokens": 3000}},
+        {"num_cached_tokens": 3000},
+    ],
+)
+def test_format_chunk_metadata_reads_a_cache_hit_under_every_name(model, reported):
+    """Mistral reports the whole prompt in prompt_tokens and breaks a cache hit out of it.
+
+    Its own usage type declares no cache counter but allows extras, so a hit arrives under whichever
+    name the endpoint sends. A real usage payload rather than a Mock, which answers every attribute
+    and so could not tell a name that is read from one that is missed.
+    """
+    usage = mistralai.client.models.usageinfo.UsageInfo.model_validate(
+        {"prompt_tokens": 5000, "completion_tokens": 50, "total_tokens": 5050, **reported}
+    )
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": usage})["metadata"]["usage"]
+    exp_usage = {
+        "inputTokens": 2000,
+        "outputTokens": 50,
+        "totalTokens": 5050,
+        "cacheReadInputTokens": 3000,
+    }
+
+    assert tru_usage == exp_usage
 
 
 def test_format_chunk_metadata_no_latency(model):

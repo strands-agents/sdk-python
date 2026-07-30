@@ -393,12 +393,15 @@ describe('VercelModel', () => {
         const events = await collectIterator(model.stream([]))
         const metaEvent = events.find((e) => e.type === 'modelMetadataEvent')
 
+        // The AI SDK's `noCache` (80) is the net new count; `total` (100) includes the cache
+        // counters, so the four disjoint counters still sum to the provider's 150.
         expect(metaEvent?.usage).toEqual({
-          inputTokens: 100,
+          inputTokens: 80,
           outputTokens: 50,
           totalTokens: 150,
           cacheReadInputTokens: 15,
           cacheWriteInputTokens: 5,
+          reasoningOutputTokens: 10,
         })
       })
 

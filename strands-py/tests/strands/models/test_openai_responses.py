@@ -592,7 +592,8 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             {
                 "metadata": {
                     "usage": {
-                        "inputTokens": 100,
+                        # cached_tokens is a subset of input_tokens and is subtracted out of it.
+                        "inputTokens": 20,
                         "outputTokens": 50,
                         "totalTokens": 150,
                         "cacheReadInputTokens": 80,
@@ -633,7 +634,8 @@ def test_format_chunk_metadata_with_cache_tokens(model):
     assert model._format_chunk(event) == {
         "metadata": {
             "usage": {
-                "inputTokens": 100,
+                # cached_tokens is a subset of input_tokens and is subtracted out of it.
+                "inputTokens": 75,
                 "outputTokens": 50,
                 "totalTokens": 150,
                 "cacheReadInputTokens": 25,
@@ -759,11 +761,12 @@ async def test_stream_cache_tokens_propagated(openai_client, model, agenerator, 
 
     metadata_events = [e for e in tru_events if "metadata" in e]
     assert len(metadata_events) == 1
-    usage = metadata_events[0]["metadata"]["usage"]
-    assert usage["inputTokens"] == 100
-    assert usage["outputTokens"] == 10
-    assert usage["totalTokens"] == 110
-    assert usage["cacheReadInputTokens"] == 80
+    tru_usage = metadata_events[0]["metadata"]["usage"]
+    # cached_tokens is a subset of input_tokens, so 20 of the 100 prompt tokens are net new and
+    # the four counters sum to the provider's own total.
+    exp_usage = {"inputTokens": 20, "outputTokens": 10, "totalTokens": 110, "cacheReadInputTokens": 80}
+
+    assert tru_usage == exp_usage
 
 
 @pytest.mark.asyncio

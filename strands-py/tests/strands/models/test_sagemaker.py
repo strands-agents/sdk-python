@@ -596,12 +596,17 @@ class TestDataClasses:
 
     def test_usage_metadata(self):
         """Test UsageMetadata dataclass."""
-        usage = UsageMetadata(total_tokens=100, completion_tokens=30, prompt_tokens=70, prompt_tokens_details=5)
+        usage = UsageMetadata(
+            total_tokens=100,
+            completion_tokens=30,
+            prompt_tokens=70,
+            prompt_tokens_details={"cached_tokens": 5},
+        )
 
         assert usage.total_tokens == 100
         assert usage.completion_tokens == 30
         assert usage.prompt_tokens == 70
-        assert usage.prompt_tokens_details == 5
+        assert usage.prompt_tokens_details == {"cached_tokens": 5}
 
     def test_function_call(self):
         """Test FunctionCall dataclass."""

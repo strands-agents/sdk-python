@@ -17,11 +17,11 @@ from typing_extensions import Required, Unpack, override
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages, SystemContentBlock
-from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._defaults import resolve_config_metadata
+from ._usage import normalize_usage, token_detail
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -372,19 +372,16 @@ class AnthropicModel(Model):
 
             case "metadata":
                 usage = event["usage"]
-                input_tokens = usage["input_tokens"]
-                output_tokens = usage["output_tokens"]
-                cache_read = usage.get("cache_read_input_tokens") or 0
-                cache_write = usage.get("cache_creation_input_tokens") or 0
-                usage_chunk: Usage = {
-                    "inputTokens": input_tokens,
-                    "outputTokens": output_tokens,
-                    "totalTokens": input_tokens + output_tokens,
-                }
-                if cache_read:
-                    usage_chunk["cacheReadInputTokens"] = cache_read
-                if cache_write:
-                    usage_chunk["cacheWriteInputTokens"] = cache_write
+                # Anthropic reports cache tokens separately from input_tokens, and reports how many
+                # of the billed output tokens were internal reasoning.
+                usage_chunk = normalize_usage(
+                    input_tokens=usage["input_tokens"],
+                    output_tokens=usage["output_tokens"],
+                    cache_read_tokens=usage.get("cache_read_input_tokens") or 0,
+                    cache_write_tokens=usage.get("cache_creation_input_tokens") or 0,
+                    reasoning_tokens=token_detail(usage.get("output_tokens_details"), "thinking_tokens"),
+                    input_includes_cache=False,
+                )
 
                 return {
                     "metadata": {
@@ -483,7 +480,15 @@ class AnthropicModel(Model):
         try:
             async with self.client.messages.stream(**request) as stream:
                 logger.debug("got response from model")
+                # The vendor SDK's message accumulator does not carry output_tokens_details onto the
+                # final snapshot, and Anthropic only sends that breakdown on message_delta, so it is
+                # captured here as it streams past.
+                output_tokens_details: dict[str, Any] | None = None
                 async for event in stream:
+                    if event.type == "message_delta":
+                        details = getattr(event.usage, "output_tokens_details", None)
+                        if details is not None:
+                            output_tokens_details = details.model_dump()
                     if event.type in AnthropicModel.EVENT_TYPES:
                         if event.type == "message_stop":
                             # Build dict directly to avoid Pydantic serialization warnings
@@ -504,7 +509,10 @@ class AnthropicModel(Model):
                 except AssertionError as e:
                     logger.warning("error=<%s> | failed to retrieve message snapshot, usage metadata unavailable", e)
                 else:
-                    yield self.format_chunk({"type": "metadata", "usage": message_snapshot.usage.model_dump()})
+                    usage = message_snapshot.usage.model_dump()
+                    if output_tokens_details is not None:
+                        usage["output_tokens_details"] = output_tokens_details
+                    yield self.format_chunk({"type": "metadata", "usage": usage})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error

@@ -17,6 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._usage import normalize_usage
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -282,13 +283,13 @@ class OllamaModel(Model):
             case "metadata":
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_eval_count,
-                            "outputTokens": event["data"].eval_count,
-                            "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
-                        },
+                        "usage": normalize_usage(
+                            input_tokens=event["data"].prompt_eval_count,
+                            output_tokens=event["data"].eval_count,
+                            input_includes_cache=False,
+                        ),
                         "metrics": {
-                            "latencyMs": int(event["data"].total_duration / 1e6),
+                            "latencyMs": int((event["data"].total_duration or 0) / 1e6),
                         },
                     },
                 }

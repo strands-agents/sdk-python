@@ -86,4 +86,8 @@ export interface GoogleStreamState {
   hasToolCalls: boolean
   inputTokens: number
   outputTokens: number
+  /** Prompt tokens served from cached content; a subset of `inputTokens`. */
+  cacheReadTokens: number
+  /** Tokens spent on the model's internal "thoughts"; a subset of `outputTokens`. */
+  reasoningTokens: number
 }

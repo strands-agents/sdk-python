@@ -206,6 +206,40 @@ describe('AnthropicModel', () => {
   })
 
   describe('stream event handling', () => {
+    it('reports thinking tokens from the final message_delta', async () => {
+      // Anthropic reports how many of the billed output tokens were internal reasoning, and on the
+      // streaming path that breakdown arrives only on this event.
+      const mockClient = createMockClient(async function* () {
+        yield {
+          type: 'message_start',
+          message: { role: 'assistant', usage: { input_tokens: 10, cache_read_input_tokens: 5848 } },
+        }
+        yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+        yield { type: 'content_block_stop', index: 0 }
+        yield {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: { output_tokens: 500, output_tokens_details: { thinking_tokens: 400 } },
+        }
+        yield { type: 'message_stop' }
+      })
+
+      const provider = new AnthropicModel({ client: mockClient })
+      const events = await collectIterator(
+        provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })])
+      )
+      const metadata = events.find((event) => event.type === 'modelMetadataEvent')
+
+      // Reasoning is a subset of outputTokens, so it is reported without inflating the total.
+      expect(metadata?.type === 'modelMetadataEvent' && metadata.usage).toEqual({
+        inputTokens: 10,
+        outputTokens: 500,
+        totalTokens: 6358,
+        cacheReadInputTokens: 5848,
+        reasoningOutputTokens: 400,
+      })
+    })
+
     it('yields correct event sequence for simple text response', async () => {
       const mockClient = createMockClient(async function* () {
         yield { type: 'message_start', message: { role: 'assistant', usage: { input_tokens: 10 } } }

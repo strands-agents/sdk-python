@@ -124,6 +124,33 @@ describe('Model', () => {
       })
     })
 
+    describe('when a model reports counts that are not numbers', () => {
+      it('carries numbers to every consumer of the metadata event', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield { type: 'modelContentBlockStartEvent' }
+          yield { type: 'modelContentBlockDeltaEvent', delta: { type: 'textDelta', text: 'Hello' } }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'endTurn' }
+          // A model implementation is not bound by the type at runtime, so the counts arrive as
+          // whatever it reported.
+          yield {
+            type: 'modelMetadataEvent',
+            usage: { inputTokens: '9000', outputTokens: '100', totalTokens: '9100' },
+          } as unknown as ModelStreamEvent
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        const { result } = await collectGenerator(provider.streamAggregated(messages))
+
+        // The metadata event reaches the metrics meter, whose OpenTelemetry counters drop an
+        // add() of anything other than a number, and the message metadata a caller reads.
+        expect(result.metadata?.usage).toEqual({ inputTokens: 9000, outputTokens: 100, totalTokens: 9100 })
+        expect(result.message.metadata?.usage).toEqual({ inputTokens: 9000, outputTokens: 100, totalTokens: 9100 })
+      })
+    })
+
     describe('when streaming multiple text blocks', () => {
       it('yields all blocks in order', async () => {
         const provider = new TestModelProvider(async function* () {

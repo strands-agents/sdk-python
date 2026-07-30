@@ -628,8 +628,10 @@ describe("OpenAIModel (api: 'responses')", () => {
       const model = new OpenAIModel({ api: 'responses', client })
       const events = await collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
       const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
+      // cached_tokens is a subset of input_tokens and is subtracted out of it, so the four
+      // counters sum to the provider's own total_tokens.
       expect(metadata?.usage).toEqual({
-        inputTokens: 1553,
+        inputTokens: 680,
         outputTokens: 42,
         totalTokens: 1595,
         cacheReadInputTokens: 873,

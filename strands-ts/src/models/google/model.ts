@@ -17,6 +17,7 @@ import { Model, resolveConfigMetadata } from '../model.js'
 import type { CountTokensOptions, StreamOptions } from '../model.js'
 import type { Message } from '../../types/messages.js'
 import type { ModelStreamEvent } from '../streaming.js'
+import { normalizeUsage } from '../usage.js'
 import { ContextWindowOverflowError, ModelThrottledError, ProviderTokenCountError } from '../../errors.js'
 import type { GoogleModelConfig, GoogleModelOptions, GoogleStreamState } from './types.js'
 export type { GoogleModelConfig, GoogleModelOptions }
@@ -236,6 +237,8 @@ export class GoogleModel extends Model<GoogleModelConfig> {
         hasToolCalls: false,
         inputTokens: 0,
         outputTokens: 0,
+        cacheReadTokens: 0,
+        reasoningTokens: 0,
       }
 
       for await (const chunk of stream) {
@@ -245,11 +248,13 @@ export class GoogleModel extends Model<GoogleModelConfig> {
       if (streamState.inputTokens > 0 || streamState.outputTokens > 0) {
         yield {
           type: 'modelMetadataEvent',
-          usage: {
+          usage: normalizeUsage({
             inputTokens: streamState.inputTokens,
             outputTokens: streamState.outputTokens,
-            totalTokens: streamState.inputTokens + streamState.outputTokens,
-          },
+            cacheReadTokens: streamState.cacheReadTokens,
+            reasoningTokens: streamState.reasoningTokens,
+            inputIncludesCache: true,
+          }),
         }
       }
     } catch (error) {

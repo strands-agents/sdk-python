@@ -50,7 +50,10 @@ anthropic = ["anthropic>=0.21.0,<1.0.0"]
 gemini = ["google-genai>=1.67.0,<3.0.0"]
 # The latest litellm v1.92.0 do not support python 3.14, for the short term we will keep 
 # the version lower than 1.92.0 until litellm has the python 3.14 supported version.
-litellm = ["litellm>=1.75.9,<=1.91.1", "openai>=1.68.0,<3.0.0"]
+# Releases before 1.78.0 report the cache write on the side rather than inside prompt_tokens,
+# and which one a release does varies by the backend it is proxying, so the floor is the first
+# release that folds it in consistently.
+litellm = ["litellm>=1.78.0,<=1.91.1", "openai>=1.68.0,<3.0.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
 mistral = ["mistralai>=2.0.0,<3.0.0"]
 ollama = ["ollama>=0.4.8,<1.0.0"]

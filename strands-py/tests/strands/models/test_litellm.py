@@ -1,6 +1,7 @@
 import unittest.mock
 from unittest.mock import call
 
+import litellm
 import pydantic
 import pytest
 from litellm.exceptions import ContextWindowExceededError
@@ -191,9 +192,15 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     mock_event_6 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_6)])
     mock_event_7 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_7)])
     mock_event_8 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_8)])
-    mock_event_9 = unittest.mock.Mock()
-    mock_event_9.usage.prompt_tokens_details.cached_tokens = 10
-    mock_event_9.usage.cache_creation_input_tokens = 10
+    mock_event_9 = unittest.mock.Mock(
+        usage=litellm.types.utils.Usage(
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            prompt_tokens_details=litellm.types.utils.PromptTokensDetailsWrapper(cached_tokens=10),
+            cache_creation_input_tokens=10,
+        )
+    )
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
         return_value=agenerator(
@@ -254,11 +261,12 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {
             "metadata": {
                 "usage": {
-                    "cacheReadInputTokens": mock_event_9.usage.prompt_tokens_details.cached_tokens,
-                    "cacheWriteInputTokens": mock_event_9.usage.cache_creation_input_tokens,
-                    "inputTokens": mock_event_9.usage.prompt_tokens,
-                    "outputTokens": mock_event_9.usage.completion_tokens,
-                    "totalTokens": mock_event_9.usage.total_tokens,
+                    "cacheReadInputTokens": 10,
+                    "cacheWriteInputTokens": 10,
+                    # prompt_tokens (100) includes both cache counters, so 80 is net new input.
+                    "inputTokens": 80,
+                    "outputTokens": 50,
+                    "totalTokens": 150,
                 },
                 "metrics": {"latencyMs": 0},
             }
@@ -634,27 +642,57 @@ def test_format_chunk_metadata_with_cache_tokens():
     """Test format_chunk for metadata with cache tokens."""
     model = LiteLLMModel(model_id="test")
 
-    # Mock usage data with cache tokens
-    mock_usage = unittest.mock.Mock()
-    mock_usage.prompt_tokens = 100
-    mock_usage.completion_tokens = 50
-    mock_usage.total_tokens = 150
+    # A real litellm Usage rather than a Mock: litellm derives prompt_tokens_details from the
+    # backend response, so a Mock would auto-create cache fields that never disagree.
+    usage = litellm.types.utils.Usage(
+        prompt_tokens=100,
+        completion_tokens=50,
+        total_tokens=150,
+        prompt_tokens_details=litellm.types.utils.PromptTokensDetailsWrapper(cached_tokens=25),
+        cache_creation_input_tokens=10,
+    )
 
-    # Mock cache-related attributes
-    mock_tokens_details = unittest.mock.Mock()
-    mock_tokens_details.cached_tokens = 25
-    mock_usage.prompt_tokens_details = mock_tokens_details
-    mock_usage.cache_creation_input_tokens = 10
+    event = {"chunk_type": "metadata", "data": usage}
 
-    event = {"chunk_type": "metadata", "data": mock_usage}
+    tru_usage = model.format_chunk(event)["metadata"]["usage"]
+    # LiteLLM folds cache reads and writes into prompt_tokens for every backend, including
+    # Anthropic routes, so both are subtracted out of inputTokens.
+    exp_usage = {
+        "inputTokens": 65,
+        "outputTokens": 50,
+        "totalTokens": 150,
+        "cacheReadInputTokens": 25,
+        "cacheWriteInputTokens": 10,
+    }
 
-    result = model.format_chunk(event)
+    assert tru_usage == exp_usage
 
-    assert result["metadata"]["usage"]["inputTokens"] == 100
-    assert result["metadata"]["usage"]["outputTokens"] == 50
-    assert result["metadata"]["usage"]["totalTokens"] == 150
-    assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
-    assert result["metadata"]["usage"]["cacheWriteInputTokens"] == 10
+
+@pytest.mark.parametrize("write_field", ["cache_creation_tokens", "cache_write_tokens"])
+def test_format_chunk_metadata_reads_a_cache_write_off_the_prompt_details(write_field):
+    """A cache write reaches the same usage object under a name per backend, and all of them count.
+
+    LiteLLM lifts an Anthropic-shaped write to the top level, while a proxied OpenAI-compatible
+    backend leaves it on the prompt details under LiteLLM's own name or OpenAI's. Reading only the
+    top-level one leaves the write inside the prompt count, where it is billed at the full input
+    rate and no consistency check can see it, because the total still sums.
+    """
+    model = LiteLLMModel(model_id="test")
+    usage = litellm.types.utils.Usage(prompt_tokens=2400, completion_tokens=50, total_tokens=2450)
+    usage.prompt_tokens_details = litellm.types.utils.PromptTokensDetailsWrapper(
+        cached_tokens=1800, **{write_field: 500}
+    )
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": usage})["metadata"]["usage"]
+    exp_usage = {
+        "inputTokens": 100,
+        "outputTokens": 50,
+        "totalTokens": 2450,
+        "cacheReadInputTokens": 1800,
+        "cacheWriteInputTokens": 500,
+    }
+
+    assert tru_usage == exp_usage
 
 
 def test_format_chunk_metadata_without_cache_tokens():
@@ -1042,3 +1080,61 @@ async def test_stream_generates_tool_call_id_when_null(litellm_acompletion, mode
     start = next(e for e in events if "contentBlockStart" in e and "toolUse" in e["contentBlockStart"]["start"])
     tool_id = start["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
     assert tool_id and tool_id.startswith("call_")
+
+
+@pytest.mark.parametrize(
+    "bedrock_usage, exp_usage",
+    [
+        # A cache write, taken from a live Bedrock Converse response.
+        (
+            {
+                "inputTokens": 13,
+                "outputTokens": 1,
+                "totalTokens": 21016,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 21002,
+            },
+            {
+                "inputTokens": 13,
+                "outputTokens": 1,
+                "totalTokens": 21016,
+                "cacheWriteInputTokens": 21002,
+            },
+        ),
+        # The same prompt on the following turn, now a cache read.
+        (
+            {
+                "inputTokens": 13,
+                "outputTokens": 4,
+                "totalTokens": 21019,
+                "cacheReadInputTokens": 21002,
+                "cacheWriteInputTokens": 0,
+            },
+            {
+                "inputTokens": 13,
+                "outputTokens": 4,
+                "totalTokens": 21019,
+                "cacheReadInputTokens": 21002,
+            },
+        ),
+    ],
+)
+def test_format_chunk_metadata_leaves_the_net_new_prompt_tokens_a_backend_reported(model, bedrock_usage, exp_usage):
+    """Both cache counters are subsets of prompt_tokens, so neither is subtracted twice.
+
+    LiteLLM's own transformation builds the usage object here rather than a hand-written one, so
+    the counts are the ones a backend actually produces. Subtracting a counter the prompt did not
+    contain would erase net-new input tokens and under-report the total.
+    """
+    usage = litellm.AmazonConverseConfig()._transform_usage(bedrock_usage)
+
+    tru_usage = model.format_chunk({"chunk_type": "metadata", "data": usage})["metadata"]["usage"]
+
+    assert tru_usage == exp_usage
+    assert (
+        tru_usage["inputTokens"]
+        + tru_usage["outputTokens"]
+        + tru_usage.get("cacheReadInputTokens", 0)
+        + tru_usage.get("cacheWriteInputTokens", 0)
+        == tru_usage["totalTokens"]
+    )

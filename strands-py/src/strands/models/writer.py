@@ -18,6 +18,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._usage import normalize_usage, token_detail
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -354,11 +355,19 @@ class WriterModel(Model):
             case "metadata":
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_tokens if event["data"] else 0,
-                            "outputTokens": event["data"].completion_tokens if event["data"] else 0,
-                            "totalTokens": event["data"].total_tokens if event["data"] else 0,
-                        },  # If 'stream_options' param is unset, empty metadata will be provided.
+                        # Writer names the prompt breakdown `prompt_token_details`, not OpenAI's
+                        # `prompt_tokens_details`, and reports the whole prompt in prompt_tokens.
+                        "usage": normalize_usage(
+                            input_tokens=event["data"].prompt_tokens if event["data"] else 0,
+                            output_tokens=event["data"].completion_tokens if event["data"] else 0,
+                            cache_read_tokens=token_detail(
+                                getattr(event["data"], "prompt_token_details", None), "cached_tokens"
+                            ),
+                            reasoning_tokens=token_detail(
+                                getattr(event["data"], "completion_tokens_details", None), "reasoning_tokens"
+                            ),
+                            input_includes_cache=True,
+                        ),  # If 'stream_options' param is unset, empty metadata will be provided.
                         # To avoid errors replacing expected fields with default zero value
                         "metrics": {
                             "latencyMs": 0,  # All palmyra models don't provide 'latency' metadata

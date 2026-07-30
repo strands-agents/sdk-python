@@ -55,13 +55,13 @@ import openai  # noqa: E402 - must import after version check
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
-from ..types.event_loop import Usage  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
 from ._openai_errors import classify_openai_error  # noqa: E402
+from ._usage import normalize_usage, token_detail  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
 
@@ -884,16 +884,18 @@ class OpenAIResponsesModel(Model):
 
             case "metadata":
                 # Responses API uses input_tokens/output_tokens naming convention
-                usage_data: Usage = {
-                    "inputTokens": getattr(event["data"], "input_tokens", 0),
-                    "outputTokens": getattr(event["data"], "output_tokens", 0),
-                    "totalTokens": getattr(event["data"], "total_tokens", 0),
-                }
-
-                if tokens_details := getattr(event["data"], "input_tokens_details", None):
-                    cached = getattr(tokens_details, "cached_tokens", None)
-                    if isinstance(cached, int) and cached:
-                        usage_data["cacheReadInputTokens"] = cached
+                input_details = getattr(event["data"], "input_tokens_details", None)
+                output_details = getattr(event["data"], "output_tokens_details", None)
+                # cache_write_tokens is reported for GPT-5.6 and later, where cache writes bill at
+                # 1.25x the uncached input rate. Older models omit it and cache writes are free.
+                usage_data = normalize_usage(
+                    input_tokens=getattr(event["data"], "input_tokens", 0),
+                    output_tokens=getattr(event["data"], "output_tokens", 0),
+                    cache_read_tokens=token_detail(input_details, "cached_tokens"),
+                    cache_write_tokens=token_detail(input_details, "cache_write_tokens"),
+                    reasoning_tokens=token_detail(output_details, "reasoning_tokens"),
+                    input_includes_cache=True,
+                )
 
                 return {
                     "metadata": {

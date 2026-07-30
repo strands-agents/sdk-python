@@ -33,13 +33,18 @@ class UsageMetadata:
         total_tokens: Total number of tokens used in the request
         completion_tokens: Number of tokens used in the completion
         prompt_tokens: Number of tokens used in the prompt
-        prompt_tokens_details: Additional information about the prompt tokens (optional)
+        prompt_tokens_details: Per-type prompt token breakdown, e.g. ``{"cached_tokens": 100}``
+            (optional). An OpenAI-compatible endpoint reports this as an object, so it is kept as
+            a mapping for the inherited chunk formatter to read ``cached_tokens`` from.
+        completion_tokens_details: Per-type completion token breakdown, e.g.
+            ``{"reasoning_tokens": 50}`` (optional)
     """
 
     total_tokens: int
     completion_tokens: int
     prompt_tokens: int
-    prompt_tokens_details: int | None = 0
+    prompt_tokens_details: dict[str, Any] | None = None
+    completion_tokens_details: dict[str, Any] | None = None
 
 
 @dataclass

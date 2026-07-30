@@ -16,11 +16,11 @@ from google import genai
 from typing_extensions import Required, Unpack, override
 
 from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, SystemContentBlock
-from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException, ProviderTokenCountError
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
+from ._usage import normalize_usage
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -428,16 +428,29 @@ class GeminiModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
-                input_tokens = event["data"].prompt_token_count or 0
-                total_tokens = event["data"].total_token_count or 0
-                usage_data: Usage = {
-                    "inputTokens": input_tokens,
-                    "outputTokens": max(0, total_tokens - input_tokens),
-                    "totalTokens": total_tokens,
-                }
-
-                if cached := event["data"].cached_content_token_count:
-                    usage_data["cacheReadInputTokens"] = cached
+                metadata = event["data"]
+                # prompt_token_count covers the whole prompt, including cached content. Tokens
+                # from tool results are reported separately but are prompt tokens too, so they
+                # belong in the input count rather than being inferred into the output count.
+                input_tokens = (metadata.prompt_token_count or 0) + (metadata.tool_use_prompt_token_count or 0)
+                thoughts_tokens = metadata.thoughts_token_count or 0
+                # total_token_count is the sum of the prompt, candidate, tool-use, and thought
+                # counts, so it backfills the generated count when candidates_token_count is
+                # absent (as it is on a response carrying no candidates), and it says whether
+                # candidates_token_count already covers the thoughts: when the other three
+                # counts alone reach the total, adding the thoughts again would double-count.
+                output_tokens = metadata.candidates_token_count or 0
+                if metadata.candidates_token_count is None and metadata.total_token_count is not None:
+                    output_tokens = max(0, metadata.total_token_count - input_tokens)
+                elif input_tokens + output_tokens != metadata.total_token_count:
+                    output_tokens += thoughts_tokens
+                usage_data = normalize_usage(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=metadata.cached_content_token_count or 0,
+                    reasoning_tokens=thoughts_tokens,
+                    input_includes_cache=True,
+                )
 
                 return {
                     "metadata": {

@@ -809,3 +809,14 @@ async def test_structured_output_non_overflow_response_error_propagates(
     messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(ollama.ResponseError, match="not found"):
         await alist(model.structured_output(test_output_model_cls, messages))
+
+
+@pytest.mark.asyncio
+async def test_format_chunk_metadata_tolerates_a_response_without_counts_or_timing(model):
+    """Ollama leaves the eval counts and duration unset on some responses."""
+    response = ollama.ChatResponse(model="m1", message={"role": "assistant", "content": "hi"})
+
+    tru_metadata = model.format_chunk({"chunk_type": "metadata", "data": response})["metadata"]
+
+    assert tru_metadata["usage"] == {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+    assert tru_metadata["metrics"]["latencyMs"] == 0

@@ -29,6 +29,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._usage import normalize_usage
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -493,11 +494,11 @@ class LlamaCppModel(Model):
             case "metadata":
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
-                        },
+                        "usage": normalize_usage(
+                            input_tokens=event["data"].prompt_tokens,
+                            output_tokens=event["data"].completion_tokens,
+                            input_includes_cache=False,
+                        ),
                         "metrics": {
                             "latencyMs": event.get("latency_ms", 0),
                         },

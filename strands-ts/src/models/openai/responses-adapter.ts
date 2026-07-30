@@ -27,7 +27,8 @@ import type { ImageBlock, DocumentBlock } from '../../types/media.js'
 import { encodeBase64 } from '../../types/media.js'
 import { toMimeType } from '../../mime.js'
 import type { StateStore } from '../../state-store.js'
-import type { ModelStreamEvent } from '../streaming.js'
+import type { ModelStreamEvent, Usage } from '../streaming.js'
+import { normalizeUsage } from '../usage.js'
 import type { StreamOptions } from '../model.js'
 import { logger } from '../../logging/logger.js'
 import { MODEL_DEFAULTS } from '../defaults.js'
@@ -350,12 +351,7 @@ function formatDocumentInput(docBlock: DocumentBlock): Record<string, unknown> |
 export interface ResponsesStreamState {
   dataType: string | null
   toolCalls: Map<string, { name: string; arguments: string; callId: string; itemId: string }>
-  finalUsage: {
-    inputTokens: number
-    outputTokens: number
-    totalTokens: number
-    cacheReadInputTokens?: number
-  } | null
+  finalUsage: Usage | null
   stopReason: StopReason
 }
 
@@ -374,26 +370,25 @@ export function createResponsesStreamState(): ResponsesStreamState {
 }
 
 /**
- * Maps a Responses API `usage` object to the SDK's usage shape, including
- * prompt-cache reads. The Responses API reports cache hits via
- * `usage.input_tokens_details.cached_tokens`; surfacing it as
- * `cacheReadInputTokens` keeps the Responses path consistent with the Bedrock,
- * Anthropic, and Vercel model adapters (and lets `telemetry/tracer.ts` emit
- * `gen_ai.usage.cache_read_input_tokens`).
+ * Maps a Responses API `usage` object to the SDK's usage shape.
+ *
+ * The Responses API reports the full prompt in `input_tokens`, with cache hits broken out as a
+ * subset via `input_tokens_details.cached_tokens`, so the cache counts are subtracted back out to
+ * satisfy the disjoint {@link Usage} contract. `cache_write_tokens` is reported for GPT-5.6 and
+ * later, where cache writes bill at 1.25x the uncached input rate; older models omit it.
  *
  * @internal
  */
-function mapResponsesUsage(usage: ResponseUsage): NonNullable<ResponsesStreamState['finalUsage']> {
-  const mapped: NonNullable<ResponsesStreamState['finalUsage']> = {
+function mapResponsesUsage(usage: ResponseUsage): Usage {
+  const details = usage.input_tokens_details as { cached_tokens?: number; cache_write_tokens?: number } | undefined
+  return normalizeUsage({
     inputTokens: usage.input_tokens,
     outputTokens: usage.output_tokens,
-    totalTokens: usage.total_tokens,
-  }
-  const cached = usage.input_tokens_details?.cached_tokens
-  if (typeof cached === 'number' && cached > 0) {
-    mapped.cacheReadInputTokens = cached
-  }
-  return mapped
+    cacheReadTokens: details?.cached_tokens,
+    cacheWriteTokens: details?.cache_write_tokens,
+    reasoningTokens: usage.output_tokens_details?.reasoning_tokens,
+    inputIncludesCache: true,
+  })
 }
 
 function createResponsesStreamError(
