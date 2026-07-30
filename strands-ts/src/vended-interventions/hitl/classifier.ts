@@ -1,0 +1,96 @@
+import { z } from 'zod'
+import { Agent } from '../../agent/agent.js'
+import type { BeforeToolCallEvent } from '../../hooks/events.js'
+import type { Model } from '../../models/model.js'
+
+/**
+ * Result from a {@link HumanInTheLoopClassifier}.
+ */
+export interface ClassifierResult {
+  /** Whether the tool call requires human approval. */
+  requiresApproval: boolean
+  /** Reason shown to the human in the approval prompt. */
+  reason?: string
+}
+
+/**
+ * Async function that decides whether a tool call requires human approval.
+ */
+export type HumanInTheLoopClassifier = (event: BeforeToolCallEvent) => Promise<ClassifierResult>
+
+/**
+ * Configuration for the built-in LLM risk classifier (used when `classifier: true`).
+ */
+export interface ClassifierConfig {
+  /** System prompt describing risk criteria. Defaults to a general-purpose risk prompt. */
+  systemPrompt?: string
+  /** Model for risk evaluation. Defaults to the parent agent's model. */
+  model?: Model
+}
+
+const RISK_DECISION = z.object({
+  requiresApproval: z
+    .boolean()
+    .describe('Whether this tool call requires human approval before executing'),
+  reason: z.string().describe('Explanation of why approval is or is not required'),
+})
+
+const DEFAULT_SYSTEM_PROMPT = `You are a risk evaluator for an AI agent's tool calls. Your job is to decide whether each tool call requires human approval before executing.
+
+## When to require approval
+
+Require approval when the tool call:
+- Is destructive or irreversible (deleting data, dropping tables, revoking access)
+- Modifies important state in production or shared environments
+- Accesses or transmits sensitive data (credentials, PII, financial records)
+- Communicates externally (sending emails, posting messages, making payments)
+- Has a large blast radius (affecting many records, users, or systems)
+
+## When approval is NOT needed
+
+Do not require approval when the tool call:
+- Is read-only (listing files, querying data, searching)
+- Operates on local or temporary resources
+- Has easily reversible effects
+- Is scoped to a single non-critical resource
+
+## Instructions
+
+Evaluate the tool name and its input arguments. Consider what could go wrong if this specific call executes with these specific arguments. When uncertain, require approval.`
+
+/**
+ * Creates the built-in LLM risk classifier used when `classifier: true`.
+ *
+ * @internal
+ * @param config - Optional configuration for the classifier.
+ * @returns A classifier function that uses an inner LLM agent to evaluate risk.
+ */
+export function createRiskClassifier(config?: ClassifierConfig): HumanInTheLoopClassifier {
+  const systemPrompt = config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
+  const configuredModel = config?.model
+
+  return async (event: BeforeToolCallEvent): Promise<ClassifierResult> => {
+    const model = configuredModel ?? event.agent.model
+    if (!model) {
+      throw new Error(
+        'HITL risk classifier has no model — pass `model` in classifierConfig, or ensure the parent agent has a model.',
+      )
+    }
+
+    const inner = new Agent({
+      model,
+      systemPrompt,
+      structuredOutputSchema: RISK_DECISION,
+      printer: false,
+    })
+
+    const prompt = `Should this tool call require human approval?\n\nTool: ${event.toolUse.name}\nInput: ${JSON.stringify(event.toolUse.input, null, 2)}`
+    const result = await inner.invoke(prompt)
+    const decision = RISK_DECISION.parse(result.structuredOutput)
+
+    return {
+      requiresApproval: decision.requiresApproval,
+      reason: decision.reason,
+    }
+  }
+}

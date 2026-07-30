@@ -1,5 +1,7 @@
 import { InterventionHandler } from '../../interventions/handler.js'
 import { confirm, proceed, defaultEvaluate } from '../../interventions/actions.js'
+import { createRiskClassifier } from './classifier.js'
+import type { ClassifierResult, HumanInTheLoopClassifier, ClassifierConfig } from './classifier.js'
 import type { InterventionAction } from '../../interventions/actions.js'
 import type { BeforeToolCallEvent } from '../../hooks/events.js'
 import type { JSONValue } from '../../types/json.js'
@@ -31,15 +33,20 @@ function createStdioAsk(includeTrust: boolean): (prompt: string) => Promise<JSON
   }
 }
 
+export type { HumanInTheLoopClassifier, ClassifierConfig } from './classifier.js'
+
 /**
  * Configuration for the {@link HumanInTheLoop} intervention handler.
  */
 export interface HumanInTheLoopConfig {
   /**
-   * Tools that can execute WITHOUT human approval. All other tools require approval.
+   * Tools that can execute WITHOUT human approval.
    *
    * - Use `'*'` to allow all tools.
-   * - Prefix with `!` to exclude specific tools from `'*'` (they still require approval).
+   * - Prefix with `!` to exclude specific tools (they always require approval).
+   *
+   * When used with a `classifier`, listed tools bypass classification entirely
+   * (fast path). Negated tools still override everything.
    *
    * @example
    * ```typescript
@@ -54,6 +61,16 @@ export interface HumanInTheLoopConfig {
    * ```
    */
   allowedTools?: string[]
+
+  /**
+   * Determines how approval decisions are made for tools not in `allowedTools`.
+   *
+   * - **Omitted**: all non-allowed tools require approval (default behavior).
+   * - **`true`**: uses the built-in LLM risk classifier with defaults.
+   * - **Config object** (`{ systemPrompt?, model? }`): built-in LLM classifier with custom settings.
+   * - **Custom function**: your own async classification logic.
+   */
+  classifier?: true | ClassifierConfig | HumanInTheLoopClassifier
 
   /**
    * When true, trust responses approve the tool AND remember it
@@ -112,6 +129,14 @@ export interface HumanInTheLoopConfig {
  *   interventions: [new HumanInTheLoop({ allowedTools: ['readFile'] })],
  * })
  *
+ * // LLM-driven risk classification — only risky calls get escalated
+ * const agent = new Agent({
+ *   interventions: [new HumanInTheLoop({
+ *     allowedTools: ['readFile', 'listDir'],
+ *     classifier: true,
+ *   })],
+ * })
+ *
  * // CLI mode — prompts in terminal inline
  * const agent = new Agent({
  *   interventions: [new HumanInTheLoop({ ask: 'stdio' })],
@@ -129,6 +154,7 @@ export class HumanInTheLoop extends InterventionHandler {
   readonly name = 'strands:human-in-the-loop'
 
   private readonly _allowedTools: Set<string>
+  private readonly _classifier: HumanInTheLoopClassifier | undefined
   private readonly _enableTrust: boolean
   private readonly _evaluateTrust: (response: JSONValue) => boolean
   private readonly _evaluate: ((response: JSONValue) => boolean) | undefined
@@ -137,6 +163,7 @@ export class HumanInTheLoop extends InterventionHandler {
   constructor(config?: HumanInTheLoopConfig) {
     super()
     this._allowedTools = new Set(config?.allowedTools ?? [])
+    this._classifier = this._resolveClassifier(config?.classifier)
     this._enableTrust = config?.enableTrust ?? false
     this._evaluateTrust = config?.evaluateTrust ?? ((r: JSONValue): boolean => this._isTrustResponse(r))
     this._evaluate = config?.evaluate
@@ -145,11 +172,15 @@ export class HumanInTheLoop extends InterventionHandler {
 
   override async beforeToolCall(event: BeforeToolCallEvent): Promise<InterventionAction> {
     const toolName = event.toolUse.name
-    if (!this._requiresApproval(event)) {
+
+    const classifierResult = await this._requiresApproval(event)
+    if (!classifierResult.requiresApproval) {
       return proceed()
     }
 
-    const prompt = `Tool "${toolName}" requires human approval. Input: ${JSON.stringify(event.toolUse.input)}`
+    const prompt = classifierResult.reason
+      ? `Tool "${toolName}" requires human approval: ${classifierResult.reason}. Input: ${JSON.stringify(event.toolUse.input)}`
+      : `Tool "${toolName}" requires human approval. Input: ${JSON.stringify(event.toolUse.input)}`
 
     const isNegated = this._allowedTools.has(`!${toolName}`)
 
@@ -183,17 +214,30 @@ export class HumanInTheLoop extends InterventionHandler {
    * 1. Negated (`!tool`) → always requires approval (cannot be trusted)
    * 2. Trusted at runtime via 't' response (stored in agent.appState) → runs freely
    * 3. Wildcard (`*`) → runs freely
-   * 4. Explicitly listed → runs freely
-   * 5. Default → requires approval
+   * 4. Explicitly listed in allowedTools → runs freely
+   * 5. Classifier (if provided) → its decision
+   * 6. Default (no classifier) → requires approval
    */
-  private _requiresApproval(event: BeforeToolCallEvent): boolean {
+  private async _requiresApproval(event: BeforeToolCallEvent): Promise<ClassifierResult> {
     const toolName = event.toolUse.name
-    if (this._allowedTools.has(`!${toolName}`)) return true
+
+    if (this._allowedTools.has(`!${toolName}`)) {
+      return { requiresApproval: true }
+    }
+
     const trusted = (event.agent.appState.get(TRUSTED_TOOLS_KEY) as string[] | undefined) ?? []
-    if (trusted.includes(toolName)) return false
-    if (this._allowedTools.has('*')) return false
-    if (this._allowedTools.has(toolName)) return false
-    return true
+    if (trusted.includes(toolName)) {
+      return { requiresApproval: false }
+    }
+
+    if (this._allowedTools.has('*')) return { requiresApproval: false }
+    if (this._allowedTools.has(toolName)) return { requiresApproval: false }
+
+    if (this._classifier) {
+      return this._classifier(event)
+    }
+
+    return { requiresApproval: true }
   }
 
   private _trustTool(event: BeforeToolCallEvent, toolName: string): void {
@@ -201,6 +245,15 @@ export class HumanInTheLoop extends InterventionHandler {
     if (!trusted.includes(toolName)) {
       event.agent.appState.set(TRUSTED_TOOLS_KEY, [...trusted, toolName])
     }
+  }
+
+  private _resolveClassifier(
+    classifier: true | ClassifierConfig | HumanInTheLoopClassifier | undefined,
+  ): HumanInTheLoopClassifier | undefined {
+    if (classifier === undefined) return undefined
+    if (classifier === true) return createRiskClassifier()
+    if (typeof classifier === 'function') return classifier
+    return createRiskClassifier(classifier)
   }
 
   private _isTrustResponse(response: JSONValue): boolean {
