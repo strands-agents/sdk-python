@@ -26,7 +26,10 @@ def temp_dir():
 
 @pytest.fixture
 def bucket_name():
-    bucket_name = f"test-strands-snapshot-bucket-{boto3.client('sts').get_caller_identity()['Account']}"
+    # Shares the bucket the message-log session tests use, because the integ-test IAM role only
+    # grants S3 access to an explicit allowlist of bucket names. Snapshots key under "session/"
+    # while the message log keys under "session_<id>", so the two cannot collide.
+    bucket_name = f"test-strands-session-bucket-{boto3.client('sts').get_caller_identity()['Account']}"
     s3_client = boto3.resource("s3", region_name="us-west-2")
     try:
         s3_client.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": "us-west-2"})
