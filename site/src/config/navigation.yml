@@ -365,6 +365,7 @@ sidebar:
           - docs/community/tools/strands-apify
           - docs/community/tools/strands-deepgram
           - docs/community/tools/strands-hubspot
+          - docs/community/tools/strands-locate-anything
           - docs/community/tools/strands-spraay
           - docs/community/tools/strands-sql
           - docs/community/tools/strands-teams
