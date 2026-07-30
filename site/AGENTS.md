@@ -82,7 +82,7 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   ├── data/                     # Bot-maintained data (catalog-stats.json — updated by the
 │   │                             #   catalog-stats workflow; do not hand-edit)
 │   ├── layouts/                  # Custom layouts
-│   ├── pages/                    # Astro pages (incl. catalog.astro — the /catalog page)
+│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page)
 │   ├── plugins/                  # Remark/Rehype plugins
 │   ├── styles/                   # Global styles
 │   └── util/                     # Utility functions

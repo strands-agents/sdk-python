@@ -22,8 +22,12 @@ describe('resolveRedirect', () => {
     }
   )
 
-  it('redirects the retired community-packages page to the catalog', () => {
-    expect(resolveRedirect('docs/community/community-packages')).toBe('catalog')
+  it('redirects the retired community-packages page to the integrations page', () => {
+    expect(resolveRedirect('docs/community/community-packages')).toBe('integrations')
+  })
+
+  it('redirects the pre-launch catalog URL to the integrations page', () => {
+    expect(resolveRedirect('catalog')).toBe('integrations')
   })
 })
 
@@ -76,8 +80,9 @@ const urlCases: Array<{ description: string; path: string; expected: string | nu
   { description: '1.5.x doc page without trailing slash',              path: '/1.5.x/documentation/docs/user-guide/concepts/agents/state',             expected: 'docs/user-guide/concepts/agents/state' },
   { description: 'unrecognised path with trailing slash passes through', path: '/latest/some/other/path/',                                              expected: 'some/other/path/' },
   { description: 'unrecognised path without trailing slash',            path: '/latest/some/other/path',                                               expected: 'some/other/path' },
-  { description: 'retired community-packages page with trailing slash redirects to catalog', path: '/1.x/documentation/docs/community/community-packages/', expected: 'catalog/' },
-  { description: 'retired community-packages page without trailing slash redirects to catalog', path: '/1.x/documentation/docs/community/community-packages', expected: 'catalog' },
+  { description: 'retired community-packages page with trailing slash redirects to integrations', path: '/1.x/documentation/docs/community/community-packages/', expected: 'integrations/' },
+  { description: 'retired community-packages page without trailing slash redirects to integrations', path: '/1.x/documentation/docs/community/community-packages', expected: 'integrations' },
+  { description: 'pre-launch catalog URL redirects to integrations', path: '/catalog/', expected: 'integrations/' },
   { description: 'renamed page with trailing slash',                   path: '/latest/documentation/docs/user-guide/concepts/tools/python-tools/',    expected: 'docs/user-guide/concepts/tools/custom-tools/' },
   { description: 'renamed page without trailing slash',                path: '/latest/documentation/docs/user-guide/concepts/tools/python-tools',     expected: 'docs/user-guide/concepts/tools/custom-tools' },
   // we don't rewrite these because they're subject to change quite a bit

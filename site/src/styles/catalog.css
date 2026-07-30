@@ -16,7 +16,7 @@
 }
 
 /* Starlight's splash template caps width via .sl-container; opt out like the
-   changelog does. This stylesheet only loads on /catalog. */
+   changelog does. This stylesheet only loads on /integrations. */
 .sl-markdown-content :where(.cat-page) {
   max-width: none;
 }

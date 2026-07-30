@@ -177,7 +177,7 @@ describe('Known Routes', () => {
     const validIds = new Set(docs.map((doc) => doc.id))
 
     // Non-docs Astro pages that are valid redirect targets (not in the docs collection)
-    const validNonDocsPages = new Set(['catalog'])
+    const validNonDocsPages = new Set(['integrations'])
 
     // Verify each allowlisted non-docs page exists as an Astro file
     const missingPages: string[] = []

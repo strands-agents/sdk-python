@@ -20,9 +20,9 @@ navbar:
     href: /docs/examples/
     basePath: /docs/examples/
   - label: Community
-    href: /catalog/
+    href: /integrations/
     basePath:
-      - /catalog/
+      - /integrations/
       - /docs/community/
       - /docs/labs/
       - /docs/contribute/

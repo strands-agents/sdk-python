@@ -68,12 +68,19 @@ const SLUG_RULES: SlugRule[] = [
     to,
   })),
 
-  // community-packages content lives on the interactive catalog page. The
-  // catalog is an Astro page, not a docs content file, so buildStaticRedirects
-  // can't validate it as a target — this rule stays client-side only.
+  // community-packages content lives on the interactive integrations page.
+  // It is an Astro page, not a docs content file, so buildStaticRedirects
+  // can't validate it as a target — these rules stay client-side only.
   {
     match: exactly('docs/community/community-packages'),
-    to: 'catalog',
+    to: 'integrations',
+  },
+
+  // The integrations page briefly went by /catalog during development; the
+  // URL is referenced in repo history and PR discussion, so keep it working.
+  {
+    match: exactly('catalog'),
+    to: 'integrations',
   },
 ]
 
