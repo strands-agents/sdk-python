@@ -75,6 +75,22 @@ class StrandsTelemetry:
         - OTEL_EXPORTER_OTLP_HEADERS: Headers for OTLP requests
         - OTEL_SERVICE_NAME: Overrides resource service name
 
+        Either of the following, set to "true", silences Strands' own spans and
+        metrics. They differ in blast radius:
+        - OTEL_SDK_DISABLED: the OpenTelemetry-standard flag. The OTel SDK
+          no-ops process-wide, so telemetry the host application emits through
+          its own instrumentation is suppressed alongside Strands'.
+        - STRANDS_OTEL_DISABLED: Strands-specific. Strands' tracer and metrics
+          client fall back to no-op providers, while the host application's own
+          OpenTelemetry pipeline keeps recording. Use this one to keep your own
+          instrumentation (e.g. a Bedrock instrumentor calling an agent as a
+          tool) while silencing Strands.
+
+        Both are read once, when the tracer and the metrics client are first
+        constructed. Those are process-lifetime singletons, so the variable has
+        to be set before the first agent / tracer / metrics call — changing it
+        afterwards has no effect for the remainder of the process.
+
     Examples:
         Quick setup with method chaining:
         >>> StrandsTelemetry().setup_console_exporter().setup_otlp_exporter()
