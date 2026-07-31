@@ -142,7 +142,7 @@ Releases within minor versions are additive and maintain backward compatibility.
 
 * **Major Version X:** Old way of doing something and new way of doing something introduced
     * **Minor Version X.Y-1**: Old way of doing something
-    * **Minor Version X.Y**: New way of doing something is added, deprecation warning is applied to old way to with `@warnings.**deprecated**(*msg*, ***, *category=DeprecationWarning*, *stacklevel=1*) `
+    * **Minor Version X.Y**: New way of doing something is added, deprecation warning is applied to the old way with `@deprecated(msg)` (see [Implementation Standards](#implementation-standards))
     * **Minor Version X.Y+1**: (optional) Enhance warning with migration examples or appropriate link to our docs pointing to the workaround
 * **Major Version X+1**: Remove older, deprecated feature entirely
 
@@ -153,17 +153,19 @@ Releases within minor versions are additive and maintain backward compatibility.
 
 Python
 
-```python
-import warnings
+Import `deprecated` from `typing_extensions`, not `warnings`. The `warnings` version
+requires Python 3.13, and the SDK supports 3.10 and later; `typing_extensions` is already
+a dependency and backports it.
 
-@warnings.deprecated( 
-        "deprecated_function() is deprecated and will be removed in v2.0.0. "
-        "Use new_function() instead. See migration guide: https://strands-agents.com/migration/deprecated_function", 
-        *, 
-        category=DeprecationWarning, 
-        stacklevel=2
-    ) 
-    
+```python
+from typing_extensions import deprecated
+
+
+@deprecated(
+    "deprecated_function() is deprecated and will be removed in v2.0.0. "
+    "Use new_function() instead. See migration guide: https://strands-agents.com/migration/deprecated_function"
+)
+def deprecated_function() -> None: ...
 ```
 
 Typescript
@@ -174,6 +176,58 @@ Typescript
  */
  export const deprecated_function = () => {}
 ```
+
+#### Deprecating a tool
+
+Apply the decorator **and** log the same message from inside the tool. Both are required,
+because they reach different audiences and neither covers the other:
+
+| | Reaches a user running an agent | Reaches type checkers, IDEs, `-W error` |
+|---|---|---|
+| `@deprecated` | no | yes |
+| `logger.warning` | yes | no |
+
+`@deprecated` raises a `DeprecationWarning`, and Python's default filter only displays that
+warning when it originates in `__main__` — every other module is ignored. A tool is invoked
+by the framework, so the warning is attributed to SDK internals and suppressed. The user
+sees nothing.
+
+The log line is what they actually see. Keep the decorator anyway: it is what marks the
+call site for type checkers and IDEs, and what surfaces under `-W error` or in pytest.
+
+```python
+import logging
+
+from strands import tool
+from typing_extensions import deprecated
+
+logger = logging.getLogger(__name__)
+
+_DEPRECATION_MESSAGE = (
+    "old_tool is deprecated and will be removed in v2.0.0. Use new_tool instead. "
+    "See migration guide: https://strands-agents.com/migration/old_tool"
+)
+
+
+@tool
+@deprecated(_DEPRECATION_MESSAGE)
+def old_tool(query: str) -> str:
+    """Does the old thing.
+
+    Args:
+        query: What to look up.
+    """
+    logger.warning("DEPRECATION WARNING: %s", _DEPRECATION_MESSAGE)
+    ...
+```
+
+Order matters: `@tool` goes outermost so the tool spec is built from the real signature.
+Share the message through a constant so the two copies cannot drift. Log before any early
+return, so the warning fires on error paths too.
+
+Note that a deprecated tool *instance* — as opposed to a factory function — cannot carry the
+decorator at all. Resolve those through a module-level `__getattr__` that warns and returns
+the replacement.
 
 
 
