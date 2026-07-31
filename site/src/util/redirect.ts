@@ -40,6 +40,15 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
   // cli-reference-agent was archived (strands-agents/agent-builder)
   'docs/examples/python/cli-reference-agent': 'docs/examples',
 
+  // community-packages content lives on the interactive integrations page
+  // (an Astro page — buildStaticRedirects validates those targets against
+  // src/pages as well as docs content).
+  'docs/community/community-packages': 'integrations',
+
+  // The integrations page briefly went by /catalog during development; the
+  // URL is referenced in repo history and PR discussion, so keep it working.
+  catalog: 'integrations',
+
   // CDK and deployment examples now live on GitHub
   'docs/examples/cdk/deploy_to_apprunner':
     'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_apprunner/README.md',
@@ -67,21 +76,6 @@ const SLUG_RULES: SlugRule[] = [
     match: exactly(from),
     to,
   })),
-
-  // community-packages content lives on the interactive integrations page.
-  // It is an Astro page, not a docs content file, so buildStaticRedirects
-  // can't validate it as a target — these rules stay client-side only.
-  {
-    match: exactly('docs/community/community-packages'),
-    to: 'integrations',
-  },
-
-  // The integrations page briefly went by /catalog during development; the
-  // URL is referenced in repo history and PR discussion, so keep it working.
-  {
-    match: exactly('catalog'),
-    to: 'integrations',
-  },
 ]
 
 // ── Public API ────────────────────────────────────────────────────────────────
