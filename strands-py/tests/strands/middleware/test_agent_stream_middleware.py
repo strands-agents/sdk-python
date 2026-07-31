@@ -1150,7 +1150,8 @@ def test_middleware_yielded_interrupt_stop_preserves_interrupt_state():
     async def gate(context, next_fn):
         if short_circuit:
             message = {"role": "assistant", "content": [{"text": "Awaiting approval"}]}
-            yield EventLoopStopEvent("interrupt", message, EventLoopMetrics(), {}, list(agent._interrupt_state.interrupts.values()))
+            pending = list(agent._interrupt_state.interrupts.values())
+            yield EventLoopStopEvent("interrupt", message, EventLoopMetrics(), {}, pending)
             return
         context.interrupt("stream_gate", reason="approve the pass?")
         async for event in next_fn(context):
