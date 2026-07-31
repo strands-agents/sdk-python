@@ -161,11 +161,15 @@ export class HumanInTheLoop extends InterventionHandler {
   private readonly _evaluateTrust: (response: JSONValue) => boolean
   private readonly _evaluate: ((response: JSONValue) => boolean) | undefined
   private readonly _ask: ((prompt: string) => Promise<JSONValue>) | undefined
+  private readonly _classifiedToolUseIds: Set<string> = new Set()
 
   constructor(config?: HumanInTheLoopConfig) {
     super()
     this._allowedTools = new Set(config?.allowedTools ?? [])
     this._classifier = this._resolveClassifier(config?.classifier)
+    if (this._classifier && this._allowedTools.has('*')) {
+      logger.warn('classifier has no effect when allowedTools contains "*" — all tools are already allowed')
+    }
     this._enableTrust = config?.enableTrust ?? false
     this._evaluateTrust = config?.evaluateTrust ?? ((r: JSONValue): boolean => this._isTrustResponse(r))
     this._evaluate = config?.evaluate
@@ -236,6 +240,12 @@ export class HumanInTheLoop extends InterventionHandler {
     if (this._allowedTools.has(toolName)) return { requiresApproval: false }
 
     if (this._classifier) {
+      const toolUseId = event.toolUse.toolUseId
+      if (this._classifiedToolUseIds.has(toolUseId)) {
+        return { requiresApproval: true }
+      }
+      this._classifiedToolUseIds.add(toolUseId)
+
       try {
         const result = await this._classifier(event)
         if (typeof result?.requiresApproval !== 'boolean') {
