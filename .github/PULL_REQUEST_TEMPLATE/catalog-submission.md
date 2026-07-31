@@ -16,7 +16,7 @@
 
 #### Package
 - [ ] This is a reusable integration (library/plugin/provider), not an example agent or application built with Strands
-- [ ] Published to PyPI and/or npm under the exact `package` name in my entry (registry links are derived from it)
+- [ ] Published to PyPI and/or npm under the exact `package` name in my entry (registry links are derived from it) — or this is a guide-only entry (no `package` in any language block) with a `docsUrl` pointing at the vendor's Strands guide
 - [ ] GitHub repository is public and includes a license
 
 #### Entry
@@ -38,7 +38,7 @@
 
 ### For reviewers
 
-- Package installs cleanly and imports without error against the current SDK release
+- Package installs cleanly and imports without error against the current SDK release (guide-only entries: the `docsUrl` guide's setup steps work instead)
 - Description matches what the package's README says it does
 - No existing catalog entry for this package (`site/src/content/catalog/`)
 - All URLs are reachable and resolve to the expected destinations
