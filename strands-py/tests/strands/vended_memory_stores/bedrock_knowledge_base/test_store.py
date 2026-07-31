@@ -206,15 +206,88 @@ class TestConstructor:
         store, _agent, _s3 = make_s3_store()
         assert store.writable is True
 
-    def test_constructs_a_default_runtime_client_when_none_injected(self):
+    def test_constructs_a_default_runtime_client_when_none_injected(self, monkeypatch, tmp_path):
+        # Simulate a cloud host with no region hint so the resolved region is the default.
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
         with patch("boto3.client") as client_fn:
             BedrockKnowledgeBaseStore(config=BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1"), name="kb")
-            client_fn.assert_called_once_with("bedrock-agent-runtime")
+            client_fn.assert_called_once_with("bedrock-agent-runtime", region_name="us-west-2")
 
     def test_uses_the_injected_runtime_client_without_constructing_one(self, make_store):
         with patch("boto3.client") as client_fn:
             make_store()
             client_fn.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# Region resolution for default clients (issue #3564)
+# --------------------------------------------------------------------------- #
+
+
+class TestRegionResolution:
+    """Default boto3 clients resolve a region so the store works in cloud envs (#3564).
+
+    On EC2/Lambda with no ``AWS_REGION`` and no ``~/.aws/config`` region, the store used to raise
+    ``NoRegionError`` at construction. It now resolves a region (config ``region_name`` ->
+    ``AWS_REGION`` env -> ``us-west-2``) and threads it through every default ``boto3.client`` call,
+    mirroring ``SageMakerAIModel``.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _cloud_env(self, monkeypatch, tmp_path):
+        """A host with no region hint: no env vars and no AWS config file under HOME."""
+        monkeypatch.delenv("AWS_REGION", raising=False)
+        monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "no-such-config"))
+
+    def test_falls_back_to_default_region_with_no_hint(self):
+        # Red on master (boto3 raises NoRegionError at __init__), green after the fix.
+        store = BedrockKnowledgeBaseStore(config=BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1"), name="kb")
+        assert store._region == "us-west-2"
+
+    def test_explicit_region_name_wins_over_env(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        store = BedrockKnowledgeBaseStore(
+            config=BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1", region_name="eu-west-1"),
+            name="kb",
+        )
+        assert store._region == "eu-west-1"
+
+    def test_aws_region_env_used_when_no_explicit_config(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        store = BedrockKnowledgeBaseStore(config=BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1"), name="kb")
+        assert store._region == "ap-southeast-2"
+
+    def test_threads_resolved_region_into_default_runtime_client(self, monkeypatch):
+        monkeypatch.setenv("AWS_REGION", "ap-southeast-2")
+        with patch("boto3.client") as client_fn:
+            BedrockKnowledgeBaseStore(config=BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1"), name="kb")
+            client_fn.assert_called_once_with("bedrock-agent-runtime", region_name="ap-southeast-2")
+
+    def test_threads_resolved_region_into_default_lazy_clients(self):
+        with patch("boto3.client") as client_fn:
+            store = BedrockKnowledgeBaseStore(
+                config=BedrockKnowledgeBaseConfig(
+                    knowledge_base_id="kb-1",
+                    data_source_type="CUSTOM",
+                    data_source_id="ds-1",
+                ),
+                name="kb",
+                writable=True,
+            )
+            # Eager runtime client is built at __init__.
+            assert client_fn.call_count == 1
+            store._get_agent_client()
+            store._get_s3_client()
+            calls = {call.args[0]: call.kwargs["region_name"] for call in client_fn.call_args_list}
+            assert calls == {
+                "bedrock-agent-runtime": "us-west-2",
+                "bedrock-agent": "us-west-2",
+                "s3": "us-west-2",
+            }
 
 
 # --------------------------------------------------------------------------- #

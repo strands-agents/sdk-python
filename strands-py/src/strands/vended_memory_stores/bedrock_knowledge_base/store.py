@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_SEARCH_RESULTS = 10
+DEFAULT_REGION = "us-west-2"
 
 # A Bedrock attribute value: ``{"type": ..., "stringValue"/"numberValue"/...}``. There is no Python
 # SDK type for this (boto3 passes plain dicts), so it is modeled as ``dict[str, Any]``.
@@ -126,10 +128,16 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self._data_source_type = kb_config.get("data_source_type")
         self._data_source_id = kb_config.get("data_source_id")
 
+        # Region for any default boto3 client the store constructs. Resolution mirrors
+        # SageMakerAIModel: explicit config -> AWS_REGION env -> DEFAULT_REGION. This avoids the
+        # NoRegionError raised by boto3 in cloud envs (EC2/Lambda) with no region hint. Injected
+        # clients are used verbatim and bypass this resolution.
+        self._region = kb_config.get("region_name") or os.getenv("AWS_REGION") or DEFAULT_REGION
+
         # The runtime client is built eagerly: search is the read path every store exercises. A
         # default client is only constructed when none was injected.
         self._runtime_client: AgentsforBedrockRuntimeClient = kb_config.get("runtime_client") or boto3.client(
-            "bedrock-agent-runtime"
+            "bedrock-agent-runtime", region_name=self._region
         )
 
         # The knowledge base type — either provided in config or resolved in ``initialize()``.
@@ -526,19 +534,21 @@ class BedrockKnowledgeBaseStore(MemoryStore):
     def _get_s3_client(self) -> S3Client:
         """Return the S3 client, constructing a default one lazily on first use.
 
-        A default client is built with no extra configuration. Callers needing a specific region,
-        credentials, or endpoint build the client themselves and inject it via the ``s3`` config.
+        A default client is built with no extra configuration beyond the resolved region. Callers
+        needing specific credentials or an endpoint build the client themselves and inject it via
+        the ``s3`` config.
         """
         if self._s3_client is None:
-            self._s3_client = boto3.client("s3")
+            self._s3_client = boto3.client("s3", region_name=self._region)
         return self._s3_client
 
     def _get_agent_client(self) -> AgentsforBedrockClient:
         """Return the agent client, constructing a default one lazily on first use.
 
-        A default client is built with no extra configuration. Callers needing a specific region,
-        credentials, or endpoint build the client themselves and inject it via ``agent_client``.
+        A default client is built with no extra configuration beyond the resolved region. Callers
+        needing specific credentials or an endpoint build the client themselves and inject it via
+        ``agent_client``.
         """
         if self._agent_client is None:
-            self._agent_client = boto3.client("bedrock-agent")
+            self._agent_client = boto3.client("bedrock-agent", region_name=self._region)
         return self._agent_client
