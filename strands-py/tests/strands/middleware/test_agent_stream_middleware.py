@@ -1308,6 +1308,9 @@ async def test_answered_interrupt_is_not_reused_after_the_caller_abandons_the_st
     charges.clear()
     second = await agent.invoke_async("charge $9999")
     assert second.stop_reason == "interrupt"
+    # The reported interrupt must be answerable: a retained answered entry would both satisfy the
+    # gate and be filtered out of the report, leaving the caller nothing to respond to.
+    assert [(interrupt.name, interrupt.response) for interrupt in second.interrupts] == [("approve_charge", None)]
     assert charges == []
 
 
