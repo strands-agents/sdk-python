@@ -1,5 +1,8 @@
 """Agentic context management: model-driven compression via injected tools.
 
+.. warning:: Experimental
+    This module is experimental and may change in future versions.
+
 When an agent is created with ``context_manager="agentic"``, three tools are injected
 (``summarize_context``, ``truncate_context``, ``pin_context``) that let the model manage
 its own conversation history, plus a middleware that surfaces live token usage to the model

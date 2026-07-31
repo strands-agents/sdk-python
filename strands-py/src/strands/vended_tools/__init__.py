@@ -7,10 +7,9 @@ factories produce sandbox-routed tools that either bind to a
 sandboxes do when vending tools) or read the sandbox from the agent at call time.
 The :data:`sleep` tool pauses execution for a bounded, cancellable duration.
 
-The :data:`http_request` tool makes raw HTTP calls with a strict default
-security posture (private-network denial, redirect and body-size caps,
-sensitive-header rejection); use :func:`make_http_request` to relax individual
-controls when needed.
+The :data:`http_request` tool makes raw HTTP calls; use
+:func:`make_http_request` to supply a pre-configured ``httpx.AsyncClient``
+with custom timeouts, redirects, authentication, or proxies.
 
 Example Usage:
     ```python

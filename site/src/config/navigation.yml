@@ -196,6 +196,7 @@ sidebar:
           - docs/user-guide/safety-security/responsible-ai
           - docs/user-guide/safety-security/guardrails
           - docs/user-guide/safety-security/prompt-engineering
+          - docs/user-guide/safety-security/trusted-message-history
           - docs/user-guide/safety-security/pii-redaction
       - label: Observability & Debugging
         items:
@@ -335,6 +336,7 @@ sidebar:
         items:
           - docs/community/model-providers/cohere
           - docs/community/model-providers/clova-studio
+          - docs/community/model-providers/crusoe
           - docs/community/model-providers/fireworksai
           - docs/community/model-providers/nebius-token-factory
           - docs/community/model-providers/nvidia-nim
