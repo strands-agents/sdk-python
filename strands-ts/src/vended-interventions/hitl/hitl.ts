@@ -1,8 +1,8 @@
 import { InterventionHandler } from '../../interventions/handler.js'
 import { confirm, proceed, defaultEvaluate } from '../../interventions/actions.js'
 import { logger } from '../../logging/logger.js'
-import { createRiskClassifier } from './classifier.js'
-import type { ClassifierResult, HumanInTheLoopClassifier, ClassifierConfig } from './classifier.js'
+import { createLlmRiskClassifier } from './classifier.js'
+import type { ClassifierResult, HumanInTheLoopClassifier, LlmClassifierConfig } from './classifier.js'
 import type { InterventionAction } from '../../interventions/actions.js'
 import type { BeforeToolCallEvent } from '../../hooks/events.js'
 import type { JSONValue } from '../../types/json.js'
@@ -69,7 +69,7 @@ export interface HumanInTheLoopConfig {
    * - **Config object** (`{ systemPrompt?, model? }`): built-in LLM classifier with custom settings.
    * - **Custom function**: your own async classification logic.
    */
-  classifier?: true | ClassifierConfig | HumanInTheLoopClassifier
+  classifier?: true | LlmClassifierConfig | HumanInTheLoopClassifier
 
   /**
    * When true, trust responses approve the tool AND remember it
@@ -270,12 +270,12 @@ export class HumanInTheLoop extends InterventionHandler {
   }
 
   private _resolveClassifier(
-    classifier: true | ClassifierConfig | HumanInTheLoopClassifier | undefined
+    classifier: true | LlmClassifierConfig | HumanInTheLoopClassifier | undefined
   ): HumanInTheLoopClassifier | undefined {
     if (classifier === undefined) return undefined
-    if (classifier === true) return createRiskClassifier()
+    if (classifier === true) return createLlmRiskClassifier()
     if (typeof classifier === 'function') return classifier
-    return createRiskClassifier(classifier)
+    return createLlmRiskClassifier(classifier)
   }
 
   private _isTrustResponse(response: JSONValue): boolean {

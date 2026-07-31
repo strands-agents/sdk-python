@@ -21,7 +21,7 @@ export type HumanInTheLoopClassifier = (event: BeforeToolCallEvent) => Promise<C
 /**
  * Configuration for the built-in LLM risk classifier (used when `classifier: true`).
  */
-export interface ClassifierConfig {
+export interface LlmClassifierConfig {
   /** System prompt describing risk criteria. Defaults to a general-purpose risk prompt. */
   systemPrompt?: string
   /** Model for risk evaluation. Defaults to the parent agent's model. */
@@ -47,10 +47,12 @@ Require approval when the tool call:
 ## When approval is NOT needed
 
 Do not require approval when the tool call:
-- Is read-only (listing files, querying data, searching)
+- Is read-only AND does not access sensitive data (listing non-sensitive files, querying public data, searching)
 - Operates on local or temporary resources
 - Has easily reversible effects
 - Is scoped to a single non-critical resource
+
+Note: even read-only operations that access credentials, secrets, PII, or financial data still require approval.
 
 ## Instructions
 
@@ -65,7 +67,7 @@ Keep your reason under 10 words — it is shown to a human in a CLI prompt.`
  * @param config - Optional configuration for the classifier.
  * @returns A classifier function that uses an inner LLM agent to evaluate risk.
  */
-export function createRiskClassifier(config?: ClassifierConfig): HumanInTheLoopClassifier {
+export function createLlmRiskClassifier(config?: LlmClassifierConfig): HumanInTheLoopClassifier {
   const systemPrompt = config?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
   const configuredModel = config?.model
 

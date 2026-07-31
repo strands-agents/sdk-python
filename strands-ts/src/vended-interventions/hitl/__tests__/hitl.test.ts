@@ -3,6 +3,7 @@ import { HumanInTheLoop } from '../hitl.js'
 import { Agent } from '../../../agent/agent.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
+import type { BeforeToolCallEvent } from '../../../hooks/events.js'
 
 describe('HumanInTheLoop', () => {
   describe('default config (interrupt/resume)', () => {
@@ -546,7 +547,7 @@ describe('HumanInTheLoop', () => {
         tools: [tool],
         interventions: [
           new HumanInTheLoop({
-            classifier: async (event) => ({
+            classifier: async (event: BeforeToolCallEvent) => ({
               requiresApproval: event.toolUse.name === 'deploy',
               reason: 'deployment requires approval',
             }),
