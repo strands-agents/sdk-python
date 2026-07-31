@@ -42,6 +42,17 @@ _IMAGE_MEDIA_TYPES = {
 # https://docs.claude.com/en/docs/build-with-claude/prompt-caching
 _CACHEABLE_CONTENT_KEYS = frozenset({"document", "image", "text", "toolResult", "toolUse"})
 
+# The same rule expressed in Anthropic's own block types, i.e. after translation. Selecting a target
+# before formatting is not enough: a block can be an accepted type here and still be dropped in
+# translation (for example an image with a location source), so the breakpoint is placed on the last
+# block that survives formatting.
+_CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", "tool_use"})
+
+# Anthropic rejects a request carrying more than this many cache breakpoints. The budget is shared
+# across tools, system and messages rather than being per-section.
+# https://docs.claude.com/en/docs/build-with-claude/prompt-caching
+_MAX_CACHE_BREAKPOINTS = 4
+
 # ``ephemeral`` is the only cache type the Anthropic API supports. Bedrock's cache point ``type``
 # (e.g. "default") has no Anthropic equivalent and is normalized to it.
 _ANTHROPIC_CACHE_TYPE = "ephemeral"
@@ -71,8 +82,9 @@ class AnthropicModel(Model):
         Attributes:
             cache_config: Configuration for prompt caching. Use ``CacheConfig(strategy="auto")`` to add a
                 cache breakpoint to the last user message. Caching is off when unset.
-            cache_tools: Cache point type for tool definitions. Pass a string (e.g. "default") for the
-                default TTL, or ``CacheToolsConfig(ttl="1h")`` to set one. Independent of ``cache_config``.
+            cache_tools: Caches the tool definitions. Any non-empty string (e.g. "default") switches it
+                on with the default TTL -- the value itself is not a TTL. Pass
+                ``CacheToolsConfig(ttl="1h")`` to set one. Independent of ``cache_config``.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
                 For a complete list of supported models, see
@@ -219,14 +231,7 @@ class AnthropicModel(Model):
 
             for content in message["content"]:
                 if "cachePoint" in content:
-                    # A cache point marks the preceding block as a breakpoint; with nothing before it
-                    # there is no prefix to cache.
-                    if formatted_contents:
-                        formatted_contents[-1]["cache_control"] = self._format_cache_control(
-                            content["cachePoint"].get("ttl")
-                        )
-                    else:
-                        logger.warning("cache point has no preceding content block | skipping")
+                    self._attach_cache_control(formatted_contents, content["cachePoint"].get("ttl"))
                     continue
 
                 # Check for location sources in image, document, or video content
@@ -240,6 +245,51 @@ class AnthropicModel(Model):
                 formatted_messages.append({"content": formatted_contents, "role": message["role"]})
 
         return formatted_messages
+
+    @classmethod
+    def _attach_cache_control(cls, formatted_contents: list[dict[str, Any]], ttl: str | None) -> None:
+        """Mark the most recent already-formatted block that the API accepts ``cache_control`` on.
+
+        A cache point marks the preceding content as a cache breakpoint. The block immediately before it
+        is not always a valid carrier: it may have been dropped in translation, or be a type the API
+        rejects a breakpoint on (a ``thinking`` block, for example). Scanning backwards keeps the
+        breakpoint on the nearest valid block instead of emitting a request the API refuses.
+
+        Args:
+            formatted_contents: Blocks formatted so far for the current message. Mutated in place.
+            ttl: Optional TTL duration carried by the cache point.
+        """
+        for block in reversed(formatted_contents):
+            if block.get("type") in _CACHEABLE_BLOCK_TYPES:
+                block["cache_control"] = cls._format_cache_control(ttl)
+                return
+
+        logger.warning("no preceding block accepts a cache breakpoint | skipped cache point")
+
+    @classmethod
+    def _warn_on_breakpoint_overflow(cls, request: dict[str, Any]) -> None:
+        """Warn when a request carries more cache breakpoints than the API accepts.
+
+        The caller keeps ownership of their own cache points, so this reports the problem rather than
+        silently dropping one: an opaque 400 from the API is harder to act on than a named cause.
+
+        Args:
+            request: The formatted Anthropic request.
+        """
+        count = sum("cache_control" in tool for tool in request.get("tools") or [])
+        system = request.get("system")
+        if isinstance(system, list):
+            count += sum("cache_control" in block for block in system)
+        for message in request.get("messages") or []:
+            count += sum("cache_control" in block for block in message.get("content") or [])
+
+        if count > _MAX_CACHE_BREAKPOINTS:
+            logger.warning(
+                "count=<%d>, max=<%d> | too many cache breakpoints, the API will reject this request; "
+                "remove hand-placed cache points or disable cache_tools",
+                count,
+                _MAX_CACHE_BREAKPOINTS,
+            )
 
     def _caching_enabled(self) -> bool:
         """Whether ``cache_config`` asks for a cache breakpoint on the last user message.
@@ -379,7 +429,7 @@ class AnthropicModel(Model):
         if self._caching_enabled():
             messages = self._inject_cache_point(messages)
 
-        return {
+        request = {
             "max_tokens": self.config["max_tokens"],
             "messages": self._format_request_messages(messages),
             "model": self.config["model_id"],
@@ -388,6 +438,9 @@ class AnthropicModel(Model):
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
         }
+        self._warn_on_breakpoint_overflow(request)
+
+        return request
 
     @staticmethod
     def _format_tool_choice(tool_choice: ToolChoice | None) -> dict:

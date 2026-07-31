@@ -1593,7 +1593,170 @@ class TestPromptCaching:
         request = model.format_request(messages)
 
         assert self._breakpoints(request) == []
-        assert "no preceding content block" in caplog.text
+        assert "no preceding block accepts a cache breakpoint" in caplog.text
+
+    def test_breakpoint_survives_a_block_dropped_in_translation(self, model):
+        """An image with a location source is an accepted cache carrier by block type but is dropped when
+        the request is formatted. The breakpoint has to fall back to the block before it rather than
+        vanish, or enabling caching would remove the caching that worked without it."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "long prefix"},
+                    {"image": {"format": "png", "source": {"location": {"uri": "s3://b/k"}}}},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert request["messages"][0]["content"] == [
+            {"type": "text", "text": "long prefix", "cache_control": {"type": "ephemeral"}}
+        ]
+
+    def test_breakpoint_never_lands_on_a_reasoning_block(self, model):
+        """The API rejects ``cache_control`` on a thinking block, so a request that would only be able to
+        place one there must emit no breakpoint at all."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"reasoningContent": {"reasoningText": {"text": "thinking", "signature": "sig"}}},
+                    {"image": {"format": "png", "source": {"location": {"uri": "s3://b/k"}}}},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == []
+        assert "cache_control" not in request["messages"][0]["content"][0]
+
+    def test_no_fallback_to_an_earlier_turn(self, model):
+        """Caching a prefix that has stopped growing would pin every later turn to a stale entry."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {"role": "user", "content": [{"text": "turn one"}]},
+            {"role": "assistant", "content": [{"text": "reply"}]},
+            {"role": "user", "content": [{"reasoningContent": {"reasoningText": {"text": "r", "signature": "s"}}}]},
+        ]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == []
+
+    def test_breakpoint_lands_on_the_last_of_several_cacheable_blocks(self, model):
+        """Placement on the *last* cacheable block is what makes the cached prefix cover the whole turn."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "first"},
+                    {"toolResult": {"toolUseId": "x", "content": [{"text": "second"}], "status": "success"}},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        content = request["messages"][0]["content"]
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert "cache_control" not in content[0]
+        assert content[1]["type"] == "tool_result"
+        assert content[1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_empty_cache_tools_is_treated_as_unset(self, model, messages, tool_specs):
+        """``cache_tools=""`` is what an unset environment variable produces; it must not enable caching."""
+        model.update_config(cache_tools="")
+
+        assert self._breakpoints(model.format_request(messages, tool_specs)) == []
+
+    def test_warns_when_breakpoints_exceed_the_ceiling(self, model, tool_specs, caplog):
+        """Four hand-placed points was legal before ``cache_tools`` existed, so enabling it can push a
+        working request over the API ceiling. The caller keeps their points and gets a named cause."""
+        caplog.set_level("WARNING")
+        model.update_config(cache_tools="default")
+        cache_point = {"cachePoint": {"type": "default"}}
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "a"},
+                    cache_point,
+                    {"text": "b"},
+                    cache_point,
+                    {"text": "c"},
+                    cache_point,
+                    {"text": "d"},
+                    cache_point,
+                ],
+            }
+        ]
+
+        request = model.format_request(messages, tool_specs)
+
+        assert len(self._breakpoints(request)) == self.MAX_BREAKPOINTS + 1
+        assert "too many cache breakpoints" in caplog.text
+
+    def test_manual_cache_point_attaches_to_nearest_acceptable_block(self, model):
+        """A hand-placed cache point after a reasoning block skips back to the text block rather than
+        producing a request the API rejects."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "question"},
+                    {"reasoningContent": {"reasoningText": {"text": "thinking", "signature": "sig"}}},
+                    {"cachePoint": {"type": "default"}},
+                ],
+            }
+        ]
+
+        content = model.format_request(messages)["messages"][0]["content"]
+
+        assert content[0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in content[1]
+
+    def test_cross_sdk_media_request_parity(self, model):
+        """Mirror of ``pins the media request body shared with strands-py`` in
+        strands-ts/src/models/__tests__/anthropic.test.ts. Update both together or the SDKs will drift.
+
+        Text-only parity cannot catch a breakpoint lost while translating a media block, which is exactly
+        what regressed in the TypeScript implementation.
+        """
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "prefix"},
+                    {"image": {"format": "png", "source": {"bytes": bytes([1, 2, 3])}}},
+                    # Dropped in translation: the breakpoint must fall back to the image above.
+                    {"image": {"format": "png", "source": {"location": {"uri": "s3://b/k"}}}},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        assert request["messages"] == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "prefix"},
+                    {
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": "image/png", "data": "AQID"},
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                ],
+            }
+        ]
 
     def test_cross_sdk_request_parity(self, model, tool_specs):
         """Pins the exact request body strands-ts must produce for the same config.

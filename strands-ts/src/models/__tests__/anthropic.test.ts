@@ -1086,11 +1086,17 @@ describe('AnthropicModel', () => {
 
     it('normalizes a Bedrock cache point type to ephemeral', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: { type: 'default' } })
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('hi'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+      ]
 
-      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+      await collectIterator(provider.stream(messages))
 
-      expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral' }]])
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
     })
 
     it('is a no-op when cacheTools is set without tools', async () => {
@@ -1262,6 +1268,214 @@ describe('AnthropicModel', () => {
       await collectIterator(provider.stream([userMessage('Hi')], { systemPrompt }))
 
       expect(captured.request.system[0].cache_control).toEqual({ type: 'ephemeral', ttl: '1h' })
+    })
+
+    it('keeps the breakpoint when the last cacheable block is dropped in translation', async () => {
+      // An image with a location source is an accepted cache carrier by block type but is dropped when
+      // the request is formatted. Choosing the target before formatting used to leave the request with
+      // no cache_control at all, so enabling caching removed the caching that worked without it.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('long prefix'),
+            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(captured.request.messages[0].content[0]).toEqual({
+        type: 'text',
+        text: 'long prefix',
+        cache_control: { type: 'ephemeral' },
+      })
+    })
+
+    it('never places a breakpoint on a reasoning block', async () => {
+      // The only formattable block left is a thinking block, which the API rejects a breakpoint on.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new ReasoningBlock({ text: 'thinking', signature: 'sig' }),
+            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('does not fall back to an earlier turn when the newest one has nothing cacheable', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        userMessage('turn one'),
+        new Message({ role: 'assistant', content: [new TextBlock('reply')] }),
+        new Message({ role: 'user', content: [new ReasoningBlock({ text: 'thinking', signature: 'sig' })] }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      // Caching a prefix that has stopped growing would pin every later turn to a stale entry.
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('places the breakpoint on the last of several cacheable blocks', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('first'),
+            new ToolResultBlock({ toolUseId: 'x', content: [new TextBlock('second')], status: 'success' }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(captured.request.messages[0].content[0].cache_control).toBeUndefined()
+      expect(captured.request.messages[0].content[1].type).toBe('tool_result')
+      expect(captured.request.messages[0].content[1].cache_control).toEqual({ type: 'ephemeral' })
+    })
+
+    it('treats an empty cacheTools value as unset', async () => {
+      // cacheTools: '' is what an unset environment variable produces. A presence check enabled caching
+      // here while Python's truthiness check did not.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: '' })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('disables caching for an unknown strategy', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'sometimes' as never },
+      })
+
+      await collectIterator(provider.stream([userMessage('Hi')]))
+
+      expect(breakpoints(captured.request)).toEqual([])
+    })
+
+    it('warns when hand-placed points and cacheTools exceed the breakpoint ceiling', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('a'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('b'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('c'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('d'),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages, { toolSpecs }))
+
+      // The caller's own points are left alone; an opaque 400 is harder to act on than a named cause.
+      expect(breakpoints(captured.request)).toHaveLength(MAX_BREAKPOINTS + 1)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too many cache breakpoints'))
+      warnSpy.mockRestore()
+    })
+
+    it("does not mutate the caller's messages", async () => {
+      const { mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { strategy: 'auto' },
+        cacheTools: 'default',
+      })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('hello'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+      ]
+      const before = JSON.stringify(messages)
+
+      await collectIterator(provider.stream(messages, { toolSpecs }))
+
+      expect(JSON.stringify(messages)).toBe(before)
+    })
+
+    it('attaches a hand-placed cache point to the nearest block that accepts one', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('question'),
+            new ReasoningBlock({ text: 'thinking', signature: 'sig' }),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages[0].content[0].cache_control).toEqual({ type: 'ephemeral' })
+      expect(captured.request.messages[0].content[1].cache_control).toBeUndefined()
+    })
+
+    it('pins the media request body shared with strands-py', async () => {
+      // The mirror of this test is test_cross_sdk_media_request_parity in
+      // strands-py/tests/strands/models/test_anthropic.py. Update both together or the SDKs will drift.
+      // Text-only parity cannot catch a breakpoint lost while translating a media block, which is
+      // exactly what regressed here.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('prefix'),
+            new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } }),
+            // Dropped in translation: the breakpoint must fall back to the image above, not vanish.
+            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'prefix' },
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: 'image/png', data: 'AQID' },
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+        },
+      ])
     })
 
     it('pins the request body shared with strands-py', async () => {
