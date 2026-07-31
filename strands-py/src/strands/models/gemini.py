@@ -659,7 +659,7 @@ class GeminiModel(Model):
 
         if "gemini_tools" in model_config:
             warnings.warn(
-                "gemini_tools is deprecated; use built_in_tools instead.",
+                "gemini_tools is deprecated and will be removed in v2.0.0. Use built_in_tools instead.",
                 DeprecationWarning,
                 stacklevel=3,
             )

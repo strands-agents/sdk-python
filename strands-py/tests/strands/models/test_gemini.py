@@ -991,6 +991,24 @@ def test_built_in_tools_validation_rejects_function_declarations(model_id):
         GeminiModel(model_id=model_id, built_in_tools=[tool_with_function_declarations])
 
 
+def test__init__gemini_tools_validation_rejects_function_declarations(model_id):
+    tool_with_function_declarations = genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name="test_function",
+                description="A test function",
+            )
+        ]
+    )
+
+    with pytest.warns(
+        DeprecationWarning,
+        match="gemini_tools is deprecated and will be removed in v2.0.0. Use built_in_tools instead.",
+    ):
+        with pytest.raises(ValueError, match="built_in_tools should not contain FunctionDeclarations"):
+            GeminiModel(model_id=model_id, gemini_tools=[tool_with_function_declarations])
+
+
 def test__init__built_in_tools(model_id):
     tool_with_google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
 
@@ -1008,7 +1026,7 @@ def test__init__gemini_tools_normalizes_to_built_in_tools(model_id):
 
     with pytest.warns(
         DeprecationWarning,
-        match="gemini_tools is deprecated; use built_in_tools instead.",
+        match="gemini_tools is deprecated and will be removed in v2.0.0. Use built_in_tools instead.",
     ) as captured_warnings:
         model = GeminiModel(model_id=model_id, gemini_tools=[tool_with_google_search])
 
@@ -1054,7 +1072,7 @@ def test_update_config_gemini_tools_normalizes_to_built_in_tools(model):
 
     with pytest.warns(
         DeprecationWarning,
-        match="gemini_tools is deprecated; use built_in_tools instead.",
+        match="gemini_tools is deprecated and will be removed in v2.0.0. Use built_in_tools instead.",
     ) as captured_warnings:
         model.update_config(gemini_tools=[tool_with_google_search])
 
@@ -1091,6 +1109,24 @@ def test_update_config_built_in_tools_validation_rejects_function_declarations(m
 
     with pytest.raises(ValueError, match="built_in_tools should not contain FunctionDeclarations"):
         model.update_config(built_in_tools=[tool_with_function_declarations])
+
+
+def test_update_config_gemini_tools_validation_rejects_function_declarations(model):
+    tool_with_function_declarations = genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name="test_function",
+                description="A test function",
+            )
+        ]
+    )
+
+    with pytest.warns(
+        DeprecationWarning,
+        match="gemini_tools is deprecated and will be removed in v2.0.0. Use built_in_tools instead.",
+    ):
+        with pytest.raises(ValueError, match="built_in_tools should not contain FunctionDeclarations"):
+            model.update_config(gemini_tools=[tool_with_function_declarations])
 
 
 @pytest.mark.asyncio
