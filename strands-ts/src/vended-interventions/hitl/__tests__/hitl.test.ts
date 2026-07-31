@@ -448,9 +448,11 @@ describe('HumanInTheLoop', () => {
       const agent = new Agent({
         model: agentModel,
         tools: [tool],
-        interventions: [new HumanInTheLoop({
-          classifier: { model: classifierModel },
-        })],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: { model: classifierModel },
+          }),
+        ],
         printer: false,
       })
 
@@ -481,9 +483,11 @@ describe('HumanInTheLoop', () => {
       const agent = new Agent({
         model: agentModel,
         tools: [tool],
-        interventions: [new HumanInTheLoop({
-          classifier: { model: classifierModel },
-        })],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: { model: classifierModel },
+          }),
+        ],
         printer: false,
       })
 
@@ -510,10 +514,12 @@ describe('HumanInTheLoop', () => {
       const agent = new Agent({
         model: agentModel,
         tools: [tool],
-        interventions: [new HumanInTheLoop({
-          allowedTools: ['readFile'],
-          classifier: { model: classifierModel },
-        })],
+        interventions: [
+          new HumanInTheLoop({
+            allowedTools: ['readFile'],
+            classifier: { model: classifierModel },
+          }),
+        ],
         printer: false,
       })
 
@@ -538,12 +544,14 @@ describe('HumanInTheLoop', () => {
       const agent = new Agent({
         model: agentModel,
         tools: [tool],
-        interventions: [new HumanInTheLoop({
-          classifier: async (event) => ({
-            requiresApproval: event.toolUse.name === 'deploy',
-            reason: 'deployment requires approval',
+        interventions: [
+          new HumanInTheLoop({
+            classifier: async (event) => ({
+              requiresApproval: event.toolUse.name === 'deploy',
+              reason: 'deployment requires approval',
+            }),
           }),
-        })],
+        ],
         printer: false,
       })
 
@@ -565,13 +573,15 @@ describe('HumanInTheLoop', () => {
       const agent = new Agent({
         model: agentModel,
         tools: [tool],
-        interventions: [new HumanInTheLoop({
-          classifier: async () => ({ requiresApproval: true, reason: 'external communication' }),
-          ask: async (prompt) => {
-            prompts.push(prompt)
-            return 'no'
-          },
-        })],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: async () => ({ requiresApproval: true, reason: 'external communication' }),
+            ask: async (prompt) => {
+              prompts.push(prompt)
+              return 'no'
+            },
+          }),
+        ],
         printer: false,
       })
 

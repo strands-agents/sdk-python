@@ -255,7 +255,7 @@ export class HumanInTheLoop extends InterventionHandler {
   }
 
   private _resolveClassifier(
-    classifier: true | ClassifierConfig | HumanInTheLoopClassifier | undefined,
+    classifier: true | ClassifierConfig | HumanInTheLoopClassifier | undefined
   ): HumanInTheLoopClassifier | undefined {
     if (classifier === undefined) return undefined
     if (classifier === true) return createRiskClassifier()

@@ -29,9 +29,7 @@ export interface ClassifierConfig {
 }
 
 const RISK_DECISION = z.object({
-  requiresApproval: z
-    .boolean()
-    .describe('Whether this tool call requires human approval before executing'),
+  requiresApproval: z.boolean().describe('Whether this tool call requires human approval before executing'),
   reason: z.string().describe('Brief reason (under 10 words) why approval is or is not required'),
 })
 
@@ -75,7 +73,7 @@ export function createRiskClassifier(config?: ClassifierConfig): HumanInTheLoopC
     const model = configuredModel ?? event.agent.model
     if (!model) {
       throw new Error(
-        'HITL risk classifier has no model — pass `model` in `classifier: { model }`, or ensure the parent agent has a model.',
+        'HITL risk classifier has no model — pass `model` in `classifier: { model }`, or ensure the parent agent has a model.'
       )
     }
 
