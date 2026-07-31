@@ -18,7 +18,7 @@ const testNavLinks: NavLink[] = [
   { label: 'Home', href: '/' },
   { label: 'User Guide', href: '/docs/user-guide/quickstart/overview/', basePath: '/docs/user-guide/' },
   { label: 'Examples', href: '/docs/examples/', basePath: '/docs/examples/' },
-  { label: 'Community', href: '/integrations/', basePath: ['/integrations/', '/docs/community/'] },
+  { label: 'Integrations', href: '/integrations/', basePath: ['/integrations/', '/docs/community/'] },
   { label: 'Contribute', href: 'https://github.com/example', external: true },
 ]
 
@@ -88,10 +88,10 @@ describe('findCurrentNavSection', () => {
     expect(result?.label).toBe('User Guide')
   })
 
-  it('should find Community nav for community paths', () => {
-    const result = findCurrentNavSection('/docs/community/community-packages/', testNavLinks)
+  it('should find Integrations nav for community paths', () => {
+    const result = findCurrentNavSection('/docs/community/get-featured/', testNavLinks)
     expect(result).toBeDefined()
-    expect(result?.label).toBe('Community')
+    expect(result?.label).toBe('Integrations')
   })
 
   it('should find Home nav for root path', () => {
@@ -228,12 +228,12 @@ describe('Integration: Full filtering flow', () => {
     })
   })
 
-  it('should correctly filter sidebar for /community/community-packages/ page', () => {
-    const currentPath = '/docs/community/community-packages/'
+  it('should correctly filter sidebar for community docs pages', () => {
+    const currentPath = '/docs/community/get-featured/'
     const currentNav = findCurrentNavSection(currentPath, testNavLinks)
 
     expect(currentNav).toBeDefined()
-    expect(currentNav?.label).toBe('Community')
+    expect(currentNav?.label).toBe('Integrations')
 
     const basePath = currentNav?.basePath || currentNav?.href || ''
     const filtered = filterSidebarByBasePath(runtimeSidebar as any, basePath)

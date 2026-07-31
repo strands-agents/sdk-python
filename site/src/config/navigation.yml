@@ -19,7 +19,7 @@ navbar:
   - label: Examples
     href: /docs/examples/
     basePath: /docs/examples/
-  - label: Community
+  - label: Integrations
     href: /integrations/
     basePath:
       - /integrations/
