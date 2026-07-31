@@ -1,9 +1,13 @@
-"""Bash tool for executing shell commands through a sandbox.
+"""Shell tool for executing commands through a sandbox.
 
-Provides :func:`make_bash` (a factory for a stateless, sandbox-routed bash tool)
-and :data:`bash` (the default instance that reads the sandbox from the agent at
+Provides :func:`make_shell` (a factory for a stateless, sandbox-routed shell tool)
+and :data:`shell` (the default instance that reads the sandbox from the agent at
 call time). Each call runs in a fresh shell; state such as variables and the
 working directory does not persist across calls.
+
+The command runs in whichever shell the sandbox provides -- ``sh`` for the Docker
+and local environments, the remote login shell over SSH -- so it must not rely on
+shell-specific syntax.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from typing import TYPE_CHECKING
 from ...sandbox.errors import SandboxTimeoutError
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
-from .types import SANDBOX_BASH_DESCRIPTION, BashOutput
+from .types import SANDBOX_SHELL_DESCRIPTION, ShellExecutionError, ShellOutput
 
 if TYPE_CHECKING:
     from ...sandbox.base import Sandbox
@@ -22,23 +26,23 @@ if TYPE_CHECKING:
 _DEFAULT_TIMEOUT = 120
 
 
-def make_bash(
+def make_shell(
     *,
     sandbox: Sandbox | None = None,
-    name: str = "bash",
-    description: str = SANDBOX_BASH_DESCRIPTION,
+    name: str = "shell",
+    description: str = SANDBOX_SHELL_DESCRIPTION,
 ) -> DecoratedFunctionTool:
-    """Create a stateless, sandbox-routed bash tool.
+    """Create a stateless, sandbox-routed shell tool.
 
     If a ``sandbox`` is passed, it is bound at creation time. Otherwise the tool
     reads the sandbox from ``tool_context.agent.sandbox`` at call time. Used by
     sandbox implementations in :meth:`~strands.sandbox.base.Sandbox.get_tools`
-    and by users who want a customized bash tool.
+    and by users who want a customized shell tool.
 
     Args:
         sandbox: Sandbox to bind at creation. When ``None``, the agent's
             configured sandbox is used at call time.
-        name: Tool name. Defaults to ``"bash"``.
+        name: Tool name. Defaults to ``"shell"``.
         description: Tool description shown to the model.
 
     Returns:
@@ -46,11 +50,11 @@ def make_bash(
     """
 
     @tool(name=name, description=description, context="tool_context")
-    async def bash_tool(command: str, tool_context: ToolContext, timeout: int = _DEFAULT_TIMEOUT) -> BashOutput:
-        """Executes a bash shell command and returns its output.
+    async def shell_tool(command: str, tool_context: ToolContext, timeout: int = _DEFAULT_TIMEOUT) -> ShellOutput:
+        """Executes a shell command and returns its output.
 
         Args:
-            command: The bash command to execute.
+            command: The shell command to execute.
             tool_context: Injected by the framework. Not user-facing.
             timeout: Timeout in seconds (default: 120).
         """
@@ -60,11 +64,12 @@ def make_bash(
         except SandboxTimeoutError:
             raise
         except Exception as e:
-            raise RuntimeError(str(e)) from e
+            # ShellExecutionError subclasses RuntimeError, so prior handlers still match.
+            raise ShellExecutionError(str(e)) from e
         return {"output": result.stdout, "error": result.stderr}
 
-    return bash_tool
+    return shell_tool
 
 
-bash = make_bash()
-"""Default bash tool. Reads the sandbox from the agent's context at call time."""
+shell = make_shell()
+"""Default shell tool. Reads the sandbox from the agent's context at call time."""
