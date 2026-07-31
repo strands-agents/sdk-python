@@ -1,5 +1,6 @@
 import { InterventionHandler } from '../../interventions/handler.js'
 import { confirm, proceed, defaultEvaluate } from '../../interventions/actions.js'
+import { logger } from '../../logging/logger.js'
 import { createRiskClassifier } from './classifier.js'
 import type { ClassifierResult, HumanInTheLoopClassifier, ClassifierConfig } from './classifier.js'
 import type { InterventionAction } from '../../interventions/actions.js'
@@ -238,8 +239,8 @@ export class HumanInTheLoop extends InterventionHandler {
       try {
         return await this._classifier(event)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        return { requiresApproval: true, reason: `Classifier failed, defaulting to approval required: ${message}` }
+        logger.warn(`tool=<${toolName}> | classifier failed, defaulting to approval required`, error)
+        return { requiresApproval: true, reason: 'classifier error, defaulting to approval required' }
       }
     }
 

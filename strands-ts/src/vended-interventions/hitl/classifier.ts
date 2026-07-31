@@ -14,7 +14,7 @@ export interface ClassifierResult {
 }
 
 /**
- * Async function that decides whether a tool call requires human approval.
+ * Function that decides whether a tool call requires human approval.
  */
 export type HumanInTheLoopClassifier = (event: BeforeToolCallEvent) => Promise<ClassifierResult>
 
