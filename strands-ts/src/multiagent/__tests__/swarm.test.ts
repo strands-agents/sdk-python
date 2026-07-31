@@ -37,6 +37,25 @@ function createFinalAgent(agentId: string, message: string, description: string 
   return createHandoffAgent(agentId, { message }, description)
 }
 
+/**
+ * Creates an agent with a finite sequence of structured handoff decisions.
+ */
+function createHandoffSequenceAgent(
+  agentId: string,
+  handoffs: { agentId?: string; message: string; context?: Record<string, unknown> }[]
+): Agent {
+  const model = new MockMessageModel()
+  for (const [index, handoff] of handoffs.entries()) {
+    model.addTurn({
+      type: 'toolUseBlock',
+      name: 'strands_structured_output',
+      toolUseId: `tool-${index + 1}`,
+      input: handoff as JSONValue,
+    })
+  }
+  return new Agent({ model, printer: false, id: agentId, description: `Agent ${agentId}` })
+}
+
 describe('Swarm', () => {
   describe('constructor', () => {
     it('defaults id to "swarm"', () => {
@@ -118,6 +137,69 @@ describe('Swarm', () => {
       expect(swarm.config.repetitiveHandoffMinUniqueAgents).toBe(0)
       expect(swarm.config.timeout).toBe(Infinity)
       expect(swarm.config.nodeTimeout).toBe(Infinity)
+    })
+
+    it.each([-1, 1.5, Number.NaN, Infinity])(
+      'throws when repetitiveHandoffDetectionWindow is not a non-negative integer (%s)',
+      (window) => {
+        expect(
+          () =>
+            new Swarm({
+              nodes: [createFinalAgent('a', 'hi')],
+              repetitiveHandoffDetectionWindow: window,
+              repetitiveHandoffMinUniqueAgents: 1,
+            })
+        ).toThrow(`repetitive_handoff_detection_window=<${window}> | must be a non-negative integer`)
+      }
+    )
+
+    it.each([-1, 1.5, Number.NaN, Infinity])(
+      'throws when repetitiveHandoffMinUniqueAgents is not a non-negative integer (%s)',
+      (minimumUniqueAgents) => {
+        expect(
+          () =>
+            new Swarm({
+              nodes: [createFinalAgent('a', 'hi')],
+              repetitiveHandoffDetectionWindow: 4,
+              repetitiveHandoffMinUniqueAgents: minimumUniqueAgents,
+            })
+        ).toThrow(`repetitive_handoff_min_unique_agents=<${minimumUniqueAgents}> | must be a non-negative integer`)
+      }
+    )
+
+    it.each([{ repetitiveHandoffDetectionWindow: 4 }, { repetitiveHandoffMinUniqueAgents: 2 }])(
+      'throws when only one repetitive handoff setting is enabled',
+      (config) => {
+        expect(
+          () =>
+            new Swarm({
+              nodes: [createFinalAgent('a', 'hi'), createFinalAgent('b', 'bye')],
+              ...config,
+            })
+        ).toThrow('must both be 0 or both be positive')
+      }
+    )
+
+    it('throws when the uniqueness threshold exceeds the detection window', () => {
+      expect(
+        () =>
+          new Swarm({
+            nodes: [createFinalAgent('a', 'a'), createFinalAgent('b', 'b'), createFinalAgent('c', 'c')],
+            repetitiveHandoffDetectionWindow: 2,
+            repetitiveHandoffMinUniqueAgents: 3,
+          })
+      ).toThrow('minimum unique agents cannot exceed detection window')
+    })
+
+    it('throws when the uniqueness threshold exceeds the swarm node count', () => {
+      expect(
+        () =>
+          new Swarm({
+            nodes: [createFinalAgent('a', 'a'), createFinalAgent('b', 'b')],
+            repetitiveHandoffDetectionWindow: 4,
+            repetitiveHandoffMinUniqueAgents: 3,
+          })
+      ).toThrow('minimum unique agents cannot exceed node count')
     })
 
     it('throws when timeout < 1', () => {
@@ -265,6 +347,7 @@ describe('Swarm', () => {
         nodes: [
           createHandoffAgent('a', { agentId: 'b', message: 'to b' }),
           createHandoffAgent('b', { agentId: 'a', message: 'to a' }),
+          createFinalAgent('c', 'unused'),
         ],
         start: 'a',
         repetitiveHandoffDetectionWindow: 4,
@@ -274,8 +357,32 @@ describe('Swarm', () => {
       const result = await swarm.invoke('start')
 
       expect(result.status).toBe(Status.FAILED)
+      expect(result.error).toEqual(new Error('Repetitive handoff: 2 unique nodes out of 4 recent iterations'))
       expect(result.results.map((r) => r.nodeId)).toStrictEqual(['a', 'b', 'a', 'b'])
+      // Detection is an aggregate failure; each node execution completed successfully.
       expect(result.results.every((nodeResult) => nodeResult.status === Status.COMPLETED)).toBe(true)
+    })
+
+    it('checks the trailing window after earlier diverse handoffs', async () => {
+      const swarm = new Swarm({
+        nodes: [
+          createHandoffAgent('a', { agentId: 'b', message: 'to b' }),
+          createHandoffSequenceAgent('b', [
+            { agentId: 'c', message: 'to c' },
+            { agentId: 'a', message: 'to a' },
+          ]),
+          createHandoffAgent('c', { agentId: 'a', message: 'to a' }),
+        ],
+        start: 'a',
+        repetitiveHandoffDetectionWindow: 3,
+        repetitiveHandoffMinUniqueAgents: 3,
+      })
+
+      const result = await swarm.invoke('start')
+
+      expect(result.status).toBe(Status.FAILED)
+      expect(result.error).toEqual(new Error('Repetitive handoff: 2 unique nodes out of 3 recent iterations'))
+      expect(result.results.map((nodeResult) => nodeResult.nodeId)).toStrictEqual(['a', 'b', 'c', 'a', 'b', 'a'])
     })
 
     it('continues when recent handoffs meet the uniqueness threshold', async () => {
@@ -567,6 +674,41 @@ describe('Swarm', () => {
 
       expect(result2.status).toBe(Status.COMPLETED)
       expect(result2.results.map((r) => r.nodeId)).toStrictEqual(['a'])
+    })
+
+    it('does not apply restored completed history to a new invocation', async () => {
+      const storage = new MockSnapshotStorage()
+      const priorSwarm = new Swarm({
+        id: 'my-swarm',
+        nodes: [
+          createHandoffSequenceAgent('a', [
+            { agentId: 'b', message: 'to b' },
+            { agentId: 'b', message: 'to b again' },
+          ]),
+          createHandoffSequenceAgent('b', [{ agentId: 'a', message: 'to a' }, { message: 'prior run complete' }]),
+          createFinalAgent('c', 'unused'),
+        ],
+        start: 'a',
+        plugins: [new SessionManager({ sessionId: 'test-session', storage: { snapshot: storage } })],
+      })
+
+      const priorResult = await priorSwarm.invoke('start')
+      expect(priorResult.results.map((nodeResult) => nodeResult.nodeId)).toStrictEqual(['a', 'b', 'a', 'b'])
+
+      const resumedSwarm = new Swarm({
+        id: 'my-swarm',
+        nodes: [createFinalAgent('a', 'a'), createFinalAgent('b', 'b'), createFinalAgent('c', 'fresh result')],
+        start: 'c',
+        repetitiveHandoffDetectionWindow: 4,
+        repetitiveHandoffMinUniqueAgents: 3,
+        plugins: [new SessionManager({ sessionId: 'test-session', storage: { snapshot: storage } })],
+      })
+
+      const result = await resumedSwarm.invoke('new request')
+
+      expect(result.status).toBe(Status.COMPLETED)
+      expect(result.error).toBeUndefined()
+      expect(result.results.map((nodeResult) => nodeResult.nodeId)).toStrictEqual(['a', 'b', 'a', 'b', 'c'])
     })
 
     it('carries forward steps count from the previous invocation', async () => {
