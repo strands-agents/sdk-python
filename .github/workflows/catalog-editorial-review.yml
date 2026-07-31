@@ -28,6 +28,13 @@ jobs:
     name: Flag editorial catalog fields
     runs-on: ubuntu-latest
     steps:
+      # The review script parses entry YAML with js-yaml, which github-script
+      # doesn't bundle. Installed from the registry into the (empty) workspace
+      # — no checkout, so the "never checks out PR code" property holds — with
+      # scripts disabled and the version pinned.
+      - name: Install js-yaml for the review script
+        run: npm install --no-save --ignore-scripts --no-audit --no-fund js-yaml@4.1.0
+
       - name: Flag featured/badges and unverified package provenance
         uses: actions/github-script@v9
         env:
@@ -50,13 +57,17 @@ jobs:
             // github owner/repo the entry links, or reviewers are told to
             // verify ownership manually.
             //
-            // Detection compares each changed entry's FULL content at the PR
-            // head against the base version (contents API, data-only), not
-            // the patch text: patch-line regexes are trivially evaded by
-            // flow-style YAML (`{ featured: true }`) or reformatting, while
-            // the editorial state of the two full versions is not. The diff
-            // (listFiles) is used only as a cheap pre-filter for which
-            // catalog files changed.
+            // Detection PARSES each changed entry's FULL content at the PR
+            // head and at the base (contents API, data-only) with js-yaml and
+            // compares the parsed values. Patch-line or text regexes are
+            // trivially evaded by YAML surface variation (flow style, `!!bool`
+            // tags, anchors, quoted/escaped keys); the parsed document is not.
+            // The diff (listFiles) is used only as a cheap pre-filter for
+            // which catalog files changed.
+
+            // Installed by the preceding step into the workspace root;
+            // github-script doesn't resolve bare specifiers from there.
+            const yaml = require(`${process.env.GITHUB_WORKSPACE}/node_modules/js-yaml`);
 
             const pr = context.payload.pull_request;
             const label = process.env.EDITORIAL_LABEL;
@@ -154,45 +165,47 @@ jobs:
               }
             }
 
-            // Editorial state of one version of an entry. Deliberately broad
-            // — a false positive costs a maintainer a glance, a false
-            // negative defeats the flag. Matches block and flow style,
-            // quoted keys/items, and any-true spelling. YAML 1.2 (Astro's
-            // content loader) parses yes/on as strings, which the schema's
-            // z.boolean() rejects at the build gate — only the true
-            // spellings can reach main.
-            function editorialState(text) {
-              const featured = /['"]?featured['"]?\s*:\s*['"]?(true|True|TRUE)\b/.test(text);
-              const badges =
-                // Flow / JSON-ish non-empty list: badges: [verified]
-                /['"]?badges['"]?\s*:\s*\[\s*[^\s\]]/.test(text) ||
-                // Block-style list: a badges: line with at least one item
-                /['"]?badges['"]?\s*:\s*(#[^\n]*)?\r?\n(?:\s*(?:#[^\n]*)?\r?\n)*\s*-\s*\S/.test(text);
-              return { featured, badges };
+            // Parse one version of an entry. null means the text is YAML that
+            // js-yaml rejects — callers must fail toward flagging, never away
+            // from it, so a submitter can't clear a flag by making the file
+            // unparseable (the build gate rejects it later, but the flag must
+            // not lie in the meantime). '' (file absent at that ref) parses
+            // to the empty entry.
+            function parseEntry(text) {
+              try {
+                const data = yaml.load(text);
+                return typeof data === 'object' && data !== null ? data : {};
+              } catch {
+                return null;
+              }
             }
 
-            // Package/github data of one version of an entry, for the
-            // provenance check. Reading the head content (not added diff
-            // lines) means a github-only edit re-triggers the check against
-            // the unchanged packages.
-            const unquote = (v) => v.replace(/^['"]|['"]$/g, '');
-            function extractEntryData(text) {
-              const ghMatch = /^github:\s*(\S+)/m.exec(text);
-              const github = ghMatch ? unquote(ghMatch[1]) : undefined;
+            // Editorial state of a parsed entry. Working on the parsed
+            // document (not the text) means every surface spelling js-yaml
+            // accepts — flow style, `!!bool`/`!!seq` tags, anchors/aliases,
+            // quoted or escape-sequence keys — evaluates to the same state
+            // the site build will see. YAML 1.2 (Astro's content loader)
+            // parses yes/on as strings, which the schema's z.boolean()
+            // rejects at the build gate — only true booleans can reach main.
+            function editorialState(data) {
+              if (data === null) return { featured: true, badges: true };
+              return {
+                featured: data.featured === true,
+                badges: Array.isArray(data.badges) && data.badges.length > 0,
+              };
+            }
+
+            // Package/github data of a parsed entry, for the provenance
+            // check. Reading the full head content (not added diff lines)
+            // means a github-only edit re-triggers the check against the
+            // unchanged packages.
+            function extractEntryData(data) {
+              if (data === null) return { github: undefined, pkgs: [] };
+              const github = typeof data.github === 'string' ? data.github : undefined;
               const pkgs = [];
-              let lang;
-              for (const line of text.split('\n')) {
-                const langMatch = /^\s+(python|typescript):/.exec(line);
-                if (langMatch) lang = langMatch[1];
-                const pkgMatch = /^\s+package:\s*(\S+)/.exec(line);
-                if (pkgMatch && lang) pkgs.push({ lang, pkg: unquote(pkgMatch[1]) });
-              }
-              // Flow style: languages: { python: { package: x } }
-              const flowRe = /(python|typescript):\s*\{[^{}]*?package:\s*['"]?([^'"},\s]+)/g;
-              for (let m; (m = flowRe.exec(text)); ) {
-                if (!pkgs.some(p => p.lang === m[1] && p.pkg === m[2])) {
-                  pkgs.push({ lang: m[1], pkg: m[2] });
-                }
+              for (const lang of ['python', 'typescript']) {
+                const pkg = data.languages?.[lang]?.package;
+                if (typeof pkg === 'string' && pkg) pkgs.push({ lang, pkg });
               }
               return { github, pkgs };
             }
@@ -204,17 +217,22 @@ jobs:
             const flagged = [];
             const changedPackages = [];
             for (const file of catalogFiles) {
+              // A renamed file lives at previous_filename on the base ref;
+              // fetching the new path there would return '' and erase the
+              // base state (a featured removal via rename would never flag).
+              const basePath = file.previous_filename ?? file.filename;
               const [headText, baseText] = await Promise.all([
                 fileText(file.filename, pr.head.sha),
-                fileText(file.filename, pr.base.sha),
+                fileText(basePath, pr.base.sha),
               ]);
-              const head = editorialState(headText);
-              const base = editorialState(baseText);
+              const headData = parseEntry(headText);
+              const head = editorialState(headData);
+              const base = editorialState(parseEntry(baseText));
               if (head.featured !== base.featured || head.badges !== base.badges) {
                 flagged.push(file.filename);
               }
               if (headText) {
-                const { github: entryGithub, pkgs } = extractEntryData(headText);
+                const { github: entryGithub, pkgs } = extractEntryData(headData);
                 for (const p of pkgs) {
                   changedPackages.push({ file: file.filename, github: entryGithub, ...p });
                 }
