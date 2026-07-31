@@ -29,6 +29,8 @@ async function main() {
   const { AnthropicModel } = await import('@strands-agents/sdk/models/anthropic')
   const { GoogleModel } = await import('@strands-agents/sdk/models/google')
 
+  const { ModalSandbox } = await import('@strands-agents/sdk/experimental/sandbox/modal')
+
   const { z } = await import('zod')
 
   console.log('✓ Import from main entry point successful')
@@ -112,6 +114,11 @@ async function main() {
     throw new Error('GoalLoop from subpath should match barrel export')
   }
   console.log('✓ GoalLoop subpath export verified')
+
+  if (typeof ModalSandbox !== 'function') {
+    throw new Error('ModalSandbox subpath export is not constructible')
+  }
+  console.log('✓ ModalSandbox subpath export verified')
 
   // Reference remaining imports so static analysis doesn't flag them unused.
   void OpenAIModel

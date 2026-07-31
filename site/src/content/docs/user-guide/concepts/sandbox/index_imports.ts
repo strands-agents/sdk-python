@@ -15,10 +15,20 @@ import { Agent } from '@strands-agents/sdk'
 import { SshSandbox } from '@strands-agents/sdk/sandbox/ssh'
 // --8<-- [end:ssh_constructor_imports]
 
+// --8<-- [start:modal_constructor_imports]
+import { Agent } from '@strands-agents/sdk'
+import { ModalSandbox } from '@strands-agents/sdk/experimental/sandbox/modal'
+import { ModalClient } from 'modal'
+// --8<-- [end:modal_constructor_imports]
+
 // --8<-- [start:custom_sandbox_imports]
 import { spawn } from 'node:child_process'
 import { PosixShellSandbox } from '@strands-agents/sdk/sandbox'
-import type { ExecuteOptions, StreamChunk, ExecutionResult } from '@strands-agents/sdk/sandbox'
+import type {
+  ExecuteOptions,
+  StreamChunk,
+  ExecutionResult,
+} from '@strands-agents/sdk/sandbox'
 // --8<-- [end:custom_sandbox_imports]
 
 // --8<-- [start:programmatic_access_imports]

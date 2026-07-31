@@ -52,6 +52,10 @@
       "types": "./dist/src/experimental/index.d.ts",
       "default": "./dist/src/experimental/index.js"
     },
+    "./experimental/sandbox/modal": {
+      "types": "./dist/src/experimental/sandbox/modal.d.ts",
+      "default": "./dist/src/experimental/sandbox/modal.js"
+    },
     "./vended-tools/notebook": {
       "types": "./dist/src/vended-tools/notebook/index.d.ts",
       "default": "./dist/src/vended-tools/notebook/index.js"
@@ -225,6 +229,7 @@
     "eslint": "^10.6.0",
     "eslint-plugin-tsdoc": "^0.5.0",
     "express": "^5.2.1",
+    "modal": "^0.9.0",
     "openai": "^6.45.0",
     "playwright": "^1.61.0",
     "tsx": "^4.22.5",
@@ -269,6 +274,7 @@
     "@opentelemetry/sdk-trace-node": "^2.6.1",
     "@smithy/types": "^4.15.1",
     "express": "^5.1.0",
+    "modal": "^0.9.0",
     "openai": "^6.45.0",
     "zod": "^4.1.12"
   },
@@ -289,6 +295,9 @@
       "optional": true
     },
     "express": {
+      "optional": true
+    },
+    "modal": {
       "optional": true
     },
     "@aws-sdk/client-bedrock-agent": {

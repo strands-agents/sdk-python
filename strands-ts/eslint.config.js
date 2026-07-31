@@ -29,6 +29,8 @@ export default [
       'src/sandbox/ssh.ts',
       'src/sandbox/__tests__/docker.test.node.ts',
       'src/sandbox/__tests__/ssh.test.node.ts',
+      'src/experimental/sandbox/modal.ts',
+      'src/experimental/sandbox/__tests__/modal.test.node.ts',
     ],
   }),
   // Then unit-test rules to UTs
