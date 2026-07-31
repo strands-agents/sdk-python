@@ -214,7 +214,7 @@ class TestSearchDocsWithNegativeCache:
 
         # Set up a mock index that returns results for a failed URL
         mock_index = mock_cache.get_index.return_value
-        mock_doc = mock_index.search.return_value = [
+        mock_index.search.return_value = [
             (0.9, type("Doc", (), {"uri": "https://strandsagents.com/failed.md", "display_title": "Failed Doc"})())
         ]
 
@@ -234,7 +234,7 @@ class TestSearchDocsWithNegativeCache:
         mock_cache.SNIPPET_HYDRATE_MAX = 5
 
         mock_index = mock_cache.get_index.return_value
-        mock_doc = mock_index.search.return_value = [
+        mock_index.search.return_value = [
             (0.9, type("Doc", (), {"uri": "https://strandsagents.com/failed.md", "display_title": "Failed Doc"})())
         ]
 
