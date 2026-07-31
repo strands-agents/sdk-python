@@ -1042,17 +1042,26 @@ def test_resumed_interrupt_is_not_re_asked_after_a_later_tool_interrupt():
 def test_answered_interrupt_is_not_reused_by_a_later_invocation():
     """A gate's answer dies with its interrupt cycle, so the next invocation asks again.
 
-    The response is kept across the passes of one cycle (so the human is asked once), which must
-    not turn into a standing approval: a later invocation has to gate on a fresh answer rather
-    than silently reusing the previous one.
+    The answered response is kept across the passes of one cycle (so the human is asked once),
+    which must not turn into a standing approval. The resumed pass here runs a tool, so the tool
+    cycle completes the tool resume and leaves the state deactivated with the answer still held —
+    the cycle therefore ends without the run loop's interrupt-completion path firing, and the
+    answer has to be dropped anyway.
     """
     model = MockedModelProvider(
         [
-            {"role": "assistant", "content": [{"text": "first"}]},
-            {"role": "assistant", "content": [{"text": "second"}]},
+            {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}]},
+            {"role": "assistant", "content": [{"text": "done"}]},
+            {"role": "assistant", "content": [{"text": "unused"}]},
         ]
     )
-    agent = Agent(model=model, callback_handler=None)
+
+    @strands.tool(name="calc")
+    def calc() -> str:
+        """Return a constant."""
+        return "42"
+
+    agent = Agent(model=model, tools=[calc], callback_handler=None)
 
     async def gate(context, next_fn):
         context.interrupt("stream_gate", reason="approve the pass?")
@@ -1065,6 +1074,7 @@ def test_answered_interrupt_is_not_reused_by_a_later_invocation():
     assert first.stop_reason == "interrupt"
     first = agent([{"interruptResponse": {"interruptId": first.interrupts[0].id, "response": "yes"}}])
     assert first.stop_reason == "end_turn"
+    assert first.message["content"][0]["text"] == "done"
     assert not agent._interrupt_state.interrupts
 
     # A second, independent invocation must gate again rather than reuse the earlier approval.
