@@ -216,27 +216,39 @@ const typescriptDisabled = resolvedLanguages !== undefined && !resolvedLanguages
       });
     }
 
-    function updateToggle(lang) {
-      // On single-language pages the stored preference may be the disabled
-      // language; the available language is then shown as selected so exactly
-      // one radio is always checked.
+    /**
+     * On single-language pages the stored preference may be the disabled
+     * language; the page then behaves as the available language. Resolved
+     * once here so the radio, nav links, and inline tabs can never disagree.
+     * The stored preference itself is untouched — it still applies on the
+     * next multi-language page.
+     */
+    function effectiveLanguage(lang) {
       var enabled = Array.prototype.filter.call(
         document.querySelectorAll('language-toggle .lang-option'),
         function (btn) { return !btn.disabled; }
       );
-      var effectiveLang = enabled.some(function (btn) { return btn.dataset.lang === lang; })
-        ? lang
-        : enabled.length > 0 && enabled[0].dataset.lang;
-      enabled.forEach(function (btn) {
-        btn.setAttribute('aria-checked', btn.dataset.lang === effectiveLang ? 'true' : 'false');
+      // No toggle rendered on this page: the preference stands.
+      if (enabled.length === 0) return lang;
+      var match = enabled.some(function (btn) { return btn.dataset.lang === lang; });
+      return match ? lang : enabled[0].dataset.lang;
+    }
+
+    function updateToggle(lang) {
+      // Exactly one radio is always checked: `lang` is already the effective
+      // language, so it always names an enabled button when one exists.
+      document.querySelectorAll('language-toggle .lang-option').forEach(function (btn) {
+        if (btn.disabled) return;
+        btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
       });
     }
 
     /** Full UI sync: toggle state + nav links + inline tabs. */
     function syncAll(lang) {
-      updateToggle(lang);
-      updateNavLinks(lang);
-      syncStarlightTabs(lang);
+      var effective = effectiveLanguage(lang);
+      updateToggle(effective);
+      updateNavLinks(effective);
+      syncStarlightTabs(effective);
     }
 
     // Restore on page load
