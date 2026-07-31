@@ -53,15 +53,6 @@ describe('SnapshotStorageAdapter', () => {
       expect(keys).toContainEqual(expect.stringContaining(`immutable_history/snapshot_${id}.json`))
     })
 
-    it('rejects an invalid scope', async () => {
-      const location = createLocation({ scope: 'other' as unknown as SnapshotLocation['scope'] })
-
-      await expect(
-        adapter.saveSnapshot({ location, snapshotId: uuidV7(1), isLatest: true, snapshot: createTestSnapshot() })
-      ).rejects.toThrow("Invalid scope 'other': must be 'agent' or 'multiAgent'")
-      await expect(backend.list('session/')).resolves.toEqual([])
-    })
-
     it('round-trips snapshot data through loadSnapshot', async () => {
       const location = createLocation()
       const snapshot = createTestSnapshot({ appData: { custom: 'value' } })

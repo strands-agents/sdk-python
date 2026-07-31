@@ -38,21 +38,14 @@ export class FileStorage implements SnapshotStorage {
 
   /**
    * Resolves the absolute file path for a given scope location and filename.
-   * Validates the location and ensures the result stays within the storage directory.
+   * Validates sessionId, scope, and scopeId before constructing the path.
    */
   private async _getPath(location: SnapshotLocation, filename: string): Promise<string> {
-    const { isAbsolute, relative, resolve, sep } = await import('path')
+    const { join } = await import('path')
     validateIdentifier(location.sessionId)
     validateScope(location.scope)
     validateIdentifier(location.scopeId)
-
-    const baseDir = resolve(this._baseDir)
-    const path = resolve(baseDir, location.sessionId, 'scopes', location.scope, location.scopeId, 'snapshots', filename)
-    const relativePath = relative(baseDir, path)
-    if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
-      throw new SessionError('Snapshot path resolves outside storage directory')
-    }
-    return path
+    return join(this._baseDir, location.sessionId, 'scopes', location.scope, location.scopeId, 'snapshots', filename)
   }
 
   /**
@@ -215,9 +208,16 @@ export class FileStorage implements SnapshotStorage {
     return this._getPath(location, SNAPSHOT_LATEST)
   }
 
-  /** Returns the file path for an immutable snapshot in `immutable_history/`. */
+  /**
+   * Returns the file path for an immutable snapshot in `immutable_history/`.
+   * Validates the snapshotId and guards against path traversal outside `_baseDir`.
+   */
   private async _getHistorySnapshotPath(location: SnapshotLocation, snapshotId: string): Promise<string> {
     validateIdentifier(snapshotId)
-    return this._getPath(location, `${IMMUTABLE_HISTORY}/snapshot_${snapshotId}.json`)
+    const resolved = await this._getPath(location, `${IMMUTABLE_HISTORY}/snapshot_${snapshotId}.json`)
+    if (!resolved.startsWith(this._baseDir)) {
+      throw new SessionError(`Invalid snapshotId '${snapshotId}': resolves outside storage directory`)
+    }
+    return resolved
   }
 }
