@@ -69,6 +69,23 @@ describe('catalog content collection', () => {
     ).toBe(false)
   })
 
+  it('rejects an unknown language key', () => {
+    // The languages container is .strict() so a misspelled key
+    // (`typeScript:`) fails the build instead of silently dropping the
+    // language from the entry's facets.
+    const result = catalogEntrySchema.safeParse({
+      name: 'typo-language',
+      description: 'misspelled language key',
+      integrationType: 'tool',
+      // python is valid, so only the strict check can reject this entry —
+      // the at-least-one-language refinement is already satisfied.
+      languages: { python: { package: 'x' }, typeScript: { package: 'x' } },
+      github: 'https://github.com/example/x',
+      addedDate: '2026-07-21',
+    })
+    expect(result.success).toBe(false)
+  })
+
   it('rejects an entry that declares a maintainer', () => {
     // The displayed maintainer derives from the github URL's owner segment;
     // a self-declared maintainer field fails the build loudly.

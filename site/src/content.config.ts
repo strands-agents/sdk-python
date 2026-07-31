@@ -104,10 +104,14 @@ export const catalogEntrySchema = z
     // Which SDK's ecosystem this belongs to. The catalog's SDK facet stays
     // hidden until at least one evals entry exists.
     sdk: z.enum(['agents', 'evals']).default('agents'),
-    languages: z.object({
-      python: catalogLanguageSchema.optional(),
-      typescript: catalogLanguageSchema.optional(),
-    }),
+    // Strict so a misspelled language key (`typeScript:`) fails the build
+    // instead of silently dropping the language from the entry's facets.
+    languages: z
+      .object({
+        python: catalogLanguageSchema.optional(),
+        typescript: catalogLanguageSchema.optional(),
+      })
+      .strict(),
     // The single self-declared link: the maintainer shown on the card derives
     // from this URL's owner segment, and registry links derive from the
     // package names — submitters can't point them somewhere else.
