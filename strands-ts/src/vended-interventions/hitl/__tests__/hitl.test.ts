@@ -548,7 +548,7 @@ describe('HumanInTheLoop', () => {
         interventions: [
           new HumanInTheLoop({
             classifier: async (event: BeforeToolCallEvent) => ({
-              requiresApproval: event.toolUse.name === 'deploy',
+              requiresHumanInTheLoop: event.toolUse.name === 'deploy',
               reason: 'deployment requires approval',
             }),
           }),
@@ -576,7 +576,7 @@ describe('HumanInTheLoop', () => {
         tools: [tool],
         interventions: [
           new HumanInTheLoop({
-            classifier: async () => ({ requiresApproval: true, reason: 'external communication' }),
+            classifier: async () => ({ requiresHumanInTheLoop: true, reason: 'external communication' }),
             ask: async (prompt) => {
               prompts.push(prompt)
               return 'no'

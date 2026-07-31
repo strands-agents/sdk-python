@@ -180,7 +180,7 @@ export class HumanInTheLoop extends InterventionHandler {
     const toolName = event.toolUse.name
 
     const classifierResult = await this._requiresApproval(event)
-    if (!classifierResult.requiresApproval) {
+    if (!classifierResult.requiresHumanInTheLoop) {
       return proceed()
     }
 
@@ -228,38 +228,38 @@ export class HumanInTheLoop extends InterventionHandler {
     const toolName = event.toolUse.name
 
     if (this._allowedTools.has(`!${toolName}`)) {
-      return { requiresApproval: true }
+      return { requiresHumanInTheLoop: true }
     }
 
     const trusted = (event.agent.appState.get(TRUSTED_TOOLS_KEY) as string[] | undefined) ?? []
     if (trusted.includes(toolName)) {
-      return { requiresApproval: false }
+      return { requiresHumanInTheLoop: false }
     }
 
-    if (this._allowedTools.has('*')) return { requiresApproval: false }
-    if (this._allowedTools.has(toolName)) return { requiresApproval: false }
+    if (this._allowedTools.has('*')) return { requiresHumanInTheLoop: false }
+    if (this._allowedTools.has(toolName)) return { requiresHumanInTheLoop: false }
 
     if (this._classifier) {
       const toolUseId = event.toolUse.toolUseId
       if (this._classifiedToolUseIds.has(toolUseId)) {
-        return { requiresApproval: true }
+        return { requiresHumanInTheLoop: true }
       }
       this._classifiedToolUseIds.add(toolUseId)
 
       try {
         const result = await this._classifier(event)
-        if (typeof result?.requiresApproval !== 'boolean') {
+        if (typeof result?.requiresHumanInTheLoop !== 'boolean') {
           logger.warn(`tool=<${toolName}> | classifier returned malformed result, defaulting to approval required`)
-          return { requiresApproval: true }
+          return { requiresHumanInTheLoop: true }
         }
         return result
       } catch (error) {
         logger.warn(`tool=<${toolName}> | classifier failed, defaulting to approval required`, error)
-        return { requiresApproval: true, reason: 'classifier error, defaulting to approval required' }
+        return { requiresHumanInTheLoop: true, reason: 'classifier error, defaulting to approval required' }
       }
     }
 
-    return { requiresApproval: true }
+    return { requiresHumanInTheLoop: true }
   }
 
   private _trustTool(event: BeforeToolCallEvent, toolName: string): void {

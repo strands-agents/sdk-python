@@ -7,8 +7,8 @@ import type { Model } from '../../models/model.js'
  * Result from a {@link HumanInTheLoopClassifier}.
  */
 export interface ClassifierResult {
-  /** Whether the tool call requires human approval. */
-  requiresApproval: boolean
+  /** Whether the tool call requires human-in-the-loop approval. */
+  requiresHumanInTheLoop: boolean
   /** Reason shown to the human in the approval prompt. */
   reason?: string
 }
@@ -91,7 +91,7 @@ export function createLlmRiskClassifier(config?: LlmClassifierConfig): HumanInTh
     const decision = RISK_DECISION.parse(result.structuredOutput)
 
     return {
-      requiresApproval: decision.requiresApproval,
+      requiresHumanInTheLoop: decision.requiresApproval,
       reason: decision.reason,
     }
   }
