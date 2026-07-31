@@ -237,7 +237,12 @@ export class HumanInTheLoop extends InterventionHandler {
 
     if (this._classifier) {
       try {
-        return await this._classifier(event)
+        const result = await this._classifier(event)
+        if (typeof result?.requiresApproval !== 'boolean') {
+          logger.warn(`tool=<${toolName}> | classifier returned malformed result, defaulting to approval required`)
+          return { requiresApproval: true }
+        }
+        return result
       } catch (error) {
         logger.warn(`tool=<${toolName}> | classifier failed, defaulting to approval required`, error)
         return { requiresApproval: true, reason: 'classifier error, defaulting to approval required' }
