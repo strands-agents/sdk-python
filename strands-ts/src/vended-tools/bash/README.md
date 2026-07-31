@@ -161,6 +161,10 @@ The tool throws custom errors for specific failure scenarios:
 - **`BashTimeoutError`**: Thrown when a command exceeds its timeout
 - **`BashSessionError`**: Thrown when the bash process encounters an error
 
+The sandbox-routed tool from `makeShell` throws `ShellTimeoutError` and
+`ShellExecutionError` instead. Both extend the `Bash*` types above, so existing
+`catch` clauses keep matching.
+
 ```typescript
 import { BashTimeoutError, BashSessionError } from '@strands-agents/sdk/vended-tools/bash'
 

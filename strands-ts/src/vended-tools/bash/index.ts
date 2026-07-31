@@ -9,5 +9,12 @@
 export { bash } from './bash.js'
 export { makeShell, makeBash } from './make-shell.js'
 export type { MakeShellOptions, MakeBashOptions } from './make-shell.js'
-export { SANDBOX_SHELL_DESCRIPTION, SANDBOX_BASH_DESCRIPTION, BashTimeoutError, BashSessionError } from './types.js'
+export {
+  SANDBOX_SHELL_DESCRIPTION,
+  SANDBOX_BASH_DESCRIPTION,
+  BashTimeoutError,
+  BashSessionError,
+  ShellTimeoutError,
+  ShellExecutionError,
+} from './types.js'
 export type { BashInput, BashOutput, ExecuteInput, RestartInput } from './types.js'

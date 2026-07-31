@@ -14,7 +14,7 @@ from strands.sandbox.errors import SandboxTimeoutError
 from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from strands.types.tools import ToolContext
 from strands.vended_tools.shell import make_shell, shell
-from strands.vended_tools.shell.types import SANDBOX_SHELL_DESCRIPTION
+from strands.vended_tools.shell.types import SANDBOX_SHELL_DESCRIPTION, ShellExecutionError
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell required")
 
@@ -55,7 +55,17 @@ class TestMakeShell:
             await sandbox_shell(command="sleep 10", tool_context=_tool_context(), timeout=0.1)
 
     @pytest.mark.asyncio
-    async def test_wraps_sandbox_error_as_runtime_error(self):
+    async def test_wraps_sandbox_error_as_shell_execution_error(self):
+        class _BoomSandbox(NotASandboxLocalEnvironment):
+            async def execute(self, *args, **kwargs):
+                raise ValueError("boom")
+
+        t = make_shell(sandbox=_BoomSandbox())
+        with pytest.raises(ShellExecutionError, match="boom"):
+            await t(command="echo hi", tool_context=_tool_context())
+
+    @pytest.mark.asyncio
+    async def test_execution_error_is_still_a_runtime_error(self):
         class _BoomSandbox(NotASandboxLocalEnvironment):
             async def execute(self, *args, **kwargs):
                 raise ValueError("boom")

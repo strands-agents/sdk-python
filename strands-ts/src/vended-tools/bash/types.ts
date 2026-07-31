@@ -87,3 +87,29 @@ export class BashSessionError extends Error {
     this.name = 'BashSessionError'
   }
 }
+
+/**
+ * Error thrown when a sandbox-routed shell command exceeds its timeout.
+ *
+ * Extends {@link BashTimeoutError} so that callers who caught the previous error
+ * type keep working; new code should catch this instead.
+ */
+export class ShellTimeoutError extends BashTimeoutError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ShellTimeoutError'
+  }
+}
+
+/**
+ * Error thrown when a sandbox-routed shell command fails.
+ *
+ * Extends {@link BashSessionError} so that callers who caught the previous error
+ * type keep working; new code should catch this instead.
+ */
+export class ShellExecutionError extends BashSessionError {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ShellExecutionError'
+  }
+}

@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { bash, makeBash, makeShell } from '../index.js'
-import { BashTimeoutError, BashSessionError, type BashOutput } from '../index.js'
+import {
+  bash,
+  makeBash,
+  makeShell,
+  BashTimeoutError,
+  BashSessionError,
+  ShellTimeoutError,
+  ShellExecutionError,
+  type BashOutput,
+} from '../index.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -518,6 +526,20 @@ describe.skipIf(process.platform === 'win32')('makeShell', () => {
   it('respects timeout', async () => {
     const { sandboxShell, context } = createSandboxShell()
     await expect(sandboxShell.invoke({ command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow()
+  })
+
+  it('throws ShellTimeoutError on timeout', async () => {
+    const { sandboxShell, context } = createSandboxShell()
+    await expect(sandboxShell.invoke({ command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow(ShellTimeoutError)
+  })
+
+  it('timeout error still matches the pre-rename BashTimeoutError', async () => {
+    const { sandboxShell, context } = createSandboxShell()
+    await expect(sandboxShell.invoke({ command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow(BashTimeoutError)
+  })
+
+  it('ShellExecutionError still matches the pre-rename BashSessionError', () => {
+    expect(new ShellExecutionError('boom')).toBeInstanceOf(BashSessionError)
   })
 })
 

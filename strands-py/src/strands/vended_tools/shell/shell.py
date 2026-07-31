@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from ...sandbox.errors import SandboxTimeoutError
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
-from .types import SANDBOX_SHELL_DESCRIPTION, ShellOutput
+from .types import SANDBOX_SHELL_DESCRIPTION, ShellExecutionError, ShellOutput
 
 if TYPE_CHECKING:
     from ...sandbox.base import Sandbox
@@ -64,7 +64,8 @@ def make_shell(
         except SandboxTimeoutError:
             raise
         except Exception as e:
-            raise RuntimeError(str(e)) from e
+            # ShellExecutionError subclasses RuntimeError, so prior handlers still match.
+            raise ShellExecutionError(str(e)) from e
         return {"output": result.stdout, "error": result.stderr}
 
     return shell_tool
