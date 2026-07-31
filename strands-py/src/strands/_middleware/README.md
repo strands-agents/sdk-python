@@ -207,16 +207,53 @@ fires only when the state is activated, the pass did not stop on an interrupt, *
 context is present (`"tool_use_message" not in context`). That last condition is essential: a
 pending *tool* interrupt also leaves the state activated, and some non-interrupt endings keep it
 that way on purpose — e.g. cancelling a resumed tool interrupt ends the pass `"cancelled"` while
-the event loop deliberately preserves the interrupt for a later resume. Without the tool-context
-check the run loop would wipe that pending tool interrupt. Scoped this way, the run-loop
-deactivation only ever clears agent-stream interrupts (which never store tool context); the event
-loop remains the sole owner of tool-interrupt state.
+the interrupt is still owed a resume. Without the tool-context check the run loop would wipe that
+pending tool interrupt. Scoped this way, the run-loop deactivation only ever clears agent-stream
+interrupts (which never store tool context); the event loop remains the sole owner of
+tool-interrupt state.
+
+A cancelled pass keeps that tool interrupt because the event loop only completes the tool resume
+when the tools actually ran: cancellation (`agent.cancel()` or a `BeforeToolsEvent` cancel) produces
+cancel tool results without executing anything, so the stored `tool_use_message` and the human's
+answer are left in place for a later resume. Clearing them would strand the caller holding
+interrupt responses for state that no longer exists.
 
 (TypeScript mirrors this: its AgentStreamStage wrapper deactivates on a non-interrupt completion
 when no pending tool execution is stored, so an agent-stream interrupt that resumes to a plain
 `end_turn` clears the `activated` flag and the next fresh invocation is not rejected. Both SDKs
-likewise preserve a pending *tool* interrupt across a cancelled resume — Python via the
-`"tool_use_message"` guard, TS by not clearing its pending marker until the tools actually run.)
+likewise preserve a pending *tool* interrupt across a cancelled resume by not clearing it until the
+tools actually run.)
+
+### Interrupt response lifetime
+
+An answered agent-stream response is scoped to the **interrupt cycle** that produced it — every pass
+from the interrupt that asked the human to the pass that finally completes, spanning however many
+resumes that takes. Two mechanisms keep that window exact:
+
+- A tool cycle that finishes with no pending interrupts completes the *tool* resume and clears its
+  own bookkeeping, but keeps answered agent-stream responses
+  (`_InterruptState.complete_tool_resume`). Without this, a gate that is answered in one pass and
+  re-read in a later pass of the same cycle would be asked again — once per interrupt round trip,
+  because each round trip's reset dropped the answer the pass-start snapshot is copied from.
+- When a pass ends and no interrupt is owed a resume, the cycle is over and answered agent-stream
+  responses are dropped (`_InterruptState.clear_agent_stream_interrupts`). Without this an answer
+  would become a standing approval: the ids are deterministic, so the *next* invocation's gate would
+  resolve against the old response and never ask.
+
+Net effect: a gate asks the human exactly once per interrupt cycle, and never inherits an approval
+from a previous one.
+
+### Interrupt before the pass completes, not after
+
+`interrupt()` must be called before, or while draining, `next()` — not after the stream has
+finished. A pass that has already yielded its `EventLoopStopEvent` has appended its assistant turn
+to history, and there is no tool-use message to replay on resume, so the resumed pass would call the
+model a second time: a duplicate assistant turn, a non-alternating history, and re-fired tool side
+effects. The run loop refuses instead, raising `RuntimeError` naming the interrupt.
+
+This makes the Output phase unsuitable for gating, since its adapter drains the whole inner chain
+before the handler runs. A post-hoc approval gate ("inspect the finished stream, then ask a human")
+has to be expressed as a wrap handler that interrupts *before* `next()` on the following pass.
 
 ## Hook-initiated retries re-run the middleware chain
 
