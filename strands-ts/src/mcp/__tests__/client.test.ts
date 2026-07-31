@@ -492,61 +492,73 @@ describe('MCP Integration', () => {
         nextCursor: 'page-2',
       }
       sdkClientMock.listPrompts.mockResolvedValue(response)
+      const options = { signal: new AbortController().signal, timeout: 1_000 }
 
-      await expect(client.listPrompts('')).resolves.toBe(response)
+      await expect(client.listPrompts('', options)).resolves.toBe(response)
 
-      expect(sdkClientMock.listPrompts).toHaveBeenCalledWith({ cursor: '' })
+      expect(sdkClientMock.connect).toHaveBeenCalled()
+      expect(sdkClientMock.listPrompts).toHaveBeenCalledWith({ cursor: '' }, options)
     })
 
-    it('gets a prompt with optional arguments', async () => {
+    it('gets a prompt with and without optional arguments', async () => {
       const response = {
         description: 'Greeting',
         messages: [{ role: 'user', content: { type: 'text', text: 'Hello Alice' } }],
       }
       sdkClientMock.getPrompt.mockResolvedValue(response)
+      const options = { signal: new AbortController().signal, timeout: 1_000 }
 
-      await expect(client.getPrompt('greeting', { name: 'Alice' })).resolves.toBe(response)
+      await expect(client.getPrompt('greeting', { name: 'Alice' }, options)).resolves.toBe(response)
+      await expect(client.getPrompt('greeting')).resolves.toBe(response)
 
-      expect(sdkClientMock.getPrompt).toHaveBeenCalledWith({
-        name: 'greeting',
-        arguments: { name: 'Alice' },
-      })
+      expect(sdkClientMock.getPrompt).toHaveBeenNthCalledWith(
+        1,
+        {
+          name: 'greeting',
+          arguments: { name: 'Alice' },
+        },
+        options
+      )
+      expect(sdkClientMock.getPrompt).toHaveBeenNthCalledWith(2, { name: 'greeting' }, undefined)
     })
 
-    it('lists resources with an optional pagination cursor', async () => {
+    it('lists resources with and without an optional pagination cursor', async () => {
       const response = {
         resources: [{ uri: 'file:///guide.md', name: 'Guide' }],
         nextCursor: 'page-2',
       }
       sdkClientMock.listResources.mockResolvedValue(response)
+      const options = { signal: new AbortController().signal, timeout: 1_000 }
 
-      await expect(client.listResources('page-1')).resolves.toBe(response)
+      await expect(client.listResources('page-1', options)).resolves.toBe(response)
+      await expect(client.listResources()).resolves.toBe(response)
 
-      expect(sdkClientMock.listResources).toHaveBeenCalledWith({ cursor: 'page-1' })
+      expect(sdkClientMock.listResources).toHaveBeenNthCalledWith(1, { cursor: 'page-1' }, options)
+      expect(sdkClientMock.listResources).toHaveBeenNthCalledWith(2, undefined, undefined)
     })
 
-    it('reads resources from string and URL inputs', async () => {
+    it('reads an opaque resource URI without normalizing it', async () => {
       const response = {
-        contents: [{ uri: 'https://example.com/guide', text: 'Guide content' }],
+        contents: [{ uri: 'file:///reports/../quarter 1.md', text: 'Report content' }],
       }
       sdkClientMock.readResource.mockResolvedValue(response)
+      const options = { signal: new AbortController().signal, timeout: 1_000 }
 
-      await expect(client.readResource(new URL('https://example.com/guide'))).resolves.toBe(response)
-      await client.readResource('file:///guide.md')
+      await expect(client.readResource('file:///reports/../quarter 1.md', options)).resolves.toBe(response)
 
-      expect(sdkClientMock.readResource).toHaveBeenNthCalledWith(1, { uri: 'https://example.com/guide' })
-      expect(sdkClientMock.readResource).toHaveBeenNthCalledWith(2, { uri: 'file:///guide.md' })
+      expect(sdkClientMock.readResource).toHaveBeenCalledWith({ uri: 'file:///reports/../quarter 1.md' }, options)
     })
 
-    it('lists resource templates without a cursor', async () => {
+    it('lists resource templates with an optional pagination cursor', async () => {
       const response = {
         resourceTemplates: [{ uriTemplate: 'file:///{path}', name: 'File' }],
       }
       sdkClientMock.listResourceTemplates.mockResolvedValue(response)
+      const options = { signal: new AbortController().signal, timeout: 1_000 }
 
-      await expect(client.listResourceTemplates()).resolves.toBe(response)
+      await expect(client.listResourceTemplates('page-1', options)).resolves.toBe(response)
 
-      expect(sdkClientMock.listResourceTemplates).toHaveBeenCalledWith(undefined)
+      expect(sdkClientMock.listResourceTemplates).toHaveBeenCalledWith({ cursor: 'page-1' }, options)
     })
 
     it('uses callTool when tasksConfig is undefined (default)', async () => {
@@ -1328,6 +1340,7 @@ describe('continueOnError', () => {
   let sdkClientMock: {
     connect: ReturnType<typeof vi.fn>
     listTools: ReturnType<typeof vi.fn>
+    listPrompts: ReturnType<typeof vi.fn>
     callTool: ReturnType<typeof vi.fn>
     setNotificationHandler: ReturnType<typeof vi.fn>
     setRequestHandler: ReturnType<typeof vi.fn>
@@ -1390,6 +1403,15 @@ describe('continueOnError', () => {
     await expect(client.callTool(tool, {})).rejects.toThrow(
       'MCP server failed to connect. Call connect(true) to retry.'
     )
+  })
+
+  it('prompt requests throw when continueOnError and connection failed', async () => {
+    const client = new McpClient({ applicationName: 'TestApp', transport: mockTransport, continueOnError: true })
+    sdkClientMock = vi.mocked(Client).mock.results.at(-1)!.value
+    sdkClientMock.connect.mockRejectedValue(new Error('connection refused'))
+
+    await expect(client.listPrompts()).rejects.toThrow('MCP server failed to connect. Call connect(true) to retry.')
+    expect(sdkClientMock.listPrompts).not.toHaveBeenCalled()
   })
 
   it('does not retry connection on subsequent calls after continueOnError failure', async () => {

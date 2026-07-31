@@ -187,24 +187,40 @@ const agentMultiple = new Agent({
   void agent
 }
 
-// --8<-- [start:prompts_resources]
-const prompts = await mcpClient.listPrompts()
-const prompt = await mcpClient.getPrompt('summarize', {
-  topic: 'quarterly results',
-})
+async function promptsAndResources() {
+  // --8<-- [start:prompts_resources]
+  await using mcpClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-everything'],
+    }),
+  })
 
-const resources = await mcpClient.listResources()
-const resource = await mcpClient.readResource('file:///reports/q1.md')
-const templates = await mcpClient.listResourceTemplates()
+  let promptPage = await mcpClient.listPrompts()
+  const prompts = [...promptPage.prompts]
+  while (promptPage.nextCursor !== undefined) {
+    promptPage = await mcpClient.listPrompts(promptPage.nextCursor)
+    prompts.push(...promptPage.prompts)
+  }
 
-console.log({
-  prompts: prompts.prompts,
-  prompt: prompt.messages,
-  resources: resources.resources,
-  resource: resource.contents,
-  templates: templates.resourceTemplates,
-})
-// --8<-- [end:prompts_resources]
+  const prompt = await mcpClient.getPrompt('args-prompt', {
+    city: 'Seattle',
+    state: 'Washington',
+  })
+  const resources = await mcpClient.listResources()
+  const resourceUri = 'demo://resource/static/document/architecture.md'
+  const resource = await mcpClient.readResource(resourceUri, { timeout: 10_000 })
+  const templates = await mcpClient.listResourceTemplates()
+
+  console.log({
+    prompts,
+    prompt: prompt.messages,
+    resources: resources.resources,
+    resource: resource.contents,
+    templates: templates.resourceTemplates,
+  })
+  // --8<-- [end:prompts_resources]
+}
 
 // --8<-- [start:mcp_server]
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'

@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { ClientCredentialsProvider } from '@modelcontextprotocol/sdk/client/auth-extensions.js'
 import type { OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js'
@@ -65,6 +66,9 @@ export interface TasksConfig {
 
 /** Connection state of an MCP client. */
 export type McpConnectionState = 'disconnected' | 'connected' | 'failed'
+
+/** Per-request options forwarded to the MCP SDK. */
+export type McpRequestOptions = RequestOptions
 
 /** Options for MCP tool invocation. */
 export interface McpCallToolOptions {
@@ -408,69 +412,91 @@ export class McpClient {
    * Lists prompts exposed by the MCP server.
    *
    * @param cursor - Optional pagination cursor from a previous response.
-   * @returns The raw MCP prompt-list response.
+   * @param options - Optional MCP request settings, including cancellation and timeout.
+   * @returns The MCP prompt-list response.
+   * @throws `McpError` if the server rejects or times out the request, `AbortError` if cancelled,
+   * or `Error` if the client cannot connect.
    */
-  public async listPrompts(cursor?: string): Promise<ListPromptsResult> {
-    await this.connect()
-    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+  public async listPrompts(cursor?: string, options?: McpRequestOptions): Promise<ListPromptsResult> {
+    await this._ensureConnected()
 
-    return await this._client.listPrompts(cursor !== undefined ? { cursor } : undefined)
+    return await this._client.listPrompts(cursor !== undefined ? { cursor } : undefined, options)
   }
 
   /**
    * Retrieves a prompt exposed by the MCP server.
    *
-   * @param promptId - Name of the prompt to retrieve.
+   * @param name - Name of the prompt to retrieve.
    * @param args - Optional string arguments for prompt template expansion.
-   * @returns The raw MCP prompt response.
+   * @param options - Optional MCP request settings, including cancellation and timeout.
+   * @returns The MCP prompt response.
+   * @throws `McpError` if the server rejects or times out the request, `AbortError` if cancelled,
+   * or `Error` if the client cannot connect.
    */
-  public async getPrompt(promptId: string, args?: Record<string, string>): Promise<GetPromptResult> {
-    await this.connect()
-    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+  public async getPrompt(
+    name: string,
+    args?: Record<string, string>,
+    options?: McpRequestOptions
+  ): Promise<GetPromptResult> {
+    await this._ensureConnected()
 
-    return await this._client.getPrompt({
-      name: promptId,
-      ...(args !== undefined && { arguments: args }),
-    })
+    return await this._client.getPrompt(
+      {
+        name,
+        ...(args !== undefined ? { arguments: args } : {}),
+      },
+      options
+    )
   }
 
   /**
    * Lists resources exposed by the MCP server.
    *
    * @param cursor - Optional pagination cursor from a previous response.
-   * @returns The raw MCP resource-list response.
+   * @param options - Optional MCP request settings, including cancellation and timeout.
+   * @returns The MCP resource-list response.
+   * @throws `McpError` if the server rejects or times out the request, `AbortError` if cancelled,
+   * or `Error` if the client cannot connect.
    */
-  public async listResources(cursor?: string): Promise<ListResourcesResult> {
-    await this.connect()
-    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+  public async listResources(cursor?: string, options?: McpRequestOptions): Promise<ListResourcesResult> {
+    await this._ensureConnected()
 
-    return await this._client.listResources(cursor !== undefined ? { cursor } : undefined)
+    return await this._client.listResources(cursor !== undefined ? { cursor } : undefined, options)
   }
 
   /**
    * Reads a resource exposed by the MCP server.
    *
+   * Resource URIs are opaque server-defined identifiers and are forwarded without URL normalization.
+   *
    * @param uri - URI of the resource to read.
-   * @returns The raw MCP resource response.
+   * @param options - Optional MCP request settings, including cancellation and timeout.
+   * @returns The MCP resource response.
+   * @throws `McpError` if the server rejects or times out the request, `AbortError` if cancelled,
+   * or `Error` if the client cannot connect.
    */
-  public async readResource(uri: string | URL): Promise<ReadResourceResult> {
-    await this.connect()
-    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+  public async readResource(uri: string, options?: McpRequestOptions): Promise<ReadResourceResult> {
+    await this._ensureConnected()
 
-    return await this._client.readResource({ uri: uri.toString() })
+    return await this._client.readResource({ uri }, options)
   }
 
   /**
    * Lists resource templates exposed by the MCP server.
    *
    * @param cursor - Optional pagination cursor from a previous response.
-   * @returns The raw MCP resource-template response.
+   * @param options - Optional MCP request settings, including cancellation and timeout.
+   * @returns The MCP resource-template response.
+   * @throws `McpError` if the server rejects or times out the request, `AbortError` if cancelled,
+   * or `Error` if the client cannot connect.
    */
-  public async listResourceTemplates(cursor?: string): Promise<ListResourceTemplatesResult> {
-    await this.connect()
-    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+  public async listResourceTemplates(
+    cursor?: string,
+    options?: McpRequestOptions
+  ): Promise<ListResourceTemplatesResult> {
+    await this._ensureConnected()
 
-    return await this._client.listResourceTemplates(cursor !== undefined ? { cursor } : undefined)
+    return await this._client.listResourceTemplates(cursor !== undefined ? { cursor } : undefined, options)
   }
 
   /**
@@ -518,8 +544,7 @@ export class McpClient {
    * @returns A promise that resolves with the result of the tool invocation.
    */
   public async callTool(tool: McpTool, args: JSONValue, options?: McpCallToolOptions): Promise<JSONValue> {
-    await this.connect()
-    if (this._state === 'failed') throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+    await this._ensureConnected()
 
     if (args === null || args === undefined) {
       return await this.callTool(tool, {}, options)
@@ -554,6 +579,13 @@ export class McpClient {
 
     const result = await takeResult(stream)
     return result as JSONValue
+  }
+
+  private async _ensureConnected(): Promise<void> {
+    await this.connect()
+    if (this._state === 'failed') {
+      throw new Error('MCP server failed to connect. Call connect(true) to retry.')
+    }
   }
 }
 
