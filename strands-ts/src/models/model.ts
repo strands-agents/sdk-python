@@ -76,32 +76,29 @@ export interface CacheConfig {
   strategy: 'auto' | 'anthropic'
 
   /**
-   * Optional TTL duration for cache entries (e.g. `'5m'`, `'1h'`). When omitted, the provider's
-   * default TTL applies.
+   * Optional TTL duration for cache entries. When omitted, the provider's default TTL applies.
    *
-   * The accepted value space is provider-specific. The Bedrock provider narrows it per prompt
-   * section via {@link BedrockCacheConfig.toolsTTL} and {@link BedrockCacheConfig.messagesTTL},
-   * which take precedence over this value.
+   * The accepted value space is provider-specific and validated server-side, so the literals are a
+   * convenience rather than a constraint. Providers may expose narrower per-section options that take
+   * precedence over this value.
    */
-  ttl?: string
+  ttl?: CacheTTL
 }
+
+/**
+ * TTL duration for a cache entry.
+ *
+ * The literals are the values Anthropic documents. Providers validate TTLs server-side, so the
+ * `string & {}` branch keeps arbitrary values representable while preserving autocomplete.
+ */
+export type CacheTTL = '5m' | '1h' | (string & {})
 
 /**
  * Configuration for the cache point applied to tool definitions.
  */
 export interface CacheToolsConfig {
-  /**
-   * Cache point type.
-   *
-   * A provider wire value: Bedrock accepts `'default'`, while Anthropic supports only
-   * `'ephemeral'` and normalizes to it. Providers that recognize a single type ignore this field.
-   *
-   * @defaultValue 'default'
-   */
-  type?: string
-
-  /** Optional TTL duration for the cache entry (e.g. `'5m'`, `'1h'`). */
-  ttl?: string
+  /** Optional TTL duration for the cache entry. */
+  ttl?: CacheTTL
 }
 
 /**

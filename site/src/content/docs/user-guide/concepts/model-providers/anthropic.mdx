@@ -224,7 +224,7 @@ message, which caches everything before it, and `cache_tools` to cache the tool 
 ```python
 from strands import Agent
 from strands.models.anthropic import AnthropicModel
-from strands.models.model import CacheConfig, CacheToolsConfig
+from strands.models import CacheConfig, CacheToolsConfig
 
 model = AnthropicModel(
     model_id="claude-sonnet-4-6",
@@ -242,20 +242,9 @@ print(result.metrics.accumulated_usage)
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
+--8<-- "user-guide/concepts/model-providers/anthropic_imports.ts:prompt_caching_imports"
 
-const model = new AnthropicModel({
-  modelId: 'claude-sonnet-4-6',
-  maxTokens: 1028,
-  cacheConfig: { strategy: 'auto' },
-  cacheTools: { ttl: '1h' },
-})
-
-const agent = new Agent({ model })
-const result = await agent.invoke('Summarize the attached report.')
-console.log(result.metrics.accumulatedUsage)
-// { inputTokens: 12, ..., cacheReadInputTokens: 2505 }
+--8<-- "user-guide/concepts/model-providers/anthropic.ts:prompt_caching"
 ```
 </Tab>
 </Tabs>
@@ -272,7 +261,7 @@ cache and `cacheReadInputTokens` counts tokens served from it.
 | `"auto"` (default) | Cache the conversation. On providers that serve non-Claude models this also checks that the selected model supports caching. |
 | `"anthropic"` | Cache the conversation, skipping that support check. |
 
-The check is what makes them differ elsewhere: [Amazon Bedrock](./amazon-bedrock/)
+The check is what makes them differ elsewhere: [Amazon Bedrock](./amazon-bedrock)
 serves models from several vendors, so `"auto"` inspects the model ID and does nothing when the model
 cannot cache. The Anthropic API serves only Claude models and prompt caching is supported on all
 active ones, so there is nothing to check and nothing to skip. Both values are accepted so the same
@@ -284,14 +273,28 @@ active ones, so there is nothing to check and nothing to skip. Both values are a
   prefix depends on the model (1,024 tokens for Claude Sonnet 4.5, more for some others — see the
   [cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations)).
   If both `cacheReadInputTokens` and `cacheWriteInputTokens` stay at zero, the prompt was too short.
-- **The breakpoint moves with the conversation instead of accumulating.** Each request carries exactly
-  one message breakpoint, on the newest turn, so a long session never approaches the API's limit of
-  four breakpoints per request. Cache points you place by hand in the messages are replaced while
-  `cache_config` is set, because it owns their placement.
+- **The breakpoint moves with the conversation instead of accumulating.** While `cache_config` is set
+  each request carries exactly one message breakpoint, on the newest turn, so a long session does not
+  accumulate one per turn. Cache points you place by hand in the messages are replaced, because
+  `cache_config` owns their placement.
+- **The breakpoint is placed on the last block of the newest turn that can carry one.** Blocks the API
+  rejects a breakpoint on (a reasoning block, for example) and blocks that are dropped when the request
+  is built (media with a location source) are skipped, so the breakpoint lands on the nearest block
+  before them. If the newest turn has no such block, no message breakpoint is emitted — the request is
+  not cached against an older turn, because a prefix that has stopped growing would go stale.
+- **`cache_tools` on its own can exceed the API's four-breakpoint limit.** `cache_config` keeps the
+  total at one message breakpoint, but `cache_tools` adds its own without accounting for cache points
+  you placed by hand. Four hand-placed points plus `cache_tools` is five, which the API rejects; a
+  warning names the cause before the call is made.
 - **`ttl` defaults to 5 minutes; `"1h"` costs more to write.** See
   [pricing](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#pricing).
 - **`cache_tools` works on its own.** It does not require `cache_config`, so tool definitions can be
-  cached without caching the conversation.
+  cached without caching the conversation. Passing a plain string (`"default"`) only switches it on —
+  the value is not a TTL. Use `CacheToolsConfig(ttl=...)` / `{ ttl: ... }` to set one.
+- **Moving a TypeScript config over from Bedrock needs one addition.** `BedrockModel` in `strands-ts`
+  has no `cacheTools` option — its `cacheConfig` covers the tool definitions too. `AnthropicModel`
+  follows the Python surface and keeps them separate, so add `cacheTools` alongside `cacheConfig` or
+  tool definitions will not be cached.
 
 ### Token Counting
 

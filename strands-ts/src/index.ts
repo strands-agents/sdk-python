@@ -189,6 +189,7 @@ export type {
   StreamOptions,
   CacheConfig,
   CacheToolsConfig,
+  CacheTTL,
 } from './models/model.js'
 
 export { Model } from './models/model.js'

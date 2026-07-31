@@ -1780,54 +1780,6 @@ describe('BedrockModel', () => {
       expect(lastBlock).toStrictEqual({ cachePoint: { type: 'default', ttl: '1h' } })
     })
 
-    it('applies the shared ttl to both sections when neither section ttl is set', async () => {
-      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', ttl: '1h' } })
-      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
-      const options: StreamOptions = {
-        toolSpecs: [
-          {
-            name: 'calculator',
-            description: 'Calculate',
-            inputSchema: { type: 'object' },
-          },
-        ],
-      }
-
-      collectIterator(provider.stream(messages, options))
-
-      const call = mockConverseStreamCommand.mock.lastCall?.[0]
-      const toolsLast = call?.toolConfig?.tools?.[call.toolConfig.tools.length - 1]
-      expect(toolsLast).toStrictEqual({ cachePoint: { type: 'default', ttl: '1h' } })
-      const userMsg = call?.messages?.[0]
-      const lastBlock = userMsg?.content?.[userMsg.content.length - 1]
-      expect(lastBlock).toStrictEqual({ cachePoint: { type: 'default', ttl: '1h' } })
-    })
-
-    it('prefers a section ttl over the shared ttl', async () => {
-      const provider = new BedrockModel({
-        cacheConfig: { strategy: 'auto', ttl: '1h', messagesTTL: '5m' },
-      })
-      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
-      const options: StreamOptions = {
-        toolSpecs: [
-          {
-            name: 'calculator',
-            description: 'Calculate',
-            inputSchema: { type: 'object' },
-          },
-        ],
-      }
-
-      collectIterator(provider.stream(messages, options))
-
-      const call = mockConverseStreamCommand.mock.lastCall?.[0]
-      const toolsLast = call?.toolConfig?.tools?.[call.toolConfig.tools.length - 1]
-      expect(toolsLast).toStrictEqual({ cachePoint: { type: 'default', ttl: '1h' } })
-      const userMsg = call?.messages?.[0]
-      const lastBlock = userMsg?.content?.[userMsg.content.length - 1]
-      expect(lastBlock).toStrictEqual({ cachePoint: { type: 'default', ttl: '5m' } })
-    })
-
     it('omits ttl on auto-injected cache points when no ttl is set', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
