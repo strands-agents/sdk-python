@@ -33,12 +33,12 @@ import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
 // --8<-- [start:tool_override_imports]
 import { Agent } from '@strands-agents/sdk'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
-import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
 // --8<-- [end:tool_override_imports]
 
 // --8<-- [start:vend_tools_imports]
 import type { Tool } from '@strands-agents/sdk'
-import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
 import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 // --8<-- [end:vend_tools_imports]
 
