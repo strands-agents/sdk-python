@@ -172,15 +172,22 @@ export async function executePlan(
 function assertPathsUnambiguous(plan: ConsolidationPlan, files: Map<string, string>): void {
   const ambiguityErrors: string[] = []
   for (const action of plan.actions) {
-    const target =
-      action.action === 'merge'
-        ? action.target
-        : action.action === 'update'
-          ? action.path
-          : action.action === 'move'
-            ? action.to
-            : undefined
-    if (target === undefined) continue
+    // Each variant names its write target differently; 'delete' has none. Declaring `target` without
+    // an initializer makes a variant added without a case here fail to compile.
+    let target: string
+    switch (action.action) {
+      case 'merge':
+        target = action.target
+        break
+      case 'update':
+        target = action.path
+        break
+      case 'move':
+        target = action.to
+        break
+      case 'delete':
+        continue
+    }
     try {
       resolveWriteTarget(files, target)
     } catch (error) {
