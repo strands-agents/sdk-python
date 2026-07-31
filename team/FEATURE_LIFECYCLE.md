@@ -217,13 +217,14 @@ def old_tool(query: str) -> str:
     Args:
         query: What to look up.
     """
-    logger.warning("DEPRECATION WARNING: %s", _DEPRECATION_MESSAGE)
+    logger.warning("tool_name=<old_tool> | %s", _DEPRECATION_MESSAGE)
     ...
 ```
 
 Order matters: `@tool` goes outermost so the tool spec is built from the real signature.
 Share the message through a constant so the two copies cannot drift. Log before any early
-return, so the warning fires on error paths too.
+return, so the warning fires on error paths too. The log call follows the
+[structured logging format](../AGENTS.md) used across both SDKs.
 
 Note that a deprecated tool *instance* — as opposed to a factory function — cannot carry the
 decorator at all. Resolve those through a module-level `__getattr__` that warns and returns
