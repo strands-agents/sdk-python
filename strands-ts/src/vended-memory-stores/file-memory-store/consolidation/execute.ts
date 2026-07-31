@@ -122,38 +122,32 @@ export async function executePlan(
     }
   }
 
-  // Best-effort deletes — attempt all, then report failures
-  const deleteErrors: DeleteFailure[] = []
+  // Collected before deleting so the failure-recording try/catch is written once rather than per
+  // action shape. Appended one at a time, never spread — a plan with a huge sources array would
+  // blow the argument limit.
+  const pathsToDelete: string[] = []
   for (const action of plan.actions) {
     if (action.action === 'delete') {
-      const canonicalPath = resolveCanonicalKey(files, action.path) ?? action.path
-      try {
-        await storage.delete(canonicalPath)
-      } catch (error) {
-        deleteErrors.push({ path: canonicalPath, error })
-      }
+      pathsToDelete.push(action.path)
     } else if (action.action === 'merge') {
       for (const source of action.sources) {
         // Skip a source that is also the target — deleting it would remove the content just written
-        if (!pathsResolveSame(source, action.target)) {
-          const canonicalSource = resolveCanonicalKey(files, source) ?? source
-          try {
-            await storage.delete(canonicalSource)
-          } catch (error) {
-            deleteErrors.push({ path: canonicalSource, error })
-          }
-        }
+        if (!pathsResolveSame(source, action.target)) pathsToDelete.push(source)
       }
-    } else if (action.action === 'move') {
+    } else if (action.action === 'move' && !pathsResolveSame(action.from, action.to)) {
       // A case-only rename already rewrote the file in place — deleting would undo the write
-      if (!pathsResolveSame(action.from, action.to)) {
-        const canonicalFrom = resolveCanonicalKey(files, action.from) ?? action.from
-        try {
-          await storage.delete(canonicalFrom)
-        } catch (error) {
-          deleteErrors.push({ path: canonicalFrom, error })
-        }
-      }
+      pathsToDelete.push(action.from)
+    }
+  }
+
+  // Best-effort deletes — attempt all, then report failures
+  const deleteErrors: DeleteFailure[] = []
+  for (const path of pathsToDelete) {
+    const canonicalPath = resolveCanonicalKey(files, path) ?? path
+    try {
+      await storage.delete(canonicalPath)
+    } catch (error) {
+      deleteErrors.push({ path: canonicalPath, error })
     }
   }
 
