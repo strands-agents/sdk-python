@@ -56,9 +56,7 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
     url_cache = cache.get_url_cache()
 
     top = results[: min(len(results), cache.SNIPPET_HYDRATE_MAX)]
-    urls_to_hydrate = list(
-        dict.fromkeys(doc.uri for _, doc in top if cache.needs_hydration(doc.uri))
-    )
+    urls_to_hydrate = list(dict.fromkeys(doc.uri for _, doc in top if cache.needs_hydration(doc.uri)))
     if urls_to_hydrate:
         with ThreadPoolExecutor(max_workers=len(urls_to_hydrate)) as executor:
             list(executor.map(cache.ensure_page, urls_to_hydrate))
@@ -168,7 +166,7 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
             trunc_msg = "\n\n… (truncated, no parseable sections)"
             trunc_len = len(trunc_msg.encode("utf-8"))
             # Re-encode from decoded string to avoid surrogates
-            content = encoded[:threshold - trunc_len].decode("utf-8", errors="ignore") + trunc_msg
+            content = encoded[: threshold - trunc_len].decode("utf-8", errors="ignore") + trunc_msg
         return {
             "url": uri,
             "title": page.title,
