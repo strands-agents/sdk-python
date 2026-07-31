@@ -10,7 +10,7 @@ import type { SnapshotStorage, SnapshotLocation } from './storage.js'
 import type { Snapshot, SnapshotManifest } from './types.js'
 
 import { SessionError } from '../errors.js'
-import { validateIdentifier, validateUuidV7 } from './validation.js'
+import { validateIdentifier, validateScope, validateUuidV7 } from './validation.js'
 
 const SCHEMA_VERSION = '1.0'
 const SNAPSHOT_REGEX = /snapshot_([\w-]+)\.json$/
@@ -142,6 +142,7 @@ export class SnapshotStorageAdapter implements SnapshotStorage {
 
   private _scopePrefix(location: SnapshotLocation): string {
     validateIdentifier(location.sessionId)
+    validateScope(location.scope)
     validateIdentifier(location.scopeId)
     return `${location.sessionId}/scopes/${location.scope}/${location.scopeId}/snapshots`
   }
