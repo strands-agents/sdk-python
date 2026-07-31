@@ -7,6 +7,7 @@ import pytest
 import strands
 from strands import Agent
 from strands._middleware.stages import AgentStreamContext, AgentStreamStage, MiddlewareInterruptResult
+from strands.session import FileSessionManager
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types._events import EventLoopStopEvent, InitEventLoopEvent, ModelMessageEvent, TextStreamEvent
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -1100,7 +1101,7 @@ def test_interrupt_after_the_pass_completes_raises():
 
     agent._middleware_registry.add_middleware(AgentStreamStage, post_hoc_gate)
 
-    exp_message = r"interrupt_name=<approve_output> \| agent-stream middleware raised an interrupt after the pass"
+    exp_message = r"interrupt_name=<approve_output> \| agent-stream middleware interrupted after the pass"
     with pytest.raises(RuntimeError, match=exp_message):
         agent("Test prompt")
 
@@ -1170,6 +1171,221 @@ def test_middleware_yielded_interrupt_stop_preserves_interrupt_state():
     assert result.stop_reason == "interrupt"
     assert agent._interrupt_state.activated
     assert interrupt_id in agent._interrupt_state.interrupts
+
+
+def _charging_agent(gate, charges, **kwargs):
+    """An agent whose model calls a charging tool, gated by ``gate``."""
+    tool_use = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "charge_card", "input": {"amount": "$100"}}}],
+    }
+    done = {"role": "assistant", "content": [{"text": "done"}]}
+
+    @strands.tool(name="charge_card")
+    def charge_card(amount: str) -> str:
+        """Charge the customer's card."""
+        charges.append(amount)
+        return f"charged {amount}"
+
+    agent = Agent(
+        model=MockedModelProvider([tool_use, done, tool_use, done]),
+        tools=[charge_card],
+        callback_handler=None,
+        **kwargs,
+    )
+    agent._middleware_registry.add_middleware(AgentStreamStage, gate)
+    return agent
+
+
+def _approve(result):
+    return [
+        {"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts
+    ]
+
+
+def _charge_gate(gate_calls):
+    async def gate(context, next_fn):
+        gate_calls.append("call")
+        context.interrupt("approve_charge", reason="approve this request?")
+        async for event in next_fn(context):
+            yield event
+
+    return gate
+
+
+def test_answered_interrupt_is_not_persisted_as_a_standing_approval(tmp_path):
+    """A completed cycle leaves no answered interrupt in the session.
+
+    The cycle is released before ``AfterInvocationEvent``, which is where the session manager
+    syncs, so the persisted state carries no response. A fresh agent restored from that session —
+    the ordinary one-agent-per-request server shape — must gate again rather than resolve against
+    what the previous cycle answered.
+    """
+    gate_calls: list[str] = []
+    charges: list[str] = []
+
+    def build():
+        return _charging_agent(
+            _charge_gate(gate_calls),
+            charges,
+            session_manager=FileSessionManager(session_id="s1", storage_dir=str(tmp_path)),
+        )
+
+    first = build()("charge $100")
+    assert first.stop_reason == "interrupt"
+
+    resumed = build()(_approve(first))
+    assert resumed.stop_reason == "end_turn"
+
+    persisted = FileSessionManager(session_id="s1", storage_dir=str(tmp_path)).read_agent("s1", "default")
+    assert persisted._internal_state["interrupt_state"]["interrupts"] == {}
+
+    charges.clear()
+    third = build()("charge $9999")
+    assert third.stop_reason == "interrupt"
+    assert charges == []
+
+
+def test_answered_interrupt_is_released_when_a_pass_ends_with_an_error():
+    """A raise from an AfterInvocationEvent hook does not strand an answered interrupt.
+
+    The hook runs inside the run loop's ``finally`` and is a public extension point, so a failure
+    there (a session write error, a summarizing conversation manager whose model call fails) must
+    not leave a response behind for the next cycle to resolve against.
+    """
+    from strands.hooks import AfterInvocationEvent
+
+    gate_calls: list[str] = []
+    charges: list[str] = []
+    agent = _charging_agent(_charge_gate(gate_calls), charges)
+
+    hook_calls: list[object] = []
+
+    def failing_hook(event):
+        hook_calls.append(event)
+        if len(hook_calls) == 2:  # the resumed pass
+            raise RuntimeError("session write failed")
+
+    agent.hooks.add_callback(AfterInvocationEvent, failing_hook)
+
+    first = agent("charge $100")
+    assert first.stop_reason == "interrupt"
+    with pytest.raises(RuntimeError, match="session write failed"):
+        agent(_approve(first))
+
+    charges.clear()
+    assert agent("charge $9999").stop_reason == "interrupt"
+    assert charges == []
+
+
+@pytest.mark.asyncio
+async def test_answered_interrupt_is_not_reused_after_the_caller_abandons_the_stream():
+    """A caller that stops consuming the stream leaves no usable approval behind.
+
+    The run loop's cleanup only runs if the generator is driven to completion, so a disconnected
+    client must not leave a response that the next cycle's gate resolves against.
+    """
+    gate_calls: list[str] = []
+    charges: list[str] = []
+    agent = _charging_agent(_charge_gate(gate_calls), charges)
+
+    first = await agent.invoke_async("charge $100")
+    assert first.stop_reason == "interrupt"
+
+    stream = agent.stream_async(_approve(first))
+    async for event in stream:
+        message = event.get("message")
+        if message and message["role"] == "user" and "toolResult" in message["content"][0]:
+            break
+    await stream.aclose()
+
+    charges.clear()
+    second = await agent.invoke_async("charge $9999")
+    assert second.stop_reason == "interrupt"
+    assert charges == []
+
+
+def test_interrupt_after_a_tool_interrupt_stop_is_allowed():
+    """Gating on top of a tool interrupt works: the stored tool use is replayed on resume.
+
+    Refusing a post-result interrupt is only correct when resuming would re-call the model. A pass
+    that stopped for a tool interrupt has a tool-use message to replay, so the pass-level gate can
+    still interrupt after the stream drains and the caller answers both in one round trip.
+    """
+    tool_use = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "t1", "name": "confirm_tool", "input": {}}}],
+    }
+    done = {"role": "assistant", "content": [{"text": "done"}]}
+
+    @strands.tool(name="confirm_tool", context=True)
+    def confirm_tool(tool_context) -> str:
+        """Interrupt for approval, then return once resumed."""
+        return f"ran: {tool_context.interrupt('tool_gate', reason='approve tool?')}"
+
+    agent = Agent(model=MockedModelProvider([tool_use, done]), tools=[confirm_tool], callback_handler=None)
+
+    async def batch_gate(context, next_fn):
+        stopped_for_interrupt = False
+        async for event in next_fn(context):
+            if isinstance(event, EventLoopStopEvent) and event["stop"][0] == "interrupt":
+                stopped_for_interrupt = True
+            yield event
+        if stopped_for_interrupt:
+            context.interrupt("batch_approve", reason="approve the batch too?")
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, batch_gate)
+
+    first = agent("go")
+    assert first.stop_reason == "interrupt"
+    assert {interrupt.name for interrupt in first.interrupts} == {"tool_gate", "batch_approve"}
+
+    resumed = agent(_approve(first))
+    assert resumed.stop_reason == "end_turn"
+    assert [message["role"] for message in agent.messages] == ["user", "assistant", "user", "assistant"]
+
+
+def test_interrupt_after_the_pass_completes_on_a_resumed_pass_leaves_no_state():
+    """The refusal clears interrupt state, so the agent stays usable afterwards.
+
+    A refusal on a resumed pass would otherwise leave the state activated with an interrupt the
+    caller can no longer answer, wedging every later call.
+    """
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "first"}]},
+            {"role": "assistant", "content": [{"text": "second"}]},
+        ]
+    )
+    agent = Agent(model=model, callback_handler=None)
+
+    # "before": gate ahead of next_fn; "after": gate once the stream drained; "off": pass through.
+    mode = "before"
+
+    async def gate(context, next_fn):
+        if mode == "before":
+            context.interrupt("stream_gate", reason="approve the pass?")
+        async for event in next_fn(context):
+            yield event
+        if mode == "after":
+            context.interrupt("post_gate", reason="approve the output?")
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, gate)
+
+    first = agent("go")
+    assert first.stop_reason == "interrupt"
+
+    mode = "after"
+    with pytest.raises(RuntimeError, match="interrupted after the pass produced its result"):
+        agent(_approve(first))
+
+    assert not agent._interrupt_state.activated
+    assert not agent._interrupt_state.interrupts
+    assert not agent._interrupt_state.context
+
+    # The agent takes an ordinary prompt again rather than demanding interrupt responses.
+    mode = "off"
+    assert agent("plain prompt").stop_reason == "end_turn"
 
 
 async def _fail_if_called(*args, **kwargs):

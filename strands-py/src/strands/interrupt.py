@@ -47,7 +47,10 @@ class _InterruptState:
     Note, interrupt state is cleared after resuming.
 
     Attributes:
-        interrupts: Interrupts raised by the user.
+        interrupts: Interrupts raised by the user. An answered invocation-scoped interrupt can
+            outlive ``activated`` being cleared: it is held until the interrupt cycle it belongs
+            to ends (see ``end_tool_cycle`` and ``end_interrupt_cycle``), so ``activated`` alone
+            does not imply this mapping is empty.
         context: Additional context associated with an interrupt event.
         activated: True if agent is in an interrupt state, False otherwise.
     """
@@ -72,40 +75,39 @@ class _InterruptState:
         self.activated = False
         self._version += 1
 
-    def complete_tool_resume(self) -> None:
-        """Clear tool-resume bookkeeping, keeping answered agent-stream responses.
+    def end_tool_cycle(self) -> None:
+        """Clear the state a completed tool cycle owns, keeping answered invocation-scoped ones.
 
-        Called when a tool cycle completes with no pending interrupts: the tool-interrupt resume
-        is finished, so its interrupts and context are done with. Answered agent-stream interrupts
-        are kept because they belong to the enclosing invocation, not to the tool cycle —
-        middleware may re-read its approval in a later pass of the same invocation, and the pass
-        that reads it can be a different pass from the one the human answered. Unanswered
-        agent-stream interrupts are not kept: an unanswered one is either about to be raised again
-        (and re-registered) or no longer wanted.
+        Called when a tool cycle finishes and nothing is pending for it, so its interrupts and
+        context are done with. An answered invocation-scoped interrupt is kept: it belongs to the
+        interrupt cycle rather than to this tool cycle, and the pass that reads its response can
+        be a later one than the pass the human answered. An unanswered one is not kept — it is
+        either about to be raised (and registered) again or no longer wanted.
 
-        Use ``deactivate`` instead to reset the state completely.
+        Use ``deactivate`` to reset the state completely, or ``end_interrupt_cycle`` to release
+        the responses this method retains.
         """
         self.interrupts = {
             interrupt_id: interrupt
             for interrupt_id, interrupt in self.interrupts.items()
-            if interrupt_id.startswith(AGENT_STREAM_INTERRUPT_ID_PREFIX) and interrupt.response is not None
+            if interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX) and interrupt.response is not None
         }
         self.context = {}
         self.activated = False
         self._version += 1
 
-    def clear_agent_stream_interrupts(self) -> None:
-        """Drop agent-stream interrupts once the invocation that owns them is over.
+    def end_interrupt_cycle(self) -> None:
+        """Release invocation-scoped interrupts once their interrupt cycle is over.
 
-        An answered agent-stream response is scoped to one invocation: it is kept across the
-        passes of that invocation (see ``complete_tool_resume``) so a gate is asked once, and
-        dropped here so a later invocation asks the human again instead of reusing a stale
-        approval.
+        An answered invocation-scoped response is held for the whole interrupt cycle — every pass
+        from the interrupt that asked the human through to the pass that completes with nothing
+        owed a resume (see ``end_tool_cycle``) — so the human is asked once. Releasing it here
+        stops it becoming a standing approval that a later cycle would silently resolve against.
         """
         remaining = {
             interrupt_id: interrupt
             for interrupt_id, interrupt in self.interrupts.items()
-            if not interrupt_id.startswith(AGENT_STREAM_INTERRUPT_ID_PREFIX)
+            if not interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX)
         }
         if remaining == self.interrupts:
             return
@@ -152,7 +154,8 @@ class _InterruptState:
     def _get_version(self) -> int:
         """Get the current version number of the interrupt state.
 
-        The version is incremented each time activate(), deactivate(), or resume() is called.
+        The version is incremented each time the state is mutated — activate(), deactivate(),
+        resume(), end_tool_cycle(), or end_interrupt_cycle().
         Consumers can compare versions to detect changes without requiring
         explicit dirty flag clearing.
 

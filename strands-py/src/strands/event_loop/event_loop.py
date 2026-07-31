@@ -892,7 +892,7 @@ async def _handle_tool_execution(
         # interrupt (its stored tool_use_message and the human's answer) is still owed a resume.
         # Clearing it here would leave the caller holding interrupt responses for state that no
         # longer exists.
-        agent._interrupt_state.complete_tool_resume()
+        agent._interrupt_state.end_tool_cycle()
 
     await agent._append_messages(tool_result_message)
 
