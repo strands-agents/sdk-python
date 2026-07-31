@@ -72,6 +72,47 @@ class _InterruptState:
         self.activated = False
         self._version += 1
 
+    def complete_tool_resume(self) -> None:
+        """Clear tool-resume bookkeeping, keeping answered agent-stream responses.
+
+        Called when a tool cycle completes with no pending interrupts: the tool-interrupt resume
+        is finished, so its interrupts and context are done with. Answered agent-stream interrupts
+        are kept because they belong to the enclosing invocation, not to the tool cycle —
+        middleware may re-read its approval in a later pass of the same invocation, and the pass
+        that reads it can be a different pass from the one the human answered. Unanswered
+        agent-stream interrupts are not kept: an unanswered one is either about to be raised again
+        (and re-registered) or no longer wanted.
+
+        Use ``deactivate`` instead to reset the state completely.
+        """
+        self.interrupts = {
+            interrupt_id: interrupt
+            for interrupt_id, interrupt in self.interrupts.items()
+            if interrupt_id.startswith(AGENT_STREAM_INTERRUPT_ID_PREFIX) and interrupt.response is not None
+        }
+        self.context = {}
+        self.activated = False
+        self._version += 1
+
+    def clear_agent_stream_interrupts(self) -> None:
+        """Drop agent-stream interrupts once the invocation that owns them is over.
+
+        An answered agent-stream response is scoped to one invocation: it is kept across the
+        passes of that invocation (see ``complete_tool_resume``) so a gate is asked once, and
+        dropped here so a later invocation asks the human again instead of reusing a stale
+        approval.
+        """
+        remaining = {
+            interrupt_id: interrupt
+            for interrupt_id, interrupt in self.interrupts.items()
+            if not interrupt_id.startswith(AGENT_STREAM_INTERRUPT_ID_PREFIX)
+        }
+        if remaining == self.interrupts:
+            return
+
+        self.interrupts = remaining
+        self._version += 1
+
     def resume(self, prompt: "AgentInput") -> None:
         """Configure the interrupt state if resuming from an interrupt event.
 

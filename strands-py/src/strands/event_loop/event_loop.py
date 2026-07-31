@@ -887,7 +887,12 @@ async def _handle_tool_execution(
             yield interrupt_event
         return
 
-    agent._interrupt_state.deactivate()
+    if not cancel_message:
+        # A cancelled pass keeps its interrupt state: the tool never ran, so a pending tool
+        # interrupt (its stored tool_use_message and the human's answer) is still owed a resume.
+        # Clearing it here would leave the caller holding interrupt responses for state that no
+        # longer exists.
+        agent._interrupt_state.complete_tool_resume()
 
     await agent._append_messages(tool_result_message)
 

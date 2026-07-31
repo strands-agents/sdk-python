@@ -1,6 +1,6 @@
 import pytest
 
-from strands.interrupt import Interrupt, _InterruptState
+from strands.interrupt import AGENT_STREAM_INTERRUPT_ID_PREFIX, Interrupt, _InterruptState
 
 
 @pytest.fixture
@@ -191,3 +191,67 @@ def test_interrupt_state_version_not_in_to_dict():
     data = interrupt_state.to_dict()
     assert "_version" not in data
     assert "version" not in data
+
+
+def test_interrupt_state_complete_tool_resume():
+    """Answered agent-stream interrupts outlive a tool cycle; everything else is cleared."""
+    answered_gate = Interrupt(id=f"{AGENT_STREAM_INTERRUPT_ID_PREFIX}answered", name="gate", response="approved")
+    unanswered_gate = Interrupt(id=f"{AGENT_STREAM_INTERRUPT_ID_PREFIX}unanswered", name="gate2")
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate", response="approved")
+    interrupt_state = _InterruptState(
+        interrupts={
+            answered_gate.id: answered_gate,
+            unanswered_gate.id: unanswered_gate,
+            tool_interrupt.id: tool_interrupt,
+        },
+        context={"tool_use_message": {"role": "assistant"}, "tool_results": []},
+        activated=True,
+    )
+
+    interrupt_state.complete_tool_resume()
+
+    tru_interrupts = interrupt_state.interrupts
+    exp_interrupts = {answered_gate.id: answered_gate}
+    assert tru_interrupts == exp_interrupts
+    assert interrupt_state.context == {}
+    assert not interrupt_state.activated
+
+
+def test_interrupt_state_clear_agent_stream_interrupts():
+    """Agent-stream interrupts are dropped; tool interrupts and context are untouched."""
+    answered_gate = Interrupt(id=f"{AGENT_STREAM_INTERRUPT_ID_PREFIX}answered", name="gate", response="approved")
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate")
+    interrupt_state = _InterruptState(
+        interrupts={answered_gate.id: answered_gate, tool_interrupt.id: tool_interrupt},
+        context={"tool_use_message": {"role": "assistant"}},
+        activated=True,
+    )
+
+    interrupt_state.clear_agent_stream_interrupts()
+
+    tru_interrupts = interrupt_state.interrupts
+    exp_interrupts = {tool_interrupt.id: tool_interrupt}
+    assert tru_interrupts == exp_interrupts
+    assert interrupt_state.context == {"tool_use_message": {"role": "assistant"}}
+    assert interrupt_state.activated
+
+
+def test_interrupt_state_clear_agent_stream_interrupts_no_agent_stream_interrupts():
+    """With nothing to drop the state is left alone, version included."""
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate")
+    interrupt_state = _InterruptState(interrupts={tool_interrupt.id: tool_interrupt})
+    version = interrupt_state._get_version()
+
+    interrupt_state.clear_agent_stream_interrupts()
+
+    assert interrupt_state.interrupts == {tool_interrupt.id: tool_interrupt}
+    assert interrupt_state._get_version() == version
+
+
+def test_interrupt_state_version_increments_after_complete_tool_resume():
+    interrupt_state = _InterruptState(activated=True)
+    version = interrupt_state._get_version()
+
+    interrupt_state.complete_tool_resume()
+
+    assert interrupt_state._get_version() > version

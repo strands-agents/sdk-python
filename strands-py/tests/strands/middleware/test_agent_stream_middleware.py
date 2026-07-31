@@ -987,6 +987,180 @@ def test_agent_stream_interrupt_reports_all_unanswered_interrupts():
     assert {interrupt.name for interrupt in result.interrupts} == {"gate_b", "stream_gate"}
 
 
+def test_resumed_interrupt_is_not_re_asked_after_a_later_tool_interrupt():
+    """An answered gate is asked once, even when a later pass of the same cycle interrupts again.
+
+    The gate reads its approval before next_fn only. The resumed pass runs a successful tool cycle
+    (which completes the tool resume) and then a second tool raises its own interrupt, so a further
+    pass follows. The gate's answer must survive those passes: asking again would make the human
+    re-approve the same action once per interrupt round trip.
+    """
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}]},
+            {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t2", "name": "confirm_tool", "input": {}}}]},
+            {"role": "assistant", "content": [{"text": "done"}]},
+        ]
+    )
+
+    @strands.tool(name="calc")
+    def calc() -> str:
+        """Return a constant."""
+        return "42"
+
+    @strands.tool(name="confirm_tool", context=True)
+    def confirm_tool(tool_context) -> str:
+        """Interrupt for approval, then return once resumed."""
+        return tool_context.interrupt("tool_gate", reason="approve tool?")
+
+    agent = Agent(model=model, tools=[calc, confirm_tool], callback_handler=None)
+
+    async def gate(context, next_fn):
+        context.interrupt("stream_gate", reason="approve the pass?")
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, gate)
+
+    asked: list[str] = []
+    result = agent("go")
+    for _ in range(8):
+        if result.stop_reason != "interrupt":
+            break
+        asked.extend(interrupt.name for interrupt in result.interrupts)
+        result = agent(
+            [
+                {"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}}
+                for interrupt in result.interrupts
+            ]
+        )
+
+    assert result.stop_reason == "end_turn"
+    assert asked == ["stream_gate", "tool_gate"]
+
+
+def test_answered_interrupt_is_not_reused_by_a_later_invocation():
+    """A gate's answer dies with its interrupt cycle, so the next invocation asks again.
+
+    The response is kept across the passes of one cycle (so the human is asked once), which must
+    not turn into a standing approval: a later invocation has to gate on a fresh answer rather
+    than silently reusing the previous one.
+    """
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "first"}]},
+            {"role": "assistant", "content": [{"text": "second"}]},
+        ]
+    )
+    agent = Agent(model=model, callback_handler=None)
+
+    async def gate(context, next_fn):
+        context.interrupt("stream_gate", reason="approve the pass?")
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, gate)
+
+    first = agent("go")
+    assert first.stop_reason == "interrupt"
+    first = agent([{"interruptResponse": {"interruptId": first.interrupts[0].id, "response": "yes"}}])
+    assert first.stop_reason == "end_turn"
+    assert not agent._interrupt_state.interrupts
+
+    # A second, independent invocation must gate again rather than reuse the earlier approval.
+    second = agent("go again")
+    assert second.stop_reason == "interrupt"
+    assert second.interrupts[0].name == "stream_gate"
+
+
+def test_interrupt_after_the_pass_completes_raises():
+    """Interrupting after the stream finished is refused instead of replaying the pass.
+
+    Resuming such an interrupt has no tool-use message to replay, so the event loop would call the
+    model a second time and append a duplicate assistant turn. The agent raises an actionable error
+    instead. Interrupting before or while draining next_fn is unaffected.
+    """
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello!"}]}])
+    agent = Agent(model=model, callback_handler=None)
+
+    async def post_hoc_gate(context, next_fn):
+        async for event in next_fn(context):
+            yield event
+        context.interrupt("approve_output", reason="approve the reply?")
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, post_hoc_gate)
+
+    exp_message = r"interrupt_name=<approve_output> \| agent-stream middleware raised an interrupt after the pass"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent("Test prompt")
+
+    # The refused interrupt is not left registered, so the next invocation starts clean.
+    assert not agent._interrupt_state.activated
+    assert not agent._interrupt_state.interrupts
+
+
+def test_after_invocation_result_is_the_stop_event_when_a_trailing_event_follows(agent):
+    """AfterInvocationEvent.result comes from the stop event, not from a later trailing event."""
+    from strands.hooks import AfterInvocationEvent
+
+    results = []
+
+    async def inject_trailing(context, next_fn):
+        async for event in next_fn(context):
+            yield event
+        yield InitEventLoopEvent()
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, inject_trailing)
+    agent.hooks.add_callback(AfterInvocationEvent, lambda event: results.append(event.result))
+
+    agent("Test prompt")
+
+    assert len(results) == 1
+    assert results[0] is not None
+    assert results[0].stop_reason == "end_turn"
+    assert results[0].message["content"][0]["text"] == "Hello!"
+
+
+def test_middleware_yielded_interrupt_stop_preserves_interrupt_state():
+    """A pass that stops on an interrupt keeps its interrupt state, even with no tool context.
+
+    Middleware can surface an interrupt stop itself (short-circuiting the pass). The run loop must
+    not clear interrupt state after such a pass: the caller still owes a response.
+    """
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "first"}]},
+            {"role": "assistant", "content": [{"text": "second"}]},
+        ]
+    )
+    agent = Agent(model=model, callback_handler=None)
+
+    short_circuit = False
+
+    async def gate(context, next_fn):
+        if short_circuit:
+            message = {"role": "assistant", "content": [{"text": "Awaiting approval"}]}
+            yield EventLoopStopEvent("interrupt", message, EventLoopMetrics(), {}, list(agent._interrupt_state.interrupts.values()))
+            return
+        context.interrupt("stream_gate", reason="approve the pass?")
+        async for event in next_fn(context):
+            yield event
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, gate)
+
+    result = agent("go")
+    assert result.stop_reason == "interrupt"
+    interrupt_id = result.interrupts[0].id
+
+    # The resumed pass stops on a middleware-yielded interrupt stop event.
+    short_circuit = True
+    result = agent([{"interruptResponse": {"interruptId": interrupt_id, "response": "yes"}}])
+
+    assert result.stop_reason == "interrupt"
+    assert agent._interrupt_state.activated
+    assert interrupt_id in agent._interrupt_state.interrupts
+
+
 async def _fail_if_called(*args, **kwargs):
     raise AssertionError("model.stream must not be called")
     yield  # noqa: B901  # make this an async generator

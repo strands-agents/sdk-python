@@ -238,7 +238,9 @@ class AgentStreamContext:
         """Derive the interrupt id for ``name``, namespaced to the agent-stream stage.
 
         Follows the SDK's ``v1:`` interrupt-id scheme (see ``types/interrupt.py``), hashing
-        the user-provided name so ids stay stable across resumes.
+        the user-provided name so ids stay stable across resumes. The namespace prefix is shared
+        with ``_InterruptState``, which matches on it to decide which interrupts outlive a tool
+        cycle.
         """
         return f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 

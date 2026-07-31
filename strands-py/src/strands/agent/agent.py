@@ -1343,6 +1343,18 @@ class Agent(AgentBase):
                     ):
                         self._interrupt_state.deactivate()
                 except InterruptException as interrupt_exception:
+                    if agent_result is not None:
+                        # The pass already yielded its stop event, so its assistant turn is in
+                        # history. Resuming re-enters the event loop with no tool-use message to
+                        # replay, which calls the model again: a duplicate assistant turn, a
+                        # non-alternating history, and re-fired tool side effects. Refuse instead
+                        # of corrupting the conversation.
+                        raise RuntimeError(
+                            f"interrupt_name=<{interrupt_exception.interrupt.name}> | agent-stream middleware "
+                            "raised an interrupt after the pass completed. Raise it before or while draining "
+                            "next_fn, not after the stream finishes."
+                        ) from interrupt_exception
+
                     # Middleware-initiated interrupt (context.interrupt() with no response yet).
                     # interrupt() is read-only, so this handler is the single place the interrupt
                     # is registered and the state activated before surfacing a terminal
@@ -1380,6 +1392,13 @@ class Agent(AgentBase):
                 after_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                     AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
                 )
+
+                if not self._interrupt_state.activated:
+                    # No interrupt is owed a resume, so this pass ends the interrupt cycle. Answered
+                    # agent-stream responses are kept across the cycle's passes (see
+                    # _InterruptState.complete_tool_resume) so a gate asks the human once; drop them
+                    # here so the next cycle asks again instead of reusing a stale approval.
+                    self._interrupt_state.clear_agent_stream_interrupts()
 
             # Convert resume input to messages for next iteration, or None to stop
             if after_invocation_event.resume is not None:
