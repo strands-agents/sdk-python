@@ -375,22 +375,23 @@ class SnapshotSessionManager(SessionManager):
             ids = ids[:limit]
         return ids
 
-    async def restore_snapshot(self, agent: "Agent", *, snapshot_id: str) -> bool:
-        """Restore an agent from a specific immutable snapshot (time travel).
+    async def restore_snapshot(self, agent: "Agent", *, snapshot_id: str | None = None) -> bool:
+        """Restore an agent from a stored snapshot.
 
         Args:
             agent: Agent to restore into.
-            snapshot_id: The immutable snapshot id to restore.
+            snapshot_id: The immutable snapshot id to restore (time travel). Omit to restore
+                ``snapshot_latest``, the same snapshot restore-on-init loads.
 
         Returns:
             True if the snapshot existed and was restored, False otherwise.
 
         Raises:
-            ValueError: If ``snapshot_id`` is not a valid snapshot id.
+            ValueError: If ``snapshot_id`` is given and is not a valid snapshot id.
         """
         return await self._restore(agent, snapshot_id=snapshot_id)
 
-    async def save_snapshot(self, agent: "Agent", *, is_latest: bool) -> None:
+    async def save_snapshot(self, agent: "Agent", *, is_latest: bool) -> str | None:
         """Save a snapshot of the agent's current state on demand.
 
         Use ``is_latest=False`` to force an immutable checkpoint at an arbitrary point (independent
@@ -401,10 +402,15 @@ class SnapshotSessionManager(SessionManager):
             agent: Agent whose state to capture.
             is_latest: When True, overwrite ``snapshot_latest`` (a single mutable snapshot). When
                 False, append a new immutable snapshot under a fresh, time-ordered id.
+
+        Returns:
+            The new immutable snapshot id, ready to pass to :meth:`restore_snapshot`, or ``None``
+            when ``is_latest=True`` (``snapshot_latest`` is not addressed by id).
         """
         data = _serialize_snapshot(self._capture(agent))
         snapshot_id = None if is_latest else _new_snapshot_id()
         await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=snapshot_id), data)
+        return snapshot_id
 
     async def delete_session(self) -> None:
         """Delete all snapshots for this session."""

@@ -47,6 +47,11 @@ def _on_disk_key(session_id: str, agent_id: str) -> str:
     return f"session/{_snapshot_key(session_id, agent_id, snapshot_id=None)}"
 
 
+def _texts(agent) -> list[str]:
+    """Flatten an agent's message text content, for asserting which turns are present."""
+    return [content["text"] for message in agent.messages for content in message["content"] if "text" in content]
+
+
 def test_new_session_starts_empty(storage):
     """A brand-new session leaves a fresh agent's messages untouched."""
     manager = SnapshotSessionManager("s1", storage=storage)
@@ -348,16 +353,17 @@ async def test_save_snapshot_forces_immutable_checkpoint_without_a_trigger(stora
     # No trigger fired, so nothing immutable exists yet.
     assert await manager.list_snapshot_ids(agent) == []
 
-    await manager.save_snapshot(agent, is_latest=False)
+    checkpoint_id = await manager.save_snapshot(agent, is_latest=False)
     agent("turn 2")
 
     ids = await manager.list_snapshot_ids(agent)
     assert len(ids) == 1  # the manual checkpoint, not the second turn
+    assert checkpoint_id == ids[0]  # the returned id addresses the snapshot just written
 
-    # The forced checkpoint captured turn 1 only and can be restored (time travel).
+    # The returned id restores that checkpoint directly, with no list_snapshot_ids round trip.
     restored = SnapshotSessionManager("s1", storage=storage)
     agent_2 = Agent(model=_model("x"), session_manager=restored, agent_id="a1")
-    assert await restored.restore_snapshot(agent_2, snapshot_id=ids[0]) is True
+    assert await restored.restore_snapshot(agent_2, snapshot_id=checkpoint_id) is True
     tru_texts = [content["text"] for message in agent_2.messages for content in message["content"] if "text" in content]
     assert "turn 1" in tru_texts
     assert "turn 2" not in tru_texts
@@ -370,7 +376,7 @@ async def test_save_snapshot_is_latest_overwrites_latest_only(storage):
     agent = Agent(model=_model("only turn"), session_manager=manager, agent_id="a1")
     agent("go")
 
-    await manager.save_snapshot(agent, is_latest=True)
+    assert await manager.save_snapshot(agent, is_latest=True) is None  # latest has no id
 
     assert await manager.list_snapshot_ids(agent) == []
     assert await storage.read(_on_disk_key("s1", "a1")) is not None
@@ -418,6 +424,34 @@ def test_time_travel_restore(storage):
     tru_texts = [content["text"] for message in agent.messages for content in message["content"] if "text" in content]
     assert "turn 1" in tru_texts
     assert "turn 2" not in tru_texts
+
+
+@pytest.mark.asyncio
+async def test_restore_snapshot_without_id_restores_latest(storage):
+    """Omitting snapshot_id restores ``snapshot_latest``, undoing an in-memory time-travel rewind."""
+    manager = SnapshotSessionManager("s1", storage=storage, snapshot_trigger=lambda *, agent_data, **_: True)
+    agent = Agent(model=_model("first", "second"), session_manager=manager, agent_id="a1")
+    agent("turn 1")
+    agent("turn 2")
+
+    ids = await manager.list_snapshot_ids(agent)
+    assert await manager.restore_snapshot(agent, snapshot_id=ids[0]) is True  # rewind to turn 1
+    assert "turn 2" not in _texts(agent)
+
+    # No id: back to latest, which still holds both turns.
+    assert await manager.restore_snapshot(agent) is True
+    tru_texts = _texts(agent)
+    assert "turn 1" in tru_texts
+    assert "turn 2" in tru_texts
+
+
+@pytest.mark.asyncio
+async def test_restore_snapshot_without_id_returns_false_for_new_session(storage):
+    """Omitting snapshot_id on a session that has never been saved reports no snapshot."""
+    manager = SnapshotSessionManager("never-saved", storage=storage)
+    agent = Agent(model=_model("hi"), agent_id="a1")
+
+    assert await manager.restore_snapshot(agent) is False
 
 
 def _stateful_model(*texts):
