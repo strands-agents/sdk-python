@@ -11,13 +11,11 @@ import { z } from 'zod'
 import { logger } from '../../../logging/logger.js'
 
 /**
- * Caps on an untrusted plan-derived payload — the plan echoed back in the revise prompt, and the
- * same plan in a diagnostic log field.
+ * Caps on an untrusted plan-derived payload logged in a diagnostic field.
  *
- * Set by what the revise prompt needs, since that is the binding constraint — the model must re-emit
- * the actions it is told to keep unchanged, so a cap tight enough to make a compact log line would
- * break the revise path on ordinary plans. The per-string cap only stops one pathological `content`
- * from consuming the whole allowance; the total cap bounds a plan made large by action count instead.
+ * The per-string cap stops one pathological `content` from consuming the whole allowance; the total
+ * cap bounds a plan made large by action count instead. Sized to keep a rejected plan diagnosable
+ * without letting a single log line carry a plan's worth of model-controlled text.
  */
 const MAX_PAYLOAD_LENGTH = 32 * 1024
 const MAX_PAYLOAD_STRING_LENGTH = MAX_PAYLOAD_LENGTH / 8
@@ -27,8 +25,8 @@ const MAX_PAYLOAD_STRING_LENGTH = MAX_PAYLOAD_LENGTH / 8
  *
  * The dropped count is load-bearing, not decoration: it distinguishes a value that merely reached
  * the cap from one that blew far past it, which is often the whole diagnosis when a plan is rejected
- * for size. Shared across every bounding path — the revise-prompt payload, a log field, and the
- * changelog — so the truncation marker reads identically wherever a value is clipped.
+ * for size. Shared across every bounding path — a log field and the changelog — so the truncation
+ * marker reads identically wherever a value is clipped.
  *
  * @internal
  */
@@ -37,12 +35,10 @@ export function clipWithCount(text: string, limit: number): string {
 }
 
 /**
- * Render an untrusted plan-shaped value as a bounded single-line string, for the revise prompt or a
- * log field.
+ * Render an untrusted plan-shaped value as a bounded single-line string for a diagnostic log field.
  *
  * Per-string truncation happens inside the `JSON.stringify` replacer, so an oversized `content` never
- * becomes part of the output at all. The `…(+N chars)` marker tells the model a value was clipped so
- * it re-emits it rather than treating the truncation as intended content.
+ * becomes part of the output at all. The `…(+N chars)` marker records that a value was clipped.
  *
  * Bounded at construction rather than gated on log level — {@link Logger} cannot report whether a
  * level is enabled, so the string gets built either way. Accepts `unknown` because the pre-schema
@@ -67,7 +63,7 @@ export function summarizePayload(value: unknown): string {
 }
 
 /**
- * Bound a plain string — a joined validation error — for the revise prompt or a log field.
+ * Bound a plain string — a joined validation error — for a diagnostic log field.
  *
  * Validation emits one message per offending action, so the joined error grows with the plan's action
  * count and needs the same cap the plan payload gets.
@@ -126,8 +122,7 @@ export type ConsolidationAction = ConsolidationPlan['actions'][number]
  * Extract and validate the plan from a raw agent result.
  *
  * Runs the untrusted model output through the schema so everything downstream can rely on the plan's
- * shape, then bounds the action count. That guard throws rather than routing into the revise-retry —
- * an oversized plan is a runaway signal, and echoing it back would re-incur the same cost.
+ * shape, then bounds the action count. An oversized plan is a runaway signal, so that guard throws.
  *
  * @throws Error when the result carries no structured output
  * @throws ZodError when the structured output does not match {@link ConsolidationPlanSchema}

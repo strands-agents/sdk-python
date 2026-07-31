@@ -476,26 +476,18 @@ describe('FileMemoryStore.consolidate', () => {
   })
 
   describe('plan validation', () => {
-    it('throws after failed retry when plan is invalid both times', async () => {
+    it('throws without mutating when the plan references a non-existent file', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      // Both attempts reference a non-existent file
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/still-nonexistent.md', reason: 'test' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       // File untouched — nothing executed
@@ -527,58 +519,35 @@ describe('FileMemoryStore.consolidate', () => {
 
       const phantomStore = new FileMemoryStore({ name: 'phantom', storage: phantomStorage })
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'move',
-                from: 'facts/phantom.md',
-                to: 'ops/phantom.md',
-                reason: 'reorganize',
-              },
-            ],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'move',
-                from: 'facts/phantom.md',
-                to: 'ops/phantom.md',
-                reason: 'reorganize',
-              },
-            ],
-            summary: 'retry',
-          })
-        )
-
-      await expect(phantomStore.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-        /validation failed after retry/
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'move',
+              from: 'facts/phantom.md',
+              to: 'ops/phantom.md',
+              reason: 'reorganize',
+            },
+          ],
+          summary: 'test',
+        })
       )
+
+      await expect(phantomStore.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(/validation failed/)
     })
 
     it('rejects plan writing to the reserved changelog file', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation-changelog.md', reason: 'hack' }],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation-changelog.md', reason: 'hack' }],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'consolidation-changelog.md', reason: 'hack' }],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -587,22 +556,15 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects plan with too-deep nesting', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'level1/level2/deep.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'level1/level2/deep.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'level1/level2/deep.md', reason: 'test' }],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -611,22 +573,15 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects plan with invalid directory name', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'BAD_DIR/a.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'BAD_DIR/a.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'BAD_DIR/a.md', reason: 'test' }],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -637,22 +592,15 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'ops/b.md', 'Op B', 'B')
       await writeFile(storage, 'team/c.md', 'Team C', 'C')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'new-dir/a.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'new-dir/a.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'new-dir/a.md', reason: 'test' }],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'], maxDirectories: 3 })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -678,38 +626,23 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects plan with non-existent merge source', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/nonexistent.md'],
-                target: 'facts/merged.md',
-                content: 'merged',
-                reason: 'test',
-              },
-            ],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/nonexistent.md'],
-                target: 'facts/merged.md',
-                content: 'merged',
-                reason: 'test',
-              },
-            ],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/nonexistent.md'],
+              target: 'facts/merged.md',
+              content: 'merged',
+              reason: 'test',
+            },
+          ],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
     })
 
@@ -717,25 +650,15 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
       // Plan with two distinct violations: nonexistent delete target AND disallowed move action
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'delete', path: 'facts/nonexistent.md', reason: 'test' },
-              { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'test' },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'delete', path: 'facts/nonexistent.md', reason: 'test' },
-              { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'test' },
-            ],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'delete', path: 'facts/nonexistent.md', reason: 'test' },
+            { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'test' },
+          ],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toSatisfy((error: Error) => {
         const message = error.message
@@ -750,53 +673,18 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/a.md')).not.toBeNull()
     })
 
-    it('succeeds on retry when the revised plan is valid', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
-
-      // First plan is invalid; revision is valid
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
-            summary: 'bad',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/b.md', reason: 'Pruning duplicate' }],
-            summary: 'Fixed plan.',
-          })
-        )
-
-      await store.consolidate({ model, operations: ['prune'] })
-
-      expect(await storage.read('facts/a.md')).not.toBeNull()
-      expect(await storage.read('facts/b.md')).toBeNull()
-    })
-
     it('rejects plan where move source is also an update target', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'update', path: 'facts/a.md', content: 'Updated A', reason: 'fix' },
-              { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'update', path: 'facts/a.md', content: 'Updated A', reason: 'fix' },
-              { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' },
-            ],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'update', path: 'facts/a.md', content: 'Updated A', reason: 'fix' },
+            { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' },
+          ],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['resolveContradictions', 'reorganize'] })).rejects.toThrow(
         /both written to and removed by the same plan/
@@ -810,28 +698,18 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/b.md', 'Fact B', 'B')
 
       // maxDirectories=2, existing dirs: [facts]. Two moves to new dirs would create 3 total.
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' },
-              { action: 'move', from: 'facts/b.md', to: 'team/b.md', reason: 'reorg' },
-            ],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' },
-              { action: 'move', from: 'facts/b.md', to: 'team/b.md', reason: 'reorg' },
-            ],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' },
+            { action: 'move', from: 'facts/b.md', to: 'team/b.md', reason: 'reorg' },
+          ],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'], maxDirectories: 2 })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -843,22 +721,15 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects update action when only deduplicate is allowed', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'update', path: 'facts/a.md', content: 'new', reason: 'test' }],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'update', path: 'facts/a.md', content: 'new', reason: 'test' }],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'update', path: 'facts/a.md', content: 'new', reason: 'test' }],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       // Update was rejected — file unchanged
@@ -869,22 +740,15 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects move action when only deduplicate is allowed', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'test' }],
+          summary: 'test',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        'Consolidation plan validation failed after retry'
+        'Consolidation plan validation failed'
       )
 
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -963,49 +827,27 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/c.md', 'Fact C', 'Content C')
 
       // Two merges both target the same path
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/combined.md',
-                content: 'merged AB',
-                reason: 'dedup',
-              },
-              {
-                action: 'merge',
-                sources: ['facts/c.md'],
-                target: 'facts/combined.md',
-                content: 'merged C',
-                reason: 'dedup',
-              },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/combined.md',
-                content: 'merged AB',
-                reason: 'dedup',
-              },
-              {
-                action: 'merge',
-                sources: ['facts/c.md'],
-                target: 'facts/combined.md',
-                content: 'merged C',
-                reason: 'dedup',
-              },
-            ],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/combined.md',
+              content: 'merged AB',
+              reason: 'dedup',
+            },
+            {
+              action: 'merge',
+              sources: ['facts/c.md'],
+              target: 'facts/combined.md',
+              content: 'merged C',
+              reason: 'dedup',
+            },
+          ],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
         /Multiple actions write to the same path 'facts\/combined\.md'/
@@ -1021,19 +863,12 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'ops/a.md', 'Op A', 'Ops content')
 
       // Move onto ops/a.md which already exists and is not deleted/moved away
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'ops/a.md', reason: 'reorg' }],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /Target path 'ops\/a\.md' already exists and is not vacated/
@@ -1052,35 +887,20 @@ describe('FileMemoryStore.consolidate', () => {
       // Merge [a, b] → c.md, where c.md exists but was not a source. The model never saw c.md's
       // content, so overwriting it would silently destroy it.
       const mergedContent = '---\ndescription: "Merged"\n---\n\nCombined A and B\n'
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/c.md',
-                content: mergedContent,
-                reason: 'dedup',
-              },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/c.md',
-                content: mergedContent,
-                reason: 'dedup',
-              },
-            ],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/c.md',
+              content: mergedContent,
+              reason: 'dedup',
+            },
+          ],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
         /Target path 'facts\/c\.md' already exists and is not vacated/
@@ -1111,7 +931,7 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'contradictory plan',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['deduplicate', 'reorganize'] })).rejects.toThrow(
         /both written to and removed by the same plan/
@@ -1123,25 +943,15 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
       // move A→B (writes to B), move B→C (reads from B) — chained move conflict
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'move', from: 'facts/a.md', to: 'facts/b.md', reason: 'reorg' },
-              { action: 'move', from: 'facts/b.md', to: 'ops/b.md', reason: 'reorg' },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'move', from: 'facts/a.md', to: 'facts/b.md', reason: 'reorg' },
-              { action: 'move', from: 'facts/b.md', to: 'ops/b.md', reason: 'reorg' },
-            ],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'move', from: 'facts/a.md', to: 'facts/b.md', reason: 'reorg' },
+            { action: 'move', from: 'facts/b.md', to: 'ops/b.md', reason: 'reorg' },
+          ],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /both written to and removed by the same plan/
@@ -1163,7 +973,7 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'contradictory',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['resolveContradictions', 'prune'] })).rejects.toThrow(
         /both written to and removed by the same plan/
@@ -1180,7 +990,7 @@ describe('FileMemoryStore.consolidate', () => {
         actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/a.md', reason: 'reorg' }],
         summary: 'no-op move',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /both written to and removed by the same plan/
@@ -1220,173 +1030,26 @@ describe('FileMemoryStore.consolidate', () => {
     })
   })
 
-  describe('revision prompt context', () => {
-    it('includes the original plan and targeted-repair instruction in the revision message', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
-
-      const invalidPlan = {
-        actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
-        summary: 'bad plan',
-      }
-      const validPlan = {
-        actions: [{ action: 'delete', path: 'facts/b.md', reason: 'Pruned' }],
-        summary: 'fixed',
-      }
-
-      const model = new MockMessageModel().addTurn(buildPlanTurn(invalidPlan)).addTurn(buildPlanTurn(validPlan))
-
-      const streamSpy = vi.spyOn(model, 'stream')
-
-      await store.consolidate({ model, operations: ['prune'] })
-
-      // The second call (revision) should contain the original plan JSON
-      expect(streamSpy).toHaveBeenCalledTimes(2)
-      const revisionMessages = streamSpy.mock.calls[1]![0]
-      const userMessages = revisionMessages.filter((message) => message.role === 'user')
-      const lastUserMessage = userMessages[userMessages.length - 1]
-      expect(lastUserMessage).toBeDefined()
-
-      // Extract the text from the user message content (may be string or content blocks)
-      const content = lastUserMessage!.content
-      const messageText =
-        typeof content === 'string'
-          ? content
-          : (content as Array<{ type: string; text?: string }>)
-              .filter((block) => block.type === 'textBlock')
-              .map((block) => block.text)
-              .join('')
-
-      expect(messageText).toContain(JSON.stringify(invalidPlan))
-      expect(messageText).toContain('Your plan was rejected')
-      expect(messageText).toContain('Modify ONLY the offending actions to fix the violations above')
-      expect(messageText).toContain('Keep all other actions unchanged')
-    })
-
-    // The revise prompt echoes model-controlled text back to the provider, so it is bounded at
-    // construction like the log payloads are. Ordering carries most of the weight: the byte cap now
-    // gates before the retry, so an oversized plan is never echoed at all. This covers what is left —
-    // a plan under the byte cap whose echo would still be large.
-    describe('bounded revise prompt', () => {
-      /** Concatenated text of the last user message in a `stream` spy's `callIndex`-th call. */
-      function userPromptText(streamSpy: ReturnType<typeof vi.spyOn>, callIndex: number): string {
-        const messages = streamSpy.mock.calls[callIndex]![0] as Array<{ role: string; content: unknown }>
-        const userMessages = messages.filter((message) => message.role === 'user')
-        const content = userMessages[userMessages.length - 1]!.content
-        if (typeof content === 'string') return content
-        return (content as Array<{ type: string; text?: string }>)
-          .filter((block) => block.type === 'textBlock')
-          .map((block) => block.text ?? '')
-          .join('')
-      }
-
-      /**
-       * The serialized plan the revise prompt echoes, isolated from the instructions around it.
-       *
-       * Whether a value was clipped can only be asserted against the echo: the instruction line
-       * quotes the `…(+N chars)` marker verbatim to teach the model what it means, so the marker is
-       * present in every prompt regardless of what the echo contains.
-       */
-      function echoedPlan(prompt: string): string {
-        return prompt.split('\n\n')[1] ?? ''
-      }
-
-      const CLIP_MARKER = '…(+'
-
-      it('bounds the echoed plan so a large rejected plan is not re-sent verbatim', async () => {
-        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-        // Under the default 256 KiB byte cap, so it reaches the revise turn — but far past the
-        // prompt echo cap. The path is nonexistent, so validation rejects it.
-        const largeContent = `---\ndescription: "Big"\n---\n\n${'x'.repeat(200_000)}\n`
-        const badPlan = buildPlanTurn({
-          actions: [{ action: 'update', path: 'facts/missing.md', content: largeContent, reason: 'test' }],
-          summary: 'large rejected plan',
-        })
-        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
-        const streamSpy = vi.spyOn(model, 'stream')
-        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-
-        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
-
-        // The retry happened, and its prompt does not carry the 200 KB body
-        expect(streamSpy).toHaveBeenCalledTimes(2)
-        const revisePrompt = userPromptText(streamSpy, 1)
-        expect(revisePrompt).not.toContain('x'.repeat(10_000))
-        expect(revisePrompt.length).toBeLessThan(50_000)
-
-        // Still a usable repair spec: the violation and the offending path survive, and the model is
-        // told which value was abbreviated so it re-emits rather than echoing the marker back
-        expect(revisePrompt).toContain('facts/missing.md')
-        expect(revisePrompt).toContain('does not exist')
-        expect(echoedPlan(revisePrompt)).toContain(CLIP_MARKER)
-        expect(revisePrompt).toContain('re-emitting in full any value that was abbreviated')
-
-        warnSpy.mockRestore()
-      })
-
-      it('echoes an ordinary multi-action plan without abbreviating its content', async () => {
-        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-        await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
-
-        // A realistic body: well under the prompt's per-string cap, so it must survive whole —
-        // clipping here would make the model re-emit content it was told to keep unchanged
-        const realisticContent = `---\ndescription: "Merged"\n---\n\n${'Merged prose. '.repeat(50)}\n`
-        const badPlan = buildPlanTurn({
-          actions: [
-            {
-              action: 'merge',
-              sources: ['facts/a.md', 'facts/b.md'],
-              target: 'facts/merged.md',
-              content: realisticContent,
-              reason: 'dedup',
-            },
-            { action: 'delete', path: 'facts/missing.md', reason: 'the offending action' },
-          ],
-          summary: 'one bad action among good ones',
-        })
-        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
-        const streamSpy = vi.spyOn(model, 'stream')
-        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-
-        await expect(store.consolidate({ model, operations: ['deduplicate', 'prune'] })).rejects.toThrow()
-
-        const revisePrompt = userPromptText(streamSpy, 1)
-        expect(revisePrompt).toContain(JSON.stringify(realisticContent).slice(1, -1))
-        expect(echoedPlan(revisePrompt)).not.toContain(CLIP_MARKER)
-
-        warnSpy.mockRestore()
-      })
-    })
-
-    it('logs rejected plans with structured format', async () => {
+  describe('planner logging', () => {
+    it('logs a rejected plan with structured format', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
       const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
 
-      // Both attempts produce invalid plans
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
-            summary: 'bad',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/still-nonexistent.md', reason: 'test' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
+          summary: 'bad',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow()
 
-      // Both the initial rejection and the post-retry rejection are logged
-      expect(warnSpy).toHaveBeenCalledTimes(2)
-      expect(warnSpy.mock.calls[0]![0]).toContain('consolidation plan rejected on initial attempt')
+      // The rejection is logged with both the validation errors and the plan
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy.mock.calls[0]![0]).toContain('consolidation plan rejected')
       expect(warnSpy.mock.calls[0]![0]).toContain('validation_errors=<')
-      expect(warnSpy.mock.calls[1]![0]).toContain('consolidation plan rejected after retry')
-      expect(warnSpy.mock.calls[1]![0]).toContain('plan=<')
+      expect(warnSpy.mock.calls[0]![0]).toContain('plan=<')
 
       warnSpy.mockRestore()
     })
@@ -1418,30 +1081,28 @@ describe('FileMemoryStore.consolidate', () => {
     describe('bounded log payloads', () => {
       const OVERSIZE_CONTENT = `---\ndescription: "Big"\n---\n\n${'x'.repeat(200_000)}\n`
 
-      it('bounds the plan payload in both validation-failure warns', async () => {
+      it('bounds the plan payload in the validation-failure warn', async () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
         const badPlan = buildPlanTurn({
           actions: [{ action: 'update', path: 'facts/does-not-exist.md', content: OVERSIZE_CONTENT, reason: 'test' }],
           summary: 'test',
         })
-        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+        const model = new MockMessageModel().addTurn(badPlan)
 
         const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
         await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
 
-        // Both warns fire, and neither carries the 200KB body
-        expect(warnSpy).toHaveBeenCalledTimes(2)
+        // The warn fires and does not carry the 200KB body
+        expect(warnSpy).toHaveBeenCalledTimes(1)
         const totalChars = warnSpy.mock.calls.flat().reduce<number>((sum, arg) => sum + String(arg).length, 0)
         expect(totalChars).toBeLessThan(20_000)
 
         // Still diagnostic: the offending path and the reason for rejection survive truncation
-        for (const call of warnSpy.mock.calls) {
-          const message = String(call[0])
-          expect(message).toContain('facts/does-not-exist.md')
-          expect(message).toContain('validation_errors=<')
-          expect(message).toContain('chars)')
-        }
+        const message = String(warnSpy.mock.calls[0]![0])
+        expect(message).toContain('facts/does-not-exist.md')
+        expect(message).toContain('validation_errors=<')
+        expect(message).toContain('chars)')
 
         warnSpy.mockRestore()
       })
@@ -1483,7 +1144,7 @@ describe('FileMemoryStore.consolidate', () => {
           reason: 'test',
         })) as JSONValue[]
         const badPlan = buildPlanTurn({ actions, summary: 'test' })
-        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+        const model = new MockMessageModel().addTurn(badPlan)
 
         const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
         await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow()
@@ -1561,29 +1222,6 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await storage.read('facts/c.md')).not.toBeNull()
     })
 
-    it('does not attempt a revision when the plan exceeds the action limit', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
-
-      const model = new MockMessageModel().addTurn(
-        buildPlanTurn({
-          actions: [
-            { action: 'delete', path: 'facts/a.md', reason: 'prune' },
-            { action: 'delete', path: 'facts/b.md', reason: 'prune' },
-          ],
-          summary: 'oversized plan',
-        })
-      )
-      const streamSpy = vi.spyOn(model, 'stream')
-
-      await expect(store.consolidate({ model, operations: ['prune'], maxActionsPerPlan: 1 })).rejects.toThrow(
-        /exceeds action limit/
-      )
-
-      // Only the initial plan call was made — an oversized plan is rejected outright, never re-sent
-      expect(streamSpy).toHaveBeenCalledTimes(1)
-    })
-
     it('succeeds at exactly the action limit', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
@@ -1634,19 +1272,12 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects a plan action whose path contains a backslash', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: '..\\..\\escaped.md', reason: 'hack' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: '..\\..\\escaped.md', reason: 'hack' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: '..\\..\\escaped.md', reason: 'hack' }],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /must not contain backslashes/
@@ -1660,19 +1291,12 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects a path with a ".." segment', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: '../escape.md', reason: 'hack' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: '../escape.md', reason: 'hack' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: '../escape.md', reason: 'hack' }],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /must not contain dot segments/
@@ -1685,19 +1309,12 @@ describe('FileMemoryStore.consolidate', () => {
     it('rejects a path with a "." segment', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: './facts/a.md', reason: 'no-op' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: './facts/a.md', reason: 'no-op' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: './facts/a.md', reason: 'no-op' }],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /must not contain dot segments/
@@ -1738,25 +1355,15 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
       await writeFile(storage, 'facts/c.md', 'Fact C', 'Content C')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'move', from: 'facts/a.md', to: 'facts/merged.md', reason: 'reorg' },
-              { action: 'move', from: 'facts/b.md', to: 'facts/Merged.md', reason: 'reorg' },
-            ],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              { action: 'move', from: 'facts/a.md', to: 'facts/merged.md', reason: 'reorg' },
-              { action: 'move', from: 'facts/b.md', to: 'facts/Merged.md', reason: 'reorg' },
-            ],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            { action: 'move', from: 'facts/a.md', to: 'facts/merged.md', reason: 'reorg' },
+            { action: 'move', from: 'facts/b.md', to: 'facts/Merged.md', reason: 'reorg' },
+          ],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /Multiple actions write to the same path/
@@ -1772,19 +1379,12 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/existing.md', 'Existing', 'Important existing content')
 
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/Existing.md', reason: 'reorg' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/Existing.md', reason: 'reorg' }],
-            summary: 'still bad',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/Existing.md', reason: 'reorg' }],
+          summary: 'bad plan',
+        })
+      )
 
       await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
         /already exists and is not vacated/
@@ -1814,7 +1414,7 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'empty merge',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty content/)
 
@@ -1835,7 +1435,7 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'no frontmatter',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
         /must start with YAML frontmatter/
@@ -1858,7 +1458,7 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'unclosed frontmatter',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
         /missing the closing frontmatter delimiter/
@@ -1878,57 +1478,13 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'no body',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow(
         /has no body after its frontmatter/
       )
 
       expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
-    })
-
-    // Malformed content is a formatting slip, so it routes through the same revise-retry as every
-    // other guardrail rather than aborting the run.
-    it('recovers when the model fixes malformed content on revision', async () => {
-      await writeFile(storage, 'facts/a.md', 'Dark mode', 'User prefers dark mode')
-      await writeFile(storage, 'facts/b.md', 'Theme dark', 'Theme preference: dark')
-
-      const fixedContent = '---\ndescription: "Theme preference"\n---\n\nUser prefers dark mode everywhere\n'
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/combined.md',
-                content: '',
-                reason: 'dedup',
-              },
-            ],
-            summary: 'empty merge',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/combined.md',
-                content: fixedContent,
-                reason: 'dedup',
-              },
-            ],
-            summary: 'repaired merge',
-          })
-        )
-
-      await store.consolidate({ model, operations: ['deduplicate'] })
-
-      expect(decoder.decode((await storage.read('facts/combined.md'))!)).toContain('dark mode everywhere')
-      expect(await storage.read('facts/a.md')).toBeNull()
-      expect(await storage.read('facts/b.md')).toBeNull()
     })
 
     // Content validation must not block legitimate dedup: a well-formed merge still writes its
@@ -2179,30 +1735,6 @@ describe('FileMemoryStore.consolidate', () => {
       // File untouched — no plan was executed
       expect(await storage.read('facts/a.md')).not.toBeNull()
     })
-
-    it('throws when plan revision agent exceeds turn limit without producing a revised plan', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-      // First turn: valid plan that fails validation (triggers revise path)
-      // Remaining turns: invalid structured output calls that exhaust the revise turn limit
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'delete', path: 'facts/nonexistent.md', reason: 'test' }],
-            summary: 'bad plan',
-          })
-        )
-        .addTurn(buildInvalidStructuredOutputTurn())
-        .addTurn(buildInvalidStructuredOutputTurn())
-        .addTurn(buildInvalidStructuredOutputTurn())
-
-      await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow(
-        /Consolidation plan revision exceeded turn limit \(3 turns\) without producing a revised plan/
-      )
-
-      // File untouched — no plan was executed
-      expect(await storage.read('facts/a.md')).not.toBeNull()
-    })
   })
 
   // A merge must draw on two genuinely different files. A short list and a padded one are the same
@@ -2230,7 +1762,7 @@ describe('FileMemoryStore.consolidate', () => {
         ],
         summary: 'laundered update',
       })
-      const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+      const model = new MockMessageModel().addTurn(badPlan)
 
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
         /at least 2 distinct source paths/
@@ -2282,40 +1814,23 @@ describe('FileMemoryStore.consolidate', () => {
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
       const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
-      const model = new MockMessageModel()
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
-                content: mergedContent,
-                reason: 'dedup',
-              },
-            ],
-            summary: 'merged',
-          })
-        )
-        .addTurn(
-          buildPlanTurn({
-            actions: [
-              {
-                action: 'merge',
-                sources: ['facts/a.md', 'facts/b.md'],
-                target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
-                content: mergedContent,
-                reason: 'dedup',
-              },
-            ],
-            summary: 'merged',
-          })
-        )
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/a.md', 'facts/b.md'],
+              target: 'facts/evil\n## FORGED-VIA-PATH\n\nActions (99):.md',
+              content: mergedContent,
+              reason: 'dedup',
+            },
+          ],
+          summary: 'merged',
+        })
+      )
 
       // The filename stem validation now rejects control characters before execution
-      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        /validation failed after retry/
-      )
+      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/validation failed/)
 
       // Files untouched — plan never executed
       expect(await storage.read('facts/a.md')).not.toBeNull()
@@ -2393,44 +1908,30 @@ describe('FileMemoryStore.consolidate', () => {
       it('rejects filenames with control characters in the stem', async () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-        const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\x00name.md', reason: 'test' }],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\x00name.md', reason: 'test' }],
-              summary: 'test',
-            })
-          )
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\x00name.md', reason: 'test' }],
+            summary: 'test',
+          })
+        )
 
         await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-          'Consolidation plan validation failed after retry'
+          'Consolidation plan validation failed'
         )
       })
 
       it('rejects bare .md filename (empty stem)', async () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
-        const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/.md', reason: 'test' }],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/.md', reason: 'test' }],
-              summary: 'test',
-            })
-          )
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/.md', reason: 'test' }],
+            summary: 'test',
+          })
+        )
 
         await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-          'Consolidation plan validation failed after retry'
+          'Consolidation plan validation failed'
         )
       })
 
@@ -2438,22 +1939,15 @@ describe('FileMemoryStore.consolidate', () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
         const longStem = 'a'.repeat(81)
 
-        const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: `facts/${longStem}.md`, reason: 'test' }],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [{ action: 'move', from: 'facts/a.md', to: `facts/${longStem}.md`, reason: 'test' }],
-              summary: 'test',
-            })
-          )
+        const model = new MockMessageModel().addTurn(
+          buildPlanTurn({
+            actions: [{ action: 'move', from: 'facts/a.md', to: `facts/${longStem}.md`, reason: 'test' }],
+            summary: 'test',
+          })
+        )
 
         await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-          'Consolidation plan validation failed after retry'
+          'Consolidation plan validation failed'
         )
       })
 
@@ -2496,9 +1990,7 @@ describe('FileMemoryStore.consolidate', () => {
           content: badContent,
           reason: 'dedup',
         }
-        const model = new MockMessageModel()
-          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
-          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
+        const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
 
         await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
           /needs a quoted description field/
@@ -2521,9 +2013,7 @@ describe('FileMemoryStore.consolidate', () => {
           content: '---\n---\nSome body text\n',
           reason: 'dedup',
         }
-        const model = new MockMessageModel()
-          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
-          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
+        const model = new MockMessageModel().addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
 
         await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
           /missing the closing frontmatter delimiter/
@@ -2881,7 +2371,7 @@ describe('FileMemoryStore.consolidate', () => {
         await writeFile(storage, 'facts/source.md', 'Source', 'Content source')
 
         const badPlan = buildPlanTurn({ actions: [action as JSONValue], summary: 'ambiguous target' })
-        const model = new MockMessageModel().addTurn(badPlan).addTurn(badPlan)
+        const model = new MockMessageModel().addTurn(badPlan)
         const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
 
         await expect(store.consolidate({ model, operations: [...operations] })).rejects.toThrow()
@@ -2973,10 +2463,10 @@ describe('FileMemoryStore.consolidate', () => {
   })
 })
 
-// summarizePayload and truncatePayload bound every untrusted plan-derived payload — the plan echoed
-// back on a revise turn, and the same plan in a diagnostic log field. Unit-tested directly because
-// two of their branches — an unserializable value, and a plan made large by action count rather than
-// content size — are awkward to drive through a full consolidate() run.
+// summarizePayload and truncatePayload bound an untrusted plan-derived payload before it reaches a
+// diagnostic log field. Unit-tested directly because two of their branches — an unserializable value,
+// and a plan made large by action count rather than content size — are awkward to drive through a
+// full consolidate() run.
 describe('payload bounding', () => {
   describe('summarizePayload', () => {
     it('leaves a small plan fully intact so ordinary diagnostics are unchanged', () => {
@@ -2985,9 +2475,9 @@ describe('payload bounding', () => {
       expect(summarizePayload(plan)).toBe(JSON.stringify(plan))
     })
 
-    // The cap is set by what the revise prompt needs: the model must re-emit every action it is told
-    // to keep unchanged, so an ordinary plan has to survive whole.
-    it('leaves a realistic multi-KB plan whole so the model can re-emit it unchanged', () => {
+    // The cap is generous enough that an ordinary plan logs whole, so a rejected plan stays fully
+    // diagnosable rather than truncated to a stub.
+    it('leaves a realistic multi-KB plan whole so the logged diagnostic is complete', () => {
       const plan = {
         actions: Array.from({ length: 6 }, (_unused, index) => ({
           action: 'merge',
@@ -3046,8 +2536,8 @@ describe('payload bounding', () => {
       )
     })
 
-    // Validation names every offending action, and the model repairs against that list — a cap tight
-    // enough for a compact log line would hide violations it is being asked to fix.
+    // Validation names every offending action — a cap tight enough for a compact log line would hide
+    // violations the diagnostic is meant to surface.
     it('keeps a violation list long enough to name every offending action', () => {
       const joined = Array.from(
         { length: 200 },

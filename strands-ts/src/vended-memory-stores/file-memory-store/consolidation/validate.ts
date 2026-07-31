@@ -27,8 +27,8 @@ import {
  * well-formed and references files that exist, every write carries well-formed content, and no two
  * actions collide on a write target.
  *
- * All violations are accumulated so the revision prompt can present a complete repair spec at once
- * rather than requiring iterative single-error fixes.
+ * All violations are accumulated so the rejection names every offending action at once rather than
+ * surfacing them one at a time.
  *
  * @returns A newline-joined string of all violations when the plan is invalid, or `undefined` when it passes
  *
@@ -70,7 +70,7 @@ export function validatePlan(
 
     // Counting distinct sources catches both a too-short list and a padded one — duplicate or
     // case-variant sources would otherwise launder an in-place overwrite past the operations
-    // allow-list. Kept out of the schema so it flows through the accumulate-and-revise path.
+    // allow-list. Kept out of the schema so it flows through the accumulate-violations path.
     if (action.action === 'merge') {
       const distinctSources = new Set(action.sources.map((source) => source.toLowerCase()))
       if (distinctSources.size < 2) {

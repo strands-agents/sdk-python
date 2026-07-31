@@ -1,9 +1,9 @@
 /**
  * The planning half of consolidation: prompt the model for a plan, and validate what comes back.
  *
- * This module owns every interaction with the planner agent, including the revise-retry. It never
- * touches storage — it is handed the run's file snapshot and returns a validated plan, so the
- * decision of what to change is fully separated from carrying it out.
+ * This module owns every interaction with the planner agent. It never touches storage — it is handed
+ * the run's file snapshot and returns a validated plan, so the decision of what to change is fully
+ * separated from carrying it out.
  *
  * @internal
  */
@@ -36,12 +36,11 @@ const EVIDENCE_CLOSE = '</file-evidence>'
 /**
  * Produce a validated action plan from the model via a single structured-output call.
  *
- * The plan is validated against the guardrails before being returned; if validation fails,
- * one revise-retry is attempted. Every returned plan has passed validation — the failure paths all
- * throw, so callers never receive an unvalidated plan.
+ * The plan is validated against the guardrails before being returned; a plan that fails validation
+ * throws rather than executing, so callers never receive an unvalidated plan.
  *
  * @throws Error when the model returns no structured output, the plan exceeds the action limit,
- *   or the plan fails validation after retry
+ *   or the plan fails validation
  *
  * @internal
  */
@@ -70,60 +69,17 @@ export async function generatePlan(
       `Consolidation planning exceeded turn limit (${DEFAULT_MAX_CONSOLIDATION_TURNS} turns) without producing a plan`
     )
   }
-  let plan = extractPlan(result, maxActionsPerPlan)
+  const plan = extractPlan(result, maxActionsPerPlan)
 
   const validationError = validatePlan(plan, files, operations, maxDirectories)
   if (validationError) {
     logger.warn(
-      `validation_errors=<${truncatePayload(validationError)}>, plan=<${summarizePayload(plan)}> | consolidation plan rejected on initial attempt`
+      `validation_errors=<${truncatePayload(validationError)}>, plan=<${summarizePayload(plan)}> | consolidation plan rejected`
     )
-    plan = await revisePlan(agent, plan, validationError, files, operations, maxDirectories, maxActionsPerPlan)
+    throw new Error(`Consolidation plan validation failed: ${validationError}`)
   }
 
   return plan
-}
-
-/**
- * Ask the model to fix a rejected plan, feeding back the validation error and the prior plan.
- *
- * Only one retry is attempted: if the revised plan also fails validation, this throws rather
- * than looping, so consolidation never runs an unvalidated plan.
- *
- * The echoed plan is bounded by {@link summarizePayload} rather than serialized verbatim: the
- * validation error already names every rejected path, so a pathologically large body is not
- * load-bearing and would ship a plan's worth of model-controlled text back over the wire.
- *
- * @throws Error when the revised plan exceeds the action limit, or also fails validation
- */
-async function revisePlan(
-  agent: Agent,
-  originalPlan: ConsolidationPlan,
-  validationError: string,
-  files: Map<string, string>,
-  operations: ConsolidateOperation[],
-  maxDirectories: number,
-  maxActionsPerPlan: number
-): Promise<ConsolidationPlan> {
-  const reviseResult = await agent.invoke(
-    `Your plan was rejected: ${truncatePayload(validationError)}. Here is the plan you produced (a very long value may be abbreviated with a '…(+N chars)' marker):\n\n${summarizePayload(originalPlan)}\n\nModify ONLY the offending actions to fix the violations above. Keep all other actions unchanged, re-emitting in full any value that was abbreviated.\n\nRevise your plan to fix this issue.`,
-    { limits: { turns: DEFAULT_MAX_CONSOLIDATION_TURNS } }
-  )
-  if (reviseResult.stopReason === 'limitTurns') {
-    throw new Error(
-      `Consolidation plan revision exceeded turn limit (${DEFAULT_MAX_CONSOLIDATION_TURNS} turns) without producing a revised plan`
-    )
-  }
-  const revisedPlan = extractPlan(reviseResult, maxActionsPerPlan)
-
-  const revisedValidationError = validatePlan(revisedPlan, files, operations, maxDirectories)
-  if (revisedValidationError) {
-    logger.warn(
-      `validation_errors=<${truncatePayload(revisedValidationError)}>, plan=<${summarizePayload(revisedPlan)}> | consolidation plan rejected after retry`
-    )
-    throw new Error(`Consolidation plan validation failed after retry: ${revisedValidationError}`)
-  }
-
-  return revisedPlan
 }
 
 /**

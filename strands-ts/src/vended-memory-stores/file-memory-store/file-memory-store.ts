@@ -234,7 +234,7 @@ export class FileMemoryStore implements MemoryStore {
    *
    * Plan-then-execute: one structured-output call produces an action plan over all files,
    * guardrails validate the whole plan before anything is mutated, then deterministic code
-   * executes it (writes before deletes). A rejected plan gets one revise-retry, then throws.
+   * executes it (writes before deletes). A plan that fails validation throws without mutating.
    * The planning agent is bounded by a turn limit (default 3) to prevent runaway loops.
    *
    * @remarks
@@ -253,7 +253,7 @@ export class FileMemoryStore implements MemoryStore {
    * @throws Error when the knowledge store exceeds the file count limit (maxFiles)
    * @throws Error when structured output is undefined (model did not return a plan)
    * @throws Error when the consolidation plan exceeds the action limit (maxActionsPerPlan)
-   * @throws Error when the consolidation plan fails validation after retry
+   * @throws Error when the consolidation plan fails validation
    * @throws Error when the consolidation agent exceeds its turn limit without producing a plan
    * @throws Error when a path the plan would create was claimed by a writer outside this run
    *   (the store is left unchanged — no write or delete runs)
