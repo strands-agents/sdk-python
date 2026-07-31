@@ -5,4 +5,5 @@ languages:
   typescript:
     package: "@ryancormack/strands-acp"
 github: https://github.com/ryancormack/strands-acp
+featured: true
 addedDate: 2026-07-18
