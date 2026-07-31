@@ -255,3 +255,32 @@ def test_interrupt_state_version_increments_after_end_tool_cycle():
     interrupt_state.end_tool_cycle()
 
     assert interrupt_state._get_version() > version
+
+
+def test_interrupt_state_to_dict_omits_retained_invocation_scoped_responses():
+    """A response retained while deactivated is readable only in-pass, so it is never serialized."""
+    retained = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}retained", name="gate", response="approved")
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate", response="approved")
+    interrupt_state = _InterruptState(
+        interrupts={retained.id: retained, tool_interrupt.id: tool_interrupt},
+        activated=False,
+    )
+
+    tru_interrupts = interrupt_state.to_dict()["interrupts"]
+    exp_interrupts = {tool_interrupt.id: tool_interrupt.to_dict()}
+    assert tru_interrupts == exp_interrupts
+
+    # While activated the caller is owed a resume, so everything is serialized.
+    interrupt_state.activate()
+    assert set(interrupt_state.to_dict()["interrupts"]) == {retained.id, tool_interrupt.id}
+
+
+def test_interrupt_state_from_dict_drops_retained_invocation_scoped_responses():
+    """A session written before responses stopped being serialized does not revive an approval."""
+    retained = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}retained", name="gate", response="approved")
+    data = {"interrupts": {retained.id: retained.to_dict()}, "context": {}, "activated": False}
+
+    assert _InterruptState.from_dict(data).interrupts == {}
+
+    data["activated"] = True
+    assert set(_InterruptState.from_dict(data).interrupts) == {retained.id}

@@ -7,7 +7,7 @@ from unittest.mock import ANY
 import pytest
 
 from strands import Agent, tool
-from strands.hooks import AfterModelCallEvent
+from strands.hooks import AfterModelCallEvent, BeforeToolCallEvent, BeforeToolsEvent
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # Default agent response for simple tests
@@ -334,3 +334,75 @@ async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
     # The pending tool interrupt state survives the cancelled pass.
     assert agent._interrupt_state.activated
     assert "tool_use_message" in agent._interrupt_state.context
+
+_CHARGE_TOOL_USE = {
+    "role": "assistant",
+    "content": [{"toolUse": {"toolUseId": "t1", "name": "charge_card", "input": {"amount": "$100"}}}],
+}
+_CHARGE_DONE = {"role": "assistant", "content": [{"text": "done"}]}
+
+
+def _charge_agent(model_messages, ran, deny):
+    """An agent whose tool interrupts for approval, with a hook that can cancel the batch."""
+
+    @tool(name="charge_card")
+    def charge_card(amount: str) -> str:
+        """Charge the customer's card."""
+        ran.append(amount)
+        return f"charged {amount}"
+
+    agent = Agent(model=MockedModelProvider(model_messages), tools=[charge_card], callback_handler=None)
+    agent.hooks.add_callback(BeforeToolCallEvent, lambda event: event.interrupt("approve_tool", reason="run it?"))
+
+    def maybe_cancel(event):
+        if deny[0]:
+            event.cancel = "policy denied"
+
+    agent.hooks.add_callback(BeforeToolsEvent, maybe_cancel)
+    return agent
+
+
+def _approve_all(result):
+    return [
+        {"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hook_cancelled_tool_batch_does_not_replay_the_stored_tool_use():
+    """A hook that cancels the tool batch on a resumed pass does not let the tool run anyway.
+
+    Cancelling a batch does not abort the pass — the event loop continues with cancel results — so
+    the tool-resume bookkeeping is cleared like any other cycle. Keeping it would replay the stored
+    tool use and execute the tool the hook just denied.
+    """
+    ran: list[str] = []
+    deny = [False]
+    agent = _charge_agent([_CHARGE_TOOL_USE, _CHARGE_DONE], ran, deny)
+
+    first = await agent.invoke_async("charge $100")
+    assert first.stop_reason == "interrupt"
+
+    deny[0] = True
+    resumed = await agent.invoke_async(_approve_all(first))
+
+    assert resumed.stop_reason == "end_turn"
+    assert ran == []
+    assert [message["role"] for message in agent.messages] == ["user", "assistant", "user", "assistant"]
+
+
+@pytest.mark.asyncio
+async def test_hook_cancelled_tool_batch_leaves_no_interrupt_state():
+    """An invocation that completes after a cancelled batch leaves no interrupt state behind."""
+    ran: list[str] = []
+    deny = [False]
+    agent = _charge_agent([_CHARGE_TOOL_USE, _CHARGE_DONE, _CHARGE_DONE], ran, deny)
+
+    first = await agent.invoke_async("charge $100")
+    deny[0] = True
+    resumed = await agent.invoke_async(_approve_all(first))
+
+    assert resumed.stop_reason == "end_turn"
+    assert not agent._interrupt_state.activated
+    assert not agent._interrupt_state.context
+    assert not agent._interrupt_state.interrupts

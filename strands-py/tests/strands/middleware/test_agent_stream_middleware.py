@@ -1394,6 +1394,127 @@ def test_interrupt_after_the_pass_completes_on_a_resumed_pass_leaves_no_state():
     assert agent("plain prompt").stop_reason == "end_turn"
 
 
+async def _drain_until_tool_result(agent, prompt):
+    """Consume a stream up to the tool result, then abandon it like a disconnected client."""
+    stream = agent.stream_async(prompt)
+    async for event in stream:
+        message = event.get("message")
+        if message and message["role"] == "user" and "toolResult" in message["content"][0]:
+            break
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_answered_interrupt_is_not_persisted_when_a_stream_is_abandoned(tmp_path):
+    """An abandoned stream leaves no answered interrupt in the session.
+
+    Sessions sync on every message added, including the one right after a tool cycle retains an
+    answered response, so keeping the retained response out of the session cannot rely on the
+    end-of-cycle release running.
+    """
+    gate_calls: list[str] = []
+    charges: list[str] = []
+
+    def build():
+        return _charging_agent(
+            _charge_gate(gate_calls),
+            charges,
+            session_manager=FileSessionManager(session_id="s1", storage_dir=str(tmp_path)),
+        )
+
+    first = await build().invoke_async("charge $100")
+    assert first.stop_reason == "interrupt"
+
+    await _drain_until_tool_result(build(), _approve(first))
+
+    persisted = FileSessionManager(session_id="s1", storage_dir=str(tmp_path)).read_agent("s1", "default")
+    assert persisted._internal_state["interrupt_state"]["interrupts"] == {}
+
+
+@pytest.mark.asyncio
+async def test_restored_agent_reports_an_answerable_interrupt(tmp_path):
+    """A restored agent never reports an interrupt stop the caller cannot answer.
+
+    A stale answered entry would both satisfy the gate silently and be filtered out of the reported
+    interrupts, leaving the caller told to respond with nothing to respond to.
+    """
+    gate_calls: list[str] = []
+    charges: list[str] = []
+
+    def build():
+        return _charging_agent(
+            _charge_gate(gate_calls),
+            charges,
+            session_manager=FileSessionManager(session_id="s1", storage_dir=str(tmp_path)),
+        )
+
+    first = await build().invoke_async("charge $100")
+    await _drain_until_tool_result(build(), _approve(first))
+
+    charges.clear()
+    restored = await build().invoke_async("charge $9999 for something else")
+
+    assert restored.stop_reason == "interrupt"
+    assert [interrupt.name for interrupt in restored.interrupts] == ["approve_charge"]
+    assert charges == []
+
+
+def test_interrupt_after_a_middleware_yielded_result_is_allowed():
+    """Gating after a short-circuited pass works: nothing was produced for a resume to replay.
+
+    A middleware that yields the result itself never calls the model, so the resumed pass replays
+    nothing and re-yields the same result — there is no duplicate assistant turn to prevent.
+    """
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "unused"}]}]),
+        callback_handler=None,
+    )
+    agent.model.stream = _fail_if_called
+
+    async def cached_then_confirm(context, next_fn):
+        message = {"role": "assistant", "content": [{"text": "cached answer"}]}
+        yield EventLoopStopEvent("end_turn", message, EventLoopMetrics(), {})
+        context.interrupt("confirm_cached", reason="serve the cached answer?")
+
+    agent._middleware_registry.add_middleware(AgentStreamStage, cached_then_confirm)
+
+    first = agent("what is 2+2?")
+    assert first.stop_reason == "interrupt"
+    assert [interrupt.name for interrupt in first.interrupts] == ["confirm_cached"]
+
+    resumed = agent(_approve(first))
+    assert resumed.stop_reason == "end_turn"
+    assert resumed.message["content"][0]["text"] == "cached answer"
+
+
+def test_answered_interrupt_is_released_when_conversation_management_raises():
+    """A failure in conversation management does not strand an answered interrupt.
+
+    apply_management runs inside the run loop's finally, so the release has to happen before it for
+    a raise there to leave nothing behind.
+    """
+    gate_calls: list[str] = []
+    charges: list[str] = []
+    agent = _charging_agent(_charge_gate(gate_calls), charges)
+
+    calls: list[int] = []
+    original_apply = agent.conversation_manager.apply_management
+
+    def failing_apply(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:  # the resumed pass
+            raise RuntimeError("summarization unavailable")
+        return original_apply(*args, **kwargs)
+
+    agent.conversation_manager.apply_management = failing_apply
+
+    first = agent("charge $100")
+    assert first.stop_reason == "interrupt"
+    with pytest.raises(RuntimeError, match="summarization unavailable"):
+        agent(_approve(first))
+
+    assert agent._interrupt_state.interrupts == {}
+
 async def _fail_if_called(*args, **kwargs):
     raise AssertionError("model.stream must not be called")
     yield  # noqa: B901  # make this an async generator
