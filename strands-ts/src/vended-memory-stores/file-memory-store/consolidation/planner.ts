@@ -248,7 +248,7 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
     '1. Read each knowledge file.',
     '2. Reason about which operations apply.',
     '3. Produce a plan with the appropriate actions.',
-    '4. Every `content` you write must be a complete markdown file: a `---` line, YAML fields including a `description`, a closing `---` line, then a non-empty body. Never emit empty or frontmatter-only content — it would erase the file.',
+    '4. Every `content` you write must be a complete markdown file: a `---` line, YAML fields including a `description` whose value is double-quoted (`description: "a short summary"`), a closing `---` line, then a non-empty body. Never emit empty or frontmatter-only content — it would erase the file.',
     `5. All paths must end with \`.md\` and must not be the reserved \`${CONSOLIDATION_CHANGELOG}\` file.`,
     '6. Only one level of subdirectory nesting is allowed.',
     '7. Each action fully transforms one path. Never write to and delete the same path in one plan, and never move a file onto its own path. To rewrite a file in place use `update`; to relocate it use `move` to a different path.',

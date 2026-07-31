@@ -13,6 +13,7 @@ import type { ConsolidationAction, ConsolidationPlan } from './plan.js'
 import {
   CONSOLIDATION_CHANGELOG,
   FRONTMATTER_CLOSE,
+  FRONTMATTER_DESCRIPTION_PATTERN,
   FRONTMATTER_OPEN,
   isConsolidationChangelog,
   pathsResolveSame,
@@ -201,11 +202,12 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
   if (closingIndex === -1) {
     return `${label} is missing the closing frontmatter delimiter ('---' on its own line)`
   }
-  // Require a non-empty frontmatter region — an empty region (no description) would produce an
-  // unparseable file that contradicts the contract of staying parseable by parseFrontmatter
+  // Require the description in the form parseFrontmatter reads — empty frontmatter, unrelated fields,
+  // and an unquoted value all parse to an empty description, dropping a field add() always writes and
+  // search() ranks against
   const frontmatterRegion = action.content.slice(FRONTMATTER_OPEN.length, closingIndex + 1)
-  if (frontmatterRegion.trim().length === 0) {
-    return `${label} has empty frontmatter — a description field is required`
+  if (!FRONTMATTER_DESCRIPTION_PATTERN.test(frontmatterRegion)) {
+    return `${label} frontmatter needs a quoted description field (description: "a short summary")`
   }
   if (stripInvisible(action.content.slice(closingIndex + FRONTMATTER_CLOSE.length)).length === 0) {
     return `${label} has no body after its frontmatter`

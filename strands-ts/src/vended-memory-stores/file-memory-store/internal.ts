@@ -68,6 +68,14 @@ export const FRONTMATTER_CLOSE = '\n---\n'
 export const STORAGE_READ_CONCURRENCY = 8
 
 /**
+ * The only `description` form {@link parseFrontmatter} reads. Shared with consolidation's write
+ * validation so a plan cannot write a description this parser would read as empty.
+ *
+ * @internal
+ */
+export const FRONTMATTER_DESCRIPTION_PATTERN = /^description:\s*(".*")\s*$/m
+
+/**
  * Extract description from YAML frontmatter and return the remaining body.
  *
  * @internal
@@ -79,7 +87,7 @@ export function parseFrontmatter(content: string): { description: string; body: 
   const frontmatter = match[1] ?? ''
   const body = match[2] ?? ''
 
-  const descMatch = frontmatter.match(/^description:\s*(".*")\s*$/m)
+  const descMatch = frontmatter.match(FRONTMATTER_DESCRIPTION_PATTERN)
   if (!descMatch) return { description: '', body }
 
   const rawDesc = descMatch[1] ?? ''

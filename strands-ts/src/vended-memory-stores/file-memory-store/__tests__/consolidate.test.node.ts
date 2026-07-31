@@ -3061,96 +3061,57 @@ describe('FileMemoryStore.consolidate', () => {
       })
     })
 
-    // Guarantees: content with a well-formed open+close delimiter pair but nothing between them
-    // is rejected for having an empty frontmatter region (validate.ts ~189-191).
-    describe('empty-frontmatter rejection (PR #3429)', () => {
-      // Exercises the empty-frontmatter-region branch: FRONTMATTER_OPEN ('---\n') followed
-      // immediately by FRONTMATTER_CLOSE ('\n---\n') with only whitespace between them.
-      it('rejects content with empty frontmatter region', async () => {
+    describe('frontmatter description rejection (PR #3429)', () => {
+      // Each of these parses to an empty description, dropping a field add() always writes and
+      // search() ranks against, so a write carrying one must not land
+      it.each([
+        ['an empty region', '---\n\n---\nSome body text\n'],
+        ['only unrelated fields', '---\ntitle: Merged\n---\n\nSome body text\n'],
+        ['an unquoted value', '---\ndescription: Merged\n---\n\nSome body text\n'],
+      ])('rejects a write whose frontmatter has %s', async (_case, badContent) => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
         await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
-        // '---\n' + '\n---\n' with only a newline (whitespace) between open and close delimiters
-        const emptyFrontmatter = '---\n\n---\nSome body text\n'
+        const mergeAction = {
+          action: 'merge',
+          sources: ['facts/a.md', 'facts/b.md'],
+          target: 'facts/a.md',
+          content: badContent,
+          reason: 'dedup',
+        }
         const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [
-                {
-                  action: 'merge',
-                  sources: ['facts/a.md', 'facts/b.md'],
-                  target: 'facts/a.md',
-                  content: emptyFrontmatter,
-                  reason: 'dedup',
-                },
-              ],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [
-                {
-                  action: 'merge',
-                  sources: ['facts/a.md', 'facts/b.md'],
-                  target: 'facts/a.md',
-                  content: emptyFrontmatter,
-                  reason: 'dedup',
-                },
-              ],
-              summary: 'test',
-            })
-          )
+          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
+          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
 
-        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/has empty frontmatter/)
+        await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
+          /needs a quoted description field/
+        )
 
-        // Files untouched
+        // Both sources survive — a rejected plan mutates nothing
         expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
+        expect(decoder.decode((await storage.read('facts/b.md'))!)).toContain('Content B')
       })
 
-      // Exercises the missing-closing-delimiter branch: FRONTMATTER_OPEN is present but no valid
-      // FRONTMATTER_CLOSE ('\n---\n') exists when searching from FRONTMATTER_OPEN.length.
+      // '---\n---\n...' has no '\n---\n' at or after index 4, so closingIndex === -1
       it('rejects content with missing closing frontmatter delimiter', async () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
         await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
-        // '---\n---\n...' has no '\n---\n' at or after index 4, so closingIndex === -1
-        const missingClose = '---\n---\nSome body text\n'
+        const mergeAction = {
+          action: 'merge',
+          sources: ['facts/a.md', 'facts/b.md'],
+          target: 'facts/a.md',
+          content: '---\n---\nSome body text\n',
+          reason: 'dedup',
+        }
         const model = new MockMessageModel()
-          .addTurn(
-            buildPlanTurn({
-              actions: [
-                {
-                  action: 'merge',
-                  sources: ['facts/a.md', 'facts/b.md'],
-                  target: 'facts/a.md',
-                  content: missingClose,
-                  reason: 'dedup',
-                },
-              ],
-              summary: 'test',
-            })
-          )
-          .addTurn(
-            buildPlanTurn({
-              actions: [
-                {
-                  action: 'merge',
-                  sources: ['facts/a.md', 'facts/b.md'],
-                  target: 'facts/a.md',
-                  content: missingClose,
-                  reason: 'dedup',
-                },
-              ],
-              summary: 'test',
-            })
-          )
+          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
+          .addTurn(buildPlanTurn({ actions: [mergeAction], summary: 'test' }))
 
         await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
           /missing the closing frontmatter delimiter/
         )
 
-        // Files untouched
         expect(decoder.decode((await storage.read('facts/a.md'))!)).toContain('Content A')
       })
     })
