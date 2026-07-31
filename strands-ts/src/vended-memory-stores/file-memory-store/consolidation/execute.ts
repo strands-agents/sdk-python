@@ -300,10 +300,12 @@ export async function recordChangelog(
   // filename's charset, so a target could otherwise carry a newline into the log. Backend error
   // text gets it too: the message typically echoes the key, carrying that key's newlines with it.
   //
-  // Clipped to {@link MAX_CHANGELOG_FIELD_LENGTH} as well: `reason` and `summary` are bounded only by
-  // the plan's aggregate byte budget, so a single field can legally carry the whole budget's worth of
-  // text. The changelog is a one-line-per-action audit artifact, and its bytes count toward the input
-  // cap on the next run, so an unbounded field would wedge later consolidations.
+  // Clipped to {@link MAX_CHANGELOG_FIELD_LENGTH} as well: the plan's aggregate byte budget is the only
+  // bound on `reason`/`summary`, so a single field can legally carry the whole budget's worth of text.
+  // {@link readAllFiles} filters the changelog out before the planner sees it, so it does not count
+  // toward the next run's input cap — the clip is for log hygiene and to keep one field from dominating
+  // an entry. Growth still matters: {@link recordChangelog} rewrites the whole log every run, so a
+  // bloated log makes every later audit-write more expensive.
   const sanitizeChangelogField = (value: string): string =>
     clipWithCount(value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, ''), MAX_CHANGELOG_FIELD_LENGTH)
 

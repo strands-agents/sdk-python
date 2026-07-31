@@ -353,9 +353,10 @@ export class FileMemoryStore implements MemoryStore {
 
     // Measure the serialized evidence block, not a raw key+content sum: the prompt pretty-prints the
     // map and escapes angle brackets, so the transmitted size can be several times a raw sum on
-    // hostile-but-legal content. Keys are covered because they are serialized too — `add()` takes
-    // `metadata.path` verbatim and no layer caps its length.
-    const totalBytes = plannerInputByteSize(files)
+    // hostile-but-legal content. Keys count too — `add()` takes `metadata.path` verbatim, uncapped.
+    // Passing the cap lets the measure abort once the running total exceeds it, so an over-budget
+    // corpus never materializes the whole escaped prompt in memory.
+    const totalBytes = plannerInputByteSize(files, maxInputBytes)
     if (totalBytes > maxInputBytes) {
       throw new Error(
         `Knowledge store exceeds consolidation input size limit: ${totalBytes} bytes (maxInputBytes: ${maxInputBytes})`

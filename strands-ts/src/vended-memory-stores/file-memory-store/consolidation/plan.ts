@@ -85,10 +85,38 @@ export function truncatePayload(text: string): string {
 }
 
 /**
- * Wire cost charged per array entry — the quotes and comma JSON spends on it regardless of its text.
- * Makes {@link generatedByteSize} sensitive to array *cardinality*, not just total text length.
+ * Wire cost charged per array entry beyond the entry itself — the comma JSON spends separating it.
+ * {@link wireByteSize} already counts each entry's surrounding quotes, so this is what makes
+ * {@link generatedByteSize} sensitive to array *cardinality* on top of per-entry text length.
  */
-const JSON_ARRAY_ENTRY_BYTES = 3
+const JSON_ARRAY_ENTRY_BYTES = 1
+
+/**
+ * UTF-8 bytes a string occupies in its JSON-encoded form — `JSON.stringify(text).length` in bytes,
+ * computed without building the encoded string.
+ *
+ * The plan is transmitted as JSON (the assistant `toolUse` input, echoed again by the structured-output
+ * tool), so raw UTF-8 under-counts what actually goes over the wire: a quote or backslash costs one
+ * extra byte, `\n`-class controls one, and any other control character six (U+0001 costs one raw
+ * byte and six escaped). Counting the escaped form keeps the output cap measuring what the input cap
+ * does. Lone surrogates are charged as the six-byte `\udXXX` escape `JSON.stringify` emits for them.
+ */
+function wireByteSize(text: string): number {
+  let bytes = encoder.encode(text).byteLength + 2 // + the surrounding quotes
+  for (const character of text) {
+    const code = character.codePointAt(0) as number
+    if (character === '"' || character === '\\') {
+      bytes += 1
+    } else if (code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d) {
+      bytes += 1 // \b \t \n \f \r — one raw byte becomes two
+    } else if (code < 0x20) {
+      bytes += 5 // \u00XX — one raw byte becomes six
+    } else if (code >= 0xd800 && code <= 0xdfff) {
+      bytes += 3 // a lone surrogate encodes as 3 raw bytes but escapes to 6
+    }
+  }
+  return bytes
+}
 
 /**
  * Schema for a consolidation plan, used both as the planner's structured-output contract and as the
@@ -165,7 +193,7 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
 }
 
 /**
- * Total UTF-8 bytes of model-generated text across a plan — write content, paths, reasons, summary.
+ * Total wire bytes of model-generated text across a plan — write content, paths, reasons, summary.
  *
  * Bounds planner output volume independently of the action count: a plan within the action limit
  * can still carry a few very large writes. Move actions write a snapshot copy of their source, so
@@ -182,38 +210,46 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
  * retries against a prompt carrying the oversized value, growing the payload each turn until the turn
  * limit trips. Measuring throws out of the run on the first turn.
  *
+ * Each field is measured with {@link wireByteSize} — its JSON-escaped size, which is what the provider
+ * actually receives — so this cap and the input cap ({@link plannerInputByteSize}) both measure the
+ * transmitted form rather than one measuring raw bytes and the other escaped ones. It still caps the
+ * *plan* and not total provider payload: it runs only on a plan that already parsed against
+ * {@link ConsolidationPlanSchema}, so a schema violation pays the per-element error-replay cost above
+ * before this is ever reached.
+ *
  * @param plan - The validated consolidation plan
  * @param files - The snapshot map from readAllFiles, used to measure move source content
  *
  * @internal
  */
 export function generatedByteSize(plan: ConsolidationPlan, files: Map<string, string>): number {
-  const size = (text: string): number => encoder.encode(text).byteLength
-
   let bytes = 0
   for (const action of plan.actions) {
-    bytes += size(action.reason)
+    bytes += wireByteSize(action.reason)
     switch (action.action) {
       case 'merge':
-        bytes += size(action.content) + size(action.target)
-        for (const source of action.sources) bytes += size(source) + JSON_ARRAY_ENTRY_BYTES
+        bytes += wireByteSize(action.content) + wireByteSize(action.target)
+        for (const source of action.sources) bytes += wireByteSize(source) + JSON_ARRAY_ENTRY_BYTES
         break
       case 'update':
-        bytes += size(action.content) + size(action.path)
+        bytes += wireByteSize(action.content) + wireByteSize(action.path)
         break
       case 'delete':
-        bytes += size(action.path)
+        bytes += wireByteSize(action.path)
         break
       case 'move': {
         // A move writes the source's content to the new target — count it so N moves from one
         // large source cannot escape the generated-bytes cap
         const canonicalFrom = resolveCanonicalKey(files, action.from)
         const sourceContent = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
-        bytes += size(action.from) + size(action.to) + (sourceContent !== undefined ? size(sourceContent) : 0)
+        bytes +=
+          wireByteSize(action.from) +
+          wireByteSize(action.to) +
+          (sourceContent !== undefined ? wireByteSize(sourceContent) : 0)
         break
       }
     }
   }
-  bytes += encoder.encode(plan.summary).byteLength
+  bytes += wireByteSize(plan.summary)
   return bytes
 }

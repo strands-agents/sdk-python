@@ -97,25 +97,41 @@ export async function generatePlan(
 /**
  * UTF-8 byte size of the evidence block the planner prompt will carry for `files`.
  *
- * Measures the serialized form rather than a raw key+content sum: {@link serializeEvidence}
- * pretty-prints the JSON and escapes angle brackets as `\uXXXX`, both of which expand what actually
- * goes over the wire — several-fold on content that is mostly `<`/`>`. Shared by the caller's input
- * cap and by the size the prompt reports to the model, so the measured and transmitted numbers cannot
- * diverge.
+ * Measures the serialized form, not a raw key+content sum: the block pretty-prints the JSON and
+ * escapes angle brackets as `\uXXXX`, expanding the wire size several-fold on `<`/`>`-heavy content.
+ * Accumulates one entry at a time and returns as soon as the running total passes `limit`, so an
+ * over-cap corpus costs O(one file) of memory — building the whole escaped string first OOM-kills the
+ * process on exactly the input the cap exists to reject. Each entry uses the same {@link escapeEvidence}
+ * that transmits it, so measured and transmitted sizes cannot diverge; framing mirrors
+ * `JSON.stringify(obj, null, 2)`.
+ *
+ * @param files - The working set to measure
+ * @param limit - Abort once the running total exceeds this; omit to measure the exact full size
+ * @returns The exact byte size, or the first partial total that exceeds `limit`
  *
  * @internal
  */
-export function plannerInputByteSize(files: Map<string, string>): number {
-  return encoder.encode(serializeEvidence(files)).byteLength
+export function plannerInputByteSize(files: Map<string, string>, limit = Infinity): number {
+  if (files.size === 0) return 2 // '{}'
+  let bytes = 3 // '{' + '\n}'
+  let first = true
+  for (const [key, content] of files) {
+    bytes += first ? 3 : 4 // '\n  ' (first) or ',\n  ' (subsequent)
+    bytes += encoder.encode(escapeEvidence(`${JSON.stringify(key)}: ${JSON.stringify(content)}`)).byteLength
+    if (bytes > limit) return bytes
+    first = false
+  }
+  return bytes
 }
 
 /**
  * Reject a plan whose generated content exceeds the byte budget, before it is used for anything else.
  *
  * Ordering is the point. This runs on the initial plan — ahead of the revise round-trip — so an
- * oversized plan is never echoed back to the provider, which would pay for its bytes a second time on
- * a plan that could not be applied even if the revision fixed every validation error. It runs again
- * on the revised plan, since a revision is free to grow.
+ * oversized plan is never echoed back to the provider, paying for its bytes twice on a plan that could
+ * not be applied even if the revision fixed every validation error. It runs again on the revised plan,
+ * since a revision is free to grow. {@link generatedByteSize} measures the JSON-escaped form, so the
+ * cap bounds what the provider actually receives for the plan itself.
  *
  * Like the action-count guard, this throws instead of routing into the revise-retry: an oversized plan
  * is a runaway signal rather than a fixable mistake.
@@ -272,9 +288,17 @@ function buildPlannerUserMessage(files: Map<string, string>): string {
  * and decode back to the original characters, so the planner still sees each body exactly as stored.
  */
 function serializeEvidence(files: Map<string, string>): string {
-  // Angle brackets escaped to prevent bodies from reproducing evidence tags.
-  // U+2028/U+2029 escaped because they are line terminators in some JS/ECMAScript consumers.
-  return JSON.stringify(Object.fromEntries(files), null, 2)
+  return escapeEvidence(JSON.stringify(Object.fromEntries(files), null, 2))
+}
+
+/**
+ * Escape codepoints `JSON.stringify` leaves verbatim but the evidence framing cannot: `<`/`>` so a
+ * body cannot reproduce the evidence tags, and U+2028/U+2029 (line terminators in some JS consumers).
+ * Shared by {@link serializeEvidence} (transmit) and {@link plannerInputByteSize} (measure) so the
+ * wire form and the measured size cannot drift.
+ */
+function escapeEvidence(json: string): string {
+  return json
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e')
     .replace(/\u2028/g, '\\u2028')

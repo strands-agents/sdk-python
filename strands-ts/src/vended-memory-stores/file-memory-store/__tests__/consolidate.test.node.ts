@@ -8,7 +8,7 @@ import type { JSONValue } from '../../../types/json.js'
 import type { Storage } from '../../../storage/storage.js'
 import { summarizePayload, truncatePayload } from '../consolidation/plan.js'
 import { plannerInputByteSize } from '../consolidation/planner.js'
-import { resolveWriteTarget } from '../internal.js'
+import { DEFAULT_MAX_INPUT_BYTES, resolveWriteTarget } from '../internal.js'
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -1547,6 +1547,21 @@ describe('FileMemoryStore.consolidate', () => {
       expect(model.callCount).toBe(0)
     })
 
+    // Each '<' expands six-fold when escaped, so building the whole prompt to compare against the cap
+    // OOM-kills the process on exactly the input the cap exists to reject. The measure aborts once the
+    // running total passes the limit, so the returned size only slightly overshoots.
+    it('rejects an over-cap corpus without materializing the full escaped prompt', async () => {
+      const files = new Map(
+        Array.from({ length: 100 }, (_unused, index) => [`facts/f${index}.md`, '<'.repeat(900_000)])
+      )
+
+      // A partial total that just exceeds the cap, not the corpus's full serialized size
+      const measured = plannerInputByteSize(files, DEFAULT_MAX_INPUT_BYTES)
+      expect(measured).toBeGreaterThan(DEFAULT_MAX_INPUT_BYTES)
+      // Stops within one file's worth of the cap, nowhere near the ~540 MB the full escaped corpus needs
+      expect(measured).toBeLessThan(DEFAULT_MAX_INPUT_BYTES + 6 * 900_000)
+    })
+
     it('succeeds at exactly the file limit', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
@@ -1680,8 +1695,8 @@ describe('FileMemoryStore.consolidate', () => {
     })
 
     // The aggregate budget is the only bound on `reason`, so a single field can legally carry the
-    // whole budget's worth of text into the changelog — whose bytes then count toward the input cap
-    // on the next run. The clip at the changelog boundary keeps one field from dominating the log.
+    // whole budget's worth of text into the changelog. The clip at the changelog boundary keeps one
+    // field from dominating the log and from bloating the file the next run reads-and-rewrites whole.
     it('clips an oversized reason at the changelog boundary on a plan that executes', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 
@@ -2562,12 +2577,31 @@ describe('FileMemoryStore.consolidate', () => {
         })
       )
 
-      // maxGeneratedBytes is 150, but reason (100) + summary (100) = 200 > 150
+      // A delete generates no content, so only reason (100) + summary (100) can carry it past 150
       await expect(store.consolidate({ model, operations: ['prune'], maxGeneratedBytes: 150 })).rejects.toThrow(
         /exceeds generated content limit/
       )
 
       // File untouched — guard fires before execution
+      expect(await storage.read('facts/a.md')).not.toBeNull()
+    })
+
+    // The plan travels as JSON, so the cap must measure the escaped form: a control character is one
+    // raw byte but six on the wire, so raw counting under-reports a control-heavy plan six-fold
+    it('counts JSON-escaped bytes rather than raw bytes against maxGeneratedBytes', async () => {
+      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
+
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [{ action: 'delete', path: 'facts/a.md', reason: '\u0001'.repeat(50) }],
+          summary: 'test',
+        })
+      )
+
+      // Raw bytes total 64 (reason 50 + path 10 + summary 4); escaped they total 320
+      await expect(store.consolidate({ model, operations: ['prune'], maxGeneratedBytes: 200 })).rejects.toThrow(
+        /exceeds generated content limit/
+      )
       expect(await storage.read('facts/a.md')).not.toBeNull()
     })
   })
