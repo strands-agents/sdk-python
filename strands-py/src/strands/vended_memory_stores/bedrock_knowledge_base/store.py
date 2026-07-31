@@ -128,10 +128,10 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self._data_source_type = kb_config.get("data_source_type")
         self._data_source_id = kb_config.get("data_source_id")
 
-        # Region for any default boto3 client the store constructs. Resolution mirrors
-        # SageMakerAIModel: explicit config -> AWS_REGION env -> DEFAULT_REGION. This avoids the
-        # NoRegionError raised by boto3 in cloud envs (EC2/Lambda) with no region hint. Injected
-        # clients are used verbatim and bypass this resolution.
+        # Region for any default boto3 client the store constructs. Resolution order is
+        # explicit config -> AWS_REGION env -> DEFAULT_REGION. This avoids the NoRegionError
+        # raised by boto3 in cloud envs (EC2/Lambda) with no region hint. Injected clients are
+        # used verbatim and bypass this resolution.
         self._region = kb_config.get("region_name") or os.getenv("AWS_REGION") or DEFAULT_REGION
 
         # The runtime client is built eagerly: search is the read path every store exercises. A

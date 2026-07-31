@@ -222,7 +222,7 @@ class TestConstructor:
 
 
 # --------------------------------------------------------------------------- #
-# Region resolution for default clients (issue #3564)
+# Region resolution for default clients
 # --------------------------------------------------------------------------- #
 
 
