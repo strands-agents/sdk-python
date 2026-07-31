@@ -75,7 +75,7 @@ export function createLlmRiskClassifier(config?: LlmClassifierConfig): HumanInTh
     const model = configuredModel ?? event.agent.model
     if (!model) {
       throw new Error(
-        'HITL risk classifier has no model — pass `model` in `classifier: { model }`, or ensure the parent agent has a model.'
+        'LLM risk classifier has no model — pass `model` in `classifier: { model }`, or ensure the parent agent has a model.'
       )
     }
 
