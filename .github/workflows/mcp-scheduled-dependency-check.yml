@@ -1,0 +1,62 @@
+# Path-filtered CI only runs when this repo changes, so a breaking release of a
+# runtime dependency is invisible until someone happens to touch strands-mcp/.
+# This re-resolves dependencies against an unchanged tree on a schedule and
+# raises an issue when a fresh install stops working (#3533).
+name: "MCP: Scheduled Dependency Check"
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 9am UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  package-build:
+    # Forks inherit the schedule but not the reason to run it.
+    if: github.repository == 'strands-agents/harness-sdk'
+    uses: ./.github/workflows/mcp-test-package-build.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ github.sha }}
+
+  report:
+    name: Report
+    needs: package-build
+    if: always() && github.repository == 'strands-agents/harness-sdk' && needs.package-build.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const title = '📦 strands-mcp install broken against current dependencies';
+            const label = 'area-mcp';
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: label,
+            });
+
+            if (existing.data.some((issue) => issue.title === title)) {
+              console.log('Issue already open, not filing a duplicate.');
+              return;
+            }
+
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body: [
+                'The scheduled dependency check could not build and import `strands-agents-mcp-server`',
+                'from a clean environment. A newly released version of a declared dependency is the',
+                'usual cause, and it breaks fresh `uvx` installs for every user.',
+                '',
+                `See the [workflow run](${runUrl}) for the failing step.`,
+              ].join('\n'),
+              labels: [label],
+            });
