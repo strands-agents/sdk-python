@@ -79,14 +79,9 @@ class _InterruptState:
     def end_tool_cycle(self) -> None:
         """Clear the state a completed tool cycle owns, keeping answered invocation-scoped ones.
 
-        Called when a tool cycle finishes and nothing is pending for it, so its interrupts and
-        context are done with. An answered invocation-scoped interrupt is kept: it belongs to the
-        interrupt cycle rather than to this tool cycle, and the pass that reads its response can
-        be a later one than the pass the human answered. An unanswered one is not kept — it is
-        either about to be raised (and registered) again or no longer wanted.
-
-        Use ``deactivate`` to reset the state completely, or ``end_interrupt_cycle`` to release
-        the responses this method retains.
+        An answered invocation-scoped interrupt belongs to the interrupt cycle, not this tool
+        cycle, and later passes may still read its response. An unanswered one is not kept — it
+        is either about to be re-raised or no longer wanted.
         """
         self.interrupts = {
             interrupt_id: interrupt
@@ -100,13 +95,8 @@ class _InterruptState:
     def end_interrupt_cycle(self) -> None:
         """Release invocation-scoped interrupts once their interrupt cycle is over.
 
-        An answered invocation-scoped response is held for the whole interrupt cycle — every pass
-        from the interrupt that asked the human through to the pass that completes with nothing
-        owed a resume (see ``end_tool_cycle``) — so the human is asked once. Releasing it here
-        stops it becoming a standing approval that a later cycle would silently resolve against.
-
-        Runs on every pass that ends a cycle, so it bumps the version only when it actually
-        released something and a no-op does not mark the state dirty for session writes.
+        Stops a stale approval from silently resolving a later cycle's gate. Only bumps the
+        version when something was actually released, so a no-op does not dirty session state.
         """
         remaining = {
             interrupt_id: interrupt

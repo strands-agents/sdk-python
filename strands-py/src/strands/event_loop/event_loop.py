@@ -888,12 +888,9 @@ async def _handle_tool_execution(
         return
 
     if not agent._cancel_signal.is_set():
-        # An aborting pass keeps its interrupt state: the tool never ran, so a pending tool
-        # interrupt (its stored tool_use_message and the human's answer) is still owed a resume,
-        # and clearing it would leave the caller holding responses for state that no longer
-        # exists. Only cancellation aborts the pass. A BeforeToolsEvent cancel just cancels this
-        # batch and the loop continues below, so its state must be cleared like any other cycle —
-        # a retained tool_use_message would be replayed and run the cancelled tool after all.
+        # A cancelled pass (agent.cancel()) keeps its interrupt state so a pending tool
+        # interrupt stays resumable. A BeforeToolsEvent cancel only cancels this batch
+        # and the loop continues, so its state is cleared normally.
         agent._interrupt_state.end_tool_cycle()
 
     await agent._append_messages(tool_result_message)

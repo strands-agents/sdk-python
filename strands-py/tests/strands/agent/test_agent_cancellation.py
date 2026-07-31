@@ -388,20 +388,7 @@ async def test_hook_cancelled_tool_batch_does_not_replay_the_stored_tool_use():
     assert resumed.stop_reason == "end_turn"
     assert ran == []
     assert [message["role"] for message in agent.messages] == ["user", "assistant", "user", "assistant"]
-
-
-@pytest.mark.asyncio
-async def test_hook_cancelled_tool_batch_leaves_no_interrupt_state():
-    """An invocation that completes after a cancelled batch leaves no interrupt state behind."""
-    ran: list[str] = []
-    deny = [False]
-    agent = _charge_agent([_CHARGE_TOOL_USE, _CHARGE_DONE], ran, deny)
-
-    first = await agent.invoke_async("charge $100")
-    deny[0] = True
-    resumed = await agent.invoke_async(_approve_all(first))
-
-    assert resumed.stop_reason == "end_turn"
+    # The completed invocation leaves no interrupt state behind.
     assert not agent._interrupt_state.activated
     assert not agent._interrupt_state.context
     assert not agent._interrupt_state.interrupts

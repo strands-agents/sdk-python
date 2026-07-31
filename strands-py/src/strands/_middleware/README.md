@@ -226,54 +226,58 @@ tools actually run.)
 
 ### Interrupt response lifetime
 
-An answered agent-stream response is scoped to the **interrupt cycle** that produced it: every pass
-from the interrupt that asked the human through to the pass that completes with nothing owed a
-resume. A cycle spans as many `agent(...)` calls as the resumes take. Three rules keep that window
-exact:
+An answered agent-stream response lives for exactly one **interrupt cycle**: the span from the
+interrupt that asked the human through to the pass that completes with nothing owed a resume. A
+cycle can span multiple `agent(...)` calls (one per resume round trip). Three coordinated rules
+keep that window exact.
 
-- A tool cycle that finishes with nothing pending clears its own interrupts and context but keeps
-  answered agent-stream responses (`_InterruptState.end_tool_cycle`). Without this, a gate answered
-  in one pass and re-read in a later pass of the same cycle is asked again — once per interrupt
-  round trip, because each round trip's reset dropped the answer the pass-start snapshot copies.
-- When a pass ends with nothing owed a resume, the cycle is over and those responses are released
-  (`_InterruptState.end_interrupt_cycle`). Without this an answer becomes a standing approval: ids
-  are deterministic, so the next cycle's gate resolves against the old response and never asks. The
-  release runs before the `AfterInvocationEvent` hook that syncs sessions, so the released state is
-  what gets persisted, and before `apply_management`, so a failure there cannot strand a response.
-- The pass-start snapshot is only populated while interrupt state is activated. A resume always
-  arrives activated, so a live cycle reads normally; outside one — a cycle abandoned mid-flight
-  because the caller stopped consuming the stream, say — there is nothing to read and a leftover
-  response cannot resolve a gate that should be asking.
+`_InterruptState.end_tool_cycle` clears per-tool-cycle interrupts and context but retains answered
+agent-stream responses (matched by the `_AGENT_STREAM_INTERRUPT_ID_PREFIX`). The agent-stream
+context reads a snapshot taken at pass start, so a gate answered in one pass and re-read in a later
+pass of the same cycle still resolves — even though the tool cycle that separated them cleared the
+live dict.
+
+`_InterruptState.end_interrupt_cycle` releases those retained responses when the cycle is over (a
+pass ends with nothing pending). Without this, an answer becomes a standing approval: ids are
+deterministic, so a later cycle's gate resolves against the stale response and never asks. The
+release runs before `AfterInvocationEvent` (session sync) and before `apply_management`, so the
+released state is what gets persisted and a failure in either cannot strand a response.
+
+The pass-start snapshot is only populated while interrupt state is activated. A resume always
+arrives activated, so a live cycle reads normally. Outside one — a cycle abandoned mid-flight
+because the caller stopped consuming the stream — there is nothing to read and a leftover response
+cannot resolve a gate that should be asking.
 
 Net effect: a gate asks the human once per interrupt cycle and never inherits an approval from a
-previous one.
-
-Because the id is derived from the name alone, **the name identifies what is being approved for the
-whole cycle**. Reusing one name for two different decisions in a cycle means the second inherits the
-first's approval, so give each decision its own stable name.
+previous one. Because the id is derived from the name alone, the **name identifies what is being
+approved for the whole cycle**. Reusing one name for two different decisions in a cycle means the
+second inherits the first's approval, so give each decision its own stable name.
 
 (TypeScript does not implement this lifetime yet: its `deactivate()` clears everything, so an
 answered agent-stream response does not survive a tool cycle. Tracked as a follow-up.)
 
 ### Interrupt before the pass produces its result
 
-A pass that has already produced its `EventLoopStopEvent` has appended its assistant turn to
-history. If nothing was stored for a resume to replay, the resumed pass calls the model a second
-time: a duplicate assistant turn, a non-alternating history, and re-fired tool side effects. The run
-loop refuses that case — it clears interrupt state and raises `RuntimeError` naming the interrupt,
-rather than corrupting the conversation. A pass that stopped for a *tool* interrupt is exempt: its
-stored tool-use message is replayed on resume, so no second model call happens, and gating on top of
-a tool interrupt keeps working.
+An agent-stream interrupt must fire *before* the pass produces its `EventLoopStopEvent`. Once the
+stop event has been yielded, the assistant turn is already appended to history. If nothing was
+stored for a resume to replay, the resumed pass calls the model a second time — duplicate assistant
+turn, non-alternating history, re-fired tool side effects. The run loop refuses that case: it
+clears interrupt state and raises `RuntimeError` naming the interrupt rather than corrupting the
+conversation.
 
-This makes the Output phase unsuitable for gating, since its adapter drains the whole inner chain
-before the handler runs. A post-hoc approval gate ("inspect the finished stream, then ask a human")
-has to be a wrap handler that interrupts *before* `next()` on the following pass.
+A *tool* interrupt is exempt: its stored `tool_use_message` is replayed on resume, so no second
+model call happens, and gating on top of a tool interrupt keeps working.
+
+This makes the Output phase unsuitable for gating. The Output adapter drains the whole inner chain
+before the handler runs, so the stop event has already been produced. A post-hoc approval gate
+("inspect the finished stream, then ask a human") must be a Wrap handler that interrupts *before*
+`next()` on the following pass.
 
 The refusal only catches the case it can detect precisely. Interrupting mid-drain *after* the model
-turn has landed (e.g. from a `ModelMessageEvent`) is already past the point where the assistant
-message entered history, so resuming re-calls the model exactly as above — the run loop cannot tell
-that from a legitimate mid-drain interrupt and does not try. Treat "before the model turn is
-produced" as the safe position, not merely "before the stop event".
+turn has landed (e.g. from a `ModelMessageEvent`) is past the point where the assistant message
+entered history, so resuming re-calls the model exactly as above — the run loop cannot distinguish
+that from a legitimate mid-drain interrupt. Treat "before the model turn is produced" as the safe
+interrupt position, not merely "before the stop event".
 
 ## Hook-initiated retries re-run the middleware chain
 

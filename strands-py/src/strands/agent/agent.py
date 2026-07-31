@@ -1327,12 +1327,9 @@ class Agent(AgentBase):
                     agent=self,
                     messages=current_messages,
                     invocation_state=invocation_state,
-                    # Snapshot interrupts before the pass: a tool cycle within this pass clears the
-                    # live dict, but a gate that re-reads its approval after next_fn must still see
-                    # the resumed response. Only a live interrupt cycle is readable — a resume
-                    # always arrives activated, so outside one there is nothing legitimate to read
-                    # and a response retained by a cycle that died mid-flight must not resolve a
-                    # gate that should be asking the human.
+                    # Snapshot interrupts before the pass so a gate's re-read after next_fn
+                    # survives the tool cycle clearing the live dict. Empty when not activated,
+                    # so a dead cycle's retained response cannot resolve a fresh gate.
                     _interrupts=dict(self._interrupt_state.interrupts) if self._interrupt_state.activated else {},
                 )
                 try:
@@ -1364,14 +1361,10 @@ class Agent(AgentBase):
                         pass_progress.event_loop_produced_result
                         and "tool_use_message" not in self._interrupt_state.context
                     ):
-                        # The event loop already produced this pass's result and stored no tool use
-                        # to replay, so resuming would re-enter the event loop and call the model
-                        # again: a
-                        # duplicate assistant turn, a non-alternating history, and re-fired tool
-                        # side effects. Refuse rather than corrupt the conversation, and clear the
-                        # state so the caller is not left holding an interrupt it cannot answer.
-                        # A pass that stopped for a tool interrupt is exempt: its stored tool use
-                        # is replayed on resume, so no second model call happens.
+                        # The event loop already produced this pass's result with nothing stored
+                        # to replay, so resuming would call the model again. Refuse rather than
+                        # corrupt the conversation. Tool interrupts are exempt (stored tool use
+                        # is replayed on resume).
                         self._interrupt_state.deactivate()
                         raise RuntimeError(
                             f"interrupt_name=<{interrupt_exception.interrupt.name}> | agent-stream middleware "
@@ -1380,13 +1373,9 @@ class Agent(AgentBase):
                         ) from interrupt_exception
 
                     # Middleware-initiated interrupt (context.interrupt() with no response yet).
-                    # interrupt() is read-only, so this handler is the single place the interrupt
-                    # is registered and the state activated before surfacing a terminal
-                    # EventLoopStopEvent("interrupt"), matching how tool interrupts stop the loop.
-                    # interrupt() only raises when this pass saw no answer for that id, so a
-                    # registered entry that already carries a response is stale and would leave the
-                    # caller an interrupt stop with nothing to answer. Keep an existing unanswered
-                    # registration; replace anything else.
+                    # interrupt() is read-only, so this handler is the single registration site
+                    # before surfacing EventLoopStopEvent("interrupt"). Keep an existing unanswered
+                    # registration; replace a stale one that already carries a response.
                     registered = self._interrupt_state.interrupts.get(interrupt_exception.interrupt.id)
                     if registered is None or registered.response is not None:
                         self._interrupt_state.interrupts[interrupt_exception.interrupt.id] = (
@@ -1419,13 +1408,10 @@ class Agent(AgentBase):
 
             finally:
                 if not self._interrupt_state.activated:
-                    # Nothing is owed a resume, so this pass ends the interrupt cycle. Invocation-
-                    # scoped responses are held across the cycle's passes (see
-                    # _InterruptState.end_tool_cycle) so a gate asks the human once; release them
-                    # here so the next cycle asks again instead of resolving against a stale
-                    # approval. This runs before the session-syncing AfterInvocationEvent hook so
-                    # the released state is what gets persisted, and before apply_management so a
-                    # failure there cannot strand a retained response.
+                    # Nothing is owed a resume, so the interrupt cycle is over. Release
+                    # invocation-scoped responses so the next cycle asks again rather than
+                    # resolving against a stale approval. Runs before AfterInvocationEvent
+                    # and apply_management so the released state is what gets persisted.
                     self._interrupt_state.end_interrupt_cycle()
 
                 self.conversation_manager.apply_management(self)
