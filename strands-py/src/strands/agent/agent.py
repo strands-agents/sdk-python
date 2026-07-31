@@ -1365,8 +1365,8 @@ class Agent(AgentBase):
                         and "tool_use_message" not in self._interrupt_state.context
                     ):
                         # The event loop already produced this pass's result and stored no tool use
-                        # to replay,
-                        # so resuming would re-enter the event loop and call the model again: a
+                        # to replay, so resuming would re-enter the event loop and call the model
+                        # again: a
                         # duplicate assistant turn, a non-alternating history, and re-fired tool
                         # side effects. Refuse rather than corrupt the conversation, and clear the
                         # state so the caller is not left holding an interrupt it cannot answer.

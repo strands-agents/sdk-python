@@ -44,7 +44,8 @@ class InterruptException(Exception):
 class _InterruptState:
     """Track the state of interrupt events raised by the user.
 
-    Note, interrupt state is cleared after resuming.
+    Note, unanswered interrupts are cleared after resuming; an answered invocation-scoped response
+    is retained for the rest of its interrupt cycle (see ``interrupts`` below).
 
     Attributes:
         interrupts: Interrupts raised by the user. An answered invocation-scoped interrupt can

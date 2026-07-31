@@ -1030,10 +1030,7 @@ def test_resumed_interrupt_is_not_re_asked_after_a_later_tool_interrupt():
             break
         asked.extend(interrupt.name for interrupt in result.interrupts)
         result = agent(
-            [
-                {"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}}
-                for interrupt in result.interrupts
-            ]
+            [{"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts]
         )
 
     assert result.stop_reason == "end_turn"
@@ -1198,9 +1195,7 @@ def _charging_agent(gate, charges, **kwargs):
 
 
 def _approve(result):
-    return [
-        {"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts
-    ]
+    return [{"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts]
 
 
 def _charge_gate(gate_calls):
@@ -1517,6 +1512,7 @@ def test_answered_interrupt_is_released_when_conversation_management_raises():
         agent(_approve(first))
 
     assert agent._interrupt_state.interrupts == {}
+
 
 async def _fail_if_called(*args, **kwargs):
     raise AssertionError("model.stream must not be called")

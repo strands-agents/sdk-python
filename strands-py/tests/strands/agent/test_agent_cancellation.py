@@ -335,6 +335,7 @@ async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
     assert agent._interrupt_state.activated
     assert "tool_use_message" in agent._interrupt_state.context
 
+
 _CHARGE_TOOL_USE = {
     "role": "assistant",
     "content": [{"toolUse": {"toolUseId": "t1", "name": "charge_card", "input": {"amount": "$100"}}}],
@@ -363,9 +364,7 @@ def _charge_agent(model_messages, ran, deny):
 
 
 def _approve_all(result):
-    return [
-        {"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts
-    ]
+    return [{"interruptResponse": {"interruptId": interrupt.id, "response": "yes"}} for interrupt in result.interrupts]
 
 
 @pytest.mark.asyncio
@@ -396,7 +395,7 @@ async def test_hook_cancelled_tool_batch_leaves_no_interrupt_state():
     """An invocation that completes after a cancelled batch leaves no interrupt state behind."""
     ran: list[str] = []
     deny = [False]
-    agent = _charge_agent([_CHARGE_TOOL_USE, _CHARGE_DONE, _CHARGE_DONE], ran, deny)
+    agent = _charge_agent([_CHARGE_TOOL_USE, _CHARGE_DONE], ran, deny)
 
     first = await agent.invoke_async("charge $100")
     deny[0] = True
