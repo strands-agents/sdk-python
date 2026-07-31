@@ -46,7 +46,13 @@ const href = card.external ? card.href : pathWithBase(card.href)
   </span>
   <div class="cat-card-main">
     <div class="cat-card-head">
-      <a class="cat-card-title" href={href} rel={card.external ? 'noopener' : undefined} title={card.name}>
+      <a
+        class="cat-card-title"
+        href={href}
+        target={card.external ? '_blank' : undefined}
+        rel={card.external ? 'noopener' : undefined}
+        title={card.name}
+      >
         {card.name}
       </a>
       {card.external && <span class="cat-external" aria-hidden="true">↗</span>}
@@ -94,7 +100,14 @@ const href = card.external ? card.href : pathWithBase(card.href)
         </span>
       </span>
       <span class="cat-links">
-        <a class="cat-link" href={card.github} rel="noopener" aria-label={`${card.name} on GitHub`} title="GitHub">
+        <a
+          class="cat-link"
+          href={card.github}
+          target="_blank"
+          rel="noopener"
+          aria-label={`${card.name} on GitHub (opens in a new tab)`}
+          title="GitHub"
+        >
           <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
             {GITHUB_ICON.map((d) => (
               <path fill="currentColor" d={d} />
@@ -105,8 +118,9 @@ const href = card.external ? card.href : pathWithBase(card.href)
           <a
             class="cat-link"
             href={link.href}
+            target="_blank"
             rel="noopener"
-            aria-label={`${card.name} on ${link.label}`}
+            aria-label={`${card.name} on ${link.label} (opens in a new tab)`}
             title={link.label}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
