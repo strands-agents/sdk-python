@@ -1273,8 +1273,14 @@ def test_answered_interrupt_is_released_when_a_pass_ends_with_an_error():
     with pytest.raises(RuntimeError, match="session write failed"):
         agent(_approve(first))
 
+    assert agent._interrupt_state.interrupts == {}
+
+    # The next cycle raises its own unanswered interrupt rather than inheriting the answered one,
+    # which would leave the caller told to respond with nothing to respond to.
     charges.clear()
-    assert agent("charge $9999").stop_reason == "interrupt"
+    third = agent("charge $9999")
+    assert third.stop_reason == "interrupt"
+    assert [(interrupt.name, interrupt.response) for interrupt in third.interrupts] == [("approve_charge", None)]
     assert charges == []
 
 
