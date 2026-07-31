@@ -57,8 +57,8 @@ addedDate: 2026-07-31        # the date you open the PR
 | `languages` | ✅ | At least one of `python` / `typescript`, each with the `package` name as published on PyPI / npm. For a vendor-guide integration with no Strands-specific package, leave the block empty (`python: {}`) and set `docsUrl` to your guide. |
 | `github` | ✅ | Public repository URL, starting with `https://github.com/` |
 | `addedDate` | ✅ | Date of submission (drives the "New" badge) |
-| `docsUrl` | Optional | Link to your own docs page about the Strands integration; used as the card link when you don't add an on-site docs page. Must start with `https://`. |
-| `docsPage` | Optional | Set only if you also add a docs page (below) |
+| `docsUrl` | Recommended | Link to your own docs page about the Strands integration — your card's primary link. Must start with `https://`. |
+| `docsPage` | Legacy | On-site docs page reference — existing entries only; new submissions link their own docs via `docsUrl` |
 
 The maintainer shown on your card and the PyPI/npm links are derived automatically — the
 maintainer from your `github` URL's owner, the registry links from your `package` names.
@@ -70,31 +70,16 @@ submissions that set them for maintainer review.
 The site build validates your file against the schema, so a malformed entry fails CI with
 a clear error.
 
-## Optional: add a documentation page
+## Link your own documentation
 
-Without a docs page, your catalog card links to your GitHub repo — perfectly fine. If you
-want an on-site page with install/usage examples:
+Host your integration's documentation on your own site or repo and point your entry's
+`docsUrl` at it — that's where your card sends visitors. Your docs stay current because
+you own them; pages copied into this site tend to go stale as your package evolves.
+Without a `docsUrl`, the card links to your GitHub repo, which works fine too.
 
-1. Add `site/src/content/docs/community/<type-directory>/<your-package>.mdx` (e.g.
-`community/tools/your-package.mdx`) with frontmatter:
-
-```yaml
----
-title: your-package-name
-community: true
-description: Same description as your catalog entry
-integrationType: tool
-languages: Python            # or TypeScript, or omit for both
-sidebar:
-  label: "display-name"
----
-```
-
-2. Keep the page a concise overview: installation, a working usage example, configuration.
-If your package supports both languages, use `<Tabs>` with `Python` / `TypeScript` labels
-so the page follows the site-wide language toggle.
-3. Add the page under the Community section of `site/src/config/navigation.yml`.
-4. Reference it from your catalog entry: `docsPage: docs/community/tools/your-package`
+New submissions should not add documentation pages under `site/src/content/docs/`.
+Existing on-site pages (referenced via `docsPage`) remain supported for entries that
+already have them.
 
 ## Questions?
 

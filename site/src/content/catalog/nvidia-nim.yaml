@@ -1,7 +1,6 @@
 name: nvidia-nim
 description: NVIDIA NIM inference microservices as a Strands Agents model provider with full tool support and streaming.
 integrationType: model-provider
-featured: true
 languages:
   python:
     package: strands-nvidia-nim

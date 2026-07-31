@@ -6,4 +6,5 @@ languages:
     package: strands-s3-vectors-memory
 github: https://github.com/aws-samples/data-for-saas-patterns/tree/main/samples/multi-tenant-strands-s3-vectors-memory
 docsPage: docs/community/plugins/s3-vectors-memory
+featured: true
 addedDate: 2026-01-01

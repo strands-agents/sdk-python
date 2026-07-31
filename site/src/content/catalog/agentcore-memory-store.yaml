@@ -6,4 +6,5 @@ languages:
     package: bedrock-agentcore
 github: https://github.com/aws/bedrock-agentcore-sdk-typescript
 docsPage: docs/community/memory-stores/agentcore-memory-store
+featured: true
 addedDate: 2026-07-23

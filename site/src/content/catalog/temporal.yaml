@@ -6,5 +6,4 @@ languages:
     package: temporalio[strands-agents]
 github: https://github.com/temporalio/sdk-python
 docsUrl: https://docs.temporal.io/develop/python/integrations/strands-agents
-featured: true
 addedDate: 2026-07-19

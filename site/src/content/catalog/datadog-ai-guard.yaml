@@ -6,4 +6,5 @@ languages:
     package: ddtrace
 github: https://github.com/DataDog/dd-trace-py
 docsPage: docs/community/plugins/datadog-ai-guard
+featured: true
 addedDate: 2026-01-01

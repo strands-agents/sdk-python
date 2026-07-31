@@ -10,7 +10,7 @@
 **GitHub repo:** <!-- source of truth for the maintainer shown on your card (the URL's owner/org) -->
 **What it does:** <!-- 1–2 sentences -->
 **Relationship to service:** <!-- official vendor integration / community-built -->
-**Docs link included:** <!-- docsPage (on-site page) / docsUrl (external link) / none — card will link to GitHub repo -->
+**Docs link included:** <!-- docsUrl (link to your own docs) / none — card will link to GitHub repo. New submissions should not add on-site docs pages. -->
 
 ### Submitter checklist
 
@@ -26,9 +26,8 @@
 - [ ] `addedDate` is set to today (the date I opened this PR)
 - [ ] `featured` and `badges` are left unset — those are granted by the Strands team
 
-#### Docs (only if adding a docs page or `docsUrl`)
-- [ ] Usage example runs against the current SDK release
-- [ ] Code follows the site's language-tab conventions where both Python and TypeScript are supported
+#### Docs (only if setting a `docsUrl`)
+- [ ] The linked page documents using this integration with Strands Agents
 
 #### Conduct
 - [ ] I am the package maintainer, or I have the maintainer's explicit consent to list it
@@ -43,4 +42,4 @@
 - No existing catalog entry for this package (`site/src/content/catalog/`)
 - All URLs are reachable and resolve to the expected destinations
 - `addedDate` matches the submission date and `featured`/`badges` are unset (CI labels the PR `catalog: editorial-review` if a non-maintainer sets them)
-- Docs example (if present) is accurate and follows site conventions
+- The `docsUrl` page (if set) is a real Strands integration guide, not a generic product page
