@@ -115,11 +115,25 @@ class TestDeprecatedBashAliases:
         with pytest.deprecated_call(match="bash is deprecated"):
             assert vended_tools.bash is shell
 
-    def test_make_bash_alias_warns_and_returns_make_shell(self):
+    def test_make_bash_alias_warns_and_builds_a_shell_tool(self):
         import strands.vended_tools as vended_tools
 
         with pytest.deprecated_call(match="make_bash is deprecated"):
-            assert vended_tools.make_bash is make_shell
+            tool = vended_tools.make_bash()
+        assert tool.tool_name == "shell"
+
+    def test_make_bash_alias_forwards_arguments(self):
+        import strands.vended_tools as vended_tools
+
+        with pytest.deprecated_call(match="make_bash is deprecated"):
+            tool = vended_tools.make_bash(name="sandbox_shell", description="custom desc")
+        assert tool.tool_name == "sandbox_shell"
+        assert tool.tool_spec["description"] == "custom desc"
+
+    def test_make_bash_is_marked_deprecated_for_static_analysis(self):
+        import strands.vended_tools as vended_tools
+
+        assert "make_shell" in vended_tools.make_bash.__deprecated__
 
     def test_unknown_attribute_still_raises(self):
         import strands.vended_tools as vended_tools
