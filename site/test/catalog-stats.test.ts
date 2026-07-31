@@ -73,6 +73,26 @@ describe('buildStats', () => {
     })
   })
 
+  it('treats malformed payloads as failures and keeps the previous values', async () => {
+    const previous = {
+      'strands-example': { stars: 40, downloads: { python: 90, typescript: 45 } },
+    }
+    const stats = await buildStats(
+      [entries[0]!],
+      fetchers({
+        // Upstream returned 200 with garbage: non-numeric, NaN, negative.
+        githubRepo: async () => ({ stars: 'lots' }) as unknown as { stars: number },
+        pypiDownloads: async () => Number.NaN,
+        npmDownloads: async () => -5,
+      }),
+      previous
+    )
+    expect(stats['strands-example']).toEqual({
+      stars: 40,
+      downloads: { python: 90, typescript: 45 },
+    })
+  })
+
   it('keeps previous github stats when the github fetch fails', async () => {
     const previous = {
       'strands-example': { stars: 40, downloads: { python: 90 } },

@@ -32,6 +32,18 @@ export interface EntryStats {
   downloads: { python?: number; typescript?: number }
 }
 
+/**
+ * A malformed upstream payload (missing field, string, NaN, negative) must
+ * take the same keep-previous path as a failed fetch, not overwrite a good
+ * committed value — so validation throws inside the per-source try blocks.
+ */
+function assertStat(value: unknown, what: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`malformed payload: ${what}=${JSON.stringify(value)}`)
+  }
+  return value
+}
+
 export async function buildStats(
   entries: StatsEntry[],
   fetchers: StatsFetchers,
@@ -44,7 +56,7 @@ export async function buildStats(
     if (entry.github) {
       try {
         const repo = await fetchers.githubRepo(entry.github)
-        stats.stars = repo.stars
+        stats.stars = assertStat(repo?.stars, 'stars')
       } catch (err) {
         // Keep the previous value so a transient outage doesn't regress stats.
         console.warn(`entry=<${entry.id}>, source=github | fetch failed, keeping previous value`, err)
@@ -53,7 +65,7 @@ export async function buildStats(
     }
     if (entry.python) {
       try {
-        stats.downloads.python = await fetchers.pypiDownloads(entry.python)
+        stats.downloads.python = assertStat(await fetchers.pypiDownloads(entry.python), 'pypi downloads')
       } catch (err) {
         console.warn(`entry=<${entry.id}>, source=pypi | fetch failed, keeping previous value`, err)
         if (prev?.downloads?.python !== undefined) stats.downloads.python = prev.downloads.python
@@ -61,7 +73,7 @@ export async function buildStats(
     }
     if (entry.typescript) {
       try {
-        stats.downloads.typescript = await fetchers.npmDownloads(entry.typescript)
+        stats.downloads.typescript = assertStat(await fetchers.npmDownloads(entry.typescript), 'npm downloads')
       } catch (err) {
         console.warn(`entry=<${entry.id}>, source=npm | fetch failed, keeping previous value`, err)
         if (prev?.downloads?.typescript !== undefined) stats.downloads.typescript = prev.downloads.typescript
@@ -73,6 +85,9 @@ export async function buildStats(
 }
 
 // ── Live fetchers ─────────────────────────────────────────────────────────────
+// Payload validation lives in buildStats (assertStat), so a fetcher that
+// extracts garbage from a malformed response still takes the keep-previous
+// path there.
 
 const liveFetchers: StatsFetchers = {
   async githubRepo(repoUrl) {
@@ -89,7 +104,7 @@ const liveFetchers: StatsFetchers = {
   },
   async pypiDownloads(pkg) {
     // pypistats.org: last-month downloads for the package.
-    const data = (await fetchJson(`https://pypistats.org/api/packages/${pkg}/recent`)) as {
+    const data = (await fetchJson(`https://pypistats.org/api/packages/${encodeURIComponent(pkg)}/recent`)) as {
       data: { last_month: number }
     }
     return data.data.last_month
