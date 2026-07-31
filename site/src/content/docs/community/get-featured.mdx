@@ -29,7 +29,7 @@ ready-made project structure with testing, linting, and publishing already set u
 
 1. Fork [strands-agents/harness-sdk](https://github.com/strands-agents/harness-sdk)
 2. Add one file: `site/src/content/catalog/<your-package>.yaml`
-3. Open a PR with the **Catalog submission** template: append
+3. Open a PR with the **Integration submission** template: append
 `?template=catalog-submission.md` to the compare URL, e.g.
 `https://github.com/strands-agents/harness-sdk/compare/main...<your-fork>:<your-branch>?template=catalog-submission.md`
 
@@ -54,7 +54,7 @@ addedDate: 2026-07-31        # the date you open the PR
 | `name` | ✅ | Display name in the catalog |
 | `description` | ✅ | One sentence, ~160 characters max — the card clamps longer text |
 | `integrationType` | ✅ | One of the nine types above |
-| `languages` | ✅ | At least one of `python` / `typescript`, each with the `package` name as published on PyPI / npm. For a vendor-guide integration with no Strands-specific package, leave the block empty (`python: {}`) and set `docsUrl` to your guide. |
+| `languages` | ✅ | At least one of `python` / `typescript`, each with the `package` name as published on PyPI / npm (use `pkg[extra]` for an extras-qualified install, e.g. `temporalio[strands-agents]`). For a vendor-guide integration with no Strands-specific package, leave the block empty (`python: {}`) and set `docsUrl` to your guide. |
 | `github` | ✅ | Public repository URL, starting with `https://github.com/` |
 | `addedDate` | ✅ | Date of submission (drives the "New" badge) |
 | `docsUrl` | Recommended | Link to your own docs page about the Strands integration — your card's primary link. Must start with `https://`. |
