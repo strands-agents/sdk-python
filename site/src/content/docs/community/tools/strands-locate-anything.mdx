@@ -1,0 +1,99 @@
+---
+project:
+  pypi: https://pypi.org/project/strands-locate-anything/
+  github: https://github.com/hashtagemy/strands-locate-anything
+  maintainer: hashtagemy
+service:
+  name: NVIDIA LocateAnything
+  link: https://huggingface.co/nvidia/LocateAnything-3B
+title: strands-locate-anything
+community: true
+description: >-
+  Local visual-grounding tools that help Strands agents find natural-language
+  targets in camera images with NVIDIA LocateAnything-3B and robot cameras.
+integrationType: tool
+languages: Python
+sidebar:
+  label: "locate-anything"
+---
+
+
+[strands-locate-anything](https://github.com/hashtagemy/strands-locate-anything)
+turns NVIDIA's
+[LocateAnything-3B](https://huggingface.co/nvidia/LocateAnything-3B) visual-grounding
+model into reusable Strands tools. An agent can locate a described object,
+visible text, or interface element in a camera frame or local image and receive
+its bounding box, center, and position in the scene.
+
+The current inference backend runs locally on Apple Silicon through MLX. The
+repository also includes a Strands Robots render bridge and hardware-free
+SO-100, SO-101, and Unitree G1 simulation examples.
+
+## Installation
+
+To run visual grounding locally on Apple Silicon, install the MLX extra:
+
+```bash
+pip install "strands-locate-anything[apple-silicon]"
+```
+
+The model is downloaded to the user's Hugging Face cache on first inference;
+model weights are not included in the Python package.
+
+## Usage
+
+To let an agent locate a target in an existing image, register `locate_image`
+and give the agent a local image path:
+
+```python
+from strands import Agent
+from strands_locate_anything import locate_image
+
+agent = Agent(
+    tools=[locate_image],
+    system_prompt=(
+        "When the user asks you to find a visible target, call locate_image "
+        "with its local image path and a concise visual description."
+    ),
+)
+
+agent(
+    "In /absolute/path/to/frame.jpg, find the blue cup next to the laptop."
+)
+```
+
+Use `locate_with_camera` instead when the agent should capture a frame from
+the computer's built-in or USB camera.
+
+## Key Features
+
+Use the structured coordinates to annotate images or guide a separate robot
+control layer:
+
+- Natural-language object and referring-expression grounding
+- Object, visible-text, and GUI-element localization
+- Bounding boxes, points, pixel centers, and coarse image-region output
+- Annotated result images
+- Local camera, image-file, CLI, HTTP, and Strands tool interfaces
+- Strands Robots camera-render integration and simulation examples
+
+## Model License
+
+Before using the model, review both the integration-code license and the model
+license. Apache-2.0 covers the package's original integration code, but it does
+not cover NVIDIA model weights. The default backend downloads a quantized
+derivative of LocateAnything-3B. Its upstream NVIDIA model license permits
+non-commercial use and does not permit commercial use.
+
+See `MODEL_TERMS.md` in the
+[GitHub repository](https://github.com/hashtagemy/strands-locate-anything)
+and NVIDIA's
+[license terms](https://huggingface.co/nvidia/LocateAnything-3B#licenseterms-of-use).
+
+## Resources
+
+Use these links for package metadata, examples, and upstream model details:
+
+- [PyPI package](https://pypi.org/project/strands-locate-anything/)
+- [GitHub repository](https://github.com/hashtagemy/strands-locate-anything)
+- [NVIDIA LocateAnything-3B](https://huggingface.co/nvidia/LocateAnything-3B)
