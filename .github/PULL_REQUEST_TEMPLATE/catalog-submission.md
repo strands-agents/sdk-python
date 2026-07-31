@@ -1,6 +1,6 @@
-## Catalog submission
+## Integration submission
 
-<!-- This template is for adding or updating an entry in the integrations catalog at strandsagents.com/integrations.
+<!-- This template is for adding or updating an entry on the integrations page at strandsagents.com/integrations.
      Full submission guide and YAML field reference: https://strandsagents.com/docs/community/get-featured/
      The site build validates your YAML against the schema automatically — a CI failure here is a schema error in your entry file. -->
 
