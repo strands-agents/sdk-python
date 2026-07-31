@@ -49,5 +49,10 @@ def test_mcp_requirement_has_upper_bound():
 
 
 def test_server_imports_resolve_against_installed_mcp():
-    """The installed mcp provides the server surface imported at module scope (#3533)."""
+    """The installed mcp provides the server surface imported at module scope (#3533).
+
+    An intentional canary rather than net-new coverage: test_server.py imports the
+    same module, so a missing surface already fails that module at collection. This
+    names the failure mode so the diagnosis does not depend on where collection breaks.
+    """
     import strands_mcp_server.server  # noqa: F401

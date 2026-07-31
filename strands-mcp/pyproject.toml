@@ -53,12 +53,12 @@ Documentation = "https://strandsagents.com"
 dev = [
     "commitizen>=4.4.0",
     "hatch>=1.0.0",
-    "packaging>=23.0",
+    "packaging>=23.0,<27.0.0",
     "pre-commit>=2.20.0",
     "pytest>=9.0.0",
     "pytest-timeout>=2.0.0",
     "ruff>=0.4.4",
-    "tomli>=2.0.0; python_version < '3.11'",
+    "tomli>=2.0.0,<3.0.0; python_version < '3.11'",
 ]
 
 [tool.hatch.build.targets.wheel]
