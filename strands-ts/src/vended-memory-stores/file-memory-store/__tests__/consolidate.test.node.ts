@@ -788,6 +788,43 @@ describe('FileMemoryStore.consolidate', () => {
       expect(content).toContain('Derived insight')
     })
 
+    // `merge` is the only action that can create the synthesized file deriveInsights calls for, and
+    // it consumes its sources — the executor deletes every non-target source. There is no additive
+    // action, so an insight cannot be derived while keeping the granular facts it draws on. The
+    // planner prompt states this so the model only names sources the insight fully supersedes.
+    it('consumes every source a derived-insight merge names', async () => {
+      await writeFile(storage, 'facts/theme.md', 'Dark theme', 'Prefers dark theme')
+      await writeFile(storage, 'facts/contrast.md', 'High contrast', 'Uses a high-contrast editor')
+      await writeFile(storage, 'facts/font.md', 'Font size', 'Increased default font size')
+
+      const insight = '---\ndescription: "High-visibility UI"\n---\n\nPrefers high-visibility UI settings\n'
+      const model = new MockMessageModel().addTurn(
+        buildPlanTurn({
+          actions: [
+            {
+              action: 'merge',
+              sources: ['facts/theme.md', 'facts/contrast.md'],
+              target: 'facts/high-visibility-ui.md',
+              content: insight,
+              reason: 'Both point at a high-visibility preference',
+            },
+          ],
+          summary: 'Derived a high-visibility UI insight.',
+        })
+      )
+
+      await store.consolidate({ model, operations: ['deriveInsights'] })
+
+      // The synthesized file landed, its named sources were consumed, and a file left out of
+      // `sources` survives — the only way to keep an original is to omit it from the merge
+      expect(decoder.decode((await storage.read('facts/high-visibility-ui.md'))!)).toContain(
+        'Prefers high-visibility UI settings'
+      )
+      expect(await storage.read('facts/theme.md')).toBeNull()
+      expect(await storage.read('facts/contrast.md')).toBeNull()
+      expect(decoder.decode((await storage.read('facts/font.md'))!)).toContain('Increased default font size')
+    })
+
     it('defaults to all operations when none specified', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 

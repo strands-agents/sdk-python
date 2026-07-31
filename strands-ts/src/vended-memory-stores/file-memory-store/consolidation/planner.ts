@@ -116,7 +116,7 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
         break
       case 'deriveInsights':
         directives.push(
-          '- DERIVE INSIGHTS: When multiple files together reveal a higher-level pattern, synthesize them into a new file that captures the insight. Keep or remove originals as appropriate. Use the `merge` action. Example: files noting "prefers dark theme", "uses a high-contrast editor", and "increased default font size" together support a new file "prefers high-visibility UI settings".'
+          '- DERIVE INSIGHTS: When multiple files together reveal a higher-level pattern, synthesize them into a new file that captures the insight. Use the `merge` action, which consumes its sources — every source you name is deleted once the synthesized file is written. Only derive an insight when it fully supersedes the files it draws on; if an original still carries detail worth keeping on its own, leave it out of `sources`. Example: files noting "prefers dark theme", "uses a high-contrast editor", and "increased default font size" together support a new file "prefers high-visibility UI settings".'
         )
         break
       case 'prune':
