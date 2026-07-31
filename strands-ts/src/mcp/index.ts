@@ -12,4 +12,4 @@ export {
   type McpConnectionState,
   McpClient,
 } from './client.js'
-export type { McpServerConfig, McpServerToolFilters } from './config.js'
+export type { McpServerConfig, SerializableMcpToolFilters } from './config.js'

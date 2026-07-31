@@ -2,10 +2,11 @@ import type { McpClientConfig, McpClientCredentials, McpClientOptions, TasksConf
 import { createDefaultSlot } from '../default-slot.js'
 
 /**
- * Tool filters for an MCP server config entry. Because a config file cannot carry a `RegExp`, each
- * pattern is a string compiled to a regex, matched from the start of the server-side tool name.
+ * Tool filters in a serializable form, for an MCP server config entry. Because a config file cannot
+ * carry a `RegExp`, each pattern is a string compiled to a regex, matched from the start of the
+ * server-side tool name.
  */
-export interface McpServerToolFilters {
+export interface SerializableMcpToolFilters {
   /** When present, only tools whose names match one of these patterns are exposed. */
   allowed?: string[]
   /** Tools whose names match one of these patterns are excluded, even when also allowed. */
@@ -38,7 +39,7 @@ export interface McpServerConfig {
   /** Prefix for agent-facing tool names (supports `${VAR}` or `${env:VAR}` interpolation). */
   prefix?: string
   /** Filters applied to tool names (patterns support `${VAR}` or `${env:VAR}` interpolation). */
-  toolFilters?: McpServerToolFilters
+  toolFilters?: SerializableMcpToolFilters
   /** When true, this server is skipped during loadServers. */
   disabled?: boolean
   /** When true, config or connection failures skip this server instead of throwing. */
