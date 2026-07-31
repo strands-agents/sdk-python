@@ -14,6 +14,7 @@ import logging
 import threading
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -146,6 +147,18 @@ _CONTEXT_MANAGER_SUMMARY_RATIO = 0.3
 
 _CONTEXT_MANAGER_COMPRESSION_THRESHOLD = 0.85
 """Benchmark-validated context window ratio that triggers proactive compression."""
+
+
+@dataclass
+class _PassProgress:
+    """What the event loop itself did during one ``AgentStreamStage`` pass.
+
+    Middleware can produce a pass's result without the event loop running at all (a short-circuit),
+    which resuming replays harmlessly. Only a result the event loop produced means a resume would
+    call the model again.
+    """
+
+    event_loop_produced_result: bool = False
 
 
 class Agent(AgentBase):
@@ -1309,6 +1322,7 @@ class Agent(AgentBase):
                 # Run this invocation pass through the AgentStreamStage middleware chain, whose
                 # terminal drives the event loop cycle. With no middleware registered the registry
                 # returns the terminal directly.
+                pass_progress = _PassProgress()
                 middleware_context = AgentStreamContext(
                     agent=self,
                     messages=current_messages,
@@ -1325,7 +1339,7 @@ class Agent(AgentBase):
                     async for event in self._middleware_registry.invoke(
                         AgentStreamStage,
                         middleware_context,
-                        self._make_agent_stream_terminal(structured_output_context, limits),
+                        self._make_agent_stream_terminal(structured_output_context, limits, pass_progress),
                     ):
                         # Middleware may yield more events after the stop event, so capture the
                         # last EventLoopStopEvent as the result rather than the final event.
@@ -1346,8 +1360,12 @@ class Agent(AgentBase):
                     ):
                         self._interrupt_state.deactivate()
                 except InterruptException as interrupt_exception:
-                    if agent_result is not None and "tool_use_message" not in self._interrupt_state.context:
-                        # The pass already yielded its stop event and stored no tool use to replay,
+                    if (
+                        pass_progress.event_loop_produced_result
+                        and "tool_use_message" not in self._interrupt_state.context
+                    ):
+                        # The event loop already produced this pass's result and stored no tool use
+                        # to replay,
                         # so resuming would re-enter the event loop and call the model again: a
                         # duplicate assistant turn, a non-alternating history, and re-fired tool
                         # side effects. Refuse rather than corrupt the conversation, and clear the
@@ -1365,9 +1383,15 @@ class Agent(AgentBase):
                     # interrupt() is read-only, so this handler is the single place the interrupt
                     # is registered and the state activated before surfacing a terminal
                     # EventLoopStopEvent("interrupt"), matching how tool interrupts stop the loop.
-                    self._interrupt_state.interrupts.setdefault(
-                        interrupt_exception.interrupt.id, interrupt_exception.interrupt
-                    )
+                    # interrupt() only raises when this pass saw no answer for that id, so a
+                    # registered entry that already carries a response is stale and would leave the
+                    # caller an interrupt stop with nothing to answer. Keep an existing unanswered
+                    # registration; replace anything else.
+                    registered = self._interrupt_state.interrupts.get(interrupt_exception.interrupt.id)
+                    if registered is None or registered.response is not None:
+                        self._interrupt_state.interrupts[interrupt_exception.interrupt.id] = (
+                            interrupt_exception.interrupt
+                        )
                     self._interrupt_state.activate()
                     interrupt_message: Message = (
                         self.messages[-1]
@@ -1424,6 +1448,7 @@ class Agent(AgentBase):
         self,
         structured_output_context: StructuredOutputContext,
         limits: Limits | None,
+        pass_progress: _PassProgress,
     ) -> Callable[["AgentStreamContext"], AsyncGenerator[TypedEvent, None]]:
         """Build the terminal for the AgentStreamStage middleware chain.
 
@@ -1437,6 +1462,8 @@ class Agent(AgentBase):
         Args:
             structured_output_context: Structured output context for this pass.
             limits: Optional per-invocation budget caps.
+            pass_progress: Records whether the event loop produced this pass's result, which
+                determines whether resuming the pass would call the model again.
 
         Returns:
             An async generator function yielding the pass's events, ending with an
@@ -1447,6 +1474,9 @@ class Agent(AgentBase):
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(ctx.invocation_state, structured_output_context, limits)
             async for event in events:
+                if isinstance(event, EventLoopStopEvent):
+                    pass_progress.event_loop_produced_result = True
+
                 # Signal from the model provider that the message sent by the user should be redacted,
                 # likely due to a guardrail.
                 if (

@@ -168,9 +168,22 @@ class _InterruptState:
         return self._version
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize to dict for session management."""
+        """Serialize to dict for session management.
+
+        A response retained by ``end_tool_cycle`` while deactivated is readable only for the
+        remainder of the pass that retained it, so it is never serialized: sessions sync mid-pass
+        (on message-added), and persisting it would hand a restored agent a standing approval.
+        """
+        interrupts = self.interrupts
+        if not self.activated:
+            interrupts = {
+                interrupt_id: interrupt
+                for interrupt_id, interrupt in interrupts.items()
+                if not interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX)
+            }
+
         return {
-            "interrupts": {k: v.to_dict() for k, v in self.interrupts.items()},
+            "interrupts": {k: v.to_dict() for k, v in interrupts.items()},
             "context": self.context,
             "activated": self.activated,
         }
@@ -181,10 +194,15 @@ class _InterruptState:
 
         Interrupt state can be serialized with the `to_dict` method.
         """
+        activated = data["activated"]
         return cls(
             interrupts={
-                interrupt_id: Interrupt(**interrupt_data) for interrupt_id, interrupt_data in data["interrupts"].items()
+                interrupt_id: Interrupt(**interrupt_data)
+                for interrupt_id, interrupt_data in data["interrupts"].items()
+                # Deactivated state carries no invocation-scoped response (see to_dict); drop any
+                # a previously written session still holds rather than reviving it as an approval.
+                if activated or not interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX)
             },
             context=data["context"],
-            activated=data["activated"],
+            activated=activated,
         )
