@@ -116,6 +116,24 @@ const agentMultiple = new Agent({
 })
 // --8<-- [end:multiple_servers]
 
+// --8<-- [start:tool_filtering_prefixing]
+const filteredClient = new McpClient({
+  transport: new StdioClientTransport({
+    command: 'npx',
+    args: ['-y', 'some-mcp-server'],
+  }),
+  prefix: 'docs',
+  toolFilters: {
+    allowed: ['search_documentation', /^read_/],
+    rejected: [(tool) => tool.name.endsWith('_internal')],
+  },
+})
+
+// Assuming the server provides search_documentation, the agent registers it as
+// docs_search_documentation while calls still send search_documentation to the server.
+const filteredAgent = new Agent({ tools: [filteredClient] })
+// --8<-- [end:tool_filtering_prefixing]
+
 // --8<-- [start:mcp_server]
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
