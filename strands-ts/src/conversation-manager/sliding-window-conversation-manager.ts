@@ -234,11 +234,18 @@ export class SlidingWindowConversationManager extends ConversationManager {
     // If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
     const startIndex = messages.length <= this._windowSize ? 2 : messages.length - this._windowSize
     let trimIndex = findValidTrimPoint(messages, startIndex)
+    let fallbackUserIndex: number | undefined
 
     if (trimIndex === messages.length && this._windowSize > 0) {
       const toolPairTrimIndex = this._findToolPairTrimPoint(messages, startIndex)
       if (toolPairTrimIndex !== undefined) {
-        trimIndex = toolPairTrimIndex
+        fallbackUserIndex = this._findToolPairUserAnchor(messages, toolPairTrimIndex)
+        if (fallbackUserIndex !== undefined) {
+          logger.debug(
+            `window_size=<${this._windowSize}>, trim_index=<${toolPairTrimIndex}>, user_anchor_index=<${fallbackUserIndex}> | no plain user trim point, falling back to complete tool pair`
+          )
+          trimIndex = toolPairTrimIndex
+        }
       }
     }
 
@@ -254,7 +261,7 @@ export class SlidingWindowConversationManager extends ConversationManager {
     // Collect non-pinned indices in [0, trimIndex) to remove
     const indicesToRemove: number[] = []
     for (let i = 0; i < trimIndex; i++) {
-      if (isPinned(messages, i)) continue
+      if (i === fallbackUserIndex || isPinned(messages, i)) continue
       indicesToRemove.push(i)
     }
 
@@ -452,7 +459,8 @@ export class SlidingWindowConversationManager extends ConversationManager {
    */
   private _findToolPairTrimPoint(messages: Message[], startIndex: number): number | undefined {
     for (let index = startIndex; index < messages.length; index++) {
-      const message = messages[index]!
+      const message = messages[index]
+      if (!message) break
       const nextMessage = messages[index + 1]
       const hasToolUse = message.role === 'assistant' && message.content.some((block) => block.type === 'toolUseBlock')
       const hasFollowingToolResult =
@@ -461,6 +469,63 @@ export class SlidingWindowConversationManager extends ConversationManager {
       if (hasToolUse && hasFollowingToolResult) {
         return index
       }
+    }
+
+    return undefined
+  }
+
+  /**
+   * Find a user message that can remain immediately before a fallback tool pair.
+   *
+   * Pinned messages must already form a user-first alternating prefix that ends
+   * with a user message. Without a pinned prefix, the most recent plain user
+   * message before the tool pair is retained as the conversation anchor.
+   *
+   * @param messages - The conversation message history.
+   * @param toolPairIndex - The assistant message index that starts the fallback pair.
+   * @returns The user message index to preserve, or undefined when fallback would produce an invalid prefix.
+   */
+  private _findToolPairUserAnchor(messages: Message[], toolPairIndex: number): number | undefined {
+    const pinnedIndices: number[] = []
+    for (let index = 0; index < toolPairIndex; index++) {
+      if (isPinned(messages, index)) {
+        pinnedIndices.push(index)
+      }
+    }
+
+    if (pinnedIndices.length > 0) {
+      const pinnedMessages = pinnedIndices.map((index) => messages[index]!)
+      if (
+        pinnedMessages[0]?.role !== 'user' ||
+        pinnedMessages[0].content.some((block) => block.type === 'toolResultBlock')
+      ) {
+        return undefined
+      }
+
+      for (let index = 1; index < pinnedMessages.length; index++) {
+        if (pinnedMessages[index]!.role === pinnedMessages[index - 1]!.role) {
+          return undefined
+        }
+      }
+
+      const lastPinnedIndex = pinnedIndices[pinnedIndices.length - 1]!
+      const lastPinnedMessage = messages[lastPinnedIndex]!
+      if (
+        lastPinnedMessage.role !== 'user' ||
+        lastPinnedMessage.content.some((block) => block.type === 'toolUseBlock')
+      ) {
+        return undefined
+      }
+      return lastPinnedIndex
+    }
+
+    for (let index = toolPairIndex - 1; index >= 0; index--) {
+      const message = messages[index]
+      if (!message || message.role !== 'user') continue
+      const hasToolContent = message.content.some(
+        (block) => block.type === 'toolUseBlock' || block.type === 'toolResultBlock'
+      )
+      if (!hasToolContent) return index
     }
 
     return undefined
