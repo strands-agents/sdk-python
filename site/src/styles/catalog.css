@@ -216,6 +216,11 @@
   align-items: center;
   gap: 0.45rem;
   min-width: 0;
+  /* Flags and stats wrap to a second row when space is tight; without this
+     the nowrap title is the only shrinkable item and collapses to "da…" on
+     narrow screens. */
+  flex-wrap: wrap;
+  row-gap: 0.3rem;
 }
 .cat-card-title {
   font-weight: 600;
@@ -225,7 +230,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+  /* Floor before the head wraps — the name must stay readable. */
+  min-width: min(9rem, 100%);
 }
 .cat-card-stats {
   display: inline-flex;
