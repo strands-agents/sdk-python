@@ -103,6 +103,9 @@ class _InterruptState:
         from the interrupt that asked the human through to the pass that completes with nothing
         owed a resume (see ``end_tool_cycle``) — so the human is asked once. Releasing it here
         stops it becoming a standing approval that a later cycle would silently resolve against.
+
+        Runs on every pass that ends a cycle, so it bumps the version only when it actually
+        released something and a no-op does not mark the state dirty for session writes.
         """
         remaining = {
             interrupt_id: interrupt
