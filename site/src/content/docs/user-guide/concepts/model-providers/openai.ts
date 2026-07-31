@@ -5,6 +5,7 @@
 // @ts-nocheck
 // Imports are in openai_imports.ts
 
+import OpenAI from 'openai'
 import { Agent } from '@strands-agents/sdk'
 import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 import { z } from 'zod'
@@ -41,6 +42,25 @@ async function customServer() {
   const agent = new Agent({ model })
   const response = await agent.invoke('Hello!')
   // --8<-- [end:custom_server]
+}
+
+// Custom client
+async function customClient() {
+  // --8<-- [start:custom_client]
+  const client = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY || '<KEY>',
+  })
+
+  const model = new OpenAIModel({
+    api: 'chat',
+    client,
+    modelId: 'gpt-5.4',
+  })
+
+  const agent = new Agent({ model })
+  const response = await agent.invoke('What is 2+2?')
+  console.log(response)
+  // --8<-- [end:custom_client]
 }
 
 // Configuration
