@@ -124,7 +124,12 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported values for the ``context_manager`` parameter."""
+"""Supported values for the ``context_manager`` parameter.
+
+- ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
+- ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
+  This mode may change in future versions.
+"""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
@@ -411,7 +416,7 @@ class Agent(AgentBase):
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
 
-            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 
         self._plugin_registry = _PluginRegistry(self)
 
@@ -593,6 +598,8 @@ class Agent(AgentBase):
         The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
+        - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 

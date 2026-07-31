@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { stop, makeStop } from '../index.js'
 import { DEFAULT_STOP_MESSAGE, DEFAULT_MAX_STOP_MESSAGE_LENGTH, STOP_INVOCATION_STATE_KEY } from '../types.js'
-import type { ToolContext } from '../../../index.js'
-import { AfterToolsEvent } from '../../../hooks/events.js'
-import { Message } from '../../../types/messages.js'
-import { createMockAgent, invokeTrackedHook, type MockAgent } from '../../../__fixtures__/agent-helpers.js'
+import type { ToolContext } from '../../../../index.js'
+import { AfterToolsEvent } from '../../../../hooks/events.js'
+import { Message } from '../../../../types/messages.js'
+import { createMockAgent, invokeTrackedHook, type MockAgent } from '../../../../__fixtures__/agent-helpers.js'
 
 const createFreshContext = (
   invocationState: Record<string, unknown> = {}

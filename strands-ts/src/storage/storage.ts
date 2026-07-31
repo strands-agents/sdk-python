@@ -9,8 +9,13 @@ import { StorageError } from '../errors.js'
 export const NAMESPACED: unique symbol = Symbol.for('strands.storage.namespaced')
 
 /**
- * Validates and normalizes a storage key: collapses runs of `/`, strips leading
- * and trailing `/`, and rejects empty keys and any `..` segment.
+ * Validates and normalizes a storage key for path-based backends: collapses
+ * runs of `/`, strips leading and trailing `/`, and rejects empty keys and
+ * any `..` segment.
+ *
+ * Used by the shipped path-based backends ({@link InMemoryStorage},
+ * {@link LocalFileStorage}, {@link S3Storage}), not required by the
+ * {@link Storage} interface itself.
  *
  * @param key - The raw key to normalize
  * @returns The normalized key
@@ -28,8 +33,11 @@ export function normalizeKey(key: string): string {
 }
 
 /**
- * Normalizes a list prefix: collapses slash runs, strips leading slashes.
- * Unlike a key, an empty prefix is valid and matches everything.
+ * Normalizes a list prefix for path-based backends: collapses slash runs,
+ * strips leading slashes. Unlike a key, an empty prefix is valid and matches
+ * everything.
+ *
+ * Used by the shipped path-based backends alongside {@link normalizeKey}.
  *
  * @param prefix - The raw prefix to normalize
  * @returns The normalized prefix
@@ -50,8 +58,10 @@ export function normalizePrefix(prefix: string): string {
  * A backend for storing and retrieving raw bytes under string keys.
  *
  * The interface is deliberately minimal — four operations over opaque `Uint8Array`
- * values. Implementations must treat keys as opaque path-like strings (segments
- * separated by `/`) and must round-trip the bytes they are given unchanged.
+ * values. Keys are opaque strings — implementations must round-trip the bytes
+ * they are given unchanged. The shipped backends interpret `/` as a logical
+ * separator (collapsing runs, rejecting `..`), but custom backends may apply
+ * their own key scheme.
  *
  * The `ListQuery` type parameter controls what `list` accepts. It defaults to
  * `string` (a key prefix), which every backend supports. Implementations may
@@ -65,7 +75,7 @@ export interface Storage<ListQuery = string> {
   /**
    * Stores `data` under `key`, overwriting any existing value.
    *
-   * @param key - Opaque, `/`-separated key identifying the value
+   * @param key - Opaque string key identifying the value
    * @param data - Raw bytes to persist
    * @throws {@link StorageError} if the write fails
    */
@@ -120,10 +130,13 @@ export interface Storage<ListQuery = string> {
  * Returns a {@link Storage} view with all keys prefixed by `prefix`.
  *
  * Composable — calling `namespace()` on the result nests prefixes.
+ * Uses {@link normalizePrefix} to sanitize the prefix, so it assumes a
+ * `/`-separated key scheme. Backends with a different key scheme should
+ * implement their own namespacing.
  *
  * @internal
  * @param storage - The underlying storage to delegate to
- * @param prefix - Prefix to prepend to all keys
+ * @param prefix - Prefix to prepend to all keys (normalized as a `/`-separated path)
  * @returns A namespaced Storage view
  */
 export function namespace(storage: Storage, prefix: string): Storage {

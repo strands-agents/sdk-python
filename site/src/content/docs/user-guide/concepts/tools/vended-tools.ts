@@ -7,7 +7,7 @@ import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 // --8<-- [end:basic_import]
 import { SessionManager, FileStorage } from '@strands-agents/sdk'
 import { sleep, makeSleep } from '@strands-agents/sdk/vended-tools/sleep'
-import { stop } from '@strands-agents/sdk/vended-tools/stop'
+import { stop } from '@strands-agents/sdk/experimental/vended-tools/stop'
 
 // Agent with vended tools example
 async function agentWithVendedToolsExample() {

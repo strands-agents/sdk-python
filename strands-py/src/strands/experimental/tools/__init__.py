@@ -3,6 +3,8 @@
 import warnings
 from typing import Any
 
+from .stop import make_stop, stop
+
 _DEPRECATED_NAMES = {"ToolProvider"}
 
 
@@ -19,4 +21,7 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__: list[str] = []
+__all__ = [
+    "make_stop",
+    "stop",
+]
