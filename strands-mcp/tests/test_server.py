@@ -245,3 +245,59 @@ class TestSearchDocsWithNegativeCache:
         result = search_docs("test query")
         assert len(result) == 1
         assert result[0]["snippet"] == "Failed Doc"
+
+
+class TestSearchDocsTTLExpiry:
+    """TTL expiry through the real cache module, not a mocked one.
+
+    Regression for the review on harness-sdk #3544: search_docs previously
+    decided whether to hydrate by checking ``url_cache.get(uri) is None``, so a
+    ``_FailedEntry`` (not None) never re-entered ``urls_to_hydrate`` even after
+    its TTL expired. The expiry rule lived only inside ``ensure_page``, on a
+    path search_docs had already decided not to call.
+    """
+
+    def test_expired_failed_entry_is_refetched_by_search_docs(self, monkeypatch):
+        """A failed entry must be re-fetched once its TTL expires.
+
+        Uses the real ``cache`` module (only ``fetch_and_clean`` is stubbed) so
+        the expiry evaluation inside ``needs_hydration`` is exercised on the
+        search_docs path.
+        """
+        from strands_mcp_server.utils import cache as real_cache
+
+        url = "https://strandsagents.com/flaky.md"
+        doc = Doc(uri=url, display_title="Flaky Doc", content="", index_title="")
+
+        # Stub only the index plumbing; keep the real _URL_CACHE, needs_hydration,
+        # ensure_page, and search_docs.
+        index = type("Index", (), {"search": lambda self, q, k=5: [(1.0, doc)]})()
+        monkeypatch.setattr(real_cache, "get_index", lambda: index)
+        monkeypatch.setattr(real_cache, "ensure_ready", lambda: None)
+        real_cache._URL_CACHE.clear()
+
+        fetched_urls = []
+
+        def fake_fetch_and_clean(_url):
+            fetched_urls.append(_url)
+            return type("Raw", (), {"title": "Flaky Doc", "content": "Recovered content"})()
+
+        monkeypatch.setattr(
+            "strands_mcp_server.utils.doc_fetcher.fetch_and_clean",
+            fake_fetch_and_clean,
+        )
+
+        # Seed an unexpired failed entry — network was down moments ago.
+        entry = real_cache._FailedEntry()
+        real_cache._URL_CACHE[url] = entry
+
+        # Within TTL: search_docs must NOT re-fetch (still failing).
+        result = search_docs("test query")
+        assert fetched_urls == []
+        assert result[0]["snippet"] == "Flaky Doc"
+
+        # Expire the entry — search_docs must re-fetch and recover the content.
+        entry._timestamp -= real_cache._FAILED_TTL_SECONDS + 1
+        result = search_docs("test query")
+        assert fetched_urls == [url]
+        assert result[0]["snippet"] == "Recovered content"
