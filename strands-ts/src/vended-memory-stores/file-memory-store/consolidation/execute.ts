@@ -71,34 +71,18 @@ export async function readAllFiles(storage: Storage): Promise<Map<string, string
 /**
  * Apply a validated plan to storage deterministically.
  *
- * Opens with a pre-flight pass that re-reads every target the plan expected to create — a path
- * absent from the snapshot. Validation already proved those paths were free when the plan was
- * built, so a hit means a writer outside this run (an {@link FileMemoryStore.add} on another
- * instance, a second process) claimed the key since. Overwriting it would destroy content the
- * planner never saw, so the run aborts here, before any write or delete, leaving the store
- * untouched. Targets that already existed in the snapshot are skipped: validation proved the plan
- * either vacates them or overwrites them from their own content.
+ * Two pre-flight passes run first, so an abort leaves the store untouched: every write target must
+ * resolve unambiguously, and every path the plan expected to create must still be unclaimed.
  *
- * That pass detects a collision; it does not prevent one. A write landing between the check and
- * the write below is still overwritten — see {@link assertNewTargetsUnclaimed}.
+ * Writes then run before any deletes, so merged content lands before its sources are removed — a
+ * crash between the passes leaves duplicates rather than dropping content that had nowhere else to
+ * live. A failed write throws before any delete runs. This protects sources, not overwrite targets:
+ * an `update` rewrites in place by design, so an interrupted run can leave that file changed while
+ * the rest of the plan never ran.
  *
- * All writes run before any deletes so merged/moved content lands before its sources are
- * removed — a crash between the two passes leaves duplicated content rather than dropping a
- * source whose content had nowhere else to live.
- *
- * A failed write throws immediately, before any delete runs and before the changelog is recorded.
- * That is intentional: writes-before-deletes means an aborted write pass has removed nothing, so
- * the worst case is leftover duplicates from partial writes that already landed. A later run can
- * fold those away, though only if its planner chooses to — nothing schedules or forces the
- * cleanup. Note this ordering protects sources, not overwrite targets: an `update` (and a merge
- * into one of its own sources) replaces a file's content in place by design, so an interrupted
- * run can leave that file rewritten while the rest of the plan never ran.
- *
- * Deletes use best-effort semantics: every delete is attempted even if earlier ones fail.
- * A missing key is a no-op (per the {@link Storage} contract), so a delete only fails on a
- * genuine backend error — permissions, a read-only or broken disk, or a remote backend
- * (S3, DynamoDB) throttling or refusing the call. The failures are returned rather than thrown
- * so the caller can still record the changelog for the partial run before surfacing the error.
+ * Deletes are best-effort — all are attempted and failures returned, not thrown, so the caller can
+ * still record the changelog for a partial run. A missing key is a no-op per the {@link Storage}
+ * contract, so a delete only fails on a genuine backend error.
  *
  * @returns The paths whose deletes failed, each with the underlying error (empty when all succeed)
  * @throws Error when a path the plan expected to create was claimed by a writer outside this run
@@ -116,20 +100,15 @@ export async function executePlan(
   // Writes before deletes — merged content lands before sources are removed
   for (const action of plan.actions) {
     if (action.action === 'merge') {
-      // Resolve to the stored canonical key so a differently-cased target folds into the existing
-      // file instead of creating a duplicate on case-sensitive backends. A target absent from the
-      // snapshot resolves to itself, so brand-new paths are written verbatim; an ambiguous target
-      // (several stored keys differing only by case) throws rather than minting a third spelling
+      // A new path resolves to itself; a differently-cased one folds into the stored file rather
+      // than duplicating it on case-sensitive backends
       const canonicalTarget = resolveWriteTarget(files, action.target)
       await storage.write(canonicalTarget, encoder.encode(action.content))
     } else if (action.action === 'update') {
-      // Resolve to the stored canonical key so a differently-cased echo from the model overwrites
-      // the existing file instead of creating a duplicate on case-sensitive backends
       const canonicalPath = resolveWriteTarget(files, action.path)
       await storage.write(canonicalPath, encoder.encode(action.content))
     } else if (action.action === 'move') {
-      // validatePlan guarantees every move source exists in `files`; resolve via canonical key so
-      // a differently-cased path the model echoed still finds the stored content
+      // validatePlan guarantees every move source exists in `files`
       const canonicalFrom = resolveCanonicalKey(files, action.from)
       const content = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
       if (content === undefined) {
@@ -137,8 +116,7 @@ export async function executePlan(
           `Invariant violated: move source '${action.from}' missing from working set — plan not validated`
         )
       }
-      // Resolve the destination the same way, so a case-only rename rewrites the file in place
-      // rather than minting a second key the delete pass then skips
+      // A case-only rename rewrites in place rather than minting a key the delete pass skips
       const canonicalTo = resolveWriteTarget(files, action.to)
       await storage.write(canonicalTo, encoder.encode(content))
     }
@@ -148,7 +126,6 @@ export async function executePlan(
   const deleteErrors: DeleteFailure[] = []
   for (const action of plan.actions) {
     if (action.action === 'delete') {
-      // Resolve via canonical key so a case-variant delete path still removes the stored file
       const canonicalPath = resolveCanonicalKey(files, action.path) ?? action.path
       try {
         await storage.delete(canonicalPath)
@@ -157,10 +134,8 @@ export async function executePlan(
       }
     } else if (action.action === 'merge') {
       for (const source of action.sources) {
-        // Skip the target when it is one of its own sources — the merge folded into an existing
-        // file, so deleting it here would remove the content just written
+        // Skip a source that is also the target — deleting it would remove the content just written
         if (!pathsResolveSame(source, action.target)) {
-          // Resolve via canonical key so a case-variant source path still deletes the stored file
           const canonicalSource = resolveCanonicalKey(files, source) ?? source
           try {
             await storage.delete(canonicalSource)
@@ -170,10 +145,8 @@ export async function executePlan(
         }
       }
     } else if (action.action === 'move') {
-      // Skip delete when source and target resolve to the same identity (case-only rename) —
-      // deleting would remove the content the write pass just produced
+      // A case-only rename already rewrote the file in place — deleting would undo the write
       if (!pathsResolveSame(action.from, action.to)) {
-        // Resolve via canonical key so a case-variant source path still deletes the stored file
         const canonicalFrom = resolveCanonicalKey(files, action.from) ?? action.from
         try {
           await storage.delete(canonicalFrom)
@@ -190,10 +163,9 @@ export async function executePlan(
 /**
  * Verify that every path the plan writes resolves to exactly one key, before anything is written.
  *
- * {@link resolveWriteTarget} throws on an ambiguous path, and doing that from inside the write loop
- * would abort a run that had already written earlier actions. Running the same resolution over every
- * write target up front means the abort happens with the store untouched, the way the pre-flight
- * claim check does — and the error names every ambiguous path at once rather than only the first.
+ * {@link resolveWriteTarget} throws on an ambiguous path; doing that from inside the write loop would
+ * abort a run that had already written earlier actions. Resolving every target up front aborts with
+ * the store untouched, and names every ambiguous path at once rather than only the first.
  *
  * @throws Error when a write target matches two or more stored keys differing only by case
  */
@@ -223,20 +195,15 @@ function assertPathsUnambiguous(plan: ConsolidationPlan, files: Map<string, stri
 /**
  * Verify that every path the plan expected to create is still unclaimed in storage.
  *
- * The plan was validated against a snapshot taken at the start of the run. A path absent from
- * that snapshot but present now was written by something outside this run, and its content was
- * never shown to the planner — so writing over it would silently destroy knowledge.
+ * A path absent from the run's snapshot but present now was written by something outside this run,
+ * and the planner never saw its content — writing over it would silently destroy knowledge.
  *
- * This is best-effort detection rather than mutual exclusion, and it is not a lock: the losing
- * write has already happened by the time it is noticed, and the only remedy is to abort before
- * adding a second loss. Checking here rather than at snapshot time shrinks the exposure from the
- * whole run (which spans a model call) to the gap between this read and the write that follows;
- * a write landing inside that gap is still overwritten. Closing it entirely needs a conditional
- * write or version check that {@link Storage} does not offer.
+ * Detection, not mutual exclusion: the losing write has already happened by the time it is noticed,
+ * and a write landing between this read and the write pass is still overwritten. Checking here
+ * rather than at snapshot time shrinks that window to the gap between the two. Closing it entirely
+ * needs a conditional write that {@link Storage} does not offer.
  *
- * Paths the snapshot already held are excluded: validation proved the plan either vacates them
- * or rewrites them from their own content, so their presence here is expected. A plan that
- * creates no new paths reads nothing.
+ * Paths already in the snapshot are excluded — validation proved the plan vacates or rewrites them.
  *
  * @throws Error naming the claimed paths, before any write or delete has run
  */
@@ -258,8 +225,7 @@ async function assertNewTargetsUnclaimed(
 
   const claimed = (
     await mapWithConcurrency([...newTargets], STORAGE_READ_CONCURRENCY, async (target) => {
-      // A read error is not evidence the key is claimed — let the write pass surface it instead
-      // of aborting a valid plan on a transient backend failure
+      // A read error is not evidence the key is claimed — let the write pass surface it
       try {
         return (await storage.read(target)) ? target : null
       } catch {
@@ -294,18 +260,10 @@ export async function recordChangelog(
 ): Promise<void> {
   const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ')
 
-  // Sanitize every interpolated string: strip newlines and leading '#' so injected content cannot
-  // forge a '## ' run header or inject arbitrary markdown structure into the changelog. Paths need
-  // this as much as reason/summary do — validatePath constrains the directory segment but not the
-  // filename's charset, so a target could otherwise carry a newline into the log. Backend error
-  // text gets it too: the message typically echoes the key, carrying that key's newlines with it.
-  //
-  // Clipped to {@link MAX_CHANGELOG_FIELD_LENGTH} as well: the plan's aggregate byte budget is the only
-  // bound on `reason`/`summary`, so a single field can legally carry the whole budget's worth of text.
-  // {@link readAllFiles} filters the changelog out before the planner sees it, so it does not count
-  // toward the next run's input cap — the clip is for log hygiene and to keep one field from dominating
-  // an entry. Growth still matters: {@link recordChangelog} rewrites the whole log every run, so a
-  // bloated log makes every later audit-write more expensive.
+  // Strip newlines and leading '#' so injected content cannot forge a '## ' run header or other
+  // markdown structure. Paths need this as much as reason/summary — validatePath constrains the
+  // directory segment but not the filename charset. Clipping keeps one field from dominating an
+  // entry, which matters because every run rewrites the whole log.
   const sanitizeChangelogField = (value: string): string =>
     clipWithCount(value.replace(/[\r\n]+/g, ' ').replace(/^#+\s*/g, ''), MAX_CHANGELOG_FIELD_LENGTH)
 
@@ -341,9 +299,8 @@ export async function recordChangelog(
   if (deleteErrors.length > 0) {
     parts.push(``, `Failed deletes (${deleteErrors.length}) — sources may remain until next consolidation:`)
     for (const deleteError of deleteErrors) {
-      // Both fields need the same treatment as the action summaries above: the path can carry a
-      // newline (normalizeKey does not strip them, so an add() with an explicit metadata.path puts
-      // one in the store), and the backend's error text is influenced by the key it was given
+      // The path can carry a newline (normalizeKey does not strip them), and the backend's error
+      // text echoes the key it was given
       parts.push(
         `  - ${sanitizeChangelogField(deleteError.path)}: ${sanitizeChangelogField(String(deleteError.error))}`
       )
@@ -352,9 +309,8 @@ export async function recordChangelog(
   parts.push('')
 
   const entry = parts.join('\n')
-  // The changelog is an audit artifact written after the plan's mutations already landed. A
-  // failure to record it must not throw: doing so would mask the real run outcome (a partial
-  // delete failure the caller needs to see, or a fully successful run reported as failed).
+  // Written after the plan's mutations already landed, so a failure here must not throw — it would
+  // mask the real run outcome
   try {
     const existing = await storage.read(CONSOLIDATION_CHANGELOG)
     const content = existing ? decoder.decode(existing) + entry : `# Consolidation Changelog\n${entry}`

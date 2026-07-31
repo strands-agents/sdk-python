@@ -16,26 +16,6 @@ export const encoder = new TextEncoder()
 export const decoder = new TextDecoder()
 
 /**
- * Default cap on total UTF-8 bytes of knowledge files accepted as planner input.
- *
- * Chosen, not derived: ~32k tokens of prose, the same order `maxFiles` (100) implies. The right value
- * scales with the planner's context window, which {@link Model} does not expose — worth measuring
- * against real models, and overriding via `maxInputBytes` on an unusually small or large one.
- *
- * @internal
- */
-export const DEFAULT_MAX_INPUT_BYTES = 128 * 1024
-
-/**
- * Default cap for total generated content bytes across all write actions in a plan. Consolidation
- * reorganizes the corpus it was given, so 2x the input cap leaves headroom for content split across
- * merge targets while still catching a planner that generates instead of reorganizing.
- *
- * @internal
- */
-export const DEFAULT_MAX_GENERATED_BYTES = 2 * DEFAULT_MAX_INPUT_BYTES
-
-/**
  * Path (within the store's namespace) reserved for the consolidation audit log.
  *
  * @internal
@@ -188,18 +168,11 @@ export function resolveCanonicalKey(files: Map<string, string>, path: string): s
  * Resolve the key a write action should land on, distinguishing the two reasons
  * {@link resolveCanonicalKey} returns `undefined`.
  *
- * A write cannot treat those two cases alike. Zero matches means the path is genuinely new, so the
- * model's spelling is the right key. Two or more matches means the backend is case-sensitive and
- * already holds keys differing only by case: no spelling is more defensible than another, and writing
- * the model's own mints a *third* file whose sources the delete pass will not clean up. Aborting is
- * the safe outcome, matching how `assertNewTargetsUnclaimed` treats a target it cannot write safely.
- *
- * An exact match is exempt: that key *is* one of the stored files, so writing it overwrites a file the
- * planner was shown rather than minting a spelling nobody asked for.
- *
- * The abort is recoverable through consolidation itself — a delete-only or move-out plan folds the
- * variants away, since neither writes an ambiguous target. Only the merge and update+delete shapes are
- * rejected, by the distinct-source and write-vs-vacate rules respectively.
+ * Zero matches means the path is genuinely new, so the model's spelling is the right key. Two or more
+ * means the backend is case-sensitive and already holds case-variant keys — no spelling is more
+ * defensible, and writing the model's own mints a *third* file the delete pass will not clean up, so
+ * this aborts instead. An exact match is exempt: that key *is* a stored file. The abort is recoverable
+ * through consolidation itself, since a delete-only or move-out plan writes no ambiguous target.
  *
  * @returns The stored key when exactly one matches or `path` is itself a stored key, or `path`
  *   verbatim when none match
@@ -208,8 +181,7 @@ export function resolveCanonicalKey(files: Map<string, string>, path: string): s
  * @internal
  */
 export function resolveWriteTarget(files: Map<string, string>, path: string): string {
-  // Unambiguous by construction: this key addresses a stored file directly, so writing it cannot
-  // mint a third spelling even when case-variants of it exist
+  // Addresses a stored file directly, so writing it cannot mint a third spelling
   if (files.has(path)) return path
 
   const normalized = path.toLowerCase()

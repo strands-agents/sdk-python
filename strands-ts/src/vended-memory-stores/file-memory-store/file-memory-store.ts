@@ -22,15 +22,13 @@ import {
   CONSOLIDATION_CHANGELOG,
   containsDotSegments,
   decoder,
-  DEFAULT_MAX_GENERATED_BYTES,
-  DEFAULT_MAX_INPUT_BYTES,
   encoder,
   isConsolidationChangelog,
   mapWithConcurrency,
   parseFrontmatter,
   STORAGE_READ_CONCURRENCY,
 } from './internal.js'
-import { generatePlan, plannerInputByteSize } from './consolidation/planner.js'
+import { generatePlan } from './consolidation/planner.js'
 import { executePlan, readAllFiles, recordChangelog } from './consolidation/execute.js'
 
 /**
@@ -200,12 +198,9 @@ export class FileMemoryStore implements MemoryStore {
       const slug = slugify(title) || `entry-${Date.now()}`
       key = `${FACTS_PREFIX}${slug}.md`
 
-      // Probe with read() so the backend resolves key identity: a case-insensitive
-      // filesystem treats Topic.md and topic.md as the same file, which comparing
-      // against list()'s exact key spellings in memory would miss. A miss returns null
-      // without transferring a body, so the only full reads are on genuine collisions.
-      // Best-effort: two concurrent adds can settle on the same free key and the later
-      // write wins, since Storage offers no create-if-absent to make the claim atomic.
+      // Probe with read() so the backend resolves key identity — a case-insensitive filesystem
+      // treats Topic.md and topic.md as one file, which comparing list()'s spellings would miss.
+      // Best-effort: two concurrent adds can settle on the same key, as Storage has no create-if-absent.
       let suffix = 1
       while (await this._storage.read(key)) {
         key = `${FACTS_PREFIX}${slug}-${suffix}.md`
@@ -237,53 +232,27 @@ export class FileMemoryStore implements MemoryStore {
   /**
    * Run consolidation to maintain knowledge quality.
    *
-   * Uses a plan-then-execute strategy: one structured-output call produces an action plan
-   * over all files, programmatic guardrails validate the whole plan before anything is mutated,
-   * then deterministic code executes it (writes before deletes). On validation failure, one
-   * revise-retry is attempted; if the revised plan also fails validation, the method throws.
-   *
-   * Only one consolidation may run at a time per store instance. Each run snapshots the store at
-   * the start (`readAllFiles`) and later mutates it, so overlapping runs would plan against stale
-   * snapshots and race on the same keys. A call that starts while another is still in flight throws
-   * immediately rather than executing against a snapshot the other run has invalidated.
+   * Plan-then-execute: one structured-output call produces an action plan over all files,
+   * guardrails validate the whole plan before anything is mutated, then deterministic code
+   * executes it (writes before deletes). A rejected plan gets one revise-retry, then throws.
+   * The planning agent is bounded by a turn limit (default 3) to prevent runaway loops.
    *
    * @remarks
-   * Consolidation is not concurrency-safe, and the instance guard above is the only serialization it
-   * has. There is no lock: the {@link Storage} contract exposes only unconditional read/write/delete/
-   * list, so nothing here can hold off or even observe a writer on another store instance, in another
-   * process, or calling {@link add} on this one. Scheduling a run as a background job does not change
-   * this — it is a placement recommendation, not a quiescence guarantee.
-   *
-   * A concurrent {@link add} nevertheless survives, because of where it writes rather than any
-   * coordination: it mints a fresh key, which the snapshot never captured, so no plan action can name
-   * it. Two gaps follow from that, neither closed by a lock:
-   *
-   * - A plan can also create new files (a merge or move target absent from the snapshot), so its
-   *   chosen name can collide with a concurrent `add`'s fresh key. `executePlan` re-reads those
-   *   targets immediately before writing and aborts the run untouched if one is already claimed.
-   *   This is best-effort detection, not mutual exclusion: it shrinks the exposure from the whole
-   *   run (which spans a model call) to the gap between that check and the write, and a write
-   *   landing inside that gap is still overwritten.
-   * - An `add` carrying an explicit `metadata.path` that names a file already in the snapshot is not
-   *   covered at all. The plan was built from that file's pre-`add` content and may merge or delete
-   *   it, discarding what the `add` wrote. Detecting this needs a conditional write or version check
-   *   (ETag, generation number) that {@link Storage} cannot currently express.
-   *
-   * To avoid both, do not write to the store while a consolidation is in flight — either quiesce
-   * writers for the duration, or issue consolidation and explicit-path writes from a single caller
-   * that serializes them.
-   *
-   * The internal planning agent is bounded by a turn limit (default 3 turns) to prevent runaway
-   * loops. The planning agent has no tools registered and is expected to complete in a single turn;
-   * if it does not produce a valid structured plan within the limit, consolidation throws.
+   * Not concurrency-safe. Each run snapshots the store up front and mutates it later, so a second
+   * call on this instance throws rather than planning against a stale snapshot — but that guard is
+   * instance-scoped, not a lock. {@link Storage} offers only unconditional read/write/delete/list,
+   * so nothing here can observe a writer in another process, on another instance, or calling
+   * {@link add} on this one. A concurrent {@link add} minting a fresh key is safe (the snapshot
+   * never saw it, so no action can name it); an `add` with an explicit `metadata.path` naming a
+   * snapshotted file is not, and can be silently discarded by a merge or delete. Do not write to
+   * the store while consolidation is in flight.
    *
    * @param config - Model and operation configuration
    * @throws Error when a consolidation is already running on this store instance
+   * @throws TypeError when maxFiles, maxActionsPerPlan, or maxDirectories is not a positive finite number
    * @throws Error when the knowledge store exceeds the file count limit (maxFiles)
-   * @throws Error when the knowledge store exceeds the input byte size limit (maxInputBytes)
    * @throws Error when structured output is undefined (model did not return a plan)
    * @throws Error when the consolidation plan exceeds the action limit (maxActionsPerPlan)
-   * @throws Error when the plan's generated content exceeds the byte limit (maxGeneratedBytes)
    * @throws Error when the consolidation plan fails validation after retry
    * @throws Error when the consolidation agent exceeds its turn limit without producing a plan
    * @throws Error when a path the plan would create was claimed by a writer outside this run
@@ -329,43 +298,28 @@ export class FileMemoryStore implements MemoryStore {
     const maxDirectories = config.maxDirectories ?? 8
 
     const maxFiles = config.maxFiles ?? 100
-    const maxInputBytes = config.maxInputBytes ?? DEFAULT_MAX_INPUT_BYTES
     const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
-    const maxGeneratedBytes = config.maxGeneratedBytes ?? DEFAULT_MAX_GENERATED_BYTES
 
+    // A NaN or non-positive cap would silently disable the guardrail it configures — NaN fails every
+    // comparison, so `files.size > NaN` is false and the gate never fires
     const assertPositiveFinite = (name: string, value: number): void => {
       if (!Number.isFinite(value) || value <= 0) {
         throw new TypeError(`${name} must be a positive finite number, got ${value}`)
       }
     }
     assertPositiveFinite('maxFiles', maxFiles)
-    assertPositiveFinite('maxInputBytes', maxInputBytes)
     assertPositiveFinite('maxActionsPerPlan', maxActionsPerPlan)
-    assertPositiveFinite('maxGeneratedBytes', maxGeneratedBytes)
     assertPositiveFinite('maxDirectories', maxDirectories)
 
     const files = await readAllFiles(this._storage)
     if (files.size === 0) return
 
+    // Bounds the planner's input so a large corpus cannot blow past the model's context window
     if (files.size > maxFiles) {
       throw new Error(`Knowledge store exceeds consolidation file limit: ${files.size} files (maxFiles: ${maxFiles})`)
     }
 
-    // Measure the serialized evidence block, not a raw key+content sum: the prompt pretty-prints the
-    // map and escapes angle brackets, so the transmitted size can be several times a raw sum on
-    // hostile-but-legal content. Keys count too — `add()` takes `metadata.path` verbatim, uncapped.
-    // Passing the cap lets the measure abort once the running total exceeds it, so an over-budget
-    // corpus never materializes the whole escaped prompt in memory.
-    const totalBytes = plannerInputByteSize(files, maxInputBytes)
-    if (totalBytes > maxInputBytes) {
-      throw new Error(
-        `Knowledge store exceeds consolidation input size limit: ${totalBytes} bytes (maxInputBytes: ${maxInputBytes})`
-      )
-    }
-
-    // generatePlan owns the generated-byte cap as well as the action-count one, so an oversized plan
-    // is rejected before it can be echoed back to the model on the revise turn
-    const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan, maxGeneratedBytes)
+    const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
 
     const deleteErrors = await executePlan(this._storage, plan, files)
     // Record the changelog even on partial failure — writes and some deletes already hit disk,

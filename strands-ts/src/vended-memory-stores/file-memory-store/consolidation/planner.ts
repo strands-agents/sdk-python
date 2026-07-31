@@ -13,7 +13,7 @@ import type { ConsolidationPlan } from './plan.js'
 import { Agent } from '../../../agent/agent.js'
 import { logger } from '../../../logging/logger.js'
 import { CONSOLIDATION_CHANGELOG, encoder } from '../internal.js'
-import { ConsolidationPlanSchema, extractPlan, generatedByteSize, summarizePayload, truncatePayload } from './plan.js'
+import { ConsolidationPlanSchema, extractPlan, summarizePayload, truncatePayload } from './plan.js'
 import { validatePlan } from './validate.js'
 
 /**
@@ -37,11 +37,11 @@ const EVIDENCE_CLOSE = '</file-evidence>'
  * Produce a validated action plan from the model via a single structured-output call.
  *
  * The plan is validated against the guardrails before being returned; if validation fails,
- * one revise-retry is attempted. Every returned plan has passed validation and both size caps —
- * the failure paths all throw, so callers never receive an unvalidated plan.
+ * one revise-retry is attempted. Every returned plan has passed validation — the failure paths all
+ * throw, so callers never receive an unvalidated plan.
  *
  * @throws Error when the model returns no structured output, the plan exceeds the action limit,
- *   the plan exceeds the generated-byte limit, or the plan fails validation after retry
+ *   or the plan fails validation after retry
  *
  * @internal
  */
@@ -50,8 +50,7 @@ export async function generatePlan(
   operations: ConsolidateOperation[],
   files: Map<string, string>,
   maxDirectories: number,
-  maxActionsPerPlan: number,
-  maxGeneratedBytes: number
+  maxActionsPerPlan: number
 ): Promise<ConsolidationPlan> {
   const systemPrompt = buildPlannerSystemPrompt(operations)
   const userMessage = buildPlannerUserMessage(files)
@@ -72,79 +71,16 @@ export async function generatePlan(
     )
   }
   let plan = extractPlan(result, maxActionsPerPlan)
-  assertWithinByteBudget(plan, files, maxGeneratedBytes)
 
   const validationError = validatePlan(plan, files, operations, maxDirectories)
   if (validationError) {
     logger.warn(
       `validation_errors=<${truncatePayload(validationError)}>, plan=<${summarizePayload(plan)}> | consolidation plan rejected on initial attempt`
     )
-    plan = await revisePlan(
-      agent,
-      plan,
-      validationError,
-      files,
-      operations,
-      maxDirectories,
-      maxActionsPerPlan,
-      maxGeneratedBytes
-    )
+    plan = await revisePlan(agent, plan, validationError, files, operations, maxDirectories, maxActionsPerPlan)
   }
 
   return plan
-}
-
-/**
- * UTF-8 byte size of the evidence block the planner prompt will carry for `files`.
- *
- * Measures the serialized form, not a raw key+content sum: the block pretty-prints the JSON and
- * escapes angle brackets as `\uXXXX`, expanding the wire size several-fold on `<`/`>`-heavy content.
- * Accumulates one entry at a time and returns as soon as the running total passes `limit`, so an
- * over-cap corpus costs O(one file) of memory — building the whole escaped string first OOM-kills the
- * process on exactly the input the cap exists to reject. Each entry uses the same {@link escapeEvidence}
- * that transmits it, so measured and transmitted sizes cannot diverge; framing mirrors
- * `JSON.stringify(obj, null, 2)`.
- *
- * @param files - The working set to measure
- * @param limit - Abort once the running total exceeds this; omit to measure the exact full size
- * @returns The exact byte size, or the first partial total that exceeds `limit`
- *
- * @internal
- */
-export function plannerInputByteSize(files: Map<string, string>, limit = Infinity): number {
-  if (files.size === 0) return 2 // '{}'
-  let bytes = 3 // '{' + '\n}'
-  let first = true
-  for (const [key, content] of files) {
-    bytes += first ? 3 : 4 // '\n  ' (first) or ',\n  ' (subsequent)
-    bytes += encoder.encode(escapeEvidence(`${JSON.stringify(key)}: ${JSON.stringify(content)}`)).byteLength
-    if (bytes > limit) return bytes
-    first = false
-  }
-  return bytes
-}
-
-/**
- * Reject a plan whose generated content exceeds the byte budget, before it is used for anything else.
- *
- * Ordering is the point. This runs on the initial plan — ahead of the revise round-trip — so an
- * oversized plan is never echoed back to the provider, paying for its bytes twice on a plan that could
- * not be applied even if the revision fixed every validation error. It runs again on the revised plan,
- * since a revision is free to grow. {@link generatedByteSize} measures the JSON-escaped form, so the
- * cap bounds what the provider actually receives for the plan itself.
- *
- * Like the action-count guard, this throws instead of routing into the revise-retry: an oversized plan
- * is a runaway signal rather than a fixable mistake.
- *
- * @throws Error when the plan's generated content exceeds `maxGeneratedBytes`
- */
-function assertWithinByteBudget(plan: ConsolidationPlan, files: Map<string, string>, maxGeneratedBytes: number): void {
-  const generatedBytes = generatedByteSize(plan, files)
-  if (generatedBytes > maxGeneratedBytes) {
-    throw new Error(
-      `Consolidation plan exceeds generated content limit: ${generatedBytes} bytes (maxGeneratedBytes: ${maxGeneratedBytes})`
-    )
-  }
 }
 
 /**
@@ -153,13 +89,11 @@ function assertWithinByteBudget(plan: ConsolidationPlan, files: Map<string, stri
  * Only one retry is attempted: if the revised plan also fails validation, this throws rather
  * than looping, so consolidation never runs an unvalidated plan.
  *
- * The echoed plan is bounded by {@link summarizePayload}, not serialized verbatim. The model needs
- * the offending actions plus enough surrounding context to fix them, and the validation error already
- * names every rejected path — so a pathologically large body is not load-bearing, while sending it
- * verbatim would ship a whole plan's worth of model-controlled text back over the wire on the retry
- * turn, for a plan that was already rejected.
+ * The echoed plan is bounded by {@link summarizePayload} rather than serialized verbatim: the
+ * validation error already names every rejected path, so a pathologically large body is not
+ * load-bearing and would ship a plan's worth of model-controlled text back over the wire.
  *
- * @throws Error when the revised plan exceeds the action or generated-byte limit, or also fails validation
+ * @throws Error when the revised plan exceeds the action limit, or also fails validation
  */
 async function revisePlan(
   agent: Agent,
@@ -168,8 +102,7 @@ async function revisePlan(
   files: Map<string, string>,
   operations: ConsolidateOperation[],
   maxDirectories: number,
-  maxActionsPerPlan: number,
-  maxGeneratedBytes: number
+  maxActionsPerPlan: number
 ): Promise<ConsolidationPlan> {
   const reviseResult = await agent.invoke(
     `Your plan was rejected: ${truncatePayload(validationError)}. Here is the plan you produced (a very long value may be abbreviated with a '…(+N chars)' marker):\n\n${summarizePayload(originalPlan)}\n\nModify ONLY the offending actions to fix the violations above. Keep all other actions unchanged, re-emitting in full any value that was abbreviated.\n\nRevise your plan to fix this issue.`,
@@ -181,7 +114,6 @@ async function revisePlan(
     )
   }
   const revisedPlan = extractPlan(reviseResult, maxActionsPerPlan)
-  assertWithinByteBudget(revisedPlan, files, maxGeneratedBytes)
 
   const revisedValidationError = validatePlan(revisedPlan, files, operations, maxDirectories)
   if (revisedValidationError) {
@@ -294,8 +226,6 @@ function serializeEvidence(files: Map<string, string>): string {
 /**
  * Escape codepoints `JSON.stringify` leaves verbatim but the evidence framing cannot: `<`/`>` so a
  * body cannot reproduce the evidence tags, and U+2028/U+2029 (line terminators in some JS consumers).
- * Shared by {@link serializeEvidence} (transmit) and {@link plannerInputByteSize} (measure) so the
- * wire form and the measured size cannot drift.
  */
 function escapeEvidence(json: string): string {
   return json

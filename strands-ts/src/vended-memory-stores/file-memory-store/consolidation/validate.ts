@@ -25,11 +25,10 @@ import {
  *
  * Guards four properties: every action is permitted by the requested operations, every path is
  * well-formed and references files that exist, every write carries well-formed content, and no two
- * actions collide on a write target. The model is untrusted, so this is the gate that keeps a bad
- * plan from corrupting the store.
+ * actions collide on a write target.
  *
- * All violations are accumulated so the revision prompt can present a complete repair spec in one
- * shot rather than requiring iterative single-error fixes.
+ * All violations are accumulated so the revision prompt can present a complete repair spec at once
+ * rather than requiring iterative single-error fixes.
  *
  * @returns A newline-joined string of all violations when the plan is invalid, or `undefined` when it passes
  *
@@ -69,11 +68,9 @@ export function validatePlan(
       violations.push(`Action '${action.action}' is not allowed for operations: ${operations.join(', ')}`)
     }
 
-    // A merge must draw on two genuinely different files. Counting distinct sources covers both a
-    // too-short list and a padded one — duplicate or case-variant sources would otherwise launder an
-    // in-place overwrite past the operations allow-list (a self-overwrite under 'deduplicate', where
-    // 'update' is not authorized). Kept here rather than as a schema `.min(2)` so it flows through the
-    // same accumulate-and-revise path as every other guardrail instead of failing as a raw ZodError.
+    // Counting distinct sources catches both a too-short list and a padded one — duplicate or
+    // case-variant sources would otherwise launder an in-place overwrite past the operations
+    // allow-list. Kept out of the schema so it flows through the accumulate-and-revise path.
     if (action.action === 'merge') {
       const distinctSources = new Set(action.sources.map((source) => source.toLowerCase()))
       if (distinctSources.size < 2) {
@@ -139,40 +136,6 @@ function validateActionPaths(
 }
 
 /**
- * Unicode classes that render as nothing, matched by property rather than enumeration.
- *
- * An explicit codepoint list is the wrong shape for this: the set of invisible codepoints is large
- * and grows with each Unicode revision, so any list is a denylist that a plan can step around by
- * picking a codepoint nobody thought of. Matching the categories closes the class instead of moving
- * its boundary.
- *
- * - `Cc` C0/C1 control characters, including NUL
- * - `Cf` format characters — soft hyphen, zero-width joiners, bidi embeddings and isolates, tag chars
- * - `Cn` unassigned codepoints, which no font can render
- * - `Cs` lone surrogates, which are not renderable text
- * - `Default_Ignorable_Code_Point` the Unicode-designated invisibles: Hangul fillers, variation
- *   selectors, and Mongolian vowel separator — several of which fall outside `Cc`/`Cf`/`Cn`
- *
- * U+2800 BRAILLE PATTERN BLANK is named explicitly: it is category `Lo` and not default-ignorable,
- * so no property covers it, yet it renders as blank space.
- */
-const INVISIBLE_CLASSES = String.raw`\p{Cc}\p{Cf}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u{2800}`
-
-/**
- * Strip characters that render as nothing, so content carrying no readable text is treated as empty.
- *
- * Covers {@link INVISIBLE_CLASSES} plus non-spacing and enclosing marks (`Mn`/`Me`). Bare combining
- * marks are included because a body of accents with no base characters to attach to displays as
- * nothing; they are stripped only here, never from filenames, where a mark following a base letter
- * is legitimate (`café`).
- *
- * Trims surrounding whitespace so whitespace-and-invisibles-only content is treated as empty.
- */
-function stripInvisible(text: string): string {
-  return text.replace(new RegExp(`[${INVISIBLE_CLASSES}\\p{Mn}\\p{Me}]`, 'gu'), '').trim()
-}
-
-/**
  * Validate the content a write action (merge or update) would put on disk.
  *
  * A schema-valid plan can still carry content that erases knowledge: the schema accepts any string,
@@ -190,7 +153,7 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
 
   const label = action.action === 'merge' ? `Merge target '${action.target}'` : `Update target '${action.path}'`
 
-  if (stripInvisible(action.content).length === 0) {
+  if (action.content.trim().length === 0) {
     return `${label} has empty content — a write must not blank out a file`
   }
   if (!action.content.startsWith(FRONTMATTER_OPEN)) {
@@ -209,7 +172,7 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
   if (!FRONTMATTER_DESCRIPTION_PATTERN.test(frontmatterRegion)) {
     return `${label} frontmatter needs a quoted description field (description: "a short summary")`
   }
-  if (stripInvisible(action.content.slice(closingIndex + FRONTMATTER_CLOSE.length)).length === 0) {
+  if (action.content.slice(closingIndex + FRONTMATTER_CLOSE.length).trim().length === 0) {
     return `${label} has no body after its frontmatter`
   }
 
@@ -217,9 +180,9 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
 }
 
 /**
- * Reject plans that would clobber or amplify data: two actions writing the same path, a write landing
- * on an existing file that no other action vacates (a self-overwrite like an update is allowed), or
- * two actions claiming the same source.
+ * Reject plans that would clobber data: two actions writing the same path, a path both written and
+ * vacated in one plan, or a write landing on an existing file that no other action vacates (a
+ * self-overwrite like an update is allowed).
  *
  * @returns An array of human-readable error strings for every collision (empty when the plan is safe)
  */
@@ -295,37 +258,6 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
     }
   }
 
-  // Reject plans where two content-producing actions claim the same source. A merge and a move both
-  // consume their sources — they write the source's content (or a synthesis of it) elsewhere and then
-  // delete it — so a file can only be claimed once. Without this guard a plan amplifies one source
-  // into arbitrarily many copies (N merges over the same pair write N targets and still delete the
-  // pair), which wedges the store past maxFiles and leaves it permanently unconsolidatable: every
-  // later run aborts on the file-count limit before a plan can fold the copies away.
-  //
-  // Deliberately strict: two merges drawing on one shared source may be a well-meant plan, but it is
-  // indistinguishable from the amplifying one, and the planner prompt directs one action per path.
-  const claimedSources = new Set<string>()
-  const claimSource = (path: string): void => {
-    const normalized = path.toLowerCase()
-    if (claimedSources.has(normalized)) {
-      errors.push(
-        `Multiple actions claim '${path}' as a source — a file can only be merged or moved into one destination`
-      )
-    }
-    claimedSources.add(normalized)
-  }
-  for (const action of plan.actions) {
-    if (action.action === 'move') {
-      claimSource(action.from)
-    } else if (action.action === 'merge') {
-      // A merge folding into one of its own sources rewrites that file in place rather than consuming
-      // it, so the target spelling is not a claim — the write-vs-vacate rules above already govern it
-      for (const source of action.sources) {
-        if (!pathsResolveSame(source, action.target)) claimSource(source)
-      }
-    }
-  }
-
   return errors
 }
 
@@ -383,9 +315,9 @@ function validatePath(path: string, existingDirs: Set<string>, maxDirectories: n
     return `Path must end with .md: ${path}`
   }
 
-  // Validate the filename stem: reject control characters, zero-width/invisible codepoints,
-  // leading/trailing whitespace, empty stems, and over-long names. Mirrors the directory segment's
-  // charset discipline so hostile filenames cannot crash the storage backend mid-write.
+  // Validate the filename stem: reject control characters, leading/trailing whitespace, empty stems,
+  // and over-long names. Mirrors the directory segment's charset discipline so hostile filenames
+  // cannot crash the storage backend mid-write.
   const filename = rawSegments[rawSegments.length - 1]!
   const stem = filename.slice(0, -3) // strip '.md'
   if (stem.length === 0) {
@@ -394,17 +326,10 @@ function validatePath(path: string, existingDirs: Set<string>, maxDirectories: n
   if (stem.length > 80) {
     return `Filename stem exceeds 80 characters: ${path}`
   }
-  // A strict subset of the `Cc` class the next check matches, tested first only to name what is
-  // wrong precisely: validation errors are fed back to the planner as a repair spec, and 'control
-  // character' is actionable where calling a NUL 'invisible or zero-width' would misdirect.
+  // A control character in a filename corrupts or crashes the write on most storage backends
   // eslint-disable-next-line no-control-regex -- intentional: reject NUL, BEL, newlines, tabs, etc.
   if (/[\u0000-\u001F\u007F]/.test(stem)) {
     return `Filename stem must not contain control characters: ${path}`
-  }
-  // Property-matched rather than enumerated, for the reason given on INVISIBLE_CLASSES. Combining
-  // marks are deliberately not rejected here — unlike a file body, a stem like 'café' is legitimate.
-  if (new RegExp(`[${INVISIBLE_CLASSES}]`, 'u').test(stem)) {
-    return `Filename stem must not contain invisible or zero-width characters: ${path}`
   }
   if (stem !== stem.trim()) {
     return `Filename stem must not have leading or trailing whitespace: ${path}`

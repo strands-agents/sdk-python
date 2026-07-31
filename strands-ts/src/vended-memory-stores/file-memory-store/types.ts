@@ -71,33 +71,11 @@ export interface ConsolidateConfig {
   maxFiles?: number
 
   /**
-   * Maximum UTF-8 byte size of the planner's serialized evidence block — every file's storage key and
-   * content, as they are actually transmitted (JSON-escaped and pretty-printed). Defaults to 128 KiB.
-   *
-   * Bounds the single-call planner input; plan output scales with touched files. Override it when
-   * your model's context window is unusually small or large — the default is a fixed byte count, not
-   * one derived from the model.
-   */
-  maxInputBytes?: number
-
-  /**
    * Maximum number of actions a single consolidation plan may contain. Defaults to 1000.
    *
-   * Bounds the planner *output*: `maxFiles` and `maxInputBytes` cap the input, but the model
-   * could otherwise return an arbitrarily large action list. A plan exceeding this limit is
-   * rejected before any storage mutation.
+   * Bounds the planner *output*: `maxFiles` caps the input, but the model could otherwise return
+   * an arbitrarily large action list. A plan exceeding this limit is rejected before any storage
+   * mutation.
    */
   maxActionsPerPlan?: number
-
-  /**
-   * Maximum total UTF-8 bytes of model-generated text in a single plan — write content, the paths
-   * every action names, each reason, and the summary. A `move` also counts the source file's stored
-   * content, since the action rewrites it at the new target. Defaults to 256 KiB — twice the
-   * `maxInputBytes` default.
-   *
-   * Bounds the planner *output volume*: even within the action limit, a few large write actions
-   * could generate unbounded content. The entire plan is rejected before any storage mutation
-   * when this cap is exceeded.
-   */
-  maxGeneratedBytes?: number
 }
