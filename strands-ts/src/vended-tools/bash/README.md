@@ -2,6 +2,15 @@
 
 A robust tool for executing bash shell commands in Node.js environments with persistent session support.
 
+> **`bash` vs `makeShell`**: this directory exports two different tools. `bash`
+> spawns a persistent `bash` process directly on the host, so it requires bash and
+> keeps state across calls -- that is what this document describes. `makeShell`
+> builds a stateless tool that routes commands through a
+> [Sandbox](../../sandbox/base.ts), which runs `sh` locally and in Docker or the
+> remote login shell over SSH; commands passed to it must not rely on
+> bash-specific syntax. `makeBash` is a deprecated alias of `makeShell` and will
+> be removed in v2.0.0.
+
 ## ⚠️ Security Warning
 
 **This tool executes arbitrary bash commands without sandboxing or restrictions.**
@@ -151,6 +160,10 @@ The tool throws custom errors for specific failure scenarios:
 
 - **`BashTimeoutError`**: Thrown when a command exceeds its timeout
 - **`BashSessionError`**: Thrown when the bash process encounters an error
+
+The sandbox-routed tool from `makeShell` throws `ShellTimeoutError` and
+`ShellExecutionError` instead. Both extend the `Bash*` types above, so existing
+`catch` clauses keep matching.
 
 ```typescript
 import { BashTimeoutError, BashSessionError } from '@strands-agents/sdk/vended-tools/bash'
