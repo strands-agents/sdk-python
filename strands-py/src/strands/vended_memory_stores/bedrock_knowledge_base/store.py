@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import uuid
 from typing import TYPE_CHECKING, Any, cast
 
@@ -36,7 +35,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_SEARCH_RESULTS = 10
-DEFAULT_REGION = "us-west-2"
 
 # A Bedrock attribute value: ``{"type": ..., "stringValue"/"numberValue"/...}``. There is no Python
 # SDK type for this (boto3 passes plain dicts), so it is modeled as ``dict[str, Any]``.
@@ -128,11 +126,12 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self._data_source_type = kb_config.get("data_source_type")
         self._data_source_id = kb_config.get("data_source_id")
 
-        # Region for any default boto3 client the store constructs. Resolution order is
-        # explicit config -> AWS_REGION env -> DEFAULT_REGION. This avoids the NoRegionError
-        # raised by boto3 in cloud envs (EC2/Lambda) with no region hint. Injected clients are
-        # used verbatim and bypass this resolution.
-        self._region = kb_config.get("region_name") or os.getenv("AWS_REGION") or DEFAULT_REGION
+        # Region hint for any default boto3 client the store constructs. Only an explicit
+        # ``region_name`` config is threaded through; when absent, ``None`` is passed so boto3
+        # resolves the region from its own chain (``AWS_REGION`` env, ``~/.aws/config``, IMDS)
+        # rather than the store silently picking one — a wrong default would misroute
+        # region-scoped knowledge bases. Injected clients are used verbatim and bypass this.
+        self._region = kb_config.get("region_name")
 
         # The runtime client is built eagerly: search is the read path every store exercises. A
         # default client is only constructed when none was injected.
