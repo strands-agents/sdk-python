@@ -51,6 +51,7 @@ def end_session_span(
     input_tokens: int = 0,
     output_tokens: int = 0,
     total_tokens: int = 0,
+    cache_read_input_tokens: int = 0,
     error: Exception | None = None,
 ) -> None:
     """End the bidi session span.
@@ -61,16 +62,16 @@ def end_session_span(
         input_tokens: Accumulated input tokens for the session.
         output_tokens: Accumulated output tokens for the session.
         total_tokens: Accumulated total tokens for the session.
+        cache_read_input_tokens: Accumulated tokens read from cache for the session.
         error: Exception if the session ended with an error.
     """
-    attributes: dict[str, AttributeValue] = {}
-
-    if input_tokens > 0:
-        attributes["gen_ai.usage.input_tokens"] = input_tokens
-    if output_tokens > 0:
-        attributes["gen_ai.usage.output_tokens"] = output_tokens
-    if total_tokens > 0:
-        attributes["gen_ai.usage.total_tokens"] = total_tokens
+    token_attributes = {
+        "gen_ai.usage.input_tokens": input_tokens,
+        "gen_ai.usage.output_tokens": output_tokens,
+        "gen_ai.usage.total_tokens": total_tokens,
+        "gen_ai.usage.cache_read_input_tokens": cache_read_input_tokens,
+    }
+    attributes: dict[str, AttributeValue] = {name: value for name, value in token_attributes.items() if value > 0}
 
     tracer._end_span(span, attributes=attributes, error=error)
 

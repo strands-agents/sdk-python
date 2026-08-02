@@ -295,7 +295,7 @@ async def test_interruption_event_recorded_on_session_span(loop, agent, agenerat
 async def test_usage_accumulation(loop, agent, agenerator, otel_setup):
     """Usage events accumulate tokens on the loop and session span."""
     events = [
-        BidiUsageEvent(input_tokens=100, output_tokens=50, total_tokens=150),
+        BidiUsageEvent(input_tokens=100, output_tokens=50, total_tokens=150, cache_read_input_tokens=20),
         BidiUsageEvent(input_tokens=200, output_tokens=75, total_tokens=275),
     ]
     agent.model.receive = unittest.mock.Mock(return_value=agenerator(events))
@@ -311,6 +311,7 @@ async def test_usage_accumulation(loop, agent, agenerator, otel_setup):
     assert loop._accumulated_input_tokens == 300
     assert loop._accumulated_output_tokens == 125
     assert loop._accumulated_total_tokens == 425
+    assert loop._accumulated_cache_read_tokens == 20
 
     await loop.stop()
 
@@ -319,6 +320,7 @@ async def test_usage_accumulation(loop, agent, agenerator, otel_setup):
     assert session_spans[0].attributes["gen_ai.usage.input_tokens"] == 300
     assert session_spans[0].attributes["gen_ai.usage.output_tokens"] == 125
     assert session_spans[0].attributes["gen_ai.usage.total_tokens"] == 425
+    assert session_spans[0].attributes["gen_ai.usage.cache_read_input_tokens"] == 20
 
 
 @pytest.mark.asyncio

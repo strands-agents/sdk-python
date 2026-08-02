@@ -78,9 +78,10 @@ class _BidiAgentLoop:
 
         self._tracer = get_tracer()
         self._session_span: Span | None = None
-        self._accumulated_input_tokens = 0
-        self._accumulated_output_tokens = 0
-        self._accumulated_total_tokens = 0
+        self._accumulated_input_tokens: int
+        self._accumulated_output_tokens: int
+        self._accumulated_total_tokens: int
+        self._accumulated_cache_read_tokens: int
 
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start the agent loop.
@@ -129,6 +130,7 @@ class _BidiAgentLoop:
         self._accumulated_input_tokens = 0
         self._accumulated_output_tokens = 0
         self._accumulated_total_tokens = 0
+        self._accumulated_cache_read_tokens = 0
 
         self._event_queue = asyncio.Queue(maxsize=1)
 
@@ -163,6 +165,7 @@ class _BidiAgentLoop:
                     input_tokens=self._accumulated_input_tokens,
                     output_tokens=self._accumulated_output_tokens,
                     total_tokens=self._accumulated_total_tokens,
+                    cache_read_input_tokens=self._accumulated_cache_read_tokens,
                 )
                 self._session_span = None
 
@@ -315,6 +318,7 @@ class _BidiAgentLoop:
                     self._accumulated_input_tokens += event.input_tokens
                     self._accumulated_output_tokens += event.output_tokens
                     self._accumulated_total_tokens += event.total_tokens
+                    self._accumulated_cache_read_tokens += event.cache_read_input_tokens or 0
 
         except Exception as error:
             model_error = error
