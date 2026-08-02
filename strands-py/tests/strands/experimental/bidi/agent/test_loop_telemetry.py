@@ -22,6 +22,7 @@ from strands import tool
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
+    BidiAudioStreamEvent,
     BidiInterruptionEvent,
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
@@ -203,6 +204,53 @@ async def test_response_span_records_stop_reason(loop, agent, agenerator, otel_s
 
 
 @pytest.mark.asyncio
+async def test_response_span_records_time_to_first_audio(loop, agent, agenerator, otel_setup):
+    """Response span records time to first audio when audio is emitted."""
+    events = [
+        BidiResponseStartEvent(response_id="resp-audio"),
+        BidiAudioStreamEvent(audio="", format="pcm", sample_rate=24000, channels=1),
+        BidiResponseCompleteEvent(response_id="resp-audio", stop_reason="complete"),
+    ]
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator(events))
+
+    await loop.start()
+
+    async for event in loop.receive():
+        if isinstance(event, BidiResponseCompleteEvent):
+            break
+
+    await loop.stop()
+
+    spans = otel_setup.get_finished_spans()
+    response_spans = [s for s in spans if "bidi_response" in s.name]
+    assert len(response_spans) == 1
+    assert response_spans[0].attributes["gen_ai.server.time_to_first_audio"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_response_span_omits_time_to_first_audio_when_no_audio(loop, agent, agenerator, otel_setup):
+    """Response span omits the time-to-first-audio attribute when no audio is emitted."""
+    events = [
+        BidiResponseStartEvent(response_id="resp-noaudio"),
+        BidiResponseCompleteEvent(response_id="resp-noaudio", stop_reason="complete"),
+    ]
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator(events))
+
+    await loop.start()
+
+    async for event in loop.receive():
+        if isinstance(event, BidiResponseCompleteEvent):
+            break
+
+    await loop.stop()
+
+    spans = otel_setup.get_finished_spans()
+    response_spans = [s for s in spans if "bidi_response" in s.name]
+    assert len(response_spans) == 1
+    assert "gen_ai.server.time_to_first_audio" not in response_spans[0].attributes
+
+
+@pytest.mark.asyncio
 async def test_tool_call_span_created(loop, agent, agenerator, otel_setup):
     """Tool call span wraps tool execution."""
     tool_use = {"toolUseId": "t1", "name": "mock_tool", "input": {}}
@@ -299,9 +347,7 @@ async def test_restart_failure_propagates_and_reports(loop, agent, agenerator):
     agent.model.start = unittest.mock.AsyncMock(side_effect=[None, ConnectionError("restart failed")])
 
     after_errors = []
-    agent.hooks.add_callback(
-        BidiAfterConnectionRestartEvent, lambda event: after_errors.append(event.exception)
-    )
+    agent.hooks.add_callback(BidiAfterConnectionRestartEvent, lambda event: after_errors.append(event.exception))
 
     await loop.start()
 

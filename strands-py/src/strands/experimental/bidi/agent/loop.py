@@ -5,6 +5,7 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
+import time
 import warnings
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
@@ -27,6 +28,7 @@ from .. import _telemetry
 from .._async import _TaskPool, stop_all
 from ..models import BidiModelTimeoutError
 from ..types.events import (
+    BidiAudioStreamEvent,
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiInputEvent,
@@ -278,6 +280,8 @@ class _BidiAgentLoop:
         logger.debug("model task starting")
 
         response_span: Span | None = None
+        response_start_time: float | None = None
+        time_to_first_audio_ms: int | None = None
         model_error: Exception | None = None
 
         try:
@@ -286,14 +290,30 @@ class _BidiAgentLoop:
 
                 if isinstance(event, BidiResponseStartEvent):
                     if response_span:
-                        _telemetry.end_response_span(self._tracer, response_span, stop_reason="interrupted")
+                        _telemetry.end_response_span(
+                            self._tracer,
+                            response_span,
+                            stop_reason="interrupted",
+                            time_to_first_audio_ms=time_to_first_audio_ms,
+                        )
                     response_span = _telemetry.start_response_span(
                         self._tracer, event.response_id, parent_span=self._session_span
                     )
+                    response_start_time = time.perf_counter()
+                    time_to_first_audio_ms = None
+
+                elif isinstance(event, BidiAudioStreamEvent):
+                    if response_start_time is not None and time_to_first_audio_ms is None:
+                        time_to_first_audio_ms = int((time.perf_counter() - response_start_time) * 1000)
 
                 elif isinstance(event, BidiResponseCompleteEvent):
                     if response_span:
-                        _telemetry.end_response_span(self._tracer, response_span, stop_reason=event.stop_reason)
+                        _telemetry.end_response_span(
+                            self._tracer,
+                            response_span,
+                            stop_reason=event.stop_reason,
+                            time_to_first_audio_ms=time_to_first_audio_ms,
+                        )
                         response_span = None
 
                 elif isinstance(event, BidiTranscriptStreamEvent):
@@ -329,7 +349,13 @@ class _BidiAgentLoop:
         finally:
             if response_span:
                 stop_reason = "error" if model_error else "incomplete"
-                _telemetry.end_response_span(self._tracer, response_span, stop_reason=stop_reason, error=model_error)
+                _telemetry.end_response_span(
+                    self._tracer,
+                    response_span,
+                    stop_reason=stop_reason,
+                    time_to_first_audio_ms=time_to_first_audio_ms,
+                    error=model_error,
+                )
                 response_span = None
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
