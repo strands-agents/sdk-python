@@ -8,8 +8,8 @@ import json
 import logging
 import os
 import warnings
-from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
-from typing import Any, Literal, TypeVar, cast
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, ValuesView
+from typing import Any, Literal, NoReturn, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -167,11 +167,13 @@ class BedrockModel(Model):
             endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
             **model_config: Configuration options for the Bedrock model.
         """
-        if region_name and boto_session:
-            raise ValueError("Cannot specify both `region_name` and `boto_session`.")
+        self.client, resolved_region = self._create_bedrock_runtime_client(
+            boto_session=boto_session,
+            boto_client_config=boto_client_config,
+            region_name=region_name,
+            endpoint_url=endpoint_url,
+        )
 
-        session = boto_session or boto3.Session()
-        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
         self.config = BedrockModel.BedrockConfig(
             model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
@@ -179,6 +181,38 @@ class BedrockModel(Model):
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
+        logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
+
+    @staticmethod
+    def _create_bedrock_runtime_client(
+        *,
+        boto_session: boto3.Session | None,
+        boto_client_config: BotocoreConfig | None,
+        region_name: str | None,
+        endpoint_url: str | None,
+    ) -> tuple[Any, str]:
+        """Create a ``bedrock-runtime`` boto client and resolve the effective region.
+
+        Shared by ``BedrockModel`` and ``BedrockInvokeModel``, which both call the ``bedrock-runtime`` service.
+
+        Args:
+            boto_session: Boto Session to use when calling Bedrock. Mutually exclusive with ``region_name``.
+            boto_client_config: Configuration to use when creating the Bedrock-Runtime Boto Client.
+            region_name: AWS region to use for the Bedrock service.
+                Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
+            endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink).
+
+        Returns:
+            A tuple of the created client and the resolved region name.
+
+        Raises:
+            ValueError: If both `region_name` and `boto_session` are specified.
+        """
+        if region_name and boto_session:
+            raise ValueError("Cannot specify both `region_name` and `boto_session`.")
+
+        session = boto_session or boto3.Session()
+        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
 
         # Add strands-agents to the request user agent
         if boto_client_config:
@@ -194,14 +228,14 @@ class BedrockModel(Model):
         else:
             client_config = BotocoreConfig(user_agent_extra="strands-agents", read_timeout=DEFAULT_READ_TIMEOUT)
 
-        self.client = session.client(
+        client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
             endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
 
-        logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
+        return client, resolved_region
 
     @property
     def _cache_strategy(self) -> str | None:
@@ -980,49 +1014,61 @@ class BedrockModel(Model):
                         callback(event)
 
         except ClientError as e:
-            error_message = str(e)
-
-            if (
-                e.response["Error"]["Code"] == "ThrottlingException"
-                or e.response["Error"]["Code"] == "throttlingException"
-            ):
-                raise ModelThrottledException(error_message) from e
-
-            if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
-                logger.warning("bedrock threw context window overflow error")
-                raise ContextWindowOverflowException(e) from e
-
-            region = self.client.meta.region_name
-
-            # Aid in debugging by adding more information
-            add_exception_note(e, f"└ Bedrock region: {region}")
-            add_exception_note(e, f"└ Model id: {self.config.get('model_id')}")
-
-            if (
-                e.response["Error"]["Code"] == "AccessDeniedException"
-                and "You don't have access to the model" in error_message
-            ):
-                add_exception_note(
-                    e,
-                    "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
-                )
-
-            if (
-                e.response["Error"]["Code"] == "ValidationException"
-                and "with on-demand throughput isn’t supported" in error_message
-            ):
-                add_exception_note(
-                    e,
-                    "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
-                )
-
-            raise e
+            self._raise_translated_client_error(e)
 
         finally:
             callback()
             logger.debug("finished streaming response from model")
+
+    def _raise_translated_client_error(self, e: ClientError) -> NoReturn:
+        """Translate a Bedrock ``ClientError`` into a Strands exception, or re-raise with added context.
+
+        Shared between the Converse and InvokeModel code paths, which surface the same error codes.
+
+        Args:
+            e: The ``ClientError`` raised by the Bedrock client.
+
+        Raises:
+            ModelThrottledException: If Bedrock throttled the request.
+            ContextWindowOverflowException: If the input exceeded the model's context window.
+            ClientError: The original error, annotated with region/model id notes, for all other cases.
+        """
+        error_message = str(e)
+
+        if e.response["Error"]["Code"] == "ThrottlingException" or e.response["Error"]["Code"] == "throttlingException":
+            raise ModelThrottledException(error_message) from e
+
+        if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
+            logger.warning("bedrock threw context window overflow error")
+            raise ContextWindowOverflowException(e) from e
+
+        region = self.client.meta.region_name
+
+        # Aid in debugging by adding more information
+        add_exception_note(e, f"└ Bedrock region: {region}")
+        add_exception_note(e, f"└ Model id: {self.config.get('model_id')}")
+
+        if (
+            e.response["Error"]["Code"] == "AccessDeniedException"
+            and "You don't have access to the model" in error_message
+        ):
+            add_exception_note(
+                e,
+                "└ For more information see "
+                "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+            )
+
+        if (
+            e.response["Error"]["Code"] == "ValidationException"
+            and "with on-demand throughput isn’t supported" in error_message
+        ):
+            add_exception_note(
+                e,
+                "└ For more information see "
+                "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+            )
+
+        raise e
 
     def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
@@ -1200,7 +1246,7 @@ class BedrockModel(Model):
         yield {"output": output_model(**output_response)}
 
     @staticmethod
-    def _get_default_model_with_warning(region_name: str, model_config: BedrockConfig | None = None) -> str:
+    def _get_default_model_with_warning(region_name: str, model_config: Mapping[str, Any] | None = None) -> str:
         """Get the default Bedrock modelId based on region.
 
         If the region is not **known** to support inference then we show a helpful warning
@@ -1210,11 +1256,13 @@ class BedrockModel(Model):
 
         Args:
             region_name (str): region for bedrock model
-            model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
+            model_config (Optional[Mapping[str, Any]]): Model Config that caller passes in on init. Shared between
+                ``BedrockModel`` and ``BedrockInvokeModel``, which have different config TypedDicts, so this only
+                relies on the common ``model_id`` key.
         """
         model_config = model_config or {}
-        if model_config.get("model_id"):
-            return model_config["model_id"]
+        if model_id := model_config.get("model_id"):
+            return str(model_id)
 
         if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
             return DEFAULT_BEDROCK_MODEL_ID

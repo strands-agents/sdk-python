@@ -1,4 +1,4 @@
-"""Integration tests for ``BedrockModelInvoke``.
+"""Integration tests for ``BedrockInvokeModel``.
 
 Hits real Bedrock; requires AWS credentials. The imported-model test is gated on
 ``STRANDS_BEDROCK_INVOKE_IMPORTED_MODEL_ARN`` since ARNs are account-specific.
@@ -10,7 +10,7 @@ import pydantic
 import pytest
 
 from strands import Agent, tool
-from strands.models.bedrock_invoke import BedrockModelInvoke
+from strands.models.bedrock_invoke import BedrockInvokeModel
 
 CLAUDE_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
@@ -22,7 +22,7 @@ def string_length(string_to_measure: str) -> str:
 
 
 def test_bedrock_invoke_basic_text_generation():
-    agent = Agent(BedrockModelInvoke(model_id=CLAUDE_ID, max_tokens=64, temperature=0.0))
+    agent = Agent(BedrockInvokeModel(model_id=CLAUDE_ID, max_tokens=64, temperature=0.0))
     result = agent("Reply with the single word: ack")
     assert result.message["content"]
     assert result.stop_reason in ("end_turn", "stop_sequence", "max_tokens")
@@ -30,7 +30,7 @@ def test_bedrock_invoke_basic_text_generation():
 
 def test_bedrock_invoke_tool_use():
     agent = Agent(
-        BedrockModelInvoke(model_id=CLAUDE_ID, max_tokens=256, temperature=0.0),
+        BedrockInvokeModel(model_id=CLAUDE_ID, max_tokens=256, temperature=0.0),
         tools=[string_length],
     )
     assert agent('Use the string_length tool to measure the string "abcdef".').message["content"]
@@ -41,7 +41,7 @@ def test_bedrock_invoke_structured_output():
         name: str
         age: int
 
-    agent = Agent(BedrockModelInvoke(model_id=CLAUDE_ID, max_tokens=128, temperature=0.0))
+    agent = Agent(BedrockInvokeModel(model_id=CLAUDE_ID, max_tokens=128, temperature=0.0))
     person = agent.structured_output(Person, "Return name=Ada and age=36 as JSON.")
     assert isinstance(person, Person)
 
@@ -52,5 +52,5 @@ def test_bedrock_invoke_structured_output():
 )
 def test_bedrock_invoke_with_imported_model():
     arn = os.environ["STRANDS_BEDROCK_INVOKE_IMPORTED_MODEL_ARN"]
-    agent = Agent(BedrockModelInvoke(model_id=arn), tools=[string_length])
+    agent = Agent(BedrockInvokeModel(model_id=arn), tools=[string_length])
     assert agent("Generate a random string, then tell me its length.").message["content"]

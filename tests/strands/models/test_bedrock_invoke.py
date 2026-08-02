@@ -1,4 +1,4 @@
-"""Tests for ``BedrockModelInvoke``."""
+"""Tests for ``BedrockInvokeModel``."""
 
 import json
 import unittest.mock
@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 
 import strands
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
-from strands.models.bedrock_invoke import BedrockModelInvoke
+from strands.models.bedrock_invoke import BedrockInvokeModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 CLAUDE_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -17,7 +17,7 @@ CLAUDE_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 @pytest.fixture
 def session_cls():
-    with unittest.mock.patch.object(strands.models.bedrock_invoke.boto3, "Session") as mock_cls:
+    with unittest.mock.patch.object(strands.models.bedrock.boto3, "Session") as mock_cls:
         sess = unittest.mock.Mock()
         sess.region_name = None
         mock_cls.return_value = sess
@@ -35,7 +35,7 @@ def bedrock_client(session_cls):
 @pytest.fixture
 def model(bedrock_client):
     _ = bedrock_client
-    return BedrockModelInvoke(model_id=CLAUDE_ID)
+    return BedrockInvokeModel(model_id=CLAUDE_ID)
 
 
 def _chunks(payloads):
@@ -70,24 +70,24 @@ pytestmark = pytest.mark.usefixtures("bedrock_client")
 
 
 def test_init_default_model_id():
-    m = BedrockModelInvoke()
+    m = BedrockInvokeModel()
     assert m.get_config()["model_id"] == DEFAULT_BEDROCK_MODEL_ID
     assert m.get_config()["streaming"] is True
 
 
 def test_init_explicit_model_id():
-    m = BedrockModelInvoke(model_id="my-model", streaming=False)
+    m = BedrockInvokeModel(model_id="my-model", streaming=False)
     assert m.get_config()["model_id"] == "my-model"
     assert m.get_config()["streaming"] is False
 
 
 def test_init_rejects_session_and_region():
     with pytest.raises(ValueError):
-        BedrockModelInvoke(boto_session=unittest.mock.Mock(), region_name="us-east-1")
+        BedrockInvokeModel(boto_session=unittest.mock.Mock(), region_name="us-east-1")
 
 
 def test_update_config():
-    m = BedrockModelInvoke(model_id="m")
+    m = BedrockInvokeModel(model_id="m")
     m.update_config(temperature=0.7, max_tokens=128)
     cfg = m.get_config()
     assert cfg["temperature"] == 0.7
@@ -106,11 +106,11 @@ def test_update_config():
     ],
 )
 def test_model_family_detection(model_id, expected):
-    assert BedrockModelInvoke(model_id=model_id)._get_model_family() == expected
+    assert BedrockInvokeModel(model_id=model_id)._get_model_family() == expected
 
 
 def test_model_family_override():
-    m = BedrockModelInvoke(model_id="arn:aws:bedrock:us-east-1:123:imported-model/abc", model_family="anthropic")
+    m = BedrockInvokeModel(model_id="arn:aws:bedrock:us-east-1:123:imported-model/abc", model_family="anthropic")
     assert m._get_model_family() == "anthropic"
 
 
@@ -164,7 +164,7 @@ def test_format_anthropic_request_tool_choice(model):
 
 
 def test_format_openai_request_basic():
-    m = BedrockModelInvoke(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
     req = m._format_openai_request(
         [{"role": "user", "content": [{"text": "Hello"}]}], None, [{"text": "sys"}], None
     )
@@ -174,7 +174,7 @@ def test_format_openai_request_basic():
 
 
 def test_format_openai_request_tool_calls_and_results():
-    m = BedrockModelInvoke(model_id="my-imported-model", model_family="openai")
+    m = BedrockInvokeModel(model_id="my-imported-model", model_family="openai")
     tu = {"toolUseId": "tu1", "name": "fn", "input": {"x": 1}}
     tr = {"toolUseId": "tu1", "status": "success", "content": [{"text": "ok"}]}
     spec = [{"name": "fn", "description": "d", "inputSchema": {"type": "object"}}]
@@ -205,7 +205,7 @@ async def test_stream_anthropic_text_only(bedrock_client):
             {"type": "message_stop"},
         ])
     }
-    events = await _collect(BedrockModelInvoke(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "hi"}]}])
+    events = await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "hi"}]}])
     assert _texts(events) == "Hi there"
     assert _stop_reason(events) == "end_turn"
     metadata = next(e for e in events if "metadata" in e)
@@ -237,7 +237,7 @@ async def test_stream_anthropic_tool_use(bedrock_client):
             {"type": "message_stop"},
         ])
     }
-    events = await _collect(BedrockModelInvoke(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "?"}]}])
+    events = await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "?"}]}])
     starts = [e["contentBlockStart"]["start"] for e in events if "contentBlockStart" in e]
     assert {"toolUse": {"toolUseId": "tu1", "name": "weather"}} in starts
     assert _tool_inputs(events) == '{"city":"Paris"}'
@@ -269,7 +269,7 @@ async def test_stream_openai_text_and_tool(bedrock_client):
             {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}},
         ])
     }
-    m = BedrockModelInvoke(model_id="meta.llama3-1-8b-instruct-v1:0")
+    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0")
     events = await _collect(m, [{"role": "user", "content": [{"text": "go"}]}])
     assert _texts(events) == "Hello world"
     assert _tool_inputs(events) == '{"x":1}'
@@ -288,7 +288,7 @@ async def test_stream_non_streaming_anthropic(bedrock_client):
     }).encode("utf-8")
     bedrock_client.invoke_model.return_value = {"body": body}
 
-    m = BedrockModelInvoke(model_id=CLAUDE_ID, streaming=False)
+    m = BedrockInvokeModel(model_id=CLAUDE_ID, streaming=False)
     events = await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
     assert _texts(events) == "ack"
 
@@ -303,7 +303,7 @@ async def test_stream_throttling_raises(bedrock_client):
         "InvokeModelWithResponseStream",
     )
     with pytest.raises(ModelThrottledException):
-        await _collect(BedrockModelInvoke(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
+        await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
 
 
 @pytest.mark.asyncio
@@ -313,7 +313,7 @@ async def test_stream_context_window_overflow(bedrock_client):
         "InvokeModelWithResponseStream",
     )
     with pytest.raises(ContextWindowOverflowException):
-        await _collect(BedrockModelInvoke(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
+        await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
 
 
 # ---- structured output
@@ -344,7 +344,7 @@ async def test_structured_output_yields_pydantic_model(bedrock_client):
         name: str
         age: int
 
-    m = BedrockModelInvoke(model_id=CLAUDE_ID)
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
     structured: list[dict] = []
     async for event in m.structured_output(Person, [{"role": "user", "content": [{"text": "?"}]}]):
         structured.append(event)
