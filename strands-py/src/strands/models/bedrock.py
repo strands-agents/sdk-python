@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
 from typing import Any, Literal, TypeVar, cast
 
 import boto3
+from botocore import UNSIGNED
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
@@ -173,6 +174,7 @@ class BedrockModel(Model):
         boto_client_config: BotocoreConfig | None = None,
         region_name: str | None = None,
         endpoint_url: str | None = None,
+        api_key: str | None = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -183,6 +185,8 @@ class BedrockModel(Model):
             region_name: AWS region to use for the Bedrock service.
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
             endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
+            api_key: Amazon Bedrock API key for bearer token authentication.
+                When provided, requests use the API key instead of SigV4 signing.
             **model_config: Configuration options for the Bedrock model.
         """
         if region_name and boto_session:
@@ -208,9 +212,18 @@ class BedrockModel(Model):
             else:
                 new_user_agent = "strands-agents"
 
-            client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
+            client_config = boto_client_config.merge(
+                BotocoreConfig(
+                    user_agent_extra=new_user_agent,
+                    **({"signature_version": UNSIGNED} if api_key else {}),
+                )
+            )
         else:
-            client_config = BotocoreConfig(user_agent_extra="strands-agents", read_timeout=DEFAULT_READ_TIMEOUT)
+            client_config = BotocoreConfig(
+                user_agent_extra="strands-agents",
+                read_timeout=DEFAULT_READ_TIMEOUT,
+                **({"signature_version": UNSIGNED} if api_key else {}),
+            )
 
         self.client = session.client(
             service_name="bedrock-runtime",
@@ -218,6 +231,13 @@ class BedrockModel(Model):
             endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
+
+        if api_key:
+
+            def set_bearer_auth(request: Any, **_: Any) -> None:
+                request.headers["Authorization"] = f"Bearer {api_key}"
+
+            self.client.meta.events.register("before-send.bedrock-runtime.*", set_bearer_auth)
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 

@@ -11,6 +11,7 @@ from unittest.mock import ANY
 import boto3
 import pydantic
 import pytest
+from botocore import UNSIGNED
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError, EventStreamError
 
@@ -277,6 +278,36 @@ def test__init__with_custom_boto_client_config_with_user_agent(session_cls, bedr
     assert isinstance(kwargs["config"], BotocoreConfig)
     assert kwargs["config"].user_agent_extra == "existing-agent strands-agents"
     assert kwargs["config"].read_timeout == 900
+
+
+def test__init__with_api_key_configures_bearer_auth(session_cls, bedrock_client):
+    """Use unsigned requests and a bearer authorization hook for an API key (#1238)."""
+    model = BedrockModel(
+        api_key="br-test-key", boto_client_config=BotocoreConfig(read_timeout=900, signature_version="v4")
+    )
+
+    client = session_cls.return_value.client
+    _, kwargs = client.call_args
+    assert kwargs["config"].signature_version == UNSIGNED
+    assert kwargs["config"].read_timeout == 900
+    assert model.get_config().get("api_key") is None
+
+    bedrock_client.meta.events.register.assert_called_once_with("before-send.bedrock-runtime.*", ANY)
+    auth_handler = bedrock_client.meta.events.register.call_args.args[1]
+    request = unittest.mock.Mock(headers={"Authorization": "AWS4-HMAC-SHA256 ..."})
+
+    auth_handler(request)
+
+    assert request.headers == {"Authorization": "Bearer br-test-key"}
+
+
+def test__init__without_api_key_does_not_register_bearer_auth(session_cls, bedrock_client):
+    """Keep the default IAM-signing path when no API key is provided."""
+    _ = BedrockModel()
+
+    _, kwargs = session_cls.return_value.client.call_args
+    assert kwargs["config"].signature_version is None
+    bedrock_client.meta.events.register.assert_not_called()
 
 
 def test__init__model_config(bedrock_client):
