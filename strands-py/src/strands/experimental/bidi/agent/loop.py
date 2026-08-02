@@ -262,10 +262,13 @@ class _BidiAgentLoop:
                 BidiAfterConnectionRestartEvent(self._agent, restart_exception)
             )
 
-        # Only reopen the send gate if the restart succeeded; otherwise send() would
-        # write to a connection that was never restarted.
-        if restart_exception is None:
-            self._send_gate.set()
+        # A failed restart leaves no running model task and a closed send gate, so surface it
+        # to the receive() consumer rather than idling silently. Telemetry and the after-restart
+        # hook have already reported the error above.
+        if restart_exception is not None:
+            raise restart_exception
+
+        self._send_gate.set()
 
     async def _run_model(self) -> None:
         """Task for running the model.

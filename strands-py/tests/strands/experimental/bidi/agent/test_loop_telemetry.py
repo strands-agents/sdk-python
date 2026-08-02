@@ -28,6 +28,10 @@ from strands.experimental.bidi.types.events import (
     BidiTextInputEvent,
     BidiUsageEvent,
 )
+from strands.experimental.hooks.events import (
+    BidiAfterConnectionRestartEvent,
+    BidiBeforeConnectionRestartEvent,
+)
 from strands.types._events import ToolResultMessageEvent, ToolUseStreamEvent
 
 
@@ -263,6 +267,53 @@ async def test_connection_restart_span(loop, agent, agenerator, otel_setup):
     spans = otel_setup.get_finished_spans()
     restart_spans = [s for s in spans if "bidi_connection_restart" in s.name]
     assert len(restart_spans) == 1
+
+
+@pytest.mark.asyncio
+async def test_before_restart_hook_exception_propagates(loop, agent, agenerator):
+    """A raising before-restart hook propagates out of receive() and leaves the send gate closed."""
+    timeout_error = BidiModelTimeoutError("8 minute timeout")
+    agent.model.receive = unittest.mock.Mock(side_effect=[timeout_error, agenerator([])])
+
+    def raise_hook(event: BidiBeforeConnectionRestartEvent) -> None:
+        raise RuntimeError("hook boom")
+
+    agent.hooks.add_callback(BidiBeforeConnectionRestartEvent, raise_hook)
+
+    await loop.start()
+
+    with pytest.raises(RuntimeError, match="hook boom"):
+        async for _ in loop.receive():
+            pass
+
+    assert not loop._send_gate.is_set()
+
+    await loop.stop()
+
+
+@pytest.mark.asyncio
+async def test_restart_failure_propagates_and_reports(loop, agent, agenerator):
+    """A failed restart surfaces to receive(), keeps the gate closed, and fires the after-restart hook."""
+    timeout_error = BidiModelTimeoutError("8 minute timeout")
+    agent.model.receive = unittest.mock.Mock(side_effect=[timeout_error, agenerator([])])
+    agent.model.start = unittest.mock.AsyncMock(side_effect=[None, ConnectionError("restart failed")])
+
+    after_errors = []
+    agent.hooks.add_callback(
+        BidiAfterConnectionRestartEvent, lambda event: after_errors.append(event.exception)
+    )
+
+    await loop.start()
+
+    with pytest.raises(ConnectionError, match="restart failed"):
+        async for _ in loop.receive():
+            pass
+
+    assert not loop._send_gate.is_set()
+    assert len(after_errors) == 1
+    assert isinstance(after_errors[0], ConnectionError)
+
+    await loop.stop()
 
 
 @pytest.mark.asyncio
