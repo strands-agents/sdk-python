@@ -23,6 +23,7 @@ from ...hooks.events import (
 from ...hooks.events import (
     BidiInterruptionEvent as BidiInterruptionHookEvent,
 )
+from .. import _telemetry
 from .._async import _TaskPool, stop_all
 from ..models import BidiModelTimeoutError
 from ..types.events import (
@@ -37,7 +38,6 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
-from .. import _telemetry
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -232,14 +232,16 @@ class _BidiAgentLoop:
 
         self._send_gate.clear()
 
+        # The before-restart hook runs before the restart begins; per the hook contract its
+        # exceptions propagate to the caller (receive()), leaving the send gate closed.
+        await self._agent.hooks.invoke_callbacks_async(BidiBeforeConnectionRestartEvent(self._agent, timeout_error))
+
         restart_span = _telemetry.start_restart_span(
             self._tracer, parent_span=self._session_span, error_message=str(timeout_error)
         )
 
         restart_exception = None
         try:
-            await self._agent.hooks.invoke_callbacks_async(BidiBeforeConnectionRestartEvent(self._agent, timeout_error))
-
             await self._agent.model.stop()
             await self._agent.model.start(
                 self._agent.system_prompt,
@@ -257,7 +259,10 @@ class _BidiAgentLoop:
                 BidiAfterConnectionRestartEvent(self._agent, restart_exception)
             )
 
-        self._send_gate.set()
+        # Only reopen the send gate if the restart succeeded; otherwise send() would
+        # write to a connection that was never restarted.
+        if restart_exception is None:
+            self._send_gate.set()
 
     async def _run_model(self) -> None:
         """Task for running the model.
