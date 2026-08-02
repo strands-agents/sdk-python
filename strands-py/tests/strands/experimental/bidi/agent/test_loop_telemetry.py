@@ -221,6 +221,28 @@ async def test_tool_call_span_created(loop, agent, agenerator, otel_setup):
 
 
 @pytest.mark.asyncio
+async def test_tool_call_span_closed_on_error(loop, agent, agenerator, otel_setup):
+    """Tool call span is closed with error status when tool execution raises."""
+    tool_use = {"toolUseId": "t1", "name": "mock_tool", "input": {}}
+    events = [ToolUseStreamEvent(current_tool_use=tool_use, delta="")]
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator(events))
+    agent.tool_executor._stream = unittest.mock.Mock(side_effect=RuntimeError("tool boom"))
+
+    await loop.start()
+
+    with pytest.raises(RuntimeError, match="tool boom"):
+        async for _ in loop.receive():
+            pass
+
+    await loop.stop()
+
+    spans = otel_setup.get_finished_spans()
+    tool_spans = [s for s in spans if "execute_tool" in s.name]
+    assert len(tool_spans) == 1
+    assert tool_spans[0].status.status_code == StatusCode.ERROR
+
+
+@pytest.mark.asyncio
 async def test_connection_restart_span(loop, agent, agenerator, otel_setup):
     """Connection restart creates a span with error message."""
     timeout_error = BidiModelTimeoutError("8 minute timeout")

@@ -89,7 +89,8 @@ def start_response_span(tracer: Tracer, response_id: str, parent_span: Span | No
     attributes: dict[str, AttributeValue] = tracer._get_common_attributes(operation_name="bidi_response")
     attributes["gen_ai.response.id"] = response_id
 
-    return tracer._start_span(f"bidi_response {response_id}", parent_span, attributes=attributes)
+    # Static span name (response_id is recorded as an attribute) to avoid high-cardinality names.
+    return tracer._start_span("bidi_response", parent_span, attributes=attributes)
 
 
 def end_response_span(

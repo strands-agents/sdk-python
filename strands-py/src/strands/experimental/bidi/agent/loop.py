@@ -348,6 +348,8 @@ class _BidiAgentLoop:
         }
 
         tool_call_span = self._tracer.start_tool_call_span(tool_use, parent_span=self._session_span)
+        tool_result: ToolResult | None = None
+        tool_error: Exception | None = None
 
         try:
             tool_events = self._agent.tool_executor._stream(
@@ -368,14 +370,13 @@ class _BidiAgentLoop:
 
             # Normal flow for all tools (including stop_conversation)
             tool_result_event = cast(ToolResultEvent, tool_event)
+            tool_result = tool_result_event.tool_result
 
             tool_use_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
             tool_result_message: Message = {"role": "user", "content": [{"toolResult": tool_result_event.tool_result}]}
             await self._agent._append_messages(tool_use_message, tool_result_message)
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
-
-            self._tracer.end_tool_call_span(tool_call_span, tool_result_event.tool_result)
 
             # Check for stop_event_loop flag (set by strands_tools.stop, stop_conversation, or any custom tool)
             request_state = invocation_state.get("request_state", {})
@@ -403,5 +404,8 @@ class _BidiAgentLoop:
             await self.send(tool_result_event)
 
         except Exception as error:
-            self._tracer.end_tool_call_span(tool_call_span, tool_result=None, error=error)
+            tool_error = error
             await self._event_queue.put(error)
+        finally:
+            # Single end site ensures the span is closed even on cancellation.
+            self._tracer.end_tool_call_span(tool_call_span, tool_result=tool_result, error=tool_error)
