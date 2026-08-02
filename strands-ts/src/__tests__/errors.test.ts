@@ -68,6 +68,14 @@ describe('ContextWindowOverflowError', () => {
       expect(error).toBeInstanceOf(ModelError)
     })
   })
+
+  describe('when instantiated with a cause', () => {
+    it('preserves the cause', () => {
+      const cause = new Error('original error')
+
+      expect(new ContextWindowOverflowError('context window overflow', { cause }).cause).toBe(cause)
+    })
+  })
 })
 
 describe('MaxTokensError', () => {

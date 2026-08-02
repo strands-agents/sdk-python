@@ -178,6 +178,7 @@ sidebar:
               - docs/user-guide/deploy/deploy_to_bedrock_agentcore
               - docs/user-guide/deploy/deploy_to_bedrock_agentcore/python
               - docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript
+              - docs/user-guide/deploy/deploy_to_bedrock_agentcore/harness
           - docs/user-guide/deploy/deploy_to_aws_lambda
           - docs/user-guide/deploy/deploy_to_aws_fargate
           - docs/user-guide/deploy/deploy_to_aws_apprunner

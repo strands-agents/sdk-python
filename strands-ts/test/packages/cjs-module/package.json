@@ -5,6 +5,7 @@
   "private": true,
   "description": "Test package to verify SDK works with CSJ",
   "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "^3.1078.0",
     "@strands-agents/sdk": "file:../../.."
   }
 }
