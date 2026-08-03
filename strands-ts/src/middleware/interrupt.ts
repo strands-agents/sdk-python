@@ -14,10 +14,7 @@ import type { MiddlewareInterruptResult } from './stages.js'
  * @param interruptState - State used to resolve prior responses
  * @param idPrefix - Prefix used to construct the interrupt identifier
  * @param priorResponses - Optional snapshot of interrupts to resolve prior responses from,
- *   instead of the live `interruptState.interrupts`. The agent-stream stage passes a snapshot
- *   taken before the pass: its context outlives a tool cycle in the same pass, and that cycle's
- *   `deactivate()` clears the live interrupts — reading a snapshot keeps a gate's re-read after
- *   `next()` stable. The tool stage omits it and reads live state.
+ *   instead of the live `interruptState.interrupts`.
  * @returns Interrupt function for a middleware context
  *
  * @internal

@@ -638,9 +638,6 @@ describe('Agent interrupt system', () => {
     })
 
     it('preserves the pending tool interrupt when a resume is cancelled before the tool runs', async () => {
-      // A tool interrupt stores pending execution and stays activated. If the resume is
-      // cancelled before the tool executes, that pending interrupt must survive so a later
-      // resume can still run the tool — the cancelled pass must not wipe the interrupt state.
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'confirmTool', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })

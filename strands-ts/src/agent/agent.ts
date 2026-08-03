@@ -1168,9 +1168,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     options: InvokeOptions,
     invocationState: InvocationState
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
-    // Snapshot interrupts before the pass: a tool cycle within this pass can call the event
-    // loop's deactivate() and clear the live map, but a gate that re-reads its approval after
-    // next() must still see the resumed response.
+    // Snapshot so a gate that re-reads its response after next() still resolves even if a tool cycle called deactivate().
     const interruptsSnapshot = { ...this._interruptState.interrupts }
     const context: AgentStreamContext = {
       agent: this,
@@ -1191,11 +1189,6 @@ export class Agent implements LocalAgent, InvokableAgent {
           return { result }
         }
       )
-      // A resumed AgentStreamStage interrupt that completes without a tool cycle never reaches
-      // the tool loop's deactivate(), so clear the interrupt state here. Guard on the absence of
-      // a pending tool execution so this only clears agent-stream interrupts and never wipes a
-      // pending tool interrupt — some non-interrupt endings (e.g. a cancelled resume) keep the
-      // tool interrupt activated on purpose.
       if (
         this._interruptState.activated &&
         result.stopReason !== 'interrupt' &&
@@ -1513,10 +1506,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           let completedToolResults: Map<string, ToolResultBlock> | undefined
 
           if (pendingExecution) {
-            // Resume from stored state - skip model call. The pending marker is NOT cleared
-            // here: if this resumed pass is cancelled before the tool runs, the marker must
-            // survive so a later resume can still execute the tool. It is cleared by the
-            // deactivate() below once the tools actually execute.
+            // Resume from stored state - skip model call.
             assistantMessage = pendingExecution.assistantMessage
             completedToolResults = pendingExecution.completedToolResults
           } else {

@@ -312,10 +312,6 @@ describe('Middleware interrupts', () => {
     })
 
     it('re-reads the resumed response after next() even when a tool ran in the pass', async () => {
-      // The gate resolves its interrupt before next() and re-reads it after next() drains. The
-      // inner pass runs a tool whose successful cycle deactivates interrupt state. The re-read
-      // must still return the resumed response (from a snapshot taken before the pass) rather
-      // than re-raising — otherwise the resume never converges (livelock).
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'calc', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'done' })
