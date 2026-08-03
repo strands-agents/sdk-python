@@ -223,7 +223,7 @@ describe('Agent Cancellation', () => {
         resolveTransportPending = resolve
       })
       vi.spyOn(model, 'stream').mockImplementation(async function* (_messages, options) {
-        const signal = options?.signal
+        const signal = options?.cancelSignal
         modelSignal = signal
 
         yield { type: 'modelMessageStartEvent', role: 'assistant' }

@@ -35,7 +35,7 @@ describe('BedrockModel browser transport cancellation', () => {
       })
       const controller = new AbortController()
       const output = model.stream([new Message({ role: 'user', content: [new TextBlock('Hello')] })], {
-        signal: controller.signal,
+        cancelSignal: controller.signal,
       })
       const iterator = output[Symbol.asyncIterator]()
 

@@ -1231,7 +1231,7 @@ describe('BedrockModel', () => {
       const provider = new BedrockModel({ stream })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
 
-      await collectIterator(provider.stream(messages, { signal: controller.signal }))
+      await collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
 
       expect(mockSend).toHaveBeenCalledWith(expect.anything(), { abortSignal: controller.signal })
     })
@@ -1271,7 +1271,7 @@ describe('BedrockModel', () => {
       const provider = new BedrockModel()
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
 
-      const streamResult = collectIterator(provider.stream(messages, { signal: controller.signal }))
+      const streamResult = collectIterator(provider.stream(messages, { cancelSignal: controller.signal }))
       await firstTokenProduced
       const tokensAtCancel = producedTokens
       controller.abort()

@@ -2127,7 +2127,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           // get/set methods.
           tempModelState = new StateStore(modelStateSnapshot)
           const streamOptions: StreamOptions = {
-            signal: self._abortSignal,
+            cancelSignal: self._abortSignal,
             toolSpecs: ctx.toolSpecs as ToolSpec[],
             modelState: tempModelState,
             ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),

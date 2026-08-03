@@ -130,10 +130,10 @@ export interface BaseModelConfig {
  */
 export interface StreamOptions {
   /**
-   * Optional signal that a provider implementation can forward to abort an in-flight request.
+   * Optional cancellation signal that a provider implementation can forward to abort an in-flight request.
    * Support is provider-dependent.
    */
-  signal?: AbortSignal
+  cancelSignal?: AbortSignal
 
   /**
    * System prompt to guide the model's behavior.
