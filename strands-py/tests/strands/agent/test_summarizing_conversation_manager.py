@@ -130,13 +130,14 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
 
     summarizing_manager.reduce_context(mock_agent)
 
-    # Should have: 1 summary message + 2 preserved recent messages + remaining from summarization
-    assert len(mock_agent.messages) == 4
-
-    # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "user"
-    first_content = mock_agent.messages[0]["content"][0]
-    assert "text" in first_content and "This is a summary of the conversation." in first_content["text"]
+    # The user preamble keeps the assistant-authored summary valid as conversation history.
+    assert len(mock_agent.messages) == 5
+    preamble_message, summary_message = mock_agent.messages[:2]
+    assert preamble_message["role"] == "user"
+    assert preamble_message["content"] == [{"text": "Previous conversation summary:"}]
+    assert summary_message["role"] == "assistant"
+    summary_content = summary_message["content"][0]
+    assert "text" in summary_content and "This is a summary of the conversation." in summary_content["text"]
 
     # Recent messages should be preserved
     assert "Message 3" in str(mock_agent.messages[-2]["content"])
@@ -156,9 +157,12 @@ def test_reduce_context_summary_message_has_durable_id(summarizing_manager, mock
 
     summarizing_manager.reduce_context(mock_agent)
 
-    summary_message = mock_agent.messages[0]
+    preamble_message, summary_message = mock_agent.messages[:2]
+    assert isinstance(preamble_message.get("tracking_id"), str)
+    assert preamble_message["tracking_id"]
     assert isinstance(summary_message.get("tracking_id"), str)
     assert summary_message["tracking_id"]
+    assert preamble_message["tracking_id"] != summary_message["tracking_id"]
 
 
 def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, mock_agent):
@@ -236,6 +240,7 @@ def test_generate_summary(summarizing_manager, mock_agent):
 
     summary = summarizing_manager._generate_summary(test_messages, mock_agent)
 
+    assert summary["role"] == "assistant"
     summary_content = summary["content"][0]
     assert "text" in summary_content and summary_content["text"] == "This is a summary of the conversation."
 
@@ -368,6 +373,7 @@ def test_uses_summarization_agent_when_provided():
     summary = manager._generate_summary(messages, parent_agent)
 
     # Should use the dedicated summarization agent, not the parent agent
+    assert summary["role"] == "assistant"
     summary_content = summary["content"][0]
     assert "text" in summary_content and summary_content["text"] == "Custom summary from dedicated agent"
 
@@ -572,17 +578,17 @@ def test_reduce_context_tool_pair_adjustment_works_with_forward_search():
     # messages_to_summarize_count = (3 - 1) * 0.5 = 1
     # But split point adjustment will move forward from the toolUse, potentially increasing count
     manager.reduce_context(mock_agent)
-    # Should have summary + remaining messages
-    assert len(mock_agent.messages) == 2
+    assert len(mock_agent.messages) == 3
 
-    # First message should be the summary
     assert mock_agent.messages[0]["role"] == "user"
-    summary_content = mock_agent.messages[0]["content"][0]
+    assert mock_agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    assert mock_agent.messages[1]["role"] == "assistant"
+    summary_content = mock_agent.messages[1]["content"][0]
     assert "text" in summary_content and "This is a summary of the conversation." in summary_content["text"]
 
     # Last message should be the preserved recent message
-    assert mock_agent.messages[1]["role"] == "user"
-    assert mock_agent.messages[1]["content"][0]["text"] == "Latest message"
+    assert mock_agent.messages[2]["role"] == "user"
+    assert mock_agent.messages[2]["content"][0]["text"] == "Latest message"
 
 
 def test_adjust_split_point_exceeds_message_length(summarizing_manager):
@@ -729,23 +735,20 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
     assert manager.removed_message_count == 0
 
     manager.reduce_context(agent)
-    # Assert the oldest message is the sumamry message
     assert manager._summary_message["content"][0]["text"] == "Summary"
-    # There are 8 messages in the agent messages array, since half will be summarized,
-    # 4 will remain plus 1 summary message = 5
-    assert (len(agent.messages)) == 5
-    # Half of the messages were summarized and removed: 8/2 = 4
+    assert manager._summary_message["role"] == "assistant"
+    assert len(agent.messages) == 6
+    assert agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    assert agent.messages[1] is manager._summary_message
     assert manager.removed_message_count == 4
 
     manager.reduce_context(agent)
     assert manager._summary_message["content"][0]["text"] == "Summary"
-    # After the first summary, 5 messages remain. Summarizing again will lead to:
-    # 5 - (int(5/2)) (messages to be sumamrized) + 1 (new summary message) = 5 - 2 + 1 = 4
-    assert (len(agent.messages)) == 4
-    # Half of the messages were summarized and removed: int(5/2) = 2
-    # However, one of the messages that was summarized was the previous summary message,
-    # so we dont count this toward the total:
-    # 4 (Previously removed messages) + 2 (removed messages) - 1 (Previous summary message) = 5
+    assert manager._summary_message["role"] == "assistant"
+    assert len(agent.messages) == 5
+    assert agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    assert agent.messages[1] is manager._summary_message
+    # The generated preamble and prior summary do not advance the persisted-message offset.
     assert manager.removed_message_count == 5
 
 
@@ -861,9 +864,10 @@ def test_proactive_compression_summarizes_when_exceeded():
     event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=800)
     registry.invoke_callbacks(event)
 
-    # 20 * 0.5 = 10 summarized → 1 summary + 10 remaining = 11
-    assert len(agent.messages) == 11
+    # 20 * 0.5 = 10 summarized → preamble + summary + 10 remaining = 12
+    assert len(agent.messages) == 12
     assert agent.messages[0]["role"] == "user"
+    assert agent.messages[1]["role"] == "assistant"
 
 
 def test_proactive_compression_no_summarize_when_below():

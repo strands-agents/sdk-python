@@ -152,16 +152,17 @@ def test_summarization_with_context_overflow(model):
 
     # Verify summarization occurred
     assert len(agent.messages) < initial_message_count
-    # Should have: 1 summary + remaining messages
+    # Should have: preamble + summary + remaining messages
     # With 6 messages, summary_ratio=0.5, preserve_recent_messages=2:
     # messages_to_summarize = min(6 * 0.5, 6 - 2) = min(3, 4) = 3
-    # So we summarize 3 messages, leaving 3 remaining + 1 summary = 4 total
-    expected_total_messages = 4
+    # So we summarize 3 messages, leaving 3 remaining + 2 attributed summary messages = 5 total
+    expected_total_messages = 5
     assert len(agent.messages) == expected_total_messages
 
-    # First message should be the summary (assistant message)
-    summary_message = agent.messages[0]
-    assert summary_message["role"] == "user"
+    assert agent.messages[0]["role"] == "user"
+    assert agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    summary_message = agent.messages[1]
+    assert summary_message["role"] == "assistant"
     assert len(summary_message["content"]) > 0
 
     # Verify the summary contains actual text content
@@ -361,9 +362,10 @@ def test_dedicated_summarization_agent(model, summarization_model):
     # Verify summarization occurred
     assert len(agent.messages) < original_length
 
-    # Get the summary message
-    summary_message = agent.messages[0]
-    assert summary_message["role"] == "user"
+    assert agent.messages[0]["role"] == "user"
+    assert agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    summary_message = agent.messages[1]
+    assert summary_message["role"] == "assistant"
 
     # Extract summary text
     summary_text = None
@@ -405,9 +407,9 @@ def test_summarization_with_tool_messages_and_no_tools():
     conversation_manager.reduce_context(agent)
 
     assert len(agent.tool_names) == 0
-    assert len(agent.messages) == 3
+    assert len(agent.messages) == 4
 
-    summary = str(agent.messages[0]).lower()
+    summary = str(agent.messages[1]).lower()
     assert "12:00" in summary
 
 
@@ -415,9 +417,8 @@ def test_dedicated_summarization_agent_with_structured_output(model, summarizati
     """Test that summarization works when the summarization agent has structured_output_model configured.
 
     When structured_output_model is set on the summarization agent, the response would contain toolUse
-    blocks. Since the summary is converted to a user message, those blocks would cause a
-    ValidationException. This test verifies that structured output is properly disabled during
-    summarization.
+    blocks without matching toolResult blocks. This test verifies that structured output is properly
+    disabled during summarization.
     """
 
     class SummaryOutput(BaseModel):
@@ -461,12 +462,14 @@ def test_dedicated_summarization_agent_with_structured_output(model, summarizati
 
     assert len(agent.messages) < original_length
 
-    summary_message = agent.messages[0]
-    assert summary_message["role"] == "user"
+    assert agent.messages[0]["role"] == "user"
+    assert agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    summary_message = agent.messages[1]
+    assert summary_message["role"] == "assistant"
 
-    # Summary should contain only valid user message content (no toolUse blocks)
+    # Summary should contain only valid assistant message content (no toolUse blocks)
     for content_block in summary_message["content"]:
-        assert "toolUse" not in content_block, "Summary user message should not contain toolUse blocks"
+        assert "toolUse" not in content_block, "Summary assistant message should not contain toolUse blocks"
 
     # Should have text content
     assert any("text" in cb for cb in summary_message["content"])

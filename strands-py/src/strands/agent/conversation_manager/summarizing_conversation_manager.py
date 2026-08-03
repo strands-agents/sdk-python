@@ -79,6 +79,7 @@ class SummarizingConversationManager(ConversationManager):
         self.summarization_system_prompt = summarization_system_prompt
         self.pin_first = max(0, pin_first) if pin_first is not None else None
         self._pin_first_applied = False
+        self._summary_preamble: Message | None = None
         self._summary_message: Message | None = None
 
     @override
@@ -93,11 +94,27 @@ class SummarizingConversationManager(ConversationManager):
         """
         super().restore_from_session(state)
         self._summary_message = state.get("summary_message")
-        return [self._summary_message] if self._summary_message else None
+        if not self._summary_message:
+            self._summary_preamble = None
+            return None
+
+        self._summary_preamble = state.get("summary_preamble") or self._create_summary_preamble()
+        return [self._summary_preamble, self._summary_message]
 
     def get_state(self) -> dict[str, Any]:
         """Returns a dictionary representation of the state for the Summarizing Conversation Manager."""
-        return {"summary_message": self._summary_message, **super().get_state()}
+        return {
+            "summary_preamble": self._summary_preamble,
+            "summary_message": self._summary_message,
+            **super().get_state(),
+        }
+
+    @staticmethod
+    def _create_summary_preamble() -> Message:
+        """Create the user message that introduces an assistant-authored summary."""
+        preamble: Message = {"role": "user", "content": [{"text": "Previous conversation summary:"}]}
+        _ensure_tracking_id(preamble)
+        return preamble
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply management strategy to conversation history.
@@ -182,21 +199,36 @@ class SummarizingConversationManager(ConversationManager):
         if not to_summarize:
             raise ContextWindowOverflowException("Cannot summarize: all messages in summarize range are pinned")
 
-        remaining_messages = agent.messages[messages_to_summarize_count:]
+        previous_summary_messages = tuple(
+            message for message in (self._summary_preamble, self._summary_message) if message is not None
+        )
+        protected_to_preserve = [
+            message
+            for message in protected_to_preserve
+            if all(message is not previous for previous in previous_summary_messages)
+        ]
+        remaining_messages = [
+            message
+            for message in agent.messages[messages_to_summarize_count:]
+            if all(message is not previous for previous in previous_summary_messages)
+        ]
 
-        # Keep track of the number of messages that have been summarized thus far.
-        self.removed_message_count += len(to_summarize)
-        # If there is a summary message, don't count it in the removed_message_count.
-        if self._summary_message:
-            self.removed_message_count -= 1
+        # Only persisted conversation messages contribute to the repository restore offset.
+        self.removed_message_count += sum(
+            all(message is not previous for previous in previous_summary_messages) for message in to_summarize
+        )
 
-        # Generate summary
-        self._summary_message = self._generate_summary(to_summarize, agent)
+        summary_input = [message for message in to_summarize if message is not self._summary_preamble]
+        if self._summary_message and all(message is not self._summary_message for message in summary_input):
+            summary_input.insert(0, self._summary_message)
+
+        self._summary_preamble = self._create_summary_preamble()
+        self._summary_message = self._generate_summary(summary_input, agent)
         # Assign tracking id to the summary message since it bypasses the append method.
         _ensure_tracking_id(self._summary_message)
 
-        # Replace summarized range with protected messages + summary + remaining
-        agent.messages[:] = protected_to_preserve + [self._summary_message] + remaining_messages
+        # Replace summarized range with protected messages + attributed summary + remaining
+        agent.messages[:] = protected_to_preserve + [self._summary_preamble, self._summary_message] + remaining_messages
 
     def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.
@@ -247,7 +279,7 @@ class SummarizingConversationManager(ConversationManager):
 
         try:
             # Disable structured output for summarization. Summaries are plain text and
-            # structured output adds toolUse blocks that are invalid in user messages.
+            # structured output can add toolUse blocks without matching toolResult blocks.
             if hasattr(summarization_agent, "_default_structured_output_model"):
                 summarization_agent._default_structured_output_model = None
 
@@ -260,7 +292,7 @@ class SummarizingConversationManager(ConversationManager):
             summarization_agent.messages = messages
 
             result = summarization_agent("Please summarize this conversation.")
-            return cast(Message, {**result.message, "role": "user"})
+            return cast(Message, {**result.message, "role": "assistant"})
 
         finally:
             summarization_agent.system_prompt = original_system_prompt
@@ -288,7 +320,8 @@ class SummarizingConversationManager(ConversationManager):
         Returns:
             A message containing the conversation summary.
         """
-        return run_async(lambda: generate_summary(messages, agent.model, self.summarization_system_prompt))
+        summary = run_async(lambda: generate_summary(messages, agent.model, self.summarization_system_prompt))
+        return cast(Message, {**summary, "role": "assistant"})
 
     def _adjust_split_point_for_tool_pairs(self, messages: list[Message], split_point: int) -> int:
         """Adjust the split point to avoid breaking ToolUse/ToolResult pairs.

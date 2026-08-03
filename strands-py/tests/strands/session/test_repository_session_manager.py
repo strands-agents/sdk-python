@@ -179,10 +179,14 @@ def test_initialize_restores_existing_agent_with_summarizing_conversation_manage
 
     # Verify agent state restored
     assert agent.state.get("key") == "value"
-    # The session message plus the summary message
-    assert len(agent.messages) == 2
-    assert agent.messages[1]["role"] == "user"
-    assert agent.messages[1]["content"][0]["text"] == "Hello"
+    # The attributed summary is prepended to the remaining persisted session message.
+    assert len(agent.messages) == 3
+    assert agent.messages[0]["role"] == "user"
+    assert agent.messages[0]["content"] == [{"text": "Previous conversation summary:"}]
+    assert agent.messages[1]["role"] == "assistant"
+    assert agent.messages[1]["content"][0]["text"] == "summary"
+    assert agent.messages[2]["role"] == "user"
+    assert agent.messages[2]["content"][0]["text"] == "Hello"
     assert agent.conversation_manager.removed_message_count == 1
 
 
