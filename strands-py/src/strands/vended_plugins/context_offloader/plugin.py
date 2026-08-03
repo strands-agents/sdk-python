@@ -27,6 +27,16 @@ Example:
             include_retrieval_tool=True,
         )
     ])
+
+    # Selective offloading: only offload results from specific tools
+    agent = Agent(plugins=[
+        ContextOffloader(
+            storage=InMemoryStorage(),
+            should_offload=lambda tool_name, token_count, **kwargs: (
+                tool_name == "get_document_text"
+            ),
+        )
+    ])
     ```
 """
 
@@ -35,7 +45,7 @@ from __future__ import annotations
 import json
 import logging
 import weakref
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 from typing_extensions import TypedDict
 
@@ -138,6 +148,21 @@ _CHARS_PER_TOKEN = 4
 """Approximate characters per token, fallback for preview slicing without tiktoken."""
 
 
+class ShouldOffload(Protocol):
+    """Callback protocol for deciding whether a tool result should be offloaded."""
+
+    def __call__(self, tool_name: str, token_count: int, **kwargs: Any) -> bool:
+        """Return True to offload, False to keep the result in context.
+
+        Args:
+            tool_name: Name of the tool that produced the result.
+            token_count: Estimated token count of the result.
+            **kwargs: Reserved for future parameters. Implementations should accept
+                ``**kwargs`` for forward compatibility.
+        """
+        ...
+
+
 class ContextOffloader(Plugin):
     """Plugin that offloads oversized tool results to reduce context consumption.
 
@@ -168,6 +193,8 @@ class ContextOffloader(Plugin):
         preview_tokens: Number of tokens to keep as a text preview in context.
         include_retrieval_tool: Whether to register the ``retrieve_offloaded_content`` tool.
             Defaults to True.
+        should_offload: Callback to control which tool results are offloaded.
+            Defaults to None (all oversized results offloaded).
 
     Example:
         ```python
@@ -176,6 +203,16 @@ class ContextOffloader(Plugin):
 
         agent = Agent(plugins=[
             ContextOffloader(storage=InMemoryStorage())
+        ])
+
+        # Only offload results from large-output tools
+        agent = Agent(plugins=[
+            ContextOffloader(
+                storage=InMemoryStorage(),
+                should_offload=lambda tool_name, token_count, **kwargs: (
+                    tool_name == "get_document_text"
+                ),
+            )
         ])
         ```
     """
@@ -189,6 +226,7 @@ class ContextOffloader(Plugin):
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
         include_retrieval_tool: bool = True,
+        should_offload: ShouldOffload | None = None,
         evict_after_cycles: int | None = 20,
     ) -> None:
         """Initialize the ContextOffloader plugin.
@@ -204,6 +242,10 @@ class ContextOffloader(Plugin):
                 chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
             include_retrieval_tool: Whether to register the ``retrieve_offloaded_content``
                 tool so the agent can fetch offloaded content. Defaults to True.
+            should_offload: Callback ``(tool_name, token_count, **kwargs) -> bool`` to decide
+                whether a specific tool result should be offloaded. Called only when the result
+                exceeds ``max_result_tokens``. Return ``True`` to offload, ``False`` to keep
+                in context. Defaults to None (all oversized results offloaded).
             evict_after_cycles: Number of agent loop cycles before an offloaded entry is
                 evicted (unified Storage only). Entries stored more than this many cycles
                 ago are deleted. Defaults to 20. Set to None to disable eviction.
@@ -227,6 +269,7 @@ class ContextOffloader(Plugin):
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
+        self._should_offload = should_offload
         self._evict_after_cycles = evict_after_cycles
         self._stored_cycles: weakref.WeakKeyDictionary[Agent, dict[str, int]] = weakref.WeakKeyDictionary()
         super().__init__()
@@ -415,6 +458,9 @@ class ContextOffloader(Plugin):
         token_count = await event.agent.model.count_tokens([tool_result_message])
 
         if token_count <= self._max_result_tokens:
+            return
+
+        if self._should_offload is not None and not self._should_offload(event.tool_use.get("name"), token_count):
             return
 
         # Build text preview from text+JSON blocks.
