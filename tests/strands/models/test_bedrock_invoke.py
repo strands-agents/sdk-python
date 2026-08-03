@@ -214,24 +214,15 @@ async def test_stream_anthropic_text_only(bedrock_client):
 
 @pytest.mark.asyncio
 async def test_stream_anthropic_tool_use(bedrock_client):
+    cb_start = {"type": "tool_use", "id": "tu1", "name": "weather", "input": {}}
+    delta1 = {"type": "input_json_delta", "partial_json": '{"city":'}
+    delta2 = {"type": "input_json_delta", "partial_json": '"Paris"}'}
     bedrock_client.invoke_model_with_response_stream.return_value = {
         "body": _chunks([
             {"type": "message_start", "message": {"usage": {"input_tokens": 7, "output_tokens": 0}}},
-            {
-                "type": "content_block_start",
-                "index": 0,
-                "content_block": {"type": "tool_use", "id": "tu1", "name": "weather", "input": {}},
-            },
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "input_json_delta", "partial_json": '{"city":'},
-            },
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "input_json_delta", "partial_json": '"Paris"}'},
-            },
+            {"type": "content_block_start", "index": 0, "content_block": cb_start},
+            {"type": "content_block_delta", "index": 0, "delta": delta1},
+            {"type": "content_block_delta", "index": 0, "delta": delta2},
             {"type": "content_block_stop", "index": 0},
             {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 11}},
             {"type": "message_stop"},
@@ -246,26 +237,14 @@ async def test_stream_anthropic_tool_use(bedrock_client):
 
 @pytest.mark.asyncio
 async def test_stream_openai_text_and_tool(bedrock_client):
+    tc1 = {"index": 0, "id": "call_abc", "function": {"name": "fn", "arguments": '{"x":'}}
+    tc2 = {"index": 0, "function": {"arguments": "1}"}}
     bedrock_client.invoke_model_with_response_stream.return_value = {
         "body": _chunks([
             {"choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]},
             {"choices": [{"delta": {"content": " world"}, "finish_reason": None}]},
-            {
-                "choices": [{
-                    "delta": {
-                        "tool_calls": [
-                            {"index": 0, "id": "call_abc", "function": {"name": "fn", "arguments": '{"x":'}}
-                        ]
-                    },
-                    "finish_reason": None,
-                }]
-            },
-            {
-                "choices": [{
-                    "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]},
-                    "finish_reason": "tool_calls",
-                }]
-            },
+            {"choices": [{"delta": {"tool_calls": [tc1]}, "finish_reason": None}]},
+            {"choices": [{"delta": {"tool_calls": [tc2]}, "finish_reason": "tool_calls"}]},
             {"choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14}},
         ])
     }
@@ -321,19 +300,13 @@ async def test_stream_context_window_overflow(bedrock_client):
 
 @pytest.mark.asyncio
 async def test_structured_output_yields_pydantic_model(bedrock_client):
+    cb_start = {"type": "tool_use", "id": "tu1", "name": "Person", "input": {}}
+    delta = {"type": "input_json_delta", "partial_json": '{"name":"Ada","age":36}'}
     bedrock_client.invoke_model_with_response_stream.return_value = {
         "body": _chunks([
             {"type": "message_start", "message": {"usage": {"input_tokens": 4, "output_tokens": 0}}},
-            {
-                "type": "content_block_start",
-                "index": 0,
-                "content_block": {"type": "tool_use", "id": "tu1", "name": "Person", "input": {}},
-            },
-            {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "input_json_delta", "partial_json": '{"name":"Ada","age":36}'},
-            },
+            {"type": "content_block_start", "index": 0, "content_block": cb_start},
+            {"type": "content_block_delta", "index": 0, "delta": delta},
             {"type": "content_block_stop", "index": 0},
             {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 9}},
             {"type": "message_stop"},

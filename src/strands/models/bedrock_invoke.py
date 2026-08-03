@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 from collections.abc import AsyncGenerator, Callable
 from typing import Any, Literal, TypeVar, cast
 
@@ -19,13 +20,21 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages, SystemContentBlock
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
-from .bedrock import BedrockModel
+from .bedrock import (
+    BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES,
+    DEFAULT_BEDROCK_MODEL_ID,
+    DEFAULT_BEDROCK_REGION,
+    DEFAULT_READ_TIMEOUT,
+    BedrockModel,
+)
 from .model import BaseModelConfig
 
 logger = logging.getLogger(__name__)
@@ -62,9 +71,9 @@ def _metadata(in_tok: int, out_tok: int, total: int | None = None) -> StreamEven
 class BedrockInvokeModel(BedrockModel):
     """AWS Bedrock model provider using ``InvokeModel`` / ``InvokeModelWithResponseStream``.
 
-    Subclasses :class:`~strands.models.bedrock.BedrockModel` to reuse its boto client setup and
-    Bedrock-specific error translation, while replacing request formatting, streaming, and response
-    translation to talk to the native InvokeModel APIs instead of Converse.
+    Subclasses :class:`~strands.models.bedrock.BedrockModel`, matching the shape of other
+    provider-family subclasses (e.g. ``SageMakerAIModel(OpenAIModel)``), while replacing request
+    formatting, streaming, and response translation to talk to the native InvokeModel APIs.
     """
 
     class BedrockInvokeConfig(BaseModelConfig, total=False):
@@ -89,23 +98,35 @@ class BedrockInvokeModel(BedrockModel):
         **model_config: Unpack[BedrockInvokeConfig],
     ):
         """Initialize the provider. ``boto_session`` and ``region_name`` are mutually exclusive."""
-        self.client, resolved_region = self._create_bedrock_runtime_client(
-            boto_session=boto_session,
-            boto_client_config=boto_client_config,
-            region_name=region_name,
-            endpoint_url=endpoint_url,
-        )
+        if region_name and boto_session:
+            raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
         validate_config_keys(model_config, self.BedrockInvokeConfig)
 
+        session = boto_session or boto3.Session()
+        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+
         config: BedrockInvokeModel.BedrockInvokeConfig = {
-            "model_id": self._get_default_model_with_warning(resolved_region, model_config),
+            "model_id": model_config.get("model_id", DEFAULT_BEDROCK_MODEL_ID),
             "streaming": model_config.get("streaming", True),
         }
         config.update({k: v for k, v in model_config.items() if k != "model_id"})  # type: ignore[typeddict-item]
         self.config: BedrockInvokeModel.BedrockInvokeConfig = config  # type: ignore[assignment]
-
         logger.debug("config=<%s> | initializing", self.config)
+
+        if boto_client_config:
+            extra = getattr(boto_client_config, "user_agent_extra", None)
+            ua = f"{extra} strands-agents" if extra else "strands-agents"
+            client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=ua))
+        else:
+            client_config = BotocoreConfig(user_agent_extra="strands-agents", read_timeout=DEFAULT_READ_TIMEOUT)
+
+        self.client = session.client(
+            service_name="bedrock-runtime",
+            config=client_config,
+            endpoint_url=endpoint_url,
+            region_name=resolved_region,
+        )
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @override
@@ -135,6 +156,16 @@ class BedrockInvokeModel(BedrockModel):
     @staticmethod
     def _system_text(blocks: list[SystemContentBlock] | None) -> str:
         return " ".join(b.get("text", "") for b in (blocks or []) if "text" in b)
+
+    def _apply_sampling_params(self, request: dict[str, Any], stop_key: str, include_top_k: bool = False) -> None:
+        """Copy configured temperature/top_p/(top_k)/stop_sequences onto ``request`` when set."""
+        config = cast(dict[str, Any], self.config)
+        keys = ("temperature", "top_p", "top_k") if include_top_k else ("temperature", "top_p")
+        for key in keys:
+            if config.get(key) is not None:
+                request[key] = config[key]
+        if config.get("stop_sequences"):
+            request[stop_key] = config["stop_sequences"]
 
     @staticmethod
     def _to_tool_choice(tool_choice: ToolChoice | None, family: ModelFamily) -> Any:
@@ -205,14 +236,7 @@ class BedrockInvokeModel(BedrockModel):
         if (tc := self._to_tool_choice(tool_choice, "anthropic")) is not None:
             request["tool_choice"] = tc
 
-        if self.config.get("temperature") is not None:
-            request["temperature"] = self.config["temperature"]
-        if self.config.get("top_p") is not None:
-            request["top_p"] = self.config["top_p"]
-        if self.config.get("top_k") is not None:
-            request["top_k"] = self.config["top_k"]
-        if self.config.get("stop_sequences"):
-            request["stop_sequences"] = self.config["stop_sequences"]
+        self._apply_sampling_params(request, "stop_sequences", include_top_k=True)
         return request
 
     def _format_openai_request(
@@ -268,12 +292,7 @@ class BedrockInvokeModel(BedrockModel):
             if (tc := self._to_tool_choice(tool_choice, "openai")) is not None:
                 request["tool_choice"] = tc
 
-        if self.config.get("temperature") is not None:
-            request["temperature"] = self.config["temperature"]
-        if self.config.get("top_p") is not None:
-            request["top_p"] = self.config["top_p"]
-        if self.config.get("stop_sequences"):
-            request["stop"] = self.config["stop_sequences"]
+        self._apply_sampling_params(request, "stop")
         return request
 
     def _format_invoke_request(
@@ -447,12 +466,7 @@ class BedrockInvokeModel(BedrockModel):
         system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
-        """Stream a turn through Bedrock InvokeModel.
-
-        Raises:
-            ContextWindowOverflowException: Input exceeded the model's context window.
-            ModelThrottledException: Bedrock throttled the request.
-        """
+        """Stream a turn through Bedrock InvokeModel."""
 
         def callback(event: StreamEvent | None = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
@@ -507,7 +521,22 @@ class BedrockInvokeModel(BedrockModel):
                 emit(body, callback)
 
         except ClientError as e:
-            self._raise_translated_client_error(e)
+            msg = str(e)
+            code = e.response["Error"]["Code"]
+            if code in ("ThrottlingException", "throttlingException"):
+                raise ModelThrottledException(msg) from e
+            if any(o in msg for o in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
+                logger.warning("bedrock threw context window overflow error")
+                raise ContextWindowOverflowException(e) from e
+            add_exception_note(e, f"└ Bedrock region: {self.client.meta.region_name}")
+            add_exception_note(e, f"└ Model id: {self.config.get('model_id')}")
+            if code == "AccessDeniedException" and "You don't have access to the model" in msg:
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                )
+            raise
         finally:
             callback()
             logger.debug("finished streaming response from model")
