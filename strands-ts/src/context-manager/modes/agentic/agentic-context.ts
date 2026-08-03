@@ -1,3 +1,9 @@
+/**
+ * Agentic context management: model-driven compression via injected tools.
+ *
+ * @experimental This module is experimental and may change in future versions.
+ */
+
 import { z } from 'zod'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
