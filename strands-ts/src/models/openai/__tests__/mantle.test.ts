@@ -137,7 +137,7 @@ describe('OpenAIModel bedrockMantleConfig', () => {
       ).not.toThrow()
     })
 
-    it('works for api: "chat" as well as the default responses api', async () => {
+    it('mints a bearer token regardless of api mode', async () => {
       new OpenAIModel({
         api: 'chat',
         modelId: TEST_MODEL_ID,
@@ -145,6 +145,47 @@ describe('OpenAIModel bedrockMantleConfig', () => {
       })
       const apiKey = await lastApiKeySetter()()
       expect(apiKey).toBe(TEST_TOKEN)
+    })
+  })
+
+  // The Mantle base path is keyed by model family, not API surface:
+  // `openai.gpt-5.*` is served from `/openai/v1`, everything else from `/v1`,
+  // on both the responses and chat/completions endpoints.
+  describe('base path resolution by model family', () => {
+    const baseURLFor = (options: ConstructorParameters<typeof OpenAIModel>[0]): string => {
+      new OpenAIModel(options)
+      const calls = (OpenAI as unknown as { mock: { calls: unknown[][] } }).mock.calls
+      return (calls[calls.length - 1]![0] as { baseURL: string }).baseURL
+    }
+
+    it('uses /openai/v1 for gpt-5.* on the responses api', () => {
+      expect(baseURLFor({ modelId: 'openai.gpt-5.6-luna', bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
+        'https://bedrock-mantle.us-west-2.api.aws/openai/v1'
+      )
+    })
+
+    it('uses /openai/v1 for gpt-5.* on the chat api', () => {
+      expect(
+        baseURLFor({ api: 'chat', modelId: 'openai.gpt-5.6-luna', bedrockMantleConfig: { region: 'us-west-2' } })
+      ).toBe('https://bedrock-mantle.us-west-2.api.aws/openai/v1')
+    })
+
+    it('uses /v1 for gpt-oss-* on the responses api', () => {
+      expect(baseURLFor({ modelId: 'openai.gpt-oss-120b', bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
+        'https://bedrock-mantle.us-west-2.api.aws/v1'
+      )
+    })
+
+    it('uses /v1 for gpt-oss-* on the chat api', () => {
+      expect(
+        baseURLFor({ api: 'chat', modelId: 'openai.gpt-oss-120b', bedrockMantleConfig: { region: 'us-west-2' } })
+      ).toBe('https://bedrock-mantle.us-west-2.api.aws/v1')
+    })
+
+    it('matches only Bedrock-style ids: openai.gpt-5.* → /openai/v1, bare gpt-5.* → /v1', () => {
+      expect(baseURLFor({ modelId: 'gpt-5.4', bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
+        'https://bedrock-mantle.us-west-2.api.aws/v1'
+      )
     })
   })
 
@@ -225,6 +266,28 @@ describe('OpenAIModel bedrockMantleConfig', () => {
         new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: { region: 'us-east-1' } })
         await lastApiKeySetter()()
         expect(getTokenProviderMock).toHaveBeenCalledWith({ region: 'us-east-1' })
+      })
+    }
+
+    it.each(['x@attacker.com/', 'us-east-1\n', 'us-east-1/', 'US-EAST-1', 'useast1', 'us-east-١', 'us-éast-1'])(
+      'rejects a malformed region %j before building the endpoint URL',
+      (region) => {
+        expect(() => new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: { region } })).toThrow(
+          /invalid AWS region/
+        )
+        // Validation must precede token minting so no bearer token is ever sent toward the host.
+        expect(getTokenProviderMock).not.toHaveBeenCalled()
+      }
+    )
+
+    it.each(['us-east-1', 'ap-southeast-1', 'us-gov-east-1'])('accepts the well-formed region %j', (region) => {
+      expect(() => new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: { region } })).not.toThrow()
+    })
+
+    if (isNode) {
+      it('rejects a malformed region supplied via AWS_REGION', () => {
+        vi.stubEnv('AWS_REGION', 'x@attacker.com/')
+        expect(() => new OpenAIModel({ modelId: TEST_MODEL_ID, bedrockMantleConfig: {} })).toThrow(/invalid AWS region/)
       })
     }
   })

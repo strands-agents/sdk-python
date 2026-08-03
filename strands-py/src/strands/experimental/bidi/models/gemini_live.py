@@ -97,14 +97,13 @@ class BidiGeminiLiveModel(BidiModel):
         self._connection_id: str | None = None
 
     def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Resolve client config (sets default http_options if not provided)."""
-        resolved = config.copy()
+        """Resolve client config.
 
-        # Set default http_options if not provided
-        if "http_options" not in resolved:
-            resolved["http_options"] = {"api_version": "v1alpha"}
-
-        return resolved
+        The google-genai SDK uses the correct default API version.
+        Users requiring v1alpha for 2.5-specific features (affective dialog,
+        proactive audio) can pass client_config={"http_options": {"api_version": "v1alpha"}}.
+        """
+        return config.copy()
 
     def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Merge user config with defaults (user takes precedence)."""
@@ -152,8 +151,15 @@ class BidiGeminiLiveModel(BidiModel):
 
         self._connection_id = str(uuid.uuid4())
 
-        # Build live config
-        live_config = self._build_live_config(system_prompt, tools, **kwargs)
+        # Build live config — only enable initial-history mode when text content exists
+        # (tool-only history is dropped by _send_message_history and would leave the server
+        # stuck waiting for turn_complete that never arrives)
+        has_messages = (
+            messages is not None
+            and any("text" in block for message in messages for block in message["content"])
+            and "live_session_handle" not in kwargs
+        )
+        live_config = self._build_live_config(system_prompt, tools, has_messages=has_messages, **kwargs)
 
         # Create the context manager and session
         self._live_session_context_manager = self._client.aio.live.connect(
@@ -168,14 +174,15 @@ class BidiGeminiLiveModel(BidiModel):
     async def _send_message_history(self, messages: Messages) -> None:
         """Send conversation history to Gemini Live API.
 
-        Sends each message as a separate turn with the correct role to maintain
-        proper conversation context. Follows the same pattern as the non-bidirectional
-        Gemini model implementation.
+        Collects text content from messages into a list of turns and sends them
+        in a single send_client_content call with turn_complete=True to signal
+        that history seeding is complete and realtime mode can begin.
         """
         if not messages:
             return
 
-        # Convert each message to Gemini format and send separately
+        # Collect all content turns
+        turns_to_send: list[genai_types.Content] = []
         for message in messages:
             content_parts = []
             for content_block in message["content"]:
@@ -183,11 +190,11 @@ class BidiGeminiLiveModel(BidiModel):
                     content_parts.append(genai_types.Part(text=content_block["text"]))
 
             if content_parts:
-                # Map role correctly - Gemini uses "user" and "model" roles
-                # "assistant" role from Messages format maps to "model" in Gemini
                 role = "model" if message["role"] == "assistant" else message["role"]
-                content = genai_types.Content(role=role, parts=content_parts)
-                await self._live_session.send_client_content(turns=content)
+                turns_to_send.append(genai_types.Content(role=role, parts=content_parts))
+
+        if turns_to_send:
+            await self._live_session.send_client_content(turns=turns_to_send, turn_complete=True)
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
@@ -429,12 +436,14 @@ class BidiGeminiLiveModel(BidiModel):
         await self._live_session.send(input=msg)
 
     async def _send_text_content(self, text: str) -> None:
-        """Internal: Send text content using Gemini Live API."""
-        # Create content with text
-        content = genai_types.Content(role="user", parts=[genai_types.Part(text=text)])
+        """Internal: Send text content using Gemini Live API.
 
-        # Send as client content
-        await self._live_session.send_client_content(turns=content)
+        Uses send_realtime_input for mid-session text input. Turn completion
+        is handled by Gemini's automatic activity detection rather than
+        explicit turn boundaries. send_client_content is reserved for
+        seeding initial history at session start (see _send_message_history).
+        """
+        await self._live_session.send_realtime_input(text=text)
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
@@ -491,7 +500,14 @@ class BidiGeminiLiveModel(BidiModel):
         """
         config_dict: dict[str, Any] = self.config["inference"].copy()
 
-        config_dict["session_resumption"] = {"handle": kwargs.get("live_session_handle")}
+        live_session_handle = kwargs.get("live_session_handle")
+        config_dict["session_resumption"] = genai_types.SessionResumptionConfig(handle=live_session_handle)
+
+        # Enables send_client_content for initial history seeding before realtime mode.
+        # Not supported on Vertex AI; HistoryConfig requires google-genai>=1.67 (floor bump tracked separately).
+        has_messages = kwargs.get("has_messages", False)
+        if has_messages and getattr(self._client, "vertexai", False) is not True:
+            config_dict["history_config"] = genai_types.HistoryConfig(initial_history_in_client_content=True)
 
         # Add system instruction if provided
         if system_prompt:

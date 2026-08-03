@@ -97,6 +97,23 @@ async def test_model_initialization(model_id, boto_session):
 
 
 @pytest.mark.asyncio
+async def test_start_sets_strands_user_agent_on_bedrock_runtime_client(model_id, boto_session, mock_stream):
+    """Always set the Strands user agent marker on the generated Bedrock Runtime client."""
+    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
+        mock_cls.return_value = mock_instance
+
+        model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
+
+        await model.start()
+
+        assert mock_cls.call_count == 1
+        config = mock_cls.call_args.kwargs["config"]
+        assert config.user_agent_extra == "strands-agents"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("region", ["us-east-1", "ap-southeast-1", "us-gov-east-1"])
 async def test_valid_region_accepted(model_id, region):
     """A well-formed region resolves successfully and is used for the model."""
