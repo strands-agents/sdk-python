@@ -1168,11 +1168,15 @@ export class Agent implements LocalAgent, InvokableAgent {
     options: InvokeOptions,
     invocationState: InvocationState
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
+    // Snapshot interrupts before the pass: a tool cycle within this pass can call the event
+    // loop's deactivate() and clear the live map, but a gate that re-reads its approval after
+    // next() must still see the resumed response.
+    const interruptsSnapshot = { ...this._interruptState.interrupts }
     const context: AgentStreamContext = {
       agent: this,
       args,
       ...(options !== undefined && { options }),
-      interrupt: createMiddlewareInterrupt(this._interruptState, 'middleware:agentStream'),
+      interrupt: createMiddlewareInterrupt(this._interruptState, 'middleware:agentStream', interruptsSnapshot),
     }
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
@@ -1187,6 +1191,18 @@ export class Agent implements LocalAgent, InvokableAgent {
           return { result }
         }
       )
+      // A resumed AgentStreamStage interrupt that completes without a tool cycle never reaches
+      // the tool loop's deactivate(), so clear the interrupt state here. Guard on the absence of
+      // a pending tool execution so this only clears agent-stream interrupts and never wipes a
+      // pending tool interrupt — some non-interrupt endings (e.g. a cancelled resume) keep the
+      // tool interrupt activated on purpose.
+      if (
+        this._interruptState.activated &&
+        result.stopReason !== 'interrupt' &&
+        !this._interruptState.pendingToolExecution
+      ) {
+        this._interruptState.deactivate()
+      }
       return result
     } catch (error) {
       if (error instanceof InterruptError) {
@@ -1497,10 +1513,12 @@ export class Agent implements LocalAgent, InvokableAgent {
           let completedToolResults: Map<string, ToolResultBlock> | undefined
 
           if (pendingExecution) {
-            // Resume from stored state - skip model call
+            // Resume from stored state - skip model call. The pending marker is NOT cleared
+            // here: if this resumed pass is cancelled before the tool runs, the marker must
+            // survive so a later resume can still execute the tool. It is cleared by the
+            // deactivate() below once the tools actually execute.
             assistantMessage = pendingExecution.assistantMessage
             completedToolResults = pendingExecution.completedToolResults
-            this._interruptState.clearPendingToolExecution()
           } else {
             const modelResult = yield* this._invokeModel(invocationState, structuredOutputChoice)
 
@@ -1618,9 +1636,10 @@ export class Agent implements LocalAgent, InvokableAgent {
           yield this._appendMessage(assistantMessage, invocationState)
           yield this._appendMessage(toolResultMessage, invocationState)
 
-          // Deactivate interrupt state after successful tool execution so the next
-          // cycle starts with a clean slate (new interrupts can be raised again).
-          if (this._interruptState.activated) {
+          // Deactivate interrupt state after tools actually execute so the next cycle starts
+          // clean. Skip when cancelled: the tools were cancel-skipped (not run), so a pending
+          // tool interrupt must survive for a later resume rather than being wiped here.
+          if (this._interruptState.activated && !this.isCancelled) {
             this._interruptState.deactivate()
           }
 

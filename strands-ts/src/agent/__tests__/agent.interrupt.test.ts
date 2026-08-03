@@ -636,6 +636,52 @@ describe('Agent interrupt system', () => {
       expect(result2).toMatchObject({ stopReason: 'interrupt' })
       expect(interruptCount).toBe(3)
     })
+
+    it('preserves the pending tool interrupt when a resume is cancelled before the tool runs', async () => {
+      // A tool interrupt stores pending execution and stays activated. If the resume is
+      // cancelled before the tool executes, that pending interrupt must survive so a later
+      // resume can still run the tool — the cancelled pass must not wipe the interrupt state.
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'confirmTool', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('confirmTool', (context) => {
+        if (!toolExecuted) {
+          // First execution attempt raises the interrupt; later attempts run for real.
+          context.interrupt({ name: 'confirm', reason: 'Approve?' })
+        }
+        toolExecuted = true
+        return 'executed'
+      })
+
+      const agent = new Agent({ model, tools: [tool], printer: false })
+
+      const interruptResult = await agent.invoke('Go')
+      expect(interruptResult.stopReason).toBe('interrupt')
+      expect(getPendingToolExecution(agent)).toBeDefined()
+
+      // Resume, but cancel before the tool runs (a BeforeToolsEvent hook cancels this pass).
+      const cancelHook = agent.addHook(BeforeToolsEvent, () => {
+        agent.cancel()
+      })
+      const cancelledResult = await agent.invoke([
+        new InterruptResponseContent({ interruptId: interruptResult.interrupts![0]!.id, response: 'yes' }),
+      ])
+      expect(cancelledResult.stopReason).toBe('cancelled')
+      expect(toolExecuted).toBe(false)
+
+      // The pending tool interrupt survives the cancelled pass and is still resumable.
+      expect(getPendingToolExecution(agent)).toBeDefined()
+
+      // A subsequent resume (without the cancel hook) runs the tool to completion.
+      cancelHook()
+      const finalResult = await agent.invoke([
+        new InterruptResponseContent({ interruptId: interruptResult.interrupts![0]!.id, response: 'yes' }),
+      ])
+      expect(finalResult.stopReason).toBe('endTurn')
+      expect(toolExecuted).toBe(true)
+    })
   })
 
   describe('event contract during interrupt', () => {
