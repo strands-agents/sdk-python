@@ -255,7 +255,7 @@ export class HumanInTheLoop extends InterventionHandler {
         return result
       } catch (error) {
         logger.warn(`tool=<${toolName}> | classifier failed, defaulting to approval required`, error)
-        return { requiresHumanInTheLoop: true, reason: 'classifier error, defaulting to approval required' }
+        return { requiresHumanInTheLoop: true }
       }
     }
 
