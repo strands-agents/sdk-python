@@ -13,7 +13,8 @@ import { MAX_DYNAMIC_TOOLS, type ListResult, type MutationResult } from '../type
  * so this stub returns a fixed array of McpTool instances. We construct real
  * McpTool objects (they don't dial out until the agent invokes them) but hand
  * them this fake in place of a real client. `unknown as McpClient` is safe
- * here because callTool is never exercised in these tests.
+ * here because the wire call goes through a separate McpClient instance the
+ * real agent owns.
  */
 function makeFakeClient(tools: { name: string; description?: string }[]): McpClient {
   const client = {} as McpClient
@@ -100,6 +101,20 @@ describe('tool_registry tool', () => {
       )) as unknown as MutationResult
       expect(result.name).toBe('remote_beta')
       expect(registry.get('remote_beta')).toBeDefined()
+    })
+
+    it('binds a local alias to the remote name for the wire call', async () => {
+      // Regression: an earlier implementation set McpTool.name = localName but
+      // callTool sends tool.name on the wire, so aliased tools sent the
+      // wrong name to the server. The bound tool must carry remoteName.
+      const registryTool = makeToolRegistry({ mcpClients: { weather: client } })
+      await registryTool.invoke(
+        { operation: 'create', toolName: 'alpha', source: 'weather', remoteName: 'remote_alpha' },
+        context
+      )
+      const bound = registry.get('alpha') as McpTool
+      expect(bound.name).toBe('alpha')
+      expect(bound.remoteName).toBe('remote_alpha')
     })
 
     it('applies descriptionOverride to the resulting tool spec', async () => {

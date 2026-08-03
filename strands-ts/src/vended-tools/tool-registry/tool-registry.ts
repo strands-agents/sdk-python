@@ -67,6 +67,8 @@ async function resolveMcpTool(
   }
   return new McpTool({
     name: localName,
+    // The wire call needs the server's tool name, not the local alias.
+    remoteName,
     description: descriptionOverride ?? found.description,
     // `McpTool`'s constructor requires an inputSchema; fall back to the empty
     // object schema when the remote tool doesn't declare one, rather than

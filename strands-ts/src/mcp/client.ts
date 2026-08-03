@@ -410,17 +410,25 @@ export class McpClient {
 
     // When tasksConfig is undefined, call tools directly without task management
     if (this._tasksConfig === undefined) {
-      return (await this._client.callTool({ name: tool.name, arguments: toolArgs }, undefined, options)) as JSONValue
+      return (await this._client.callTool(
+        { name: tool.remoteName, arguments: toolArgs },
+        undefined,
+        options
+      )) as JSONValue
     }
 
     // When tasksConfig is defined (even as empty object), use task-based invocation
     // which supports long-running tools with progress tracking
-    const stream = this._client.experimental.tasks.callToolStream({ name: tool.name, arguments: toolArgs }, undefined, {
-      timeout: this._tasksConfig.ttl ?? McpClient.DEFAULT_TTL,
-      maxTotalTimeout: this._tasksConfig.pollTimeout ?? McpClient.DEFAULT_POLL_TIMEOUT,
-      resetTimeoutOnProgress: true,
-      ...options,
-    })
+    const stream = this._client.experimental.tasks.callToolStream(
+      { name: tool.remoteName, arguments: toolArgs },
+      undefined,
+      {
+        timeout: this._tasksConfig.ttl ?? McpClient.DEFAULT_TTL,
+        maxTotalTimeout: this._tasksConfig.pollTimeout ?? McpClient.DEFAULT_POLL_TIMEOUT,
+        resetTimeoutOnProgress: true,
+        ...options,
+      }
+    )
 
     const result = await takeResult(stream)
     return result as JSONValue

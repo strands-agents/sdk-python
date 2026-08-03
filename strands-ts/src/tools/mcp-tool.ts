@@ -15,6 +15,13 @@ export interface McpToolConfig {
   inputSchema: JSONSchema
   outputSchema?: JSONSchema
   client: McpClient
+  /**
+   * Optional name to send to the MCP server on the wire. Defaults to `name`.
+   * Set this when the tool is exposed to the agent under a local alias that
+   * differs from the name registered on the remote server (e.g. the vended
+   * tool_registry lets developers pick a local alias).
+   */
+  remoteName?: string
 }
 
 /**
@@ -28,12 +35,14 @@ export class McpTool extends Tool {
   readonly name: string
   readonly description: string
   readonly toolSpec: ToolSpec
+  readonly remoteName: string
   private readonly mcpClient: McpClient
 
   constructor(config: McpToolConfig) {
     super()
     this.name = config.name
     this.description = config.description
+    this.remoteName = config.remoteName ?? config.name
     this.toolSpec = {
       name: config.name,
       description: config.description,

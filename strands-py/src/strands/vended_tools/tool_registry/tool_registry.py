@@ -27,6 +27,7 @@ is exactly whatever the developer-approved MCP servers already expose.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import weakref
 from typing import TYPE_CHECKING
@@ -93,18 +94,18 @@ async def _resolve_mcp_tool(
 ) -> MCPAgentTool:
     """Look up a specific tool on the MCP client and adapt it to the local name.
 
-    Async so that the caller yields to the event loop across the (potentially
-    network-bound) MCP list-tools call. In production the body runs to
-    completion without suspending; the ``async`` shape exists so tests can
-    swap in a fake that yields with ``await asyncio.sleep(0)`` to exercise
-    concurrency at the tool level.
+    ``list_tools_sync`` is a blocking network call, so it is dispatched to a
+    worker thread with :func:`asyncio.to_thread`; without that the whole event
+    loop would stall on the round-trip. The suspension point is real, which is
+    what makes the reservation and concurrent-delete/update guards reachable in
+    production the same way the tests exercise them.
 
     Raises:
         ToolRegistryError: If ``remote_name`` is not exposed by the MCP server.
     """
     pagination_token: str | None = None
     while True:
-        page = client.list_tools_sync(pagination_token=pagination_token)
+        page = await asyncio.to_thread(client.list_tools_sync, pagination_token=pagination_token)
         for mcp_tool in page:
             # ``list_tools_sync`` returns MCPAgentTool objects; the underlying
             # ``mcp_tool.name`` is the remote-side name, unaffected by any
