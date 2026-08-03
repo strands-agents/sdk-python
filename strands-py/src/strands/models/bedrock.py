@@ -538,6 +538,12 @@ class BedrockModel(Model):
                         image_format = formatted_content["image"].get("format", "")
                         if image_format in ("png", "jpeg"):
                             formatted_content = {"guardContent": {"image": formatted_content["image"]}}
+                        else:
+                            logger.warning(
+                                "image_format=<%s> | format not supported by bedrock guardrails | "
+                                "skipping guardContent wrap",
+                                image_format,
+                            )
 
                 cleaned_content.append(formatted_content)
 

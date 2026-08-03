@@ -2848,8 +2848,10 @@ async def test_format_request_with_guardrail_latest_message(model):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("image_format", ["gif", "webp"])
-async def test_format_request_with_guardrail_latest_message_unsupported_image_format(model, image_format):
+async def test_format_request_with_guardrail_latest_message_unsupported_image_format(model, image_format, caplog):
     """Test that guardContent does not wrap image formats that Bedrock guardrails reject."""
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock")
+
     model.update_config(
         guardrail_id="test-guardrail",
         guardrail_version="DRAFT",
@@ -2876,6 +2878,7 @@ async def test_format_request_with_guardrail_latest_message_unsupported_image_fo
     # GuardrailConverseImageBlock only accepts png and jpeg, so the image is left unwrapped
     assert "guardContent" not in formatted_messages[0]["content"][1]
     assert formatted_messages[0]["content"][1]["image"]["format"] == image_format
+    assert f"image_format=<{image_format}> | format not supported by bedrock guardrails" in caplog.text
 
 
 @pytest.mark.asyncio
