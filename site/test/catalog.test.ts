@@ -21,13 +21,20 @@ function entry(overrides: Partial<CatalogEntryData> = {}): CatalogEntryData {
 
 describe('toCardModel', () => {
   it('links to the github repo when no docs link is set', () => {
-    const card = toCardModel(entry(), undefined, BUILD_DATE)
+    const card = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
     expect(card.href).toBe('https://github.com/example/strands-example')
     expect(card.external).toBe(true)
   })
 
+  it('carries the entry id through to the card model', () => {
+    const card = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
+    expect(card.id).toBe('strands-example')
+  })
+
   it('prefers docsUrl over the github repo', () => {
-    const card = toCardModel(entry({ docsUrl: 'https://example.com/docs/strands' }),
+    const card = toCardModel(
+      'strands-example',
+      entry({ docsUrl: 'https://example.com/docs/strands' }),
       undefined,
       BUILD_DATE
     )
@@ -36,7 +43,9 @@ describe('toCardModel', () => {
   })
 
   it('prefers an on-site docsPage over both docsUrl and github', () => {
-    const card = toCardModel(entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/integrations/tools/strands-example' }),
+    const card = toCardModel(
+      'strands-example',
+      entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/integrations/tools/strands-example' }),
       undefined,
       BUILD_DATE
     )
@@ -45,7 +54,9 @@ describe('toCardModel', () => {
   })
 
   it('derives language list and registry links from package names', () => {
-    const card = toCardModel(entry({
+    const card = toCardModel(
+      'strands-example',
+      entry({
         languages: {
           python: { package: 'strands-example' },
           typescript: { package: '@example/strands' },
@@ -62,7 +73,9 @@ describe('toCardModel', () => {
   })
 
   it('strips extras qualifiers when deriving the PyPI link', () => {
-    const card = toCardModel(entry({ languages: { python: { package: 'temporalio[strands-agents]' } } }),
+    const card = toCardModel(
+      'strands-example',
+      entry({ languages: { python: { package: 'temporalio[strands-agents]' } } }),
       undefined,
       BUILD_DATE
     )
@@ -70,7 +83,9 @@ describe('toCardModel', () => {
   })
 
   it('derives the maintainer from the github URL owner segment', () => {
-    const card = toCardModel(entry({ github: 'https://github.com/SomeOrg/strands-example' }),
+    const card = toCardModel(
+      'strands-example',
+      entry({ github: 'https://github.com/SomeOrg/strands-example' }),
       undefined,
       BUILD_DATE
     )
@@ -78,7 +93,9 @@ describe('toCardModel', () => {
   })
 
   it('derives the language facet without registry links for an empty language block', () => {
-    const card = toCardModel(entry({ languages: { python: {} }, docsUrl: 'https://example.com/docs/strands' }),
+    const card = toCardModel(
+      'strands-example',
+      entry({ languages: { python: {} }, docsUrl: 'https://example.com/docs/strands' }),
       undefined,
       BUILD_DATE
     )
@@ -89,7 +106,9 @@ describe('toCardModel', () => {
 
   it('adds the new badge when addedDate is within the window', () => {
     const recent = new Date(BUILD_DATE.getTime() - (NEW_BADGE_DAYS - 1) * 86_400_000)
-    const card = toCardModel(entry({ addedDate: recent, badges: ['verified'] }),
+    const card = toCardModel(
+      'strands-example',
+      entry({ addedDate: recent, badges: ['verified'] }),
       undefined,
       BUILD_DATE
     )
@@ -97,19 +116,21 @@ describe('toCardModel', () => {
   })
 
   it('omits the new badge when addedDate is outside the window', () => {
-    const card = toCardModel(entry(), undefined, BUILD_DATE)
+    const card = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
     expect(card.badges).toEqual([])
   })
 
   it('joins stats and sums downloads, tolerating missing stats', () => {
-    const withStats = toCardModel(entry(),
+    const withStats = toCardModel(
+      'strands-example',
+      entry(),
       { stars: 42, downloads: { python: 100, typescript: 50 } },
       BUILD_DATE
     )
     expect(withStats.stars).toBe(42)
     expect(withStats.downloads).toBe(150)
 
-    const withoutStats = toCardModel(entry(), undefined, BUILD_DATE)
+    const withoutStats = toCardModel('strands-example', entry(), undefined, BUILD_DATE)
     expect(withoutStats.stars).toBeUndefined()
     expect(withoutStats.downloads).toBeUndefined()
   })
@@ -118,9 +139,9 @@ describe('toCardModel', () => {
 describe('sortEntries', () => {
   it('puts featured entries first, then sorts by name', () => {
     const cards = [
-      toCardModel(entry({ name: 'zeta' }), undefined, BUILD_DATE),
-      toCardModel(entry({ name: 'alpha' }), undefined, BUILD_DATE),
-      toCardModel(entry({ name: 'feat', featured: true }), undefined, BUILD_DATE),
+      toCardModel('strands-example', entry({ name: 'zeta' }), undefined, BUILD_DATE),
+      toCardModel('strands-example', entry({ name: 'alpha' }), undefined, BUILD_DATE),
+      toCardModel('strands-example', entry({ name: 'feat', featured: true }), undefined, BUILD_DATE),
     ]
     expect(sortEntries(cards).map((c) => c.name)).toEqual(['feat', 'alpha', 'zeta'])
   })
