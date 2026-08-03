@@ -82,6 +82,9 @@ def _has_s3_location_source(messages: Messages) -> bool:
     The Converse API accepts an ``s3Location`` media source only for some model families, and the
     validation error it returns otherwise does not always name S3 as the cause.
 
+    This runs while handling a Bedrock error, so it tolerates malformed content rather than raising
+    and masking the error it is describing.
+
     Args:
         messages: Messages sent to Bedrock.
 
@@ -92,13 +95,16 @@ def _has_s3_location_source(messages: Messages) -> bool:
     for message in messages:
         for content_block in message.get("content") or []:
             blocks: list[Any] = [content_block]
-            if "toolResult" in content_block:
-                blocks.extend(content_block["toolResult"].get("content") or [])
+            tool_result = content_block.get("toolResult") if isinstance(content_block, dict) else None
+            if isinstance(tool_result, dict):
+                blocks.extend(tool_result.get("content") or [])
 
             for block in blocks:
                 for media_type in ("document", "image", "video"):
-                    location = block.get(media_type, {}).get("source", {}).get("location") or {}
-                    if location.get("type") == "s3":
+                    media = block.get(media_type) if isinstance(block, dict) else None
+                    source = media.get("source") if isinstance(media, dict) else None
+                    location = source.get("location") if isinstance(source, dict) else None
+                    if isinstance(location, dict) and location.get("type") == "s3":
                         return True
 
     return False
@@ -1118,7 +1124,13 @@ class BedrockModel(Model):
                     "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
                 )
 
-            if e.response["Error"]["Code"] == "ValidationException" and _has_s3_location_source(messages):
+            # Nova models accept S3 locations, so an S3 source is not the cause of their errors.
+            model_id = self.config.get("model_id") or ""
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "amazon.nova" not in model_id.lower()
+                and _has_s3_location_source(messages)
+            ):
                 add_exception_note(
                     e,
                     "└ This request sources media from an S3 location, which the Converse API accepts only for "

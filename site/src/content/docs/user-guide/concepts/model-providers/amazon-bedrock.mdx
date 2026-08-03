@@ -424,9 +424,9 @@ For a complete list of input types, please refer to the [API Reference](@api/pyt
 
 As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, and videos stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
 
-:::caution[Amazon Nova Models Only]
+:::note[Amazon Nova Models Only]
 
-The Converse API accepts S3 location sources only for Amazon Nova models. Other model families, including the default Claude model, reject the request with a `ValidationException`. Pass the media as bytes for those models.
+The Converse API accepts S3 locations only for Amazon Nova models that support media, such as Nova Pro and Nova Lite. Other model families, including the default Claude Sonnet 4.6, reject the request with a `ValidationException`. Pass the media as bytes for those models, and check [supported models and model features](https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference-supported-models-features.html) for the current list.
 :::
 
 :::note[IAM Permissions Required]

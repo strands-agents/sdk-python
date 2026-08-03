@@ -22,6 +22,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
     _clear_skip_count_tokens_cache,
+    _has_s3_location_source,
 )
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
@@ -1890,11 +1891,17 @@ async def test_add_note_on_validation_exception_s3_location(content, bedrock_cli
             id="non_s3_location",
         ),
         pytest.param([], id="empty_content"),
+        pytest.param([{"document": "report.pdf"}], id="malformed_document"),
+        pytest.param([{"text": "test", "toolResult": "malformed"}], id="malformed_tool_result"),
     ],
 )
 @pytest.mark.asyncio
 async def test_add_note_on_validation_exception_without_s3_location(content, bedrock_client, model, alist):
-    """A ValidationException unrelated to S3 is not annotated with the S3 note."""
+    """A ValidationException unrelated to S3 is not annotated with the S3 note.
+
+    Malformed content is included because the S3 check runs while handling a Bedrock error: raising
+    there would replace the error it is describing.
+    """
     error_response = {
         "Error": {
             "Code": "ValidationException",
@@ -1908,6 +1915,86 @@ async def test_add_note_on_validation_exception_without_s3_location(content, bed
         await alist(model.stream([{"role": "user", "content": content}]))
 
     assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+@pytest.mark.asyncio
+async def test_add_note_on_validation_exception_s3_location_skipped_for_nova(bedrock_client, alist):
+    """Amazon Nova models accept S3 locations, so their errors are not annotated with the S3 note."""
+    nova_model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "Provided S3Location not found",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+    messages = [
+        {
+            "role": "user",
+            "content": [{"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}],
+        }
+    ]
+
+    with pytest.raises(ClientError) as err:
+        await alist(nova_model.stream(messages))
+
+    assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: us.amazon.nova-pro-v1:0"]
+
+
+@pytest.mark.parametrize(
+    ("messages", "exp_has_s3_location"),
+    [
+        pytest.param([{"role": "user", "content": [{"image": {"source": {"location": S3_LOCATION}}}]}], True, id="s3"),
+        pytest.param(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "toolResult": {
+                                "toolUseId": "t1",
+                                "content": [{"video": {"source": {"location": S3_LOCATION}}}],
+                            }
+                        }
+                    ],
+                }
+            ],
+            True,
+            id="s3_in_tool_result",
+        ),
+        pytest.param(
+            [{"role": "user", "content": [{"video": {"source": {"location": {"type": "other"}}}}]}],
+            False,
+            id="other_location",
+        ),
+        pytest.param([{"role": "user", "content": [{"document": {"source": {"bytes": b"pdf"}}}]}], False, id="bytes"),
+        pytest.param([{"role": "user", "content": [{"document": {"source": None}}]}], False, id="source_none"),
+        pytest.param([{"role": "user", "content": [{"document": {"source": "s3://b/k"}}]}], False, id="source_str"),
+        pytest.param(
+            [{"role": "user", "content": [{"document": {"source": {"location": "s3"}}}]}], False, id="location_str"
+        ),
+        pytest.param([{"role": "user", "content": [{"document": "r.pdf"}]}], False, id="media_str"),
+        pytest.param([{"role": "user", "content": ["malformed"]}], False, id="block_str"),
+        pytest.param([{"role": "user", "content": [{"toolResult": "malformed"}]}], False, id="tool_result_str"),
+        pytest.param(
+            [{"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": None}}]}],
+            False,
+            id="tool_result_content_none",
+        ),
+        pytest.param(
+            [{"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": ["malformed"]}}]}],
+            False,
+            id="tool_result_content_str",
+        ),
+        pytest.param([{"role": "user", "content": None}], False, id="content_none"),
+        pytest.param([], False, id="no_messages"),
+    ],
+)
+def test_has_s3_location_source(messages, exp_has_s3_location):
+    """Malformed content yields False rather than raising, since this runs while handling an error."""
+    assert _has_s3_location_source(messages) is exp_has_s3_location
 
 
 def test_format_request_sends_s3_location_for_any_model(model):
