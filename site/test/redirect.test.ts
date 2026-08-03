@@ -29,21 +29,38 @@ describe('resolveRedirect', () => {
   it('redirects the pre-launch catalog URL to the integrations page', () => {
     expect(resolveRedirect('catalog')).toBe('integrations')
   })
+
+  it('redirects renamed docs/community pages to docs/integrations', () => {
+    expect(resolveRedirect('docs/community/get-featured')).toBe('docs/integrations/get-featured')
+    expect(resolveRedirect('docs/community/model-providers/cohere')).toBe(
+      'docs/integrations/model-providers/cohere'
+    )
+  })
+
+  it('redirects the docs/community section root to the integrations page', () => {
+    expect(resolveRedirect('docs/community')).toBe('integrations')
+  })
+
+  it('redirects unlisted docs/community paths to docs/integrations via the prefix rule', () => {
+    expect(resolveRedirect('docs/community/tools/some-future-tool')).toBe(
+      'docs/integrations/tools/some-future-tool'
+    )
+  })
 })
 
 describe('resolveRedirect with redirectFromMap', () => {
   const redirectFromMap: Record<string, string> = {
-    'docs/user-guide/concepts/model-providers/cohere': 'docs/community/model-providers/cohere',
-    'docs/user-guide/concepts/model-providers/fireworksai': 'docs/community/model-providers/fireworksai',
+    'docs/user-guide/concepts/model-providers/cohere': 'docs/integrations/model-providers/cohere',
+    'docs/user-guide/concepts/model-providers/fireworksai': 'docs/integrations/model-providers/fireworksai',
     'docs/old/path': 'docs/new/path',
   }
 
   it('should resolve redirectFrom mappings correctly', () => {
     expect(resolveRedirect('docs/user-guide/concepts/model-providers/cohere', redirectFromMap)).toBe(
-      'docs/community/model-providers/cohere'
+      'docs/integrations/model-providers/cohere'
     )
     expect(resolveRedirect('docs/user-guide/concepts/model-providers/fireworksai', redirectFromMap)).toBe(
-      'docs/community/model-providers/fireworksai'
+      'docs/integrations/model-providers/fireworksai'
     )
     expect(resolveRedirect('docs/old/path', redirectFromMap)).toBe('docs/new/path')
   })
@@ -83,6 +100,8 @@ const urlCases: Array<{ description: string; path: string; expected: string | nu
   { description: 'retired community-packages page with trailing slash redirects to integrations', path: '/1.x/documentation/docs/community/community-packages/', expected: 'integrations/' },
   { description: 'retired community-packages page without trailing slash redirects to integrations', path: '/1.x/documentation/docs/community/community-packages', expected: 'integrations' },
   { description: 'pre-launch catalog URL redirects to integrations', path: '/catalog/', expected: 'integrations/' },
+  { description: 'renamed community docs page redirects to integrations section', path: '/latest/documentation/docs/community/model-providers/cohere/', expected: 'docs/integrations/model-providers/cohere/' },
+  { description: 'unlisted community docs page redirects via prefix rule', path: '/latest/documentation/docs/community/tools/some-future-tool/', expected: 'docs/integrations/tools/some-future-tool/' },
   { description: 'renamed page with trailing slash',                   path: '/latest/documentation/docs/user-guide/concepts/tools/python-tools/',    expected: 'docs/user-guide/concepts/tools/custom-tools/' },
   { description: 'renamed page without trailing slash',                path: '/latest/documentation/docs/user-guide/concepts/tools/python-tools',     expected: 'docs/user-guide/concepts/tools/custom-tools' },
   // we don't rewrite these because they're subject to change quite a bit

@@ -8,7 +8,7 @@
  * The path-normalization fallback never returns an external URL (prevents open redirects).
  */
 
-import { exactly } from '../utils/regex'
+import { exactly, startsWith } from '../utils/regex'
 
 // ── Slug-level rename rules ───────────────────────────────────────────────────
 
@@ -45,6 +45,54 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
   // src/pages as well as docs content).
   'docs/community/community-packages': 'integrations',
 
+  // The community docs section overview URL predates the docs/integrations
+  // rename; its landing content is the interactive integrations page.
+  'docs/community': 'integrations',
+
+  // The docs/community/ section was renamed to docs/integrations/ so its URLs
+  // match the /integrations page. Every page that existed at rename time gets
+  // a static stub (crawler-followable); the COMMUNITY_PREFIX_RULE below covers
+  // any docs/community/ URL not listed here via the client-side 404 fallback.
+  'docs/community/agent-extensions/strands-code-agent': 'docs/integrations/agent-extensions/strands-code-agent',
+  'docs/community/get-featured': 'docs/integrations/get-featured',
+  'docs/community/integrations/ag-ui': 'docs/integrations/integrations/ag-ui',
+  'docs/community/interventions/overview': 'docs/integrations/interventions/overview',
+  'docs/community/interventions/strands-agt': 'docs/integrations/interventions/strands-agt',
+  'docs/community/memory-stores/agentcore-memory-store': 'docs/integrations/memory-stores/agentcore-memory-store',
+  'docs/community/memory-stores/overview': 'docs/integrations/memory-stores/overview',
+  'docs/community/memory-stores/strands-dakera': 'docs/integrations/memory-stores/strands-dakera',
+  'docs/community/model-providers/clova-studio': 'docs/integrations/model-providers/clova-studio',
+  'docs/community/model-providers/cohere': 'docs/integrations/model-providers/cohere',
+  'docs/community/model-providers/crusoe': 'docs/integrations/model-providers/crusoe',
+  'docs/community/model-providers/fireworksai': 'docs/integrations/model-providers/fireworksai',
+  'docs/community/model-providers/mlx': 'docs/integrations/model-providers/mlx',
+  'docs/community/model-providers/nebius-token-factory': 'docs/integrations/model-providers/nebius-token-factory',
+  'docs/community/model-providers/nvidia-nim': 'docs/integrations/model-providers/nvidia-nim',
+  'docs/community/model-providers/ovhcloud-ai-endpoints': 'docs/integrations/model-providers/ovhcloud-ai-endpoints',
+  'docs/community/model-providers/sglang': 'docs/integrations/model-providers/sglang',
+  'docs/community/model-providers/vllm': 'docs/integrations/model-providers/vllm',
+  'docs/community/model-providers/xai': 'docs/integrations/model-providers/xai',
+  'docs/community/plugins/agent-control': 'docs/integrations/plugins/agent-control',
+  'docs/community/plugins/agentcore-payments': 'docs/integrations/plugins/agentcore-payments',
+  'docs/community/plugins/agentcore-tool-search': 'docs/integrations/plugins/agentcore-tool-search',
+  'docs/community/plugins/datadog-ai-guard': 'docs/integrations/plugins/datadog-ai-guard',
+  'docs/community/plugins/s3-vectors-memory': 'docs/integrations/plugins/s3-vectors-memory',
+  'docs/community/session-managers/agentcore-memory': 'docs/integrations/session-managers/agentcore-memory',
+  'docs/community/session-managers/strands-valkey-session-manager':
+    'docs/integrations/session-managers/strands-valkey-session-manager',
+  'docs/community/storage/overview': 'docs/integrations/storage/overview',
+  'docs/community/tools/strands-apify': 'docs/integrations/tools/strands-apify',
+  'docs/community/tools/strands-deepgram': 'docs/integrations/tools/strands-deepgram',
+  'docs/community/tools/strands-google': 'docs/integrations/tools/strands-google',
+  'docs/community/tools/strands-hubspot': 'docs/integrations/tools/strands-hubspot',
+  'docs/community/tools/strands-perplexity': 'docs/integrations/tools/strands-perplexity',
+  'docs/community/tools/strands-spraay': 'docs/integrations/tools/strands-spraay',
+  'docs/community/tools/strands-sql': 'docs/integrations/tools/strands-sql',
+  'docs/community/tools/strands-teams': 'docs/integrations/tools/strands-teams',
+  'docs/community/tools/strands-telegram': 'docs/integrations/tools/strands-telegram',
+  'docs/community/tools/strands-telegram-listener': 'docs/integrations/tools/strands-telegram-listener',
+  'docs/community/tools/utcp': 'docs/integrations/tools/utcp',
+
   // The integrations page briefly went by /catalog during development; the
   // URL is referenced in repo history and PR discussion, so keep it working.
   catalog: 'integrations',
@@ -76,6 +124,15 @@ const SLUG_RULES: SlugRule[] = [
     match: exactly(from),
     to,
   })),
+
+  // Catch-all for the docs/community/ → docs/integrations/ section rename.
+  // Exact static entries above win for pages that existed at rename time;
+  // this covers any other docs/community/ URL (e.g. a page added on a branch
+  // that predates the rename) via the client-side 404 fallback.
+  {
+    match: startsWith('docs/community'),
+    to: (m) => `docs/integrations/${m[1]}`,
+  },
 ]
 
 // ── Public API ────────────────────────────────────────────────────────────────
