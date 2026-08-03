@@ -2,8 +2,14 @@ import { describe, expect, it, vi } from 'vitest'
 import { Agent } from '../agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
-import { ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
-import { AfterToolCallEvent, BeforeToolCallEvent, BeforeToolsEvent, InterruptEvent } from '../../hooks/events.js'
+import { TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
+import {
+  AfterToolCallEvent,
+  BeforeToolCallEvent,
+  BeforeToolsEvent,
+  InterruptEvent,
+  MessageAddedEvent,
+} from '../../hooks/events.js'
 import { FunctionTool } from '../../tools/function-tool.js'
 import { InterruptResponseContent } from '../../types/interrupt.js'
 import type { InterruptState, PendingToolExecution } from '../../interrupt.js'
@@ -1072,6 +1078,99 @@ describe('Agent interrupt system', () => {
 
       expect(events).toHaveLength(1)
       expect(events[0]!.interrupt).toMatchObject({ name: 'approve', source: 'tool' })
+    })
+  })
+
+  describe('cancel during approved tool execution', () => {
+    it('runs an approved tool only once when the resume is cancelled while the tool is in flight', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'sendEmail', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+        .addTurn({ type: 'textBlock', text: 'Nothing else happened' })
+
+      let raised = false
+      const sideEffects: string[] = []
+      let releaseTool!: () => void
+      const toolReleased = new Promise<void>((resolve) => (releaseTool = resolve))
+      let toolStarted!: () => void
+      const toolInFlight = new Promise<void>((resolve) => (toolStarted = resolve))
+
+      const tool = createMockTool('sendEmail', (context) => {
+        if (!raised) {
+          raised = true
+          context.interrupt({ name: 'confirm', reason: 'Send the email?' })
+        }
+        // eslint-disable-next-line require-yield
+        return (async function* () {
+          sideEffects.push('email sent')
+          toolStarted()
+          await toolReleased
+          return new ToolResultBlock({
+            toolUseId: context.toolUse.toolUseId,
+            status: 'success',
+            content: [new TextBlock('sent')],
+          })
+        })()
+      })
+
+      const agent = new Agent({ model, tools: [tool], printer: false })
+      const interruptResult = await agent.invoke('Send the email')
+      const interruptId = interruptResult.interrupts![0]!.id
+
+      // Human approves, then presses "stop" while the tool is still running.
+      const inflight = agent.invoke([new InterruptResponseContent({ interruptId, response: 'yes' })])
+      await toolInFlight
+      agent.cancel()
+      releaseTool()
+      expect((await inflight).stopReason).toBe('cancelled')
+
+      // The tool ran and its result is in history, so nothing is left to resume.
+      expect(getPendingToolExecution(agent)).toBeUndefined()
+
+      const toolUseIds = agent.messages.flatMap((m) =>
+        m.content.filter((b): b is ToolUseBlock => b.type === 'toolUseBlock').map((b) => b.toolUseId)
+      )
+      expect(toolUseIds).toEqual(['tool-1'])
+
+      // A fresh prompt is accepted (the agent is not wedged as interrupted).
+      await agent.invoke('what happened?')
+      expect(sideEffects).toEqual(['email sent'])
+    })
+  })
+
+  describe('stream break at InterruptEvent', () => {
+    it('does not replay a stored tool cycle when the stream is broken at InterruptEvent', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'deleteFiles', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+        .addTurn({ type: 'textBlock', text: 'Second' })
+
+      let raised = false
+      let toolRuns = 0
+      const tool = createMockTool('deleteFiles', (context) => {
+        if (!raised) {
+          raised = true
+          context.interrupt({ name: 'confirm', reason: 'Delete?' })
+        }
+        toolRuns += 1
+        return 'deleted'
+      })
+
+      const agent = new Agent({ model, tools: [tool], printer: false })
+
+      // HITL streaming consumer: stop consuming once the interrupt surfaces.
+      for await (const event of agent.stream('Delete old files')) {
+        if (event instanceof InterruptEvent) break
+      }
+
+      // Kill switch to prevent infinite replay if the bug regresses.
+      agent.addHook(MessageAddedEvent, () => {
+        if (agent.messages.length > 30) agent.cancel()
+      })
+
+      const result = await agent.invoke('anything new')
+      expect(toolRuns).toBe(1)
+      expect(result.stopReason).toBe('endTurn')
     })
   })
 })
