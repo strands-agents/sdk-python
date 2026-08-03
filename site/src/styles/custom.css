@@ -59,3 +59,19 @@ a[aria-current="page"]:hover {
 :root {
 	--sl-content-width: 50rem;
 }
+/* Embed mode: html[data-embed] is set before paint by the inline script in
+   overrides/Head.astro when the URL carries `?embed` (used by the
+   /integrations docs drawer iframe). Hide all site chrome and collapse the
+   layout offsets it reserved, leaving just the article content. */
+html[data-embed] {
+	--sl-nav-height: 0rem;
+	--sl-mobile-toc-height: 0rem;
+	--sl-content-inline-start: 0rem;
+}
+html[data-embed] .page > header.header,
+html[data-embed] .page > nav.sidebar,
+html[data-embed] .right-sidebar-container,
+html[data-embed] .main-pane main > .content-panel footer,
+html[data-embed] .site-footer {
+	display: none;
+}
