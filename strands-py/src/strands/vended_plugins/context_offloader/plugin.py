@@ -46,7 +46,8 @@ import inspect
 import json
 import logging
 import weakref
-from typing import TYPE_CHECKING, Any, Protocol
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, Protocol, Union
 
 from typing_extensions import TypedDict
 
@@ -152,8 +153,8 @@ _CHARS_PER_TOKEN = 4
 class ShouldOffload(Protocol):
     """Callback protocol for deciding whether a tool result should be offloaded."""
 
-    def __call__(self, tool_name: str, token_count: int, **kwargs: Any) -> bool:
-        """Return True to offload, False to keep the result in context.
+    def __call__(self, tool_name: str, token_count: int, **kwargs: Any) -> Union[bool, Awaitable[bool]]:
+        """Return True to offload, False to keep the result in context. May be sync or async.
 
         Args:
             tool_name: Name of the tool that produced the result.
