@@ -12,7 +12,7 @@ from strands.types.tools import ToolContext
 # --8<-- [start:basic_usage]
 agent = Agent(sandbox=DockerSandbox("my-container-id"))
 
-# The agent's sandbox_bash and sandbox_file_editor tools execute inside the container
+# The agent's sandbox_shell and sandbox_file_editor tools execute inside the container
 agent("List all files inside the current directory")
 # --8<-- [end:basic_usage]
 
@@ -54,18 +54,18 @@ asyncio.run(stream_example())
 
 
 # --8<-- [start:tool_override]
-from strands.vended_tools import make_bash
+from strands.vended_tools import make_shell
 
 sandbox = DockerSandbox("agent-workspace")
 
-locked_bash = make_bash(
+locked_shell = make_shell(
     sandbox=sandbox,
-    name="sandbox_bash",
+    name="sandbox_shell",
     description="Run read-only shell commands. Do not modify files.",
 )
 
-# The agent keeps locked_bash; the sandbox's own sandbox_bash is skipped
-agent = Agent(sandbox=sandbox, tools=[locked_bash])
+# The agent keeps locked_shell; the sandbox's own sandbox_shell is skipped
+agent = Agent(sandbox=sandbox, tools=[locked_shell])
 # --8<-- [end:tool_override]
 
 
@@ -87,7 +87,7 @@ agent = Agent(
     sandbox=DockerSandbox("my-dev-env"),
     tools=[lint],
 )
-# Agent now has: sandbox_bash, sandbox_file_editor (vended) + lint (yours)
+# Agent now has: sandbox_shell, sandbox_file_editor (vended) + lint (yours)
 # --8<-- [end:custom_tool]
 
 
@@ -163,13 +163,13 @@ agent("Check disk usage and list running processes")
 
 # --8<-- [start:vend_tools]
 from strands.types.tools import AgentTool
-from strands.vended_tools import make_bash, make_file_editor
+from strands.vended_tools import make_file_editor, make_shell
 
 
 # Inside your custom sandbox class:
 def get_tools(self) -> list[AgentTool]:
     return [
         make_file_editor(sandbox=self, name="sandbox_file_editor"),
-        make_bash(sandbox=self, name="sandbox_bash"),
+        make_shell(sandbox=self, name="sandbox_shell"),
     ]
 # --8<-- [end:vend_tools]

@@ -28,7 +28,7 @@
     "@a2a-js/sdk": "^0.3.10",
     "@astrojs/rss": "^4.0.19",
     "@aws-sdk/client-s3": "^3.943.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.219.0",
     "@opentelemetry/sdk-trace-node": "^2.8.0",
     "@strands-agents/sdk": "file:../strands-ts",
@@ -51,7 +51,7 @@
     "turndown-plugin-gfm": "^1.0.2",
     "typedoc": "^0.28.20",
     "typescript": "^5.9.3",
-    "vite": "^8.1.5"
+    "vite": "^8.2.0"
   },
   "devDependencies": {
     "@astrojs/markdown-remark": "^7.2.1",
