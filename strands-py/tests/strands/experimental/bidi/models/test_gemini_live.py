@@ -189,6 +189,74 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
         await model4.stop()
 
 
+# History Seeding Tests
+
+
+@pytest.mark.asyncio
+async def test_history_config_with_text_messages(mock_genai_client, api_key, model_id):
+    """Test that text messages enable history_config and send history."""
+    mock_client, mock_live_session, _ = mock_genai_client
+
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
+    await model.start(messages=messages)
+
+    # history_config should be in the connect config
+    call_args = mock_client.aio.live.connect.call_args
+    config = call_args.kwargs.get("config", {})
+    assert "history_config" in config
+
+    # send_client_content should be called with the history
+    mock_live_session.send_client_content.assert_called_once()
+    call_args = mock_live_session.send_client_content.call_args
+    assert call_args.kwargs.get("turn_complete") is True
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_history_config_skipped_for_tool_only_messages(mock_genai_client, api_key, model_id):
+    """Test that tool-only messages do not enable history_config (avoids stuck connection)."""
+    mock_client, mock_live_session, _ = mock_genai_client
+
+    messages = [
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "status": "success", "content": []}}]},
+    ]
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
+    await model.start(messages=messages)
+
+    # history_config should NOT be in the connect config
+    call_args = mock_client.aio.live.connect.call_args
+    config = call_args.kwargs.get("config", {})
+    assert "history_config" not in config
+
+    # send_client_content should NOT be called (no text to send)
+    mock_live_session.send_client_content.assert_not_called()
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_history_skipped_when_session_handle_provided(mock_genai_client, api_key, model_id):
+    """Test that history is not re-sent when resuming via session handle."""
+    mock_client, mock_live_session, _ = mock_genai_client
+
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
+    await model.start(messages=messages, live_session_handle="existing-handle")
+
+    # history_config should NOT be set (session resumption handles context)
+    call_args = mock_client.aio.live.connect.call_args
+    config = call_args.kwargs.get("config", {})
+    assert "history_config" not in config
+
+    # send_client_content should NOT be called
+    mock_live_session.send_client_content.assert_not_called()
+
+    await model.stop()
+
+
 # Send Method Tests
 
 
@@ -198,16 +266,15 @@ async def test_send_all_content_types(mock_genai_client, model):
     _, mock_live_session, _ = mock_genai_client
     await model.start()
 
-    # Test text input
+    # Test text input — uses send_realtime_input for mid-session text
     text_input = BidiTextInputEvent(text="Hello", role="user")
     await model.send(text_input)
-    mock_live_session.send_client_content.assert_called_once()
-    call_args = mock_live_session.send_client_content.call_args
-    content = call_args.kwargs.get("turns")
-    assert content.role == "user"
-    assert content.parts[0].text == "Hello"
+    mock_live_session.send_realtime_input.assert_called_once()
+    call_args = mock_live_session.send_realtime_input.call_args
+    assert call_args.kwargs.get("text") == "Hello"
 
     # Test audio input (base64 encoded)
+    mock_live_session.send_realtime_input.reset_mock()
     audio_b64 = base64.b64encode(b"audio_bytes").decode("utf-8")
     audio_input = BidiAudioInputEvent(
         audio=audio_b64,
@@ -248,7 +315,7 @@ async def test_send_edge_cases(mock_genai_client, model):
     text_input = BidiTextInputEvent(text="Hello", role="user")
     with pytest.raises(RuntimeError, match=r"call start before sending"):
         await model.send(text_input)
-    mock_live_session.send_client_content.assert_not_called()
+    mock_live_session.send_realtime_input.assert_not_called()
 
     # Test unknown content type
     await model.start()
@@ -558,6 +625,23 @@ def test_config_building(model, system_prompt, tool_spec):
     config_tools = model._build_live_config(tools=[tool_spec])
     assert "tools" in config_tools
     assert len(config_tools["tools"]) > 0
+
+    # Test session_resumption — always present, uses SessionResumptionConfig
+    config_no_handle = model._build_live_config()
+    assert "session_resumption" in config_no_handle
+    assert isinstance(config_no_handle["session_resumption"], genai_types.SessionResumptionConfig)
+    assert config_no_handle["session_resumption"].handle is None
+
+    config_with_handle = model._build_live_config(live_session_handle="test-handle-123")
+    assert config_with_handle["session_resumption"].handle == "test-handle-123"
+
+    # Test history_config — only set when has_messages=True
+    config_no_messages = model._build_live_config(has_messages=False)
+    assert "history_config" not in config_no_messages
+
+    config_with_messages = model._build_live_config(has_messages=True)
+    assert isinstance(config_with_messages["history_config"], genai_types.HistoryConfig)
+    assert config_with_messages["history_config"].initial_history_in_client_content is True
 
 
 def test_tool_formatting(model, tool_spec):
