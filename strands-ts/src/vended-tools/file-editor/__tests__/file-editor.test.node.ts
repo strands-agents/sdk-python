@@ -669,6 +669,26 @@ describe('fileEditor tool', () => {
       const result = await fileEditor.invoke({ command: 'find_line', path: filePath, search_text: 'hit' }, context)
       expect(result).toContain('truncated')
     })
+
+    it('fuzzy search is linear on pathological input', async () => {
+      // Regression: an earlier implementation joined escaped tokens with a
+      // regex `.*` chain, which backtracks catastrophically on a long single
+      // line and blocks the event loop (see #3394). Wrap in Promise.race
+      // against a 2s timer to fail loudly if that behavior returns.
+      const filePath = await createTestFile('long.txt', `${'a'.repeat(500)}\n`)
+      const search = fileEditor.invoke(
+        { command: 'find_line', path: filePath, search_text: 'a a a b', fuzzy: true },
+        context
+      )
+      const bounded = Promise.race([
+        search,
+        new Promise<never>((_, reject) =>
+          globalThis.setTimeout(() => reject(new Error('fuzzy search timed out')), 2000)
+        ),
+      ])
+      const result = await bounded
+      expect(result).toContain('No matches')
+    })
   })
 
   describe('undo_edit command', () => {

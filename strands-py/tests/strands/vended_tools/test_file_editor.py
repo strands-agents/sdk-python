@@ -7,6 +7,7 @@ only happens through the tool's ``stream`` path. Path semantics assume
 POSIX, so these tests are skipped on Windows.
 """
 
+import asyncio
 import sys
 
 import pytest
@@ -704,6 +705,20 @@ class TestFindLine:
         file_path = _write(tmp_path / "test.txt", content)
         result = await editor(command="find_line", path=file_path, tool_context=ctx, search_text="hit")
         assert "truncated" in result
+
+    @pytest.mark.asyncio
+    async def test_fuzzy_search_is_linear_on_pathological_input(self, editor, ctx, tmp_path):
+        # Regression: an earlier implementation joined escaped tokens with a
+        # regex ``.*`` chain, which backtracks catastrophically on a long
+        # single line and cannot be interrupted (see #3394). Assert the linear
+        # scan completes well inside a short wall-clock bound.
+        content = "a" * 500 + "\n"
+        file_path = _write(tmp_path / "long.txt", content)
+        result = await asyncio.wait_for(
+            editor(command="find_line", path=file_path, tool_context=ctx, search_text="a a a b", fuzzy=True),
+            timeout=2.0,
+        )
+        assert "No matches" in result
 
 
 class TestUndo:

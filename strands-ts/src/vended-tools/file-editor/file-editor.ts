@@ -511,12 +511,32 @@ function findLineNumbers(content: string, searchText: string, fuzzy: boolean, ca
   const lines = content.split('\n')
   const hits: number[] = []
   if (fuzzy) {
-    const tokens = searchText.trim().split(/\s+/).filter(Boolean)
+    // Whitespace-tolerant, case-insensitive: match tokens in order using a
+    // linear ordered-subsequence scan. A previous implementation joined
+    // tokens with a regex `.*` chain, which is O(line_length**tokens)
+    // against long single-line content and cannot be interrupted because
+    // V8 has no in-exec regex timeout and holds the event loop.
+    const tokens = searchText
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((token) => token.toLowerCase())
     if (tokens.length === 0) return hits
-    const pattern = new RegExp(tokens.map(escapeRegExp).join('.*'), 'i')
     for (let index = 0; index < lines.length; index++) {
       const line = lines[index]
-      if (line !== undefined && pattern.test(line)) {
+      if (line === undefined) continue
+      const lowered = line.toLowerCase()
+      let position = 0
+      let matched = true
+      for (const token of tokens) {
+        const found = lowered.indexOf(token, position)
+        if (found === -1) {
+          matched = false
+          break
+        }
+        position = found + token.length
+      }
+      if (matched) {
         hits.push(index)
         if (hits.length >= cap) break
       }

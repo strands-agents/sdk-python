@@ -451,12 +451,25 @@ def _find_line_numbers(content: str, search_text: str, fuzzy: bool, cap: int) ->
     lines = content.split("\n")
     hits: list[int] = []
     if fuzzy:
-        tokens = search_text.strip().split()
+        # Whitespace-tolerant, case-insensitive: match tokens in order using a
+        # linear ordered-subsequence scan. A previous implementation joined
+        # tokens with a regex `.*` chain, which is O(line_length**tokens)
+        # against long single-line content and cannot be interrupted by an
+        # asyncio timeout because the regex engine holds the interpreter.
+        tokens = [t.lower() for t in search_text.strip().split()]
         if not tokens:
             return hits
-        pattern = re.compile(".*".join(re.escape(t) for t in tokens), re.IGNORECASE)
         for index, line in enumerate(lines):
-            if pattern.search(line):
+            lowered = line.lower()
+            position = 0
+            matched = True
+            for token in tokens:
+                found = lowered.find(token, position)
+                if found == -1:
+                    matched = False
+                    break
+                position = found + len(token)
+            if matched:
                 hits.append(index)
                 if len(hits) >= cap:
                     break
