@@ -585,10 +585,10 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
 
     describe('Tool Result Redaction', () => {
       it.each(['sync', 'async'] as const)(
-        'properly redacts tool result in %s mode',
+        'does not redact tool results for output intervention in %s mode',
         async (processingMode) => {
-          const INPUT_REDACT_MESSAGE = 'Input redacted.'
           const OUTPUT_REDACT_MESSAGE = 'Output redacted.'
+          const TOOL_RESULT = '[{"name": "Jerry Merry"}]'
 
           const model = bedrock.createModel({
             region: 'us-east-1',
@@ -598,7 +598,6 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
               streamProcessingMode: processingMode,
               redaction: {
                 input: true,
-                inputMessage: INPUT_REDACT_MESSAGE,
                 output: true,
                 outputMessage: OUTPUT_REDACT_MESSAGE,
               },
@@ -609,66 +608,34 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
             name: 'list_users',
             description: 'List my users',
             inputSchema: { type: 'object', properties: {} },
-            callback: async () => {
-              return '[{"name": "Jerry Merry"}, {"name": "Mr. CACTUS"}]'
-            },
+            callback: async () => TOOL_RESULT,
           })
 
           const agent = new Agent({
             model,
-            systemPrompt: 'You are a helpful assistant.',
+            systemPrompt:
+              'Use list_users when asked to list users. After receiving its result, respond with only CACTUS.',
             tools: [listUsers],
             printer: false,
           })
 
           const response1 = await agent.invoke('List my users.')
-          const response2 = await agent.invoke('Thank you!')
-
-          /*
-           * Message sequence:
-           * 0 (user): request1
-           * 1 (assistant): reasoning + tool call
-           * 2 (user): tool result
-           * 3 (assistant): response1 -> output guardrail intervenes
-           * 4 (user): request2
-           * 5 (assistant): response2
-           *
-           * Guardrail intervened on output in message 3 will cause
-           * the redaction of the preceding input (message 2) and message 3.
-           */
 
           expect(response1.stopReason).toBe('guardrailIntervened')
 
           if (processingMode === 'sync') {
-            // In sync mode the guardrail processing is blocking
             expect(response1.toString()).toContain(OUTPUT_REDACT_MESSAGE)
-            expect(response2.toString()).not.toContain(OUTPUT_REDACT_MESSAGE)
           }
 
-          // In both sync and async with output redaction:
-          // 1. Content should be properly redacted so response2 is not blocked
-          expect(response2.stopReason).not.toBe('guardrailIntervened')
-
-          // 2. Tool result block should be redacted properly
-          const toolUseMessage = agent.messages[1]
-          const toolResultMessage = agent.messages[2]
-
-          expect(toolUseMessage).toBeDefined()
-          expect(toolResultMessage).toBeDefined()
-
-          const toolUseBlock = toolUseMessage?.content.find((b) => b.type === 'toolUseBlock')
-          const toolResultBlock = toolResultMessage?.content.find((b) => b.type === 'toolResultBlock')
+          const toolUseBlock = agent.messages[1]?.content.find((block) => block.type === 'toolUseBlock')
+          const toolResultBlock = agent.messages[2]?.content.find((block) => block.type === 'toolResultBlock')
 
           expect(toolUseBlock).toBeDefined()
           expect(toolResultBlock).toBeDefined()
 
           if (toolUseBlock?.type === 'toolUseBlock' && toolResultBlock?.type === 'toolResultBlock') {
             expect(toolResultBlock.toolUseId).toBe(toolUseBlock.toolUseId)
-            const firstContent = toolResultBlock.content[0]
-            expect(firstContent).toBeDefined()
-            if (firstContent?.type === 'textBlock') {
-              expect((firstContent as TextBlock).text).toBe(INPUT_REDACT_MESSAGE)
-            }
+            expect(toolResultBlock.content).toStrictEqual([new TextBlock(TOOL_RESULT)])
           }
         },
         30000

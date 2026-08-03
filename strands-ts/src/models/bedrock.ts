@@ -1748,7 +1748,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     const redaction = this._config.guardrailConfig?.redaction
 
     // Default: redact input is true unless explicitly set to false
-    if (redaction?.input !== false) {
+    if (guardrailData.inputAssessment !== undefined && redaction?.input !== false) {
       logger.debug('redacting input due to guardrail')
       events.push({
         type: 'modelRedactionEvent',
@@ -1758,8 +1758,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       })
     }
 
-    // Only redact output if explicitly enabled
-    if (redaction?.output) {
+    // Only redact output if it was assessed and output redaction is explicitly enabled
+    if (guardrailData.outputAssessments !== undefined && redaction?.output) {
       logger.debug('redacting output due to guardrail')
       const outputRedactionEvent: ModelStreamEvent = {
         type: 'modelRedactionEvent',

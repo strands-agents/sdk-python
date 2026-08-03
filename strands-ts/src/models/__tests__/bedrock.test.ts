@@ -3257,17 +3257,18 @@ describe('BedrockModel', () => {
           guardrailConfig: {
             guardrailIdentifier: 'my-guardrail-id',
             guardrailVersion: '1',
+            redaction: { output: true },
           },
         })
         const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
         const events = await collectIterator(provider.stream(messages))
 
-        const redactEvent = events.find((e) => e.type === 'modelRedactionEvent')
-        expect(redactEvent).toBeDefined()
-        expect(redactEvent).toStrictEqual({
-          type: 'modelRedactionEvent',
-          inputRedaction: { replaceContent: '[User input redacted.]' },
-        })
+        expect(events.filter((event) => event.type === 'modelRedactionEvent')).toStrictEqual([
+          {
+            type: 'modelRedactionEvent',
+            inputRedaction: { replaceContent: '[User input redacted.]' },
+          },
+        ])
       })
 
       it('detects blocked guardrail in outputAssessments', async () => {
@@ -3299,13 +3300,18 @@ describe('BedrockModel', () => {
           guardrailConfig: {
             guardrailIdentifier: 'my-guardrail-id',
             guardrailVersion: '1',
+            redaction: { output: true },
           },
         })
         const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
         const events = await collectIterator(provider.stream(messages))
 
-        const redactEvent = events.find((e) => e.type === 'modelRedactionEvent')
-        expect(redactEvent).toBeDefined()
+        expect(events.filter((event) => event.type === 'modelRedactionEvent')).toStrictEqual([
+          {
+            type: 'modelRedactionEvent',
+            outputRedaction: { replaceContent: '[Assistant output redacted.]' },
+          },
+        ])
       })
 
       it('does not emit redaction events when guardrail not blocked', async () => {
@@ -3490,7 +3496,9 @@ describe('BedrockModel', () => {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
               trace: {
                 guardrail: {
-                  inputAssessment: { '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } } },
+                  outputAssessments: {
+                    '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } },
+                  },
                 },
               },
             },
@@ -3525,7 +3533,9 @@ describe('BedrockModel', () => {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
               trace: {
                 guardrail: {
-                  inputAssessment: { '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } } },
+                  outputAssessments: {
+                    '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } },
+                  },
                 },
               },
             },
@@ -3562,6 +3572,9 @@ describe('BedrockModel', () => {
               trace: {
                 guardrail: {
                   inputAssessment: { '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } } },
+                  outputAssessments: {
+                    '1': { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } },
+                  },
                 },
               },
             },
