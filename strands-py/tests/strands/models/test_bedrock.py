@@ -50,6 +50,7 @@ def bedrock_client(session_cls):
     mock_client = session_cls.return_value.client.return_value
     mock_client.meta = unittest.mock.MagicMock()
     mock_client.meta.region_name = "us-west-2"
+    mock_client.meta.service_model.shape_for.return_value.enum = ["png", "jpeg"]
     yield mock_client
 
 
@@ -2844,6 +2845,29 @@ async def test_format_request_with_guardrail_latest_message(model):
     # Latest user message image should also be wrapped
     assert "guardContent" in formatted_messages[2]["content"][1]
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
+
+
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_latest_message_uses_service_model_formats(model):
+    """Test that guardContent image formats are read from the botocore service model."""
+    model.client.meta.service_model.shape_for.return_value.enum = ["png", "jpeg", "webp"]
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"image": {"format": "webp", "source": {"bytes": b"fake_image_data"}}}],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    assert request["messages"][0]["content"][0]["guardContent"]["image"]["format"] == "webp"
+    model.client.meta.service_model.shape_for.assert_called_once_with("GuardrailConverseImageFormat")
 
 
 @pytest.mark.asyncio

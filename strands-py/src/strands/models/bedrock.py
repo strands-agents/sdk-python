@@ -530,13 +530,16 @@ class BedrockModel(Model):
                     continue
 
                 # Wrap text or image content in guardContent if this is the last user text/image message.
-                # Bedrock GuardContent for images only supports png and jpeg formats.
+                # Bedrock guardContent supports a narrower set of image formats than image content.
                 if idx == last_user_text_idx and ("text" in formatted_content or "image" in formatted_content):
                     if "text" in formatted_content:
                         formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
                     elif "image" in formatted_content:
                         image_format = formatted_content["image"].get("format", "")
-                        if image_format in ("png", "jpeg"):
+                        supported_formats = self.client.meta.service_model.shape_for(
+                            "GuardrailConverseImageFormat"
+                        ).enum
+                        if image_format in supported_formats:
                             formatted_content = {"guardContent": {"image": formatted_content["image"]}}
                         else:
                             logger.warning(
