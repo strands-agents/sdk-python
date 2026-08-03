@@ -18,7 +18,7 @@ const posts = await getPostsByTag(tag)
 const allTags = await getAllTags()
 ---
 
-<BlogLayout title={`Posts tagged "${tag}"`} description={`All blog posts tagged with "${tag}".`}>
+<BlogLayout title={`Posts tagged "${tag}"`} description={`All blog posts tagged with "${tag}".`} noindex>
   <div class="blog-index">
     <header class="blog-index-header">
       <a href={pathWithBase('/blog/')} class="back-link">&larr; All posts</a>

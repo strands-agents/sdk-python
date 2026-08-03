@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { Agent, tool, type Tool } from '@strands-agents/sdk'
-import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
 import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 import { PosixShellSandbox } from '@strands-agents/sdk/sandbox'
 import type {
@@ -18,7 +18,7 @@ async function basicUsage() {
     sandbox: new DockerSandbox({ container: 'my-container-id' }),
   })
 
-  // The agent's sandbox_bash and sandbox_file_editor tools execute inside the container
+  // The agent's sandbox_shell and sandbox_file_editor tools execute inside the container
   await agent.invoke('List all files inside the current directory')
   // --8<-- [end:basic_usage]
 }
@@ -58,7 +58,7 @@ class FirecrackerSandbox extends PosixShellSandbox {
   override getTools(): Tool[] {
     return [
       makeFileEditor(this, { name: 'sandbox_file_editor' }),
-      makeBash(this, { name: 'sandbox_bash' }),
+      makeShell(this, { name: 'sandbox_shell' }),
     ]
   }
   // --8<-- [end:vend_tools]
@@ -92,13 +92,13 @@ function toolOverride() {
   // --8<-- [start:tool_override]
   const sandbox = new DockerSandbox({ container: 'agent-workspace' })
 
-  const lockedBash = makeBash(sandbox, {
-    name: 'sandbox_bash',
+  const lockedShell = makeShell(sandbox, {
+    name: 'sandbox_shell',
     description: 'Run read-only shell commands. Do not modify files.',
   })
 
-  // The agent keeps lockedBash; the sandbox's own sandbox_bash is skipped
-  const agent = new Agent({ sandbox, tools: [lockedBash] })
+  // The agent keeps lockedShell; the sandbox's own sandbox_shell is skipped
+  const agent = new Agent({ sandbox, tools: [lockedShell] })
   // --8<-- [end:tool_override]
   return agent
 }
@@ -123,7 +123,7 @@ const agent = new Agent({
   sandbox: new DockerSandbox({ container: 'my-dev-env' }),
   tools: [lint],
 })
-// Agent now has: sandbox_bash, sandbox_file_editor (vended) + lint (yours)
+// Agent now has: sandbox_shell, sandbox_file_editor (vended) + lint (yours)
 // --8<-- [end:custom_tool]
 
 async function programmaticAccess() {

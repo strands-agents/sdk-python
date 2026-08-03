@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Agent } from '../agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
-import { ToolResultBlock } from '../../types/messages.js'
+import { ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
 import { AfterToolCallEvent, BeforeToolCallEvent, BeforeToolsEvent, InterruptEvent } from '../../hooks/events.js'
 import { FunctionTool } from '../../tools/function-tool.js'
 import { InterruptResponseContent } from '../../types/interrupt.js'
@@ -892,6 +892,88 @@ describe('Agent interrupt system', () => {
       expect(executionLog).toContain('A')
       expect(executionLog).not.toContain('B')
     })
+  })
+
+  describe('resume with hook-rewritten toolUseId', () => {
+    // Guards provider correlation and resume lookup against hook-rewritten tool-use IDs (#3268).
+    it.each(['sequential', 'concurrent'] as const)(
+      'runs the completed tool exactly once across interrupt and resume (%s)',
+      async (toolExecutor) => {
+        const model = new MockMessageModel()
+          .addTurn([
+            { type: 'toolUseBlock', name: 'toolA', toolUseId: 'tool-a', input: {} },
+            { type: 'toolUseBlock', name: 'toolB', toolUseId: 'tool-b', input: {} },
+          ])
+          .addTurn({ type: 'textBlock', text: 'Done' })
+        const providerIdSnapshots: Array<{ toolUseIds: string[]; toolResultIds: string[] }> = []
+        const originalStream = model.stream.bind(model)
+        vi.spyOn(model, 'stream').mockImplementation((messages, options) => {
+          const content = messages.flatMap((message) => message.content)
+          const toolUseIds = content
+            .filter((block): block is ToolUseBlock => block instanceof ToolUseBlock)
+            .map((block) => block.toolUseId)
+          const toolResultIds = content
+            .filter((block): block is ToolResultBlock => block instanceof ToolResultBlock)
+            .map((block) => block.toolUseId)
+          if (toolResultIds.length > 0) {
+            providerIdSnapshots.push({ toolUseIds, toolResultIds })
+          }
+          return originalStream(messages, options)
+        })
+
+        const executionLog: string[] = []
+        const toolA = createMockTool('toolA', () => {
+          executionLog.push('A')
+          return 'A result'
+        })
+        const toolB = new FunctionTool({
+          name: 'toolB',
+          description: 'Interrupting tool B',
+          inputSchema: { type: 'object', properties: {} },
+          callback: (_input, context) => {
+            executionLog.push('B')
+            const response = context!.interrupt<string>({ name: 'confirm_b', reason: 'Approve B?' })
+            return `B: ${response}`
+          },
+        })
+
+        const agent = new Agent({ model, tools: [toolA, toolB], toolExecutor, printer: false })
+        agent.addHook(BeforeToolCallEvent, (event) => {
+          if (event.toolUse.name === 'toolA') {
+            event.toolUse = { ...event.toolUse, toolUseId: 'rewritten-a' }
+          }
+        })
+        agent.addHook(AfterToolCallEvent, (event) => {
+          if (event.toolUse.name === 'toolA') {
+            event.result = new ToolResultBlock({
+              toolUseId: 'after-rewritten-a',
+              status: event.result.status,
+              content: event.result.content,
+              ...(event.result.error !== undefined && { error: event.result.error }),
+            })
+          }
+        })
+
+        const interruptResult = await agent.invoke('Go')
+        expect(interruptResult.stopReason).toBe('interrupt')
+        expect(executionLog).toEqual(['A', 'B'])
+
+        const pendingExecution = getPendingToolExecution(agent)
+        expect(Object.keys(pendingExecution!.completedToolResults)).toEqual(['tool-a'])
+        expect(pendingExecution!.completedToolResults['tool-a']!.toolResult.toolUseId).toBe('tool-a')
+
+        // Resume — only B re-executes.
+        const finalResult = await agent.invoke([
+          new InterruptResponseContent({
+            interruptId: interruptResult.interrupts![0]!.id,
+            response: 'approved',
+          }),
+        ])
+        expect(finalResult.stopReason).toBe('endTurn')
+        expect(executionLog).toEqual(['A', 'B', 'B'])
+        expect(providerIdSnapshots).toEqual([{ toolUseIds: ['tool-a', 'tool-b'], toolResultIds: ['tool-a', 'tool-b'] }])
+      }
+    )
   })
 
   describe('InterruptEvent emission', () => {

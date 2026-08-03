@@ -1,5 +1,6 @@
 ---
 title: BidiAgent
+description: 'Build real-time voice conversations with BidiAgent. Stream audio and text over persistent connections with interruptions and concurrent tool calling.'
 experimental: true
 tags: [bidi-streaming]
 sourceLinks:
@@ -223,13 +224,12 @@ model = BidiNovaSonicModel(
         "audio": {
             "input_rate": 16000,
             "output_rate": 16000,
-            "voice": "matthew",  # or "ruth"
+            "voice": "matthew",  # or "tiffany"
             "channels": 1,
             "format": "pcm"
         }
     },
     client_config={
-        "boto_session": boto3.Session(),
         "region": "us-east-1"
     }
 )

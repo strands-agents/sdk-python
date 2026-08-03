@@ -50,7 +50,11 @@ def mock_agent():
     agent.event_loop_metrics = EventLoopMetrics()
     agent.event_loop_metrics.reset_usage_metrics()
     agent.hooks = Mock()
-    agent.hooks.invoke_callbacks_async = AsyncMock()
+
+    async def invoke_callbacks_async(event):
+        return event, []
+
+    agent.hooks.invoke_callbacks_async = AsyncMock(side_effect=invoke_callbacks_async)
     agent.trace_span = None
     agent.trace_attributes = {}
     agent.tool_executor = Mock()
