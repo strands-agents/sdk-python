@@ -1816,6 +1816,120 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
     ]
 
 
+S3_LOCATION = {"type": "s3", "uri": "s3://my-bucket/report.pdf"}
+S3_LOCATION_NOTE = (
+    "└ This request sources media from an S3 location, which the Converse API accepts only for "
+    "Amazon Nova models. If that is the cause, pass the media as bytes or use a Nova model."
+)
+S3_LOCATION_LINK = (
+    "└ For more information see "
+    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#s3-location-support"
+)
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param(
+            [{"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}],
+            id="document",
+        ),
+        pytest.param([{"image": {"format": "png", "source": {"location": S3_LOCATION}}}], id="image"),
+        pytest.param([{"video": {"format": "mp4", "source": {"location": S3_LOCATION}}}], id="video"),
+        pytest.param(
+            [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "content": [
+                            {"document": {"name": "r.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}
+                        ],
+                    }
+                }
+            ],
+            id="tool_result",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_add_note_on_validation_exception_s3_location(content, bedrock_client, model, alist):
+    """A ValidationException on a request sourcing media from S3 names S3 as a possible cause.
+
+    Guards against the opaque `source.type: Field required` error models outside the Amazon Nova
+    family return for an s3Location media source (#1744).
+    """
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "The model returned the following errors: messages.0.content.0.document.source.type: Field required",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ClientError) as err:
+        await alist(model.stream([{"role": "user", "content": content}]))
+
+    assert err.value.__notes__ == [
+        "└ Bedrock region: us-west-2",
+        "└ Model id: m1",
+        S3_LOCATION_NOTE,
+        S3_LOCATION_LINK,
+    ]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+@pytest.mark.parametrize(
+    "content",
+    [
+        pytest.param([{"text": "test"}], id="text"),
+        pytest.param([{"document": {"name": "r.pdf", "format": "pdf", "source": {"bytes": b"pdf"}}}], id="bytes"),
+        pytest.param(
+            [{"document": {"name": "r.pdf", "format": "pdf", "source": {"location": {"type": "other"}}}}],
+            id="non_s3_location",
+        ),
+        pytest.param([], id="empty_content"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_add_note_on_validation_exception_without_s3_location(content, bedrock_client, model, alist):
+    """A ValidationException unrelated to S3 is not annotated with the S3 note."""
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "The model returned the following errors: malformed input",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ClientError) as err:
+        await alist(model.stream([{"role": "user", "content": content}]))
+
+    assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
+
+
+def test_format_request_sends_s3_location_for_any_model(model):
+    """S3 locations are sent to Bedrock regardless of model id, letting the service decide.
+
+    Guards against gating on the model id: an inference profile or provisioned throughput ARN does
+    not name its model family, so the SDK cannot classify it without dropping content that works
+    today (#1744).
+    """
+    messages = [
+        {
+            "role": "user",
+            "content": [{"document": {"name": "report.pdf", "format": "pdf", "source": {"location": S3_LOCATION}}}],
+        }
+    ]
+
+    tru_source = model.format_request(messages)["messages"][0]["content"][0]["document"]["source"]
+    exp_source = {"s3Location": {"uri": "s3://my-bucket/report.pdf"}}
+
+    assert tru_source == exp_source
+
+
 @pytest.mark.parametrize(
     "overflow_message",
     [

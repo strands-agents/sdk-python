@@ -202,7 +202,9 @@ async function multimodalSupport() {
 // S3 location support for multimodal content
 async function s3LocationSupport() {
   // --8<-- [start:s3_location]
-  const agent = new Agent({ model: new BedrockModel() })
+  const agent = new Agent({
+    model: new BedrockModel({ modelId: 'us.amazon.nova-pro-v1:0' }),
+  })
 
   const response = await agent.invoke([
     new DocumentBlock({

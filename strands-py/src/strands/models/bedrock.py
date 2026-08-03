@@ -76,6 +76,34 @@ def _suppress_task_exception(task: "asyncio.Task[None]") -> None:
         task.exception()
 
 
+def _has_s3_location_source(messages: Messages) -> bool:
+    """Check whether any message sources media from an S3 location.
+
+    The Converse API accepts an ``s3Location`` media source only for some model families, and the
+    validation error it returns otherwise does not always name S3 as the cause.
+
+    Args:
+        messages: Messages sent to Bedrock.
+
+    Returns:
+        True if any content block, including one nested in a tool result, sources media from an S3
+        location.
+    """
+    for message in messages:
+        for content_block in message.get("content") or []:
+            blocks: list[Any] = [content_block]
+            if "toolResult" in content_block:
+                blocks.extend(content_block["toolResult"].get("content") or [])
+
+            for block in blocks:
+                for media_type in ("document", "image", "video"):
+                    location = block.get(media_type, {}).get("source", {}).get("location") or {}
+                    if location.get("type") == "s3":
+                        return True
+
+    return False
+
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -1088,6 +1116,18 @@ class BedrockModel(Model):
                     e,
                     "└ For more information see "
                     "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+                )
+
+            if e.response["Error"]["Code"] == "ValidationException" and _has_s3_location_source(messages):
+                add_exception_note(
+                    e,
+                    "└ This request sources media from an S3 location, which the Converse API accepts only for "
+                    "Amazon Nova models. If that is the cause, pass the media as bytes or use a Nova model.",
+                )
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#s3-location-support",
                 )
 
             raise e

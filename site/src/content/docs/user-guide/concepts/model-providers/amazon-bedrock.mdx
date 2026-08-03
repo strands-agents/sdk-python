@@ -424,6 +424,11 @@ For a complete list of input types, please refer to the [API Reference](@api/pyt
 
 As an alternative to providing media content as bytes, Amazon Bedrock supports referencing documents, images, and videos stored in Amazon S3 directly. This is useful when working with large files or when your content is already stored in S3.
 
+:::caution[Amazon Nova Models Only]
+
+The Converse API accepts S3 location sources only for Amazon Nova models. Other model families, including the default Claude model, reject the request with a `ValidationException`. Pass the media as bytes for those models.
+:::
+
 :::note[IAM Permissions Required]
 
 To use S3 locations, the IAM role or user making the Bedrock API call must have `s3:GetObject` permission on the S3 bucket and objects being referenced.
@@ -436,7 +441,7 @@ To use S3 locations, the IAM role or user making the Bedrock API call must have 
 from strands import Agent
 from strands.models import BedrockModel
 
-agent = Agent(model=BedrockModel())
+agent = Agent(model=BedrockModel(model_id="us.amazon.nova-pro-v1:0"))
 
 response = agent(
     [
