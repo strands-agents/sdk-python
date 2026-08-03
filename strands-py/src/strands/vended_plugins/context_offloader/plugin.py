@@ -42,6 +42,7 @@ Example:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import weakref
@@ -460,8 +461,19 @@ class ContextOffloader(Plugin):
         if token_count <= self._max_result_tokens:
             return
 
-        if self._should_offload is not None and not self._should_offload(event.tool_use.get("name"), token_count):
-            return
+        if self._should_offload is not None:
+            try:
+                verdict = self._should_offload(event.tool_use.get("name", ""), token_count)
+                if inspect.isawaitable(verdict):
+                    verdict = await verdict
+                if not verdict:
+                    return
+            except Exception:
+                logger.warning(
+                    "tool_use_id=<%s> | should_offload callback failed, falling back to default offload",
+                    tool_use_id,
+                    exc_info=True,
+                )
 
         # Build text preview from text+JSON blocks.
         # Empty text blocks are intentionally excluded — they add no content value.

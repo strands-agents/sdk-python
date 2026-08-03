@@ -1235,6 +1235,7 @@ class TestShouldOffloadCallback:
         await plugin._handle_tool_result(event)
 
         assert event.result["content"][0]["text"] == large_text
+        assert len(storage._store) == 0
 
     @pytest.mark.asyncio
     async def test_callback_filters_by_tool_name(self, storage, mock_agent):
@@ -1290,3 +1291,59 @@ class TestShouldOffloadCallback:
         await plugin._handle_tool_result(event)
 
         assert call_count["n"] == 0
+
+    @pytest.mark.asyncio
+    async def test_raising_callback_falls_back_to_offload(self, storage, mock_agent):
+        def boom(tool_name, token_count, **kwargs):
+            raise RuntimeError("boom")
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=boom,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="my_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert "[Offloaded:" in event.result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_async_callback_returning_false_skips_offload(self, storage, mock_agent):
+        async def never(tool_name, token_count, **kwargs):
+            return False
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=never,
+        )
+        large_text = "x" * 200
+        event = _make_event(mock_agent, large_text, tool_name="search_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert event.result["content"][0]["text"] == large_text
+        assert len(storage._store) == 0
+
+    @pytest.mark.asyncio
+    async def test_async_callback_returning_true_offloads(self, storage, mock_agent):
+        async def always(tool_name, token_count, **kwargs):
+            return True
+
+        plugin = ContextOffloader(
+            storage=storage,
+            max_result_tokens=25,
+            preview_tokens=10,
+            include_retrieval_tool=False,
+            should_offload=always,
+        )
+        event = _make_event(mock_agent, "x" * 200, tool_name="large_tool")
+
+        await plugin._handle_tool_result(event)
+
+        assert "[Offloaded:" in event.result["content"][0]["text"]
