@@ -298,6 +298,12 @@ def _validate_node_executor(
             raise ValueError("Session persistence is not supported for Graph agents yet.")
 
 
+def _validate_positive_int(value: int, name: str) -> None:
+    """Validate a configuration value that must be a positive integer."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError(f"{name}={value!r} | must be a positive integer")
+
+
 class GraphBuilder:
     """Builder pattern for constructing graphs."""
 
@@ -406,8 +412,7 @@ class GraphBuilder:
         Raises:
             ValueError: If max_concurrency is not a positive integer.
         """
-        if isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int) or max_concurrency < 1:
-            raise ValueError(f"max_concurrency={max_concurrency!r} | must be a positive integer")
+        _validate_positive_int(max_concurrency, "max_concurrency")
         self._max_concurrency = max_concurrency
         return self
 
@@ -550,10 +555,8 @@ class Graph(MultiAgentBase):
 
         # Validate nodes for duplicate instances
         self._validate_graph(nodes)
-        if max_concurrency is not None and (
-            isinstance(max_concurrency, bool) or not isinstance(max_concurrency, int) or max_concurrency < 1
-        ):
-            raise ValueError(f"max_concurrency={max_concurrency!r} | must be a positive integer")
+        if max_concurrency is not None:
+            _validate_positive_int(max_concurrency, "max_concurrency")
 
         self.nodes = nodes
         self.edges = edges
@@ -922,7 +925,8 @@ class Graph(MultiAgentBase):
                 await event_queue.put(event)
 
         async def execute_node() -> None:
-            # Apply timeout to the entire streaming process if configured
+            # Apply the timeout after the node acquires a concurrency slot. Time spent
+            # waiting for capacity is scheduling delay, not node execution time.
             if self.node_timeout is not None:
                 try:
                     await asyncio.wait_for(stream_node(), timeout=self.node_timeout)

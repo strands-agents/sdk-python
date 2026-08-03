@@ -837,6 +837,8 @@ The Graph pattern is available in multiple SDKs. While the core concept is the s
 
 **Scheduling**: Python executes in discrete batches, running up to `max_concurrency` nodes at once and waiting for the entire batch to complete before scheduling the next set of nodes. TypeScript launches nodes individually as they become ready, up to `maxConcurrency`. This avoids artificial bottlenecks where a fast node waits for a slow sibling to finish before its dependents can start.
 
+**Node timeouts**: When `max_concurrency` is configured, `node_timeout` starts after a node acquires a concurrency slot. Time spent waiting for an available slot is not counted as node execution time.
+
 **Node state**: Python accumulates agent state across executions unless `reset_on_revisit` is explicitly enabled. TypeScript agent nodes are stateless by default, snapshotting and restoring the agent's messages and state on each execution. Set `preserveContext: true` on an individual `AgentNode` to opt into accumulation for revisited nodes.
 
 **Error handling**: Python node failures throw exceptions (fail-fast), while orchestrator-level limit violations return a FAILED result. TypeScript does the inverse: node failures produce a FAILED result, allowing parallel paths to continue, while orchestrator-level limits (`maxSteps`) throw exceptions to promote fail-fast behavior for global failures.
