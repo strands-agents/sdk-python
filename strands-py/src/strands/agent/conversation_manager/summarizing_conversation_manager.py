@@ -98,6 +98,7 @@ class SummarizingConversationManager(ConversationManager):
             self._summary_preamble = None
             return None
 
+        self._summary_message = cast(Message, {**self._summary_message, "role": "assistant"})
         self._summary_preamble = state.get("summary_preamble") or self._create_summary_preamble()
         return [self._summary_preamble, self._summary_message]
 
@@ -193,15 +194,30 @@ class SummarizingConversationManager(ConversationManager):
             apply_pin_first(agent.messages, self.pin_first)
             self._pin_first_applied = True
 
-        # Partition [0, messages_to_summarize_count) into pinned (preserve) and non-pinned (summarize)
-        protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
-
-        if not to_summarize:
-            raise ContextWindowOverflowException("Cannot summarize: all messages in summarize range are pinned")
-
         previous_summary_messages = tuple(
             message for message in (self._summary_preamble, self._summary_message) if message is not None
         )
+        max_messages_to_summarize = len(agent.messages) - self.preserve_recent_messages
+        while True:
+            # Partition the range into pinned messages and messages eligible for summarization.
+            protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
+            persisted_to_summarize = [
+                message
+                for message in to_summarize
+                if all(message is not previous for previous in previous_summary_messages)
+            ]
+            if persisted_to_summarize:
+                break
+
+            messages_to_summarize_count += 1
+            if messages_to_summarize_count > max_messages_to_summarize:
+                raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
+            messages_to_summarize_count = self._adjust_split_point_for_tool_pairs(
+                agent.messages, messages_to_summarize_count
+            )
+            if messages_to_summarize_count > max_messages_to_summarize:
+                raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
+
         protected_to_preserve = [
             message
             for message in protected_to_preserve
@@ -214,9 +230,7 @@ class SummarizingConversationManager(ConversationManager):
         ]
 
         # Only persisted conversation messages contribute to the repository restore offset.
-        self.removed_message_count += sum(
-            all(message is not previous for previous in previous_summary_messages) for message in to_summarize
-        )
+        self.removed_message_count += len(persisted_to_summarize)
 
         summary_input = [message for message in to_summarize if message is not self._summary_preamble]
         if self._summary_message and all(message is not self._summary_message for message in summary_input):

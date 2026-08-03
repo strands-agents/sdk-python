@@ -752,6 +752,37 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
     assert manager.removed_message_count == 5
 
 
+def test_reduce_context_with_pinned_prefix_makes_progress():
+    mock_model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "Summary"}]},
+            {"role": "assistant", "content": [{"text": "Summary"}]},
+        ]
+    )
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Message 1"}]},
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        {"role": "user", "content": [{"text": "Message 2"}]},
+        {"role": "assistant", "content": [{"text": "Response 2"}]},
+        {"role": "user", "content": [{"text": "Message 3"}]},
+        {"role": "assistant", "content": [{"text": "Response 3"}]},
+        {"role": "user", "content": [{"text": "Message 4"}]},
+        {"role": "assistant", "content": [{"text": "Response 4"}]},
+    ]
+    agent = Agent(model=mock_model, messages=messages)
+    manager = SummarizingConversationManager(summary_ratio=0.5, preserve_recent_messages=1, pin_first=1)
+
+    manager.reduce_context(agent)
+    tru_first_state = (len(agent.messages), manager.removed_message_count)
+    exp_first_state = (7, 3)
+    assert tru_first_state == exp_first_state
+
+    manager.reduce_context(agent)
+    tru_second_state = (len(agent.messages), manager.removed_message_count)
+    exp_second_state = (6, 4)
+    assert tru_second_state == exp_second_state
+
+
 @patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
 def test_summarizing_conversation_manager_generate_summary_with_noop_tool_agent_path(
     mock_registry_cls,
@@ -800,12 +831,7 @@ def test_summarizing_conversation_manager_generate_summary_with_tools_agent_path
 
 
 def test_generate_summary_disables_structured_output_on_summarization_agent():
-    """Test that structured output is disabled during summarization to avoid toolUse in user messages.
-
-    When a summarization agent has structured_output_model configured, the response contains toolUse blocks.
-    Since the summary is converted to a user message, toolUse blocks would violate the model API constraint
-    that user messages cannot contain tool uses. The fix disables structured output during summarization.
-    """
+    """Test that assistant summaries cannot contain unmatched toolUse blocks."""
     summary_agent = create_mock_agent()
     structured_output_model = Mock()
     summary_agent._default_structured_output_model = structured_output_model

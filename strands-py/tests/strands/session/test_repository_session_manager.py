@@ -150,7 +150,7 @@ def test_initialize_restores_existing_agent_with_summarizing_conversation_manage
     """Test that initializing an existing agent restores its state."""
     conversation_manager = SummarizingConversationManager()
     conversation_manager.removed_message_count = 1
-    conversation_manager._summary_message = {"role": "assistant", "content": [{"text": "summary"}]}
+    conversation_manager._summary_message = {"role": "user", "content": [{"text": "summary"}]}
 
     # Create agent in repository first
     session_agent = SessionAgent(
