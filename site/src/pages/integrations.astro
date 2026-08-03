@@ -19,7 +19,7 @@ import '../styles/catalog.css'
 const stats = statsFile as CatalogStatsFile
 const entries = await getCollection('catalog')
 const buildDate = new Date()
-const cards = sortEntries(entries.map((e) => toCardModel(e.data, stats[e.id], buildDate)))
+const cards = sortEntries(entries.map((e) => toCardModel(e.id, e.data, stats[e.id], buildDate)))
 
 // The SDK facet renders only when the catalog actually has evals entries;
 // the Verified filter only when at least one entry is actually verified.
@@ -166,6 +166,19 @@ const description = 'Community-built tools, model providers, plugins, and integr
       </ul>
       <p class="cat-dialog-empty" data-cat-dialog-empty hidden>No integrations found.</p>
     </dialog>
+    {/* Docs drawer: clicking a card whose docs live on this site opens the
+        page in a slide-over iframe (the doc loads with ?embed so it renders
+        chromeless — see overrides/Head.astro). The grid, filters, and scroll
+        position stay live underneath. */}
+    <dialog class="cat-drawer" data-cat-drawer aria-label="Integration documentation">
+      <div class="cat-drawer-bar">
+        <span class="cat-drawer-name" data-cat-drawer-name></span>
+        <a class="cat-drawer-full" data-cat-drawer-full href="/">Open full page ↗</a>
+        <button class="cat-dialog-close" type="button" data-cat-drawer-close aria-label="Close documentation">Esc</button>
+      </div>
+      <iframe class="cat-drawer-frame" data-cat-drawer-frame title="Integration documentation" src="about:blank"
+      ></iframe>
+    </dialog>
     <p class="cat-empty" data-cat-empty hidden>No integrations match the current filters.</p>
 
     <p class="cat-disclaimer">Community packages are maintained by their authors — review before production use.</p>
@@ -239,7 +252,12 @@ const description = 'Community-built tools, model providers, plugins, and integr
     for (const btn of badgeBtns) btn.setAttribute('aria-pressed', String(state.badges.has(btn.dataset.catBadge || '')))
     for (const btn of sdkBtns) btn.setAttribute('aria-checked', String(state.sdk === btn.dataset.catSdk))
 
-    const query = stateToQuery(state)
+    // `entry` (the open docs drawer) is not filter state; carry the current
+    // value through so re-serializing the filters doesn't close the deep link.
+    const params = new URLSearchParams(stateToQuery(state))
+    const entryId = new URLSearchParams(location.search).get('entry')
+    if (entryId) params.set('entry', entryId)
+    const query = params.toString()
     history.replaceState(null, '', (query ? `?${query}` : location.pathname) + location.hash)
   }
 
@@ -304,4 +322,88 @@ const description = 'Community-built tools, model providers, plugins, and integr
     })
 
   apply()
+
+  // --- Docs drawer -----------------------------------------------------------
+  // Cards whose docs live on this site open in a slide-over <dialog> with an
+  // iframe (the doc URL gets ?embed, which strips the site chrome — see
+  // overrides/Head.astro) instead of navigating away, so the grid, filters,
+  // and scroll position stay live. External cards are untouched (new tab),
+  // and without JS the links navigate normally.
+  const drawer = document.querySelector<HTMLDialogElement>('[data-cat-drawer]')
+  const drawerFrame = document.querySelector<HTMLIFrameElement>('[data-cat-drawer-frame]')
+  const drawerName = document.querySelector<HTMLElement>('[data-cat-drawer-name]')
+  const drawerFull = document.querySelector<HTMLAnchorElement>('[data-cat-drawer-full]')
+  const entryLinks = Array.from(document.querySelectorAll<HTMLAnchorElement>('.cat-card [data-cat-entry]'))
+  const entryById = new Map(entryLinks.map((a) => [a.dataset.catEntry || '', a]))
+
+  // Tracks whether the current open pushed a history entry, so close can undo
+  // it (back button parity); a ?entry deep link on load pushes nothing.
+  let drawerPushed = false
+
+  function drawerUrl(entryId: string | null): string {
+    const params = new URLSearchParams(location.search)
+    if (entryId) params.set('entry', entryId)
+    else params.delete('entry')
+    const query = params.toString()
+    return (query ? `?${query}` : location.pathname) + location.hash
+  }
+
+  function openDrawer(link: HTMLAnchorElement) {
+    if (!drawer || !drawerFrame) return
+    drawerFrame.src = `${link.href.split('#')[0]}?embed`
+    if (drawerName) drawerName.textContent = link.textContent?.trim() || ''
+    if (drawerFull) drawerFull.href = link.href
+    if (!drawer.open) drawer.showModal()
+  }
+
+  function closeDrawer() {
+    if (!drawer?.open) return
+    drawer.close()
+  }
+
+  for (const link of entryLinks)
+    link.addEventListener('click', (e) => {
+      // Modified clicks keep their browser behavior (new tab, etc.).
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+      e.preventDefault()
+      history.pushState({ catEntry: link.dataset.catEntry }, '', drawerUrl(link.dataset.catEntry || null))
+      drawerPushed = true
+      openDrawer(link)
+    })
+
+  drawer?.addEventListener('click', (e) => {
+    // Clicks on the backdrop land on the dialog element itself.
+    if (e.target === drawer) closeDrawer()
+  })
+  document.querySelector('[data-cat-drawer-close]')?.addEventListener('click', closeDrawer)
+
+  // Fires on every close path (Esc, button, backdrop, popstate): unload the
+  // iframe and put the URL back where it was before the drawer opened.
+  drawer?.addEventListener('close', () => {
+    if (drawerFrame) drawerFrame.src = 'about:blank'
+    if (new URLSearchParams(location.search).get('entry')) {
+      if (drawerPushed) history.back()
+      else history.replaceState(null, '', drawerUrl(null))
+    }
+    drawerPushed = false
+  })
+
+  // Back/forward buttons open and close the drawer to match the URL.
+  window.addEventListener('popstate', () => {
+    const entryId = new URLSearchParams(location.search).get('entry')
+    const link = entryId ? entryById.get(entryId) : undefined
+    if (link) {
+      drawerPushed = false
+      openDrawer(link)
+    } else {
+      closeDrawer()
+    }
+  })
+
+  // Deep link: /integrations/?entry=<id> opens the drawer on load. Unknown
+  // ids (stale links, external-only entries) are ignored.
+  const initialEntry = new URLSearchParams(location.search).get('entry')
+  const initialLink = initialEntry ? entryById.get(initialEntry) : undefined
+  if (initialLink) openDrawer(initialLink)
+  else if (initialEntry) history.replaceState(null, '', drawerUrl(null))
 </script>

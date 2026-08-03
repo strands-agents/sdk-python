@@ -46,11 +46,15 @@ const href = card.external ? card.href : pathWithBase(card.href)
   </span>
   <div class="cat-card-main">
     <div class="cat-card-head">
+      {/* data-cat-entry marks internal docs links for the docs-drawer script
+          (integrations.astro), which intercepts the click and opens the page
+          in a slide-over iframe. Without JS the link navigates normally. */}
       <a
         class="cat-card-title"
         href={href}
         target={card.external ? '_blank' : undefined}
         rel={card.external ? 'noopener' : undefined}
+        data-cat-entry={card.external ? undefined : card.id}
         title={card.name}
       >
         {card.name}
