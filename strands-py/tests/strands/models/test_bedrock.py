@@ -2847,6 +2847,38 @@ async def test_format_request_with_guardrail_latest_message(model):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("image_format", ["gif", "webp"])
+async def test_format_request_with_guardrail_latest_message_unsupported_image_format(model, image_format):
+    """Test that guardContent does not wrap image formats that Bedrock guardrails reject."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Look at this image"},
+                {"image": {"format": image_format, "source": {"bytes": b"fake_image_data"}}},
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+    formatted_messages = request["messages"]
+
+    # Latest user message text should still be wrapped
+    assert "guardContent" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
+
+    # GuardrailConverseImageBlock only accepts png and jpeg, so the image is left unwrapped
+    assert "guardContent" not in formatted_messages[0]["content"][1]
+    assert formatted_messages[0]["content"][1]["image"]["format"] == image_format
+
+
+@pytest.mark.asyncio
 async def test_format_request_with_guardrail_latest_message_after_tool_use(model):
     """Test that guardContent wraps the last user text message even when a toolResult follows it."""
     model.update_config(
