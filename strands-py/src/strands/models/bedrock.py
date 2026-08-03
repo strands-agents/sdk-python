@@ -1124,7 +1124,7 @@ class BedrockModel(Model):
                     "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
                 )
 
-            # Nova models accept S3 locations, so an S3 source is not the cause of their errors.
+            # S3 locations are only rejected outside the Nova family, so the note cannot apply here.
             model_id = self.config.get("model_id") or ""
             if (
                 e.response["Error"]["Code"] == "ValidationException"
