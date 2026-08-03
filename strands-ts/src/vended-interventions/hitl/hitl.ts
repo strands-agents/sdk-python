@@ -64,12 +64,12 @@ export interface HumanInTheLoopConfig {
   /**
    * Determines how approval decisions are made for tools not in `allowedTools`.
    *
-   * - **Omitted**: all non-allowed tools require approval (default behavior).
+   * - **Omitted / `false`**: all non-allowed tools require approval (default behavior).
    * - **`true`**: uses the built-in LLM risk classifier with defaults.
    * - **Config object** (`{ systemPrompt?, model? }`): built-in LLM classifier with custom settings.
-   * - **Custom function**: your own async classification logic.
+   * - **Custom function**: your own sync or async classification logic.
    */
-  classifier?: true | LlmClassifierConfig | HumanInTheLoopClassifier
+  classifier?: boolean | LlmClassifierConfig | HumanInTheLoopClassifier
 
   /**
    * When true, trust responses approve the tool AND remember it
@@ -270,9 +270,9 @@ export class HumanInTheLoop extends InterventionHandler {
   }
 
   private _resolveClassifier(
-    classifier: true | LlmClassifierConfig | HumanInTheLoopClassifier | undefined
+    classifier: boolean | LlmClassifierConfig | HumanInTheLoopClassifier | undefined
   ): HumanInTheLoopClassifier | undefined {
-    if (classifier === undefined) return undefined
+    if (!classifier) return undefined
     if (classifier === true) return createLlmRiskClassifier()
     if (typeof classifier === 'function') return classifier
     return createLlmRiskClassifier(classifier)

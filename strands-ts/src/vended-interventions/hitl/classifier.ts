@@ -14,9 +14,9 @@ export interface ClassifierResult {
 }
 
 /**
- * Function that decides whether a tool call requires human approval.
+ * Function (sync or async) that decides whether a tool call requires human approval.
  */
-export type HumanInTheLoopClassifier = (event: BeforeToolCallEvent) => Promise<ClassifierResult>
+export type HumanInTheLoopClassifier = (event: BeforeToolCallEvent) => ClassifierResult | Promise<ClassifierResult>
 
 /**
  * Configuration for the built-in LLM risk classifier (used when `classifier: true`).
