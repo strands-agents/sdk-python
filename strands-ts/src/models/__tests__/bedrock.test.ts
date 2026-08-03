@@ -3284,11 +3284,13 @@ describe('BedrockModel', () => {
               trace: {
                 guardrail: {
                   outputAssessments: {
-                    '1234': {
-                      contentPolicy: {
-                        filters: [{ type: 'VIOLENCE', action: 'BLOCKED', detected: true }],
+                    '1234': [
+                      {
+                        contentPolicy: {
+                          filters: [{ type: 'VIOLENCE', action: 'BLOCKED', detected: true }],
+                        },
                       },
-                    },
+                    ],
                   },
                 },
               },
@@ -3312,6 +3314,74 @@ describe('BedrockModel', () => {
             outputRedaction: { replaceContent: '[Assistant output redacted.]' },
           },
         ])
+      })
+
+      it.each([
+        {
+          name: 'only output when input is clean',
+          guardrail: {
+            inputAssessment: {
+              input: { topicPolicy: { topics: [{ action: 'NONE', detected: false }] } },
+            },
+            outputAssessments: {
+              output: [{ topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } }],
+            },
+          },
+          expected: [
+            {
+              type: 'modelRedactionEvent',
+              outputRedaction: { replaceContent: '[Assistant output redacted.]' },
+            },
+          ],
+        },
+        {
+          name: 'only input when output is clean',
+          guardrail: {
+            inputAssessment: {
+              input: { topicPolicy: { topics: [{ action: 'BLOCKED', detected: true }] } },
+            },
+            outputAssessments: {
+              output: [{ topicPolicy: { topics: [{ action: 'NONE', detected: false }] } }],
+            },
+          },
+          expected: [
+            {
+              type: 'modelRedactionEvent',
+              inputRedaction: { replaceContent: '[User input redacted.]' },
+            },
+          ],
+        },
+        {
+          name: 'neither side for empty assessments',
+          guardrail: { inputAssessment: {}, outputAssessments: {} },
+          expected: [],
+        },
+      ])('emits redaction for $name', async ({ guardrail, expected }) => {
+        setupMockSend(async function* () {
+          yield { messageStart: { role: 'assistant' } }
+          yield { contentBlockStart: {} }
+          yield { contentBlockDelta: { delta: { text: 'Hello' } } }
+          yield { contentBlockStop: {} }
+          yield { messageStop: { stopReason: 'guardrail_intervened' } }
+          yield {
+            metadata: {
+              usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+              trace: { guardrail },
+            },
+          }
+        })
+
+        const provider = new BedrockModel({
+          guardrailConfig: {
+            guardrailIdentifier: 'my-guardrail-id',
+            guardrailVersion: '1',
+            redaction: { output: true },
+          },
+        })
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+        const events = await collectIterator(provider.stream(messages))
+
+        expect(events.filter((event) => event.type === 'modelRedactionEvent')).toStrictEqual(expected)
       })
 
       it('does not emit redaction events when guardrail not blocked', async () => {

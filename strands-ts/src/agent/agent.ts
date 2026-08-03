@@ -2273,27 +2273,56 @@ export class Agent implements LocalAgent, InvokableAgent {
   }
 
   /**
-   * Redacts the latest human-authored user message in the conversation history.
-   * Called when guardrails block user input and redaction is enabled. Tool result
-   * messages use the user role for protocol purposes and are skipped.
+   * Redacts the last message in the conversation history.
+   * Called when guardrails block user input and redaction is enabled.
+   *
+   * Follows the redaction strategy:
+   * - If the message contains at least one toolResult block, all toolResult blocks
+   *   are kept with redacted content, and all other blocks are discarded.
+   * - Otherwise, the entire content is replaced with a single text block containing
+   *   the redaction message.
    *
    * @param redactMessage - The redaction message to replace the content with
    */
   private _redactLastMessage(redactMessage: string): void {
-    for (let idx = this.messages.length - 1; idx >= 0; idx--) {
-      const message = this.messages[idx]
-      if (message?.role === 'user' && message.content.some((block) => block.type !== 'toolResultBlock')) {
-        this.messages[idx] = new Message({
+    // Find and redact the last message
+    const lastIndex = this.messages.length - 1
+    if (lastIndex >= 0) {
+      const lastMessage = this.messages[lastIndex]
+      if (lastMessage && lastMessage.role === 'user') {
+        // Collect only tool result blocks with redacted content
+        const redactedContent: ContentBlock[] = []
+        for (const block of lastMessage.content) {
+          if (block.type === 'toolResultBlock') {
+            // Preserve tool result block structure, only redact its content
+            redactedContent.push(
+              new ToolResultBlock({
+                toolUseId: block.toolUseId,
+                status: block.status,
+                content: [new TextBlock(redactMessage)],
+              })
+            )
+          }
+        }
+
+        // If no tool result blocks were found, replace entire content with redaction message
+        if (redactedContent.length === 0) {
+          redactedContent.push(new TextBlock(redactMessage))
+        }
+
+        this.messages[lastIndex] = new Message({
           role: 'user',
-          content: [new TextBlock(redactMessage)],
+          content: redactedContent,
           // Redaction rewrites content but it's the same logical message, so keep its tracking id.
-          trackingId: message.trackingId,
+          trackingId: lastMessage.trackingId,
         })
-        return
+      } else if (lastMessage) {
+        // Unexpected state: redaction requested but last message is not from user
+        logger.warn(
+          `role=<${lastMessage.role}> | received input redaction but last message is not from user | redaction skipped`
+        )
       }
     }
-
-    logger.warn('received input redaction but no human-authored user message was found | redaction skipped')
   }
 
   /**

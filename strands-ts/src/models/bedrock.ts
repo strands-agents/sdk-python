@@ -128,6 +128,26 @@ const DEFAULT_REDACT_INPUT_MESSAGE = '[User input redacted.]'
 const DEFAULT_REDACT_OUTPUT_MESSAGE = '[Assistant output redacted.]'
 
 /**
+ * Recursively checks a guardrail assessment for a policy that detected and blocked content.
+ */
+function hasDetectedBlockedPolicy(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(hasDetectedBlockedPolicy)
+  }
+
+  if (value === null || typeof value !== 'object') {
+    return false
+  }
+
+  const node = value as Record<string, unknown>
+  if (node.action === 'BLOCKED' && node.detected === true) {
+    return true
+  }
+
+  return Object.values(node).some(hasDetectedBlockedPolicy)
+}
+
+/**
  * TTL durations accepted by Bedrock for prompt-cache checkpoints.
  *
  * Bedrock currently accepts `'5m'` (default) and `'1h'`. The `(string & {})` branch keeps
@@ -1747,8 +1767,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     const events: ModelStreamEvent[] = []
     const redaction = this._config.guardrailConfig?.redaction
 
-    // Default: redact input is true unless explicitly set to false
-    if (guardrailData.inputAssessment !== undefined && redaction?.input !== false) {
+    // Default: redact input when its assessment contains a detected block unless explicitly disabled
+    if (hasDetectedBlockedPolicy(guardrailData.inputAssessment) && redaction?.input !== false) {
       logger.debug('redacting input due to guardrail')
       events.push({
         type: 'modelRedactionEvent',
@@ -1758,8 +1778,8 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       })
     }
 
-    // Only redact output if it was assessed and output redaction is explicitly enabled
-    if (guardrailData.outputAssessments !== undefined && redaction?.output) {
+    // Only redact output when its assessment contains a detected block and redaction is explicitly enabled
+    if (hasDetectedBlockedPolicy(guardrailData.outputAssessments) && redaction?.output) {
       logger.debug('redacting output due to guardrail')
       const outputRedactionEvent: ModelStreamEvent = {
         type: 'modelRedactionEvent',

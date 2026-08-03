@@ -602,6 +602,7 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
                 outputMessage: OUTPUT_REDACT_MESSAGE,
               },
             },
+            temperature: 0,
           })
 
           const listUsers = new FunctionTool({
@@ -614,14 +615,17 @@ describe.skipIf(bedrock.skip)('BedrockModel Integration Tests', () => {
           const agent = new Agent({
             model,
             systemPrompt:
-              'Use list_users when asked to list users. After receiving its result, respond with only CACTUS.',
+              'When asked to list users, use list_users and respond with only CACTUS after receiving its result. Otherwise, respond normally.',
             tools: [listUsers],
             printer: false,
           })
 
           const response1 = await agent.invoke('List my users.')
+          const response2 = await agent.invoke('What is 2+2? Reply with only the number.')
 
           expect(response1.stopReason).toBe('guardrailIntervened')
+          expect(response2.stopReason).not.toBe('guardrailIntervened')
+          expect(response2.toString()).not.toContain(OUTPUT_REDACT_MESSAGE)
 
           if (processingMode === 'sync') {
             expect(response1.toString()).toContain(OUTPUT_REDACT_MESSAGE)
