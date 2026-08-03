@@ -64,6 +64,8 @@ __all__ = [
     "ToolStreamEvent",
     # Model interface
     "BidiModel",
+    # IO configuration
+    "AudioProcessingConfig",
     # Built-in tools (deprecated)
     "stop_conversation",
 ]
@@ -74,6 +76,10 @@ def __getattr__(name: str) -> Any:
 
     This defers the import of optional dependencies until actually needed.
     """
+    if name == "AudioProcessingConfig":
+        from .io.audio import AudioProcessingConfig
+
+        return AudioProcessingConfig
     if name == "BidiAudioIO":
         from .io.audio import BidiAudioIO
 
