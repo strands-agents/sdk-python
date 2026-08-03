@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-valkey-session-manager
 github: https://github.com/jeromevdl/strands-valkey-session-manager
-docsPage: docs/community/session-managers/strands-valkey-session-manager
+docsPage: docs/integrations/session-managers/strands-valkey-session-manager
 addedDate: 2026-01-01

@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-hubspot
 github: https://github.com/eraykeskinmac/strands-hubspot
-docsPage: docs/community/tools/strands-hubspot
+docsPage: docs/integrations/tools/strands-hubspot
 addedDate: 2026-01-01

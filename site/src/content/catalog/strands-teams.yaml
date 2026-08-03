@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-teams
 github: https://github.com/eraykeskinmac/strands-teams
-docsPage: docs/community/tools/strands-teams
+docsPage: docs/integrations/tools/strands-teams
 addedDate: 2026-01-01

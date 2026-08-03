@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-dakera
 github: https://github.com/dakera-ai/strands-dakera
-docsPage: docs/community/memory-stores/strands-dakera
+docsPage: docs/integrations/memory-stores/strands-dakera
 addedDate: 2026-07-23

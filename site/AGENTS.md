@@ -74,9 +74,9 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │       │   └── typescript/
 │   │       │       └── _generated/   # Symlink to .build/api-docs/typescript
 │   │       ├── assets/
-│   │       ├── community/
 │   │       ├── contribute/
 │   │       ├── examples/
+│   │       ├── integrations/
 │   │       ├── labs/
 │   │       └── user-guide/
 │   ├── data/                     # Bot-maintained data (catalog-stats.json — updated by the

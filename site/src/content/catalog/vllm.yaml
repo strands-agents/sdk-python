@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-vllm
 github: https://github.com/agents-community/strands-vllm
-docsPage: docs/community/model-providers/vllm
+docsPage: docs/integrations/model-providers/vllm
 addedDate: 2026-01-01

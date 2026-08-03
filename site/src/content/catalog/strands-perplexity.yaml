@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-perplexity
 github: https://github.com/mkmeral/strands-perplexity
-docsPage: docs/community/tools/strands-perplexity
+docsPage: docs/integrations/tools/strands-perplexity
 addedDate: 2026-01-01

@@ -36,11 +36,11 @@ describe('toCardModel', () => {
   })
 
   it('prefers an on-site docsPage over both docsUrl and github', () => {
-    const card = toCardModel(entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/community/tools/strands-example' }),
+    const card = toCardModel(entry({ docsUrl: 'https://example.com/docs/strands', docsPage: 'docs/integrations/tools/strands-example' }),
       undefined,
       BUILD_DATE
     )
-    expect(card.href).toBe('/docs/community/tools/strands-example/')
+    expect(card.href).toBe('/docs/integrations/tools/strands-example/')
     expect(card.external).toBe(false)
   })
 

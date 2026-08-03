@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-code-agent
 github: https://github.com/aws-samples/sample-strands-code-agent
-docsPage: docs/community/agent-extensions/strands-code-agent
+docsPage: docs/integrations/agent-extensions/strands-code-agent
 addedDate: 2026-01-01

@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-clova
 github: https://github.com/aidendef/strands-clova
-docsPage: docs/community/model-providers/clova-studio
+docsPage: docs/integrations/model-providers/clova-studio
 addedDate: 2026-01-01

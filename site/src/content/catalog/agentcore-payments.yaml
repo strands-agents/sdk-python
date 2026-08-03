@@ -5,5 +5,5 @@ languages:
   python:
     package: bedrock-agentcore[strands-agents]
 github: https://github.com/aws/bedrock-agentcore-sdk-python
-docsPage: docs/community/plugins/agentcore-payments
+docsPage: docs/integrations/plugins/agentcore-payments
 addedDate: 2026-01-01

@@ -160,7 +160,7 @@ describe('catalog content collection', () => {
     const [entries, docs] = await Promise.all([getCollection('catalog'), getCollection('docs')])
     const cataloged = new Set(entries.map((e) => e.data.docsPage).filter(Boolean))
     const communityPages = docs.filter(
-      (d) => d.id.startsWith('docs/community/') && d.data.community === true && d.data.integrationType
+      (d) => d.id.startsWith('docs/integrations/') && d.data.community === true && d.data.integrationType
     )
     for (const page of communityPages) {
       expect(cataloged.has(page.id), `community page ${page.id} has no catalog entry`).toBe(true)

@@ -5,5 +5,5 @@ languages:
   python:
     package: ag-ui-strands
 github: https://github.com/ag-ui-protocol/ag-ui
-docsPage: docs/community/integrations/ag-ui
+docsPage: docs/integrations/integrations/ag-ui
 addedDate: 2026-01-01

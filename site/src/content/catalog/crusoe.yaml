@@ -4,5 +4,5 @@ integrationType: model-provider
 languages:
   python: {}
 github: https://github.com/strands-agents/harness-sdk
-docsPage: docs/community/model-providers/crusoe
+docsPage: docs/integrations/model-providers/crusoe
 addedDate: 2026-07-31

@@ -116,7 +116,7 @@ export const catalogEntrySchema = z
     // from this URL's owner segment, and registry links derive from the
     // package names — submitters can't point them somewhere else.
     github: z.string().url().startsWith('https://github.com/', 'github must start with https://github.com/'),
-    // Docs collection id of the detail page (e.g. 'docs/community/tools/strands-deepgram').
+    // Docs collection id of the detail page (e.g. 'docs/integrations/tools/strands-deepgram').
     // Optional: entries without one link out to their GitHub repo instead.
     docsPage: z.string().optional(),
     // External URL of the integration's own Strands setup/instructions page
@@ -208,7 +208,7 @@ export const collections = {
         "404.mdx",
 
         "docs/user-guide/**/*.mdx",
-        "docs/community/**/*.mdx",
+        "docs/integrations/**/*.mdx",
         "docs/contribute/**/*.mdx",
         "docs/examples/**/[!index]*.mdx",
         "docs/labs/**/*.mdx",

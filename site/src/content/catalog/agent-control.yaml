@@ -5,5 +5,5 @@ languages:
   python:
     package: agent-control-sdk[strands-agents]
 github: https://github.com/agentcontrol/agent-control
-docsPage: docs/community/plugins/agent-control
+docsPage: docs/integrations/plugins/agent-control
 addedDate: 2026-01-01

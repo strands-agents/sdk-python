@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-agents-spraay
 github: https://github.com/plagtech/strands-agents-spraay
-docsPage: docs/community/tools/strands-spraay
+docsPage: docs/integrations/tools/strands-spraay
 addedDate: 2026-01-01

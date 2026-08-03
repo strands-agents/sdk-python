@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-telegram
 github: https://github.com/eraykeskinmac/strands-telegram
-docsPage: docs/community/tools/strands-telegram
+docsPage: docs/integrations/tools/strands-telegram
 addedDate: 2026-01-01

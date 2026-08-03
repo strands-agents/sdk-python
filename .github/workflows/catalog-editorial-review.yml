@@ -386,7 +386,7 @@ jobs:
                 `This PR changes \`featured\` and/or \`badges\` on: ${flagged.map(f => `\`${f}\``).join(', ')}.`,
                 '',
                 'Those fields are granted by the Strands team, not set by submitters',
-                '(see the [submission guide](https://strandsagents.com/docs/community/get-featured/)).',
+                '(see the [submission guide](https://strandsagents.com/docs/integrations/get-featured/)).',
                 'Both granting and removing them needs maintainer confirmation — a',
                 'maintainer should either **confirm the change** or **ask the',
                 'submitter to revert it** before merging.'

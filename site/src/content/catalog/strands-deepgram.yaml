@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-deepgram
 github: https://github.com/eraykeskinmac/strands-deepgram
-docsPage: docs/community/tools/strands-deepgram
+docsPage: docs/integrations/tools/strands-deepgram
 addedDate: 2026-01-01

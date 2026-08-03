@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-agt
 github: https://github.com/lizradway/strands-agt
-docsPage: docs/community/interventions/strands-agt
+docsPage: docs/integrations/interventions/strands-agt
 addedDate: 2026-01-01

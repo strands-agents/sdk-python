@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-apify
 github: https://github.com/apify/strands-apify
-docsPage: docs/community/tools/strands-apify
+docsPage: docs/integrations/tools/strands-apify
 addedDate: 2026-01-01
