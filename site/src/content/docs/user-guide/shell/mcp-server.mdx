@@ -10,8 +10,8 @@ The built-in MCP server exposes a sandboxed shell over JSON-RPC on stdio, so any
 ## Start the server
 
 Run the server with the `--mcp` flag. With no config, it starts a bare in-memory
-sandbox without host files or credentials. Public URLs remain reachable, while the
-SSRF guard blocks private, loopback, link-local, and cloud metadata addresses.
+sandbox without host files or credentials and uses the
+[default network policy](configuration.md#network-access).
 
 ```bash
 uvx strands-shell --mcp

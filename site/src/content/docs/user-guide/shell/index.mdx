@@ -12,7 +12,8 @@ Strands Shell is a Bourne-compatible shell that runs inside your own process. It
 `fork`, `exec`, or a raw syscall. Its mediation boundary covers commands run through
 its MCP, Python, and Node.js surfaces; it does not extend to other tools registered
 with an agent. You declare which host files, internal URLs, and credentials the shell
-can reach. Public URLs remain reachable by default. The source is on
+can reach. Network access follows the
+[default policy](configuration.md#network-access). The source is on
 [GitHub](https://github.com/strands-agents/shell).
 
 ## Why a virtual shell
@@ -61,15 +62,15 @@ Strands Shell is written in Rust and compiles from one source to native bindings
 
 ## What you control
 
-A fresh shell starts without host files or credentials. Public URLs remain reachable,
-while the SSRF guard blocks private, loopback, link-local, and cloud metadata
-addresses. You grant additional access explicitly through three mechanisms:
+A fresh shell starts without host files or credentials and uses the
+[default network policy](configuration.md#network-access). You grant additional access
+explicitly through three mechanisms:
 
 - **Binds** map a host directory into the shell's filesystem. A `copy` bind snapshots the directory at construction time, isolating the agent from your live files. A `direct` bind passes reads and writes through to the host in real time. Prefer `copy` for source code and reserve `direct` for output directories.
 
 - **Credentials** attach a secret to a URL prefix. When a command makes a request to a matching URL, the Kernel injects the credential at request time. The agent doesn't hold the secret, and the Kernel doesn't re-inject on a redirect, even back to the same host.
 
-- **Allowed URLs** widen the network policy. By default the SSRF guard blocks private ranges (RFC1918, link-local, loopback, and cloud metadata endpoints) while letting public URLs through. Add a prefix to the allowlist to permit a specific internal host.
+- **Allowed URLs** permit specific internal hosts that the default network policy blocks.
 
 The [Configuration](configuration.md) guide covers each of these in depth, including the TOML format that lets you declare the whole policy in a file.
 

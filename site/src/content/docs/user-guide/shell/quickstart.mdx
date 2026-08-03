@@ -31,11 +31,10 @@ Add this to your MCP client configuration:
 }
 ```
 
-This starts a bare in-memory sandbox without access to host files or credentials.
-Public URLs remain reachable, while the SSRF guard blocks private, loopback,
-link-local, and cloud metadata addresses. To grant additional access, write a
-[TOML config file](configuration.md#toml-configuration) and pass it before the
-`--mcp` flag:
+This starts a bare in-memory sandbox without access to host files or credentials and
+uses the [default network policy](configuration.md#network-access). To grant additional
+access, write a [TOML config file](configuration.md#toml-configuration) and pass it
+before the `--mcp` flag:
 
 ```json
 {
@@ -157,10 +156,9 @@ for (const entry of entries) {
 ## What you built
 
 You created a sandbox with exactly one host directory visible to it and ran a
-command without exposing your home directory or credentials. Public URLs remain
-reachable, while the SSRF guard blocks private, loopback, link-local, and cloud
-metadata addresses. You add capability by adding binds, credentials, and allowed
-URLs.
+command without exposing your home directory or credentials. Network access follows
+the [default policy](configuration.md#network-access). You add capability by adding
+binds, credentials, and allowed URLs.
 
 ## Next steps
 

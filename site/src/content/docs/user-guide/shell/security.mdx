@@ -35,11 +35,11 @@ A custom Kernel (for embedding the shell in another runtime) carries its own sec
 
 ## Least privilege by default
 
-Out of the box, a shell has no host files or credentials. It can reach public URLs,
-while the SSRF guard blocks private, loopback, link-local, and cloud metadata
-addresses. The TOML config defaults bind mode to `copy` (the safe choice), but the
-Python and Node.js constructors default to `direct`; always pass `mode` explicitly in
-code. The practices that follow from the principle of least privilege are:
+Out of the box, a shell has no host files or credentials and uses the
+[default network policy](configuration.md#network-access). The TOML config defaults
+bind mode to `copy` (the safe choice), but the Python and Node.js constructors default
+to `direct`; always pass `mode` explicitly in code. The practices that follow from the
+principle of least privilege are:
 
 - **Prefer `copy` over `direct` binds for source code.** A `copy` bind snapshots files into the VFS, isolating the agent from your live filesystem. Reserve `direct` for output directories where the agent must persist results.
 - **Scope binds narrowly.** Bind `/my/project/src`, not `/my/project` or `/`. The agent doesn't need your `.git`, your `.env`, or your `node_modules`.
