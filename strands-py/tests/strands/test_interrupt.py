@@ -236,6 +236,18 @@ def test_interrupt_state_end_interrupt_cycle():
     assert interrupt_state.activated
 
 
+def test_interrupt_state_end_interrupt_cycle_nothing_to_release():
+    """With nothing to drop the state is left alone, version included."""
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate")
+    interrupt_state = _InterruptState(interrupts={tool_interrupt.id: tool_interrupt})
+    version = interrupt_state._get_version()
+
+    interrupt_state.end_interrupt_cycle()
+
+    assert interrupt_state.interrupts == {tool_interrupt.id: tool_interrupt}
+    assert interrupt_state._get_version() == version
+
+
 def test_interrupt_state_to_dict_omits_retained_invocation_scoped_responses():
     """A response retained while deactivated is readable only in-pass, so it is never serialized."""
     retained = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}retained", name="gate", response="approved")

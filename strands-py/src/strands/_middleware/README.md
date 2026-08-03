@@ -258,12 +258,12 @@ answered agent-stream response does not survive a tool cycle. Tracked as a follo
 
 ### Interrupt before the pass produces its result
 
-An agent-stream interrupt must fire *before* the pass produces its `EventLoopStopEvent`. Once the
-stop event has been yielded, the assistant turn is already appended to history. If nothing was
-stored for a resume to replay, the resumed pass calls the model a second time — duplicate assistant
-turn, non-alternating history, re-fired tool side effects. The run loop refuses that case: it
-clears interrupt state and raises `RuntimeError` naming the interrupt rather than corrupting the
-conversation.
+An agent-stream interrupt must fire before the pass produces its model turn. Once the assistant
+turn is in history, if nothing was stored for a resume to replay, the resumed pass calls the model
+a second time — duplicate assistant turn, non-alternating history, re-fired tool side effects. The
+run loop refuses the part of this it can detect precisely — an interrupt raised after the pass
+produced its EventLoopStopEvent — by clearing interrupt state and raising RuntimeError naming the
+interrupt. Interrupts in the window between the model turn and the stop event are not caught.
 
 A *tool* interrupt is exempt: its stored `tool_use_message` is replayed on resume, so no second
 model call happens, and gating on top of a tool interrupt keeps working.
@@ -277,7 +277,7 @@ The refusal only catches the case it can detect precisely. Interrupting mid-drai
 turn has landed (e.g. from a `ModelMessageEvent`) is past the point where the assistant message
 entered history, so resuming re-calls the model exactly as above — the run loop cannot distinguish
 that from a legitimate mid-drain interrupt. Treat "before the model turn is produced" as the safe
-interrupt position, not merely "before the stop event".
+interrupt position, not merely before the stop event.
 
 ## Hook-initiated retries re-run the middleware chain
 
