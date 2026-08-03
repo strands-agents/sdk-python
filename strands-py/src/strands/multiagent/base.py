@@ -58,6 +58,19 @@ class NodeResult:
     execution_count: int = 0
     interrupts: list[Interrupt] = field(default_factory=list)
 
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the node result.
+
+        Delegates to the inner result's string representation:
+        - AgentResult: Uses AgentResult.__str__ (extracts text content)
+        - MultiAgentResult: Uses MultiAgentResult.__str__ (recursive)
+        - Exception: Uses the exception's string representation
+
+        Returns:
+            String representation of the node's result.
+        """
+        return str(self.result)
+
     def get_agent_results(self) -> list[AgentResult]:
         """Get all AgentResult objects from this node, flattened if nested."""
         if isinstance(self.result, Exception):
@@ -137,6 +150,30 @@ class MultiAgentResult:
     execution_count: int = 0
     execution_time: int = 0
     interrupts: list[Interrupt] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the multi-agent result.
+
+        Priority order:
+        1. Interrupts (if present) → stringified list of interrupt dicts
+        2. Node results → each node's string output, prefixed with node name
+
+        Returns:
+            String representation based on the priority order above.
+        """
+        if self.interrupts:
+            return str([interrupt.to_dict() for interrupt in self.interrupts])
+
+        parts = []
+        for node_name, node_result in self.results.items():
+            # Remove only the single trailing newline that AgentResult.__str__ appends
+            # as a framework separator, preserving all user-owned whitespace (leading
+            # indentation, internal markdown hard-break spaces, payload trailing newlines).
+            node_str = str(node_result).removesuffix("\n")
+            if node_str:
+                parts.append(f"{node_name}: {node_str}")
+
+        return "\n".join(parts)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":

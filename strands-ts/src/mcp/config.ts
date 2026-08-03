@@ -2,6 +2,18 @@ import type { McpClientConfig, McpClientCredentials, McpClientOptions, TasksConf
 import { createDefaultSlot } from '../default-slot.js'
 
 /**
+ * Tool filters in a serializable form, for an MCP server config entry. Because a config file cannot
+ * carry a `RegExp`, each pattern is a string compiled to a regex, matched from the start of the
+ * server-side tool name.
+ */
+export interface SerializableMcpToolFilters {
+  /** When present, only tools whose names match one of these patterns are exposed. */
+  allowed?: string[]
+  /** Tools whose names match one of these patterns are excluded, even when also allowed. */
+  rejected?: string[]
+}
+
+/**
  * Configuration for a single MCP server entry in a config file or object.
  *
  * Provide either `command` (stdio transport) or `url` (streamable-http/SSE), not both.
@@ -24,6 +36,10 @@ export interface McpServerConfig {
   transport?: 'stdio' | 'sse' | 'streamable-http'
   /** Client credentials for OAuth machine-to-machine auth (streamable-http only). */
   auth?: McpClientCredentials
+  /** Prefix for agent-facing tool names (supports `${VAR}` or `${env:VAR}` interpolation). */
+  prefix?: string
+  /** Filters applied to tool names (patterns support `${VAR}` or `${env:VAR}` interpolation). */
+  toolFilters?: SerializableMcpToolFilters
   /** When true, this server is skipped during loadServers. */
   disabled?: boolean
   /** When true, config or connection failures skip this server instead of throwing. */
