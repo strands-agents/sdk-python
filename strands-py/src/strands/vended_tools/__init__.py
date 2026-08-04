@@ -21,27 +21,40 @@ Example Usage:
 """
 
 import warnings
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from typing_extensions import deprecated
 
 from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .shell import make_shell, shell
 from .sleep import make_sleep, sleep
 
-_DEPRECATED_NAMES = {"bash": "shell", "make_bash": "make_shell"}
+if TYPE_CHECKING:
+    from ..tools.decorator import DecoratedFunctionTool
+
+_RENAME_RATIONALE = (
+    "The tool routes commands through the sandbox, which runs sh or the remote login shell "
+    "rather than bash specifically."
+)
+
+
+@deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
+def make_bash(**kwargs: Any) -> "DecoratedFunctionTool":
+    """Deprecated alias for :func:`make_shell`."""
+    return make_shell(**kwargs)
 
 
 def __getattr__(name: str) -> Any:
-    if name in _DEPRECATED_NAMES:
-        replacement = _DEPRECATED_NAMES[name]
+    # ``bash`` is a tool instance rather than a function, so it cannot carry the
+    # @deprecated decorator that ``make_bash`` uses; resolve it here instead.
+    if name == "bash":
         warnings.warn(
-            f"{name} is deprecated and will be removed in v2.0.0. Use {replacement} instead. "
-            "The tool routes commands through the sandbox, which runs sh or the remote login "
-            "shell rather than bash specifically.",
+            f"bash is deprecated and will be removed in v2.0.0. Use shell instead. {_RENAME_RATIONALE}",
             DeprecationWarning,
             stacklevel=2,
         )
-        return {"shell": shell, "make_shell": make_shell}[replacement]
+        return shell
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

@@ -318,6 +318,7 @@ sidebar:
       - label: Integrations
         items:
           - docs/integrations/integrations/ag-ui
+          - docs/integrations/integrations/welt
       - label: Agent Extensions
         items:
           - docs/integrations/agent-extensions/strands-code-agent
