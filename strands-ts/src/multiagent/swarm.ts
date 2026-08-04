@@ -537,6 +537,15 @@ export class Swarm implements MultiAgent {
       throw new Error(`node_timeout=<${this.config.nodeTimeout}> | must be at least 1`)
     }
 
+    this._validateRepetitiveHandoffConfig()
+  }
+
+  /**
+   * Validates the repetitive-handoff detection pair. Both settings must be 0
+   * (disabled) or both positive, and the uniqueness threshold must fit within
+   * both the detection window and the number of nodes in the swarm.
+   */
+  private _validateRepetitiveHandoffConfig(): void {
     const window = this.config.repetitiveHandoffDetectionWindow
     const minimumUniqueAgents = this.config.repetitiveHandoffMinUniqueAgents
     if (!Number.isInteger(window) || window < 0) {
