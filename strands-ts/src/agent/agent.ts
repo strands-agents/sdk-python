@@ -225,7 +225,8 @@ export type AgentConfig = {
    * Context management strategy.
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
-   * - `"agentic"`: Lets the model drive context management via injected tools.
+   * - `"agentic"`: (Experimental) Lets the model drive context management via injected tools.
+   *   This mode may change in future versions.
    *
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
