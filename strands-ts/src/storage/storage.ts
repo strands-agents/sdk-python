@@ -69,7 +69,7 @@ export function normalizePrefix(prefix: string): string {
  * filter) while still accepting a plain string for SDK-internal callers.
  *
  * Implement this to add a custom backend; the SDK ships {@link InMemoryStorage},
- * {@link LocalFileStorage}, and {@link S3Storage}.
+ * {@link LocalFileStorage}, {@link SQLiteStorage}, and {@link S3Storage}.
  */
 export interface Storage<ListQuery = string> {
   /**
@@ -141,7 +141,7 @@ export interface Storage<ListQuery = string> {
  */
 export function namespace(storage: Storage, prefix: string): Storage {
   const normalized = normalizePrefix(prefix)
-  const p = normalized ? `${normalized}/` : ''
+  const p = normalized ? (normalized.endsWith('/') ? normalized : `${normalized}/`) : ''
   const view: Storage & { [NAMESPACED]: true } = {
     write: (key, data) => storage.write(`${p}${key}`, data),
     read: (key) => storage.read(`${p}${key}`),

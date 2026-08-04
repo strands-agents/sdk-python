@@ -227,6 +227,7 @@
     "express": "^5.2.1",
     "openai": "^6.45.0",
     "playwright": "^1.61.0",
+    "sqlite3": "^6.0.1",
     "tsx": "^4.22.5",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
@@ -270,6 +271,7 @@
     "@smithy/types": "^4.15.1",
     "express": "^5.1.0",
     "openai": "^6.45.0",
+    "sqlite3": "^6.0.1",
     "zod": "^4.1.12"
   },
   "peerDependenciesMeta": {
@@ -328,6 +330,9 @@
       "optional": true
     },
     "@cedar-policy/mcp-schema-generator-wasm": {
+      "optional": true
+    },
+    "sqlite3": {
       "optional": true
     }
   },

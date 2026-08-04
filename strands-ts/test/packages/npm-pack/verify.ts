@@ -48,6 +48,7 @@ import { ContextOffloader, InMemoryStorage } from '@strands-agents/sdk/vended-pl
 import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
 
 import { z } from 'zod'
+import { InMemoryStorage as UnifiedInMemoryStorage, SQLiteStorage } from '@strands-agents/sdk/storage'
 
 console.log('[pack-test] Imports resolved')
 
@@ -125,17 +126,43 @@ for (const [name, ctor] of Object.entries({ Graph, Swarm })) {
     throw new Error(`${name} subpath export is not a constructor`)
   }
 }
+const unifiedInMemoryStorage = new UnifiedInMemoryStorage()
+const sqliteStorage = new SQLiteStorage(':memory:')
+for (const [name, ctor] of Object.entries({ UnifiedInMemoryStorage, SQLiteStorage })) {
+  if (typeof ctor !== 'function') {
+    throw new Error(`${name} subpath export is not a constructor`)
+  }
+}
+try {
+  await sqliteStorage.read('key')
+  throw new Error('SQLiteStorage unexpectedly operated without the optional sqlite3 peer')
+} catch (error: unknown) {
+  if (!(error instanceof Error) || !error.message.includes("Install it with 'npm install sqlite3@^6.0.1'")) {
+    throw error
+  }
+} finally {
+  await sqliteStorage.close()
+}
 console.log('[pack-test] multiagent + vended-plugin subpaths constructible')
 
 const ctxErr = new ContextWindowOverflowError('test')
-if (!(ctxErr instanceof Error)) {
+if (
+  !(ctxErr instanceof Error) ||
+  !(unifiedInMemoryStorage instanceof UnifiedInMemoryStorage) ||
+  !(sqliteStorage instanceof SQLiteStorage)
+) {
   throw new Error('ContextWindowOverflowError is not an Error subclass')
 }
 
 void AgentResult
 console.log('[pack-test] Error + result types importable')
 
-if (barrelBash !== bash || barrelFileEditor !== fileEditor || barrelHttpRequest !== httpRequest || barrelNotebook !== notebook) {
+if (
+  barrelBash !== bash ||
+  barrelFileEditor !== fileEditor ||
+  barrelHttpRequest !== httpRequest ||
+  barrelNotebook !== notebook
+) {
   throw new Error('Barrel vended-tools exports do not match individual subpath exports')
 }
 if (
