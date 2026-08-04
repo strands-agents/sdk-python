@@ -5,9 +5,9 @@
  */
 ---
 
-<!-- Web fonts: preconnect + a direct stylesheet link. Still render-blocking (deliberately,
-     to avoid FOUT), but drops the chained fetch a CSS @import in custom.css forced:
-     the font CSS request couldn't even start until the bundled stylesheet was parsed. -->
+<!-- Web fonts: preconnect + a direct stylesheet link, rather than a CSS @import in
+     custom.css, which would chain the fetch (the font CSS request couldn't start until
+     the bundled stylesheet was parsed). Render-blocking deliberately, to avoid FOUT. -->
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link
