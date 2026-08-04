@@ -574,10 +574,10 @@ class MultiAgentNodeStreamEvent(TypedEvent):
 
 
 class MultiAgentNodeCancelEvent(TypedEvent):
-    """Planned event for when a node stops graph execution entirely.
+    """Superseded by :class:`MultiAgentNodeSkipEvent`. Nothing in the library emits this.
 
-    Not currently emitted by the library. To handle bypassed nodes, subscribe to
-    :class:`MultiAgentNodeSkipEvent` (type ``multiagent_node_skip``) instead.
+    Kept so that code importing it keeps working. Bypassed nodes now emit
+    ``multiagent_node_skip`` instead of ``multiagent_node_cancel``.
     """
 
     def __init__(self, node_id: str, message: str) -> None:
