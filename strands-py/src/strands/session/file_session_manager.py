@@ -121,7 +121,8 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         # Refuse to read through symlinks (prevents session data injection)
         if os.path.islink(path):
             raise SessionException(
-                f"Refusing to read symlink at {path}. This may indicate a symlink attack or session tampering."
+                f"Refusing to read symlink at {path}. "
+                "This may indicate a symlink attack or session tampering."
             )
         try:
             with open(path, encoding="utf-8") as f:
@@ -140,7 +141,10 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         # Refuse to write if the target path is a symlink (prevents symlink attacks)
         if os.path.islink(path):
-            raise SessionException(f"Refusing to write to symlink at {path}. This may indicate a symlink attack.")
+            raise SessionException(
+                f"Refusing to write to symlink at {path}. "
+                "This may indicate a symlink attack."
+            )
 
         # Use mkstemp for unpredictable temp file name in the same directory
         fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix=".strands_", suffix=".tmp")
@@ -155,6 +159,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             except OSError:
                 pass
             raise
+
 
     def create_session(self, session: Session, **kwargs: Any) -> Session:
         """Create a new session."""

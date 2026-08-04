@@ -613,7 +613,9 @@ class TestRetrievalToolSearch:
     async def test_returns_error_for_binary_content(self, plugin, storage, tool_context):
         ref = await storage.store("k1", b"\x89PNG", "image/png")
 
-        result = await plugin.retrieve_offloaded_content(reference=ref, pattern="test", tool_context=tool_context)
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, pattern="test", tool_context=tool_context
+        )
 
         assert "Error: cannot search binary content (image/png)" in result
 
@@ -723,7 +725,9 @@ class TestRetrievalToolSearch:
         content = "\n".join(f"line {i + 1}" for i in range(20))
         ref = await storage.store("k1", content.encode("utf-8"), "text/plain")
 
-        result = await plugin.retrieve_offloaded_content(reference=ref, context_lines=10, tool_context=tool_context)
+        result = await plugin.retrieve_offloaded_content(
+            reference=ref, context_lines=10, tool_context=tool_context
+        )
 
         assert "[Lines 1-10 of 20]" in result
         assert "line 1" in result
