@@ -59,9 +59,10 @@ class ToolUse(TypedDict):
         name: The name of the tool to invoke.
         toolUseId: A unique identifier for this specific tool use request.
         reasoningSignature: Token that ties the model's reasoning to this tool call.
-        inputParseError: Set when the streamed tool input was not valid JSON. Carries the parse error
-            detail from streaming to tool validation, which converts it into an error tool result. This
-            is an internal within-cycle marker and is popped before the tool use persists in history.
+        inputParseError: Set when the streamed tool input was not valid JSON. Internal, within-cycle
+            marker that carries the parse error detail from streaming to tool validation, which converts
+            it into an error tool result. It is stripped before the assistant message is appended to
+            history, so it never persists to a session or is sent back to the model.
     """
 
     input: Any

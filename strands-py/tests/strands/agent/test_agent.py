@@ -21,7 +21,7 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
+from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent, MessageAddedEvent
 from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
@@ -2800,3 +2800,75 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+class _MalformedToolInputModelProvider(MockedModelProvider):
+    """Streams a tool use whose input is not valid JSON, then a final text response.
+
+    ``MockedModelProvider`` always ``json.dumps`` its inputs, so it cannot exercise the malformed-input
+    path. This subclass emits a raw, unterminated JSON string for the first response.
+    """
+
+    def __init__(self):
+        super().__init__(
+            [
+                {"role": "assistant", "content": [{"text": "unused"}]},
+                {"role": "assistant", "content": [{"text": "done"}]},
+            ]
+        )
+        self._malformed_events = [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"toolUse": {"name": "search", "toolUseId": "t1"}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"query": "unterminated'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+
+    async def stream(self, *args, **kwargs):
+        if self.index == 0:
+            for event in self._malformed_events:
+                yield event
+            self.index += 1
+        else:
+            async for event in super().stream(*args, **kwargs):
+                yield event
+
+
+def test_agent_does_not_persist_input_parse_error_marker():
+    """Malformed tool input must produce an error tool result without leaking the marker into history.
+
+    Regression: the ``inputParseError`` marker is stripped before the assistant message is appended,
+    so it is absent at the moment a session manager serializes the message (MessageAddedEvent).
+    """
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="parse-err", session_repository=mock_session_repository)
+    agent = Agent(session_manager=session_manager, model=_MalformedToolInputModelProvider())
+
+    # Capture messages exactly as a session manager sees them at persistence time.
+    persisted_messages: list[Messages] = []
+    agent.hooks.add_callback(MessageAddedEvent, lambda event: persisted_messages.append(copy.deepcopy(event.message)))
+
+    agent("search something")
+
+    assistant_tool_messages = [
+        message
+        for message in persisted_messages
+        if message["role"] == "assistant" and any("toolUse" in content for content in message["content"])
+    ]
+    assert assistant_tool_messages
+    for message in assistant_tool_messages:
+        for content in message["content"]:
+            if "toolUse" in content:
+                assert "inputParseError" not in content["toolUse"]
+                assert content["toolUse"]["input"] == {}
+
+    # The malformed input is still surfaced to the model as an error tool result.
+    tool_results = [
+        content["toolResult"]
+        for message in persisted_messages
+        for content in message["content"]
+        if "toolResult" in content
+    ]
+    assert any(
+        result["status"] == "error" and "Invalid JSON" in result["content"][0]["text"] for result in tool_results
+    )

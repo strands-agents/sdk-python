@@ -18,7 +18,7 @@ from opentelemetry import trace as trace_api
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
-from ..tools._validator import validate_and_prepare_tools
+from ..tools._validator import strip_input_parse_errors, validate_and_prepare_tools
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..types._events import (
     EventLoopStopEvent,
@@ -537,6 +537,13 @@ async def _handle_model_execution(
         stream_trace.add_message(message)
         stream_trace.end()
 
+        # Strip transient tool-input parse markers before the message is appended to history, so they
+        # never persist to a session or get sent back to the model. The errors are carried out-of-band
+        # to tool validation (which runs later, in tool execution) via invocation_state.
+        parse_errors = strip_input_parse_errors(message)
+        if parse_errors:
+            invocation_state.setdefault("_tool_input_parse_errors", {}).update(parse_errors)
+
         # Add the response message to the conversation
         agent.messages.append(message)
         await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
@@ -589,7 +596,8 @@ async def _handle_tool_execution(
     tool_results: list[ToolResult] = []
     invalid_tool_use_ids: list[str] = []
 
-    validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
+    input_parse_errors = invocation_state.pop("_tool_input_parse_errors", None)
+    validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids, input_parse_errors)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
 
     if agent._interrupt_state.activated:
