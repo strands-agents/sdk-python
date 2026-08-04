@@ -51,7 +51,7 @@
     "turndown-plugin-gfm": "^1.0.2",
     "typedoc": "^0.28.20",
     "typescript": "^5.9.3",
-    "vite": "^8.1.5"
+    "vite": "^8.2.0"
   },
   "devDependencies": {
     "@astrojs/markdown-remark": "^7.2.1",
@@ -61,7 +61,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/mdast": "^4.0.4",
     "@types/node": "^24.10.1",
-    "acorn": "^8.17.0",
+    "acorn": "^8.18.0",
     "astro": "^7.1.6",
     "js-yaml": "^4.2.0",
     "pino": "^10.3.1",

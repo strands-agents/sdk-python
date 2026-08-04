@@ -1,5 +1,9 @@
 export {
   type McpClientOptions,
+  type McpListToolsOptions,
+  type McpToolFilterCallback,
+  type McpToolFilters,
+  type McpToolMatcher,
   type McpClientConfig,
   type McpClientCredentials,
   type McpTransport,
@@ -8,4 +12,4 @@ export {
   type McpConnectionState,
   McpClient,
 } from './client.js'
-export type { McpServerConfig } from './config.js'
+export type { McpServerConfig, SerializableMcpToolFilters } from './config.js'
