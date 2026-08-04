@@ -10,7 +10,6 @@ from typing import Any
 
 from ..models.model import Model
 from ..tools import InvalidToolUseNameException
-from ..tools._validator import TOOL_INPUT_PARSE_ERROR_KEY
 from ..tools.tools import validate_tool_use_name
 from ..types._events import (
     CitationStreamEvent,
@@ -282,6 +281,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     redacted_content = state.get("redactedContent")
 
     if current_tool_use:
+        input_parse_error: str | None = None
         if "input" not in current_tool_use:
             current_tool_use["input"] = {}
         else:
@@ -293,12 +293,11 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
                     current_tool_use.get("name"),
                     current_tool_use.get("toolUseId"),
                 )
-                current_tool_use["input"] = {
-                    TOOL_INPUT_PARSE_ERROR_KEY: (
-                        f"Invalid JSON in tool input for '{current_tool_use.get('name', 'unknown')}': {e}. "
-                        "Retry with a valid JSON object."
-                    )
-                }
+                current_tool_use["input"] = {}
+                input_parse_error = (
+                    f"Invalid JSON in tool input for '{current_tool_use.get('name', 'unknown')}': {e}. "
+                    "Retry with a valid JSON object."
+                )
 
         tool_use_id = current_tool_use["toolUseId"]
         tool_use_name = current_tool_use["name"]
@@ -310,6 +309,8 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         )
         if "reasoningSignature" in current_tool_use:
             tool_use["reasoningSignature"] = current_tool_use["reasoningSignature"]
+        if input_parse_error is not None:
+            tool_use["inputParseError"] = input_parse_error
         content.append({"toolUse": tool_use})
         state["current_tool_use"] = {}
 

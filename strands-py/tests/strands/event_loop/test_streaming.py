@@ -5,7 +5,6 @@ import pytest
 
 import strands
 import strands.event_loop
-from strands.tools._validator import TOOL_INPUT_PARSE_ERROR_KEY
 from strands.types._events import ModelStopReason, TypedEvent
 from strands.types.content import Message, Messages
 from strands.types.streaming import (
@@ -324,9 +323,9 @@ def test_handle_content_block_stop_marks_malformed_tool_input(caplog):
     with caplog.at_level("WARNING", logger="strands.event_loop.streaming"):
         updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
 
-    tool_input = updated_state["content"][0]["toolUse"]["input"]
-    assert TOOL_INPUT_PARSE_ERROR_KEY in tool_input
-    assert "Invalid JSON in tool input for 'search'" in tool_input[TOOL_INPUT_PARSE_ERROR_KEY]
+    tool_use = updated_state["content"][0]["toolUse"]
+    assert tool_use["input"] == {}
+    assert "Invalid JSON in tool input for 'search'" in tool_use["inputParseError"]
     assert "tool_name=<search>, tool_use_id=<123> | failed to parse tool input JSON" in caplog.text
 
 

@@ -4,8 +4,6 @@ from ..tools.tools import InvalidToolUseNameException, validate_tool_use
 from ..types.content import Message
 from ..types.tools import ToolResult, ToolUse
 
-TOOL_INPUT_PARSE_ERROR_KEY = "__strands_tool_input_parse_error__"
-
 
 def validate_and_prepare_tools(
     message: Message,
@@ -30,9 +28,8 @@ def validate_and_prepare_tools(
     # Avoid modifying original `tool_uses` variable during iteration
     tool_uses_copy = tool_uses.copy()
     for tool in tool_uses_copy:
-        parse_error = (
-            tool.get("input", {}).get(TOOL_INPUT_PARSE_ERROR_KEY) if isinstance(tool.get("input"), dict) else None
-        )
+        # Pop the within-cycle parse marker so it bridges streaming to validation without persisting in history.
+        parse_error = tool.pop("inputParseError", None)
         if parse_error:
             tool_uses.remove(tool)
             invalid_tool_use_ids.append(tool["toolUseId"])

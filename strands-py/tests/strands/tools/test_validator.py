@@ -1,5 +1,4 @@
 from strands.tools import _validator
-from strands.tools._validator import TOOL_INPUT_PARSE_ERROR_KEY
 from strands.types.content import Message
 
 
@@ -53,17 +52,15 @@ def test_validate_and_prepare_tools():
 
 
 def test_validate_and_prepare_tools_turns_malformed_input_into_tool_result():
+    tool_use = {
+        "toolUseId": "t1",
+        "name": "search",
+        "input": {},
+        "inputParseError": "Invalid JSON in tool input for 'search'",
+    }
     message: Message = {
         "role": "assistant",
-        "content": [
-            {
-                "toolUse": {
-                    "toolUseId": "t1",
-                    "name": "search",
-                    "input": {TOOL_INPUT_PARSE_ERROR_KEY: "Invalid JSON in tool input for 'search'"},
-                }
-            }
-        ],
+        "content": [{"toolUse": tool_use}],
     }
 
     tool_uses = []
@@ -80,3 +77,5 @@ def test_validate_and_prepare_tools_turns_malformed_input_into_tool_result():
             "content": [{"text": "Error: Invalid JSON in tool input for 'search'"}],
         }
     ]
+    # The marker is popped at consumption so it never persists in history.
+    assert "inputParseError" not in tool_use
