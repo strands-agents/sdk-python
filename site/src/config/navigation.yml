@@ -318,6 +318,7 @@ sidebar:
       - label: Integrations
         items:
           - docs/community/integrations/ag-ui
+          - docs/community/integrations/welt
       - label: Agent Extensions
         items:
           - docs/community/agent-extensions/strands-code-agent
@@ -336,6 +337,7 @@ sidebar:
         items:
           - docs/community/model-providers/cohere
           - docs/community/model-providers/clova-studio
+          - docs/community/model-providers/crusoe
           - docs/community/model-providers/fireworksai
           - docs/community/model-providers/nebius-token-factory
           - docs/community/model-providers/nvidia-nim
