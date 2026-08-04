@@ -2302,13 +2302,13 @@ async def test_graph_skip_node_downstream_executes():
     assert "step_a" in graph.state.results
     assert "step_b" in graph.state.results
 
-    # step_a was skipped — its NodeResult must carry Status.SKIPPED, not COMPLETED
+    # step_a was skipped, so its NodeResult must carry Status.SKIPPED, not COMPLETED
     assert graph.state.results["step_a"].status == Status.SKIPPED
     assert graph.state.results["step_b"].status == Status.COMPLETED
     skipped_node = next(node for node in graph.state.completed_nodes if node.node_id == "step_a")
     assert skipped_node.execution_status == Status.SKIPPED
 
-    # step_b must receive only the original task — no orphaned "From step_a:" header
+    # step_b must receive only the original task, with no orphaned "From step_a:" header
     step_b_input = step_b.stream_async.call_args.args[0]
     assert len(step_b_input) == 1
     assert step_b_input[0]["text"] == "test task"

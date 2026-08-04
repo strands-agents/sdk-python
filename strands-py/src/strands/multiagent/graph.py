@@ -110,7 +110,7 @@ class GraphState:
 
     Attributes:
         status: Current execution status of the graph.
-        completed_nodes: Set of nodes whose execution is settled — either completed normally or skipped via skip_node.
+        completed_nodes: Set of nodes whose execution is settled, either completed normally or skipped via skip_node.
             Both statuses satisfy downstream readiness checks; inspect node.execution_status to distinguish them.
         failed_nodes: Set of nodes that failed during execution.
         interrupted_nodes: Set of nodes that user interrupted during execution.
@@ -174,13 +174,15 @@ class GraphState:
 
 @dataclass
 class GraphResult(MultiAgentResult):
-    """Result from graph execution - extends MultiAgentResult with graph-specific details."""
+    """Result from graph execution - extends MultiAgentResult with graph-specific details.
+
+    ``completed_nodes`` counts only nodes that ran to completion. Nodes bypassed via ``skip_node``
+    are counted by ``skipped_nodes`` instead, and their downstream nodes still executed.
+    """
 
     total_nodes: int = 0
     completed_nodes: int = 0
-    """Number of nodes that successfully ran to completion (excludes skipped nodes)."""
     skipped_nodes: int = 0
-    """Number of nodes bypassed via skip_node or cancel_node; downstream nodes continued executing."""
     failed_nodes: int = 0
     interrupted_nodes: int = 0
     execution_order: list["GraphNode"] = field(default_factory=list)
