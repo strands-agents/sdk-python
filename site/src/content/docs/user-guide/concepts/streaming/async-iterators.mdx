@@ -25,9 +25,33 @@ Python uses the [`stream_async`](@api/python/strands.agent.agent#Agent.stream_as
 > **Note**: Python also supports synchronous event handling via [callback handlers](./callback-handlers.md).
 
 ```python
+
+import ast
+import operator
+
 import asyncio
-from strands import Agent
-from strands_tools import calculator
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Initialize our agent without a callback handler
 agent = Agent(
@@ -63,11 +87,36 @@ Here's how to integrate streaming with web frameworks to create a streaming endp
 <Tab label="Python - FastAPI">
 
 ```python
+
+import ast
+import operator
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from strands import Agent
-from strands_tools import calculator, http_request
+from strands import Agent, tool
+from strands_tools import http_request
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 app = FastAPI()
 
@@ -119,8 +168,32 @@ This async stream processor illustrates the event loop lifecycle events and how 
 <Tab label="Python">
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+import ast
+import operator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Create agent with event loop tracker
 agent = Agent(
