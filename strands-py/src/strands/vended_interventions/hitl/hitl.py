@@ -289,16 +289,16 @@ class HumanInTheLoop(InterventionHandler):
             self._classified_tool_use_ids.add(tool_use_id)
 
             try:
-                result = self._classifier(event)
-                if inspect.isawaitable(result):
-                    result = await result
-                if not isinstance(result, ClassifierResult):
+                raw_result: Any = self._classifier(event)
+                if inspect.isawaitable(raw_result):
+                    raw_result = await raw_result
+                if not isinstance(raw_result, ClassifierResult):
                     logger.warning(
                         "tool=<%s> | classifier returned malformed result, defaulting to approval required",
                         tool_name,
                     )
                     return ClassifierResult(requires_human_in_the_loop=True)
-                return result
+                return raw_result
             except Exception as error:
                 logger.warning(
                     "tool=<%s> | classifier failed, defaulting to approval required",
