@@ -564,7 +564,9 @@ class ContextOffloader(Plugin):
         """
         cycle = agent.event_loop_metrics.cycle_count
         self._track_stored_cycle(agent, reference, cycle)
-        logger.debug("reference=<%s>, cycle=<%d> | retrieve refreshed eviction cycle", reference, cycle)
+        logger.debug(
+            "reference=<%s>, cycle=<%d> | retrieve refreshed eviction cycle", reference, cycle
+        )
 
     def _slice_preview(self, text: str) -> str:
         """Slice text to approximately preview_tokens using character-based estimation.
