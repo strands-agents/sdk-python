@@ -83,7 +83,7 @@ def _resolve_middleware_interrupt(
         interrupt_id: The deterministic id for this interrupt.
         name: User-defined name for the interrupt.
         reason: Optional reason surfaced to the user.
-        response: Optional preemptive response — when set, no interrupt is raised.
+        response: Optional preemptive response — fallback if no prior human response exists.
 
     Returns:
         The user's response wrapped in a ``MiddlewareInterruptResult``.
@@ -217,10 +217,10 @@ class AgentStreamContext:
         ``InterruptException`` handler as the single source of truth.
 
         Args:
-            name: User-defined name for the interrupt. The interrupt id is derived from the name
-                alone (``v1:middleware_agent_stream:<uuid5(name)>``), so the name must be unique
-                across all agent-stream middleware in a single invocation pass — two middleware
-                using the same name collide and share one response.
+            name: User-defined name for the interrupt. The name must be unique
+                across all agent-stream middleware that share an interrupt dict — including
+                across agents in a Graph/Swarm. Two gates with the same name collide and share
+                one response.
             reason: Optional reason for the interrupt (surfaced to the user).
             response: Optional preemptive response — when set, no interrupt is raised.
 
