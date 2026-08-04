@@ -1246,7 +1246,9 @@ class Graph(MultiAgentBase):
                 dependency_blocks.append(ContentBlock(text=f"  - {agent_name}: {str(agent_result)}"))
 
         if not dependency_blocks:
-            # No usable dependency output - return task as ContentBlocks
+            # Nothing upstream contributed content, so treat this like an entry node and hand it the bare task.
+            # The "Original Task:" prefix is dropped with it, since it only reads correctly against the
+            # "Inputs from previous nodes:" section that is no longer there.
             if isinstance(self.state.task, str):
                 return [ContentBlock(text=self.state.task)]
             else:

@@ -839,4 +839,4 @@ The Graph pattern is available in multiple SDKs. While the core concept is the s
 
 **Error handling**: Python node failures throw exceptions (fail-fast), while orchestrator-level limit violations return a FAILED result. TypeScript does the inverse: node failures produce a FAILED result, allowing parallel paths to continue, while orchestrator-level limits (`maxSteps`) throw exceptions to promote fail-fast behavior for global failures.
 
-**Node cancellation**: Both SDKs support bypassing a node before execution via hook callbacks. In TypeScript, a cancelled node produces a CANCELLED result status, allowing the orchestrator to distinguish cancellation from failure. In Python, `skip_node` records a SKIPPED status with `result=None`, and downstream nodes still run.
+**Skipping a node**: Both SDKs support bypassing a node before execution via hook callbacks. In TypeScript, a cancelled node produces a CANCELLED result status, allowing the orchestrator to distinguish cancellation from failure. In Python, `skip_node` records a SKIPPED status with `result=None`, and downstream nodes still run.
