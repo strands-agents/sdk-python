@@ -1275,8 +1275,8 @@ class Graph(MultiAgentBase):
             execution_count=self.state.execution_count,
             execution_time=self._execution_time_with_active_interval(self.state.execution_time),
             total_nodes=self.state.total_nodes,
-            completed_nodes=sum(1 for n in self.state.completed_nodes if n.execution_status == Status.COMPLETED),
-            skipped_nodes=sum(1 for n in self.state.completed_nodes if n.execution_status == Status.SKIPPED),
+            completed_nodes=sum(1 for node in self.state.completed_nodes if node.execution_status == Status.COMPLETED),
+            skipped_nodes=sum(1 for node in self.state.completed_nodes if node.execution_status == Status.SKIPPED),
             failed_nodes=len(self.state.failed_nodes),
             interrupted_nodes=len(self.state.interrupted_nodes),
             execution_order=self.state.execution_order,
@@ -1503,8 +1503,10 @@ class Graph(MultiAgentBase):
             self.nodes[node_id] for node_id in (payload.get("completed_nodes") or []) if node_id in self.nodes
         )
         for node in self.state.completed_nodes:
-            nr = results.get(node.node_id)
-            node.execution_status = Status.SKIPPED if (nr and nr.status == Status.SKIPPED) else Status.COMPLETED
+            node_result = results.get(node.node_id)
+            node.execution_status = (
+                Status.SKIPPED if (node_result and node_result.status == Status.SKIPPED) else Status.COMPLETED
+            )
 
         # Execution order (only nodes that still exist)
         order_node_ids = payload.get("execution_order") or []
