@@ -1,12 +1,36 @@
+
+import ast
+import operator
+
 import asyncio
 
-from strands import Agent
-from strands_tools import calculator
+from strands import Agent, tool
 
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import ToolSelectionAccuracyEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 memory_exporter = telemetry.in_memory_exporter

@@ -97,10 +97,35 @@ print(f"Response tokens: {len(recorder.token_ids or [])}")
 Strands SDK already handles unknown tools and malformed JSON gracefully. `VLLMToolValidationHooks` adds RL-friendly enhancements:
 
 ```python
+import ast
+import operator
+
 import os
-from strands import Agent
-from strands_tools.calculator import calculator
+
+from strands import Agent, tool
 from strands_vllm import VLLMModel, VLLMToolValidationHooks
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
+
 
 model = VLLMModel(
     base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
@@ -161,16 +186,35 @@ The following span attributes are set:
 For building RL-ready trajectories with loss masks:
 
 ```python
+import ast
+import operator
+
 import asyncio
 import os
+
 from strands import Agent, tool
-from strands_tools.calculator import calculator as _calculator_impl
 from strands_vllm import TokenManager, VLLMModel, VLLMTokenRecorder, VLLMToolValidationHooks
 
 @tool
-def calculator(expression: str) -> dict:
-    return _calculator_impl(expression=expression)
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
 
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 async def main():
     model = VLLMModel(
         base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),

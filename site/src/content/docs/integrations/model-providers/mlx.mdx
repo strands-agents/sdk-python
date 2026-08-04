@@ -35,9 +35,33 @@ pip install strands-mlx strands-agents-tools
 ### Basic Agent
 
 ```python
-from strands import Agent
+
+import ast
+import operator
+
+from strands import Agent, tool
 from strands_mlx import MLXModel
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 model = MLXModel(model_id="mlx-community/Qwen3-1.7B-4bit")
 agent = Agent(model=model, tools=[calculator])

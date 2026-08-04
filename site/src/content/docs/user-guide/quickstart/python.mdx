@@ -109,8 +109,32 @@ from . import agent
 And finally our `agent.py` file where the goodies are:
 
 ```python
+
+import ast
+import operator
+
 from strands import Agent, tool
-from strands_tools import calculator, current_time
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Define a custom tool as a Python function using the @tool decorator
 @tool
@@ -135,7 +159,7 @@ def letter_counter(word: str, letter: str) -> int:
 
 # Create an agent with tools from the community-driven strands-tools package
 # as well as our custom letter_counter tool
-agent = Agent(tools=[calculator, current_time, letter_counter])
+agent = Agent(tools=[calculator, letter_counter])
 
 # Ask the agent a question that uses the available tools
 message = """
@@ -358,7 +382,7 @@ Agents display their reasoning and responses in real-time to the console by defa
 
 ```python
 agent = Agent(
-    tools=[calculator, current_time, letter_counter],
+    tools=[calculator, letter_counter],
     callback_handler=None,
 )
 ```
@@ -470,9 +494,33 @@ Strands provides two main approaches to capture streaming events from an agent: 
 For asynchronous applications (like web servers or APIs), Strands provides an async iterator approach using [`stream_async()`](@api/python/strands.agent.agent#Agent.stream_async). This is particularly useful with async frameworks like FastAPI or Django Channels.
 
 ```python
+
+import ast
+import operator
+
 import asyncio
-from strands import Agent
-from strands_tools import calculator
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.Pow: operator.pow, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"unsupported expression: {expression}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Initialize our agent without a callback handler
 agent = Agent(
