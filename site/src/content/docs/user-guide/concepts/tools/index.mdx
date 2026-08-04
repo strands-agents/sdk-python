@@ -27,8 +27,41 @@ Tools are passed to agents during initialization or at runtime, making them avai
 <Tab label="Python">
 
 ```python
-from strands import Agent
-from strands_tools import calculator, file_read, shell
+
+import ast
+import operator
+
+from strands import Agent, tool
+from strands_tools import file_read
+from strands.vended_tools import shell
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
+            base, exp = ev(n.left), ev(n.right)
+            if abs(exp) > 64:
+                raise ValueError(f"exponent too large in {expression!r}: {exp}")
+            return base**exp
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(
+            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
+        )
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Add tools to our agent
 agent = Agent(
@@ -417,9 +450,9 @@ For Python, Strands offers a [community-supported tools package](https://github.
 
 ```python
 from strands import Agent
-from strands_tools import calculator, file_read, shell
+from strands_tools import file_read, file_write, http_request
 
-agent = Agent(tools=[calculator, file_read, shell])
+agent = Agent(tools=[file_read, file_write, http_request])
 ```
 
 For a complete list of available tools, see [Community Tools Package](community-tools-package.md).
