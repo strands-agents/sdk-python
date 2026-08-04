@@ -574,7 +574,7 @@ class MultiAgentNodeStreamEvent(TypedEvent):
 
 
 class MultiAgentNodeCancelEvent(TypedEvent):
-    """Planned event for when a node stops graph execution entirely (see issue #2401).
+    """Planned event for when a node stops graph execution entirely.
 
     Not currently emitted by the library. To handle bypassed nodes, subscribe to
     :class:`MultiAgentNodeSkipEvent` (type ``multiagent_node_skip``) instead.

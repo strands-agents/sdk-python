@@ -414,9 +414,9 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
             :class:`~strands.types._events.MultiAgentNodeSkipEvent`. If set to ``True``, a default
             skip message is used. Any falsy value (``False``, ``""`` etc.) means "do not skip".
             Takes precedence over ``cancel_node`` when both are truthy.
-        cancel_node: Alias for ``skip_node``, kept for backward compatibility. Reserved for the
-            abort-branch semantics tracked in #2401; until that lands it behaves identically to
-            ``skip_node``.
+        cancel_node: Alias for ``skip_node``, kept for backward compatibility. Reserved for a
+            future abort-branch semantic, where downstream nodes do not run; until that exists it
+            behaves identically to ``skip_node``.
     """
 
     source: "MultiAgentBase"
