@@ -61,6 +61,12 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Model families that accept S3 location sources (documents, images, videos) in the Converse
+# API. Other families reject them with a ValidationException.
+_MODELS_SUPPORT_S3_LOCATION = [
+    "amazon.nova",
+]
+
 # Cache of model IDs for which CountTokens API calls should be skipped.
 _SKIP_COUNT_TOKENS_MODELS: set[str] = set()
 
@@ -270,6 +276,10 @@ class BedrockModel(Model):
 
         Returns:
             A Bedrock converse stream request.
+
+        Raises:
+            ValueError: If a message carries an S3 location source and the model does not
+                support one.
         """
         if not tool_specs:
             has_tool_content = any(
@@ -590,9 +600,45 @@ class BedrockModel(Model):
         else:  # "auto"
             return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
+    @property
+    def _supports_s3_location(self) -> bool | None:
+        """Whether this model accepts S3 location sources in the Bedrock Converse API.
+
+        Only Amazon Nova models accept S3 location sources for documents, images, and videos.
+        Other families (Anthropic Claude, Meta Llama, Mistral, Cohere) accept inline bytes only
+        and reject S3 location sources with a ValidationException.
+
+        Returns:
+            True if the model accepts S3 location sources, False if it does not, and None if the
+            model id is an ARN whose resource id does not identify the model family.
+        """
+        model_id = self.config["model_id"].lower()
+        if model_id.startswith("arn:"):
+            # An inference profile ARN ends in <region>.<model id>, so the family is read from
+            # that suffix. The leading colon keeps application inference profiles out, whose id
+            # is opaque, as it is for a provisioned throughput, custom, or imported model.
+            _, separator, profile_id = model_id.partition(":inference-profile/")
+            if not separator:
+                return None
+
+            model_id = profile_id
+
+        return any(prefix in model_id for prefix in _MODELS_SUPPORT_S3_LOCATION)
+
     def _handle_location(self, location: SourceLocation) -> dict[str, Any] | None:
-        """Convert location content block to Bedrock format if its an S3Location."""
+        """Convert location content block to Bedrock format if its an S3Location.
+
+        Raises:
+            ValueError: If the location is an S3Location and the model does not support one.
+        """
         if location["type"] == "s3":
+            # An undetermined model family is passed through for Bedrock to accept or reject.
+            if self._supports_s3_location is False:
+                raise ValueError(
+                    f"model_id=<{self.config['model_id']}> | model does not support s3 location sources | "
+                    "supply the media as bytes or use an Amazon Nova model"
+                )
+
             s3_location = cast(S3Location, location)
             formatted_document_s3: dict[str, Any] = {"uri": s3_location["uri"]}
             if "bucketOwner" in s3_location:
