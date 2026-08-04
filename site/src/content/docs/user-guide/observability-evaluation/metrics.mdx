@@ -21,8 +21,19 @@ The Strands Agents SDK automatically tracks key metrics during agent execution:
 All these metrics are accessible through the [`AgentResult`](@api/python/strands.agent.agent_result#AgentResult) object that's returned whenever you invoke an agent. They are available for local analysis. To export them to an observability backend, configure Strands telemetry as described in the [Traces](./traces.md) documentation:
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 # Create an agent with tools
 agent = Agent(tools=[calculator])
@@ -89,8 +100,19 @@ The `agent_invocations` property is a list of [`AgentInvocation`](@api/python/st
 This allows you to track metrics at both the individual invocation level and across all invocations:
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 agent = Agent(tools=[calculator])
 
@@ -305,8 +327,19 @@ In addition to aggregate metrics, the Strands Agents SDK automatically collects 
 Each trace represents a cycle in the agent loop, with child traces for model invocations and tool calls:
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 agent = Agent(tools=[calculator])
 result = agent("What is 15 * 8 + 42?")

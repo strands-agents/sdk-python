@@ -21,8 +21,19 @@ For a complete list of available events including text generation, tool usage, l
 The simplest way to use a callback handler is to pass a callback function to your agent:
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 def custom_callback_handler(**kwargs):
     # Process stream data
@@ -70,8 +81,19 @@ Custom callback handlers enable you to have fine-grained control over what is st
 Custom callback handlers can be useful to debug sequences of events in the agent loop:
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 def debugger_callback_handler(**kwargs):
     # Print the values in kwargs so that we can see everything
@@ -92,9 +114,20 @@ This handler prints all calls to the callback handler including full event detai
 This handler demonstrates how to buffer text and only show it when a complete message is generated. This pattern is useful for chat interfaces where you want to show polished, complete responses:
 
 ```python
+
 import json
-from strands import Agent
-from strands_tools import calculator
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 def message_buffer_handler(**kwargs):
     # When a new message is created from the assistant, print its content
@@ -117,8 +150,19 @@ This handler leverages the `message` event which is triggered when a complete me
 This callback handler illustrates the event loop lifecycle events and how they relate to each other. It's useful for understanding the flow of execution in the Strands agent:
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 def event_loop_tracker(**kwargs):
     # Track event loop lifecycle

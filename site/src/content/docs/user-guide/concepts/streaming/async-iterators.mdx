@@ -25,9 +25,20 @@ Python uses the [`stream_async`](@api/python/strands.agent.agent#Agent.stream_as
 > **Note**: Python also supports synchronous event handling via [callback handlers](./callback-handlers.md).
 
 ```python
+
 import asyncio
-from strands import Agent
-from strands_tools import calculator
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 # Initialize our agent without a callback handler
 agent = Agent(
@@ -63,11 +74,23 @@ Here's how to integrate streaming with web frameworks to create a streaming endp
 <Tab label="Python - FastAPI">
 
 ```python
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from strands import Agent
-from strands_tools import calculator, http_request
+from strands import Agent, tool
+from strands_tools import http_request
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 app = FastAPI()
 
@@ -119,8 +142,19 @@ This async stream processor illustrates the event loop lifecycle events and how 
 <Tab label="Python">
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 # Create agent with event loop tracker
 agent = Agent(

@@ -3,9 +3,10 @@
 Fast, code-based evaluation without LLM judges.
 """
 
+
 import asyncio
 
-from strands import Agent
+from strands import Agent, tool
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import Contains, Equals, StartsWith, ToolCalled
 
@@ -36,8 +37,17 @@ experiment = Experiment(
 # --- Trajectory evaluator ---
 
 from strands_evals.extractors import tools_use_extractor
-from strands_tools import calculator
 
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(tools=[calculator], callback_handler=None)

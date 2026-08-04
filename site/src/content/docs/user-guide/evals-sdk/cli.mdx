@@ -51,8 +51,19 @@ The two modes are mutually exclusive — argparse rejects mixing them.
 
 ```python
 # my_pkg/agents.py
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 def build_agent():
     return Agent(tools=[calculator], callback_handler=None)

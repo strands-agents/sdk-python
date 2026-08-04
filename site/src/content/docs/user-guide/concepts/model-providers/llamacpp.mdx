@@ -23,9 +23,20 @@ pip install strands-agents strands-agents-tools
 After setting up a llama.cpp server, you can import and initialize the Strands Agents' llama.cpp provider as follows:
 
 ```python
-from strands import Agent
+
+from strands import Agent, tool
 from strands.models.llamacpp import LlamaCppModel
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 model = LlamaCppModel(
     base_url="http://localhost:8080",

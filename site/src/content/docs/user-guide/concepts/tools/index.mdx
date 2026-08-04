@@ -27,8 +27,21 @@ Tools are passed to agents during initialization or at runtime, making them avai
 <Tab label="Python">
 
 ```python
-from strands import Agent
-from strands_tools import calculator, file_read, shell
+
+from strands import Agent, tool
+from strands_tools import file_read
+from strands.vended_tools import shell
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 # Add tools to our agent
 agent = Agent(
@@ -416,8 +429,21 @@ Pre-built tools are available in both Python and TypeScript to help you get star
 For Python, Strands offers a [community-supported tools package](https://github.com/strands-agents/tools/blob/main) with pre-built tools for development:
 
 ```python
-from strands import Agent
-from strands_tools import calculator, file_read, shell
+
+from strands import Agent, tool
+from strands_tools import file_read
+from strands.vended_tools import shell
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 agent = Agent(tools=[calculator, file_read, shell])
 ```

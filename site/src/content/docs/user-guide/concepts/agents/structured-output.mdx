@@ -280,9 +280,20 @@ Combine structured output with tool usage to format tool execution results:
 <Tab label="Python">
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
 from pydantic import BaseModel, Field
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 class MathResult(BaseModel):
     operation: str = Field(description="the performed operation")

@@ -41,9 +41,20 @@ After installing dependencies, you can import and initialize the Strands Agents'
 <Tab label="Python">
 
 ```python
-from strands import Agent
+
+from strands import Agent, tool
 from strands.models.gemini import GeminiModel
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 model = GeminiModel(
     client_args={
@@ -329,10 +340,21 @@ Users can pass their own custom Gemini client to the GeminiModel for Strands Age
 <Tab label="Python">
 
 ```python
+
 from google import genai
-from strands import Agent
+from strands import Agent, tool
 from strands.models.gemini import GeminiModel
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 client = genai.Client(api_key="<KEY>")
 

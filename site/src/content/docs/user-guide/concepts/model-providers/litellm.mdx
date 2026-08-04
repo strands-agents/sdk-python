@@ -23,9 +23,20 @@ pip install 'strands-agents[litellm]' strands-agents-tools
 After installing `litellm`, you can import and initialize Strands Agents' LiteLLM provider as follows:
 
 ```python
-from strands import Agent
+
+from strands import Agent, tool
 from strands.models.litellm import LiteLLMModel
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 model = LiteLLMModel(
     client_args={

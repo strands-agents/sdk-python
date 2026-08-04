@@ -29,9 +29,20 @@ pip install strands-nvidia-nim strands-agents-tools
 ### Basic Agent
 
 ```python
-from strands import Agent
-from strands_tools import calculator
+
+from strands import Agent, tool
 from strands_nvidia_nim import NvidiaNIM
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 model = NvidiaNIM(
     api_key="your-nvidia-nim-api-key",
@@ -53,10 +64,21 @@ export NVIDIA_NIM_API_KEY=your-nvidia-nim-api-key
 ```
 
 ```python
+
 import os
-from strands import Agent
-from strands_tools import calculator
+from strands import Agent, tool
 from strands_nvidia_nim import NvidiaNIM
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 model = NvidiaNIM(
     api_key=os.getenv("NVIDIA_NIM_API_KEY"),

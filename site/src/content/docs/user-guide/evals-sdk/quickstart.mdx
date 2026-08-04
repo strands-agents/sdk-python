@@ -170,16 +170,27 @@ The `@eval_task()` decorator eliminates boilerplate. Your function can return an
 Now let's evaluate how well agents use tools. Create `my_evaluation/trajectory_eval.py`:
 
 ```python
-from strands import Agent
+
+from strands import Agent, tool
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import TrajectoryEvaluator
 from strands_evals.extractors import tools_use_extractor
-from strands_tools import calculator, current_time
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 # Define task function that captures tool usage
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(
-        tools=[calculator, current_time],
+        tools=[calculator],
         system_prompt="You are a helpful assistant. Use tools when appropriate.",
         callback_handler=None
     )
@@ -233,7 +244,7 @@ evaluator = TrajectoryEvaluator(
 )
 
 # Update evaluator with tool descriptions to prevent context overflow
-sample_agent = Agent(tools=[calculator, current_time])
+sample_agent = Agent(tools=[calculator])
 tool_descriptions = tools_use_extractor.extract_tools_description(sample_agent, is_short=True)
 evaluator.update_trajectory_description(tool_descriptions)
 
@@ -261,10 +272,21 @@ When using `StrandsInMemorySessionMapper`, you **must** include session ID trace
 The `TracedHandler` handles all of this automatically:
 
 ```python
-from strands import Agent
+
+from strands import Agent, tool
 from strands_evals import eval_task, TracedHandler, Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 @eval_task(TracedHandler())
 def user_task_function():
@@ -301,12 +323,23 @@ If you need more control (e.g., custom session mapping or per-case agent configu
 <summary>Manual task function (without decorator)</summary>
 
 ```python
-from strands import Agent
+
+from strands import Agent, tool
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
 from strands_evals.telemetry import StrandsEvalsTelemetry
 from strands_evals.mappers import StrandsInMemorySessionMapper
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 

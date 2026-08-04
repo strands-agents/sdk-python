@@ -98,9 +98,21 @@ Strands SDK already handles unknown tools and malformed JSON gracefully. `VLLMTo
 
 ```python
 import os
-from strands import Agent
-from strands_tools.calculator import calculator
+
+from strands import Agent, tool
 from strands_vllm import VLLMModel, VLLMToolValidationHooks
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
+
 
 model = VLLMModel(
     base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
@@ -163,14 +175,20 @@ For building RL-ready trajectories with loss masks:
 ```python
 import asyncio
 import os
+
 from strands import Agent, tool
-from strands_tools.calculator import calculator as _calculator_impl
 from strands_vllm import TokenManager, VLLMModel, VLLMTokenRecorder, VLLMToolValidationHooks
 
 @tool
-def calculator(expression: str) -> dict:
-    return _calculator_impl(expression=expression)
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
 
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 async def main():
     model = VLLMModel(
         base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),

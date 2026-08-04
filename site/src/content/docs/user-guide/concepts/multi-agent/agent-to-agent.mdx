@@ -293,9 +293,21 @@ Create a Strands agent and expose it as an A2A server:
 
 ```python
 import logging
-from strands_tools.calculator import calculator
-from strands import Agent
+
+from strands import Agent, tool
 from strands.multiagent.a2a import A2AServer
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
+
 
 logging.basicConfig(level=logging.INFO)
 

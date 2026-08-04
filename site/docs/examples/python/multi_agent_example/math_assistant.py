@@ -1,6 +1,17 @@
+
 from strands import Agent, tool
-from strands_tools import calculator
 import json
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate a math expression such as "sqrt(144)" or "450 / 120".
+
+    Args:
+        expression: The expression to evaluate.
+    """
+    import sympy
+
+    return str(sympy.sympify(expression).evalf())
 
 MATH_ASSISTANT_SYSTEM_PROMPT = """
 You are math wizard, a specialized mathematics education assistant. Your capabilities include:
