@@ -1059,6 +1059,178 @@ async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
 
 
+@pytest.mark.parametrize(
+    ("tool_choice", "exp_function_calling_config"),
+    [
+        ({"auto": {}}, {"mode": "AUTO"}),
+        ({"any": {}}, {"mode": "ANY"}),
+        ({"tool": {"name": "name"}}, {"allowed_function_names": ["name"], "mode": "ANY"}),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_choice(
+    gemini_client, model, messages, tool_spec, model_id, tool_choice, exp_function_calling_config
+):
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice=tool_choice))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+            "tool_config": {"function_calling_config": exp_function_calling_config},
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_choice_and_no_tool_specs(gemini_client, model, messages, model_id):
+    await anext(model.stream(messages, tool_choice={"any": {}}))
+
+    exp_request = {
+        "config": {},
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.fixture
+def tool_config_param_model(gemini_client, model_id):
+    _ = gemini_client
+
+    tool_config = genai.types.ToolConfig(
+        function_calling_config=genai.types.FunctionCallingConfig(
+            mode=genai.types.FunctionCallingConfigMode.NONE,
+            allowed_function_names=["safe_tool"],
+        ),
+        # A full tool config, so the assertions below pin that a tool choice leaves all of it in place.
+        retrieval_config=genai.types.RetrievalConfig(language_code="en-GB"),
+    )
+    return GeminiModel(model_id=model_id, params={"tool_config": tool_config})
+
+
+@pytest.mark.parametrize(
+    "tool_choice",
+    [None, {"auto": {}}, {"any": {}}, {"tool": {"name": "name"}}],
+    ids=["no-choice", "auto", "any", "tool"],
+)
+@pytest.mark.asyncio
+async def test_stream_request_tool_config_param_takes_precedence(
+    gemini_client, tool_config_param_model, messages, tool_spec, model_id, tool_choice
+):
+    """An explicit tool config wins over any per-request choice, matching the other providers."""
+    await anext(tool_config_param_model.stream(messages, tool_specs=[tool_spec], tool_choice=tool_choice))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+            "tool_config": {
+                "function_calling_config": {"mode": "NONE", "allowed_function_names": ["safe_tool"]},
+                "retrieval_config": {"language_code": "en-GB"},
+            },
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_config_param_set_to_none_still_takes_precedence(
+    gemini_client, messages, tool_spec, model_id
+):
+    """Params owns the key, so an explicit None keeps a tool choice out of the request.
+
+    Matches the sibling providers, which spread params last and therefore let an explicit None win.
+    """
+    model = GeminiModel(model_id=model_id, params={"tool_config": None})
+
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_choice_does_not_persist_into_the_next_request(gemini_client, messages, tool_spec, model_id):
+    """A tool choice configures its own request only, so it never lands in the model's own params."""
+    model = GeminiModel(model_id=model_id, params={"temperature": 0.5})
+
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    exp_request = {
+        "config": {
+            "temperature": 0.5,
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                }
+            ],
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+def test_format_tool_choice_unrecognized_strategy(model):
+    tru_tool_config = model._format_tool_choice({"unrecognized": {}})
+    exp_tool_config = None
+    assert tru_tool_config == exp_tool_config
+
+
+@pytest.mark.asyncio
+async def test_stream_tool_choice_no_warning(model, messages, tool_spec, captured_warnings):
+    await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"auto": {}}))
+
+    assert len(captured_warnings) == 0
+
+
 @pytest.mark.asyncio
 async def test_stream_handles_non_json_error(gemini_client, model, messages, alist):
     error_message = "Invalid API key"
