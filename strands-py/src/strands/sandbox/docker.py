@@ -7,10 +7,10 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from ..types.tools import AgentTool
-from ..vended_tools.bash import make_bash
-from ..vended_tools.bash.types import SANDBOX_BASH_DESCRIPTION
 from ..vended_tools.file_editor import make_file_editor
 from ..vended_tools.file_editor.file_editor import DEFAULT_FILE_EDITOR_DESCRIPTION
+from ..vended_tools.shell import make_shell
+from ..vended_tools.shell.types import SANDBOX_SHELL_DESCRIPTION
 from .posix_shell import PosixShellSandbox, validate_env_keys
 from .stream_process import _stream_process
 from .types import ExecutionResult, StreamChunk
@@ -109,9 +109,9 @@ class DockerSandbox(PosixShellSandbox):
                 name="sandbox_file_editor",
                 description=f'{DEFAULT_FILE_EDITOR_DESCRIPTION} Files are in Docker container "{self.container}".',
             ),
-            make_bash(
+            make_shell(
                 sandbox=self,
-                name="sandbox_bash",
-                description=f'{SANDBOX_BASH_DESCRIPTION} Runs in Docker container "{self.container}".{cwd}',
+                name="sandbox_shell",
+                description=f'{SANDBOX_SHELL_DESCRIPTION} Runs in Docker container "{self.container}".{cwd}',
             ),
         ]

@@ -354,20 +354,37 @@ agent = Agent(tools=[aws_docs_client, other_client])
 </Tab>
 <Tab label="TypeScript">
 
-TypeScript's `McpClient` accepts optional application metadata:
+TypeScript's `McpClient` supports tool filtering and name prefixing to manage tools from multiple servers.
+
+**Tool Filtering**
+
+Control which tools are loaded using the `toolFilters` option:
 
 ```typescript
-const mcpClient = new McpClient({
-  applicationName: 'My Agent App',
-  applicationVersion: '1.0.0',
-  transport: new StdioClientTransport({
-    command: 'npx',
-    args: ['-y', 'some-mcp-server'],
-  }),
-})
+--8<-- "user-guide/concepts/tools/mcp-tools.ts:tool_filtering"
 ```
 
-Tool filtering and prefixing are not currently supported in TypeScript.
+String matchers match the server-side tool name exactly, and `RegExp` matchers
+match it from the start. Callback matchers receive the `McpTool` under its
+agent-facing name, so they see the prefix when one is set. An `allowed` list is
+applied first, then `rejected`, so rejection wins when both match.
+
+**Tool Name Prefixing**
+
+Prevent name conflicts when using multiple MCP servers:
+
+```typescript
+--8<-- "user-guide/concepts/tools/mcp-tools.ts:tool_prefixing"
+```
+
+A prefix only renames the tool for the agent: calls still send the original
+server tool name.
+
+Constructor defaults can be overridden per listing with
+`listTools({ prefix, toolFilters })`. Omitted fields inherit the constructor
+defaults; `prefix: ''` disables a default prefix and `toolFilters: {}` disables
+default filters. Declarative `McpClient.loadServers()` config accepts `prefix`
+and `toolFilters` too, where filter strings are regexes.
 </Tab>
 </Tabs>
 
