@@ -2268,16 +2268,20 @@ async def test_graph_cancel_node_backward_compat(cancel_node, cancel_message):
 
 
 @pytest.mark.parametrize(
-    ("skip_node", "expected_message"),
-    [(True, "node skipped by user"), ("skip_node message", "skip_node message")],
+    ("skip_node", "cancel_node", "expected_message"),
+    [
+        (True, "cancel_node message", "node skipped by user"),
+        ("skip_node message", "cancel_node message", "skip_node message"),
+        (False, "cancel_node message", "cancel_node message"),
+    ],
 )
 @pytest.mark.asyncio
-async def test_graph_skip_node_takes_precedence_over_cancel_node(skip_node, expected_message):
-    """When both fields are set, skip_node supplies the message and cancel_node is ignored."""
+async def test_graph_skip_node_precedence_over_cancel_node(skip_node, cancel_node, expected_message):
+    """A truthy skip_node supplies the message; cancel_node is only consulted when skip_node is falsy."""
 
     def skip_callback(event):
         event.skip_node = skip_node
-        event.cancel_node = "cancel_node message that must not win"
+        event.cancel_node = cancel_node
         return event
 
     agent = create_mock_agent("test_agent", "Should not execute")
