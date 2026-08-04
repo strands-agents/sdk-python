@@ -16,11 +16,12 @@ Key Features:
 
 import asyncio
 import copy
+import inspect
 import logging
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Protocol, TypeGuard, cast
 
 from opentelemetry import trace as trace_api
 
@@ -35,7 +36,7 @@ from ..hooks.events import (
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks.registry import HookCallback, HookProvider, HookRegistry
+from ..hooks.registry import HookCallback, HookOrder, HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
 from ..plugins.multiagent_plugin import MultiAgentPlugin
 from ..plugins.multiagent_registry import _MultiAgentPluginRegistry
@@ -55,11 +56,52 @@ from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, _parse_metrics, _parse_usage
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_GRAPH_ID = "default_graph"
+
+
+class EdgeConditionWithContext(Protocol):
+    """Protocol for edge conditions that receive invocation_state.
+
+    This allows conditions to make routing decisions based on runtime context
+    passed during graph invocation, such as feature flags, user roles, or
+    environment-specific configuration.
+
+    Designed with **kwargs for future extensibility without breaking changes.
+
+    Not @runtime_checkable because the expected use case is a function or lambda,
+    and isinstance() checks cannot structurally distinguish callable signatures.
+    Dispatch uses _is_context_condition() with inspect.signature() instead.
+    """
+
+    def __call__(self, state: "GraphState", *, invocation_state: dict[str, Any], **kwargs: Any) -> bool:
+        """Evaluate whether the edge should be traversed."""
+        ...
+
+
+LegacyEdgeCondition = Callable[["GraphState"], bool]
+EdgeCondition = LegacyEdgeCondition | EdgeConditionWithContext
+
+
+def _is_context_condition(condition: EdgeCondition) -> TypeGuard[EdgeConditionWithContext]:
+    """Check if a condition function accepts invocation_state parameter.
+
+    Uses inspect.signature() for reliable detection, returning a TypeGuard
+    so mypy can narrow the type at call sites.
+
+    Detection keys on the parameter *name* only — any parameter named
+    ``invocation_state`` (positional or keyword) triggers the new calling
+    convention. The parameter must be passable as a keyword argument since
+    ``should_traverse`` always passes it by name.
+    """
+    try:
+        sig = inspect.signature(condition)
+        return "invocation_state" in sig.parameters
+    except (ValueError, TypeError):
+        return False
 
 
 @dataclass
@@ -147,17 +189,35 @@ class GraphEdge:
 
     from_node: "GraphNode"
     to_node: "GraphNode"
-    condition: Callable[[GraphState], bool] | None = None
+    condition: EdgeCondition | None = None
+    _is_context_condition_cached: bool | None = field(default=None, init=False, repr=False, compare=False)
 
     def __hash__(self) -> int:
         """Return hash for GraphEdge based on from_node and to_node."""
         return hash((self.from_node.node_id, self.to_node.node_id))
 
-    def should_traverse(self, state: GraphState) -> bool:
-        """Check if this edge should be traversed based on condition."""
-        if self.condition is None:
+    def should_traverse(self, state: GraphState, *, invocation_state: dict[str, Any]) -> bool:
+        """Check if this edge should be traversed based on condition.
+
+        Args:
+            state: The current graph execution state.
+            invocation_state: Runtime context passed during graph invocation.
+                New-style conditions (EdgeConditionWithContext) receive this parameter.
+                Legacy conditions (Callable[[GraphState], bool]) are called with state only.
+        """
+        condition = self.condition
+        if condition is None:
             return True
-        return self.condition(state)
+        if self._check_is_context_condition(condition):
+            return condition(state, invocation_state=invocation_state)
+        legacy_condition = cast(LegacyEdgeCondition, condition)
+        return legacy_condition(state)
+
+    def _check_is_context_condition(self, condition: EdgeCondition) -> TypeGuard[EdgeConditionWithContext]:
+        """Check and cache whether this edge's condition accepts invocation_state."""
+        if self._is_context_condition_cached is None:
+            self._is_context_condition_cached = _is_context_condition(condition)
+        return self._is_context_condition_cached
 
 
 @dataclass
@@ -180,7 +240,7 @@ class GraphNode:
         if hasattr(self.executor, "messages"):
             self._initial_messages = copy.deepcopy(self.executor.messages)
 
-        if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
+        if hasattr(self.executor, "state") and isinstance(self.executor.state, AgentState):
             self._initial_state = AgentState(self.executor.state.get())
 
         if hasattr(self.executor, "_model_state"):
@@ -195,7 +255,7 @@ class GraphNode:
         if hasattr(self.executor, "messages"):
             self.executor.messages = copy.deepcopy(self._initial_messages)
 
-        if hasattr(self.executor, "state"):
+        if hasattr(self.executor, "state") and isinstance(self.executor.state, AgentState):
             self.executor.state = AgentState(self._initial_state.get())
 
         if hasattr(self.executor, "_model_state"):
@@ -276,9 +336,14 @@ class GraphBuilder:
         self,
         from_node: str | GraphNode,
         to_node: str | GraphNode,
-        condition: Callable[[GraphState], bool] | None = None,
+        condition: EdgeCondition | None = None,
     ) -> GraphEdge:
-        """Add an edge between two nodes with optional condition function that receives full GraphState."""
+        """Add an edge between two nodes with optional condition function.
+
+        The condition can be either:
+        - A legacy callable: Callable[[GraphState], bool] - receives only graph state
+        - A new-style callable: EdgeConditionWithContext - receives graph state and invocation_state
+        """
 
         def resolve_node(node: str | GraphNode, node_type: str) -> GraphNode:
             if isinstance(node, str):
@@ -491,11 +556,14 @@ class Graph(MultiAgentBase):
 
         self._resume_next_nodes: list[GraphNode] = []
         self._resume_from_session = False
+        self._current_invocation_state: dict[str, Any] = {}
         self.id = id
 
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
-    def add_hook(self, callback: HookCallback, event_type: type | list[type] | None = None) -> None:
+    def add_hook(
+        self, callback: HookCallback, event_type: type | list[type] | None = None, *, order: float = HookOrder.DEFAULT
+    ) -> None:
         """Register a hook callback with the graph.
 
         Args:
@@ -503,8 +571,9 @@ class Graph(MultiAgentBase):
             event_type: The class type(s) of events this callback should handle.
                 Can be a single type, a list of types, or None to infer from
                 the callback's first parameter type hint.
+            order: Execution priority. Lower values execute first.
         """
-        self.hooks.add_callback(event_type, callback)
+        self.hooks.add_callback(event_type, callback, order=order)
 
     def __call__(
         self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -569,6 +638,8 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
+        self._current_invocation_state = invocation_state
+
         await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
 
         logger.debug("task=<%s> | starting graph execution", task)
@@ -592,6 +663,8 @@ class Graph(MultiAgentBase):
         span = self.tracer.start_multiagent_span(task, "graph", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
+
+            self._invocation_start_time = start_time
 
             try:
                 logger.debug(
@@ -626,7 +699,7 @@ class Graph(MultiAgentBase):
                 self.state.status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time += round((time.time() - start_time) * 1000)
+                self.state.execution_time = self._commit_active_interval(self.state.execution_time)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self))
                 self._resume_from_session = False
                 self._resume_next_nodes.clear()
@@ -889,7 +962,7 @@ class Graph(MultiAgentBase):
         # Check if at least one incoming edge condition is satisfied
         for edge in incoming_edges:
             if edge.from_node in completed_batch:
-                if edge.should_traverse(self.state):
+                if edge.should_traverse(self.state, invocation_state=self._current_invocation_state):
                     logger.debug(
                         "from=<%s>, to=<%s> | edge ready via satisfied condition", edge.from_node.node_id, node.node_id
                     )
@@ -1008,9 +1081,12 @@ class Graph(MultiAgentBase):
                 yield self._activate_interrupt(node, node_result.interrupts)
                 return
 
-            # Mark as completed
-            node.execution_status = Status.COMPLETED
-            self.state.completed_nodes.add(node)
+            if node_result.status == Status.FAILED:
+                node.execution_status = Status.FAILED
+                self.state.failed_nodes.add(node)
+            else:
+                node.execution_status = Status.COMPLETED
+                self.state.completed_nodes.add(node)
             self.state.results[node.node_id] = node_result
             self.state.execution_order.append(node)
 
@@ -1125,7 +1201,7 @@ class Graph(MultiAgentBase):
                 and edge.from_node in self.state.completed_nodes
                 and edge.from_node.node_id in self.state.results
             ):
-                if edge.should_traverse(self.state):
+                if edge.should_traverse(self.state, invocation_state=self._current_invocation_state):
                     dependency_results[edge.from_node.node_id] = self.state.results[edge.from_node.node_id]
 
         if not dependency_results:
@@ -1175,7 +1251,7 @@ class Graph(MultiAgentBase):
             accumulated_usage=self.state.accumulated_usage,
             accumulated_metrics=self.state.accumulated_metrics,
             execution_count=self.state.execution_count,
-            execution_time=self.state.execution_time,
+            execution_time=self._execution_time_with_active_interval(self.state.execution_time),
             total_nodes=self.state.total_nodes,
             completed_nodes=len(self.state.completed_nodes),
             failed_nodes=len(self.state.failed_nodes),
@@ -1201,6 +1277,10 @@ class Graph(MultiAgentBase):
             "next_nodes_to_execute": next_nodes,
             "current_task": encode_bytes_values(self.state.task),
             "execution_order": [n.node_id for n in self.state.execution_order],
+            "accumulated_usage": self.state.accumulated_usage,
+            "accumulated_metrics": self.state.accumulated_metrics,
+            "execution_count": self.state.execution_count,
+            "execution_time": self._execution_time_with_active_interval(self.state.execution_time),
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
             },
@@ -1240,16 +1320,134 @@ class Graph(MultiAgentBase):
             return []
         ready_nodes: list[GraphNode] = []
         completed_nodes = set(self.state.completed_nodes)
+        pending_sources = self._compute_pending_sources(completed_nodes)
         for node in self.nodes.values():
             if node in completed_nodes:
                 continue
-            incoming = [e for e in self.edges if e.to_node is node]
+            incoming = [edge for edge in self.edges if edge.to_node is node]
             if not incoming:
                 ready_nodes.append(node)
-            elif all(e.from_node in completed_nodes and e.should_traverse(self.state) for e in incoming):
+            elif self._is_node_ready_for_resume(node, incoming, completed_nodes, pending_sources):
                 ready_nodes.append(node)
 
         return ready_nodes
+
+    def _is_edge_traversable(self, edge: GraphEdge) -> bool:
+        """Return whether an edge should be followed under the in-memory invocation state.
+
+        Short-circuits unconditional edges to skip the signature inspection and cache lookup
+        that ``should_traverse`` performs for context-aware conditions.
+        """
+        return edge.condition is None or edge.should_traverse(
+            self.state, invocation_state=self._current_invocation_state
+        )
+
+    def _compute_pending_sources(self, completed_nodes: set[GraphNode]) -> set[GraphNode]:
+        """Compute the set of not-yet-completed nodes that will run when execution resumes.
+
+        This is the discriminator between a *live pending parent* and a genuinely *bypassed dead
+        branch*, so a fan-in node stays not-ready while any parent that will still produce a result
+        is outstanding. It has two seeds:
+
+        - In-flight nodes (``execution_status == EXECUTING``): serialize runs from the per-node
+          ``AfterNodeCallEvent`` while sibling nodes in the same parallel batch are still executing.
+          Their partial progress is not persisted, so they re-run on resume. This is the
+          authoritative in-flight signal, and it catches siblings with no completed ancestor (e.g.
+          two concurrent entry points feeding one join) that forward reachability alone would miss.
+        - Completed nodes: their traversable outgoing edges lead to nodes that will be scheduled
+          next on resume.
+
+        From those seeds the walk follows *traversable* outgoing edges (unconditional, or whose
+        condition is True under the in-memory ``_current_invocation_state``) and collects every
+        reached not-yet-completed node. A bypassed dead branch is never reached because the only
+        edge into it has a condition that evaluates to False, so the traversal never crosses it.
+
+        The traversal is transitive so a deep pending chain (e.g. ``root -> mid -> right -> join``
+        with ``mid`` still executing) marks every node below the frontier as pending, not just the
+        immediate children. A ``visited`` set makes it terminate on cyclic graphs.
+
+        Args:
+            completed_nodes: Nodes that have already completed execution.
+
+        Returns:
+            The set of not-yet-completed nodes that will execute on resume — in-flight nodes plus
+            everything reachable from the completed or in-flight frontier via traversable edges.
+        """
+        executing_nodes = {node for node in self.nodes.values() if node.execution_status == Status.EXECUTING}
+        pending: set[GraphNode] = set(executing_nodes)
+        visited = completed_nodes | executing_nodes
+        frontier = list(visited)
+        while frontier:
+            source = frontier.pop()
+            for edge in self.edges:
+                if edge.from_node is not source:
+                    continue
+                target = edge.to_node
+                # A visited target is already decided; skip before evaluating the (user-supplied)
+                # condition so it is not re-invoked for edges into the completed/in-flight region.
+                if target in visited or not self._is_edge_traversable(edge):
+                    continue
+                visited.add(target)
+                pending.add(target)
+                frontier.append(target)
+        return pending
+
+    def _is_node_ready_for_resume(
+        self,
+        node: GraphNode,
+        incoming: list[GraphEdge],
+        completed_nodes: set[GraphNode],
+        pending_sources: set[GraphNode],
+    ) -> bool:
+        """Check if a node is ready for resume, accounting for conditional edges.
+
+        A node is ready if all TRAVERSABLE incoming edges from *live* sources have their
+        source completed. Edges whose condition evaluates to False are excluded (paths
+        intentionally not taken). Edges whose source is a *bypassed dead branch* — never
+        scheduled and outside the resume frontier — are also excluded, as they will never fire.
+
+        A source is *live* if it is touched (completed, interrupted, or failed) or *pending*
+        (in ``pending_sources``: a not-yet-completed node that will still run on resume — see
+        ``_compute_pending_sources``). Keeping edges from pending sources in the AND-join is what
+        distinguishes an in-flight parallel sibling from a bypassed dead branch: a fan-in node
+        whose sibling parent is still executing at serialize time stays not-ready, so resume runs
+        the fan-in exactly once with all inputs present rather than off its already-completed
+        parent alone.
+
+        Note: this method is called at serialize time (before persisting) using the
+        invocation_state that is in memory at that moment. The resulting node IDs are
+        stored as ``next_nodes_to_execute`` and loaded directly on resume — so the
+        initial resume batch reflects serialize-time state. Subsequent routing decisions
+        (after those initial nodes complete) re-evaluate conditions with whatever
+        invocation_state the caller passes on the resume invocation.
+
+        Uses AND-join semantics for edges from live sources (all must have completed
+        sources), preserving the original behavior for parallel fan-in patterns.
+
+        Args:
+            node: The candidate node to evaluate.
+            incoming: The node's incoming edges.
+            completed_nodes: Nodes that have already completed execution.
+            pending_sources: Not-yet-completed nodes that will still run on resume (see
+                ``_compute_pending_sources``).
+        """
+        traversable_edges = [edge for edge in incoming if self._is_edge_traversable(edge)]
+
+        if not traversable_edges:
+            return False
+
+        # Keep edges from live sources — touched nodes (completed, interrupted, failed) plus
+        # pending nodes that will run on resume. Edges from bypassed dead branches (untouched
+        # and unreachable from any completed node) are dropped, since they will never fire.
+        live_sources = completed_nodes | self.state.interrupted_nodes | self.state.failed_nodes | pending_sources
+        relevant_edges = [edge for edge in traversable_edges if edge.from_node in live_sources]
+
+        # If no relevant edges remain (all sources are bypassed), the node
+        # is not ready — it has no valid path from executed nodes.
+        if not relevant_edges:
+            return False
+
+        return all(edge.from_node in completed_nodes for edge in relevant_edges)
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         self.state.status = Status(payload["status"])
@@ -1290,6 +1488,13 @@ class Graph(MultiAgentBase):
 
         # Task
         self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
+
+        # Cumulative accounting: restore so the timeout budget (should_continue) and the reported
+        # totals stay correct across a resume, rather than resetting to zero.
+        self.state.accumulated_usage = _parse_usage(payload.get("accumulated_usage") or {})
+        self.state.accumulated_metrics = _parse_metrics(payload.get("accumulated_metrics") or {})
+        self.state.execution_count = int(payload.get("execution_count") or 0)
+        self.state.execution_time = int(payload.get("execution_time") or 0)
 
         # next nodes to execute
         next_nodes = [self.nodes[nid] for nid in (payload.get("next_nodes_to_execute") or []) if nid in self.nodes]

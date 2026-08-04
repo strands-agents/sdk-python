@@ -1,5 +1,6 @@
 ---
 title: Tool Parameter Accuracy Evaluator
+description: 'Verify tool call parameters are grounded in conversation context, not hallucinated, with per-call checks from ToolParameterAccuracyEvaluator.'
 tags: [tool-evaluation]
 sidebar:
   label: "Tool Parameter Accuracy"
@@ -7,7 +8,7 @@ sidebar:
 
 ## Overview
 
-The `ToolParameterAccuracyEvaluator` is a specialized evaluator that assesses whether tool call parameters faithfully use information from the preceding conversation context. It evaluates each tool call individually to ensure parameters are grounded in available information rather than hallucinated or incorrectly inferred. A complete example can be found [here](https://github.com/strands-agents/docs/blob/main/docs/examples/evals-sdk/tool_parameter_accuracy_evaluator.py).
+The `ToolParameterAccuracyEvaluator` is a specialized evaluator that assesses whether tool call parameters faithfully use information from the preceding conversation context. It evaluates each tool call individually to ensure parameters are grounded in available information rather than hallucinated or incorrectly inferred. A complete example can be found [here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/tool_parameter_accuracy_evaluator.py).
 
 ## Key Features
 
@@ -59,6 +60,8 @@ When using `StrandsInMemorySessionMapper`, you **must** include session ID trace
 :::
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_tools import calculator
 from strands_evals import Case, Experiment
@@ -72,8 +75,6 @@ memory_exporter = telemetry.in_memory_exporter
 
 # Define task function
 def user_task_function(case: Case) -> dict:
-    memory_exporter.clear()
-    
     agent = Agent(
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
@@ -105,8 +106,12 @@ evaluator = ToolParameterAccuracyEvaluator()
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(user_task_function)
-reports[0].run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(user_task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Evaluation Output

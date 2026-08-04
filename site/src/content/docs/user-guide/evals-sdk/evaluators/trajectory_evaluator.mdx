@@ -1,5 +1,6 @@
 ---
 title: Trajectory Evaluator
+description: 'Judge the sequence of tool calls and actions an agent took with TrajectoryEvaluator, including exact, in-order, and any-order matching tools.'
 tags: [tool-evaluation]
 sidebar:
   label: "Trajectory"
@@ -7,7 +8,7 @@ sidebar:
 
 ## Overview
 
-The `TrajectoryEvaluator` is an LLM-based evaluator that assesses the sequence of actions or tool calls made by an agent during task execution. It evaluates whether the agent followed an appropriate path to reach its goal, making it ideal for evaluating multi-step reasoning and tool usage patterns. A complete example can be found [here](https://github.com/strands-agents/docs/blob/main/docs/examples/evals-sdk/trajectory_evaluator.py).
+The `TrajectoryEvaluator` is an LLM-based evaluator that assesses the sequence of actions or tool calls made by an agent during task execution. It evaluates whether the agent followed an appropriate path to reach its goal, making it ideal for evaluating multi-step reasoning and tool usage patterns. A complete example can be found [here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/trajectory_evaluator.py).
 
 ## Key Features
 
@@ -113,6 +114,8 @@ evaluator.update_trajectory_description(tool_descriptions)
 ## Basic Usage
 
 ```python
+import asyncio
+
 from strands import Agent, tool
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import TrajectoryEvaluator
@@ -180,8 +183,12 @@ evaluator = TrajectoryEvaluator(
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(get_response)
-reports[0].run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(get_response)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Preventing Context Overflow
@@ -203,7 +210,7 @@ def task_with_many_tools(case: Case) -> dict:
     )
     evaluator.update_trajectory_description(tool_descriptions)
     
-    return TaskOutput(output=str(response), trajectory=trajectory=tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages))
+    return TaskOutput(output=str(response), trajectory=tools_use_extractor.extract_agent_tools_used_from_messages(agent.messages))
 ```
 
 ## Evaluation Output

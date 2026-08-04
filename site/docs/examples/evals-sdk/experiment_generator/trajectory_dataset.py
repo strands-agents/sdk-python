@@ -92,8 +92,8 @@ async def trajectory_experiment_generator():
     experiment.to_file("generated_bank_trajectory_experiment")
 
     ### Step 4: Run evaluations on the generated test cases ###
-    reports = await experiment.run_evaluations_async(bank_task)
-    return reports[0]
+    report = await experiment.run_evaluations_async(bank_task)
+    return report
 
 
 if __name__ == "__main__":

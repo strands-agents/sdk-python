@@ -18,6 +18,7 @@ import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from .... import _identifier
+from ...._middleware import MiddlewareRegistry
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
 from ....interrupt import _InterruptState
@@ -27,7 +28,7 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.tool_provider import ToolProvider
 from ....tools.watcher import ToolWatcher
-from ....types.content import Message, Messages
+from ....types.content import Message, Messages, _ensure_tracking_id
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from .._async import _TaskGroup, stop_all
@@ -165,6 +166,11 @@ class BidiAgent:
 
         # TODO: Determine if full support is required
         self._interrupt_state = _InterruptState()
+
+        # Empty registry so the shared ToolExecutor can invoke ExecuteToolStage uniformly.
+        # With no handlers registered, the chain fast-paths straight to the terminal, so
+        # bidi tool execution is unaffected until middleware support is formally added.
+        self._middleware_registry = MiddlewareRegistry()
 
         # Lock to ensure that paired messages are added to history in sequence without interference
         self._message_lock = asyncio.Lock()
@@ -410,5 +416,6 @@ class BidiAgent:
         """
         async with self._message_lock:
             for message in messages:
+                _ensure_tracking_id(message)
                 self.messages.append(message)
                 await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))

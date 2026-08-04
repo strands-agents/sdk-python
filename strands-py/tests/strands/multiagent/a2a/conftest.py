@@ -8,6 +8,8 @@ from a2a.server.events import EventQueue
 
 from strands.agent.agent import Agent as SAAgent
 from strands.agent.agent_result import AgentResult as SAAgentResult
+from strands.interrupt import _InterruptState
+from strands.types._snapshot import Snapshot
 
 
 @pytest.fixture
@@ -30,6 +32,17 @@ def mock_strands_agent():
     mock_tool_registry = MagicMock()
     mock_tool_registry.get_all_tools_config.return_value = {}
     agent.tool_registry = mock_tool_registry
+
+    # Provide realistic, picklable session-state behavior so the executor's per-context
+    # state-swap (take_snapshot / load_snapshot / _model_state) works against the mock without
+    # leaking un-picklable MagicMock internals into deepcopy.
+    agent._model_state = {}
+    agent.take_snapshot = MagicMock(return_value=Snapshot(scope="agent", schema_version="1.0", data={}, app_data={}))
+    agent.load_snapshot = MagicMock()
+
+    # A real Agent always carries interrupt state; the executor reads it to decide whether a
+    # request resumes a parked interrupt. Default is deactivated, matching a fresh agent.
+    agent._interrupt_state = _InterruptState()
 
     return agent
 

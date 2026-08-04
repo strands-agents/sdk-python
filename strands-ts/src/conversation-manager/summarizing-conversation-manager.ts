@@ -6,45 +6,21 @@
  * than simply discarding it.
  */
 
-import { Message, TextBlock } from '../types/messages.js'
 import type { LocalAgent } from '../types/agent.js'
 import {
   ConversationManager,
   type ProactiveCompressionConfig,
   type ConversationManagerReduceOptions,
 } from './conversation-manager.js'
+import { applyPinFirst, partitionPinned } from './compression/pin-message.js'
+import {
+  adjustSplitPointForToolPairs,
+  generateSummary,
+  DEFAULT_SUMMARIZATION_PROMPT,
+} from './compression/context-compression.js'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
 import type { Model } from '../models/model.js'
-
-const DEFAULT_SUMMARIZATION_PROMPT = `You are a conversation summarizer. Provide a concise summary of the conversation \
-history.
-
-Format Requirements:
-- You MUST create a structured and concise summary in bullet-point format.
-- You MUST NOT respond conversationally.
-- You MUST NOT address the user directly.
-- You MUST NOT comment on tool availability.
-
-Assumptions:
-- You MUST NOT assume tool executions failed unless otherwise stated.
-
-Task:
-Your task is to create a structured summary document:
-- It MUST contain bullet points with key topics and questions covered
-- It MUST contain bullet points for all significant tools executed and their results
-- It MUST contain bullet points for any code or technical information shared
-- It MUST contain a section of key insights gained
-- It MUST format the summary in the third person
-
-Example format:
-
-## Conversation Summary
-* Topic 1: Key information
-* Topic 2: Key information
-
-## Tools Executed
-* Tool X: Result Y`
 
 /**
  * Configuration for the summarization conversation manager.
@@ -83,6 +59,12 @@ export type SummarizingConversationManagerConfig = {
    * - `false` or omitted: disabled, only reactive overflow recovery is used.
    */
   proactiveCompression?: boolean | ProactiveCompressionConfig
+
+  /**
+   * Number of messages at the start of the conversation to permanently pin.
+   * Pinned messages are protected from summarization and compacted to the front.
+   */
+  pinFirst?: number
 }
 
 /**
@@ -99,6 +81,8 @@ export class SummarizingConversationManager extends ConversationManager {
   private readonly _summaryRatio: number
   private readonly _preserveRecentMessages: number
   private readonly _summarizationSystemPrompt: string
+  private readonly _pinFirst: number | undefined
+  private _pinFirstApplied = false
 
   constructor(config?: SummarizingConversationManagerConfig) {
     super(config)
@@ -107,6 +91,7 @@ export class SummarizingConversationManager extends ConversationManager {
     this._summaryRatio = Math.max(0.1, Math.min(0.8, config?.summaryRatio ?? 0.3))
     this._preserveRecentMessages = config?.preserveRecentMessages ?? 10
     this._summarizationSystemPrompt = config?.summarizationSystemPrompt ?? DEFAULT_SUMMARIZATION_PROMPT
+    this._pinFirst = config?.pinFirst != null ? Math.max(0, config.pinFirst) : undefined
   }
 
   /**
@@ -162,102 +147,28 @@ export class SummarizingConversationManager extends ConversationManager {
     }
 
     // Adjust split point to avoid breaking tool use/result pairs
-    messagesToSummarizeCount = this._adjustSplitPointForToolPairs(messages, messagesToSummarizeCount)
+    messagesToSummarizeCount = adjustSplitPointForToolPairs(messages, messagesToSummarizeCount)
 
-    const messagesToSummarize = messages.slice(0, messagesToSummarizeCount)
+    // Pin first N messages permanently (only on first reduction)
+    if (this._pinFirst && !this._pinFirstApplied) {
+      applyPinFirst(messages, this._pinFirst)
+      this._pinFirstApplied = true
+    }
+
+    // Partition [0, messagesToSummarizeCount) into pinned (preserve) and non-pinned (summarize)
+    const [protectedToPreserve, toSummarize] = partitionPinned(messages, 0, messagesToSummarizeCount)
+
+    if (toSummarize.length === 0) {
+      logger.warn(`messages=<${messages.length}> | all messages in summarize range are protected, unable to reduce`)
+      return false
+    }
 
     // Generate summary via model call
-    const summaryMessage = await this._generateSummary(messagesToSummarize, model)
+    const summaryMessage = await generateSummary(toSummarize, model, this._summarizationSystemPrompt)
 
-    // Replace summarized messages with the summary
-    messages.splice(0, messagesToSummarizeCount, summaryMessage)
+    // Replace summarized range with protected messages + summary
+    messages.splice(0, messagesToSummarizeCount, ...protectedToPreserve, summaryMessage)
 
     return true
-  }
-
-  /**
-   * Generate a summary of the provided messages by calling the model directly.
-   *
-   * @param messagesToSummarize - The messages to summarize
-   * @returns A user-role message containing the summary
-   */
-  private async _generateSummary(messagesToSummarize: Message[], model: Model): Promise<Message> {
-    const summarizationMessages = [
-      ...messagesToSummarize,
-      new Message({
-        role: 'user',
-        content: [new TextBlock('Please summarize this conversation.')],
-      }),
-    ]
-
-    const stream = model.streamAggregated(summarizationMessages, {
-      systemPrompt: this._summarizationSystemPrompt,
-    })
-
-    // Manual .next() loop is required: streamAggregated returns its final result
-    // as the generator return value (done:true), which for-await-of discards.
-    let result: Awaited<ReturnType<typeof stream.next>> | undefined
-    for (;;) {
-      result = await stream.next()
-      if (result.done) break
-    }
-
-    if (!result?.done || !result.value) {
-      throw new Error('Failed to generate summary: no response from model')
-    }
-
-    // Return the summary as a user-role message so it's valid as conversation history
-    return new Message({
-      role: 'user',
-      content: result.value.message.content,
-    })
-  }
-
-  /**
-   * Adjust the split point to avoid breaking tool use/result pairs.
-   *
-   * Walks the split point forward until the message at that position is neither
-   * an orphaned toolResult nor a toolUse without an immediately following toolResult.
-   *
-   * @param messages - The full message array
-   * @param splitPoint - The initially calculated split point
-   * @returns The adjusted split point
-   * @throws If no valid split point can be found
-   */
-  private _adjustSplitPointForToolPairs(messages: Message[], splitPoint: number): number {
-    if (splitPoint >= messages.length) {
-      return splitPoint
-    }
-
-    while (splitPoint < messages.length) {
-      const message = messages[splitPoint]!
-
-      // Can't leave an orphaned toolResult at the start
-      const hasToolResult = message.content.some((block) => block.type === 'toolResultBlock')
-      if (hasToolResult) {
-        splitPoint++
-        continue
-      }
-
-      // A toolUse is only valid at the boundary if the next message is its toolResult
-      const hasToolUse = message.content.some((block) => block.type === 'toolUseBlock')
-      if (hasToolUse) {
-        const nextMessage = messages[splitPoint + 1]
-        const nextHasToolResult = nextMessage?.content.some((block) => block.type === 'toolResultBlock')
-        if (!nextHasToolResult) {
-          splitPoint++
-          continue
-        }
-      }
-
-      break
-    }
-
-    // If we walked past all messages, no valid split point exists
-    if (splitPoint >= messages.length) {
-      throw new Error('Unable to find valid split point for summarization')
-    }
-
-    return splitPoint
   }
 }

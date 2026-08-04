@@ -13,6 +13,7 @@ import { MaxTokensError, ModelError } from '../../errors.js'
 import { Model } from '../model.js'
 import type { BaseModelConfig, StreamOptions } from '../model.js'
 import type { ModelStreamEvent } from '../streaming.js'
+import { anyTrackingId } from '../../__fixtures__/message-helpers.js'
 
 /**
  * Test model provider that throws an error from stream().
@@ -86,6 +87,7 @@ describe('Model', () => {
             type: 'message',
             role: 'assistant',
             content: [{ type: 'textBlock', text: 'Hello' }],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
             },
@@ -164,6 +166,7 @@ describe('Model', () => {
               { type: 'textBlock', text: 'First' },
               { type: 'textBlock', text: 'Second' },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
             },
@@ -228,6 +231,7 @@ describe('Model', () => {
                 input: { location: 'Paris' },
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 },
             },
@@ -286,6 +290,7 @@ describe('Model', () => {
                 input: {},
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 8, totalTokens: 18 },
             },
@@ -323,19 +328,41 @@ describe('Model', () => {
         )
       })
 
-      it('preserves SyntaxError instead of overwriting with MaxTokensError when tool input JSON is malformed', async () => {
+      it('throws MaxTokensError when contentBlockStop arrives with truncated tool input JSON and stopReason is maxTokens', async () => {
         const provider = new TestModelProvider(async function* () {
           yield { type: 'modelMessageStartEvent', role: 'assistant' }
           yield {
             type: 'modelContentBlockStartEvent',
-            start: { type: 'toolUseStart', toolUseId: 'tool1', name: 'get_weather' },
+            start: { type: 'toolUseStart', toolUseId: 't', name: 'tool' },
+          }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'toolUseInputDelta', input: '{"field": "value"' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'maxTokens' }
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        await expect(async () => await collectGenerator(provider.streamAggregated(messages))).rejects.toThrow(
+          MaxTokensError
+        )
+      })
+
+      it('surfaces SyntaxError as cause when tool input JSON is malformed and stopReason is not maxTokens', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: 't', name: 'tool' },
           }
           yield {
             type: 'modelContentBlockDeltaEvent',
             delta: { type: 'toolUseInputDelta', input: '{invalid json' },
           }
           yield { type: 'modelContentBlockStopEvent' }
-          yield { type: 'modelMessageStopEvent', stopReason: 'maxTokens' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'toolUse' }
         })
 
         const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
@@ -346,6 +373,34 @@ describe('Model', () => {
         } catch (error) {
           expect(error).toBeInstanceOf(ModelError)
           expect(error).not.toBeInstanceOf(MaxTokensError)
+          expect((error as ModelError).message).toBe('unable to parse tool input JSON')
+          expect((error as ModelError).cause).toBeInstanceOf(SyntaxError)
+        }
+      })
+
+      it('attaches SyntaxError as cause when stream ends without a stop event after malformed tool input', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: 't', name: 'tool' },
+          }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'toolUseInputDelta', input: '{invalid json' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        try {
+          await collectGenerator(provider.streamAggregated(messages))
+          expect.fail('Expected error to be thrown')
+        } catch (error) {
+          expect(error).toBeInstanceOf(ModelError)
+          expect(error).not.toBeInstanceOf(MaxTokensError)
+          expect((error as ModelError).message).toBe('Stream ended without completing a message')
           expect((error as ModelError).cause).toBeInstanceOf(SyntaxError)
         }
       })
@@ -397,6 +452,7 @@ describe('Model', () => {
                 signature: 'sig1',
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 },
             },
@@ -448,6 +504,7 @@ describe('Model', () => {
                 redactedContent: new Uint8Array(0),
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
             },
@@ -499,6 +556,7 @@ describe('Model', () => {
                 text: 'Thinking',
               },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
             },
@@ -570,6 +628,7 @@ describe('Model', () => {
               { type: 'toolUseBlock', toolUseId: 'tool1', name: 'get_weather', input: { city: 'Paris' } },
               { type: 'reasoningBlock', text: 'Reasoning', signature: 'sig1' },
             ],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
             },
@@ -580,6 +639,42 @@ describe('Model', () => {
             usage: { inputTokens: 10, outputTokens: 15, totalTokens: 25 },
           },
         })
+      })
+    })
+
+    describe('when a content block emits no text deltas alongside reasoning and tool use', () => {
+      it('drops the resulting empty TextBlock from the aggregated message but still yields it', async () => {
+        const provider = new TestModelProvider(async function* () {
+          yield { type: 'modelMessageStartEvent', role: 'assistant' }
+          yield { type: 'modelContentBlockStartEvent' }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'reasoningContentDelta', text: 'Thinking', signature: 'sig1' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelContentBlockStartEvent' }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield {
+            type: 'modelContentBlockStartEvent',
+            start: { type: 'toolUseStart', toolUseId: 'tool1', name: 'get_weather' },
+          }
+          yield {
+            type: 'modelContentBlockDeltaEvent',
+            delta: { type: 'toolUseInputDelta', input: '{"city": "Paris"}' },
+          }
+          yield { type: 'modelContentBlockStopEvent' }
+          yield { type: 'modelMessageStopEvent', stopReason: 'toolUse' }
+        })
+
+        const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+        const { items, result } = await collectGenerator(provider.streamAggregated(messages))
+
+        expect(items).toContainEqual({ type: 'textBlock', text: '' })
+        expect(result.message.content).toEqual([
+          { type: 'reasoningBlock', text: 'Thinking', signature: 'sig1' },
+          { type: 'toolUseBlock', toolUseId: 'tool1', name: 'get_weather', input: { city: 'Paris' } },
+        ])
       })
     })
 
@@ -626,6 +721,7 @@ describe('Model', () => {
             type: 'message',
             role: 'assistant',
             content: [{ type: 'textBlock', text: 'Hello' }],
+            trackingId: anyTrackingId,
             metadata: {
               usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
               metrics: { latencyMs: 100 },
@@ -667,6 +763,7 @@ describe('Model', () => {
             type: 'message',
             role: 'assistant',
             content: [{ type: 'textBlock', text: 'Hello' }],
+            trackingId: anyTrackingId,
           },
           stopReason: 'endTurn',
           metadata: undefined,

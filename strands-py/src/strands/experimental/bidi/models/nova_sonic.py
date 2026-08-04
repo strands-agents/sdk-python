@@ -40,6 +40,7 @@ from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 from smithy_core.shapes import ShapeID
 
+from ....models._validation import validate_region
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
@@ -99,6 +100,8 @@ NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
 _MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
 _MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
 
+_STRANDS_USER_AGENT_EXTRA = "strands-agents"
+
 
 class BidiNovaSonicModel(BidiModel):
     """Nova Sonic implementation for bidirectional streaming.
@@ -137,6 +140,7 @@ class BidiNovaSonicModel(BidiModel):
         Raises:
             ValueError: If turn_detection is used with v1 model.
             ValueError: If endpointingSensitivity is not HIGH, MEDIUM, or LOW.
+            ValueError: If the resolved AWS region is not a valid region identifier.
         """
         # Store model ID
         self.model_id = model_id
@@ -192,6 +196,9 @@ class BidiNovaSonicModel(BidiModel):
         # Resolve region from session or use default
         if "region" not in resolved:
             resolved["region"] = resolved["boto_session"].region_name or "us-east-1"
+
+        # Validate the region before it is interpolated into the service endpoint URL
+        validate_region(resolved["region"])
 
         return resolved
 
@@ -262,16 +269,16 @@ class BidiNovaSonicModel(BidiModel):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
+            user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
-        self.client = BedrockRuntimeClient(config=config)
+        self._client = BedrockRuntimeClient(config=config)
         logger.debug("region=<%s> | nova sonic client initialized", self.region)
 
-        client = BedrockRuntimeClient(config=config)
-        self._stream = await client.invoke_model_with_bidirectional_stream(
+        self._stream = await self._client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
         )
-        logger.debug("region=<%s> | nova sonic client initialized", self.region)
+        logger.debug("region=<%s> | nova sonic bidirectional stream established", self.region)
 
         init_events = self._build_initialization_events(system_prompt, tools, messages)
         logger.debug("event_count=<%d> | sending nova sonic initialization events", len(init_events))
@@ -616,7 +623,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
-                role=text_output["role"].lower(),
+                role=text_output["role"],
                 is_final=self._generation_stage == "FINAL",
                 current_transcript=text_content,
             )

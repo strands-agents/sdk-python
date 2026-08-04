@@ -296,6 +296,9 @@ describe('InterventionRegistry', () => {
       const guidanceMessage = event.agent.messages[event.agent.messages.length - 1]!
       expect(guidanceMessage.role).toBe('user')
       expect(guidanceMessage.content[0]).toMatchObject({ type: 'textBlock', text: '[model-guide] be more specific' })
+      // The injected message carries a durable tracking id even though it bypasses the append chokepoint.
+      expect(typeof guidanceMessage.trackingId).toBe('string')
+      expect(guidanceMessage.trackingId).toBeTruthy()
     })
   })
 
@@ -798,6 +801,9 @@ describe('InterventionRegistry', () => {
       const injected = event.agent.messages[event.agent.messages.length - 1]!
       expect(injected.role).toBe('user')
       expect(injected.content[0]).toMatchObject({ type: 'textBlock', text: '[model-guide] check your sources' })
+      // The injected message carries a durable tracking id even though it bypasses the append chokepoint.
+      expect(typeof injected.trackingId).toBe('string')
+      expect(injected.trackingId).toBeTruthy()
     })
 
     it('transform apply() error is handled via onError policy', async () => {

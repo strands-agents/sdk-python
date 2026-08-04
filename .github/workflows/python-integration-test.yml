@@ -8,10 +8,67 @@ on:
       - '.github/workflows/python-*'
   merge_group:
     types: [checks_requested]
+  # workflow_call entry — TRUST INVARIANT.
+  #
+  # Lets another workflow in this repo reuse the integ tests against an
+  # arbitrary `ref` while keeping AWS_*. The authorization-check below is
+  # skipped on this path because the only callers
+  # (release-python.yml / release-typescript.yml) are workflow_dispatch-
+  # gated, which already requires repo write access.
+  #
+  # Before adding another caller, check all of:
+  #   1. Cannot be triggered by an unauthenticated user or a fork
+  #      (no pull_request; no pull_request_target without an auth gate;
+  #      no push from non-main branches).
+  #   2. Cannot be coerced into a fork-PR ref. validate-call-ref below is
+  #      the runtime guard, but condition 1 should make that unnecessary.
+  #   3. AWS_ROLE / STRANDS_INTEG_TEST_ROLE are scoped to least privilege.
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
 
 jobs:
+  validate-call-ref:
+    name: Validate workflow_call ref
+    if: inputs.ref != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # Reject ref shapes that could check out untrusted code:
+    # `refs/pull/*` (fork-PR merge refs) and `owner:branch` (cross-repo
+    # refs) fail; plain branches and SHAs pass.
+    #
+    # We do not also block on `github.event.repository.fork`. That flag is
+    # only `true` when this workflow runs on a fork's own runner — which
+    # is a legitimate case (release-python.yml's `run_integ_tests: true`
+    # lets a fork-owner test the pipeline with their own secrets). The
+    # ref-shape check above is what actually rejects untrusted refs.
+    steps:
+      - name: Reject untrusted-shaped refs
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          case "$REF" in
+            refs/pull/*|*:*)
+              echo "::error::workflow_call ref '$REF' looks like a fork PR or cross-repo ref."
+              exit 1
+              ;;
+          esac
+          echo "ref '$REF' passed shape check."
+
   authorization-check:
     name: Check access
+    needs: [validate-call-ref]
+    # `needs` only runs after non-skipped predecessors. validate-call-ref is
+    # skipped on pull_request_target / merge_group (inputs.ref is empty), so
+    # we use `if: always()` to ensure auth-check still runs there. On
+    # workflow_call, validate-call-ref must have succeeded.
+    if: |
+      always() &&
+      (needs.validate-call-ref.result == 'success' || needs.validate-call-ref.result == 'skipped')
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -22,14 +79,26 @@ jobs:
         id: auth
         uses: strands-agents/devtools/authorization-check@main
         with:
-          skip-check: ${{ github.event_name == 'merge_group' }}
+          # Skip on merge_group (gated by branch protection) and on
+          # workflow_call (the caller — release.yml — is workflow_dispatch
+          # gated, see the trigger comment above).
+          # `github.event_name` can't identify the release here — inside a
+          # reusable workflow it reports the caller's event, never
+          # 'workflow_call' — so key off `inputs.ref`, which only a
+          # workflow_call caller supplies (empty on pull_request_target /
+          # merge_group). Matches the validate-call-ref guard above.
+          skip-check: ${{ github.event_name == 'merge_group' || inputs.ref != '' }}
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
           allowed-roles: 'maintain,triage,write,admin'
 
   check-access-and-checkout:
+    name: Run integration tests
     runs-on: ubuntu-latest
     needs: authorization-check
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    if: always() && needs.authorization-check.result == 'success'
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       id-token: write
       pull-requests: read
@@ -46,17 +115,18 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout head commit
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ inputs.ref || github.event.pull_request.head.sha }}
           persist-credentials: false
+          allow-unsafe-pr-checkout: true  # opt back into fork-PR checkout, blocked by default in checkout@v7
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.10'
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
       - name: Run integration tests
         env:
           AWS_REGION: us-east-1
@@ -76,7 +146,14 @@ jobs:
   upload-metrics:
     runs-on: ubuntu-latest
     needs: check-access-and-checkout
-    if: always()
+    # Publishes to the team's CloudWatch via STRANDS_INTEG_TEST_ROLE. Only run
+    # when the integration-test job actually executed; on fork PRs the auth
+    # environment gate skips the test job and no test-results artifact is
+    # produced, so this job would otherwise fail on artifact download. The
+    # previous github.event.repository.fork guard did not catch this case
+    # because pull_request_target always evaluates that field against the base
+    # repo, which is never a fork.
+    if: needs.check-access-and-checkout.result == 'success' || needs.check-access-and-checkout.result == 'failure'
     permissions:
       id-token: write
       contents: read
@@ -89,7 +166,7 @@ jobs:
          mask-aws-account-id: true
 
       - name: Checkout main
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: main
           sparse-checkout: |

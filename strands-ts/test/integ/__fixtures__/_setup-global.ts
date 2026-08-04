@@ -13,13 +13,16 @@ import type { ProvidedContext } from 'vitest'
 import { Agent } from '../../../src/agent/agent.js'
 import { A2AExpressServer } from '../../../src/a2a/express-server.js'
 import { BedrockModel } from '../../../src/models/bedrock.js'
+import { AWS_REGION } from './_aws.js'
+import { getSSMParameters } from './_ssm.js'
+import { getSshEc2TestContext } from './_ssh-ec2.js'
 
 /**
  * Load API keys as environment variables from AWS Secrets Manager
  */
 async function loadApiKeysFromSecretsManager(): Promise<void> {
   const client = new SecretsManagerClient({
-    region: process.env.AWS_REGION || 'us-east-1',
+    region: AWS_REGION,
   })
 
   try {
@@ -75,14 +78,19 @@ export async function setup(project: TestProject): Promise<() => void> {
   project.provide('isCI', isCI)
   project.provide('provider-openai', await getOpenAITestContext(isCI))
   project.provide('provider-bedrock', await getBedrockTestContext(isCI))
+  project.provide('provider-bedrock-kb', await getBedrockKnowledgeBaseTestContext())
   project.provide('provider-anthropic', await getAnthropicTestContext(isCI))
   project.provide('provider-gemini', await getGeminiTestContext(isCI))
 
   const a2aContext = await getA2AServerContext(project)
   project.provide('a2a-server', { shouldSkip: a2aContext.shouldSkip, url: a2aContext.url })
 
+  const sshEc2 = await getSshEc2TestContext(project)
+  project.provide('provider-ssh-ec2', sshEc2.context)
+
   return () => {
     a2aContext.abort?.()
+    sshEc2.cleanup()
   }
 }
 
@@ -142,6 +150,42 @@ async function getBedrockTestContext(isCI: boolean): Promise<ProvidedContext['pr
       shouldSkip: true,
       credentials: undefined,
     }
+  }
+}
+
+async function getBedrockKnowledgeBaseTestContext(): Promise<ProvidedContext['provider-bedrock-kb']> {
+  const skip = (): ProvidedContext['provider-bedrock-kb'] => ({
+    shouldSkip: true,
+    knowledgeBaseId: undefined,
+    customDataSourceId: undefined,
+    s3DataSourceId: undefined,
+    s3Bucket: undefined,
+  })
+
+  const resolved = await getSSMParameters({
+    knowledgeBaseId: '/strands/test-infra/bedrock-knowledge-base/knowledge-base-id',
+    customDataSourceId: '/strands/test-infra/bedrock-knowledge-base/custom-data-source-id',
+    s3DataSourceId: '/strands/test-infra/bedrock-knowledge-base/s3-data-source-id',
+    s3Bucket: '/strands/test-infra/bedrock-knowledge-base/s3-source-bucket-name',
+  })
+
+  if (!resolved) {
+    console.log('⏭️  Bedrock KB SSM parameters not available - KB integration tests will be skipped')
+    return skip()
+  }
+
+  if (!resolved.knowledgeBaseId) {
+    console.log('⏭️  Bedrock KB id not found in SSM - KB integration tests will be skipped')
+    return skip()
+  }
+
+  console.log('⏭️  Bedrock KB parameters available - KB integration tests will run')
+  return {
+    shouldSkip: false,
+    knowledgeBaseId: resolved.knowledgeBaseId,
+    customDataSourceId: resolved.customDataSourceId,
+    s3DataSourceId: resolved.s3DataSourceId,
+    s3Bucket: resolved.s3Bucket,
   }
 }
 

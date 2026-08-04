@@ -2,6 +2,15 @@
 
 A filesystem editor tool for viewing, creating, and editing files programmatically. Provides string replacement, line insertion, and directory viewing with security validation.
 
+## ⚠️ Security Warning
+
+**This tool reads and writes files at arbitrary absolute paths without sandboxing or workspace restrictions.**
+
+- Only use with trusted input
+- File operations execute with the full permissions of the Node.js process
+- For production deployments, consider running in a sandboxed environment (containers, VMs, etc.)
+- Never expose this tool to untrusted users or untrusted prompt input without additional security measures
+
 ## Features
 
 - **View files** with line numbers and optional line range support

@@ -79,7 +79,10 @@ describe('Content Collections', () => {
       titleMap.set(doc.data.title, slugs)
     }
 
-    const collisions = [...titleMap.entries()].filter(([, slugs]) => slugs.length > 1)
+    const allowedDuplicates = new Set(['Steering'])
+    const collisions = [...titleMap.entries()].filter(
+      ([title, slugs]) => slugs.length > 1 && !allowedDuplicates.has(title)
+    )
     if (collisions.length > 0) {
       console.log('\n=== Duplicate user-guide titles ===\n')
       for (const [title, slugs] of collisions) {

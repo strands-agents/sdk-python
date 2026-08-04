@@ -6,12 +6,17 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from typing_extensions import override
 
 from ..._async import run_async
-from ...event_loop.streaming import process_stream
 from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
-from ...types.content import Message
+from ...types.content import Message, _ensure_tracking_id
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
+from .compression.context_compression import (
+    DEFAULT_SUMMARIZATION_PROMPT,
+    adjust_split_point_for_tool_pairs,
+    generate_summary,
+)
+from .compression.pin_message import apply_pin_first, partition_pinned
 from .conversation_manager import ConversationManager, ProactiveCompressionConfig
 
 if TYPE_CHECKING:
@@ -20,35 +25,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-DEFAULT_SUMMARIZATION_PROMPT = """You are a conversation summarizer. Provide a concise summary of the conversation \
-history.
-
-Format Requirements:
-- You MUST create a structured and concise summary in bullet-point format.
-- You MUST NOT respond conversationally.
-- You MUST NOT address the user directly.
-- You MUST NOT comment on tool availability.
-
-Assumptions:
-- You MUST NOT assume tool executions failed unless otherwise stated.
-
-Task:
-Your task is to create a structured summary document:
-- It MUST contain bullet points with key topics and questions covered
-- It MUST contain bullet points for all significant tools executed and their results
-- It MUST contain bullet points for any code or technical information shared
-- It MUST contain a section of key insights gained
-- It MUST format the summary in the third person
-
-Example format:
-
-## Conversation Summary
-* Topic 1: Key information
-* Topic 2: Key information
-*
-## Tools Executed
-* Tool X: Result Y"""
+# ``DEFAULT_SUMMARIZATION_PROMPT`` is re-exported here for backward compatibility; the
+# canonical definition now lives in ``compression.context_compression``.
+__all__ = ["DEFAULT_SUMMARIZATION_PROMPT", "SummarizingConversationManager"]
 
 
 class SummarizingConversationManager(ConversationManager):
@@ -66,6 +45,7 @@ class SummarizingConversationManager(ConversationManager):
         summarization_agent: Optional["Agent"] = None,
         summarization_system_prompt: str | None = None,
         *,
+        pin_first: int | None = None,
         proactive_compression: bool | ProactiveCompressionConfig | None = None,
     ):
         """Initialize the summarizing conversation manager.
@@ -79,6 +59,8 @@ class SummarizingConversationManager(ConversationManager):
                 If provided, this agent can use tools as part of the summarization process.
             summarization_system_prompt: Optional system prompt override for summarization.
                 If None, uses the default summarization prompt.
+            pin_first: Number of messages at the start of the conversation to permanently pin.
+                Pinned messages are protected from summarization and compacted to the front.
             proactive_compression: Enable proactive context compression before the model call.
                 - ``True``: compress when 70% of the context window is used (default threshold).
                 - ``{"compression_threshold": float}``: compress at the specified ratio (0, 1].
@@ -95,6 +77,8 @@ class SummarizingConversationManager(ConversationManager):
         self.preserve_recent_messages = preserve_recent_messages
         self.summarization_agent = summarization_agent
         self.summarization_system_prompt = summarization_system_prompt
+        self.pin_first = max(0, pin_first) if pin_first is not None else None
+        self._pin_first_applied = False
         self._summary_message: Message | None = None
 
     @override
@@ -187,21 +171,32 @@ class SummarizingConversationManager(ConversationManager):
         if messages_to_summarize_count <= 0:
             raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
 
-        # Extract messages to summarize
-        messages_to_summarize = agent.messages[:messages_to_summarize_count]
+        # Pin first N messages permanently (only on first reduction)
+        if self.pin_first and not self._pin_first_applied:
+            apply_pin_first(agent.messages, self.pin_first)
+            self._pin_first_applied = True
+
+        # Partition [0, messages_to_summarize_count) into pinned (preserve) and non-pinned (summarize)
+        protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
+
+        if not to_summarize:
+            raise ContextWindowOverflowException("Cannot summarize: all messages in summarize range are pinned")
+
         remaining_messages = agent.messages[messages_to_summarize_count:]
 
         # Keep track of the number of messages that have been summarized thus far.
-        self.removed_message_count += len(messages_to_summarize)
+        self.removed_message_count += len(to_summarize)
         # If there is a summary message, don't count it in the removed_message_count.
         if self._summary_message:
             self.removed_message_count -= 1
 
         # Generate summary
-        self._summary_message = self._generate_summary(messages_to_summarize, agent)
+        self._summary_message = self._generate_summary(to_summarize, agent)
+        # Assign tracking id to the summary message since it bypasses the append method.
+        _ensure_tracking_id(self._summary_message)
 
-        # Replace the summarized messages with the summary
-        agent.messages[:] = [self._summary_message] + remaining_messages
+        # Replace summarized range with protected messages + summary + remaining
+        agent.messages[:] = protected_to_preserve + [self._summary_message] + remaining_messages
 
     def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.
@@ -282,7 +277,9 @@ class SummarizingConversationManager(ConversationManager):
         """Generate a summary by calling the agent's model directly.
 
         This bypasses the full agent pipeline (lock, metrics, traces, tool loop) and
-        simply asks the underlying model to summarize the conversation.
+        simply asks the underlying model to summarize the conversation. Delegates the
+        actual model call to the shared :func:`generate_summary` helper, wrapping it in
+        ``run_async`` because this method is invoked from a synchronous context.
 
         Args:
             messages: The messages to summarize.
@@ -291,40 +288,13 @@ class SummarizingConversationManager(ConversationManager):
         Returns:
             A message containing the conversation summary.
         """
-        system_prompt = (
-            self.summarization_system_prompt
-            if self.summarization_system_prompt is not None
-            else DEFAULT_SUMMARIZATION_PROMPT
-        )
-
-        # Build the message list: conversation history + summarization request
-        summarization_messages = list(messages) + [
-            {"role": "user", "content": [{"text": "Please summarize this conversation."}]}
-        ]
-
-        async def _call_model() -> Message:
-            chunks = agent.model.stream(
-                summarization_messages,
-                tool_specs=None,
-                system_prompt=system_prompt,
-            )
-
-            result_message: Message | None = None
-            async for event in process_stream(chunks):
-                if "stop" in event:
-                    _, result_message, _, _ = event["stop"]
-
-            if result_message is None:
-                raise RuntimeError("Failed to generate summary: no response from model")
-            return result_message
-
-        message = run_async(_call_model)
-        return cast(Message, {**message, "role": "user"})
+        return run_async(lambda: generate_summary(messages, agent.model, self.summarization_system_prompt))
 
     def _adjust_split_point_for_tool_pairs(self, messages: list[Message], split_point: int) -> int:
         """Adjust the split point to avoid breaking ToolUse/ToolResult pairs.
 
-        Uses the same logic as SlidingWindowConversationManager for consistency.
+        Thin wrapper around the shared :func:`adjust_split_point_for_tool_pairs` helper,
+        kept as a method so subclasses and tests can call or override it directly.
 
         Args:
             messages: The full list of messages.
@@ -336,29 +306,4 @@ class SummarizingConversationManager(ConversationManager):
         Raises:
             ContextWindowOverflowException: If no valid split point can be found.
         """
-        if split_point > len(messages):
-            raise ContextWindowOverflowException("Split point exceeds message array length")
-
-        if split_point == len(messages):
-            return split_point
-
-        # Find the next valid split_point
-        while split_point < len(messages):
-            if (
-                # Oldest message cannot be a toolResult because it needs a toolUse preceding it
-                any("toolResult" in content for content in messages[split_point]["content"])
-                or (
-                    # Oldest message can be a toolUse only if a toolResult immediately follows it.
-                    any("toolUse" in content for content in messages[split_point]["content"])
-                    and split_point + 1 < len(messages)
-                    and not any("toolResult" in content for content in messages[split_point + 1]["content"])
-                )
-            ):
-                split_point += 1
-            else:
-                break
-        else:
-            # If we didn't find a valid split_point, then we throw
-            raise ContextWindowOverflowException("Unable to trim conversation context!")
-
-        return split_point
+        return adjust_split_point_for_tool_pairs(messages, split_point)

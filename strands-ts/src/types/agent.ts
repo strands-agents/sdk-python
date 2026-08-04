@@ -1,7 +1,9 @@
+import type { Sandbox } from '../sandbox/base.js'
 import type { StateStore } from '../state-store.js'
 import type { ContentBlock, ContentBlockData, Message, MessageData, StopReason, SystemPrompt } from './messages.js'
 import type { Interrupt } from '../interrupt.js'
 import type { InterruptResponseContent, InterruptResponseContentData } from './interrupt.js'
+import type { Checkpoint, CheckpointResumeContent } from '../experimental/checkpoint.js'
 import type { AgentTrace } from '../telemetry/tracer.js'
 import type { Snapshot } from './snapshot.js'
 import type { TakeSnapshotOptions } from '../agent/snapshot.js'
@@ -26,6 +28,15 @@ import type {
   StreamEvent,
 } from '../hooks/events.js'
 import type { HookCallback, HookableEventConstructor, HookCallbackOptions, HookCleanup } from '../hooks/types.js'
+import type {
+  MiddlewareStage,
+  MiddlewareHandler,
+  MiddlewareInputPhase,
+  MiddlewareWrapPhase,
+  MiddlewareOutputPhase,
+  MiddlewareInputHandler,
+  MiddlewareOutputHandler,
+} from '../middleware/types.js'
 import type { ToolRegistry } from '../registry/tool-registry.js'
 import type { Model } from '../models/model.js'
 import type { z } from 'zod'
@@ -39,6 +50,9 @@ import { AgentMetrics } from '../telemetry/meter.js'
  * - `ContentBlock[]` | `ContentBlockData[]` - Array of content blocks (creates single user Message)
  * - `Message[]` | `MessageData[]` - Array of messages (appends all to conversation)
  * - `InterruptResponseContent[]` - Array of interrupt responses (resumes from interrupted state)
+ * - `CheckpointResumeContent` - Resume payload for a checkpointing agent
+ *
+ * @experimental The `CheckpointResumeContent` member is experimental and subject to change.
  */
 export type InvokeArgs =
   | string
@@ -48,6 +62,7 @@ export type InvokeArgs =
   | MessageData[]
   | InterruptResponseContent[]
   | InterruptResponseContentData[]
+  | CheckpointResumeContent
 
 /**
  * Per-invocation state threaded through hooks and tools for a single agent
@@ -263,6 +278,20 @@ export interface LocalAgent {
   readonly toolRegistry: ToolRegistry
 
   /**
+   * Execution environment for running commands, code, and file operations.
+   *
+   * @throws DefaultNotConfiguredError if no sandbox is configured for this
+   * environment (e.g. browsers, where no host default is registered).
+   */
+  readonly sandbox: Sandbox
+
+  /**
+   * Aggregated metrics for the agent's loop execution.
+   * Tracks cycle counts, token usage, tool execution stats, and model latency.
+   */
+  readonly metrics: AgentMetrics
+
+  /**
    * The model provider used by the agent for inference.
    */
   readonly model: Model
@@ -341,6 +370,31 @@ export interface LocalAgent {
    * @param snapshot - The snapshot to restore from
    */
   loadSnapshot(snapshot: Snapshot): void
+
+  /**
+   * Register a middleware handler for a given stage or phase.
+   * Middleware wraps stage execution and can intercept, transform, or short-circuit operations.
+   *
+   * @param stageOrPhase - A stage token (Around) or phase sub-token (.Input / .Output)
+   * @param handler - Async generator for Around, plain async function for Input/Output
+   * @returns A cleanup function that removes the middleware when called
+   */
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareInputPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareInputHandler<TContext>
+  ): () => void
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareWrapPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareHandler<TContext, TResult, TEvent>
+  ): () => void
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareOutputPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareOutputHandler<TResult>
+  ): () => void
+  addMiddleware<TContext, TResult, TEvent>(
+    stage: MiddlewareStage<TContext, TResult, TEvent>,
+    handler: MiddlewareHandler<TContext, TResult, TEvent>
+  ): () => void
 }
 
 /**
@@ -391,6 +445,15 @@ export class AgentResult {
    */
   readonly interrupts?: Interrupt[]
 
+  /**
+   * Checkpoint captured when the agent paused for durable execution. Populated
+   * only when `stopReason` is `'checkpoint'`. See the experimental checkpoint
+   * module for usage.
+   *
+   * @experimental
+   */
+  readonly checkpoint?: Checkpoint
+
   constructor(data: {
     stopReason: StopReason
     lastMessage: Message
@@ -399,6 +462,7 @@ export class AgentResult {
     metrics?: AgentMetrics
     structuredOutput?: z.output<z.ZodType>
     interrupts?: Interrupt[]
+    checkpoint?: Checkpoint
   }) {
     this.stopReason = data.stopReason
     this.lastMessage = data.lastMessage
@@ -414,6 +478,9 @@ export class AgentResult {
     }
     if (data.interrupts !== undefined) {
       this.interrupts = data.interrupts
+    }
+    if (data.checkpoint !== undefined) {
+      this.checkpoint = data.checkpoint
     }
   }
 
@@ -451,6 +518,7 @@ export class AgentResult {
       stopReason: this.stopReason,
       lastMessage: this.lastMessage,
       ...(this.structuredOutput !== undefined && { structuredOutput: this.structuredOutput }),
+      ...(this.checkpoint !== undefined && { checkpoint: this.checkpoint.toJSON() }),
     }
   }
 

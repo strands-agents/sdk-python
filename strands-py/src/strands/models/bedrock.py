@@ -43,6 +43,12 @@ DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
 _DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
+_BEDROCK_VIDEO_FORMAT_ALIASES = {
+    "3gp": "three_gp",
+    "3g2": "three_gp",
+    "3gpp": "three_gp",
+}
+
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
@@ -62,6 +68,12 @@ _SKIP_COUNT_TOKENS_MODELS: set[str] = set()
 def _clear_skip_count_tokens_cache() -> None:
     """Clear the cache of model IDs for which CountTokens API calls should be skipped."""
     _SKIP_COUNT_TOKENS_MODELS.clear()
+
+
+def _suppress_task_exception(task: "asyncio.Task[None]") -> None:
+    """Consume exception from orphaned stream task to silence 'never retrieved' warning."""
+    if not task.cancelled():
+        task.exception()
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -115,6 +127,11 @@ class BedrockModel(Model):
             strict_tools: Flag to enable structured output enforcement on tool definitions.
                 When True, adds strict: true to each tool spec and automatically injects
                 "additionalProperties": false into all object types in tool input schemas.
+                Bedrock's strict mode compiles tool schemas into a constrained-decoding grammar and
+                restricts which JSON Schema features tool input schemas may use (for example, "oneOf"
+                is unsupported and optional parameters are capped across all tools in the request).
+                A schema that uses an unsupported feature fails at request time with a
+                ValidationException.
                 See https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
@@ -234,12 +251,13 @@ class BedrockModel(Model):
         """
         return resolve_config_metadata(self.config, self.config.get("model_id", ""))
 
-    def _format_request(
+    def format_request(
         self,
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -248,6 +266,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             A Bedrock converse stream request.
@@ -415,7 +434,27 @@ class BedrockModel(Model):
             cache_config = self.config.get("cache_config")
             if cache_config and cache_config.ttl:
                 cache_point["ttl"] = cache_config.ttl
-            messages[last_user_idx]["content"].append({"cachePoint": cache_point})
+
+            content = messages[last_user_idx]["content"]
+
+            # Insert before non-PDF document blocks to avoid Bedrock ValidationException
+            first_non_pdf_doc_idx: int | None = None
+            for i, block in enumerate(content):
+                if "document" in block and block["document"].get("format", "") != "pdf":
+                    first_non_pdf_doc_idx = i
+                    break
+
+            # Insert the cache point before the first non-PDF document so it is not directly
+            # preceded by that block, which Bedrock rejects with a ValidationException
+            if first_non_pdf_doc_idx is None:
+                content.append({"cachePoint": cache_point})
+            elif first_non_pdf_doc_idx > 0:
+                content.insert(first_non_pdf_doc_idx, {"cachePoint": cache_point})
+            else:
+                # A leading non-PDF document leaves no prefix to cache and Bedrock rejects it
+                logger.debug("msg_idx=<%s> | skipped cache point for leading non-PDF document", last_user_idx)
+                return
+
             logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
@@ -480,7 +519,7 @@ class BedrockModel(Model):
                     continue
 
                 # DeepSeek models have issues with reasoningContent
-                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/harness-sdk/issues/780)
                 if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
                     dropped_deepseek_reasoning_content = True
                     continue
@@ -490,12 +529,24 @@ class BedrockModel(Model):
                 if formatted_content is None:
                     continue
 
-                # Wrap text or image content in guardContent if this is the last user text/image message
+                # Wrap text or image content in guardContent if this is the last user text/image message.
+                # Bedrock guardContent supports a narrower set of image formats than image content.
                 if idx == last_user_text_idx and ("text" in formatted_content or "image" in formatted_content):
                     if "text" in formatted_content:
                         formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
                     elif "image" in formatted_content:
-                        formatted_content = {"guardContent": {"image": formatted_content["image"]}}
+                        image_format = formatted_content["image"].get("format", "")
+                        supported_formats = self.client.meta.service_model.shape_for(
+                            "GuardrailConverseImageFormat"
+                        ).enum
+                        if image_format in supported_formats:
+                            formatted_content = {"guardContent": {"image": formatted_content["image"]}}
+                        else:
+                            logger.warning(
+                                "image_format=<%s> | format not supported by bedrock guardrails | "
+                                "skipping guardContent wrap",
+                                image_format,
+                            )
 
                 cleaned_content.append(formatted_content)
 
@@ -609,8 +660,10 @@ class BedrockModel(Model):
         if "guardContent" in content:
             guard = content["guardContent"]
             guard_text = guard["text"]
-            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
-            return {"guardContent": result}
+            text_block: dict[str, Any] = {"text": guard_text["text"]}
+            if "qualifiers" in guard_text:
+                text_block["qualifiers"] = guard_text["qualifiers"]
+            return {"guardContent": {"text": text_block}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
         if "image" in content:
@@ -702,7 +755,8 @@ class BedrockModel(Model):
                     return None
             elif "bytes" in source:
                 formatted_video_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_video_source}
+            video_format = _BEDROCK_VIDEO_FORMAT_ALIASES.get(video["format"], video["format"])
+            result = {"format": video_format, "source": formatted_video_source}
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
@@ -737,7 +791,8 @@ class BedrockModel(Model):
 
             return {"citationsContent": result}
 
-        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+        content_type = next(iter(content), None)
+        raise TypeError(f"content_type=<{content_type}> | unsupported type")
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
@@ -830,7 +885,7 @@ class BedrockModel(Model):
             if system_prompt and system_prompt_content is None:
                 system_prompt_content = [{"text": system_prompt}]
 
-            request = self._format_request(messages, tool_specs, system_prompt_content)
+            request = self.format_request(messages, tool_specs, system_prompt_content)
             converse_input: dict[str, Any] = {}
             if "messages" in request:
                 converse_input["messages"] = request["messages"]
@@ -925,14 +980,17 @@ class BedrockModel(Model):
         thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
         task = asyncio.create_task(thread)
 
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
 
-            yield event
-
-        await task
+                yield event
+            await task
+        except BaseException:
+            task.add_done_callback(_suppress_task_exception)
+            raise
 
     def _stream(
         self,
@@ -960,7 +1018,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            request = self.format_request(messages, tool_specs, system_prompt_content, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
@@ -984,7 +1042,7 @@ class BedrockModel(Model):
 
             else:
                 response = self.client.converse(**request)
-                for event in self._convert_non_streaming_to_streaming(response):
+                for event in self.convert_non_streaming_to_streaming(response):
                     callback(event)
 
                 if (
@@ -1021,7 +1079,17 @@ class BedrockModel(Model):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#required-iam-permissions",
+                )
+
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "The provided model identifier is invalid" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
                 )
 
             if (
@@ -1031,7 +1099,7 @@ class BedrockModel(Model):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
                 )
 
             raise e
@@ -1040,11 +1108,12 @@ class BedrockModel(Model):
             callback()
             logger.debug("finished streaming response from model")
 
-    def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
+    def convert_non_streaming_to_streaming(self, response: dict[str, Any], **kwargs: Any) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
 
         Args:
             response: The non-streaming response from the Bedrock model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An iterable of response events in the streaming format.

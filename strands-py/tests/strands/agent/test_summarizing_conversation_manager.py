@@ -143,6 +143,24 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
     assert "Response 3" in str(mock_agent.messages[-1]["content"])
 
 
+def test_reduce_context_summary_message_has_durable_id(summarizing_manager, mock_agent):
+    """The generated summary message should carry a durable tracking id like any other message."""
+    mock_agent.messages = [
+        {"role": "user", "content": [{"text": "Message 1"}]},
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        {"role": "user", "content": [{"text": "Message 2"}]},
+        {"role": "assistant", "content": [{"text": "Response 2"}]},
+        {"role": "user", "content": [{"text": "Message 3"}]},
+        {"role": "assistant", "content": [{"text": "Response 3"}]},
+    ]
+
+    summarizing_manager.reduce_context(mock_agent)
+
+    summary_message = mock_agent.messages[0]
+    assert isinstance(summary_message.get("tracking_id"), str)
+    assert summary_message["tracking_id"]
+
+
 def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, mock_agent):
     """Test that reduce_context raises exception when there are too few messages to summarize effectively."""
     # Create a scenario where calculation results in 0 messages to summarize

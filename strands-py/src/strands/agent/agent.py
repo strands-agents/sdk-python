@@ -17,9 +17,11 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
+    Literal,
     TypeVar,
     Union,
     cast,
+    get_args,
 )
 
 from opentelemetry import trace as trace_api
@@ -29,6 +31,7 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
+from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -40,22 +43,29 @@ from ..types._snapshot import (
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
+from .._middleware import MiddlewareRegistry
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
     HookCallback,
+    HookOrder,
     HookProvider,
     HookRegistry,
     MessageAddedEvent,
 )
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
+from ..interventions.handler import InterventionHandler
+from ..interventions.registry import InterventionRegistry
+from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
+from ..sandbox import Sandbox
+from ..sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
@@ -67,11 +77,19 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+from ..types.content import (
+    ContentBlock,
+    Message,
+    Messages,
+    SystemContentBlock,
+    _ensure_tracking_id,
+    split_system_prompt,
+)
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
 from ._agent_as_tool import _AgentAsTool
+from ._concurrency import _ConcurrencyController
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
@@ -104,6 +122,29 @@ _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
 _DEFAULT_RETRY_STRATEGY = _DefaultRetryStrategySentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
+
+ContextManagerStrategy = Literal["auto", "agentic"]
+"""Supported values for the ``context_manager`` parameter.
+
+- ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
+- ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
+  This mode may change in future versions.
+"""
+
+_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
+"""Benchmark-validated token threshold for offloading tool results."""
+
+_AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 8_000
+"""Higher offload threshold for agentic mode - the model manages its own context, so we preserve more inline."""
+
+_CONTEXT_MANAGER_PREVIEW_TOKENS = 750
+"""Benchmark-validated preview token count for offloaded results."""
+
+_CONTEXT_MANAGER_SUMMARY_RATIO = 0.3
+"""Benchmark-validated ratio of messages to summarize on overflow."""
+
+_CONTEXT_MANAGER_COMPRESSION_THRESHOLD = 0.85
+"""Benchmark-validated context window ratio that triggers proactive compression."""
 
 
 class Agent(AgentBase):
@@ -139,13 +180,18 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
+        context_manager: ContextManagerStrategy | None = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
+        interventions: list[InterventionHandler] | None = None,
         session_manager: SessionManager | None = None,
+        memory_manager: MemoryManager | MemoryManagerConfig | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        checkpointing: bool = False,
+        sandbox: Sandbox | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -191,6 +237,15 @@ class Agent(AgentBase):
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            context_manager: Context management strategy. When set to ``"auto"``, composes
+                a ContextOffloader plugin (max_result_tokens=1500, preview_tokens=750) with a
+                SummarizingConversationManager (summary_ratio=0.3, compression_threshold=0.85)
+                using benchmark-validated defaults. If ``conversation_manager`` is also provided,
+                the user's conversation manager is used instead. Defaults to None (no context management).
+
+                Note: The offloader uses in-memory storage that does not persist across process
+                restarts. For agents using ``session_manager``, provide an explicit
+                ``ContextOffloader`` with durable storage via the ``plugins`` parameter.
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
@@ -198,8 +253,19 @@ class Agent(AgentBase):
             hooks: Hooks to be added to the agent hook registry. Accepts HookProvider instances
                 or plain callable hook callbacks (functions with typed event parameters).
                 Defaults to None.
+            interventions: List of InterventionHandler instances for agent control.
+                Handlers are evaluated in registration order at each lifecycle event.
+                Cheapest handlers (authorization, guardrails) should be listed first;
+                expensive ones (LLM steering) last. Deny short-circuits immediately,
+                Guide feedback accumulates across handlers.
+                Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            memory_manager: Cross-session memory manager, as a
+                :class:`~strands.memory.MemoryManager` or a
+                :class:`~strands.memory.MemoryManagerConfig` (auto-wrapped). Registers its
+                memory tools; the synchronous ``Agent(...)`` entry point flushes pending
+                extraction after each invocation. Defaults to None.
             structured_output_prompt: Custom prompt message used when forcing structured output.
                 When using structured output, if the model doesn't automatically use the output tool,
                 the agent sends a follow-up message to request structured formatting. This parameter
@@ -214,14 +280,30 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            checkpointing: When True, the event loop pauses at cycle boundaries
+                (after_model, after_tools) and returns ``stop_reason="checkpoint"``
+                with a populated ``checkpoint`` field. Resume by passing the
+                checkpoint back as ``{"checkpointResume": {"checkpoint": ...}}``.
+                The SDK does not capture conversation state in the checkpoint;
+                pair with a SessionManager for cross-process state continuity.
+                Defaults to False. See :mod:`strands.experimental.checkpoint`.
+            sandbox: Execution environment for running commands, code, and file operations.
+                When provided, sandbox-aware tools route operations through it via
+                ``context.agent.sandbox``. Defaults to ``None``, which falls back to a
+                :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host
+                with no isolation.
 
         Raises:
             ValueError: If agent id contains path separators.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
+        if sandbox is not None and not isinstance(sandbox, Sandbox):
+            raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
+        # Resolve once: configured sandbox, or this agent's own host default (not shared across agents).
+        self._sandbox: Sandbox = sandbox or NotASandboxLocalEnvironment()
         # initializing self._system_prompt for backwards compatibility
-        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
+        self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
         self._structured_output_prompt = structured_output_prompt
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
@@ -239,15 +321,21 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
-        if self.model.stateful and conversation_manager is not None:
+        if self.model.stateful and (conversation_manager is not None or context_manager is not None):
             raise ValueError(
-                "conversation_manager cannot be used with a stateful model. "
+                "context_manager and conversation_manager cannot be used with a stateful model. "
                 "The model manages conversation state server-side."
             )
+
+        resolved_conversation_manager, resolved_plugins = self._resolve_context_manager(
+            context_manager, conversation_manager, plugins
+        )
 
         self.conversation_manager: ConversationManager
         if self.model.stateful:
             self.conversation_manager = NullConversationManager()
+        elif resolved_conversation_manager:
+            self.conversation_manager = resolved_conversation_manager
         elif conversation_manager:
             self.conversation_manager = conversation_manager
         else:
@@ -274,10 +362,31 @@ class Agent(AgentBase):
         if tools is not None:
             self.tool_registry.process_tools(tools)
 
+        # Inject the model-driven context-management tools when running in agentic mode.
+        if context_manager == "agentic":
+            from .._context_manager.modes.agentic.agentic_context import (
+                pin_context,
+                summarize_context,
+                truncate_context,
+            )
+
+            self.tool_registry.process_tools([summarize_context, truncate_context, pin_context])
+
         # Initialize tools and configuration
         self.tool_registry.initialize_tools(self.load_tools_from_directory)
         if load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
+
+        # Register tools vended by the sandbox. The host default vends nothing. A tool
+        # is skipped if the user already registered one with that name.
+        for sandbox_tool in self._sandbox.get_tools():
+            if sandbox_tool.tool_name in self.tool_registry.registry:
+                logger.debug(
+                    "tool_name=<%s> | sandbox-vended tool skipped, user already registered a tool with this name",
+                    sandbox_tool.tool_name,
+                )
+            else:
+                self.tool_registry.register_tool(sandbox_tool)
 
         self.event_loop_metrics = EventLoopMetrics()
 
@@ -300,25 +409,34 @@ class Agent(AgentBase):
 
         self.hooks = HookRegistry()
 
+        self._middleware_registry = MiddlewareRegistry()
+
+        # In agentic mode, surface live token usage to the model so it can decide when to compress.
+        if context_manager == "agentic":
+            from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
+            from .._middleware.stages import InvokeModelStage
+
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
+
         self._plugin_registry = _PluginRegistry(self)
 
         self._interrupt_state = _InterruptState()
 
+        # Checkpointing: pause at cycle boundaries when enabled.
+        self._checkpointing: bool = checkpointing
+        self._checkpoint: Checkpoint | None = None
+        self._checkpoint_cycle_index: int = 0
+        self._checkpoint_resume_position: CheckpointPosition | None = None
+
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
 
-        # Initialize lock for guarding concurrent invocations
-        # Using threading.Lock instead of asyncio.Lock because run_async() creates
-        # separate event loops in different threads, so asyncio.Lock wouldn't work
-        self._invocation_lock = threading.Lock()
-        self._concurrent_invocation_mode = concurrent_invocation_mode
+        self._concurrency = _ConcurrencyController(concurrent_invocation_mode)
 
-        # In the future, we'll have a RetryStrategy base class but until
-        # that API is determined we only allow ModelRetryStrategy
         if (
             retry_strategy is not None
             and not isinstance(retry_strategy, _DefaultRetryStrategySentinel)
-            and type(retry_strategy) is not ModelRetryStrategy
+            and not isinstance(retry_strategy, ModelRetryStrategy)
         ):
             raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
 
@@ -359,14 +477,117 @@ class Agent(AgentBase):
                         f"Invalid hook: {hook!r}. Must be a HookProvider instance or a callable hook callback."
                     )
 
+        # Register intervention handlers
+        self._intervention_registry = InterventionRegistry(interventions or [], self.hooks)
+
         # Register built-in plugins
         self._plugin_registry.add_and_init(_ModelPlugin())
 
-        if plugins:
-            for plugin in plugins:
+        plugins_to_register = resolved_plugins if resolved_plugins is not None else plugins
+        if plugins_to_register:
+            for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
+        # Resolve and register the memory manager (a Plugin); keep a reference so the
+        # synchronous entry point can flush pending extraction writes.
+        self.memory_manager = self._resolve_memory_manager(memory_manager)
+        if self.memory_manager is not None:
+            if self.memory_manager.name in self._plugin_registry._plugins:
+                raise ValueError(
+                    "A MemoryManager is already registered via plugins; pass it through the "
+                    "memory_manager parameter instead"
+                )
+            self._plugin_registry.add_and_init(self.memory_manager)
+
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+    @staticmethod
+    def _resolve_context_manager(
+        context_manager: "ContextManagerStrategy | None",
+        conversation_manager: ConversationManager | None,
+        plugins: list[Plugin] | None,
+    ) -> tuple[ConversationManager | None, list[Plugin] | None]:
+        """Resolve context_manager facade into concrete conversation_manager and plugins.
+
+        When context_manager is None, returns (None, None) and no resolution occurs.
+        When "auto", constructs a SummarizingConversationManager with proactive compression
+        plus a ContextOffloader, using benchmark-validated defaults.
+        When "agentic", constructs a SummarizingConversationManager *without* proactive
+        compression (the model drives context management via injected tools; the conversation
+        manager is only a reactive overflow safety net) plus a ContextOffloader with a higher
+        offload threshold. In both cases a user-provided conversation_manager / offloader wins.
+
+        Args:
+            context_manager: The facade value ("auto", "agentic", or None).
+            conversation_manager: User-provided conversation manager, takes precedence if set.
+            plugins: User-provided plugin list; offloader is appended if not already present.
+
+        Returns:
+            Tuple of (resolved conversation manager, resolved plugins list).
+            Both are None when context_manager is None.
+
+        Raises:
+            ValueError: If context_manager is not a supported value.
+        """
+        if context_manager is None:
+            return None, None
+
+        from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+        from .conversation_manager import SummarizingConversationManager
+
+        if context_manager == "auto":
+            offloader_max_result_tokens = _CONTEXT_MANAGER_MAX_RESULT_TOKENS
+            default_conversation_manager = SummarizingConversationManager(
+                summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
+                proactive_compression={"compression_threshold": _CONTEXT_MANAGER_COMPRESSION_THRESHOLD},
+            )
+        elif context_manager == "agentic":
+            # No proactive compression: the model manages context via injected tools.
+            offloader_max_result_tokens = _AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
+            default_conversation_manager = SummarizingConversationManager(
+                summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported context_manager value: {context_manager!r}. "
+                f"Supported values: {get_args(ContextManagerStrategy)}"
+            )
+
+        resolved_plugins = list(plugins) if plugins else []
+
+        has_offloader = any(isinstance(p, ContextOffloader) for p in resolved_plugins)
+        if not has_offloader:
+            resolved_plugins.append(
+                ContextOffloader(
+                    storage=InMemoryStorage(),
+                    max_result_tokens=offloader_max_result_tokens,
+                    preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
+                )
+            )
+
+        resolved_conversation_manager = (
+            conversation_manager if conversation_manager is not None else default_conversation_manager
+        )
+
+        return resolved_conversation_manager, resolved_plugins
+
+    @staticmethod
+    def _resolve_memory_manager(
+        memory_manager: MemoryManager | MemoryManagerConfig | None,
+    ) -> MemoryManager | None:
+        """Resolve the ``memory_manager`` argument into a MemoryManager instance or None.
+
+        A :class:`~strands.memory.MemoryManagerConfig` is wrapped into a
+        :class:`~strands.memory.MemoryManager`; an instance passes through.
+        """
+        if memory_manager is None:
+            return None
+
+        if isinstance(memory_manager, MemoryManager):
+            return memory_manager
+        if isinstance(memory_manager, dict):
+            return MemoryManager(**memory_manager)
+        raise ValueError("memory_manager must be a MemoryManager or MemoryManagerConfig")
 
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
@@ -374,9 +595,11 @@ class Agent(AgentBase):
         This method is thread-safe and can be called from any context
         (e.g., another thread, web request handler, background task).
 
-        The agent will stop gracefully at the next checkpoint:
+        The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
+        - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 
@@ -398,6 +621,16 @@ class Agent(AgentBase):
             Multiple calls to cancel() are safe and idempotent.
         """
         self._cancel_signal.set()
+
+    @property
+    def sandbox(self) -> Sandbox:
+        """Execution environment for running commands, code, and file operations.
+
+        Returns the configured sandbox, or a per-agent host default
+        (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation) when none was
+        configured.
+        """
+        return self._sandbox
 
     @property
     def system_prompt(self) -> str | None:
@@ -426,7 +659,7 @@ class Agent(AgentBase):
                   - list[SystemContentBlock]: Content blocks with features like caching
                   - None: Clear the system prompt
         """
-        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
+        self._system_prompt, self._system_prompt_content = split_system_prompt(value)
 
     @property
     def system_prompt_content(self) -> list[SystemContentBlock] | None:
@@ -465,6 +698,14 @@ class Agent(AgentBase):
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
+    @property
+    def concurrent_invocation_mode(self) -> ConcurrentInvocationMode:
+        """The concurrency posture this agent was configured with.
+
+        Mirrors the ``concurrent_invocation_mode`` constructor argument.
+        """
+        return self._concurrency.mode
+
     def __call__(
         self,
         prompt: AgentInput = None,
@@ -472,6 +713,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        idempotency_token: Any = None,
         limits: Limits | None = None,
         **kwargs: Any,
     ) -> AgentResult:
@@ -492,6 +734,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            idempotency_token: Dedup token for THROW mode (ignored in UNSAFE_REENTRANT). If a matching
+                token is already inflight, this call blocks until the original finishes, then gets its
+                final result — only the result, not the streamed events, though ``callback_handler``
+                still fires once with it. Matched by ``==`` (any equatable object; need not be hashable).
+                Raises ``IdempotencyAbortedError`` if the original is aborted before producing a result.
             limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
                 See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
                 terminates gracefully at the next turn boundary with a corresponding
@@ -508,17 +755,38 @@ class Agent(AgentBase):
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
                 - structured_output: Parsed structured output when structured_output_model was specified
+
+        Raises:
+            ConcurrencyException: If another invocation is already in progress on this agent instance.
+            IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
+                whose primary invocation was aborted before producing a result.
+            TypeError: If a value in ``limits`` is not a positive integer.
+            Exception: Any exceptions from the agent invocation will be propagated to the caller.
         """
         return run_async(
-            lambda: self.invoke_async(
+            lambda: self._invoke_async_and_flush(
                 prompt,
                 invocation_state=invocation_state,
                 structured_output_model=structured_output_model,
                 structured_output_prompt=structured_output_prompt,
+                idempotency_token=idempotency_token,
                 limits=limits,
                 **kwargs,
             )
         )
+
+    async def _invoke_async_and_flush(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+        """Run ``invoke_async`` then flush the memory manager within this loop.
+
+        The synchronous entry point runs each invocation in its own event loop, which would
+        cancel background extraction saves on close. Flushing here persists them. The async
+        path does not flush, leaving extraction on its trigger cadence.
+        """
+        try:
+            return await self.invoke_async(prompt, **kwargs)
+        finally:
+            if self.memory_manager is not None:
+                await self.memory_manager.flush()
 
     async def invoke_async(
         self,
@@ -527,6 +795,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        idempotency_token: Any = None,
         limits: Limits | None = None,
         **kwargs: Any,
     ) -> AgentResult:
@@ -547,6 +816,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            idempotency_token: Dedup token for THROW mode (ignored in UNSAFE_REENTRANT). If a matching
+                token is already inflight, this call blocks until the original finishes, then gets its
+                final result — only the result, not the streamed events, though ``callback_handler``
+                still fires once with it. Matched by ``==`` (any equatable object; need not be hashable).
+                Raises ``IdempotencyAbortedError`` if the original is aborted before producing a result.
             limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
                 See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
                 terminates gracefully at the next turn boundary with a corresponding
@@ -562,12 +836,20 @@ class Agent(AgentBase):
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
+
+        Raises:
+            ConcurrencyException: If another invocation is already in progress on this agent instance.
+            IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
+                whose primary invocation was aborted before producing a result.
+            TypeError: If a value in ``limits`` is not a positive integer.
+            Exception: Any exceptions from the agent invocation will be propagated to the caller.
         """
         events = self.stream_async(
             prompt,
             invocation_state=invocation_state,
             structured_output_model=structured_output_model,
             structured_output_prompt=structured_output_prompt,
+            idempotency_token=idempotency_token,
             limits=limits,
             **kwargs,
         )
@@ -600,7 +882,7 @@ class Agent(AgentBase):
         warnings.warn(
             "Agent.structured_output method is deprecated."
             " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            " see: https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/",
             category=DeprecationWarning,
             stacklevel=2,
         )
@@ -631,7 +913,7 @@ class Agent(AgentBase):
         warnings.warn(
             "Agent.structured_output_async method is deprecated."
             " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            " see: https://strandsagents.com/docs/user-guide/concepts/agents/structured-output/",
             category=DeprecationWarning,
             stacklevel=2,
         )
@@ -725,7 +1007,11 @@ class Agent(AgentBase):
         self.tool_registry.cleanup()
 
     def add_hook(
-        self, callback: HookCallback[TEvent], event_type: type[TEvent] | list[type[TEvent]] | None = None
+        self,
+        callback: HookCallback[TEvent],
+        event_type: type[TEvent] | list[type[TEvent]] | None = None,
+        *,
+        order: float = HookOrder.DEFAULT,
     ) -> None:
         """Register a callback function for a specific event type.
 
@@ -745,6 +1031,8 @@ class Agent(AgentBase):
                 Can be a single type, a list of types, or None to infer from
                 the callback's first parameter type hint. If a list is provided,
                 the callback is registered for each type in the list.
+            order: Execution priority. Lower values execute first.
+                Use HookOrder.SDK_FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.SDK_LAST (100).
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from
@@ -774,9 +1062,9 @@ class Agent(AgentBase):
             agent.add_hook(multi_handler, [BeforeModelCallEvent, AfterModelCallEvent])
             ```
         Docs:
-            https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/hooks/
+            https://strandsagents.com/docs/user-guide/concepts/agents/hooks/
         """
-        self.hooks.add_callback(event_type, callback)
+        self.hooks.add_callback(event_type, callback, order=order)
 
     def __del__(self) -> None:
         """Clean up resources when agent is garbage collected."""
@@ -792,6 +1080,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        idempotency_token: Any = None,
         limits: Limits | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
@@ -812,6 +1101,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            idempotency_token: Dedup token for THROW mode (ignored in UNSAFE_REENTRANT). If a matching
+                token is already inflight, this call blocks until the original finishes, then gets its
+                final result — only the result, not the streamed events, though ``callback_handler``
+                still fires once with it. Matched by ``==`` (any equatable object; need not be hashable).
+                Raises ``IdempotencyAbortedError`` if the original is aborted before producing a result.
             limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
                 See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
                 terminates gracefully at the next turn boundary with a corresponding
@@ -831,6 +1125,8 @@ class Agent(AgentBase):
 
         Raises:
             ConcurrencyException: If another invocation is already in progress on this agent instance.
+            IdempotencyAbortedError: If this call is a duplicate of an inflight ``idempotency_token``
+                whose primary invocation was aborted before producing a result.
             TypeError: If a value in ``limits`` is not a positive integer.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
@@ -842,20 +1138,44 @@ class Agent(AgentBase):
             ```
         """
         self._validate_limits(limits)
-        # Conditionally acquire lock based on concurrent_invocation_mode
-        # Using threading.Lock instead of asyncio.Lock because run_async() creates
-        # separate event loops in different threads
-        if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
-            lock_acquired = self._invocation_lock.acquire(blocking=False)
-            if not lock_acquired:
-                raise ConcurrencyException(
-                    "Agent is already processing a request. Concurrent invocations are not supported."
-                )
+
+        begin = self._concurrency.begin(idempotency_token)
+
+        if begin.waiting_on is not None:
+            logger.debug("idempotency_token=<%s> | duplicate request detected, waiting for original", idempotency_token)
+            await begin.waiting_on.register_waiter()
+            if begin.waiting_on.error is not None:
+                raise begin.waiting_on.error
+            if begin.waiting_on.result is not None:
+                dup_result = begin.waiting_on.result
+                # Mirror the primary path: drive this caller's callback_handler with the
+                # deduplicated result before yielding, so callback consumers don't miss it.
+                dup_callback_handler = self.callback_handler
+                if kwargs:
+                    dup_callback_handler = kwargs.get("callback_handler", self.callback_handler)
+                dup_callback_handler(result=dup_result)
+                yield AgentResultEvent(result=dup_result).as_dict()
+            return
+
+        if not begin.lock_acquired:
+            exc = ConcurrencyException(
+                "Agent is already processing a request. Concurrent invocations are not supported."
+            )
+            self._concurrency.complete(begin.registered_token, error=exc)
+            raise exc
+
+        result: AgentResult | None = None
 
         try:
             self._interrupt_state.resume(prompt)
 
             self.event_loop_metrics.reset_usage_metrics()
+
+            # Reset invocation-scoped checkpoint state. On resume, the event loop's
+            # priming step re-derives the cycle index from the resumed checkpoint,
+            # so this reset only affects the fresh-prompt path.
+            self._checkpoint_cycle_index = 0
+            self._checkpoint_resume_position = None
 
             merged_state = {}
             if kwargs:
@@ -898,14 +1218,16 @@ class Agent(AgentBase):
 
                 except Exception as e:
                     self._end_agent_trace_span(error=e)
+                    self._concurrency.complete(begin.registered_token, error=e)
                     raise
 
         finally:
             # Clear cancel signal to allow agent reuse after cancellation
             self._cancel_signal.clear()
 
-            if self._invocation_lock.locked():
-                self._invocation_lock.release()
+            self._concurrency.complete(begin.registered_token, result=result)
+            if self._concurrency.mode == ConcurrentInvocationMode.THROW:
+                self._concurrency.release_lock()
 
     async def _run_loop(
         self,
@@ -933,6 +1255,23 @@ class Agent(AgentBase):
             before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                 BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
             )
+
+            if before_invocation_event.cancel:
+                cancel_text = (
+                    before_invocation_event.cancel
+                    if isinstance(before_invocation_event.cancel, str)
+                    else "invocation denied by hook"
+                )
+                cancel_message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
+                await self._append_messages(cancel_message)
+                yield EventLoopStopEvent(
+                    "end_turn", cancel_message, self.event_loop_metrics, invocation_state.get("request_state", {})
+                )
+                await self.hooks.invoke_callbacks_async(
+                    AfterInvocationEvent(agent=self, invocation_state=invocation_state)
+                )
+                return
+
             current_messages = (
                 before_invocation_event.messages if before_invocation_event.messages is not None else current_messages
             )
@@ -940,6 +1279,12 @@ class Agent(AgentBase):
             agent_result: AgentResult | None = None
             try:
                 yield InitEventLoopEvent()
+
+                # Backfill ids for any messages that entered history outside the append chokepoint
+                # (e.g. a caller doing agent.messages.append(...) directly, or a legacy session
+                # restored without ids), so every message carries one before the model is called.
+                for message in self.messages:
+                    _ensure_tracking_id(message)
 
                 await self._append_messages(*current_messages)
 
@@ -1040,8 +1385,34 @@ class Agent(AgentBase):
             if structured_output_context:
                 structured_output_context.cleanup(self.tool_registry)
 
+    def _try_consume_checkpoint_resume(self, prompt: Any) -> bool:
+        """Consume a ``checkpointResume`` prompt block, returning True if found.
+
+        The block is a dict of the form ``{"checkpointResume": {"checkpoint": ...}}``.
+        A missing ``checkpoint`` key raises ``KeyError``; ``checkpointing=False``
+        raises ``ValueError``; a schema mismatch raises ``CheckpointException``.
+        """
+        if not (isinstance(prompt, dict) and "checkpointResume" in prompt):
+            return False
+
+        if not self._checkpointing:
+            raise ValueError(
+                "Received checkpointResume block but agent was created with checkpointing=False. "
+                "Pass checkpointing=True when constructing the Agent."
+            )
+
+        payload = prompt["checkpointResume"]
+        if not isinstance(payload, dict) or "checkpoint" not in payload:
+            raise KeyError("checkpoint | missing required key in checkpointResume block")
+
+        self._checkpoint = Checkpoint.from_dict(payload["checkpoint"])
+        return True
+
     async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
+            return []
+
+        if self._try_consume_checkpoint_resume(prompt):
             return []
 
         messages: Messages | None = None
@@ -1080,6 +1451,14 @@ class Agent(AgentBase):
                         # Treat as List[ContentBlock] input - convert to user message
                         # This allows invalid structures to be passed through to the model
                         messages = [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
+
+                    # Check if all items are interrupt responses
+                    elif all("interruptResponse" in item for item in prompt):
+                        raise ValueError(
+                            "Received interrupt responses but agent is not in interrupt state. "
+                            "Ensure the agent instance is preserved between calls, or use session "
+                            "management to persist interrupt state across requests."
+                        )
         else:
             messages = []
         if messages is None:
@@ -1151,33 +1530,13 @@ class Agent(AgentBase):
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
 
-    def _initialize_system_prompt(
-        self, system_prompt: str | list[SystemContentBlock] | None
-    ) -> tuple[str | None, list[SystemContentBlock] | None]:
-        """Initialize system prompt fields from constructor input.
-
-        Maintains backwards compatibility by keeping system_prompt as str when string input
-        provided, avoiding breaking existing consumers.
-
-        Maps system_prompt input to both string and content block representations:
-        - If string: system_prompt=string, _system_prompt_content=[{text: string}]
-        - If list with text elements: system_prompt=concatenated_text, _system_prompt_content=list
-        - If list without text elements: system_prompt=None, _system_prompt_content=list
-        - If None: system_prompt=None, _system_prompt_content=None
-        """
-        if isinstance(system_prompt, str):
-            return system_prompt, [{"text": system_prompt}]
-        elif isinstance(system_prompt, list):
-            # Concatenate all text elements for backwards compatibility, None if no text found
-            text_parts = [block["text"] for block in system_prompt if "text" in block]
-            system_prompt_str = "\n".join(text_parts) if text_parts else None
-            return system_prompt_str, system_prompt
-        else:
-            return None, None
-
     async def _append_messages(self, *messages: Message) -> None:
-        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
+
+        Assigns a durable tracking id to any message that does not already have one.
+        """
         for message in messages:
+            _ensure_tracking_id(message)
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 
@@ -1219,6 +1578,8 @@ class Agent(AgentBase):
             # Store the content-block representation so round-trips preserve caching hints and
             # other block-level metadata.
             data["system_prompt"] = copy.deepcopy(self._system_prompt_content)
+        if "model_state" in fields:
+            data["model_state"] = copy.deepcopy(self._model_state)
 
         return Snapshot(
             scope="agent",
@@ -1252,6 +1613,8 @@ class Agent(AgentBase):
             self._interrupt_state = _InterruptState.from_dict(data["interrupt_state"])
         if "system_prompt" in data:
             self.system_prompt = copy.deepcopy(data["system_prompt"])
+        if "model_state" in data:
+            self._model_state = copy.deepcopy(data["model_state"])
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.

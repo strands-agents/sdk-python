@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { HumanInTheLoop } from '../hitl.js'
 import { Agent } from '../../../agent/agent.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
+import type { BeforeToolCallEvent } from '../../../hooks/events.js'
 
 describe('HumanInTheLoop', () => {
   describe('default config (interrupt/resume)', () => {
@@ -423,6 +424,172 @@ describe('HumanInTheLoop', () => {
       await agent.invoke('Run danger twice')
       expect(askCount).toBe(2)
       expect(toolExecuted).toBe(false)
+    })
+  })
+
+  describe('classifier mode', () => {
+    it('classifier: true uses built-in LLM risk classifier', async () => {
+      const classifierModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'strands_structured_output',
+        toolUseId: 'inner-1',
+        input: { requiresApproval: true, reason: 'destructive operation' },
+      })
+
+      const agentModel = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'deleteFile', toolUseId: 'tool-1', input: { path: '/data' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('deleteFile', () => {
+        toolExecuted = true
+        return 'deleted'
+      })
+
+      const agent = new Agent({
+        model: agentModel,
+        tools: [tool],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: { model: classifierModel },
+          }),
+        ],
+        printer: false,
+      })
+
+      const result = await agent.invoke('Delete the file')
+
+      expect(result.stopReason).toBe('interrupt')
+      expect(toolExecuted).toBe(false)
+    })
+
+    it('classifier: true allows tool when LLM says no approval needed', async () => {
+      const classifierModel = new MockMessageModel().addTurn({
+        type: 'toolUseBlock',
+        name: 'strands_structured_output',
+        toolUseId: 'inner-1',
+        input: { requiresApproval: false, reason: 'read-only operation' },
+      })
+
+      const agentModel = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'readFile', toolUseId: 'tool-1', input: { path: '/tmp/x' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('readFile', () => {
+        toolExecuted = true
+        return 'content'
+      })
+
+      const agent = new Agent({
+        model: agentModel,
+        tools: [tool],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: { model: classifierModel },
+          }),
+        ],
+        printer: false,
+      })
+
+      const result = await agent.invoke('Read the file')
+
+      expect(result.stopReason).toBe('endTurn')
+      expect(toolExecuted).toBe(true)
+    })
+
+    it('allowedTools bypasses classifier', async () => {
+      const classifierModel = new MockMessageModel().addTurn({ type: 'textBlock', text: 'unused' })
+      const classifierSpy = vi.spyOn(classifierModel, 'stream')
+
+      const agentModel = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'readFile', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('readFile', () => {
+        toolExecuted = true
+        return 'content'
+      })
+
+      const agent = new Agent({
+        model: agentModel,
+        tools: [tool],
+        interventions: [
+          new HumanInTheLoop({
+            allowedTools: ['readFile'],
+            classifier: { model: classifierModel },
+          }),
+        ],
+        printer: false,
+      })
+
+      const result = await agent.invoke('Read')
+
+      expect(result.stopReason).toBe('endTurn')
+      expect(toolExecuted).toBe(true)
+      expect(classifierSpy).not.toHaveBeenCalled()
+    })
+
+    it('custom classifier function works', async () => {
+      const agentModel = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'deploy', toolUseId: 'tool-1', input: { env: 'prod' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('deploy', () => {
+        toolExecuted = true
+        return 'deployed'
+      })
+
+      const agent = new Agent({
+        model: agentModel,
+        tools: [tool],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: async (event: BeforeToolCallEvent) => ({
+              requiresHumanInTheLoop: event.toolUse.name === 'deploy',
+              reason: 'deployment requires approval',
+            }),
+          }),
+        ],
+        printer: false,
+      })
+
+      const result = await agent.invoke('Deploy')
+
+      expect(result.stopReason).toBe('interrupt')
+      expect(toolExecuted).toBe(false)
+    })
+
+    it('includes classifier reason in prompt', async () => {
+      const prompts: string[] = []
+
+      const agentModel = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'sendEmail', toolUseId: 'tool-1', input: { to: 'all@co.com' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      const tool = createMockTool('sendEmail', () => 'sent')
+
+      const agent = new Agent({
+        model: agentModel,
+        tools: [tool],
+        interventions: [
+          new HumanInTheLoop({
+            classifier: async () => ({ requiresHumanInTheLoop: true, reason: 'external communication' }),
+            ask: async (prompt) => {
+              prompts.push(prompt)
+              return 'no'
+            },
+          }),
+        ],
+        printer: false,
+      })
+
+      await agent.invoke('Send email')
+
+      expect(prompts[0]).toContain('external communication')
+      expect(prompts[0]).toContain('sendEmail')
     })
   })
 })

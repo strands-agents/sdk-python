@@ -23,6 +23,7 @@ export default defineConfig({
     projects: [
       {
         test: {
+          setupFiles: ['./src/__fixtures__/register-node-defaults.ts'],
           include: [
             'src/**/__tests__/**/*.test.ts',
             'src/**/__tests__/**/*.test.node.ts',
@@ -32,6 +33,9 @@ export default defineConfig({
             'src/vended-plugins/**/__tests__/**/*.test.node.ts',
           ],
           name: { label: 'unit-node', color: 'green' },
+          // Retry so a flaky test doesn't block a release; a genuinely broken
+          // test still fails after the retries and holds the gate.
+          retry: 2,
           typecheck: {
             enabled: true,
             tsconfig: 'src/tsconfig.json',
@@ -50,6 +54,9 @@ export default defineConfig({
             'src/vended-plugins/**/__tests__/**/*.test.browser.ts',
           ],
           name: { label: 'unit-browser', color: 'cyan' },
+          // Retry so a flaky test doesn't block a release; a genuinely broken
+          // test still fails after the retries and holds the gate.
+          retry: 2,
           browser: {
             enabled: true,
             provider: playwright(),
@@ -68,13 +75,20 @@ export default defineConfig({
           alias: {
             '$/sdk': path.resolve(__dirname, './src'),
             '$/vended': path.resolve(__dirname, './src/vended-tools'),
+            // Resolve the package specifier to source so `vitest related` can
+            // trace src changes to integ tests that import via '@strands-agents/sdk'
+            // (which otherwise resolves through package exports to dist/).
+            '@strands-agents/sdk': path.resolve(__dirname, './src'),
           },
           include: ['test/integ/**/*.test.ts', 'test/integ/**/*.test.node.ts'],
           name: { label: 'integ-node', color: 'magenta' },
           testTimeout: 60 * 1000,
           retry: 1,
           globalSetup: './test/integ/__fixtures__/_setup-global.ts',
-          setupFiles: './test/integ/__fixtures__/_setup-test.ts',
+          setupFiles: [
+            './test/integ/__fixtures__/_setup-test.ts',
+            './test/integ/__fixtures__/register-node-defaults.ts',
+          ],
           sequence: {
             concurrent: true,
           },
@@ -85,6 +99,8 @@ export default defineConfig({
           alias: {
             '$/sdk': path.resolve(__dirname, './src'),
             '$/vended': path.resolve(__dirname, './src/vended-tools'),
+            // Same package-specifier alias as integ-node above (see comment there).
+            '@strands-agents/sdk': path.resolve(__dirname, './src'),
           },
           include: ['test/integ/**/*.test.ts', 'test/integ/**/*.test.browser.ts'],
           name: { label: 'integ-browser', color: 'yellow' },

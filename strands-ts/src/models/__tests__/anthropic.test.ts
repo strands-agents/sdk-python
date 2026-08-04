@@ -11,6 +11,7 @@ import {
   GuardContentBlock,
   ToolResultBlock,
   JsonBlock,
+  ReasoningBlock,
 } from '../../types/messages.js'
 import { ImageBlock, DocumentBlock, VideoBlock } from '../../types/media.js'
 import { warnOnce } from '../../logging/warn-once.js'
@@ -376,17 +377,36 @@ describe('AnthropicModel', () => {
       await expect(collectIterator(provider.stream(messages))).rejects.toThrow('API Error')
     })
 
+    it('maps overload error to ContextWindowOverflowError', async () => {
+      const mockClient = createMockClient(async function* () {
+        yield { type: 'ping' } // Satisfy linter require-yield
+        throw new Error('prompt is too long')
+      })
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+      await expect(collectIterator(provider.stream(messages))).rejects.toThrow(ContextWindowOverflowError)
+    })
+
     it.each([
-      'PROMPT IS TOO LONG: request exceeds context window',
-      'max_tokens exceeded',
-      'input too long',
       'input is too long',
       'input length exceeds context window',
       'input and output tokens exceed your context limit',
-    ])('maps context overflow error "%s" to ContextWindowOverflowError', async (message) => {
+    ])('maps overflow phrase %p to ContextWindowOverflowError', async (phrase) => {
       const mockClient = createMockClient(async function* () {
-        yield { type: 'ping' } // Satisfy linter require-yield
-        throw new Error(message)
+        yield { type: 'ping' }
+        throw new Error(phrase)
+      })
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
+
+      await expect(collectIterator(provider.stream(messages))).rejects.toThrow(ContextWindowOverflowError)
+    })
+
+    it('matches overflow phrases case-insensitively', async () => {
+      const mockClient = createMockClient(async function* () {
+        yield { type: 'ping' }
+        throw new Error('PROMPT IS TOO LONG: 200000 tokens')
       })
       const provider = new AnthropicModel({ client: mockClient })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hi')] })]
@@ -445,6 +465,25 @@ describe('AnthropicModel', () => {
       })
     })
 
+    it('never sends the durable message id to the provider', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ modelId: 'claude-3-opus', maxTokens: 1000, client: mockClient })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('Hello')],
+          trackingId: 'durable-1',
+          metadata: { usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } },
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      // The request the provider receives carries only role and content — never trackingId or metadata.
+      expect(captured.request.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }])
+      expect('trackingId' in captured.request.messages[0]).toBe(false)
+    })
+
     it('formats tools correctly', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient })
@@ -466,6 +505,24 @@ describe('AnthropicModel', () => {
         input_schema: { type: 'object', properties: {} },
       })
       expect(captured.request.tool_choice).toEqual({ type: 'auto' })
+    })
+
+    it('formats a signature-only reasoning block', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new ReasoningBlock({ signature: 'sig-abc' }), new TextBlock('answer')],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages[0].content).toEqual([
+        { type: 'thinking', thinking: '', signature: 'sig-abc' },
+        { type: 'text', text: 'answer' },
+      ])
     })
 
     describe('Prompt Caching (Lookahead logic)', () => {

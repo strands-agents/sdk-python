@@ -54,13 +54,16 @@ class BeforeInvocationEvent(HookEvent):
             and dynamic configuration.
         messages: The input messages for this invocation. Can be modified by hooks
             to redact or transform content before processing.
+        cancel: When set, cancels the invocation. If a string, used as the cancellation message.
+            If True, a default message is used.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     messages: Messages | None = None
+    cancel: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name == "messages"
+        return name in ["messages", "cancel"]
 
 
 @dataclass
@@ -128,6 +131,77 @@ class MessageAddedEvent(HookEvent):
     """
 
     message: Message
+
+
+@dataclass
+class BeforeToolsEvent(HookEvent, _Interruptible):
+    """Event triggered before executing tools.
+
+    This event is fired when the model returns tool use blocks that need to be executed.
+    Hook callbacks can set ``cancel`` to prevent all tools from executing. Fires once per
+    cycle, so may fire more than once per assistant message when a per-tool interrupt
+    splits the batch.
+
+    Attributes:
+        message: The assistant message containing tool use requests.
+        invocation_state: State and configuration passed through the agent invocation.
+        cancel: When set, cancels all tool calls. If a string, used as the tool result
+            error message. If True, a default message is used.
+    """
+
+    message: Message
+    invocation_state: dict[str, Any]
+    cancel: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "cancel"
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:before_tools:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+
+
+@dataclass
+class AfterToolsEvent(HookEvent):
+    """Event triggered after all tools complete execution.
+
+    This event is fired after tool results are collected and ready to be added to conversation.
+    Paired with a preceding ``BeforeToolsEvent`` when the batch proceeds past the
+    pre-execution phase (cancel, interrupt, and error paths included). Fires once per
+    cycle, so may fire more than once per assistant message when a per-tool interrupt
+    splits the batch.
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Attributes:
+        message: The user-role message containing the tool results.
+        invocation_state: State and configuration passed through the agent invocation.
+        end_turn: When set, the agent loop halts after this tool batch without
+            calling the model again. If a string, that string becomes the content of
+            a final assistant text message. If True, a default message is used.
+            In both cases stop_reason on the returned result is "end_turn".
+    """
+
+    message: Message
+    invocation_state: dict[str, Any]
+    end_turn: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "end_turn"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
 
 
 @dataclass
@@ -240,10 +314,16 @@ class BeforeModelCallEvent(HookEvent):
             Computed by the agent loop from message metadata and token estimation.
             Available for hooks and plugins (e.g. conversation managers) to make
             proactive decisions about context management. None if estimation failed.
+        cancel: When set, cancels the model call. If a string, used as the cancellation message.
+            If True, a default message is used.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     projected_input_tokens: int | None = None
+    cancel: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "cancel"
 
 
 @dataclass
@@ -260,7 +340,7 @@ class AfterModelCallEvent(HookEvent):
     Note: This event is not fired for invocations to structured_output.
 
     Model Retrying:
-        When ``retry_model`` is set to True by a hook callback, the agent will discard
+        When ``retry`` is set to True by a hook callback, the agent will discard
         the current model response and invoke the model again. This has important
         implications for streaming consumers:
 

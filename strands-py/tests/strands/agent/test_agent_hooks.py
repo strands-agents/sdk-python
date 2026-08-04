@@ -174,6 +174,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
                 "content": [{"toolUse": tool_use}],
                 "role": "assistant",
                 "metadata": ANY,
+                "tracking_id": ANY,
             },
             stop_reason="tool_use",
         ),
@@ -200,7 +201,12 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"role": "assistant", "content": [{"text": "I invoked a tool!"}], "metadata": ANY},
+            message={
+                "role": "assistant",
+                "content": [{"text": "I invoked a tool!"}],
+                "metadata": ANY,
+                "tracking_id": ANY,
+            },
             stop_reason="end_turn",
         ),
         exception=None,
@@ -248,6 +254,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
                 "content": [{"toolUse": tool_use}],
                 "role": "assistant",
                 "metadata": ANY,
+                "tracking_id": ANY,
             },
             stop_reason="tool_use",
         ),
@@ -274,7 +281,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"role": "assistant", "content": [{"text": "I invoked a tool!"}], "metadata": ANY},
+            message={
+                "role": "assistant",
+                "content": [{"text": "I invoked a tool!"}],
+                "metadata": ANY,
+                "tracking_id": ANY,
+            },
             stop_reason="end_turn",
         ),
         exception=None,
@@ -335,7 +347,11 @@ async def test_hook_retry_on_successful_call():
                 "role": "assistant",
                 "content": [{"text": "This is a much longer and more detailed response"}],
             },
-        ]
+        ],
+        usages=[
+            {"inputTokens": 1000, "outputTokens": 1000, "totalTokens": 2000},
+            {"inputTokens": 7, "outputTokens": 7, "totalTokens": 14},
+        ],
     )
 
     # Hook that retries if response is too short
@@ -368,6 +384,11 @@ async def test_hook_retry_on_successful_call():
 
     # Verify final result is the longer response
     assert result.message["content"][0]["text"] == "This is a much longer and more detailed response"
+
+    # https://github.com/strands-agents/harness-sdk/issues/3623: retried calls still incur billable usage.
+    tru_usage = agent.event_loop_metrics.accumulated_usage
+    exp_usage = {"inputTokens": 1007, "outputTokens": 1007, "totalTokens": 2014}
+    assert tru_usage == exp_usage
 
 
 @pytest.mark.asyncio
@@ -416,7 +437,7 @@ async def test_hook_retry_on_exception_basic(alist, mock_sleep):
 
 @pytest.mark.asyncio
 async def test_hook_retry_not_set_on_success(alist):
-    """Test that model is not retried when hook doesn't set retry_model on success."""
+    """Test that model is not retried when hook doesn't set retry on success."""
     mock_provider = MockedModelProvider(
         [
             {
@@ -426,7 +447,7 @@ async def test_hook_retry_not_set_on_success(alist):
         ]
     )
 
-    # Hook that tries to set retry_model=True even on success
+    # Hook that tries to set retry=True even on success
     class NoRetryHook:
         def __init__(self):
             self.call_count = 0
@@ -437,14 +458,14 @@ async def test_hook_retry_not_set_on_success(alist):
         async def handle_after_model_call(self, event):
             self.call_count += 1
             # Try to set retry even on success
-            # Don't set retry_model (leave it as False)
+            # Don't set retry (leave it as False)
 
     retry_hook = NoRetryHook()
     agent = Agent(model=mock_provider, hooks=[retry_hook])
 
     result = agent("Test no retry when not set")
 
-    # Should only be called once since retry_model was not set
+    # Should only be called once since retry was not set
     assert retry_hook.call_count == 1
     assert result.message["content"][0]["text"] == "First successful response"
 
@@ -494,7 +515,7 @@ async def test_hook_retry_with_limit(alist, mock_sleep):
 
 @pytest.mark.asyncio
 async def test_hook_retry_multiple_hooks(alist, mock_sleep):
-    """Test that multiple hooks can modify retry_model and last one wins."""
+    """Test that multiple hooks can modify retry and last one wins."""
 
     class CustomException(Exception):
         pass
@@ -532,7 +553,7 @@ async def test_hook_retry_multiple_hooks(alist, mock_sleep):
 
 @pytest.mark.asyncio
 async def test_hook_retry_last_hook_wins(alist, mock_sleep):
-    """Test that when multiple hooks set retry_model, the last-called hook wins.
+    """Test that when multiple hooks set retry, the last-called hook wins.
 
     Note: AfterModelCallEvent callbacks are invoked in reverse order, so the first
     registered hook is called last.

@@ -9,14 +9,18 @@
  *
  * @see https://platform.openai.com/docs/guides/error-codes
  */
+// Union of overflow phrases observed across OpenAI responses, matched
+// case-insensitively. Lowercased here so the comparison is a single
+// ``toLowerCase`` on the error message.
 const CONTEXT_WINDOW_OVERFLOW_PATTERNS = [
   'maximum context length',
   'context_length_exceeded',
   'too many tokens',
   'context length',
-  'Input is too long for requested model',
+  'input is too long for requested model',
   'input length and `max_tokens` exceed context limit',
   'too many total text bytes',
+  'exceed customer model maximum',
 ]
 
 /**
@@ -35,16 +39,16 @@ export type OpenAIErrorKind = 'contextOverflow' | 'throttling'
  */
 export function classifyOpenAIError(err: Error & { status?: number; code?: string }): OpenAIErrorKind | undefined {
   const message = err.message?.toLowerCase() ?? ''
-  const code = err.code?.toLowerCase() ?? ''
+  // The OpenAI SDK types `code` as a string, but OpenAI-compatible providers (e.g. OpenRouter)
+  // can return a number (`{ "error": { "code": 400 } }`). Guard with `typeof` before calling
+  // `.toLowerCase()` so a non-string code falls back to '' instead of throwing a TypeError.
+  const code = typeof err.code === 'string' ? err.code.toLowerCase() : ''
 
   if (err.status === 429 || code === 'rate_limit_exceeded' || RATE_LIMIT_PATTERNS.some((p) => message.includes(p))) {
     return 'throttling'
   }
 
-  if (
-    code === 'context_length_exceeded' ||
-    CONTEXT_WINDOW_OVERFLOW_PATTERNS.some((pattern) => message.includes(pattern.toLowerCase()))
-  ) {
+  if (code === 'context_length_exceeded' || CONTEXT_WINDOW_OVERFLOW_PATTERNS.some((p) => message.includes(p))) {
     return 'contextOverflow'
   }
 

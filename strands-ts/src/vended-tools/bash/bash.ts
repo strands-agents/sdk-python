@@ -5,11 +5,6 @@ import { Buffer } from 'buffer'
 import type { BashOutput } from './types.js'
 import { BashTimeoutError, BashSessionError } from './types.js'
 
-/**
- * Zod schema for bash input validation.
- *
- * Note: Uses a single object schema instead of discriminated union for AWS Bedrock compatibility.
- */
 const bashInputSchema = z.object({
   mode: z
     .enum(['execute', 'restart'])
@@ -248,11 +243,18 @@ process.on('SIGTERM', () => {
  * console.log(result.output) // "Hello"
  * ```
  */
+const DEFAULT_DESCRIPTION =
+  'Executes bash shell commands in a persistent session. Supports execute and restart modes. ' +
+  'Commands persist state (variables, directory) within the session. Node.js only.'
+
+/**
+ * Host-only bash tool with a persistent session across calls.
+ * State (variables, working directory) persists within the session.
+ * Node.js only.
+ */
 export const bash = tool({
   name: 'bash',
-  description:
-    'Executes bash shell commands in a persistent session. Supports execute and restart modes. ' +
-    'Commands persist state (variables, directory) within the session. Node.js only.',
+  description: DEFAULT_DESCRIPTION,
   inputSchema: bashInputSchema,
   callback: async (input, context) => {
     if (!context) {
@@ -290,7 +292,6 @@ export const bash = tool({
     }
 
     // Execute command
-    const result = await session.run(input.command!, input.timeout)
-    return result
+    return session.run(input.command!, input.timeout)
   },
 })

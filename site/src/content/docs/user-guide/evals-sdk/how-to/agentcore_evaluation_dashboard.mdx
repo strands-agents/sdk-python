@@ -1,5 +1,6 @@
 ---
 title: AgentCore Evaluation Dashboard Configuration
+description: 'Configure ADOT to send Strands evaluation results to Amazon CloudWatch and visualize scores in the Bedrock AgentCore observability dashboard.'
 tags: [agentcore, aws, bedrock, observability]
 ---
 
@@ -186,6 +187,8 @@ opentelemetry-instrument python evaluation_agentcore_dashboard.py
 ### Example Evaluation Script
 
 ```python
+import asyncio
+
 from strands_evals import Experiment, Case
 from strands_evals.evaluators import OutputEvaluator
 
@@ -211,7 +214,7 @@ evaluator = OutputEvaluator(
 )
 
 # Create experiment
-experiment = Experiment(cases=cases, evaluator=evaluator)
+experiment = Experiment(cases=cases, evaluators=[evaluator])
 
 # Define your task function
 def my_agent_task(case: Case) -> str:
@@ -220,10 +223,13 @@ def my_agent_task(case: Case) -> str:
     return f"Response to: {case.input}"
 
 # Run evaluations
-reports = experiment.run_evaluations(my_agent_task)
+async def main():
+    report = await experiment.run_evaluations_async(my_agent_task)
 
-print(f"Overall Score: {report.overall_score}")
-print(f"Pass Rate: {sum(report.test_passes)}/{len(report.test_passes)}")
+    print(f"Overall Score: {report.overall_score}")
+    print(f"Pass Rate: {sum(report.test_passes)}/{len(report.test_passes)}")
+
+asyncio.run(main())
 ```
 
 ### For Containerized Environments (Docker)
@@ -353,7 +359,7 @@ class CustomEvaluator(Evaluator):
         
         return [EvaluationOutput(
             score=score,
-            passed=(score >= self.threshold),
+            test_pass=(score >= self.threshold),
             reason=f"Quality check: {label}"
         )]
     

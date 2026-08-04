@@ -2,10 +2,12 @@
 import logging
 import unittest.mock
 
+import llama_api_client
 import pytest
 
 import strands
 from strands.models.llamaapi import LlamaAPIModel
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -126,6 +128,72 @@ def test_format_request_with_image(model, model_id):
                         "type": "image_url",
                     },
                 ],
+            },
+        ],
+        "model": model_id,
+        "stream": True,
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_use_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "c1", "name": "search", "input": {"query": "東京"}}}],
+        },
+    ]
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [
+            {
+                "content": "",
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "search",
+                            "arguments": '{"query": "東京"}',
+                        },
+                        "id": "c1",
+                    }
+                ],
+            }
+        ],
+        "model": model_id,
+        "stream": True,
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [
+            {
+                "content": [{"text": '{"city": "東京"}', "type": "text"}],
+                "role": "tool",
+                "tool_call_id": "c1",
             },
         ],
         "model": model_id,
@@ -481,3 +549,30 @@ def test_format_request_filters_location_source_document(model, caplog):
     assert len(user_content) == 1
     assert user_content[0]["type"] == "text"
     assert "Location sources are not supported by LlamaAPI" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "overflow_message",
+    [
+        "This model's maximum context length is 128000 tokens",
+        "prompt is too long",
+        "too many tokens in request",
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_context_overflow_error(overflow_message, model, messages, alist):
+    error = llama_api_client.BadRequestError(overflow_message, response=unittest.mock.Mock(), body=None)
+    with unittest.mock.patch.object(model.client.chat.completions, "create", side_effect=error):
+        with pytest.raises(ContextWindowOverflowException) as exc_info:
+            await alist(model.stream(messages))
+
+    assert overflow_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == error
+
+
+@pytest.mark.asyncio
+async def test_stream_non_overflow_bad_request_propagates(model, messages, alist):
+    error = llama_api_client.BadRequestError("invalid 'model' parameter", response=unittest.mock.Mock(), body=None)
+    with unittest.mock.patch.object(model.client.chat.completions, "create", side_effect=error):
+        with pytest.raises(llama_api_client.BadRequestError, match="invalid 'model' parameter"):
+            await alist(model.stream(messages))

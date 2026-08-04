@@ -1,5 +1,6 @@
 ---
 title: Multimodal Instruction Following Evaluator
+description: 'Verify responses on image tasks satisfy explicit constraints like count, format, and scope with MultimodalInstructionFollowingEvaluator.'
 tags: [multimodal-evaluation, vision]
 sidebar:
   label: "Multimodal Instruction Following"
@@ -66,6 +67,8 @@ A response passes only if the score is `1.0`.
 ## Basic Usage
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import MultimodalInstructionFollowingEvaluator
 from strands_evals.types import MultimodalInput
@@ -91,13 +94,17 @@ experiment = Experiment(
     cases=cases,
     evaluators=[MultimodalInstructionFollowingEvaluator()],
 )
-reports = experiment.run_evaluations(task_function)
-EvaluationReport.flatten(reports).run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Combining with Other Evaluators
 
-Pair with correctness and faithfulness to assess different failure modes separately. `Experiment.run_evaluations` returns one report per evaluator, so use `EvaluationReport.flatten` to view them together:
+Pair with correctness and faithfulness to assess different failure modes separately. `Experiment.run_evaluations` returns one combined report across all evaluators — each row in `report.cases` carries an `evaluator` key naming the producing evaluator:
 
 ```python
 from strands_evals import Experiment
@@ -115,8 +122,12 @@ evaluators = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=evaluators)
-reports = experiment.run_evaluations(task_function)
-EvaluationReport.flatten(reports).run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Related Evaluators

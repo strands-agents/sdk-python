@@ -1,5 +1,6 @@
 ---
 title: Multimodal Output Evaluator
+description: 'Evaluate agent outputs on image and document tasks with MultimodalOutputEvaluator, which judges responses against a custom rubric using an MLLM.'
 tags: [multimodal-evaluation, vision]
 sidebar:
   label: "Multimodal Output"
@@ -7,7 +8,7 @@ sidebar:
 
 ## Overview
 
-The `MultimodalOutputEvaluator` assesses the quality of agent outputs for tasks that involve images or documents alongside text. It uses an MLLM as the judge and evaluates responses against a user-defined rubric, extending [`OutputEvaluator`](output_evaluator.md) with multimodal input support. A complete example can be found [here](https://github.com/strands-agents/docs/blob/main/docs/examples/evals-sdk/multimodal_output_evaluator.py).
+The `MultimodalOutputEvaluator` assesses the quality of agent outputs for tasks that involve images or documents alongside text. It uses an MLLM as the judge and evaluates responses against a user-defined rubric, extending [`OutputEvaluator`](output_evaluator.md) with multimodal input support. A complete example can be found [here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/multimodal_output_evaluator.py).
 
 ## Key Features
 
@@ -121,6 +122,8 @@ The score is a float between `0.0` and `1.0`; the granularity is determined by t
 ### Reference-Free Evaluation
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import MultimodalOutputEvaluator
 from strands_evals.evaluators.prompt_templates.multimodal import OVERALL_QUALITY_RUBRIC_V0
@@ -146,8 +149,12 @@ cases = [
 
 evaluator = MultimodalOutputEvaluator(rubric=OVERALL_QUALITY_RUBRIC_V0)
 experiment = Experiment(cases=cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(task_function)
-EvaluationReport.flatten(reports).run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ### Reference-Based Evaluation
@@ -175,7 +182,11 @@ cases = [
 
 evaluator = MultimodalOutputEvaluator(rubric=CORRECTNESS_RUBRIC_V0)
 experiment = Experiment(cases=cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(task_function)
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+
+asyncio.run(main())
 ```
 
 ### Multiple Images per Case

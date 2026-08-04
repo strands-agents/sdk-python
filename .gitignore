@@ -26,10 +26,6 @@ __pycache__*
 *.dylib
 *.pdb
 
-# Generated type bindings (committed only for strands-py-wasm/src/strands/_generated.py)
-strands-ts/generated/
-strands-wasm/generated/
-
 # Coverage reports
 coverage/
 
@@ -73,11 +69,9 @@ Thumbs.db
 bin/
 
 # LLM
-CLAUDE.md
 .claude/settings.local.json
 
 # dev
 .vitest*
+.local/
 
-# LICENSE copied into strands-ts/ during prepack (original lives at repo root)
-strands-ts/LICENSE

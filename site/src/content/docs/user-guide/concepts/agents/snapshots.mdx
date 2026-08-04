@@ -1,6 +1,9 @@
 ---
 title: Snapshots
 description: "Capture and restore agent state at any point in time. Use snapshots for checkpointing, undo/redo, branching conversations, and custom persistence."
+sourceLinks:
+  - path: strands-py/src/strands/types/_snapshot.py
+  - path: strands-ts/src/agent/snapshot.ts
 ---
 
 Snapshots capture agent state at a point in time so you can save and restore it later. You choose which fields to include — either by picking a preset (a preconfigured set of fields) or by specifying fields directly — and you can further refine with includes and excludes. Snapshots are plain JSON-serializable objects — persistence is up to you.
@@ -26,10 +29,10 @@ snapshot = agent.take_snapshot(preset="session")
 
 print(snapshot.schema_version)  # "1.0"
 print(snapshot.created_at)      # ISO 8601 timestamp
-print(snapshot.data.keys())     # messages, state, conversation_manager_state, interrupt_state
+print(snapshot.data.keys())     # messages, state, conversation_manager_state, interrupt_state, model_state
 ```
 
-The `"session"` preset captures `messages`, `state`, `conversation_manager_state`, and `interrupt_state`. The `system_prompt` field is not included by default — see [Field Selection](#field-selection) to customize which fields are captured.
+The `"session"` preset captures `messages`, `state`, `conversation_manager_state`, `interrupt_state`, and `model_state`. The `system_prompt` field is not included by default — see [Field Selection](#field-selection) to customize which fields are captured.
 </Tab>
 <Tab label="TypeScript">
 
@@ -82,6 +85,15 @@ print(len(agent.messages))  # Only the messages from before the jokes
 
 Only fields present in the snapshot are restored. If a field was not included when the snapshot was taken, the agent's current value for that field is left unchanged.
 
+:::caution[Snapshots are restored verbatim]
+A snapshot's `messages` are loaded into the agent as-is, including any tool-call
+content they carry. Load snapshots only from a source you control. A snapshot
+influenced by an untrusted party is untrusted input: its content reaches the
+model, and in the Python SDK a trailing tool-call block runs a tool directly on
+the next invocation. See
+[Trusted Message History](../../safety-security/trusted-message-history.md).
+:::
+
 ## Field Selection
 
 Snapshots support flexible field selection through presets, includes, and excludes. The resolution order is: **preset → include → exclude** — start with the fields defined by the preset, add any fields listed in `include`, then remove any fields listed in `exclude`.
@@ -96,6 +108,7 @@ Snapshots support flexible field selection through presets, includes, and exclud
 | `conversation_manager_state` | Conversation manager internal state |
 | `interrupt_state` | Human-in-the-loop interrupt state |
 | `system_prompt` | System prompt content |
+| `model_state` | Model provider state (e.g. response IDs for stateful models) |
 
 </Tab>
 <Tab label="TypeScript">
@@ -143,7 +156,7 @@ snapshot = agent.take_snapshot(preset="session", exclude=["interrupt_state"])
 
 ## Application Data
 
-Snapshots support an `app_data` (Python) / `appData` (TypeScript) field for storing application-owned data alongside the agent state. Strands does not read or modify this data — it's passed through verbatim.
+Snapshots support an <Syntax py="app_data" ts="appData" /> field for storing application-owned data alongside the agent state. Strands does not read or modify this data — it's passed through verbatim.
 
 This is useful for attaching metadata like a display name for the snapshot, the current step in a workflow, user preferences, or any other context your application needs to associate with a particular point in time.
 

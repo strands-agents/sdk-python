@@ -1,5 +1,6 @@
 ---
 title: Logging
+description: 'Configure logging for Strands agents in Python and TypeScript: set log levels, add handlers, and capture debug output from SDK operations.'
 sidebar:
   label: "Logs"
 tags: [observability, pii]
@@ -106,7 +107,7 @@ result = agent("What is 125 * 37?")
 
 When running this code with logging enabled, you'll see logs from different components of the SDK as the agent processes the request, calls the calculator tool, and generates a response.
 
-### Tool Registry and Execution
+**Tool Registry and Execution**
 
 Logs related to tool discovery, registration, and execution:
 
@@ -135,7 +136,7 @@ DEBUG | strands.tools.registry | tool_name=<calculator> | reloading tool
 DEBUG | strands.tools.registry | tool_name=<calculator> | successfully reloaded tool
 ```
 
-### Event Loop
+**Event Loop**
 
 Logs related to the event loop processing:
 
@@ -144,12 +145,12 @@ ERROR | strands.event_loop.error_handler | an exception occurred in event_loop_c
 DEBUG | strands.event_loop.error_handler | message_index=<5> | found message with tool results at index
 ```
 
-### Model Interactions
+**Model Interactions**
 
 Logs related to interactions with foundation models:
 
 ```
-DEBUG | strands.models.bedrock | config=<{'model_id': 'us.anthropic.claude-4-sonnet-20250219-v1:0'}> | initializing
+DEBUG | strands.models.bedrock | config=<{'model_id': 'global.anthropic.claude-sonnet-4-6'}> | initializing
 WARNING | strands.models.bedrock | bedrock threw context window overflow error
 DEBUG | strands.models.bedrock | Found blocked output guardrail. Redacting output.
 ```
@@ -174,7 +175,7 @@ WARN choice=<null> | invalid choice format in openai chunk
 WARN tool_call=<{"type":"function","id":"xyz"}> | received tool call with invalid index
 
 # Bedrock-specific logs
-DEBUG model_id=<us.anthropic.claude-sonnet-4-20250514-v1:0>, include_tool_result_status=<true> | auto-detected includeToolResultStatus
+DEBUG model_id=<global.anthropic.claude-sonnet-4-6>, include_tool_result_status=<true> | auto-detected includeToolResultStatus
 WARN block_key=<unknown_key> | skipping unsupported block key
 WARN event_type=<unknown_type> | unsupported bedrock event type
 ```
@@ -188,7 +189,7 @@ Future versions will include more detailed logging for tool operations and event
 <Tabs>
 <Tab label="Python">
 
-### Filtering Specific Modules
+**Filtering Specific Modules**
 
 You can configure logging for specific modules within the SDK:
 
@@ -202,7 +203,7 @@ logging.getLogger("strands.tools.registry").setLevel(logging.DEBUG)
 logging.getLogger("strands.models").setLevel(logging.WARNING)
 ```
 
-### Custom Handlers
+**Custom Handlers**
 
 You can add custom handlers to process logs in different ways:
 
@@ -230,7 +231,7 @@ logging.getLogger("strands").addHandler(file_handler)
 </Tab>
 <Tab label="TypeScript">
 
-### Custom Logger Implementation
+**Custom Logger Implementation**
 
 You can implement your own logger to integrate with your application's logging system:
 

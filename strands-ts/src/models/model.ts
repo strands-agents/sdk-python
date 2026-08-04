@@ -349,6 +349,7 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
       let finalStopReason: StopReason | null = null
       let metadata: ModelMetadataEvent | undefined = undefined
       let redactionMessage: string | undefined = undefined
+      let toolInputParseError: SyntaxError | undefined = undefined
 
       for await (const event_data of this.stream(messages, options)) {
         const event = this._convert_to_class_event(event_data)
@@ -425,8 +426,8 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
               yield block
             } catch (e: unknown) {
               if (e instanceof SyntaxError) {
-                logger.error('unable to parse JSON string', e)
-                throw e
+                logger.error('unable to parse tool input JSON', e)
+                toolInputParseError = e
               }
             }
             break
@@ -435,9 +436,12 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
           case 'modelMessageStopEvent':
             // Store message and stop reason
             if (messageRole) {
+              const filtered = contentBlocks.filter(
+                (block) => !(block instanceof TextBlock && block.text.trim() === '')
+              )
               stoppedMessage = new Message({
                 role: messageRole,
-                content: [...contentBlocks],
+                content: filtered,
               })
               finalStopReason = event.stopReason!
             }
@@ -471,7 +475,10 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
 
       if (!stoppedMessage || !finalStopReason) {
         // If we exit the loop without completing a message or stop reason, throw an error
-        throw new ModelError('Stream ended without completing a message')
+        throw new ModelError(
+          'Stream ended without completing a message',
+          toolInputParseError ? { cause: toolInputParseError } : undefined
+        )
       }
 
       // Attach metadata after redaction so it applies to the final message.
@@ -493,6 +500,10 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
           'Model reached maximum token limit. This is an unrecoverable state that requires intervention.',
           stoppedMessage
         )
+      }
+
+      if (toolInputParseError !== undefined) {
+        throw new ModelError('unable to parse tool input JSON', { cause: toolInputParseError })
       }
 
       // Return the final message with stop reason and optional metadata

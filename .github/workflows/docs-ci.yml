@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
 
@@ -35,7 +35,7 @@ jobs:
 
       - name: Build TypeScript SDK
         run: npm install --ignore-scripts && npm run build && rm -rf node_modules
-        working-directory: site/.build/sdk-typescript
+        working-directory: strands-ts
 
       - name: Re-link SDK types
         run: npm install

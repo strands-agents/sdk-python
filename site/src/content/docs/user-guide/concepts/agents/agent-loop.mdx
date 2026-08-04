@@ -2,6 +2,10 @@
 title: Agent Loop
 tags: [event-loop, tool-execution, hooks]
 description: "How Strands agents reason, plan, and act. Understand the model-driven loop that orchestrates tool use, reflection, and goal completion."
+sourceLinks:
+  - path: strands-py/src/strands/agent/agent.py
+  - path: strands-py/src/strands/event_loop/event_loop.py
+  - path: strands-ts/src/agent/agent.ts
 ---
 
 A language model can answer questions. An agent can *do things*. The agent loop is what makes that difference possible.
@@ -87,10 +91,15 @@ Each model invocation ends with a stop reason that determines what happens next:
 - **End turn**: The model has finished its response and has no further actions to take. This is the normal successful termination. The loop exits and returns the model's final message.
 - **Tool use**: The model wants to execute one or more tools before continuing. The loop executes the requested tools, appends the results to the conversation history, and invokes the model again.
 - **Cancelled**: The agent was stopped externally via `agent.cancel()`. See [Cancellation](#cancellation) below.
+- **Limit turns** (<Syntax py="limit_turns" ts="limitTurns" />): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
+- **Limit total tokens** (<Syntax py="limit_total_tokens" ts="limitTotalTokens" />): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
+- **Limit output tokens** (<Syntax py="limit_output_tokens" ts="limitOutputTokens" />): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
 - **Max tokens**: The model's response was truncated because it hit the token limit. This is unrecoverable within the current loop. The model cannot continue from a partial response, and the loop terminates with an error.
 - **Stop sequence**: The model encountered a configured stop sequence. Like end turn, this terminates the loop normally.
 - **Content filtered**: The response was blocked by safety mechanisms.
 - **Guardrail intervention**: A guardrail policy stopped generation.
+
+The limit stop reasons indicate graceful budget exhaustion. The agent's message history remains in a valid state, and you can reinvoke with a higher budget or different prompt.
 
 Both content filtered and guardrail intervention terminate the loop and should be handled according to application requirements.
 
@@ -105,12 +114,14 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
 <Tabs>
   <Tab label="Python">
 
-  The agent checks for cancellation at two checkpoints:
+  The agent checks for cancellation at four checkpoints:
 
   | Checkpoint | Behavior | Note |
   |---|---|---|
   | Model response streaming | Partial output is discarded | Usage metrics may be inaccurate since the stream is closed before the model sends its final metadata event |
   | Before tool execution | Tool calls are skipped with error results added to maintain valid conversation state | |
+  | During MCP tool execution | The in-flight MCP request is cancelled without closing the shared MCP session | Remote cancellation is best-effort; the agent stops locally even if the server does not acknowledge cancellation |
+  | After tool execution | The agent stops before the next model call | Non-MCP tools finish before cancellation is observed |
 
   The agent returns a result with `stop_reason="cancelled"`. `cancel()` is thread-safe and idempotent. Calling it multiple times or from different threads is safe.
 
@@ -174,6 +185,135 @@ The `agent.cancel()` method provides a way to stop the loop from outside, such a
   ```typescript
   --8<-- "user-guide/concepts/agents/agent-loop.ts:cancel_signal"
   ```
+  </Tab>
+</Tabs>
+
+### Invocation Limits
+
+To cap how much work an agent does in a single invocation, pass
+a `limits` object. You can bound turns (loop iterations), output
+tokens, or total tokens. All three are optional.
+
+<Tabs>
+  <Tab label="Python">
+
+  ```python
+  from strands import Agent
+
+  agent = Agent()
+
+  result = agent(
+      "Summarize this document",
+      limits={
+          "turns": 5,
+          "output_tokens": 2000,
+          "total_tokens": 10000,
+      },
+  )
+
+  if result.stop_reason == "limit_turns":
+      print("Hit turn budget")
+  elif result.stop_reason == "limit_total_tokens":
+      print("Hit token budget")
+  ```
+
+  The same parameter works with `invoke_async` and
+  `stream_async`. Each cap must be a positive `int`.
+
+  </Tab>
+  <Tab label="TypeScript">
+
+  ```typescript
+  --8<-- "user-guide/concepts/agents/agent-loop.ts:limits_basic"
+  ```
+
+  The same option works with `stream`. Each cap must be a
+  positive finite number.
+
+  </Tab>
+</Tabs>
+
+Limits are checked at the top of each loop iteration, not
+mid-call. A single turn can overshoot the token budget, but the
+check fires before the next turn starts. Tools requested by the
+previous turn always run to completion before the limit check
+fires. The agent's message history stays in a valid,
+reinvokable state.
+
+Limits apply to the current invocation only. A reused agent
+starts each call with fresh counters.
+
+When multiple caps trip simultaneously, the reported stop reason
+follows priority order: turns, then total tokens, then output
+tokens.
+
+## Concurrent Invocations
+
+Sometimes more than one request targets the same agent instance at once: a retried API call, a double-submitted form, two web requests that happen to share an agent.
+
+<Tabs>
+  <Tab label="Python">
+
+  An agent mutates its conversation history as each invocation runs, so by default it processes one invocation at a time and rejects overlap. The <Syntax py="concurrent_invocation_mode" /> constructor parameter controls this behavior. It accepts a `ConcurrentInvocationMode` enum — either `THROW` (the default) or `UNSAFE_REENTRANT`.
+
+  In the default `THROW` mode, invoking an agent that is already running raises `ConcurrencyException`:
+
+  ```python
+  from strands import Agent
+  from strands.types.exceptions import ConcurrencyException
+
+  agent = Agent()
+
+  try:
+      result = agent("Summarize this report")
+  except ConcurrencyException:
+      # Another invocation is already running on this agent instance
+      ...
+  ```
+
+  For most applications this is the behavior you want. One agent instance maps to one conversation, and letting invocations overlap would interleave their messages and corrupt the history.
+
+  #### Deduplicating retried requests
+
+  When a retry arrives for a request that is still running, returning the original's result beats both erroring and starting the work twice. Pass <Syntax py="idempotency_token" /> to any invocation method (`__call__`, `invoke_async`, `stream_async`) to identify the logical request, for example `agent("Process order 1234", idempotency_token="order-1234")`.
+
+  If a call with the same token is already in flight, the new call waits for the original and returns the same `AgentResult`. Tokens are compared by equality, so any stable identifier works: an order ID, a request UUID, or the prompt string itself.
+
+  If the tokens differ while an invocation is in flight, the new call raises `ConcurrencyException` — deduplication only applies to matching tokens.
+
+  A deduplicated call gets the final result only, not the original's streamed events. Its `callback_handler` still fires once with that result, so output consumers are not left empty-handed.
+
+  If the original ends without producing a result, for instance when it is cancelled mid-flight, the waiting calls raise `IdempotencyAbortedError` so they can decide whether to retry:
+
+  ```python
+  from strands import Agent
+  from strands.types.exceptions import IdempotencyAbortedError
+
+  agent = Agent()
+
+  try:
+      result = agent("Process order 1234", idempotency_token="order-1234")
+  except IdempotencyAbortedError:
+      # The original was aborted before producing a result
+      ...
+  ```
+
+  #### Allowing concurrent invocations
+
+  To run multiple invocations on one agent at the same time, set the concurrency mode when you construct it:
+
+  ```python
+  from strands import Agent
+  from strands.types.agent import ConcurrentInvocationMode
+
+  agent = Agent(concurrent_invocation_mode=ConcurrentInvocationMode.UNSAFE_REENTRANT)
+  ```
+
+  This removes the single-invocation guard entirely: overlapping calls neither raise nor deduplicate, and an idempotency token is ignored. Nothing protects the conversation history from concurrent mutation, so interleaved invocations can corrupt it. Reach for this only when each invocation works on isolated state, or when you handle synchronization yourself. To run independent work in parallel, a separate agent per task is safer than sharing one.
+  </Tab>
+  <Tab label="TypeScript">
+
+  TypeScript rejects overlapping invocations: invoking an agent that is already running throws `ConcurrentInvocationError`. It does not offer a configurable concurrency mode or idempotency-token deduplication of retries; both are available only in the Python SDK.
   </Tab>
 </Tabs>
 

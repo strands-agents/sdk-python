@@ -18,10 +18,18 @@ export default [
     files: ['src/**/*.ts'],
     tsconfig: './src/tsconfig.json',
   }),
-  // Prevent non-vended-tools from importing vended-tools
+  // Prevent non-vended-tools from importing vended-tools.
+  // The node-only Docker/SSH sandbox backends are exempt: they vend tools via getTools() and
+  // never reach the browser bundle.
   noVendedToolsImports({
     files: ['src/**/*.ts'],
-    ignores: ['src/vended-tools/**/*.ts'],
+    ignores: [
+      'src/vended-tools/**/*.ts',
+      'src/sandbox/docker.ts',
+      'src/sandbox/ssh.ts',
+      'src/sandbox/__tests__/docker.test.node.ts',
+      'src/sandbox/__tests__/ssh.test.node.ts',
+    ],
   }),
   // Then unit-test rules to UTs
   unitTestRules({

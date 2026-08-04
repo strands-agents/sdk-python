@@ -1,5 +1,6 @@
 ---
 title: Multimodal Faithfulness Evaluator
+description: 'Catch visual hallucinations with MultimodalFaithfulnessEvaluator, which checks agent responses for invented details not grounded in the image.'
 tags: [multimodal-evaluation, vision]
 sidebar:
   label: "Multimodal Faithfulness"
@@ -65,6 +66,8 @@ A response passes only if the score is `1.0`.
 ## Basic Usage
 
 ```python
+import asyncio
+
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import MultimodalFaithfulnessEvaluator
 from strands_evals.types import MultimodalInput
@@ -87,13 +90,17 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[MultimodalFaithfulnessEvaluator()])
-reports = experiment.run_evaluations(task_function)
-EvaluationReport.flatten(reports).run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Combining with Other Evaluators
 
-Pair with correctness to distinguish "wrong" from "ungrounded". `Experiment.run_evaluations` returns one report per evaluator, so use `EvaluationReport.flatten` to view them together:
+Pair with correctness to distinguish "wrong" from "ungrounded". `Experiment.run_evaluations` returns one combined report across all evaluators — each row in `report.cases` carries an `evaluator` key naming the producing evaluator:
 
 ```python
 from strands_evals import Experiment
@@ -109,8 +116,12 @@ evaluators = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=evaluators)
-reports = experiment.run_evaluations(task_function)
-EvaluationReport.flatten(reports).run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Related Evaluators

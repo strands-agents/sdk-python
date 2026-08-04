@@ -1,9 +1,13 @@
+import logging
 import os
 import unittest.mock
 
+import httpx
 import openai
 import pydantic
 import pytest
+from openai.types.responses import Response, ResponseErrorEvent, ResponseFailedEvent
+from openai.types.responses.response_error import ResponseError
 
 import strands
 from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
@@ -152,6 +156,39 @@ def test_format_request_message_content_unsupported_type():
         OpenAIResponsesModel._format_request_message_content(content)
 
 
+def test_format_request_message_tool_call_preserves_non_ascii():
+    tool_use = {
+        "input": {"query": "東京"},
+        "name": "search",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIResponsesModel._format_request_message_tool_call(tool_use)
+    exp_result = {
+        "type": "function_call",
+        "call_id": "c1",
+        "name": "search",
+        "arguments": '{"query": "東京"}',
+    }
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_message_preserves_non_ascii():
+    tool_result = {
+        "content": [{"json": {"city": "東京"}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIResponsesModel._format_request_tool_message(tool_result)
+    exp_result = {
+        "type": "function_call_output",
+        "call_id": "c1",
+        "output": '{"city": "東京"}',
+    }
+    assert tru_result == exp_result
+
+
 def test_format_request_message_tool_call():
     tool_use = {
         "input": {"expression": "2+2"},
@@ -267,7 +304,7 @@ def test_format_request_messages(system_prompt):
         },
         {
             "role": "assistant",
-            "content": [{"type": "output_text", "text": "call tool"}],
+            "content": "call tool",
         },
         {
             "type": "function_call",
@@ -284,12 +321,14 @@ def test_format_request_messages(system_prompt):
     assert tru_result == exp_result
 
 
-def test_format_request_messages_assistant_text_uses_output_text():
-    """Assistant text content must use output_text, not input_text.
+def test_format_request_messages_assistant_text_uses_string_content():
+    """Assistant history must use the string EasyInputMessage form.
 
-    Regression test for multi-turn conversations failing because the OpenAI
-    Responses API rejects input_text in assistant messages.
-    See: https://github.com/strands-agents/sdk-python/issues/1850
+    A bare ``{"role": "assistant", "content": [{"type": "output_text", ...}]}``
+    is not a valid Responses API input item (it is neither a string-content
+    EasyInputMessage nor a complete ResponseOutputMessage) and is rejected by
+    strict backends such as Bedrock Mantle.
+    See: https://github.com/strands-agents/harness-sdk/issues/3388
     """
     messages = [
         {
@@ -314,12 +353,79 @@ def test_format_request_messages_assistant_text_uses_output_text():
     }
     assert result[1] == {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "Hello!"}],
+        "content": "Hello!",
     }
     assert result[2] == {
         "role": "user",
         "content": [{"type": "input_text", "text": "Say goodbye"}],
     }
+
+
+def test_format_request_messages_assistant_multiple_text_blocks_join_with_newline():
+    """Multiple assistant text blocks collapse into one newline-joined string."""
+    messages = [
+        {
+            "content": [{"text": "First."}, {"text": "Second."}],
+            "role": "assistant",
+        },
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "assistant", "content": "First.\nSecond."}]
+
+
+def test_format_request_messages_assistant_non_text_content_dropped(caplog):
+    """Assistant media has no valid Responses input shape and is dropped with a warning."""
+    messages = [
+        {
+            "content": [
+                {"text": "Here is the image."},
+                {"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}},
+            ],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "assistant", "content": "Here is the image."}]
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_only_non_text_content_dropped_entirely(caplog):
+    """An assistant turn with only non-text content collapses to nothing and is omitted."""
+    messages = [
+        {
+            "content": [{"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}}],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == []
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_history_items_are_valid_input_items():
+    """Formatted assistant history validates against the OpenAI input item schema."""
+    import openai
+
+    messages = [
+        {"content": [{"text": "What is 2+2?"}], "role": "user"},
+        {"content": [{"text": "4"}], "role": "assistant"},
+        {"content": [{"text": "What about 3+3?"}], "role": "user"},
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assistant_item = result[1]
+    easy_message_fields = set(openai.types.responses.EasyInputMessageParam.__annotations__)
+    assert set(assistant_item) <= easy_message_fields
+    assert isinstance(assistant_item["content"], str)
 
 
 def test_format_request_message_content_role_assistant():
@@ -451,11 +557,13 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             {"chunk_type": "message_stop", "data": "stop"},
             {"messageStop": {"stopReason": "end_turn"}},
         ),
-        # Metadata
+        # Metadata - no cache tokens
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150),
+                "data": unittest.mock.Mock(
+                    input_tokens=100, output_tokens=50, total_tokens=150, input_tokens_details=None
+                ),
             },
             {
                 "metadata": {
@@ -463,6 +571,31 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                         "inputTokens": 100,
                         "outputTokens": 50,
                         "totalTokens": 150,
+                    },
+                    "metrics": {
+                        "latencyMs": 0,
+                    },
+                },
+            },
+        ),
+        # Metadata - with cache read tokens
+        (
+            {
+                "chunk_type": "metadata",
+                "data": unittest.mock.Mock(
+                    input_tokens=100,
+                    output_tokens=50,
+                    total_tokens=150,
+                    input_tokens_details=unittest.mock.Mock(cached_tokens=80),
+                ),
+            },
+            {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 100,
+                        "outputTokens": 50,
+                        "totalTokens": 150,
+                        "cacheReadInputTokens": 80,
                     },
                     "metrics": {
                         "latencyMs": 0,
@@ -484,13 +617,88 @@ def test_format_chunk_unknown_type(model):
         model._format_chunk(event)
 
 
+def test_format_chunk_metadata_with_cache_tokens(model):
+    """Test _format_chunk for metadata with cache tokens present."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.input_tokens = 100
+    mock_usage.output_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 25
+    mock_usage.input_tokens_details = mock_tokens_details
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    assert model._format_chunk(event) == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+                "cacheReadInputTokens": 25,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
+def test_format_chunk_metadata_with_zero_cached_tokens(model):
+    """Test _format_chunk for metadata when cached_tokens is 0."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.input_tokens = 100
+    mock_usage.output_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 0
+    mock_usage.input_tokens_details = mock_tokens_details
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    assert model._format_chunk(event) == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
+def test_format_chunk_metadata_without_token_details(model):
+    """Test _format_chunk for metadata when input token details are absent."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.input_tokens = 100
+    mock_usage.output_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.input_tokens_details = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    assert model._format_chunk(event) == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_stream(openai_client, model_id, model, agenerator, alist):
     # Mock response events
     mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hello")
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
+        ),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -527,6 +735,67 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_cache_tokens_propagated(openai_client, model, agenerator, alist):
+    """Cache read tokens from input_tokens_details are surfaced in the metadata event."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hi")
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                input_tokens=100,
+                output_tokens=10,
+                total_tokens=110,
+                input_tokens_details=unittest.mock.Mock(cached_tokens=80),
+            )
+        ),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+    usage = metadata_events[0]["metadata"]["usage"]
+    assert usage["inputTokens"] == 100
+    assert usage["outputTokens"] == 10
+    assert usage["totalTokens"] == 110
+    assert usage["cacheReadInputTokens"] == 80
+
+
+@pytest.mark.asyncio
+async def test_stream_no_cache_tokens_when_absent(openai_client, model, agenerator, alist):
+    """cacheReadInputTokens is omitted from metadata when input_tokens_details is absent."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hi")
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                input_tokens=100,
+                output_tokens=10,
+                total_tokens=110,
+                input_tokens_details=None,
+            )
+        ),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+    usage = metadata_events[0]["metadata"]["usage"]
+    assert "cacheReadInputTokens" not in usage
+
+
+@pytest.mark.asyncio
 async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     # Mock tool call events
     mock_tool_event = unittest.mock.Mock(
@@ -538,7 +807,9 @@ async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
+        ),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -571,7 +842,9 @@ async def test_stream_with_tool_calls_done_event(openai_client, model, agenerato
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
+        ),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -594,7 +867,7 @@ async def test_stream_response_incomplete(openai_client, model, agenerator, alis
     mock_incomplete_event = unittest.mock.Mock(
         type="response.incomplete",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(input_tokens=10, output_tokens=100, total_tokens=110),
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=100, total_tokens=110, input_tokens_details=None),
             incomplete_details=unittest.mock.Mock(reason="max_output_tokens"),
         ),
     )
@@ -628,7 +901,9 @@ async def test_stream_reasoning_content(openai_client, model, agenerator, alist,
     mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="The answer is 42")
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30)),
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None)
+        ),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -672,7 +947,9 @@ async def test_stream_citation_annotations(openai_client, model, agenerator, ali
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
+        ),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -708,7 +985,9 @@ async def test_stream_unsupported_annotation_type(openai_client, model, agenerat
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
+        ),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -740,6 +1019,117 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
     tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_structured_output_forwards_request_params(openai_client, model_id, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    model = OpenAIResponsesModel(
+        model_id=model_id,
+        params={"max_output_tokens": 100, "reasoning": {"effort": "low"}},
+    )
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_response = unittest.mock.Mock(output_parsed=mock_parsed_instance)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    events = await alist(model.structured_output(test_output_model_cls, messages, system_prompt="Be precise."))
+
+    assert events[-1] == {"output": mock_parsed_instance}
+    parse_kwargs = openai_client.responses.parse.call_args.kwargs
+    assert parse_kwargs["model"] == model_id
+    assert parse_kwargs["max_output_tokens"] == 100
+    assert parse_kwargs["reasoning"] == {"effort": "low"}
+    assert parse_kwargs["instructions"] == "Be precise."
+    assert parse_kwargs["store"] is False
+    assert parse_kwargs["text_format"] is test_output_model_cls
+    assert "stream" not in parse_kwargs
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_raises_provider_error(openai_client, model, messages, agenerator):
+    error = ResponseError(message="The model failed while processing the request.", code="server_error")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(RuntimeError, match="The model failed while processing the request") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.code == "server_error"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_context_overflow(openai_client, model, messages, agenerator):
+    message = "prompt tokens (320666) exceed customer model maximum (278528) for model-id"
+    error = ResponseError(message=message, code="invalid_prompt")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__.code == "invalid_prompt"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_existing_context_pattern(openai_client, model, messages, agenerator):
+    error = ResponseError(message="This model's maximum context length is 4096 tokens.", code="invalid_prompt")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(ContextWindowOverflowException, match="maximum context length"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_without_error_details(openai_client, model, messages, agenerator):
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=None)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(RuntimeError, match="OpenAI Responses API response failed"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["rate_limit_exceeded", None])
+async def test_stream_error_event_as_throttle(openai_client, model, messages, agenerator, code):
+    error_event = ResponseErrorEvent(
+        type="error", sequence_number=1, code=code, message="Rate limit exceeded while streaming."
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([error_event]))
+
+    with pytest.raises(ModelThrottledException, match="Rate limit exceeded while streaming") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__.code == code
+
+
+@pytest.mark.asyncio
+async def test_stream_throttle_precedes_context_overflow(openai_client, model, messages, agenerator):
+    error_event = ResponseErrorEvent(
+        type="error",
+        sequence_number=1,
+        code="rate_limit_exceeded",
+        message="prompt tokens exceed customer model maximum",
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([error_event]))
+
+    with pytest.raises(ModelThrottledException, match="exceed customer model maximum"):
+        async for _ in model.stream(messages):
+            pass
 
 
 @pytest.mark.asyncio
@@ -780,6 +1170,20 @@ async def test_stream_context_overflow_exception_api_error_type(openai_client, m
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_http_429_as_throttle(openai_client, model, messages):
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(429, request=request)
+    error = openai.APIStatusError("opaque provider failure", response=response, body=None)
+    openai_client.responses.create.side_effect = error
+
+    with pytest.raises(ModelThrottledException, match="opaque provider failure") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is error
 
 
 @pytest.mark.asyncio
@@ -884,6 +1288,39 @@ async def test_structured_output_context_overflow_exception(openai_client, model
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_message(openai_client, model, messages, test_output_model_cls):
+    message = "prompt tokens exceed customer model maximum"
+    mock_error = openai.APIError(
+        message=message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": message}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_message(openai_client, model, messages, test_output_model_cls):
+    mock_error = openai.APIError(
+        message="Too many requests from provider",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Too many requests from provider"}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="Too many requests") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
 
 
 @pytest.mark.asyncio
@@ -1016,6 +1453,20 @@ def test_format_request_merges_builtin_tools_with_function_tools(messages, tool_
     ]
 
 
+def test_format_request_does_not_mutate_params_tools_across_calls(messages, tool_specs):
+    """Repeated _format_request calls must not mutate self.config["params"]["tools"]."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "web_search"}]},
+    )
+
+    first = model._format_request(messages, tool_specs)
+    second = model._format_request(messages, tool_specs)
+
+    assert second["tools"] == first["tools"]
+    assert model.config["params"]["tools"] == [{"type": "web_search"}]
+
+
 def test_format_request_builtin_tools_without_function_tools(messages):
     """Test that built-in tools from params are preserved when no function tools are provided."""
     model = OpenAIResponsesModel(
@@ -1054,7 +1505,7 @@ def test_format_request_messages_with_citations_content():
     assistant_msg = [m for m in formatted if m.get("role") == "assistant"][0]
     assert assistant_msg == {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "The answer with citations."}],
+        "content": "The answer with citations.",
     }
 
 
@@ -1152,7 +1603,7 @@ async def test_stream_stateful(openai_client, model_id, agenerator, alist):
             type="response.completed",
             response=unittest.mock.Mock(
                 id="resp_abc123",
-                usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15),
+                usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None),
             ),
         ),
     ]
@@ -1205,7 +1656,7 @@ def test_format_request_messages_excludes_reasoning_content(caplog):
 
     assert result == [
         {"role": "user", "content": [{"type": "input_text", "text": "Hello"}]},
-        {"role": "assistant", "content": [{"type": "output_text", "text": "The answer is 42"}]},
+        {"role": "assistant", "content": "The answer is 42"},
         {"role": "user", "content": [{"type": "input_text", "text": "Thanks"}]},
     ]
     assert "reasoningContent is not yet supported" in caplog.text
@@ -1361,6 +1812,14 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
         mock_provide_token.assert_called_once_with(region="us-east-1")
 
+    def test_bedrock_mantle_config_uses_openai_path_for_gpt5(self, openai_client, mock_provide_token):
+        """gpt-5.* models are routed through the /openai/v1 Mantle path."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id="openai.gpt-5.4", bedrock_mantle_config={"region": "us-east-1"})
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
+
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         _ = openai_client
         from datetime import timedelta
@@ -1453,6 +1912,16 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
 
         assert resolved["base_url"] == "https://bedrock-mantle.ap-southeast-2.api.aws/v1"
         mock_provide_token.assert_called_once_with(region="ap-southeast-2")
+
+    @pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n", "us-east-1/"])
+    def test_bedrock_mantle_config_rejects_malformed_region(self, openai_client, mock_provide_token, region):
+        """A malformed region is rejected before a token is minted or a URL is built."""
+        _ = openai_client
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": region})
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            model._resolve_client_args()
+        # Validation must precede token minting so no bearer token is ever sent toward the host.
+        mock_provide_token.assert_not_called()
 
     def test_bedrock_mantle_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):
         """provide_token failures are wrapped in a RuntimeError with actionable context."""

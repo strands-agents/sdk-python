@@ -3,7 +3,7 @@
 This test verifies that context variables set in the main thread are
 properly propagated to the MCP client's background thread.
 
-Related: https://github.com/strands-agents/sdk-python/issues/1440
+Related: https://github.com/strands-agents/harness-sdk/issues/1440
 """
 
 import contextvars
@@ -54,7 +54,7 @@ test_contextvar: contextvars.ContextVar[str] = contextvars.ContextVar("test_cont
 def test_mcp_client_propagates_contextvars_to_background_thread(mock_transport, mock_session):
     """Test that context variables are propagated to the MCP client background thread.
 
-    This verifies the fix for https://github.com/strands-agents/sdk-python/issues/1440
+    This verifies the fix for https://github.com/strands-agents/harness-sdk/issues/1440
     where context variables set in the main thread were not accessible in the
     MCP client's background thread.
     """

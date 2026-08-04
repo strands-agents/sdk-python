@@ -1,5 +1,6 @@
 ---
 title: Deterministic Evaluators
+description: 'Run fast, code-based checks without LLM judges: deterministic evaluators match outputs, verify tool calls, and compare state for CI/CD pipelines.'
 tags: [tool-evaluation]
 sidebar:
   label: "Deterministic"
@@ -103,6 +104,8 @@ evaluator = StateEquals(name="temperature")
 ## Usage Example
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import Equals, Contains, ToolCalled
@@ -126,8 +129,12 @@ def get_response(case: Case) -> str:
     return str(agent(case.input))
 
 experiment = Experiment(cases=cases, evaluators=evaluators)
-reports = experiment.run_evaluations(get_response)
-reports[0].run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(get_response)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Combining with LLM Evaluators

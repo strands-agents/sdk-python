@@ -1,8 +1,13 @@
 ---
 title: Graph Multi-Agent Pattern
+description: 'Orchestrate multi-agent systems with the Strands Graph pattern: deterministic DAG or cyclic execution, conditional edges, and nested agents.'
 sidebar:
   label: "Graph"
 tags: [multi-agent]
+sourceLinks:
+  - path: strands-py/src/strands/multiagent/base.py
+  - path: strands-py/src/strands/multiagent/graph.py
+  - path: strands-ts/src/multiagent/graph.ts
 ---
 
 A Graph is a deterministic directed graph based agent orchestration system where agents, custom nodes, or other multi-agent systems (like [Swarm](./swarm.md) or nested Graphs) are nodes in a graph. Nodes are executed according to edge dependencies, with output from one node passed as input to connected nodes. The Graph pattern supports both acyclic (DAG) and cyclic topologies, enabling feedback loops and iterative refinement workflows.
@@ -42,7 +47,7 @@ graph TD
 <Tabs>
 <Tab label="Python">
 
-### 1. GraphNode
+**1. GraphNode**
 
 A [`GraphNode`](@api/python/strands.multiagent.graph#GraphNode) represents a node in the graph with:
 
@@ -53,7 +58,7 @@ A [`GraphNode`](@api/python/strands.multiagent.graph#GraphNode) represents a nod
 - **result**: The NodeResult after execution
 - **execution_time**: Time taken to execute the node in milliseconds
 
-### 2. GraphEdge
+**2. GraphEdge**
 
 A [`GraphEdge`](@api/python/strands.multiagent.graph#GraphEdge) represents a connection between nodes with:
 
@@ -61,7 +66,7 @@ A [`GraphEdge`](@api/python/strands.multiagent.graph#GraphEdge) represents a con
 - **to_node**: Target node
 - **condition**: Optional function that determines if the edge should be traversed
 
-### 3. GraphBuilder
+**3. GraphBuilder**
 
 The [`GraphBuilder`](@api/python/strands.multiagent.graph#GraphBuilder) provides a simple interface for constructing graphs:
 
@@ -77,21 +82,21 @@ The [`GraphBuilder`](@api/python/strands.multiagent.graph#GraphBuilder) provides
 </Tab>
 <Tab label="TypeScript">
 
-### Nodes
+**Nodes**
 
 Nodes wrap agents or other orchestrators for execution within the graph. The SDK provides two built-in node types:
 
 - **AgentNode**: Wraps an `AgentBase` instance. Created automatically when you pass an agent to the `nodes` array. Uses the agent's `id` as the node identifier.
 - **MultiAgentNode**: Wraps a `MultiAgentBase` instance (e.g. another `Graph` or `Swarm`). Created automatically when you pass an orchestrator to the `nodes` array. Uses the orchestrator's `id` as the node identifier.
 
-### Edges
+**Edges**
 
 Edges define directed connections between nodes. They can be specified as simple tuples or with an optional handler for conditional traversal:
 
 - **`[source, target]`**: Tuple of node IDs for unconditional edges
 - **`{ source, target, handler }`**: Object with an optional `EdgeHandler` function for conditional traversal
 
-### Graph Constructor
+**Graph Constructor**
 
 The `Graph` constructor accepts:
 
@@ -214,6 +219,55 @@ builder.add_edge("research", "analysis", condition=only_if_research_successful)
 ```
 </Tab>
 </Tabs>
+
+### Conditional Edges with Runtime Context
+
+:::note[Python only]
+This feature is currently available in the Python SDK only.
+:::
+
+Edge conditions can optionally receive an `invocation_state` dictionary, enabling routing decisions based on runtime context such as feature flags, user roles, or environment-specific configuration. This is passed during graph invocation and forwarded to conditions that accept it.
+
+Both signatures are supported — existing conditions that only accept `state` continue to work without changes.
+
+```python
+from strands import Agent
+from strands.multiagent import GraphBuilder
+from strands.multiagent.graph import GraphState
+
+# New-style condition: receives invocation_state for runtime routing
+def requires_admin(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+    """Only traverse if the invoking user has admin role."""
+    return invocation_state.get("role") == "admin"
+
+def requires_feature_flag(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+    """Only traverse if the experimental feature is enabled."""
+    return invocation_state.get("enable_experimental", False)
+
+# Build the graph with conditional routing
+builder = GraphBuilder()
+builder.add_node(router, "router")
+builder.add_node(admin_panel, "admin_panel")
+builder.add_node(experimental_feature, "experimental")
+builder.add_node(standard_path, "standard")
+
+builder.add_edge("router", "admin_panel", condition=requires_admin)
+builder.add_edge("router", "experimental", condition=requires_feature_flag)
+builder.add_edge("router", "standard")
+
+graph = builder.build()
+
+# Pass runtime context at invocation time
+result = graph("Process this request", invocation_state={"role": "admin", "enable_experimental": True})
+```
+
+The `invocation_state` dictionary is:
+
+- Passed to every `EdgeConditionWithContext` condition during edge evaluation
+- Persisted across interrupt/resume cycles (serialized with the graph checkpoint)
+- Available via the [`EdgeConditionWithContext`](@api/python/strands.multiagent.graph#EdgeConditionWithContext) protocol
+
+Legacy conditions (`Callable[[GraphState], bool]`) are detected automatically and called with only `state` — no migration is required.
 
 ### Waiting for All Dependencies
 

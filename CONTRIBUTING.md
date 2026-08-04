@@ -48,14 +48,17 @@ Our team follows these core principles when designing and implementing features.
 
 When proposing solutions or reviewing code, we reference these principles to guide our decisions. If two approaches seem equally valid, we choose the one that best aligns with our tenets.
 
+The `team/` folder holds the rest of our shared context: the full [tenets](./team/TENETS.md), [decision records](./team/DECISIONS.md), the [API bar-raising](./team/API_BAR_RAISING.md) and [feature lifecycle](./team/FEATURE_LIFECYCLE.md) processes, and our [design proposals](./team/designs/). For a significant feature or a breaking change, start with a design proposal in [`team/designs/`](./team/designs/) — see its [README](./team/designs/README.md) for the template and process.
+
 ## Development Environment
 
-This is a monorepo containing the Python SDK, TypeScript SDK, and documentation site. Each has its own toolchain:
+This is a monorepo containing the Python SDK, TypeScript SDK, MCP server, and documentation site. Each has its own toolchain:
 
 | Area | Directory | Toolchain |
 |------|-----------|-----------|
 | Python SDK | `strands-py/` | hatch |
 | TypeScript SDK | `strands-ts/` | npm workspace |
+| MCP server | `strands-mcp/` | hatch |
 | Docs site | `site/` | Astro (npm) |
 
 ### Python SDK
@@ -153,6 +156,22 @@ npm run lint        # lint
 npm run type-check  # type checking
 ```
 
+#### Running Selective Integration Tests Locally
+
+From the repository root, run only the integration tests relevant to your
+changes (computed relative to `main`, including uncommitted edits):
+
+```bash
+npm run test:integ:selective
+```
+
+This uses Vitest's module graph to run only the `integ-node` and
+`integ-browser` specs that depend on the source files you changed. If you
+alter a structural file (`package.json`, `package-lock.json`, a `strands-ts`
+`tsconfig`, `vitest.config.ts`, a shared integration fixture under
+`test/integ/__fixtures__/`, or a TypeScript CI workflow), the full
+integration suite runs automatically.
+
 ### Documentation Site
 
 The documentation site uses Astro with the Starlight theme.
@@ -168,6 +187,20 @@ npm run typecheck:snippets # type check code examples
 
 For docs contribution guidelines, see [site/CONTRIBUTING.md](./site/CONTRIBUTING.md).
 
+## Using AI Tools
+
+We love AI. We build with coding agents every day, and you're welcome to use them too — they're a great way to move fast and explore a codebase.
+
+That said, **you are the author of your pull request, not your agent.** Before you open a PR, make sure you understand the code well enough to explain why it works, defend the design choices, and maintain it if asked. If you couldn't walk a reviewer through it line by line, it's not ready yet.
+
+A few things that help us help you:
+
+- **Keep changes small and incremental.** A focused PR that does one thing is far easier for us to understand, guide, and merge than a large one that touches many areas. When in doubt, split it up.
+- **Open an issue first for anything significant**, so we can align on the approach before you (or your agent) invest the time.
+- **Review every line your agent generates.** Delete what you don't need, simplify what's over-engineered, and make sure tests actually exercise the behavior — not just pass.
+
+High-quality PRs get reviewed faster and are far more likely to be accepted. Taking the time to understand and trim your changes is the single best thing you can do to get them merged.
+
 ## Contributing via Pull Requests
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
 
@@ -175,7 +208,7 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
 
-For guidance on writing effective PR descriptions, see our PR Description Guidelines ([Python](./strands-py/docs/PR.md), [TypeScript](./dev-docs/PR.md)).
+For guidance on writing effective PR descriptions, see our [PR Description Guidelines](./team/PR.md).
 
 To send us a pull request, please:
 

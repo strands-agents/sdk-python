@@ -248,3 +248,12 @@ async def test_bidi_agent_loop_request_state_preserved_with_invocation_state(age
     # Verify request_state was added without removing custom_data
     assert "request_state" in loop._invocation_state
     assert loop._invocation_state.get("custom_data") == "preserved"
+
+
+@pytest.mark.asyncio
+async def test_bidi_agent_loop_send_respects_event_role(loop, agent):
+    agent.model.start = unittest.mock.AsyncMock()
+    agent.model.send = unittest.mock.AsyncMock()
+    await loop.start()
+    await loop.send(BidiTextInputEvent(text="injected context", role="assistant"))
+    assert agent.messages[-1] == {"role": "assistant", "content": [{"text": "injected context"}]}

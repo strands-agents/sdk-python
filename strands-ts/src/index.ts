@@ -37,12 +37,16 @@ export {
   ToolValidationError,
   StructuredOutputError,
   ToolNotFoundError,
+  DefaultNotConfiguredError,
+  StorageError,
 } from './errors.js'
 
 // Interrupt system
 export type { Interrupt, InterruptSource } from './interrupt.js'
 export type { InterruptParams, InterruptResponse, InterruptResponseContentData } from './types/interrupt.js'
 export { InterruptResponseContent } from './types/interrupt.js'
+
+// Checkpoint APIs are experimental; see '@strands-agents/sdk/experimental'.
 
 // JSON types
 export type { JSONSchema, JSONValue } from './types/json.js'
@@ -139,6 +143,10 @@ export type { ZodToolConfig } from './tools/zod-tool.js'
 
 // Tool factory function
 export { tool } from './tools/tool-factory.js'
+
+// Tool executors
+export { ConcurrentToolExecutor } from './tools/executors/concurrent.js'
+export { SequentialToolExecutor } from './tools/executors/sequential.js'
 
 // Streaming event types
 export type {
@@ -275,14 +283,20 @@ export type { Logger } from './logging/types.js'
 // MCP Client types and implementations
 export {
   type McpClientOptions,
+  type McpListToolsOptions,
+  type McpToolFilterCallback,
+  type McpToolFilters,
+  type McpToolMatcher,
   type McpClientConfig,
   type McpClientCredentials,
   type McpTransport,
   type McpCallToolOptions,
   type TasksConfig,
   type McpConnectionState,
+  type McpServerConfig,
+  type SerializableMcpToolFilters,
   McpClient,
-} from './mcp.js'
+} from './mcp/index.js'
 export type { ElicitationCallback, ElicitationContext } from './types/elicitation.js'
 
 // Session management
@@ -302,11 +316,64 @@ export { AgentTrace } from './telemetry/tracer.js'
 // Local Metrics
 export { AgentMetrics } from './telemetry/meter.js'
 
+// Storage
+export type { Storage } from './storage/storage.js'
+
 // Sandbox
 export { Sandbox, type ExecuteOptions } from './sandbox/base.js'
 export { PosixShellSandbox } from './sandbox/posix-shell.js'
+export { SandboxTimeoutError, SandboxAbortError, SandboxPathNotFoundError } from './sandbox/errors.js'
 export type { StreamType, StreamChunk, FileInfo, OutputFile, ExecutionResult } from './sandbox/types.js'
+
+// Middleware system
+export { InvokeModelStage, ExecuteToolStage } from './middleware/index.js'
+export type {
+  MiddlewareStage,
+  MiddlewareHandler,
+  MiddlewareNext,
+  MiddlewareHandlerOf,
+  MiddlewareNextOf,
+  MiddlewareInputHandler,
+  MiddlewareOutputHandler,
+  InvokeModelContext,
+  InvokeModelResult,
+  ExecuteToolContext,
+  ExecuteToolResult,
+  MiddlewareInterruptResult,
+  MiddlewareInterruptible,
+} from './middleware/index.js'
 
 // Multi-agent orchestration
 export { Graph } from './multiagent/index.js'
 export { Swarm } from './multiagent/index.js'
+
+// Memory management
+export { MemoryManager } from './memory/index.js'
+export type {
+  MemoryEntry,
+  MemoryStore,
+  MemoryStoreConfig,
+  SearchOptions,
+  AddMessagesContext,
+  MemorySearchOptions,
+  MemoryAddOptions,
+  MemoryToolConfig,
+  MemoryAddToolConfig,
+  MemoryManagerConfig,
+  MemoryInjectionConfig,
+  InjectionConfig,
+  InjectionTrigger,
+  InjectionContext,
+} from './memory/index.js'
+export { ExtractionTrigger, InvocationTrigger, IntervalTrigger, ModelExtractor } from './memory/index.js'
+export type {
+  ExtractionConfig,
+  Extractor,
+  ExtractorContext,
+  ExtractionResult,
+  ExtractionTriggerContext,
+  MemoryMessageFilter,
+  MemoryContentBlockType,
+  IntervalTriggerOptions,
+  ModelExtractorOptions,
+} from './memory/index.js'

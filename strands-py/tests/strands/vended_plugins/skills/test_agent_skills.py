@@ -1,12 +1,24 @@
-"""Tests for the AgentSkills plugin."""
+"""Tests for the AgentSkills plugin.
+
+Filesystem skill sources are loaded through the agent's sandbox at
+``init_agent`` time, so tests that use path-based skills construct a real
+``NotASandboxLocalEnvironment`` on the mock agent, call ``await
+plugin.init_agent(agent)``, and assert via ``get_available_skills(agent)`` (the
+per-agent skill set). Skill instances and URLs remain available at construction
+via ``get_available_skills()`` with no agent.
+
+"""
 
 import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
+from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from strands.types.tools import ToolContext
 from strands.vended_plugins.skills.agent_skills import AgentSkills
 from strands.vended_plugins.skills.skill import Skill
@@ -27,7 +39,13 @@ def _make_skill_dir(parent: Path, name: str, description: str = "A test skill") 
 
 
 def _mock_agent():
-    """Create a mock agent for testing."""
+    """Create a mock agent for testing.
+
+    Exposes a real ``NotASandboxLocalEnvironment`` as ``.sandbox`` so filesystem
+    skill loading and resource listing exercise the actual sandbox code paths,
+    exposing a real sandbox (which returns the
+    default host sandbox).
+    """
     agent = MagicMock()
     agent._system_prompt = "You are an agent."
     agent._system_prompt_content = [{"text": "You are an agent."}]
@@ -45,6 +63,9 @@ def _mock_agent():
     )
     agent.tool_registry = MagicMock()
     agent.tool_registry.process_tools = MagicMock(return_value=["skills"])
+
+    # Real host sandbox: filesystem skills load through it (not a MagicMock).
+    agent.sandbox = NotASandboxLocalEnvironment()
 
     # Use a real dict-backed state so get/set work correctly
     state_store: dict[str, object] = {}
@@ -78,43 +99,81 @@ class TestSkillsPluginInit:
     """Tests for AgentSkills initialization."""
 
     def test_init_with_skill_instances(self):
-        """Test initialization with Skill instances."""
+        """Test initialization with Skill instances (available without an agent)."""
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
 
         assert len(plugin.get_available_skills()) == 1
         assert plugin.get_available_skills()[0].name == "test-skill"
 
-    def test_init_with_filesystem_paths(self, tmp_path):
-        """Test initialization with filesystem paths."""
+    @pytest.mark.asyncio
+    async def test_init_with_filesystem_paths(self, tmp_path):
+        """Test initialization with filesystem paths (loaded per-agent via sandbox)."""
         _make_skill_dir(tmp_path, "fs-skill")
         plugin = AgentSkills(skills=[str(tmp_path / "fs-skill")])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin.get_available_skills()) == 1
-        assert plugin.get_available_skills()[0].name == "fs-skill"
+        assert len(plugin.get_available_skills(agent)) == 1
+        assert plugin.get_available_skills(agent)[0].name == "fs-skill"
 
-    def test_init_with_parent_directory(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_init_with_parent_directory(self, tmp_path):
         """Test initialization with a parent directory containing skills."""
         _make_skill_dir(tmp_path, "skill-a")
         _make_skill_dir(tmp_path, "skill-b")
         plugin = AgentSkills(skills=[tmp_path])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin.get_available_skills()) == 2
+        assert len(plugin.get_available_skills(agent)) == 2
 
-    def test_init_with_mixed_sources(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_init_with_mixed_sources(self, tmp_path):
         """Test initialization with mixed skill sources."""
         _make_skill_dir(tmp_path, "fs-skill")
         direct_skill = _make_skill(name="direct-skill", description="Direct")
         plugin = AgentSkills(skills=[str(tmp_path / "fs-skill"), direct_skill])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin.get_available_skills()) == 2
-        names = {s.name for s in plugin.get_available_skills()}
+        assert len(plugin.get_available_skills(agent)) == 2
+        names = {s.name for s in plugin.get_available_skills(agent)}
         assert names == {"fs-skill", "direct-skill"}
 
-    def test_init_skips_nonexistent_paths(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_init_skips_nonexistent_paths(self, tmp_path):
         """Test that nonexistent paths are skipped gracefully."""
         plugin = AgentSkills(skills=[str(tmp_path / "nonexistent")])
-        assert len(plugin.get_available_skills()) == 0
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        assert len(plugin.get_available_skills(agent)) == 0
+
+    @pytest.mark.asyncio
+    async def test_init_with_malformed_skill_md(self, tmp_path):
+        """Test that a path with a malformed SKILL.md is skipped gracefully."""
+        bad_dir = tmp_path / "bad-skill"
+        bad_dir.mkdir()
+        (bad_dir / "SKILL.md").write_text("totally broken, no frontmatter at all")
+        plugin = AgentSkills(skills=[str(bad_dir)])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        assert len(plugin.get_available_skills(agent)) == 0
+
+    @pytest.mark.asyncio
+    async def test_init_loads_valid_siblings_despite_malformed(self, tmp_path):
+        """Test that valid skills load from a parent dir containing malformed siblings."""
+        _make_skill_dir(tmp_path, "good-skill")
+        bad_dir = tmp_path / "bad-skill"
+        bad_dir.mkdir()
+        (bad_dir / "SKILL.md").write_text("no frontmatter")
+        plugin = AgentSkills(skills=[tmp_path])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+
+        skills = plugin.get_available_skills(agent)
+        assert len(skills) == 1
+        assert skills[0].name == "good-skill"
 
     def test_init_empty_skills(self):
         """Test initialization with empty skills list."""
@@ -160,12 +219,13 @@ class TestSkillsPluginInitAgent:
 
         assert agent.hooks.has_callbacks()
 
-    def test_does_not_store_agent_reference(self):
+    @pytest.mark.asyncio
+    async def test_does_not_store_agent_reference(self):
         """Test that init_agent does not store the agent on the plugin."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_agent(agent)
+        await plugin.init_agent(agent)
 
         assert not hasattr(plugin, "_agent")
 
@@ -193,56 +253,65 @@ class TestSkillsPluginProperties:
         assert len(plugin.get_available_skills()) == 1
         assert plugin.get_available_skills()[0].name == "new-skill"
 
-    def test_set_available_skills_with_paths(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_set_available_skills_with_paths(self, tmp_path):
         """Test setting skills via set_available_skills with filesystem paths."""
         plugin = AgentSkills(skills=[_make_skill()])
         _make_skill_dir(tmp_path, "fs-skill")
 
         plugin.set_available_skills([str(tmp_path / "fs-skill")])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin.get_available_skills()) == 1
-        assert plugin.get_available_skills()[0].name == "fs-skill"
+        assert len(plugin.get_available_skills(agent)) == 1
+        assert plugin.get_available_skills(agent)[0].name == "fs-skill"
 
-    def test_set_available_skills_with_mixed_sources(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_set_available_skills_with_mixed_sources(self, tmp_path):
         """Test setting skills via set_available_skills with mixed sources."""
         plugin = AgentSkills(skills=[])
         _make_skill_dir(tmp_path, "fs-skill")
         direct = _make_skill(name="direct", description="Direct")
 
         plugin.set_available_skills([str(tmp_path / "fs-skill"), direct])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin.get_available_skills()) == 2
-        names = {s.name for s in plugin.get_available_skills()}
+        assert len(plugin.get_available_skills(agent)) == 2
+        names = {s.name for s in plugin.get_available_skills(agent)}
         assert names == {"fs-skill", "direct"}
 
 
 class TestSkillsTool:
     """Tests for the skills tool method."""
 
-    def test_activate_skill(self):
+    @pytest.mark.asyncio
+    async def test_activate_skill(self):
         """Test activating a skill returns its instructions."""
         skill = _make_skill(instructions="Full instructions here.")
         plugin = AgentSkills(skills=[skill])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result = plugin.skills(skill_name="test-skill", tool_context=tool_context)
+        result = await plugin.skills(skill_name="test-skill", tool_context=tool_context)
 
         assert "Full instructions here." in result
 
-    def test_activate_nonexistent_skill(self):
+    @pytest.mark.asyncio
+    async def test_activate_nonexistent_skill(self):
         """Test activating a nonexistent skill returns error message."""
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result = plugin.skills(skill_name="nonexistent", tool_context=tool_context)
+        result = await plugin.skills(skill_name="nonexistent", tool_context=tool_context)
 
         assert "not found" in result
         assert "test-skill" in result
 
-    def test_activate_replaces_previous(self):
+    @pytest.mark.asyncio
+    async def test_activate_replaces_previous(self):
         """Test that activating a new skill replaces the previous one."""
         skill1 = _make_skill(name="skill-a", description="A", instructions="A instructions")
         skill2 = _make_skill(name="skill-b", description="B", instructions="B instructions")
@@ -250,33 +319,36 @@ class TestSkillsTool:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result_a = plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        result_a = await plugin.skills(skill_name="skill-a", tool_context=tool_context)
         assert "A instructions" in result_a
 
-        result_b = plugin.skills(skill_name="skill-b", tool_context=tool_context)
+        result_b = await plugin.skills(skill_name="skill-b", tool_context=tool_context)
         assert "B instructions" in result_b
 
-    def test_activate_without_name(self):
+    @pytest.mark.asyncio
+    async def test_activate_without_name(self):
         """Test activating without a skill name returns error."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        result = plugin.skills(skill_name="", tool_context=tool_context)
+        result = await plugin.skills(skill_name="", tool_context=tool_context)
 
         assert "required" in result.lower()
 
-    def test_activate_tracks_in_agent_state(self):
+    @pytest.mark.asyncio
+    async def test_activate_tracks_in_agent_state(self):
         """Test that activating a skill records it in agent state."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        plugin.skills(skill_name="test-skill", tool_context=tool_context)
+        await plugin.skills(skill_name="test-skill", tool_context=tool_context)
 
         assert plugin.get_activated_skills(agent) == ["test-skill"]
 
-    def test_activate_multiple_tracks_order(self):
+    @pytest.mark.asyncio
+    async def test_activate_multiple_tracks_order(self):
         """Test that multiple activations are tracked in order."""
         skill_a = _make_skill(name="skill-a", description="A", instructions="A")
         skill_b = _make_skill(name="skill-b", description="B", instructions="B")
@@ -284,12 +356,13 @@ class TestSkillsTool:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        plugin.skills(skill_name="skill-a", tool_context=tool_context)
-        plugin.skills(skill_name="skill-b", tool_context=tool_context)
+        await plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        await plugin.skills(skill_name="skill-b", tool_context=tool_context)
 
         assert plugin.get_activated_skills(agent) == ["skill-a", "skill-b"]
 
-    def test_activate_same_skill_twice_deduplicates(self):
+    @pytest.mark.asyncio
+    async def test_activate_same_skill_twice_deduplicates(self):
         """Test that re-activating a skill moves it to the end without duplicates."""
         skill_a = _make_skill(name="skill-a", description="A", instructions="A")
         skill_b = _make_skill(name="skill-b", description="B", instructions="B")
@@ -297,9 +370,9 @@ class TestSkillsTool:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        plugin.skills(skill_name="skill-a", tool_context=tool_context)
-        plugin.skills(skill_name="skill-b", tool_context=tool_context)
-        plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        await plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        await plugin.skills(skill_name="skill-b", tool_context=tool_context)
+        await plugin.skills(skill_name="skill-a", tool_context=tool_context)
 
         assert plugin.get_activated_skills(agent) == ["skill-b", "skill-a"]
 
@@ -310,13 +383,14 @@ class TestSkillsTool:
 
         assert plugin.get_activated_skills(agent) == []
 
-    def test_get_activated_skills_returns_copy(self):
+    @pytest.mark.asyncio
+    async def test_get_activated_skills_returns_copy(self):
         """Test that get_activated_skills returns a copy, not a reference."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        plugin.skills(skill_name="test-skill", tool_context=tool_context)
+        await plugin.skills(skill_name="test-skill", tool_context=tool_context)
         result = plugin.get_activated_skills(agent)
         result.append("injected")
 
@@ -326,20 +400,22 @@ class TestSkillsTool:
 class TestSystemPromptInjection:
     """Tests for system prompt injection via hooks."""
 
-    def test_before_invocation_appends_skills_xml(self):
+    @pytest.mark.asyncio
+    async def test_before_invocation_appends_skills_xml(self):
         """Test that before_invocation appends skills XML to system prompt."""
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
         agent = _mock_agent()
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         assert "<available_skills>" in agent.system_prompt
         assert "<name>test-skill</name>" in agent.system_prompt
         assert "<description>A test skill</description>" in agent.system_prompt
 
-    def test_before_invocation_preserves_existing_prompt(self):
+    @pytest.mark.asyncio
+    async def test_before_invocation_preserves_existing_prompt(self):
         """Test that existing system prompt content is preserved."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -347,12 +423,13 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = [{"text": "Original prompt."}]
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         assert agent.system_prompt.startswith("Original prompt.")
         assert "<available_skills>" in agent.system_prompt
 
-    def test_repeated_invocations_do_not_accumulate(self):
+    @pytest.mark.asyncio
+    async def test_repeated_invocations_do_not_accumulate(self):
         """Test that repeated invocations rebuild from current prompt without accumulation."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -360,15 +437,16 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = [{"text": "Original prompt."}]
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
         first_prompt = agent.system_prompt
 
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
         second_prompt = agent.system_prompt
 
         assert first_prompt == second_prompt
 
-    def test_no_skills_injects_empty_message(self):
+    @pytest.mark.asyncio
+    async def test_no_skills_injects_empty_message(self):
         """Test that a 'no skills available' message is injected when no skills are loaded."""
         plugin = AgentSkills(skills=[])
         agent = _mock_agent()
@@ -377,12 +455,13 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = [{"text": original_prompt}]
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         assert "No skills are currently available" in agent.system_prompt
         assert agent.system_prompt.startswith("Original prompt.")
 
-    def test_none_system_prompt_handled(self):
+    @pytest.mark.asyncio
+    async def test_none_system_prompt_handled(self):
         """Test handling when system prompt is None."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -390,11 +469,12 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = None
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         assert "<available_skills>" in agent.system_prompt
 
-    def test_preserves_other_plugin_modifications(self):
+    @pytest.mark.asyncio
+    async def test_preserves_other_plugin_modifications(self):
         """Test that modifications by other plugins/hooks are preserved."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -402,17 +482,18 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = [{"text": "Original prompt."}]
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         # Simulate another plugin modifying the prompt
         agent.system_prompt = agent.system_prompt + "\n\nExtra context from another plugin."
 
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         assert "Extra context from another plugin." in agent.system_prompt
         assert "<available_skills>" in agent.system_prompt
 
-    def test_uses_public_system_prompt_setter(self):
+    @pytest.mark.asyncio
+    async def test_uses_public_system_prompt_setter(self):
         """Test that the hook uses the public system_prompt setter."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -420,7 +501,7 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = [{"text": "Original."}]
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         # The public setter should have been used via the content-block path:
         # original block is preserved and the skills XML is appended as a new block.
@@ -428,7 +509,8 @@ class TestSystemPromptInjection:
         assert agent.system_prompt_content[0] == {"text": "Original."}
         assert "<available_skills>" in agent.system_prompt_content[1]["text"]
 
-    def test_preserves_cache_points_in_system_prompt(self):
+    @pytest.mark.asyncio
+    async def test_preserves_cache_points_in_system_prompt(self):
         """Test that cachePoint blocks in the system prompt are preserved after injection."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -438,10 +520,10 @@ class TestSystemPromptInjection:
             {"cachePoint": {"type": "default"}},
         ]
 
-        expected_skills_xml = plugin._generate_skills_xml()
+        expected_skills_xml = plugin._generate_skills_xml(agent)
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         # Exact block structure: original text, cachePoint, skills XML
         assert agent.system_prompt_content == [
@@ -451,14 +533,15 @@ class TestSystemPromptInjection:
         ]
 
         # Repeated invocation: identical result, no accumulation
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
         assert agent.system_prompt_content == [
             {"text": "Base instructions."},
             {"cachePoint": {"type": "default"}},
             {"text": expected_skills_xml},
         ]
 
-    def test_warns_when_previous_xml_not_found(self, caplog):
+    @pytest.mark.asyncio
+    async def test_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when the previously injected XML is missing from the prompt."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -466,13 +549,13 @@ class TestSystemPromptInjection:
         agent._system_prompt_content = [{"text": "Original prompt."}]
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         # Completely replace the system prompt, removing the injected XML
         agent.system_prompt = "Totally new prompt."
 
         with caplog.at_level(logging.WARNING):
-            plugin._on_before_invocation(event)
+            await plugin._on_before_invocation(event)
 
         assert "unable to find previously injected skills XML in system prompt" in caplog.text
         assert "<available_skills>" in agent.system_prompt
@@ -481,7 +564,8 @@ class TestSystemPromptInjection:
 class TestStringPathInjection:
     """Tests for the string-path branch of _on_before_invocation (system_prompt_content is None)."""
 
-    def test_string_path_replaces_previous_xml(self):
+    @pytest.mark.asyncio
+    async def test_string_path_replaces_previous_xml(self):
         """Test that old injected XML is replaced when found in the string prompt."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -492,13 +576,14 @@ class TestStringPathInjection:
         agent.state.set(plugin._state_key, {"last_injected_xml": old_xml})
 
         event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
+        await plugin._on_before_invocation(event)
 
         assert "<old>xml</old>" not in agent.system_prompt
         assert "<available_skills>" in agent.system_prompt
         assert agent.system_prompt.startswith("Base prompt.")
 
-    def test_string_path_warns_when_previous_xml_not_found(self, caplog):
+    @pytest.mark.asyncio
+    async def test_string_path_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when old XML is missing from the string prompt."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
@@ -509,7 +594,7 @@ class TestStringPathInjection:
 
         event = BeforeInvocationEvent(agent=agent)
         with caplog.at_level(logging.WARNING):
-            plugin._on_before_invocation(event)
+            await plugin._on_before_invocation(event)
 
         assert "unable to find previously injected skills XML in system prompt" in caplog.text
         assert "<available_skills>" in agent.system_prompt
@@ -580,58 +665,64 @@ class TestSkillsXmlGeneration:
 class TestSkillResponseFormat:
     """Tests for _format_skill_response."""
 
-    def test_instructions_only(self):
+    @pytest.mark.asyncio
+    async def test_instructions_only(self):
         """Test response with just instructions."""
         skill = _make_skill(instructions="Do the thing.")
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert result == "Do the thing."
 
-    def test_no_instructions(self):
+    @pytest.mark.asyncio
+    async def test_no_instructions(self):
         """Test response when skill has no instructions."""
         skill = _make_skill(instructions="")
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "no instructions available" in result.lower()
 
-    def test_includes_allowed_tools(self):
+    @pytest.mark.asyncio
+    async def test_includes_allowed_tools(self):
         """Test response includes allowed tools when set."""
         skill = _make_skill(instructions="Do the thing.")
         skill.allowed_tools = ["Bash", "Read"]
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Do the thing." in result
         assert "Allowed tools: Bash, Read" in result
 
-    def test_includes_compatibility(self):
+    @pytest.mark.asyncio
+    async def test_includes_compatibility(self):
         """Test response includes compatibility when set."""
         skill = _make_skill(instructions="Do the thing.")
         skill.compatibility = "Requires docker"
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Compatibility: Requires docker" in result
 
-    def test_includes_location(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_includes_location(self, tmp_path):
         """Test response includes location when path is set."""
         skill = _make_skill(instructions="Do the thing.")
         skill.path = tmp_path / "test-skill"
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert f"Location: {tmp_path / 'test-skill' / 'SKILL.md'}" in result
 
-    def test_all_metadata(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_all_metadata(self, tmp_path):
         """Test response with all metadata fields."""
         skill = _make_skill(instructions="Do the thing.")
         skill.allowed_tools = ["Bash"]
         skill.compatibility = "Requires git"
         skill.path = tmp_path / "test-skill"
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Do the thing." in result
         assert "---" in result
@@ -639,7 +730,8 @@ class TestSkillResponseFormat:
         assert "Compatibility: Requires git" in result
         assert "Location:" in result
 
-    def test_includes_resource_listing(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_includes_resource_listing(self, tmp_path):
         """Test response includes resource files from optional directories."""
         skill_dir = tmp_path / "test-skill"
         skill_dir.mkdir()
@@ -651,21 +743,23 @@ class TestSkillResponseFormat:
         skill = _make_skill(instructions="Do the thing.")
         skill.path = skill_dir
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Available resources:" in result
         assert "scripts/extract.py" in result
         assert "references/REFERENCE.md" in result
 
-    def test_no_resources_when_no_path(self):
+    @pytest.mark.asyncio
+    async def test_no_resources_when_no_path(self):
         """Test that resources section is omitted for programmatic skills."""
         skill = _make_skill(instructions="Do the thing.")
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Available resources:" not in result
 
-    def test_no_resources_when_dirs_empty(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_no_resources_when_dirs_empty(self, tmp_path):
         """Test that resources section is omitted when optional dirs don't exist."""
         skill_dir = tmp_path / "test-skill"
         skill_dir.mkdir()
@@ -673,11 +767,12 @@ class TestSkillResponseFormat:
         skill = _make_skill(instructions="Do the thing.")
         skill.path = skill_dir
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Available resources:" not in result
 
-    def test_resource_listing_truncated(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_resource_listing_truncated(self, tmp_path):
         """Test that resource listing is truncated at the max file limit."""
         skill_dir = tmp_path / "test-skill"
         scripts_dir = skill_dir / "scripts"
@@ -688,51 +783,72 @@ class TestSkillResponseFormat:
         skill = _make_skill(instructions="Do the thing.")
         skill.path = skill_dir
         plugin = AgentSkills(skills=[skill])
-        result = plugin._format_skill_response(skill)
+        result = await plugin._format_skill_response(skill, NotASandboxLocalEnvironment())
 
         assert "Available resources:" in result
         assert "truncated at 20 files" in result
 
 
 class TestResolveSkills:
-    """Tests for _resolve_skills."""
+    """Tests for _resolve_skills and per-agent path loading."""
 
     def test_resolve_skill_instances(self):
-        """Test resolving Skill instances (pass-through)."""
+        """Test resolving Skill instances (pass-through into base skills)."""
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
 
         assert len(plugin._skills) == 1
         assert plugin._skills["test-skill"] is skill
 
-    def test_resolve_skill_directory_path(self, tmp_path):
-        """Test resolving a path to a skill directory."""
+    def test_filesystem_paths_deferred_not_in_base_skills(self, tmp_path):
+        """Test that filesystem paths are deferred, not resolved into base skills at construction."""
         _make_skill_dir(tmp_path, "path-skill")
         plugin = AgentSkills(skills=[tmp_path / "path-skill"])
 
-        assert len(plugin._skills) == 1
-        assert "path-skill" in plugin._skills
+        # Deferred: not in base _skills, collected in _skill_paths instead
+        assert len(plugin._skills) == 0
+        assert len(plugin._skill_paths) == 1
 
-    def test_resolve_parent_directory_path(self, tmp_path):
-        """Test resolving a path to a parent directory."""
+    @pytest.mark.asyncio
+    async def test_resolve_skill_directory_path(self, tmp_path):
+        """Test loading a path to a skill directory through the sandbox."""
+        _make_skill_dir(tmp_path, "path-skill")
+        plugin = AgentSkills(skills=[tmp_path / "path-skill"])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+
+        skills = {s.name for s in plugin.get_available_skills(agent)}
+        assert "path-skill" in skills
+
+    @pytest.mark.asyncio
+    async def test_resolve_parent_directory_path(self, tmp_path):
+        """Test loading a path to a parent directory through the sandbox."""
         _make_skill_dir(tmp_path, "child-a")
         _make_skill_dir(tmp_path, "child-b")
         plugin = AgentSkills(skills=[tmp_path])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin._skills) == 2
+        assert len(plugin.get_available_skills(agent)) == 2
 
-    def test_resolve_skill_md_file_path(self, tmp_path):
-        """Test resolving a path to a SKILL.md file."""
+    @pytest.mark.asyncio
+    async def test_resolve_skill_md_file_path(self, tmp_path):
+        """Test loading a path to a SKILL.md file through the sandbox."""
         skill_dir = _make_skill_dir(tmp_path, "file-skill")
         plugin = AgentSkills(skills=[skill_dir / "SKILL.md"])
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
 
-        assert len(plugin._skills) == 1
-        assert "file-skill" in plugin._skills
+        skills = {s.name for s in plugin.get_available_skills(agent)}
+        assert "file-skill" in skills
 
-    def test_resolve_nonexistent_path(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_resolve_nonexistent_path(self, tmp_path):
         """Test that nonexistent paths are skipped."""
         plugin = AgentSkills(skills=[str(tmp_path / "ghost")])
-        assert len(plugin._skills) == 0
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        assert len(plugin.get_available_skills(agent)) == 0
 
 
 class TestResolveUrlSkills:
@@ -750,7 +866,7 @@ class TestResolveUrlSkills:
         return mock_response
 
     def test_resolve_url_source(self):
-        """Test resolving a URL string as a skill source."""
+        """Test resolving a URL string as a skill source (available without an agent)."""
         from unittest.mock import patch
 
         with patch(
@@ -761,7 +877,8 @@ class TestResolveUrlSkills:
         assert len(plugin.get_available_skills()) == 1
         assert plugin.get_available_skills()[0].name == "url-skill"
 
-    def test_resolve_mixed_url_and_local(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_resolve_mixed_url_and_local(self, tmp_path):
         """Test resolving a mix of URL and local filesystem sources."""
         from unittest.mock import patch
 
@@ -777,8 +894,11 @@ class TestResolveUrlSkills:
                 ]
             )
 
-        assert len(plugin.get_available_skills()) == 2
-        names = {s.name for s in plugin.get_available_skills()}
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+
+        assert len(plugin.get_available_skills(agent)) == 2
+        names = {s.name for s in plugin.get_available_skills(agent)}
         assert names == {"url-skill", "local-skill"}
 
     def test_resolve_url_failure_skips_gracefully(self, caplog):
@@ -852,3 +972,58 @@ class TestImports:
 
         plugin = AgentSkills(skills=[])
         assert isinstance(plugin, Plugin)
+
+
+def _make_skill_dir_named(parent: Path, dir_name: str, skill_name: str) -> Path:
+    """Create a skill directory whose SKILL.md ``name`` differs from the directory name."""
+    skill_dir = parent / dir_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: {skill_name}\ndescription: A skill\n---\n# Body\n")
+    return skill_dir
+
+
+class TestSkillPathLoadingEdgeCases:
+    """Coverage for sandbox path-loading branches: name/dir mismatch and resource nesting."""
+
+    @pytest.mark.asyncio
+    async def test_name_dir_mismatch_warns_but_loads(self, tmp_path, caplog):
+        # Non-strict: a skill whose name doesn't match its directory loads with a warning.
+        _make_skill_dir_named(tmp_path, dir_name="wrong-dir", skill_name="actual-name")
+        plugin = AgentSkills(skills=[str(tmp_path / "wrong-dir")])
+        agent = _mock_agent()
+        with caplog.at_level(logging.WARNING):
+            await plugin.init_agent(agent)
+        assert "does not match parent directory name" in caplog.text
+        assert {s.name for s in plugin.get_available_skills(agent)} == {"actual-name"}
+
+    @pytest.mark.asyncio
+    async def test_name_dir_mismatch_strict_skips(self, tmp_path):
+        # Strict: the mismatch raises, is caught per-skill, and the skill is skipped.
+        _make_skill_dir_named(tmp_path, dir_name="wrong-dir", skill_name="actual-name")
+        plugin = AgentSkills(skills=[str(tmp_path / "wrong-dir")], strict=True)
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        assert plugin.get_available_skills(agent) == []
+
+    @pytest.mark.asyncio
+    async def test_lists_nested_resource_directories(self, tmp_path):
+        # Resource listing recurses into subdirectories under scripts/.
+        skill_dir = _make_skill_dir(tmp_path, "nested-skill")
+        nested = skill_dir / "scripts" / "helpers"
+        nested.mkdir(parents=True)
+        (nested / "util.py").write_text("# util")
+        skill = _make_skill(name="nested-skill")
+        skill.path = skill_dir
+        result = await AgentSkills(skills=[skill])._format_skill_response(skill, NotASandboxLocalEnvironment())
+        assert "scripts/helpers/util.py" in result
+
+
+class TestSetStateField:
+    """Coverage for the agent-state type guard."""
+
+    def test_rejects_non_dict_state(self):
+        plugin = AgentSkills(skills=[])
+        agent = _mock_agent()
+        agent.state.set(plugin._state_key, "not-a-dict")
+        with pytest.raises(TypeError, match="expected dict for state key"):
+            plugin._set_state_field(agent, "k", "v")

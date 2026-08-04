@@ -51,5 +51,31 @@ describe('A2AServer', () => {
       })
       expect(server.agentCard).toBeDefined()
     })
+
+    it('builds an agent card from a factory-built representative agent', () => {
+      const built: string[] = []
+      const server = new A2AServer({
+        agentFactory: (contextId) => {
+          built.push(contextId)
+          return new Agent({ model: new MockMessageModel(), printer: false })
+        },
+        name: 'Factory Agent',
+      })
+
+      // Factory invoked once at construction (placeholder context) for card metadata.
+      expect(built).toHaveLength(1)
+      expect(server.agentCard.name).toBe('Factory Agent')
+    })
+
+    it('throws when neither agent nor agentFactory is provided', () => {
+      expect(() => new A2AServer({ name: 'No Agent' })).toThrow("Provide exactly one of 'agent' or 'agentFactory'.")
+    })
+
+    it('throws when both agent and agentFactory are provided', () => {
+      const agent = new Agent({ model: new MockMessageModel(), printer: false })
+      expect(() => new A2AServer({ agent, agentFactory: () => agent, name: 'Both' })).toThrow(
+        "Provide exactly one of 'agent' or 'agentFactory'."
+      )
+    })
   })
 })

@@ -2,6 +2,15 @@
 
 A cross-platform HTTP request tool for making HTTP requests to external APIs from Strands agents.
 
+## ⚠️ Security Warning
+
+**This tool makes HTTP requests to arbitrary URLs without restrictions on destination.**
+
+- Only use with trusted input
+- Requests execute with the network access of the host process
+- For production deployments, consider running in a sandboxed environment (containers, VMs, etc.)
+- Never expose this tool to untrusted users or untrusted prompt input without additional security measures
+
 ## Features
 
 - **All HTTP Methods**: Supports GET, POST, PUT, DELETE, PATCH, HEAD, and OPTIONS

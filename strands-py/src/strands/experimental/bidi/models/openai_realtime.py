@@ -24,6 +24,7 @@ from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionStartEvent,
+    BidiImageInputEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
@@ -228,18 +229,13 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         Args:
             text: The transcript text
-            role: The role (will be normalized to lowercase)
+            role: The raw provider role (normalized by the event constructor)
             is_final: Whether this is the final transcript
         """
-        # Normalize role to lowercase and ensure it's either "user" or "assistant"
-        normalized_role = role.lower() if isinstance(role, str) else "assistant"
-        if normalized_role not in ["user", "assistant"]:
-            normalized_role = "assistant"
-
         return BidiTranscriptStreamEvent(
             delta={"text": text},
             text=text,
-            role=cast(Role, normalized_role),
+            role=cast(Role, role),
             is_final=is_final,
             current_transcript=text if is_final else None,
         )
@@ -423,7 +419,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before sending/receiving")
+            raise RuntimeError("model not started | call start before receiving")
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
@@ -472,18 +468,14 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Assistant text output events - combine multiple similar events
         elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
             role = openai_event.get("role", "assistant")
-            return [
-                self._create_text_event(
-                    openai_event["delta"], role.lower() if isinstance(role, str) else "assistant", is_final=False
-                )
-            ]
+            return [self._create_text_event(openai_event["delta"], role, is_final=False)]
 
         elif event_type in ["response.output_audio_transcript.done"]:
-            role = openai_event.get("role", "assistant").lower()
+            role = openai_event.get("role", "assistant")
             return [self._create_text_event(openai_event["transcript"], role)]
 
         elif event_type in ["response.output_text.done"]:
-            role = openai_event.get("role", "assistant").lower()
+            role = openai_event.get("role", "assistant")
             return [self._create_text_event(openai_event["text"], role)]
 
         # User transcription events - combine multiple similar events
@@ -495,21 +487,13 @@ class BidiOpenAIRealtimeModel(BidiModel):
             text = openai_event.get(text_key, "")
             role = openai_event.get("role", "user")
             is_final = "completed" in event_type
-            return (
-                [self._create_text_event(text, role.lower() if isinstance(role, str) else "user", is_final=is_final)]
-                if text.strip()
-                else None
-            )
+            return [self._create_text_event(text, role, is_final=is_final)] if text.strip() else None
 
         elif event_type == "conversation.item.input_audio_transcription.segment":
             segment_data = openai_event.get("segment", {})
             text = segment_data.get("text", "")
             role = segment_data.get("role", "user")
-            return (
-                [self._create_text_event(text, role.lower() if isinstance(role, str) else "user")]
-                if text.strip()
-                else None
-            )
+            return [self._create_text_event(text, role)] if text.strip() else None
 
         elif event_type == "conversation.item.input_audio_transcription.failed":
             error_info = openai_event.get("error", {})
@@ -712,7 +696,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
 
         Raises:
-            ValueError: If content type not supported (e.g., image content).
+            ValueError: If content type not supported.
         """
         if not self._connection_id:
             raise RuntimeError("model not started | call start before sending")
@@ -722,6 +706,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
             await self._send_text_content(content.text)
         elif isinstance(content, BidiAudioInputEvent):
             await self._send_audio_content(content)
+        elif isinstance(content, BidiImageInputEvent):
+            await self._send_image_content(content)
         elif isinstance(content, ToolResultEvent):
             tool_result = content.get("tool_result")
             if tool_result:
@@ -734,15 +720,27 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Audio is already base64 encoded in the event
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_input.audio})
 
+    async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
+        """Internal: Send image content to OpenAI for processing.
+
+        Sends the image as an ``input_image`` content block on a user message via
+        ``conversation.item.create``. Image data is encoded as a ``data:`` URL using
+        the event's MIME type and base64 payload, matching the format documented for
+        OpenAI's Realtime API image input on ``gpt-realtime`` models.
+        """
+        data_url = f"data:{image_input.mime_type};base64,{image_input.image}"
+        item_data = {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_image", "image_url": data_url}],
+        }
+        await self._send_event({"type": "conversation.item.create", "item": item_data})
+
     async def _send_text_content(self, text: str) -> None:
         """Internal: Send text content to OpenAI for processing."""
         item_data = {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
-
-    async def _send_interrupt(self) -> None:
-        """Internal: Send interruption signal to OpenAI."""
-        await self._send_event({"type": "response.cancel"})
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result back to OpenAI."""

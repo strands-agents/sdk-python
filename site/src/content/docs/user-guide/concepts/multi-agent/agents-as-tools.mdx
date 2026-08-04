@@ -1,8 +1,12 @@
 ---
 title: Agents as Tools with Strands Agents SDK
+description: 'Wrap specialized Strands agents as callable tools so an orchestrator agent can delegate tasks to domain experts in a hierarchical pattern.'
 sidebar:
   label: "Agents as Tools"
 tags: [multi-agent, tool-authoring, tool-execution]
+sourceLinks:
+  - path: strands-py/src/strands/agent/_agent_as_tool.py
+  - path: strands-ts/src/agent/agent-as-tool.ts
 ---
 
 ## The Concept: Agents as Tools
@@ -34,7 +38,7 @@ When implementing the "Agents as Tools" pattern with Strands Agents SDK:
 
 ## Implementing Agents as Tools with Strands Agents SDK
 
-Strands Agents SDK provides three ways to implement the "Agents as Tools" pattern: passing agents directly in the `tools` array for the simplest setup, `.as_tool()`/`.asTool()` when you need to customize tool name, description, or context behavior, and the `@tool` decorator or `tool()` function for full control over how the agent is invoked.
+Strands Agents SDK provides three ways to implement the "Agents as Tools" pattern: passing agents directly in the `tools` array for the simplest setup, <Syntax py=".as_tool()" ts=".asTool()" /> when you need to customize tool name, description, or context behavior, and the `@tool` decorator or `tool()` function for full control over how the agent is invoked.
 
 ```mermaid
 flowchart TD
@@ -102,7 +106,7 @@ orchestrator = Agent(
 
 ### Customizing Agent Tools
 
-When you need to customize the tool name, description, or context behavior, use `.as_tool()` (Python) or `.asTool()` (TypeScript) explicitly:
+When you need to customize the tool name, description, or context behavior, use <Syntax py=".as_tool()" ts=".asTool()" /> explicitly:
 
 <Tabs>
 <Tab label="Python">
@@ -129,7 +133,7 @@ orchestrator = Agent(
 
 #### Context Management
 
-By default, both direct passing and `.as_tool()`/`.asTool()` reset the agent's conversation context between invocations, ensuring every call starts from a clean baseline. To preserve the agent's conversation history across invocations:
+By default, both direct passing and <Syntax py=".as_tool()" ts=".asTool()" /> reset the agent's conversation context between invocations, ensuring every call starts from a clean baseline. To preserve the agent's conversation history across invocations:
 
 <Tabs>
 <Tab label="Python">
@@ -345,7 +349,7 @@ The [Teacher's Assistant](../../../../examples/python/multi_agent_example/multi_
 </Tab>
 <Tab label="TypeScript">
 
-The [Agents as Tools](https://github.com/strands-agents/sdk-typescript/tree/main/strands-ts/examples/agents-as-tools) example demonstrates an orchestrator agent that routes student queries to specialized tool agents for math, English, computer science, and general knowledge.
+The [Agents as Tools](https://github.com/strands-agents/harness-sdk/tree/main/strands-ts/examples/agents-as-tools) example demonstrates an orchestrator agent that routes student queries to specialized tool agents for math, English, computer science, and general knowledge.
 
 </Tab>
 </Tabs>

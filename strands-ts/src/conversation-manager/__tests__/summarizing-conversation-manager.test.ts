@@ -53,6 +53,23 @@ describe('SummarizingConversationManager', () => {
       expect(mockAgent.messages.slice(-2)).toEqual(lastTwo)
     })
 
+    it('assigns a durable tracking id to the generated summary message', async () => {
+      const model = new MockMessageModel()
+      model.addTurn({ type: 'textBlock', text: 'Summary of conversation' })
+
+      const manager = new SummarizingConversationManager({ summaryRatio: 0.5, preserveRecentMessages: 2 })
+      const mockAgent = createMockAgent({ messages: makeMessages(20) })
+
+      await manager.reduce({
+        agent: mockAgent,
+        model: model as unknown as Model,
+        error: new ContextWindowOverflowError('overflow'),
+      })
+
+      expect(typeof mockAgent.messages[0]!.trackingId).toBe('string')
+      expect(mockAgent.messages[0]!.trackingId).toBeTruthy()
+    })
+
     it('uses the config model over the reduce model when provided', async () => {
       const configModel = new MockMessageModel()
       configModel.addTurn({ type: 'textBlock', text: 'Config model summary' })
@@ -404,6 +421,77 @@ describe('SummarizingConversationManager', () => {
       // Should not throw — reduceOnThreshold is best-effort
       await invokeTrackedHook(mockAgent, event)
       expect(mockAgent.messages).toHaveLength(20)
+    })
+  })
+
+  describe('pinFirst', () => {
+    it('protects first N messages from summarization', async () => {
+      const model = new MockMessageModel()
+      model.addTurn({ type: 'textBlock', text: 'Summary' })
+
+      const manager = new SummarizingConversationManager({
+        summaryRatio: 0.5,
+        preserveRecentMessages: 2,
+        pinFirst: 2,
+      })
+
+      const agent = createMockAgent({
+        messages: [
+          textMsg('user', 'protected-1'),
+          textMsg('assistant', 'protected-2'),
+          textMsg('user', 'summarize-me'),
+          textMsg('assistant', 'summarize-me-too'),
+          textMsg('user', 'recent-1'),
+          textMsg('assistant', 'recent-2'),
+        ],
+      })
+
+      await manager.reduce({ agent, model: model as unknown as Model })
+
+      const texts = agent.messages.map((m) => (m.content[0] as TextBlock).text)
+      expect(texts).toEqual(['protected-1', 'protected-2', 'Summary', 'summarize-me-too', 'recent-1', 'recent-2'])
+    })
+
+    it('returns false when all messages in summary range are protected', async () => {
+      const model = new MockMessageModel()
+      model.addTurn({ type: 'textBlock', text: 'Summary' })
+
+      const manager = new SummarizingConversationManager({
+        summaryRatio: 0.3,
+        preserveRecentMessages: 2,
+        pinFirst: 10,
+      })
+
+      const agent = createMockAgent({ messages: makeMessages(6) })
+      const result = await manager.reduce({ agent, model: model as unknown as Model })
+      expect(result).toBe(false)
+    })
+
+    it('pinned message in middle survives summarization', async () => {
+      const { pinMessage } = await import('../compression/pin-message.js')
+      const model = new MockMessageModel()
+      model.addTurn({ type: 'textBlock', text: 'Summary' })
+
+      const manager = new SummarizingConversationManager({
+        summaryRatio: 0.5,
+        preserveRecentMessages: 2,
+      })
+
+      const messages = [
+        textMsg('user', 'old-1'),
+        textMsg('assistant', 'pinned-middle'),
+        textMsg('user', 'old-3'),
+        textMsg('assistant', 'old-4'),
+        textMsg('user', 'recent-1'),
+        textMsg('assistant', 'recent-2'),
+      ]
+      pinMessage(messages, 1)
+      const agent = createMockAgent({ messages })
+
+      await manager.reduce({ agent, model: model as unknown as Model })
+
+      const texts = agent.messages.map((m) => (m.content[0] as TextBlock).text)
+      expect(texts).toEqual(['pinned-middle', 'Summary', 'old-4', 'recent-1', 'recent-2'])
     })
   })
 })

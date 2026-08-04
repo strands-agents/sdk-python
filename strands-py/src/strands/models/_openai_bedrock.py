@@ -20,8 +20,25 @@ from typing import Any, TypedDict
 import boto3
 from botocore.credentials import CredentialProvider
 
-_MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/v1"
+from ._validation import validate_region
+
+_MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws{path}"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
+
+
+# Mantle-routed model id prefixes served from /openai/v1 instead of /v1.
+_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.",)
+
+
+def _resolve_mantle_base_path(model_id: str) -> str:
+    """Resolve the Mantle base path for ``model_id``.
+
+    Model ids matching :data:`_OPENAI_PATH_MODEL_PREFIXES` are served from
+    ``/openai/v1``; other Mantle-routed models (e.g. ``openai.gpt-oss-*``) use ``/v1``.
+    """
+    if model_id.startswith(_OPENAI_PATH_MODEL_PREFIXES):
+        return "/openai/v1"
+    return "/v1"
 
 
 class BedrockMantleConfig(TypedDict, total=False):
@@ -52,24 +69,28 @@ class BedrockMantleConfig(TypedDict, total=False):
 def _resolve_region(config: BedrockMantleConfig) -> str:
     """Resolve the AWS region, preferring explicit config then falling back to boto3.
 
+    The resolved region is validated before it is returned, since it is interpolated
+    into the Mantle endpoint URL by the caller.
+
     Raises:
         ValueError: If no region can be resolved from the config, an attached session,
-            or the standard boto3 credential chain.
+            or the standard boto3 credential chain, or if the resolved region is not a
+            well-formed AWS region identifier.
     """
     region = config.get("region")
     if region:
-        return region
+        return validate_region(region)
 
     session = config.get("boto_session")
     if session is not None and session.region_name:
-        return str(session.region_name)
+        return validate_region(str(session.region_name))
 
     # ``boto3.Session()`` with no args reads ``AWS_REGION`` / ``AWS_DEFAULT_REGION``,
     # the active profile, and falls back to EC2 instance metadata — the same chain
     # :class:`BedrockModel` uses.
     default_region = boto3.Session().region_name
     if default_region:
-        return str(default_region)
+        return validate_region(str(default_region))
 
     raise ValueError(
         "Could not resolve an AWS region for Bedrock Mantle. Pass 'region' in "
@@ -79,13 +100,16 @@ def _resolve_region(config: BedrockMantleConfig) -> str:
 
 
 def resolve_bedrock_client_args(
-    config: BedrockMantleConfig, client_args: dict[str, Any] | None = None
+    config: BedrockMantleConfig, client_args: dict[str, Any] | None = None, model_id: str = ""
 ) -> dict[str, Any]:
     """Resolve a ``BedrockMantleConfig`` (plus optional ``client_args``) into OpenAI client kwargs.
 
     Mints a fresh bearer token on every call. Callers are expected to validate that
     ``client_args`` does not contain ``base_url`` or ``api_key`` before calling this
     function (typically at ``__init__`` time for fail-fast behavior).
+
+    The ``model_id`` selects the Mantle base path: ``openai.gpt-5.*`` is served from
+    ``/openai/v1`` while other models use ``/v1``.
 
     Raises:
         ValueError: If no region can be resolved.
@@ -121,6 +145,6 @@ def resolve_bedrock_client_args(
         ) from e
 
     resolved: dict[str, Any] = dict(client_args or {})
-    resolved["base_url"] = _MANTLE_BASE_URL_TEMPLATE.format(region=region)
+    resolved["base_url"] = _MANTLE_BASE_URL_TEMPLATE.format(region=region, path=_resolve_mantle_base_path(model_id))
     resolved["api_key"] = token
     return resolved

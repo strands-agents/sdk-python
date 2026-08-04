@@ -12,7 +12,7 @@ describe('API link conversion', () => {
   function convertApiLinks(content: string): string {
     // Match markdown links with potentially nested brackets in the text
     // This handles cases like [`list[ToolSpec]`](url)
-    const markdownLinkPattern = /\[([^\]]*(?:\[[^\]]*\][^\]]*)*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+    const markdownLinkPattern = /\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
 
     return content.replace(markdownLinkPattern, (match, text, url) => {
       if (isOldApiLink(url)) {
@@ -55,7 +55,7 @@ See also [AgentResult](@api/python/strands.agent.agent_result#AgentResult).
     it('should not modify non-API links', () => {
       const input = `
 See the [quickstart guide](../user-guide/quickstart.md) for more info.
-Check out [GitHub](https://github.com/strands-agents/sdk-python).
+Check out [GitHub](https://github.com/strands-agents/harness-sdk).
 `
       expect(convertApiLinks(input)).toBe(input)
     })

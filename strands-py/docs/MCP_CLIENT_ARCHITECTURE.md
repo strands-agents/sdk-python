@@ -70,7 +70,7 @@ Once the background thread's event loop is running, we can create `asyncio.Futur
 
 ### Hanging Scenarios & Defenses
 
-**Hanging Scenario 1: Silent Exception Swallowing** ([PR #922](https://github.com/strands-agents/sdk-python/pull/922))
+**Hanging Scenario 1: Silent Exception Swallowing** ([PR #922](https://github.com/strands-agents/harness-sdk/pull/922))
 
 *Problem*: MCP SDK silently swallows server exceptions (HTTP timeouts, connection errors) without a message handler. Tool calls timeout on server side but client waits indefinitely for responses that never arrive.
 
@@ -95,7 +95,7 @@ async with ClientSession(
 
 The threading architecture makes this particularly problematic because the main thread has no way to detect that the background thread received an error - it can only wait for the Future to complete. Without the message handler, that Future never gets resolved.
 
-**Hanging Scenario 2: 5xx Server Errors** ([PR #1169](https://github.com/strands-agents/sdk-python/pull/1169))
+**Hanging Scenario 2: 5xx Server Errors** ([PR #1169](https://github.com/strands-agents/harness-sdk/pull/1169))
 
 *Problem*: When MCP servers return 5xx errors, the underlying client raises an exception that cancels all TaskGroup tasks and tears down the entire asyncio background thread. Pending tool calls hang forever waiting for responses from a dead connection.
 
@@ -116,11 +116,11 @@ async def run_async() -> T:
 
 ### Defense Against Premature Connection Collapse
 
-Before [PR #922](https://github.com/strands-agents/sdk-python/pull/922), the MCP client would never collapse connections because exceptions were silently ignored. After adding `_handle_error_message`, we introduced the risk of collapsing connections on client-side errors that should be recoverable. The challenge is ensuring we:
+Before [PR #922](https://github.com/strands-agents/harness-sdk/pull/922), the MCP client would never collapse connections because exceptions were silently ignored. After adding `_handle_error_message`, we introduced the risk of collapsing connections on client-side errors that should be recoverable. The challenge is ensuring we:
 
 1. **DO collapse** when we want to (fatal server errors)
 2. **DO NOT collapse** when we don't want to (client-side errors, orphaned responses)
-3. **DO notify users** when collapse occurs ([PR #1169](https://github.com/strands-agents/sdk-python/pull/1169) detection)
+3. **DO notify users** when collapse occurs ([PR #1169](https://github.com/strands-agents/harness-sdk/pull/1169) detection)
 
 **Non-Fatal Error Patterns**:
 ```python
@@ -142,4 +142,4 @@ Client receives a response from server with an ID it doesn't recognize (orphaned
 6. Pending operations detect collapse via `close_future` and fail with clear error
 
 **Why This Strategy Works**:
-We get the benefits of [PR #922](https://github.com/strands-agents/sdk-python/pull/922) (no hanging) while avoiding unnecessary connection collapse from recoverable client-side errors. When collapse does occur, [PR #1169](https://github.com/strands-agents/sdk-python/pull/1169) ensures users get clear error messages instead of hanging.
+We get the benefits of [PR #922](https://github.com/strands-agents/harness-sdk/pull/922) (no hanging) while avoiding unnecessary connection collapse from recoverable client-side errors. When collapse does occur, [PR #1169](https://github.com/strands-agents/harness-sdk/pull/1169) ensures users get clear error messages instead of hanging.

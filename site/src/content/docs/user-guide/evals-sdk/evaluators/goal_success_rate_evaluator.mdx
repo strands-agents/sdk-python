@@ -1,5 +1,6 @@
 ---
 title: Goal Success Rate Evaluator
+description: 'Determine whether an agent accomplished all user goals across an entire conversation session with the GoalSuccessRateEvaluator''s binary score.'
 tags: [conversation-management]
 sidebar:
   label: "Goal Success Rate"
@@ -7,7 +8,7 @@ sidebar:
 
 ## Overview
 
-The `GoalSuccessRateEvaluator` evaluates whether all user goals were successfully achieved in a conversation. It provides a holistic assessment of whether the agent accomplished what the user set out to do, considering the entire conversation session. A complete example can be found [here](https://github.com/strands-agents/docs/blob/main/docs/examples/evals-sdk/goal_success_rate_evaluator.py).
+The `GoalSuccessRateEvaluator` evaluates whether all user goals were successfully achieved in a conversation. It provides a holistic assessment of whether the agent accomplished what the user set out to do, considering the entire conversation session. A complete example can be found [here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/goal_success_rate_evaluator.py).
 
 ## Key Features
 
@@ -96,6 +97,8 @@ When using `StrandsInMemorySessionMapper`, you **must** include session ID trace
 :::
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import GoalSuccessRateEvaluator
@@ -108,8 +111,6 @@ memory_exporter = telemetry.in_memory_exporter
 
 # Define task function
 def user_task_function(case: Case) -> dict:
-    memory_exporter.clear()
-    
     agent = Agent(
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
@@ -145,8 +146,12 @@ evaluator = GoalSuccessRateEvaluator()
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(user_task_function)
-reports[0].run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(user_task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Evaluation Output

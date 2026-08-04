@@ -1,5 +1,6 @@
 ---
 title: Session Diagnosis
+description: 'Run the full failure diagnosis pipeline with diagnose_session: detect failures, analyze root causes, and get deduplicated fix recommendations.'
 tags: [failure-diagnosis, observability, error-handling]
 sidebar:
   label: "Session Diagnosis"
@@ -107,6 +108,8 @@ class DiagnosisConfig(BaseModel):
 ### Example: Diagnose Failing Cases
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
@@ -141,7 +144,12 @@ experiment = Experiment(
     ),
 )
 
-reports = experiment.run_evaluations(my_agent_task)
+async def main():
+    report = await experiment.run_evaluations_async(my_agent_task, max_workers=1)
+    report.run_display()
+    return report
+
+report = asyncio.run(main())
 ```
 
 ### Viewing Recommendations
@@ -150,13 +158,12 @@ Display recommendations in the evaluation report:
 
 ```python
 # Display with recommendations column
-reports[0].display(include_recommendations=True)
+report.display(include_recommendations=True)
 ```
 
 Or access them programmatically:
 
 ```python
-report = reports[0]
 for i, rec in enumerate(report.recommendations):
     if rec is not None:
         case_name = report.cases[i].get("name", f"case_{i}")
@@ -170,7 +177,6 @@ for i, rec in enumerate(report.recommendations):
 The full diagnosis dict (failures + root causes) is available per case:
 
 ```python
-report = reports[0]
 for i, diagnosis in enumerate(report.diagnoses):
     if diagnosis is not None:
         case_name = report.cases[i].get("name", f"case_{i}")
@@ -211,6 +217,8 @@ If the trajectory is not a `Session` (e.g., it's a plain list of tool names), di
 This example shows the complete workflow: run evaluations with diagnosis, then analyze the results.
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
@@ -246,13 +254,14 @@ experiment = Experiment(
     ),
 )
 
-reports = experiment.run_evaluations(math_agent)
+async def main():
+    report = await experiment.run_evaluations_async(math_agent, max_workers=1)
 
-# Flatten all evaluator reports into one and display
-from strands_evals.types.evaluation_report import EvaluationReport
+    # The experiment already returns a single combined report across all evaluators —
+    # each row in `report.cases` carries an `evaluator` key naming the producer.
+    report.display(include_recommendations=True)
 
-combined = EvaluationReport.flatten(reports)
-combined.display(include_recommendations=True)
+asyncio.run(main())
 ```
 
 ## Best Practices

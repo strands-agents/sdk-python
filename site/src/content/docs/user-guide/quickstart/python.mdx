@@ -32,13 +32,13 @@ Next we'll install the `strands-agents` SDK package:
 pip install strands-agents
 ```
 
-The Strands Agents SDK additionally offers the [`strands-agents-tools`](https://pypi.org/project/strands-agents-tools/) ([GitHub](https://github.com/strands-agents/tools)) and [`strands-agents-builder`](https://pypi.org/project/strands-agents-builder/) ([GitHub](https://github.com/strands-agents/agent-builder)) packages for development. The [`strands-agents-tools`](https://pypi.org/project/strands-agents-tools/) package is a community-driven project that provides a set of tools for your agents to use, bridging the gap between large language models and practical applications. The [`strands-agents-builder`](https://pypi.org/project/strands-agents-builder/) package provides an agent that helps you to build your own Strands agents and tools.
+The Strands Agents SDK additionally offers the [`strands-agents-tools`](https://pypi.org/project/strands-agents-tools/) ([GitHub](https://github.com/strands-agents/tools)) package for development. The [`strands-agents-tools`](https://pypi.org/project/strands-agents-tools/) package is a community-driven project that provides a set of tools for your agents to use, bridging the gap between large language models and practical applications.
 
 
-Let's install those development packages too:
+Let's install that development package too:
 
 ```bash
-pip install strands-agents-tools strands-agents-builder
+pip install strands-agents-tools
 ```
 
 ### Strands MCP Server (Optional)
@@ -65,7 +65,7 @@ Once uv is installed, configure the MCP server with your preferred client. For e
 }
 ```
 
-See the [MCP server documentation](https://github.com/strands-agents/mcp-server) for setup instructions with other clients.
+See the [MCP server documentation](https://github.com/strands-agents/harness-sdk/tree/main/strands-mcp) for setup instructions with other clients.
 
 ## Configuring Credentials
 
@@ -185,11 +185,14 @@ Traces provide detailed insight into the agent's reasoning process. You can acce
 
 :::note[Example result.metrics.get_summary() output]
 
+<details>
+<summary>Click to expand</summary>
+
 ```python
 result = agent("What is the square root of 144?")
 print(result.metrics.get_summary())
 ```
-```python
+```json
 {
   "accumulated_metrics": {
     "latencyMs": 6253
@@ -342,6 +345,8 @@ print(result.metrics.get_summary())
   ]
 }
 ```
+</details>
+
 :::
 
 This observability data helps you debug agent behavior, optimize performance, and understand the agent's reasoning process. For detailed information, see [Observability](../observability-evaluation/observability.md), [Traces](../observability-evaluation/traces.md), and [Metrics](../observability-evaluation/metrics.md).
@@ -396,7 +401,7 @@ from strands import Agent
 agent = Agent()
 
 print(agent.model.config)
-# {'model_id': 'us.anthropic.claude-sonnet-4-20250514-v1:0'}
+# {'model_id': 'global.anthropic.claude-sonnet-4-6'}
 ```
 
 You can specify a different model in two ways:
@@ -412,7 +417,7 @@ The simplest way to specify a model is to pass the model ID string directly:
 from strands import Agent
 
 # Create an agent with a specific model by passing the model ID string
-agent = Agent(model="anthropic.claude-sonnet-4-20250514-v1:0")
+agent = Agent(model="global.anthropic.claude-sonnet-4-6")
 ```
 
 ### Amazon Bedrock (Default)
@@ -426,7 +431,7 @@ from strands.models import BedrockModel
 
 # Create a BedrockModel
 bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+    model_id="global.anthropic.claude-sonnet-4-6",
     region_name="us-west-2",
     temperature=0.3,
 )
@@ -550,7 +555,6 @@ Ready to learn more? Check out these resources:
 
 - [Examples](../../examples/README.md) - Examples for many use cases, multi-agent systems, autonomous agents, and more
 - [Community Supported Tools](../concepts/tools/community-tools-package.md) - The `strands-agents-tools` package provides many powerful example tools for your agents to use during development
-- [Strands Agent Builder](https://github.com/strands-agents/agent-builder) - Use the accompanying `strands-agents-builder` agent builder to harness the power of LLMs to generate your own tools and agents
 - [Agent Loop](../concepts/agents/agent-loop.md) - Learn how Strands agents work under the hood
 - [State & Sessions](../concepts/agents/state.md) - Understand how agents maintain context and state across a conversation or workflow
 - [Multi-agent](../concepts/multi-agent/agents-as-tools.md) - Orchestrate multiple agents together as one system, with each agent completing specialized tasks

@@ -1,9 +1,13 @@
 ---
 title: Bidirectional Streaming Session Management
+description: 'Persist BidiAgent conversation history and state across bidirectional streaming sessions so voice assistants resume where they left off.'
 sidebar:
   label: "Session Management"
 experimental: true
 tags: [bidi-streaming, session-management, snapshots]
+sourceLinks:
+  - path: strands-py/src/strands/session/file_session_manager.py
+  - path: strands-py/src/strands/session/s3_session_manager.py
 ---
 
 
@@ -52,6 +56,12 @@ await agent.run(
 The conversation history is automatically persisted and will be restored on the next session.
 
 ## Provider-Specific Considerations
+
+### Nova Sonic
+
+:::caution[Conversation History Limits]
+When restoring a session, Nova Sonic caps the conversation history sent at connection start to 50KB per message and 200KB total. Messages exceeding the per-message limit are truncated, and if the total exceeds 200KB, the oldest messages are dropped until it fits. Long-running or transcript-heavy sessions restored after this limit is hit will silently lose earlier context.
+:::
 
 ### Gemini Live
 

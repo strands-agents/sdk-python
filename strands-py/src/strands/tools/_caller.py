@@ -94,9 +94,7 @@ class _ToolCaller:
             from ..agent import Agent  # Locally imported to avoid circular reference
 
             acquired_lock = (
-                should_lock
-                and isinstance(self._agent, Agent)
-                and self._agent._invocation_lock.acquire_lock(blocking=False)
+                should_lock and isinstance(self._agent, Agent) and self._agent._concurrency.try_acquire_lock()
             )
             if should_lock and not acquired_lock:
                 raise ConcurrencyException(
@@ -133,7 +131,7 @@ class _ToolCaller:
 
                 tool_result = run_async(acall)
 
-                # TODO: https://github.com/strands-agents/sdk-python/issues/1311
+                # TODO: https://github.com/strands-agents/harness-sdk/issues/1311
                 if isinstance(self._agent, Agent):
                     self._agent.conversation_manager.apply_management(self._agent)
 
@@ -141,7 +139,7 @@ class _ToolCaller:
 
             finally:
                 if acquired_lock and isinstance(self._agent, Agent):
-                    self._agent._invocation_lock.release()
+                    self._agent._concurrency.release_lock()
 
         return caller
 

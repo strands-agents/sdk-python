@@ -7,6 +7,7 @@
  */
 
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
+import type { Tool } from '../tools/tool.js'
 
 /**
  * Options for command and code execution.
@@ -18,6 +19,12 @@ export interface ExecuteOptions {
   cwd?: string | undefined
   /** Abort signal to cancel execution. The process is killed when the signal fires. */
   signal?: AbortSignal | undefined
+  /**
+   * Environment variables to set for this command. Built-in sandboxes always apply these,
+   * though the mechanism differs (Docker `-e` flags, SSH `env` prefix); custom `Sandbox`
+   * implementations must handle env explicitly or it has no effect.
+   */
+  env?: Record<string, string> | undefined
 }
 
 /**
@@ -41,7 +48,7 @@ export abstract class Sandbox {
    * exit code and complete output.
    *
    * @param command - The shell command to execute.
-   * @param options - Execution options (timeout, cwd).
+   * @param options - Execution options.
    * @returns Async iterable yielding StreamChunks followed by a final ExecutionResult.
    */
   abstract executeStreaming(command: string, options?: ExecuteOptions): AsyncIterable<StreamChunk | ExecutionResult>
@@ -51,7 +58,7 @@ export abstract class Sandbox {
    *
    * @param code - The source code to execute.
    * @param language - The interpreter to use (e.g., `"python3"`, `"node"`).
-   * @param options - Execution options (timeout, cwd).
+   * @param options - Execution options.
    * @returns Async iterable yielding StreamChunks followed by a final ExecutionResult.
    */
   abstract executeCodeStreaming(
@@ -104,6 +111,15 @@ export abstract class Sandbox {
    */
   abstract listFiles(path: string): Promise<FileInfo[]>
 
+  /**
+   * Tools this sandbox vends to an agent, registered during `Agent.initialize()`.
+   * A tool is skipped if the user already registered one with the same name.
+   * Override to provide them.
+   */
+  getTools(): Tool[] {
+    return []
+  }
+
   // ---- Non-streaming convenience methods ----
 
   /**
@@ -113,7 +129,7 @@ export abstract class Sandbox {
    * Use `executeStreaming` when you need to process output as it arrives.
    *
    * @param command - The shell command to execute.
-   * @param options - Execution options (timeout, cwd).
+   * @param options - Execution options.
    * @returns The execution result with exit code and output.
    */
   async execute(command: string, options?: ExecuteOptions): Promise<ExecutionResult> {
@@ -133,7 +149,7 @@ export abstract class Sandbox {
    *
    * @param code - The source code to execute.
    * @param language - The interpreter to use.
-   * @param options - Execution options (timeout, cwd).
+   * @param options - Execution options.
    * @returns The execution result with exit code and output.
    */
   async executeCode(code: string, language: string, options?: ExecuteOptions): Promise<ExecutionResult> {

@@ -20,6 +20,7 @@ import type {
   ResponseFunctionToolCall,
   ResponseFunctionCallOutputItem,
   ResponseCreateParamsStreaming,
+  ResponseUsage,
 } from 'openai/resources/responses/responses'
 import type { Message, StopReason, ToolResultBlock } from '../../types/messages.js'
 import type { ImageBlock, DocumentBlock } from '../../types/media.js'
@@ -170,7 +171,7 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
         case 'citationsBlock': {
           const citBlock = block as { content: Array<{ text: string }> }
           for (const c of citBlock.content) {
-            contentItems.push({ type: 'output_text', text: c.text })
+            contentItems.push({ type: role === 'user' ? 'input_text' : 'output_text', text: c.text })
           }
           break
         }
@@ -213,15 +214,33 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
       }
     }
 
-    // Cast is needed because assistant messages here use `output_text` content
-    // blocks, which the SDK's input types model as `ResponseOutputMessage` —
-    // a response-shaped type that requires `id`/`status`/`annotations`. The API
-    // accepts these fields as omitted on input, but the SDK types don't reflect that.
     if (contentItems.length > 0) {
-      input.push({
-        role,
-        content: contentItems,
-      } as unknown as ResponseInputItem)
+      if (role === 'assistant') {
+        // Only the string EasyInputMessage form is a valid assistant *input* shape
+        // without the full ResponseOutputMessage metadata (id/status/annotations),
+        // which has already been discarded by this point. Non-text assistant history
+        // has no valid input shape either. Replaying verbatim output items is
+        // tracked in https://github.com/strands-agents/harness-sdk/issues/3389.
+        const droppedTypes = contentItems.filter((item) => item.type !== 'output_text').map((item) => item.type)
+        if (droppedTypes.length > 0) {
+          logger.warn(
+            `content_type=<${droppedTypes.join(', ')}> | non-text assistant history content has no valid responses api input shape | dropping`
+          )
+        }
+        const text = contentItems
+          .filter((item) => item.type === 'output_text')
+          .map((item) => item.text as string)
+          .join('\n')
+        if (text) input.push({ role: 'assistant', content: text })
+      } else {
+        // Cast is needed only because `contentItems` is built as a loosely-typed
+        // record array; the user-role items themselves (`input_text`/`input_image`/
+        // `input_file`) are valid `EasyInputMessage` content.
+        input.push({
+          role,
+          content: contentItems,
+        } as unknown as ResponseInputItem)
+      }
     }
 
     input.push(...toolCallItems)
@@ -331,7 +350,12 @@ function formatDocumentInput(docBlock: DocumentBlock): Record<string, unknown> |
 export interface ResponsesStreamState {
   dataType: string | null
   toolCalls: Map<string, { name: string; arguments: string; callId: string; itemId: string }>
-  finalUsage: { inputTokens: number; outputTokens: number; totalTokens: number } | null
+  finalUsage: {
+    inputTokens: number
+    outputTokens: number
+    totalTokens: number
+    cacheReadInputTokens?: number
+  } | null
   stopReason: StopReason
 }
 
@@ -347,6 +371,40 @@ export function createResponsesStreamState(): ResponsesStreamState {
     finalUsage: null,
     stopReason: 'endTurn',
   }
+}
+
+/**
+ * Maps a Responses API `usage` object to the SDK's usage shape, including
+ * prompt-cache reads. The Responses API reports cache hits via
+ * `usage.input_tokens_details.cached_tokens`; surfacing it as
+ * `cacheReadInputTokens` keeps the Responses path consistent with the Bedrock,
+ * Anthropic, and Vercel model adapters (and lets `telemetry/tracer.ts` emit
+ * `gen_ai.usage.cache_read_input_tokens`).
+ *
+ * @internal
+ */
+function mapResponsesUsage(usage: ResponseUsage): NonNullable<ResponsesStreamState['finalUsage']> {
+  const mapped: NonNullable<ResponsesStreamState['finalUsage']> = {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    totalTokens: usage.total_tokens,
+  }
+  const cached = usage.input_tokens_details?.cached_tokens
+  if (typeof cached === 'number' && cached > 0) {
+    mapped.cacheReadInputTokens = cached
+  }
+  return mapped
+}
+
+function createResponsesStreamError(
+  message: string | undefined,
+  code: string | null | undefined
+): Error & { code?: string } {
+  const error = new Error(message || 'OpenAI Responses API response failed') as Error & { code?: string }
+  if (code) {
+    error.code = code
+  }
+  return error
 }
 
 /**
@@ -464,11 +522,7 @@ export function mapResponsesEventToSDK(
     case 'response.incomplete': {
       const resp = event.response
       if (resp.usage) {
-        state.finalUsage = {
-          inputTokens: resp.usage.input_tokens,
-          outputTokens: resp.usage.output_tokens,
-          totalTokens: resp.usage.total_tokens,
-        }
+        state.finalUsage = mapResponsesUsage(resp.usage)
       }
       if (resp.incomplete_details?.reason === 'max_output_tokens') {
         state.stopReason = 'maxTokens'
@@ -476,14 +530,19 @@ export function mapResponsesEventToSDK(
       break
     }
 
+    case 'response.failed': {
+      const error = event.response.error
+      throw createResponsesStreamError(error?.message, error?.code)
+    }
+
+    case 'error': {
+      throw createResponsesStreamError(event.message, event.code)
+    }
+
     case 'response.completed': {
       const resp = event.response
       if (resp.usage) {
-        state.finalUsage = {
-          inputTokens: resp.usage.input_tokens,
-          outputTokens: resp.usage.output_tokens,
-          totalTokens: resp.usage.total_tokens,
-        }
+        state.finalUsage = mapResponsesUsage(resp.usage)
       }
       break
     }

@@ -1,10 +1,11 @@
 ---
 title: 🧠 Mem0 Memory Agent - Personalized Context Through Persistent Memory
+description: 'Build a Strands agent with persistent memory using mem0.ai: store, retrieve, and apply memories across conversations for personalized responses.'
 sidebar:
   label: "Memory Agent"
 ---
 
-This [example](https://github.com/strands-agents/docs/blob/main/docs/examples/python/memory_agent.py) demonstrates how to create a Strands agent that leverages [mem0.ai](https://mem0.ai) to maintain context across conversations and provide personalized responses. It showcases how to store, retrieve, and utilize memories to create more intelligent and contextual AI interactions.
+This [example](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/python/memory_agent.py) demonstrates how to create a Strands agent that leverages [mem0.ai](https://mem0.ai) to maintain context across conversations and provide personalized responses. It showcases how to store, retrieve, and utilize memories to create more intelligent and contextual AI interactions.
 
 ## Overview
 
@@ -33,6 +34,9 @@ The memory agent utilizes two primary tools:
     - Creating natural, contextual answers using memory context
 
 ## Memory-Enhanced Response Generation Workflow
+
+> [!NOTE]
+> By default, mem0 persists memories to local storage at `~/.mem0/`. See [mem0 vector store configuration](https://docs.mem0.ai/components/vectordbs/config) for options on using a different backend for production use.
 
 This example demonstrates a workflow where memories are used to generate contextually relevant responses:
 

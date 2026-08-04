@@ -115,7 +115,7 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 
   const agent = new Agent({ model })
   const response = await agent.invoke(
-    'Using deepwiki, what language is the strands-agents/sdk-typescript repo written in?'
+    'Using deepwiki, what language is the strands-agents/harness-sdk repo written in?'
   )
   // --8<-- [end:remote_mcp]
 }

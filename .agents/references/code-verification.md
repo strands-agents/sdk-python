@@ -69,10 +69,10 @@ If the local clones aren't available, fetch source through the GitHub API:
 
 ```bash
 # Python SDK (now local at strands-py/src/strands/)
-gh api repos/strands-agents/sdk-python/contents/strands-py/src/strands/[path]
+gh api repos/strands-agents/harness-sdk/contents/strands-py/src/strands/[path]
 
 # TypeScript SDK (now local at strands-ts/src/)
-gh api repos/strands-agents/sdk-python/contents/strands-ts/src/[path]
+gh api repos/strands-agents/harness-sdk/contents/strands-ts/src/[path]
 ```
 
 ## Tier 3: Installed Package Introspection

@@ -14,10 +14,10 @@
   </h2>
 
   <div align="center">
-    <a href="https://github.com/strands-agents/sdk-python/graphs/commit-activity"><img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/strands-agents/sdk-python"/></a>
-    <a href="https://github.com/strands-agents/sdk-python/issues"><img alt="GitHub open issues" src="https://img.shields.io/github/issues/strands-agents/sdk-python"/></a>
-    <a href="https://github.com/strands-agents/sdk-python/pulls"><img alt="GitHub open pull requests" src="https://img.shields.io/github/issues-pr/strands-agents/sdk-python"/></a>
-    <a href="https://github.com/strands-agents/sdk-python/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/strands-agents/sdk-python"/></a>
+    <a href="https://github.com/strands-agents/harness-sdk/graphs/commit-activity"><img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/strands-agents/harness-sdk"/></a>
+    <a href="https://github.com/strands-agents/harness-sdk/issues"><img alt="GitHub open issues" src="https://img.shields.io/github/issues/strands-agents/harness-sdk"/></a>
+    <a href="https://github.com/strands-agents/harness-sdk/pulls"><img alt="GitHub open pull requests" src="https://img.shields.io/github/issues-pr/strands-agents/harness-sdk"/></a>
+    <a href="https://github.com/strands-agents/harness-sdk/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/strands-agents/harness-sdk"/></a>
     <a href="https://pypi.org/project/strands-agents/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/strands-agents"/></a>
     <a href="https://python.org"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/strands-agents"/></a>
     <a href="https://discord.gg/strands"><img alt="Strands Discord" src="https://img.shields.io/badge/Discord-Strands-5865F2?logo=discord&logoColor=white"/></a>
@@ -27,8 +27,7 @@
     <a href="https://strandsagents.com/">Documentation</a>
     ◆ <a href="https://github.com/strands-agents/samples">Samples</a>
     ◆ <a href="https://github.com/strands-agents/tools">Tools</a>
-    ◆ <a href="https://github.com/strands-agents/agent-builder">Agent Builder</a>
-    ◆ <a href="https://github.com/strands-agents/mcp-server">MCP Server</a>
+    ◆ <a href="https://github.com/strands-agents/harness-sdk/tree/main/strands-mcp">MCP Server</a>
   </p>
 </div>
 
@@ -219,6 +218,8 @@ pip install strands-agents[bidi]
 pip install strands-agents[bidi,bidi-io]
 ```
 
+> **Note**: Amazon Nova Sonic requires Python 3.12+ due to its experimental AWS SDK dependency.
+
 **Quick Example:**
 
 ```python
@@ -226,20 +227,19 @@ import asyncio
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.tools import stop_conversation
-from strands_tools import calculator
+from strands_tools import calculator, stop
 
 async def main():
     # Create bidirectional agent with Nova Sonic v2
     model = BidiNovaSonicModel()
-    agent = BidiAgent(model=model, tools=[calculator, stop_conversation])
+    agent = BidiAgent(model=model, tools=[calculator, stop])
 
     # Setup audio and text I/O (requires bidi-io extra)
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
 
     # Run with real-time audio streaming
-    # Say "stop conversation" to gracefully end the conversation
+    # stop tool allows user to verbally stop agent execution
     await agent.run(
         inputs=[audio_io.input()],
         outputs=[audio_io.output(), text_io.output()]
@@ -317,7 +317,7 @@ hatch fmt         # format & lint
 
 ## Contributing ❤️
 
-We welcome contributions! See our [Contributing Guide](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md) for details on:
+We welcome contributions! See our [Contributing Guide](https://github.com/strands-agents/harness-sdk/blob/main/CONTRIBUTING.md) for details on:
 - Reporting bugs & features
 - Development setup
 - Contributing via Pull Requests
@@ -329,8 +329,8 @@ Come meet the Strands team and other users on [**Discord**](https://discord.com/
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](https://github.com/strands-agents/sdk-python/blob/main/LICENSE.APACHE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](https://github.com/strands-agents/harness-sdk/blob/main/LICENSE.APACHE) file for details.
 
 ## Security
 
-See [CONTRIBUTING](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md#security-issue-notifications) for more information.
+See [CONTRIBUTING](https://github.com/strands-agents/harness-sdk/blob/main/CONTRIBUTING.md#security-issue-notifications) for more information.

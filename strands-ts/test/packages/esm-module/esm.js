@@ -17,11 +17,9 @@ import {
   notebook as barrelNotebook,
 } from '@strands-agents/sdk/vended-tools'
 
-import {
-  AgentSkills,
-  ContextOffloader,
-  InMemoryStorage,
-} from '@strands-agents/sdk/vended-plugins'
+import { AgentSkills, ContextOffloader, GoalLoop, InMemoryStorage } from '@strands-agents/sdk/vended-plugins'
+
+import { GoalLoop as GoalLoopFromSubpath } from '@strands-agents/sdk/vended-plugins/goal'
 
 // Verify model subpath exports
 import { BedrockModel as BedrockFromSubpath } from '@strands-agents/sdk/models/bedrock'
@@ -79,6 +77,11 @@ if (agent.tools.length == 0) {
   throw new Error('Tool was not correctly added to the agent')
 }
 
+// The Node entry (exports.node -> index.node.js) must register the host default
+// sandbox; this getter throws if it didn't.
+void agent.sandbox
+console.log('✓ Node default sandbox registered')
+
 async function validateScratchpad() {
   let context = { agent: agent }
   notebook.invoke(
@@ -125,13 +128,29 @@ if (BedrockFromSubpath !== BedrockModel) {
 console.log('✓ Model subpath exports verified')
 
 // Verify barrel exports match individual subpath exports
-if (barrelBash !== bash || barrelFileEditor !== fileEditor || barrelHttpRequest !== httpRequest || barrelNotebook !== notebook) {
+if (
+  barrelBash !== bash ||
+  barrelFileEditor !== fileEditor ||
+  barrelHttpRequest !== httpRequest ||
+  barrelNotebook !== notebook
+) {
   throw new Error('Barrel vended-tools exports do not match individual subpath exports')
 }
 console.log('✓ Barrel vended-tools exports verified')
 
 // Verify barrel vended-plugins exports are constructible
-if (typeof AgentSkills !== 'function' || typeof ContextOffloader !== 'function' || typeof InMemoryStorage !== 'function') {
+if (
+  typeof AgentSkills !== 'function' ||
+  typeof ContextOffloader !== 'function' ||
+  typeof GoalLoop !== 'function' ||
+  typeof InMemoryStorage !== 'function'
+) {
   throw new Error('Barrel vended-plugins exports are not constructible')
 }
 console.log('✓ Barrel vended-plugins exports verified')
+
+// Verify the goal subpath export matches the barrel export
+if (GoalLoopFromSubpath !== GoalLoop) {
+  throw new Error('GoalLoop from subpath should match barrel export')
+}
+console.log('✓ GoalLoop subpath export verified')

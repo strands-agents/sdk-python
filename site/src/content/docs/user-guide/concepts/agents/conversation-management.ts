@@ -84,12 +84,12 @@ async function summarizingCustom() {
   // --8<-- [start:summarizing_conversation_manager_custom]
   // Optionally use a different model for summarization
   const summarizationModel = new BedrockModel({
-    modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+    modelId: 'global.anthropic.claude-sonnet-4-6',
   })
 
   const conversationManager = new SummarizingConversationManager({
     model: summarizationModel, // Override the agent's model for summarization
-    summaryRatio: 0.3, // Summarize 30% of messages when context reduction is needed
+    summaryRatio: 0.3, // Summarize and replace the oldest 30% of messages
     preserveRecentMessages: 10, // Always keep 10 most recent messages
   })
 
@@ -147,9 +147,6 @@ Format as bullet points without conversational language.
 async function proactiveSlidingWindow() {
   // --8<-- [start:proactive_sliding_window]
   const agent = new Agent({
-    model: new BedrockModel({
-      modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
-    }),
     conversationManager: new SlidingWindowConversationManager({
       windowSize: 50,
       proactiveCompression: { compressionThreshold: 0.7 },
@@ -161,12 +158,20 @@ async function proactiveSlidingWindow() {
 async function proactiveSummarizing() {
   // --8<-- [start:proactive_summarizing]
   const agent = new Agent({
-    model: new BedrockModel({
-      modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
-    }),
     conversationManager: new SummarizingConversationManager({
       proactiveCompression: true,
     }),
   })
   // --8<-- [end:proactive_summarizing]
+}
+
+async function pinFirstExample() {
+  // --8<-- [start:pin_first]
+  const agent = new Agent({
+    conversationManager: new SlidingWindowConversationManager({
+      windowSize: 40,
+      pinFirst: 1,
+    }),
+  })
+  // --8<-- [end:pin_first]
 }

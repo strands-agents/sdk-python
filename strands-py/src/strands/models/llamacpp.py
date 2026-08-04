@@ -256,7 +256,7 @@ class LlamaCppModel(Model):
         """
         return {
             "function": {
-                "arguments": json.dumps(tool_use["input"]),
+                "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
                 "name": tool_use["name"],
             },
             "id": tool_use["toolUseId"],
@@ -273,7 +273,7 @@ class LlamaCppModel(Model):
             llama.cpp compatible tool message.
         """
         contents = [
-            {"text": json.dumps(content["json"])} if "json" in content else content
+            {"text": json.dumps(content["json"], ensure_ascii=False)} if "json" in content else content
             for content in tool_result["content"]
         ]
 
@@ -389,9 +389,9 @@ class LlamaCppModel(Model):
             if "json_schema" in params:
                 request["json_schema"] = params["json_schema"]
 
-            # llama.cpp-specific parameters that must be passed via extra_body
-            # NOTE: grammar and json_schema are NOT in this set because llama.cpp server
-            # expects them directly in the request body for proper constraint application
+            # llama.cpp-specific sampling parameters. The llama.cpp server reads these
+            # from the top level of the request body, which is also where grammar and
+            # json_schema (handled above) are placed.
             llamacpp_specific_params = {
                 "repeat_penalty",
                 "top_k",
@@ -432,15 +432,10 @@ class LlamaCppModel(Model):
                 if param in openai_params:
                     request[param] = value
 
-            # Collect llama.cpp-specific parameters for extra_body
-            extra_body: dict[str, Any] = {}
+            # Add llama.cpp-specific parameters directly to the request body
             for param, value in params.items():
                 if param in llamacpp_specific_params:
-                    extra_body[param] = value
-
-            # Add extra_body if we have llama.cpp-specific parameters
-            if extra_body:
-                request["extra_body"] = extra_body
+                    request[param] = value
 
         return request
 

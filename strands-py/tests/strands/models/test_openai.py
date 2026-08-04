@@ -2,6 +2,7 @@ import logging
 import os
 import unittest.mock
 
+import httpx
 import openai
 import pydantic
 import pytest
@@ -179,6 +180,41 @@ def test_format_request_message_content_unsupported_type():
         OpenAIModel.format_request_message_content(content)
 
 
+def test_format_request_message_tool_call_preserves_non_ascii():
+    tool_use = {
+        "input": {"query": "東京"},
+        "name": "search",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_message_tool_call(tool_use)
+    exp_result = {
+        "function": {
+            "arguments": '{"query": "東京"}',
+            "name": "search",
+        },
+        "id": "c1",
+        "type": "function",
+    }
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_message_preserves_non_ascii():
+    tool_result = {
+        "content": [{"json": {"city": "東京"}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"city": "東京"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
 def test_format_request_message_tool_call():
     tool_use = {
         "input": {"expression": "2+2"},
@@ -234,7 +270,7 @@ def test_format_request_tool_message_single_text_returns_string():
 def test_format_request_tool_message_multi_text_returns_joined_string():
     """Test that multi-content text results are joined into a single string.
 
-    Regression test for https://github.com/strands-agents/sdk-python/issues/1696.
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1696.
     OpenAI-compatible endpoints (e.g., Kimi K2.5, vLLM, Ollama) only correctly
     parse string content for tool messages; array format causes hallucinated results.
     """
@@ -659,6 +695,31 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         "max_tokens": 1,
     }
     assert tru_request == exp_request
+
+
+def test_format_request_can_disable_stream(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        "model": model_id,
+        "stream": False,
+        "tools": [],
+        "max_tokens": 1,
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_respects_legacy_stream_param(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 1, "stream": False})
+
+    tru_request = model.format_request(messages)
+
+    assert tru_request["stream"] is False
+    assert "stream_options" not in tru_request
 
 
 def test_format_request_with_tool_choice_auto(model, messages, tool_specs, system_prompt):
@@ -1144,6 +1205,41 @@ async def test_stream_with_empty_choices(openai_client, model, agenerator, alist
 
 
 @pytest.mark.asyncio
+async def test_stream_can_use_non_streaming_chat_completion(openai_client, model_id, messages, alist):
+    mock_usage = unittest.mock.Mock(prompt_tokens=7, completion_tokens=3, total_tokens=10, prompt_tokens_details=None)
+    mock_message = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
+    mock_choice = unittest.mock.Mock(message=mock_message, finish_reason="stop")
+    mock_response = unittest.mock.Mock(choices=[mock_choice], usage=mock_usage)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    tru_events = await alist(model.stream(messages))
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "done"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10},
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+
+    assert tru_events == exp_events
+    openai_client.chat.completions.create.assert_called_once_with(
+        max_tokens=1,
+        model=model_id,
+        messages=[{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        stream=False,
+        tools=[],
+    )
+
+
+@pytest.mark.asyncio
 async def test_structured_output(openai_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
@@ -1161,6 +1257,38 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
     tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_structured_output_forwards_request_params(openai_client, model_id, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 100, "temperature": 0.5})
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock(choices=[mock_choice])
+    openai_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    stream = model.structured_output(test_output_model_cls, messages, system_prompt="Be precise.")
+    events = await alist(stream)
+
+    tru_result = events[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result
+
+    # Config params are forwarded; the streaming-only fields (stream, stream_options) are dropped.
+    openai_client.beta.chat.completions.parse.assert_called_once_with(
+        messages=[
+            {"role": "system", "content": "Be precise."},
+            {"role": "user", "content": [{"text": "Generate a person", "type": "text"}]},
+        ],
+        model=model_id,
+        tools=[],
+        max_tokens=100,
+        temperature=0.5,
+        response_format=test_output_model_cls,
+    )
 
 
 def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
@@ -1295,6 +1423,8 @@ async def test_stream_context_overflow_exception(openai_client, model, messages)
         "Input is too long for requested model",
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
+        "prompt tokens exceed customer model maximum",
+        "MAXIMUM CONTEXT LENGTH EXCEEDED",
     ],
 )
 async def test_stream_alternative_context_overflow_messages(openai_client, model, messages, error_message):
@@ -1326,6 +1456,8 @@ async def test_stream_alternative_context_overflow_messages(openai_client, model
         "Input is too long for requested model",
         "input length and `max_tokens` exceed context limit",
         "too many total text bytes",
+        "prompt tokens exceed customer model maximum",
+        "MAXIMUM CONTEXT LENGTH EXCEEDED",
     ],
 )
 async def test_structured_output_alternative_context_overflow_messages(
@@ -1395,6 +1527,75 @@ async def test_stream_other_bad_request_errors_passthrough(openai_client, model,
 
     # Verify the original exception is raised, not ContextWindowOverflowException
     assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mock_error", "expected_exception"),
+    [
+        (
+            openai.APIStatusError(
+                "opaque provider failure",
+                response=httpx.Response(
+                    429,
+                    request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions"),
+                ),
+                body=None,
+            ),
+            ModelThrottledException,
+        ),
+        (
+            openai.APIError(
+                message="prompt tokens exceed customer model maximum",
+                request=unittest.mock.MagicMock(),
+                body=None,
+            ),
+            ContextWindowOverflowException,
+        ),
+    ],
+)
+async def test_stream_classifies_error_during_iteration(openai_client, model, messages, mock_error, expected_exception):
+    async def error_generator():
+        yield unittest.mock.Mock(choices=[])
+        raise mock_error
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=error_generator())
+
+    with pytest.raises(expected_exception) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_http_429_as_throttle(openai_client, model, messages):
+    request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+    response = httpx.Response(429, request=request)
+    mock_error = openai.APIStatusError("opaque provider failure", response=response, body=None)
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="opaque provider failure") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_message(openai_client, model, messages, test_output_model_cls):
+    mock_error = openai.APIError(
+        message="Too many requests from provider",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Too many requests from provider"}},
+    )
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="Too many requests") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
 
 
 @pytest.mark.asyncio
@@ -1795,6 +1996,15 @@ class TestOpenAIModelBedrockMantleConfig:
         # Optional kwargs aren't forwarded so provide_token's own defaults apply.
         mock_provide_token.assert_called_once_with(region="us-east-1")
 
+    def test_bedrock_mantle_config_uses_openai_path_for_gpt5(self, openai_client, mock_provide_token):
+        """gpt-5.* models are routed through the /openai/v1 Mantle path."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIModel(model_id="openai.gpt-5.4", bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
+
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         """Optional credentials_provider and expiry are forwarded to provide_token."""
         _ = openai_client
@@ -1888,6 +2098,26 @@ class TestOpenAIModelBedrockMantleConfig:
 
         assert resolved["base_url"] == "https://bedrock-mantle.eu-west-1.api.aws/v1"
         mock_provide_token.assert_called_once_with(region="eu-west-1")
+
+    @pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n", "us-east-1/"])
+    def test_bedrock_mantle_config_rejects_malformed_region(self, openai_client, mock_provide_token, region):
+        """A malformed region is rejected before a token is minted or a URL is built."""
+        _ = openai_client
+        model = OpenAIModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": region})
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            model._resolve_client_args()
+        # Validation must precede token minting so no bearer token is ever sent toward the host.
+        mock_provide_token.assert_not_called()
+
+    def test_bedrock_mantle_config_rejects_malformed_region_from_boto3_default(self, openai_client, mock_provide_token):
+        """A malformed region resolved from the boto3 default chain is also rejected."""
+        _ = openai_client
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "x@attacker.com:443/#"
+            model = OpenAIModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={})
+            with pytest.raises(ValueError, match="invalid AWS region"):
+                model._resolve_client_args()
+        mock_provide_token.assert_not_called()
 
     def test_bedrock_mantle_config_region_resolved_from_boto_session(self, openai_client, mock_provide_token):
         """An explicit ``boto_session`` supplies the region when ``region`` is omitted."""

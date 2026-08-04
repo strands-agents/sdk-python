@@ -39,10 +39,18 @@ import {
 } from './events.js'
 import type { EdgeDefinition } from './edge.js'
 import { Edge } from './edge.js'
-import { Queue } from './queue.js'
+import { Queue } from '../queue.js'
 import { Tracer } from '../telemetry/tracer.js'
 import type { Span } from '@opentelemetry/api'
 import { normalizeError } from '../errors.js'
+
+/**
+ * Data produced by a running node: a streaming event, a completion signal, or an error.
+ */
+type NodeExecutionOutput =
+  | { type: 'event'; node: Node; event: MultiAgentStreamEvent }
+  | { type: 'result'; node: Node; result: NodeResult }
+  | { type: 'error'; node: Node; error: Error }
 
 /**
  * Runtime configuration for graph execution.
@@ -136,6 +144,8 @@ export class Graph implements MultiAgent {
   private readonly _pluginRegistry: MultiAgentPluginRegistry
   private readonly _hookRegistry: HookRegistryImplementation
   private readonly _sources: Node[]
+  /** Whether the topology can ever run two nodes in parallel. Gates per-node printer buffering. */
+  private readonly _canRunConcurrently: boolean
   private readonly _tracer: Tracer
   readonly sessionManager?: SessionManager | undefined
   private _initialized: boolean
@@ -168,6 +178,7 @@ export class Graph implements MultiAgent {
     this.edges = this._resolveEdges(edges)
     this._sources = this._resolveSources(sources)
     this._validateSources()
+    this._canRunConcurrently = this._computeCanRunConcurrently()
 
     this.sessionManager = sessionManager
 
@@ -265,7 +276,7 @@ export class Graph implements MultiAgent {
     const state = this._pendingInterruptState ?? new MultiAgentState({ nodeIds: [...this.nodes.keys()] })
     delete this._pendingInterruptState
 
-    const queue = new Queue()
+    const queue = new Queue<NodeExecutionOutput>()
     const streams = new Map<string, Promise<void>>()
 
     const multiAgentSpan = this._tracer.startMultiAgentSpan({
@@ -508,7 +519,7 @@ export class Graph implements MultiAgent {
     node: Node,
     input: MultiAgentInput,
     state: MultiAgentState,
-    queue: Queue,
+    queue: Queue<NodeExecutionOutput>,
     nodeSpan: Span | null,
     invocationState: InvocationState,
     executionSignal?: AbortSignal
@@ -525,7 +536,11 @@ export class Graph implements MultiAgent {
 
     try {
       const gen = this._tracer.withSpanContext(nodeSpan, () =>
-        node.stream(input, state, { invocationState, ...(cancelSignal && { cancelSignal }) })
+        node.stream(input, state, {
+          invocationState,
+          ...(cancelSignal && { cancelSignal }),
+          ...(this._canRunConcurrently && { bufferOutput: true }),
+        })
       )
       let next = await this._tracer.withSpanContext(nodeSpan, () => gen.next())
       while (!next.done) {
@@ -683,6 +698,18 @@ export class Graph implements MultiAgent {
   }
 
   /**
+   * Static check: can two nodes ever run in parallel? False when `maxConcurrency` is 1,
+   * there's a single source, and no node has more than one outgoing edge.
+   */
+  private _computeCanRunConcurrently(): boolean {
+    if (this.config.maxConcurrency < 2) return false
+    if (this._sources.length > 1) return true
+    const fanOut = new Map<string, number>()
+    for (const e of this.edges) fanOut.set(e.source.id, (fanOut.get(e.source.id) ?? 0) + 1)
+    return [...fanOut.values()].some((count) => count > 1)
+  }
+
+  /**
    * Identifies terminus nodes and returns their combined content.
    * A terminus node is where an execution path ended: completed with no
    * downstream progress, or failed/cancelled.
@@ -742,7 +769,10 @@ export class Graph implements MultiAgent {
     for (const edge of this.edges.filter((e) => e.target.id === node.id)) {
       const ns = state.node(edge.source.id)!
       if (ns.content.length > 0) {
-        deps.push(new TextBlock(`[node: ${edge.source.id}]`), ...ns.content)
+        const content = ns.content.filter((block) => block.type !== 'reasoningBlock')
+        if (content.length > 0) {
+          deps.push(new TextBlock(`[node: ${edge.source.id}]`), ...content)
+        }
       }
     }
 

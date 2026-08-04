@@ -1,5 +1,6 @@
 ---
 title: Helpfulness Evaluator
+description: 'Measure how helpful agent responses are from the user''s perspective with HelpfulnessEvaluator and its seven-level scoring scale.'
 tags: [conversation-management]
 sidebar:
   label: "Helpfulness"
@@ -7,7 +8,7 @@ sidebar:
 
 ## Overview
 
-The `HelpfulnessEvaluator` evaluates the helpfulness of agent responses from the user's perspective. It assesses whether responses effectively address user needs, provide useful information, and contribute positively to achieving the user's goals. A complete example can be found [here](https://github.com/strands-agents/docs/blob/main/docs/examples/evals-sdk/helpfulness_evaluator.py).
+The `HelpfulnessEvaluator` evaluates the helpfulness of agent responses from the user's perspective. It assesses whether responses effectively address user needs, provide useful information, and contribute positively to achieving the user's goals. A complete example can be found [here](https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/evals-sdk/helpfulness_evaluator.py).
 
 ## Key Features
 
@@ -71,6 +72,8 @@ When using `StrandsInMemorySessionMapper`, you **must** include session ID trace
 :::
 
 ```python
+import asyncio
+
 from strands import Agent
 from strands_evals import Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
@@ -83,8 +86,6 @@ memory_exporter = telemetry.in_memory_exporter
 
 # Define task function
 def user_task_function(case: Case) -> dict:
-    memory_exporter.clear()
-    
     agent = Agent(
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
@@ -120,8 +121,12 @@ evaluator = HelpfulnessEvaluator()
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(user_task_function)
-reports[0].run_display()
+
+async def main():
+    report = await experiment.run_evaluations_async(user_task_function)
+    report.run_display()
+
+asyncio.run(main())
 ```
 
 ## Evaluation Output

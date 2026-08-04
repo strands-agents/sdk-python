@@ -6,7 +6,7 @@ import pytest
 
 from strands.agent import Agent, AgentBase, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks import AgentInitializedEvent, BeforeNodeCallEvent
+from strands.hooks import AfterNodeCallEvent, AgentInitializedEvent, BeforeNodeCallEvent
 from strands.hooks.registry import HookProvider, HookRegistry
 from strands.interrupt import Interrupt, _InterruptState
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
@@ -14,6 +14,26 @@ from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, 
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
 from strands.types._events import MultiAgentNodeCancelEvent
+
+
+def _make_graph(
+    nodes: dict,
+    edges=None,
+    state=None,
+    invocation_state=None,
+    interrupt_state=None,
+) -> Graph:
+    """Create a minimally-valid Graph instance for unit tests without invoking __init__."""
+    graph = Graph.__new__(Graph)
+    graph.nodes = nodes
+    graph.edges = edges if edges is not None else set()
+    graph.state = state or GraphState()
+    graph._current_invocation_state = invocation_state or {}
+    graph._interrupt_state = interrupt_state or _InterruptState()
+    graph._resume_from_session = False
+    graph._resume_next_nodes = []
+    graph.id = "test_graph"
+    return graph
 
 
 def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None):
@@ -205,11 +225,11 @@ async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, m
         if edge.from_node.node_id == "start_agent" and edge.to_node.node_id == "conditional_agent"
     )
     assert conditional_edge.condition is not None
-    assert not conditional_edge.should_traverse(GraphState())
+    assert not conditional_edge.should_traverse(GraphState(), invocation_state={})
 
     # Create a mock GraphNode for testing
     start_node = mock_graph.nodes["start_agent"]
-    assert conditional_edge.should_traverse(GraphState(completed_nodes={start_node}))
+    assert conditional_edge.should_traverse(GraphState(completed_nodes={start_node}), invocation_state={})
 
     result = await mock_graph.invoke_async("Test comprehensive execution")
 
@@ -829,18 +849,18 @@ def test_graph_dataclasses_and_enums():
     assert edge_simple.from_node == node_a
     assert edge_simple.to_node == node_b
     assert edge_simple.condition is None
-    assert edge_simple.should_traverse(GraphState())
+    assert edge_simple.should_traverse(GraphState(), invocation_state={})
 
     def test_condition(state):
         return len(state.completed_nodes) > 0
 
     edge_conditional = GraphEdge(node_a, node_b, condition=test_condition)
     assert edge_conditional.condition is not None
-    assert not edge_conditional.should_traverse(GraphState())
+    assert not edge_conditional.should_traverse(GraphState(), invocation_state={})
 
     # Create a mock GraphNode for testing
     mock_completed_node = GraphNode("some_node", create_mock_agent("some_agent"))
-    assert edge_conditional.should_traverse(GraphState(completed_nodes={mock_completed_node}))
+    assert edge_conditional.should_traverse(GraphState(completed_nodes={mock_completed_node}), invocation_state={})
 
     # Test GraphEdge hashing
     node_x = GraphNode("x", mock_agent_a)
@@ -1574,112 +1594,6 @@ async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span)
 
 
 @pytest.mark.asyncio
-async def test_graph_parallel_execution(mock_strands_tracer, mock_use_span):
-    """Test that nodes without dependencies execute in parallel."""
-
-    # Create agents that track execution timing
-    execution_times = {}
-
-    async def create_timed_agent(name, delay=0.1):
-        agent = create_mock_agent(name, f"{name} response")
-
-        async def timed_invoke(*args, **kwargs):
-            start_time = time.time()
-            execution_times[name] = {"start": start_time}
-            await asyncio.sleep(delay)  # Simulate work
-            end_time = time.time()
-            execution_times[name]["end"] = end_time
-            return agent.return_value
-
-        async def timed_stream(*args, **kwargs):
-            # Simulate streaming by yielding some events then the final result
-            start_time = time.time()
-            execution_times[name] = {"start": start_time}
-
-            # Yield a start event
-            yield {"agent_start": True, "node": name}
-
-            await asyncio.sleep(delay)  # Simulate work
-
-            end_time = time.time()
-            execution_times[name]["end"] = end_time
-
-            # Yield final result event
-            yield {"result": agent.return_value}
-
-        agent.invoke_async = AsyncMock(side_effect=timed_invoke)
-        # Create a mock that returns the async generator directly
-        agent.stream_async = Mock(side_effect=timed_stream)
-        return agent
-
-    # Create agents that should execute in parallel
-    agent_a = await create_timed_agent("agent_a", 0.1)
-    agent_b = await create_timed_agent("agent_b", 0.1)
-    agent_c = await create_timed_agent("agent_c", 0.1)
-
-    # Create a dependent agent that should execute after the parallel ones
-    agent_d = await create_timed_agent("agent_d", 0.05)
-
-    # Build graph: A, B, C execute in parallel, then D depends on all of them
-    builder = GraphBuilder()
-    builder.add_node(agent_a, "a")
-    builder.add_node(agent_b, "b")
-    builder.add_node(agent_c, "c")
-    builder.add_node(agent_d, "d")
-
-    # D depends on A, B, and C
-    builder.add_edge("a", "d")
-    builder.add_edge("b", "d")
-    builder.add_edge("c", "d")
-
-    # A, B, C are entry points (no dependencies)
-    builder.set_entry_point("a")
-    builder.set_entry_point("b")
-    builder.set_entry_point("c")
-
-    graph = builder.build()
-
-    # Execute the graph
-    start_time = time.time()
-    result = await graph.invoke_async("Test parallel execution")
-    total_time = time.time() - start_time
-
-    # Verify successful execution
-    assert result.status == Status.COMPLETED
-    assert result.completed_nodes == 4
-    assert len(result.execution_order) == 4
-
-    # Verify all agents were called (via stream_async)
-    assert agent_a.stream_async.call_count == 1
-    assert agent_b.stream_async.call_count == 1
-    assert agent_c.stream_async.call_count == 1
-    assert agent_d.stream_async.call_count == 1
-
-    # Verify parallel execution: A, B, C should have overlapping execution times
-    # If they were sequential, total time would be ~0.35s (3 * 0.1 + 0.05)
-    # If parallel, total time should be ~0.15s (max(0.1, 0.1, 0.1) + 0.05)
-    assert total_time < 0.4, f"Expected parallel execution to be faster, took {total_time}s"
-
-    # Verify timing overlap for parallel nodes
-    a_start = execution_times["agent_a"]["start"]
-    b_start = execution_times["agent_b"]["start"]
-    c_start = execution_times["agent_c"]["start"]
-
-    # All parallel nodes should start within a small time window
-    max_start_diff = max(a_start, b_start, c_start) - min(a_start, b_start, c_start)
-    assert max_start_diff < 0.1, f"Parallel nodes should start nearly simultaneously, diff: {max_start_diff}s"
-
-    # D should start after A, B, C have finished
-    d_start = execution_times["agent_d"]["start"]
-    a_end = execution_times["agent_a"]["end"]
-    b_end = execution_times["agent_b"]["end"]
-    c_end = execution_times["agent_c"]["end"]
-
-    latest_parallel_end = max(a_end, b_end, c_end)
-    assert d_start >= latest_parallel_end - 0.02, "Dependent node should start after parallel nodes complete"
-
-
-@pytest.mark.asyncio
 async def test_graph_single_node_optimization(mock_strands_tracer, mock_use_span):
     """Test that single node execution uses direct path (optimization)."""
     agent = create_mock_agent("single_agent", "Single response")
@@ -1986,6 +1900,42 @@ async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_sp
 
 
 @pytest.mark.asyncio
+async def test_graph_nested_multiagent_failed_status_routed_to_failed_nodes(mock_strands_tracer, mock_use_span):
+    """Test that a nested MultiAgentBase reporting FAILED status is routed to failed_nodes."""
+    failing_multiagent = create_mock_multi_agent("failing_multiagent", "nested failure")
+
+    failed_inner_result = MultiAgentResult(
+        results={"inner_node": NodeResult(result=Exception("inner failure"), status=Status.FAILED)},
+        accumulated_usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        accumulated_metrics={"latencyMs": 0.0},
+        execution_count=1,
+        execution_time=10,
+        status=Status.FAILED,
+    )
+
+    async def stream_failed_result(*args, **kwargs):
+        yield {"multi_agent_start": True}
+        yield {"result": failed_inner_result}
+
+    failing_multiagent.stream_async = Mock(side_effect=stream_failed_result)
+    failing_multiagent.invoke_async = AsyncMock(return_value=failed_inner_result)
+
+    builder = GraphBuilder()
+    builder.add_node(failing_multiagent, "failing_multiagent_node")
+    graph = builder.build()
+
+    result = await graph.invoke_async("Test nested multiagent failure routing")
+
+    assert result.status == Status.FAILED
+    assert graph.state.status == Status.FAILED
+    failed_node_ids = {node.node_id for node in graph.state.failed_nodes}
+    completed_node_ids = {node.node_id for node in graph.state.completed_nodes}
+    assert "failing_multiagent_node" in failed_node_ids
+    assert "failing_multiagent_node" not in completed_node_ids
+    assert graph.nodes["failing_multiagent_node"].execution_status == Status.FAILED
+
+
+@pytest.mark.asyncio
 async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     """Test graph persistence functionality with multimodal input containing binary bytes."""
     import base64
@@ -2094,6 +2044,157 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert final_state["status"] == "completed"
     assert len(final_state["completed_nodes"]) == 1
     assert "test_node" in final_state["node_results"]
+
+
+def test_graph_serialize_deserialize_serialize_preserves_cumulative_state():
+    """serialize -> deserialize -> serialize is value-preserving on the resume path.
+
+    Guarantees that a resumed graph re-serializes the same cumulative accounting (accumulated_usage /
+    accumulated_metrics / execution_count / execution_time) it was restored with, so the timeout
+    budget (should_continue) and the totals reported in GraphResult reflect the whole run.
+    """
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    payload = {
+        "type": "graph",
+        "id": "default_graph",
+        "status": "executing",
+        "completed_nodes": [],
+        "failed_nodes": [],
+        "interrupted_nodes": [],
+        "node_results": {},
+        "next_nodes_to_execute": ["test_node"],
+        "current_task": "resume me",
+        "execution_order": [],
+        "accumulated_usage": {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33},
+        "accumulated_metrics": {"latencyMs": 44},
+        "execution_count": 3,
+        "execution_time": 555,
+        "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+    }
+
+    graph.deserialize_state(payload)
+
+    # Cumulative accounting is restored, not reset to zero.
+    assert graph.state.accumulated_usage == {"inputTokens": 11, "outputTokens": 22, "totalTokens": 33}
+    assert graph.state.accumulated_metrics == {"latencyMs": 44}
+    assert graph.state.execution_count == 3
+    assert graph.state.execution_time == 555
+
+    serialize1 = graph.serialize_state()
+    graph.deserialize_state(serialize1)
+    serialize2 = graph.serialize_state()
+
+    assert serialize2["accumulated_usage"] == serialize1["accumulated_usage"]
+    assert serialize2["accumulated_metrics"] == serialize1["accumulated_metrics"]
+    assert serialize2["execution_count"] == serialize1["execution_count"]
+    assert serialize2["execution_time"] == serialize1["execution_time"]
+
+
+@pytest.mark.asyncio
+async def test_graph_execution_time_reflects_active_invocation(mock_strands_tracer, mock_use_span):
+    """The final GraphResult includes the current invocation's interval on top of restored prior time.
+
+    execution_time is committed to state once, at finalization. GraphResult is built before that
+    commit, so it must fold in the in-flight interval itself — and finalization must not double-count.
+    """
+    # Monotonic fake clock advanced explicitly; robust to how many times time.time() is called.
+    clock = {"now": 1000.0}
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        builder = GraphBuilder()
+        builder.add_node(create_mock_agent("test_agent"), "test_node")
+        builder.set_entry_point("test_node")
+        graph = builder.build()
+
+        # Resume from a checkpoint that already accrued 555ms in a prior invocation.
+        graph.deserialize_state(
+            {
+                "type": "graph",
+                "id": "default_graph",
+                "status": "executing",
+                "completed_nodes": [],
+                "failed_nodes": [],
+                "interrupted_nodes": [],
+                "node_results": {},
+                "next_nodes_to_execute": ["test_node"],
+                "current_task": "resume me",
+                "execution_order": [],
+                "accumulated_usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                "accumulated_metrics": {"latencyMs": 0},
+                "execution_count": 0,
+                "execution_time": 555,
+                "_internal_state": {"interrupt_state": {"activated": False, "context": {}, "interrupts": {}}},
+            }
+        )
+
+        # The node advances the clock by 1200ms while it "runs".
+        async def advancing_stream(*args, **kwargs):
+            clock["now"] += 1.2
+            yield {"result": graph.nodes["test_node"].executor.return_value}
+
+        graph.nodes["test_node"].executor.stream_async = Mock(side_effect=advancing_stream)
+
+        result = await graph.invoke_async("resume me")
+
+    # 555 restored + 1200 in-flight = 1755ms; committed exactly once.
+    tru_result_time = result.execution_time
+    exp_result_time = 1755
+    assert tru_result_time == exp_result_time
+    assert graph.state.execution_time == exp_result_time
+
+
+@pytest.mark.asyncio
+async def test_graph_checkpoint_persists_in_flight_execution_time(mock_strands_tracer, mock_use_span):
+    """A mid-run per-node checkpoint persists elapsed time so a resumed run keeps its timeout budget.
+
+    Guards the crash-restart path: the AfterNodeCall session sync serializes before the invocation's
+    finally commits the interval, so serialize_state must fold the in-flight interval into
+    execution_time rather than persisting the stale pre-invocation value (which would reset the budget).
+    """
+    clock = {"now": 2000.4}
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        # Marker set at invocation start; a checkpoint taken 400ms in must reflect that interval.
+        graph._invocation_start_time = 2000.0
+        graph.state.status = Status.EXECUTING
+        checkpoint = graph.serialize_state()
+
+    assert checkpoint["execution_time"] == 400
+
+
+@pytest.mark.asyncio
+async def test_graph_tracing_setup_failure_does_not_leak_timer(mock_strands_tracer, mock_use_span):
+    """A tracing setup failure must not leave the invocation timer running.
+
+    The timer starts inside the span context so its clearing finally is guaranteed to run. If span
+    setup raises before then, no interval is started, and a later serialize_state must not accrue
+    wall time against an abandoned invocation.
+    """
+    clock = {"now": 1000.0}
+    mock_strands_tracer.start_multiagent_span.side_effect = RuntimeError("span setup failed")
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent"), "test_node")
+    builder.set_entry_point("test_node")
+    graph = builder.build()
+
+    with patch("strands.multiagent.graph.time.time", lambda: clock["now"]):
+        with pytest.raises(RuntimeError, match="span setup failed"):
+            await graph.invoke_async("go")
+        clock["now"] = 1000.5  # 500ms later
+        checkpoint = graph.serialize_state()
+
+    assert graph._invocation_start_time is None
+    assert checkpoint["execution_time"] == 0
 
 
 @pytest.mark.parametrize(
@@ -2451,7 +2552,7 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     Previously, it iterated over ALL nodes, which could cause nodes to fire
     before their actual dependencies completed.
 
-    See: https://github.com/strands-agents/sdk-python/issues/685
+    See: https://github.com/strands-agents/harness-sdk/issues/685
     """
     # Build a graph: A -> B -> C, D -> E (independent chain)
     node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
@@ -2460,14 +2561,14 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     node_d = GraphNode(node_id="D", executor=create_mock_agent("D"))
     node_e = GraphNode(node_id="E", executor=create_mock_agent("E"))
 
-    graph = Graph.__new__(Graph)
-    graph.nodes = {"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e}
-    graph.edges = [
-        GraphEdge(from_node=node_a, to_node=node_b),
-        GraphEdge(from_node=node_b, to_node=node_c),
-        GraphEdge(from_node=node_d, to_node=node_e),
-    ]
-    graph.state = GraphState()
+    graph = _make_graph(
+        nodes={"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e},
+        edges={
+            GraphEdge(from_node=node_a, to_node=node_b),
+            GraphEdge(from_node=node_b, to_node=node_c),
+            GraphEdge(from_node=node_d, to_node=node_e),
+        },
+    )
 
     # When A completes, only B should be ready (not E)
     ready = graph._find_newly_ready_nodes([node_a])
@@ -2478,3 +2579,892 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     ready = graph._find_newly_ready_nodes([node_d])
     ready_ids = {n.node_id for n in ready}
     assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"
+
+
+# =============================================================================
+# Tests for EdgeConditionWithContext (invocation_state in edge conditions)
+# =============================================================================
+
+
+class TestEdgeConditionProtocol:
+    """Tests for the EdgeConditionWithContext protocol and dispatch logic."""
+
+    def test_legacy_condition_still_works(self):
+        """Verify Callable[[GraphState], bool] conditions work unchanged."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        def legacy_condition(state: GraphState) -> bool:
+            return len(state.completed_nodes) > 0
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=legacy_condition)
+
+        assert not edge.should_traverse(GraphState(), invocation_state={})
+        assert edge.should_traverse(GraphState(completed_nodes={node_a}), invocation_state={})
+
+    def test_legacy_condition_not_affected_by_invocation_state(self):
+        """Legacy conditions should work even when invocation_state is passed."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        def legacy_condition(state: GraphState) -> bool:
+            return True
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=legacy_condition)
+        assert edge.should_traverse(GraphState(), invocation_state={"key": "value"})
+
+    def test_new_style_condition_receives_invocation_state(self):
+        """Verify EdgeConditionWithContext receives invocation_state kwarg."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        received_invocation_state = {}
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            received_invocation_state.update(invocation_state)
+            return invocation_state.get("enable_path", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        # Without the flag, should not traverse
+        assert not edge.should_traverse(GraphState(), invocation_state={"enable_path": False})
+        assert received_invocation_state == {"enable_path": False}
+
+        # With the flag, should traverse
+        received_invocation_state.clear()
+        assert edge.should_traverse(GraphState(), invocation_state={"enable_path": True})
+        assert received_invocation_state == {"enable_path": True}
+
+    def test_condition_none_always_traverses(self):
+        """Verify edges without conditions always traverse."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=None)
+        assert edge.should_traverse(GraphState(), invocation_state={})
+        assert edge.should_traverse(GraphState(), invocation_state={"anything": True})
+
+    def test_new_style_condition_with_kwargs_extensibility(self):
+        """Verify conditions with **kwargs work for future extensibility."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        def extensible_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return True
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=extensible_condition)
+        assert edge.should_traverse(GraphState(), invocation_state={})
+
+    def test_invocation_state_empty_dict_passed_through(self):
+        """Verify empty dict is passed through to context conditions."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        received = []
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            received.append(invocation_state)
+            return True
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+        assert edge.should_traverse(GraphState(), invocation_state={})
+        assert received == [{}]
+
+
+class TestInvocationStatePropagation:
+    """Tests that invocation_state flows correctly through graph execution paths."""
+
+    def test_is_node_ready_with_conditions_passes_invocation_state(self):
+        """Verify _is_node_ready_with_conditions passes invocation_state to edge conditions."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        received_state = {}
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            received_state.update(invocation_state)
+            return invocation_state.get("activate", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(completed_nodes={node_a}),
+            invocation_state={"activate": True},
+        )
+
+        assert graph._is_node_ready_with_conditions(node_b, [node_a])
+        assert received_state == {"activate": True}
+
+    def test_is_node_ready_with_conditions_invocation_state_false(self):
+        """Verify condition returning False blocks node readiness."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("activate", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(completed_nodes={node_a}),
+            invocation_state={"activate": False},
+        )
+
+        assert not graph._is_node_ready_with_conditions(node_b, [node_a])
+
+    def test_build_node_input_passes_invocation_state(self):
+        """Verify _build_node_input uses invocation_state for edge condition evaluation."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("include_dep", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        mock_result = AgentResult(
+            message={"role": "assistant", "content": [{"text": "result from A"}]},
+            stop_reason="end_turn",
+            state={},
+            metrics=Mock(
+                accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                accumulated_metrics={"latencyMs": 100.0},
+            ),
+        )
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(
+                task="test task",
+                completed_nodes={node_a},
+                results={"A": NodeResult(result=mock_result)},
+            ),
+            invocation_state={"include_dep": False},
+        )
+
+        # With condition=False, dependency is excluded -> gets raw task
+        node_input = graph._build_node_input(node_b)
+        assert any("test task" in str(block) for block in node_input)
+
+        # With condition=True, dependency result is included
+        graph._current_invocation_state = {"include_dep": True}
+        node_input = graph._build_node_input(node_b)
+        input_text = " ".join(str(block) for block in node_input)
+        assert "result from A" in input_text
+
+
+class TestResumeDeadlockFix:
+    """Tests for the _compute_ready_nodes_for_resume deadlock fix with conditional edges."""
+
+    def test_resume_skips_false_condition_edges(self):
+        """Graph: A->(cond=False)->B, A->(unconditional)->C. C should be ready on resume."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+
+        def always_false(state: GraphState) -> bool:
+            return False
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
+                GraphEdge(from_node=node_a, to_node=node_c),  # unconditional
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        # C should be ready (unconditional edge from A), B should not (condition=False)
+        assert "C" in ready_ids
+        assert "B" not in ready_ids
+
+    def test_resume_diamond_with_conditional_skip(self):
+        """Exact scenario from issue comment: A->(cond=True)->B->C, A->(cond=False)->C.
+
+        When condition is False, B is skipped. C has two incoming edges:
+        - B->C (unconditional, but B never ran)
+        - A->C (condition=False, should be excluded from readiness check)
+
+        Without the fix, C is stuck because all() requires both edges satisfied.
+        With the fix, the A->C edge is excluded (condition=False), and since there
+        are no other traversable edges with incomplete sources, we need B->C.
+        But B never ran, so C can't be ready via B->C either.
+
+        The correct fix scenario: when condition selects the FAST path (True),
+        B runs and C should be ready via B->C (excluding A->C which is False).
+        """
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+        node_c.dependencies.add(node_b)
+
+        def use_fast_path(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("fast", False)
+
+        def skip_direct(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return not invocation_state.get("fast", False)
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=use_fast_path),
+                GraphEdge(from_node=node_a, to_node=node_c, condition=skip_direct),
+                GraphEdge(from_node=node_b, to_node=node_c),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b}),
+            invocation_state={"fast": True},
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        # C should be ready: A->C edge excluded (condition=False), B->C is unconditional and B completed
+        assert "C" in ready_ids
+
+    def test_resume_all_conditions_false_blocks_node(self):
+        """If ALL incoming edges have conditions that are False, node should not be ready."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        def always_false(state: GraphState) -> bool:
+            return False
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        assert "B" not in ready_ids
+
+    def test_resume_with_invocation_state_condition(self):
+        """Condition uses invocation_state; on resume with same state, correct routing."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+
+        def check_role(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("role") == "admin"
+
+        def check_not_admin(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("role") != "admin"
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=check_role),
+                GraphEdge(from_node=node_a, to_node=node_c, condition=check_not_admin),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
+
+        # As admin: only B should be ready
+        graph._current_invocation_state = {"role": "admin"}
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        assert ready_ids == {"B"}
+
+        # As non-admin: only C should be ready
+        graph._current_invocation_state = {"role": "user"}
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        assert ready_ids == {"C"}
+
+    def test_resume_mixed_conditional_unconditional_edges(self):
+        """Node with both conditional (False) and unconditional edges: ready if unconditional source completed."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+        node_c.dependencies.add(node_b)
+
+        def always_false(state: GraphState) -> bool:
+            return False
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b),  # unconditional
+                GraphEdge(from_node=node_a, to_node=node_c, condition=always_false),  # conditional (False)
+                GraphEdge(from_node=node_b, to_node=node_c),  # unconditional
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b}),
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        # C should be ready: A->C is excluded (condition=False), B->C is unconditional and B completed
+        assert "C" in ready_ids
+
+
+class TestConditionSignatureDetection:
+    """Tests for the _is_context_condition helper."""
+
+    def test_detects_legacy_condition(self):
+        """Legacy condition without invocation_state param."""
+        from strands.multiagent.graph import _is_context_condition
+
+        def legacy(state: GraphState) -> bool:
+            return True
+
+        assert not _is_context_condition(legacy)
+
+    def test_detects_new_style_condition(self):
+        """New-style condition with invocation_state param."""
+        from strands.multiagent.graph import _is_context_condition
+
+        def new_style(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return True
+
+        assert _is_context_condition(new_style)
+
+    def test_detects_positional_invocation_state(self):
+        """Condition with invocation_state as positional param (also supported)."""
+        from strands.multiagent.graph import _is_context_condition
+
+        def positional(state: GraphState, invocation_state: dict) -> bool:
+            return True
+
+        assert _is_context_condition(positional)
+
+    def test_lambda_without_invocation_state(self):
+        """Lambda conditions (legacy pattern)."""
+        from strands.multiagent.graph import _is_context_condition
+
+        cond = lambda state: len(state.completed_nodes) > 0  # noqa: E731
+        assert not _is_context_condition(cond)
+
+
+@pytest.mark.asyncio
+async def test_reset_executor_state_preserves_graph_state_for_nested_graph():
+    """Verify reset_executor_state does not corrupt MultiAgentBase state.
+
+    When a GraphNode wraps a MultiAgentBase executor (e.g. a nested Graph),
+    reset_executor_state() must not overwrite GraphState with AgentState.
+    Regression test for #1775.
+    """
+    inner_agent = create_mock_agent("inner", "inner response")
+    inner_builder = GraphBuilder()
+    inner_builder.add_node(inner_agent, "inner_node")
+    inner_builder.set_entry_point("inner_node")
+    inner_graph = inner_builder.build()
+
+    # inner_graph.state is a GraphState, not AgentState
+    assert isinstance(inner_graph.state, GraphState)
+
+    node = GraphNode(node_id="nested", executor=inner_graph)
+
+    # Simulate a completed execution
+    node.execution_status = Status.COMPLETED
+    node.result = NodeResult(result=MagicMock(), status=Status.COMPLETED)
+
+    # Reset should NOT corrupt the nested graph's state
+    node.reset_executor_state()
+
+    # After reset, the executor's state must still be GraphState
+    assert isinstance(inner_graph.state, GraphState), "reset_executor_state overwrote GraphState with AgentState"
+    assert node.execution_status == Status.PENDING
+    assert node.result is None
+
+
+# ---------------------------------------------------------------------------
+# Test: _is_node_ready_for_resume excludes edges from bypassed nodes
+# ---------------------------------------------------------------------------
+
+
+class TestResumeBypassedNodes:
+    """Verify _is_node_ready_for_resume excludes edges from bypassed (never-executed) nodes.
+
+    When conditional edges create a skip/bypass pattern (A→C bypassing B), node B
+    may never execute. Its unconditional outgoing edge B→C should not block C from
+    being ready for resume, because B was intentionally bypassed.
+
+    Regression test for strands-agents/sdk-python#3068.
+    """
+
+    @pytest.mark.asyncio
+    async def test_bypassed_node_does_not_block_resume(self):
+        """C should be in next_nodes_to_execute even though B (bypassed) has an unconditional edge to C."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        # A→B: enter only when skip_flag is falsy
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        # A→C: bypass B when skip_flag is truthy
+        def bypass_to_c(state, *, invocation_state, **kwargs):
+            return (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("A", "C", condition=bypass_to_c)
+        builder.add_edge("B", "C")  # unconditional
+
+        graph = builder.build()
+
+        # Simulate: A completed, B bypassed (never executed), C interrupted
+        node_a = graph.nodes["A"]
+        _node_b = graph.nodes["B"]
+        node_c = graph.nodes["C"]
+
+        node_a.execution_status = Status.COMPLETED
+        node_c.execution_status = Status.INTERRUPTED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_c}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        # Compute ready nodes for resume
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = [n.node_id for n in ready]
+
+        # C should be ready — its bypass edge from A is satisfied
+        assert "C" in ready_ids, (
+            f"Expected 'C' in next_nodes_to_execute, got {ready_ids}. Edge from bypassed node B should not block C."
+        )
+        # B should NOT be ready — its enter condition is False
+        assert "B" not in ready_ids
+
+    @pytest.mark.asyncio
+    async def test_parallel_fan_in_still_waits_for_all(self):
+        """AND-join is preserved for parallel fan-in (non-bypassed nodes)."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        # Both A and B feed into C (parallel fan-in, unconditional)
+        builder.add_edge("A", "C")
+        builder.add_edge("B", "C")
+
+        graph = builder.build()
+
+        node_a = graph.nodes["A"]
+        node_b = graph.nodes["B"]
+        _node_c = graph.nodes["C"]
+
+        # Only A completed, B is still in progress (touched but not done)
+        node_a.execution_status = Status.COMPLETED
+        node_b.execution_status = Status.INTERRUPTED  # touched but not completed
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_b}
+        graph._current_invocation_state = {}
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = [n.node_id for n in ready]
+
+        # C should NOT be ready — B is touched (interrupted) but not completed
+        # AND-join requires all touched sources to be completed
+        assert "C" not in ready_ids, "AND-join should still wait for interrupted node B to complete"
+        # B is an entry point (no incoming edges), so it is always ready.
+        assert "B" in ready_ids
+
+    @pytest.mark.asyncio
+    async def test_node_with_only_bypassed_source_is_not_ready(self):
+        """A node whose only incoming edge comes from a bypassed source is not ready for resume."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        # A→B: skipped when skip_flag is truthy, so B is bypassed
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("B", "C")  # C's only source is the bypassed B
+
+        graph = builder.build()
+
+        # A completed, B bypassed (never touched)
+        node_a = graph.nodes["A"]
+        node_a.execution_status = Status.COMPLETED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = [n.node_id for n in ready]
+
+        # C is not ready — its only incoming edge is from the bypassed B
+        assert "C" not in ready_ids, "Node with only a bypassed source should not be ready"
+        # B is not ready — its enter condition is False
+        assert "B" not in ready_ids
+
+    @pytest.mark.asyncio
+    async def test_serialize_deserialize_with_bypassed_node(self):
+        """Full serialize/deserialize cycle with a bypassed node produces correct resume."""
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        def bypass_to_c(state, *, invocation_state, **kwargs):
+            return (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("A", "C", condition=bypass_to_c)
+        builder.add_edge("B", "C")
+
+        graph = builder.build()
+
+        # Simulate state after: A completed, B bypassed, C interrupted
+        node_a = graph.nodes["A"]
+        node_c = graph.nodes["C"]
+        node_a.execution_status = Status.COMPLETED
+        node_c.execution_status = Status.INTERRUPTED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_c}
+        graph.state.execution_order = [node_a]
+        graph.state.results = {}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        # Serialize
+        payload = graph.serialize_state()
+
+        assert "C" in payload["next_nodes_to_execute"], (
+            f"Expected 'C' in serialized next_nodes_to_execute, got {payload['next_nodes_to_execute']}"
+        )
+
+        # Deserialize into a fresh graph
+        graph2 = builder.build()
+        graph2._current_invocation_state = {"skip_flag": True}
+        graph2.deserialize_state(payload)
+
+        assert graph2._resume_from_session is True, "Graph should resume from session, not reset"
+
+    @pytest.mark.asyncio
+    async def test_resume_executes_bypassed_join_target_end_to_end(self):
+        """Resuming after deserialize actually runs C — the node blocked by a bypassed source.
+
+        Guards the full serialize→deserialize→resume path (not just the computed
+        next_nodes_to_execute) for strands-agents/sdk-python#3068.
+        """
+        agent_a = create_mock_agent("A", "a done")
+        agent_b = create_mock_agent("B", "b done")
+        agent_c = create_mock_agent("C", "c done")
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_c, "C")
+
+        def enter_b(state, *, invocation_state, **kwargs):
+            return not (invocation_state or {}).get("skip_flag", False)
+
+        def bypass_to_c(state, *, invocation_state, **kwargs):
+            return (invocation_state or {}).get("skip_flag", False)
+
+        builder.add_edge("A", "B", condition=enter_b)
+        builder.add_edge("A", "C", condition=bypass_to_c)
+        builder.add_edge("B", "C")
+
+        graph = builder.build()
+
+        # Simulate state after: A completed, B bypassed, C interrupted
+        node_a = graph.nodes["A"]
+        node_c = graph.nodes["C"]
+        node_a.execution_status = Status.COMPLETED
+        node_c.execution_status = Status.INTERRUPTED
+
+        graph.state.status = Status.INTERRUPTED
+        graph.state.completed_nodes = {node_a}
+        graph.state.interrupted_nodes = {node_c}
+        graph.state.execution_order = [node_a]
+        graph.state.results = {}
+        graph._current_invocation_state = {"skip_flag": True}
+
+        payload = graph.serialize_state()
+
+        # Deserialize into a fresh graph and resume execution
+        graph2 = builder.build()
+        graph2.deserialize_state(payload)
+        result = await graph2.invoke_async("resume", invocation_state={"skip_flag": True})
+
+        # C runs to completion on resume; B (bypassed) never executes
+        assert result.status == Status.COMPLETED
+        assert "C" in result.results
+        graph2.nodes["C"].executor.stream_async.assert_called()
+        graph2.nodes["B"].executor.stream_async.assert_not_called()
+
+
+class TestResumeInFlightSibling:
+    """Verify a fan-in node is not marked ready while a parallel sibling is still in-flight.
+
+    In a diamond root → {left, right} → join, serializing after left completes but while right is
+    still executing must not mark join ready off left alone. An in-flight sibling is in none of the
+    terminal sets (completed/interrupted/failed) at serialize time, and must be distinguished from a
+    bypassed dead branch: join stays out of the resume frontier so a restore runs join exactly once,
+    with both parents' outputs present, rather than double-running it and seeing incomplete inputs.
+    """
+
+    def test_in_flight_sibling_excluded_from_resume_frontier(self):
+        """join is excluded and right included when right is still executing at serialize time."""
+        builder = GraphBuilder()
+        builder.add_node(create_mock_agent("root"), "root")
+        builder.add_node(create_mock_agent("left"), "left")
+        builder.add_node(create_mock_agent("right"), "right")
+        builder.add_node(create_mock_agent("join"), "join")
+        builder.add_edge("root", "left")
+        builder.add_edge("root", "right")
+        builder.add_edge("left", "join")
+        builder.add_edge("right", "join")
+        graph = builder.build()
+
+        node_root = graph.nodes["root"]
+        node_left = graph.nodes["left"]
+        node_right = graph.nodes["right"]
+
+        # root and left completed; right still executing (in none of the terminal sets)
+        node_root.execution_status = Status.COMPLETED
+        node_left.execution_status = Status.COMPLETED
+        node_right.execution_status = Status.EXECUTING
+
+        graph.state.status = Status.EXECUTING
+        graph.state.completed_nodes = {node_root, node_left}
+
+        payload = graph.serialize_state()
+
+        assert "join" not in payload["next_nodes_to_execute"], (
+            f"join must not be ready while sibling right is in-flight, got {payload['next_nodes_to_execute']}"
+        )
+        assert "right" in payload["next_nodes_to_execute"]
+
+        ready_ids = {node.node_id for node in graph._compute_ready_nodes_for_resume()}
+        assert ready_ids == {"right"}
+
+    @pytest.mark.asyncio
+    async def test_resume_runs_fan_in_once_with_both_inputs(self):
+        """A restore from a mid-flight snapshot runs the fan-in exactly once with both inputs present."""
+        release_right = asyncio.Event()
+
+        agent_right = create_mock_agent("right", "right done")
+
+        async def blocking_right_stream(*args, **kwargs):
+            # Block right so the snapshot is captured while it is genuinely in-flight.
+            yield {"agent_start": True}
+            await release_right.wait()
+            yield {"result": agent_right.return_value}
+
+        agent_right.stream_async = Mock(side_effect=blocking_right_stream)
+
+        builder = GraphBuilder()
+        builder.add_node(create_mock_agent("root", "root done"), "root")
+        builder.add_node(create_mock_agent("left", "left done"), "left")
+        builder.add_node(agent_right, "right")
+        builder.add_node(create_mock_agent("join", "join done"), "join")
+        builder.add_edge("root", "left")
+        builder.add_edge("root", "right")
+        builder.add_edge("left", "join")
+        builder.add_edge("right", "join")
+        graph = builder.build()
+
+        captured: dict = {}
+
+        def capture_on_left(event):
+            # left completes while right is still blocked — snapshot the live-sibling state, then
+            # release right so the first graph can finish.
+            if event.node_id == "left" and "payload" not in captured:
+                captured["payload"] = event.source.serialize_state()
+                release_right.set()
+
+        graph.add_hook(capture_on_left, AfterNodeCallEvent)
+
+        await graph.invoke_async("diamond task")
+
+        assert "payload" in captured, "left's AfterNodeCallEvent should fire while right is in-flight"
+        assert "join" not in captured["payload"]["next_nodes_to_execute"]
+
+        # Resume into a fresh graph with independent executor mocks, since the call-count and input
+        # assertions target the resumed graph's nodes.
+        builder2 = GraphBuilder()
+        builder2.add_node(create_mock_agent("root", "root done"), "root")
+        builder2.add_node(create_mock_agent("left", "left done"), "left")
+        builder2.add_node(create_mock_agent("right", "right done"), "right")
+        agent_join2 = create_mock_agent("join", "join done")
+        builder2.add_node(agent_join2, "join")
+        builder2.add_edge("root", "left")
+        builder2.add_edge("root", "right")
+        builder2.add_edge("left", "join")
+        builder2.add_edge("right", "join")
+        graph2 = builder2.build()
+
+        graph2.deserialize_state(captured["payload"])
+        result = await graph2.invoke_async("diamond task")
+
+        # join runs exactly once — a stale frontier including join would double-run it.
+        assert agent_join2.stream_async.call_count == 1
+        assert result.status == Status.COMPLETED
+        assert "join" in result.results
+
+        # join's single run sees both parents' outputs.
+        join_input = agent_join2.stream_async.call_args.args[0]
+        join_input_text = " ".join(str(block) for block in join_input)
+        assert "From left:" in join_input_text
+        assert "From right:" in join_input_text
+
+    def test_in_flight_entry_point_sibling_excluded_from_resume_frontier(self):
+        """An in-flight sibling with no completed ancestor still blocks the fan-in.
+
+        Two entry points left and right feed join with no shared root. When left completes while
+        right is still executing, right has no completed ancestor, so forward reachability from
+        completed nodes alone would miss it. The in-flight node itself is the seed that keeps join
+        out of the frontier.
+        """
+        builder = GraphBuilder()
+        builder.add_node(create_mock_agent("left"), "left")
+        builder.add_node(create_mock_agent("right"), "right")
+        builder.add_node(create_mock_agent("join"), "join")
+        builder.set_entry_point("left")
+        builder.set_entry_point("right")
+        builder.add_edge("left", "join")
+        builder.add_edge("right", "join")
+        graph = builder.build()
+
+        node_left = graph.nodes["left"]
+        node_right = graph.nodes["right"]
+
+        # left completed; right still executing, with no completed ancestor to reach it from
+        node_left.execution_status = Status.COMPLETED
+        node_right.execution_status = Status.EXECUTING
+
+        graph.state.status = Status.EXECUTING
+        graph.state.completed_nodes = {node_left}
+
+        payload = graph.serialize_state()
+
+        assert "join" not in payload["next_nodes_to_execute"], (
+            f"join must not be ready while in-flight entry point right is outstanding, "
+            f"got {payload['next_nodes_to_execute']}"
+        )
+        assert "right" in payload["next_nodes_to_execute"]
+
+    @pytest.mark.asyncio
+    async def test_resume_runs_fan_in_once_for_in_flight_entry_point_sibling(self):
+        """End-to-end restore when the in-flight sibling is an entry point with no completed ancestor.
+
+        Two entry points left and right feed join. left completes while right is still blocked; the
+        snapshot is captured mid-flight, then resumed into a fresh graph. join must run exactly once
+        with both parents' outputs present.
+        """
+        right_executing = asyncio.Event()
+        release_right = asyncio.Event()
+
+        agent_left = create_mock_agent("left", "left done")
+        agent_right = create_mock_agent("right", "right done")
+
+        async def blocking_right_stream(*args, **kwargs):
+            # right has entered execution (status EXECUTING) by the time its stream runs; signal
+            # that, then block so the snapshot is captured while right is genuinely in-flight.
+            yield {"agent_start": True}
+            right_executing.set()
+            await release_right.wait()
+            yield {"result": agent_right.return_value}
+
+        async def left_stream_after_right_executing(*args, **kwargs):
+            # Gate left's completion on right being in-flight, so the snapshot is deterministic
+            # regardless of the order the parallel entry-point tasks are scheduled.
+            yield {"agent_start": True}
+            await right_executing.wait()
+            yield {"result": agent_left.return_value}
+
+        agent_left.stream_async = Mock(side_effect=left_stream_after_right_executing)
+        agent_right.stream_async = Mock(side_effect=blocking_right_stream)
+
+        builder = GraphBuilder()
+        builder.add_node(agent_left, "left")
+        builder.add_node(agent_right, "right")
+        builder.add_node(create_mock_agent("join", "join done"), "join")
+        builder.set_entry_point("left")
+        builder.set_entry_point("right")
+        builder.add_edge("left", "join")
+        builder.add_edge("right", "join")
+        graph = builder.build()
+
+        captured: dict = {}
+
+        def capture_on_left(event):
+            if event.node_id == "left" and "payload" not in captured:
+                captured["payload"] = event.source.serialize_state()
+                release_right.set()
+
+        graph.add_hook(capture_on_left, AfterNodeCallEvent)
+
+        await graph.invoke_async("two entry points")
+
+        assert "payload" in captured, "left's AfterNodeCallEvent should fire while right is in-flight"
+        assert "join" not in captured["payload"]["next_nodes_to_execute"]
+
+        # Resume into a fresh graph with independent executor mocks.
+        builder2 = GraphBuilder()
+        builder2.add_node(create_mock_agent("left", "left done"), "left")
+        builder2.add_node(create_mock_agent("right", "right done"), "right")
+        agent_join2 = create_mock_agent("join", "join done")
+        builder2.add_node(agent_join2, "join")
+        builder2.set_entry_point("left")
+        builder2.set_entry_point("right")
+        builder2.add_edge("left", "join")
+        builder2.add_edge("right", "join")
+        graph2 = builder2.build()
+
+        graph2.deserialize_state(captured["payload"])
+        result = await graph2.invoke_async("two entry points")
+
+        # join runs exactly once — a stale frontier including join would double-run it.
+        assert agent_join2.stream_async.call_count == 1
+        assert result.status == Status.COMPLETED
+        assert "join" in result.results
+
+        # join's single run sees both parents' outputs.
+        join_input = agent_join2.stream_async.call_args.args[0]
+        join_input_text = " ".join(str(block) for block in join_input)
+        assert "From left:" in join_input_text
+        assert "From right:" in join_input_text

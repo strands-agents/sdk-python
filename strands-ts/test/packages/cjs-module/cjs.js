@@ -19,11 +19,10 @@ async function main() {
     notebook: barrelNotebook,
   } = await import('@strands-agents/sdk/vended-tools')
 
-  const {
-    AgentSkills,
-    ContextOffloader,
-    InMemoryStorage,
-  } = await import('@strands-agents/sdk/vended-plugins')
+  const { AgentSkills, ContextOffloader, GoalLoop, InMemoryStorage } =
+    await import('@strands-agents/sdk/vended-plugins')
+
+  const { GoalLoop: GoalLoopFromSubpath } = await import('@strands-agents/sdk/vended-plugins/goal')
 
   const { BedrockModel: BedrockFromSubpath } = await import('@strands-agents/sdk/models/bedrock')
   const { OpenAIModel } = await import('@strands-agents/sdk/models/openai')
@@ -69,6 +68,11 @@ async function main() {
     throw new Error('Tool was not correctly added to the agent')
   }
 
+  // The Node entry (exports.node -> index.node.js) must register the host default
+  // sandbox; this getter throws if it didn't.
+  void agent.sandbox
+  console.log('✓ Node default sandbox registered')
+
   const tools = { notebook, fileEditor, httpRequest, bash }
   for (const tool of Object.values(tools)) {
     if (!(tool instanceof Tool)) {
@@ -82,16 +86,32 @@ async function main() {
   console.log('✓ Model subpath exports verified')
 
   // Verify barrel exports match individual subpath exports
-  if (barrelBash !== bash || barrelFileEditor !== fileEditor || barrelHttpRequest !== httpRequest || barrelNotebook !== notebook) {
+  if (
+    barrelBash !== bash ||
+    barrelFileEditor !== fileEditor ||
+    barrelHttpRequest !== httpRequest ||
+    barrelNotebook !== notebook
+  ) {
     throw new Error('Barrel vended-tools exports do not match individual subpath exports')
   }
   console.log('✓ Barrel vended-tools exports verified')
 
   // Verify barrel vended-plugins exports are constructible
-  if (typeof AgentSkills !== 'function' || typeof ContextOffloader !== 'function' || typeof InMemoryStorage !== 'function') {
+  if (
+    typeof AgentSkills !== 'function' ||
+    typeof ContextOffloader !== 'function' ||
+    typeof GoalLoop !== 'function' ||
+    typeof InMemoryStorage !== 'function'
+  ) {
     throw new Error('Barrel vended-plugins exports are not constructible')
   }
   console.log('✓ Barrel vended-plugins exports verified')
+
+  // Verify the goal subpath export matches the barrel export
+  if (GoalLoopFromSubpath !== GoalLoop) {
+    throw new Error('GoalLoop from subpath should match barrel export')
+  }
+  console.log('✓ GoalLoop subpath export verified')
 
   // Reference remaining imports so static analysis doesn't flag them unused.
   void OpenAIModel

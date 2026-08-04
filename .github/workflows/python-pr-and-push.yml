@@ -27,11 +27,11 @@ jobs:
       contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
     - name: Setup uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
     - name: Check API breaking changes
       run: |
         if ! uvx griffe check --search strands-py/src --format github strands --against "main"; then

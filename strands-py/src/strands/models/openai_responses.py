@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 # Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
-# A major version bump is proposed in https://github.com/strands-agents/sdk-python/pull/1370
+# A major version bump is proposed in https://github.com/strands-agents/harness-sdk/pull/1370
 _MIN_OPENAI_VERSION = Version("2.0.0")
 
 try:
@@ -55,11 +55,13 @@ import openai  # noqa: E402 - must import after version check
 
 from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
+from ..types.event_loop import Usage  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
+from ._openai_errors import classify_openai_error  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
 
@@ -73,6 +75,14 @@ _MAX_MEDIA_SIZE_LABEL = "20MB"
 _DEFAULT_MIME_TYPE = "application/octet-stream"
 _CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overflow error"
 _RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
+
+
+class _OpenAIResponsesStreamError(RuntimeError):
+    """Error reported by a terminal OpenAI Responses API stream event."""
+
+    def __init__(self, message: str | None, code: str | None) -> None:
+        super().__init__(message or "OpenAI Responses API response failed")
+        self.code = code
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -186,7 +196,9 @@ class OpenAIResponsesModel(Model):
         Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
         """
         if self._bedrock_mantle_config is not None:
-            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
+            return resolve_bedrock_client_args(
+                self._bedrock_mantle_config, self.client_args, model_id=str(self.config.get("model_id", ""))
+            )
         return self.client_args
 
     @property
@@ -404,6 +416,17 @@ class OpenAIResponsesModel(Model):
                                         call_info["arguments"] = event.arguments
                                         break
 
+                        elif event.type == "response.failed":
+                            error = getattr(event.response, "error", None)
+                            raise _OpenAIResponsesStreamError(
+                                getattr(error, "message", None), getattr(error, "code", None)
+                            )
+
+                        elif event.type == "error":
+                            raise _OpenAIResponsesStreamError(
+                                getattr(event, "message", None), getattr(event, "code", None)
+                            )
+
                         elif event.type == "response.incomplete":
                             # Response stopped early (e.g., max tokens reached)
                             if hasattr(event, "response"):
@@ -424,13 +447,14 @@ class OpenAIResponsesModel(Model):
                             if hasattr(event, "response") and hasattr(event.response, "usage"):
                                 final_usage = event.response.usage
                             break
-            except openai.APIError as e:
-                if hasattr(e, "code") and e.code == "context_length_exceeded":
-                    logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
-                    raise ContextWindowOverflowException(str(e)) from e
-                if isinstance(e, openai.RateLimitError):
+            except (openai.APIError, _OpenAIResponsesStreamError) as error:
+                error_kind = classify_openai_error(error)
+                if error_kind == "throttling":
                     logger.warning(_RATE_LIMIT_MSG)
-                    raise ModelThrottledException(str(e)) from e
+                    raise ModelThrottledException(str(error)) from error
+                if error_kind == "context_overflow":
+                    logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
+                    raise ContextWindowOverflowException(str(error)) from error
                 raise
 
             # Close current content block if we had any
@@ -488,19 +512,18 @@ class OpenAIResponsesModel(Model):
         """
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
-                response = await client.responses.parse(
-                    model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
-                    text_format=output_model,
-                )
-            except openai.BadRequestError as e:
-                if hasattr(e, "code") and e.code == "context_length_exceeded":
+                request = self._format_request(prompt, system_prompt=system_prompt)
+                request.pop("stream", None)
+                response = await client.responses.parse(**request, text_format=output_model)
+            except openai.APIError as error:
+                error_kind = classify_openai_error(error)
+                if error_kind == "throttling":
+                    logger.warning(_RATE_LIMIT_MSG)
+                    raise ModelThrottledException(str(error)) from error
+                if error_kind == "context_overflow":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
-                    raise ContextWindowOverflowException(str(e)) from e
+                    raise ContextWindowOverflowException(str(error)) from error
                 raise
-            except openai.RateLimitError as e:
-                logger.warning(_RATE_LIMIT_MSG)
-                raise ModelThrottledException(str(e)) from e
 
         if response.output_parsed:
             yield {"output": response.output_parsed}
@@ -549,16 +572,22 @@ class OpenAIResponsesModel(Model):
 
         # Add tools if provided
         if tool_specs:
-            # Merge with any built-in tools (e.g. web_search) already in the request from params
-            request.setdefault("tools", []).extend(
-                {
-                    "type": "function",
-                    "name": tool_spec["name"],
-                    "description": tool_spec.get("description", ""),
-                    "parameters": tool_spec["inputSchema"]["json"],
-                }
-                for tool_spec in tool_specs
-            )
+            # Merge function tools with any built-in tools (e.g. web_search) carried in from params.
+            # Build a new list rather than extending in place: ** unpacking above aliases
+            # self.config["params"]["tools"] by reference, so mutating it would duplicate every tool
+            # spec into the stored config on each call.
+            request["tools"] = [
+                *request.get("tools", []),
+                *(
+                    {
+                        "type": "function",
+                        "name": tool_spec["name"],
+                        "description": tool_spec.get("description", ""),
+                        "parameters": tool_spec["inputSchema"]["json"],
+                    }
+                    for tool_spec in tool_specs
+                ),
+            ]
             request.update(self._format_request_tool_choice(tool_choice))
 
         return request
@@ -627,12 +656,30 @@ class OpenAIResponsesModel(Model):
             ]
 
             if formatted_contents:
-                formatted_messages.append(
-                    {
-                        "role": role,  # "user" | "assistant"
-                        "content": formatted_contents,
-                    }
-                )
+                if role == "assistant":
+                    # Only the string EasyInputMessage form is a valid assistant *input* shape
+                    # without the full output-item metadata (id/status/annotations) that has
+                    # already been discarded by this point. Replaying verbatim output items is
+                    # tracked in https://github.com/strands-agents/harness-sdk/issues/3389.
+                    dropped_types = [
+                        part.get("type", "unknown") for part in formatted_contents if part.get("type") != "output_text"
+                    ]
+                    if dropped_types:
+                        logger.warning(
+                            "content_type=<%s> | non-text assistant history content has no valid "
+                            "Responses API input shape | dropping",
+                            ", ".join(dropped_types),
+                        )
+                    text = "\n".join(part["text"] for part in formatted_contents if part.get("type") == "output_text")
+                    if text:
+                        formatted_messages.append({"role": "assistant", "content": text})
+                else:
+                    formatted_messages.append(
+                        {
+                            "role": role,  # "user"
+                            "content": formatted_contents,
+                        }
+                    )
 
             formatted_messages.extend(formatted_tool_calls)
             formatted_messages.extend(formatted_tool_messages)
@@ -694,7 +741,7 @@ class OpenAIResponsesModel(Model):
             "type": "function_call",
             "call_id": tool_use["toolUseId"],
             "name": tool_use["name"],
-            "arguments": json.dumps(tool_use["input"]),
+            "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
         }
 
     @classmethod
@@ -720,7 +767,7 @@ class OpenAIResponsesModel(Model):
 
         for content in tool_result["content"]:
             if "json" in content:
-                output_parts.append({"type": "input_text", "text": json.dumps(content["json"])})
+                output_parts.append({"type": "input_text", "text": json.dumps(content["json"], ensure_ascii=False)})
             elif "text" in content:
                 output_parts.append({"type": "input_text", "text": content["text"]})
             elif "image" in content:
@@ -837,13 +884,20 @@ class OpenAIResponsesModel(Model):
 
             case "metadata":
                 # Responses API uses input_tokens/output_tokens naming convention
+                usage_data: Usage = {
+                    "inputTokens": getattr(event["data"], "input_tokens", 0),
+                    "outputTokens": getattr(event["data"], "output_tokens", 0),
+                    "totalTokens": getattr(event["data"], "total_tokens", 0),
+                }
+
+                if tokens_details := getattr(event["data"], "input_tokens_details", None):
+                    cached = getattr(tokens_details, "cached_tokens", None)
+                    if isinstance(cached, int) and cached:
+                        usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": getattr(event["data"], "input_tokens", 0),
-                            "outputTokens": getattr(event["data"], "output_tokens", 0),
-                            "totalTokens": getattr(event["data"], "total_tokens", 0),
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

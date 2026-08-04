@@ -1,7 +1,7 @@
 name: Documentation Question
 description: Ask a question about the documentation
 title: "[QUESTION] "
-labels: ["documentation", "question"]
+labels: ["documentation"]
 assignees: []
 body:
   - type: markdown

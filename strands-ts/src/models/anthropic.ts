@@ -16,6 +16,9 @@ import { logger } from '../logging/logger.js'
 import { warnOnce } from '../logging/warn-once.js'
 import { MODEL_DEFAULTS, defaultMaxTokensWarningMessage, defaultModelWarningMessage } from './defaults.js'
 
+// Union of overflow phrases observed across Anthropic responses, matched
+// case-insensitively. Kept in lowercase so the comparison is a single
+// ``toLowerCase`` on the error message.
 const CONTEXT_WINDOW_OVERFLOW_ERRORS = [
   'prompt is too long',
   'max_tokens exceeded',
@@ -277,8 +280,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     } catch (unknownError) {
       const error = normalizeError(unknownError)
 
-      const lowerMessage = error.message.toLowerCase()
-      if (CONTEXT_WINDOW_OVERFLOW_ERRORS.some((msg) => lowerMessage.includes(msg))) {
+      const lowered = error.message.toLowerCase()
+      if (CONTEXT_WINDOW_OVERFLOW_ERRORS.some((msg) => lowered.includes(msg))) {
         throw new ContextWindowOverflowError(error.message)
       }
 
@@ -533,10 +536,10 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
       }
 
       case 'reasoningBlock':
-        if (block.text && block.signature) {
+        if (block.signature) {
           return {
             type: 'thinking',
-            thinking: block.text,
+            thinking: block.text ?? '',
             signature: block.signature,
           } as unknown as Anthropic.ContentBlockParam
         } else if (block.redactedContent) {

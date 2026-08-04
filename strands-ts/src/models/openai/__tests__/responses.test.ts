@@ -6,6 +6,7 @@ import { ContextWindowOverflowError, ModelThrottledError } from '../../../errors
 import { collectIterator } from '../../../__fixtures__/model-test-helpers.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../../types/messages.js'
 import { ImageBlock, DocumentBlock } from '../../../types/media.js'
+import { CitationsBlock } from '../../../types/citations.js'
 import { StateStore } from '../../../state-store.js'
 import { logger } from '../../../logging/logger.js'
 
@@ -50,24 +51,20 @@ describe("OpenAIModel (api: 'responses')", () => {
     }
   })
 
-  describe('constructor', () => {
+  describe.runIf(isNode)('constructor', () => {
     it('uses API key from constructor parameter', () => {
       new OpenAIModel({ api: 'responses', modelId: 'gpt-4o', apiKey: 'sk-explicit' })
       expect(OpenAI).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-explicit' }))
     })
 
-    if (isNode) {
-      it('uses API key from environment variable', () => {
-        vi.stubEnv('OPENAI_API_KEY', 'sk-from-env')
-        new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })
-        expect(OpenAI).toHaveBeenCalled()
-      })
-    }
+    it('uses API key from environment variable', () => {
+      vi.stubEnv('OPENAI_API_KEY', 'sk-from-env')
+      new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })
+      expect(OpenAI).toHaveBeenCalled()
+    })
 
     it('throws error when no API key is available', () => {
-      if (isNode) {
-        vi.stubEnv('OPENAI_API_KEY', '')
-      }
+      vi.stubEnv('OPENAI_API_KEY', '')
       expect(() => new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })).toThrow(/OpenAI API key is required/)
     })
 
@@ -80,9 +77,7 @@ describe("OpenAIModel (api: 'responses')", () => {
     })
 
     it('does not require API key when client is provided', () => {
-      if (isNode) {
-        vi.stubEnv('OPENAI_API_KEY', '')
-      }
+      vi.stubEnv('OPENAI_API_KEY', '')
       const client = {} as OpenAI
       expect(() => new OpenAIModel({ api: 'responses', client })).not.toThrow()
     })
@@ -392,6 +387,90 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(typeof out.output).toBe('string')
       expect(out.output).toBe('pong')
     })
+
+    it('serializes assistant history as a string EasyInputMessage', async () => {
+      // A bare `{ role: 'assistant', content: [output_text] }` is not a valid
+      // Responses input item and is rejected by strict backends (Bedrock Mantle).
+      // See https://github.com/strands-agents/harness-sdk/issues/3388
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('What is 2+2?')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('4')] }),
+        new Message({ role: 'user', content: [new TextBlock('What about 3+3?')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: '4' })
+      expect(req.input[0]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'What is 2+2?' }] })
+      expect(req.input[2]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'What about 3+3?' }] })
+    })
+
+    it('joins multiple assistant text blocks with newlines', async () => {
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('list two words')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('First.'), new TextBlock('Second.')] }),
+        new Message({ role: 'user', content: [new TextBlock('thanks')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: 'First.\nSecond.' })
+    })
+
+    it('drops non-text assistant history content with a warning', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('draw something')] }),
+        new Message({
+          role: 'assistant',
+          content: [
+            new TextBlock('Here it is.'),
+            new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } }),
+          ],
+        }),
+        new Message({ role: 'user', content: [new TextBlock('nice')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[1]).toEqual({ role: 'assistant', content: 'Here it is.' })
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('no valid responses api input shape'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('content_type=<input_image>'))
+      warnSpy.mockRestore()
+    })
+
+    it('omits an assistant history turn whose content is entirely non-text', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn')
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('draw something')] }),
+        new Message({
+          role: 'assistant',
+          content: [new ImageBlock({ format: 'png', source: { bytes: new Uint8Array([1, 2, 3]) } })],
+        }),
+        new Message({ role: 'user', content: [new TextBlock('nice')] }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input.filter((i: any) => i.role === 'assistant')).toEqual([])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('content_type=<input_image>'))
+      warnSpy.mockRestore()
+    })
+
+    it('serializes user-role citations content as input_text', async () => {
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new CitationsBlock({
+              citations: [
+                {
+                  location: { type: 'documentChar', documentIndex: 0, start: 0, end: 10 },
+                  source: 'doc-0',
+                  sourceContent: [{ text: 'source' }],
+                  title: 'Test',
+                },
+              ],
+              content: [{ text: 'quoted passage' }],
+            }),
+          ],
+        }),
+      ]
+      const req = await runOnce({}, messages)
+      expect(req.input[0]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'quoted passage' }] })
+    })
   })
 
   describe('stream event mapping', () => {
@@ -528,6 +607,55 @@ describe("OpenAIModel (api: 'responses')", () => {
       expect(stop?.stopReason).toBe('maxTokens')
       const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
       expect(metadata?.usage).toEqual({ inputTokens: 10, outputTokens: 5, totalTokens: 15 })
+    })
+
+    it('plumbs prompt-cache reads (input_tokens_details.cached_tokens) into cacheReadInputTokens', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield { type: 'response.output_text.delta', delta: 'hi' }
+        yield {
+          type: 'response.completed',
+          response: {
+            usage: {
+              input_tokens: 1553,
+              output_tokens: 42,
+              total_tokens: 1595,
+              input_tokens_details: { cached_tokens: 873 },
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+      const events = await collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
+      expect(metadata?.usage).toEqual({
+        inputTokens: 1553,
+        outputTokens: 42,
+        totalTokens: 1595,
+        cacheReadInputTokens: 873,
+      })
+    })
+
+    it('omits cacheReadInputTokens when there is no cache hit (cached_tokens 0 or absent)', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield {
+          type: 'response.completed',
+          response: {
+            usage: {
+              input_tokens: 1553,
+              output_tokens: 42,
+              total_tokens: 1595,
+              input_tokens_details: { cached_tokens: 0 },
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+      const events = await collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      const metadata = events.find((e: any) => e.type === 'modelMetadataEvent') as any
+      expect(metadata?.usage).toEqual({ inputTokens: 1553, outputTokens: 42, totalTokens: 1595 })
+      expect(metadata?.usage).not.toHaveProperty('cacheReadInputTokens')
     })
 
     it('emits URL citation delta from response.output_text.annotation.added', async () => {
@@ -687,6 +815,77 @@ describe("OpenAIModel (api: 'responses')", () => {
   })
 
   describe('error mapping', () => {
+    it('throws response.failed instead of finalizing an empty successful response', async () => {
+      const client = createMockClient(async function* () {
+        yield { type: 'response.created', response: { id: 'r' } }
+        yield {
+          type: 'response.failed',
+          response: {
+            error: {
+              code: 'server_error',
+              message: 'The model failed while processing the request.',
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toMatchObject({
+        message: 'The model failed while processing the request.',
+        code: 'server_error',
+      })
+    })
+
+    it('wraps a response.failed context limit as ContextWindowOverflowError', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'response.failed',
+          response: {
+            error: {
+              code: 'invalid_prompt',
+              message: 'prompt tokens (320666) exceed customer model maximum (278528) for model-id',
+            },
+          },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toBeInstanceOf(ContextWindowOverflowError)
+    })
+
+    it('throws the fallback message when response.failed has no error details', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'response.failed',
+          response: { error: null },
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toThrow('OpenAI Responses API response failed')
+    })
+
+    it('maps a Responses error event through the existing error classifier', async () => {
+      const client = createMockClient(async function* () {
+        yield {
+          type: 'error',
+          code: 'rate_limit_exceeded',
+          message: 'Rate limit exceeded while streaming.',
+        }
+      })
+      const model = new OpenAIModel({ api: 'responses', client })
+
+      await expect(
+        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
+      ).rejects.toBeInstanceOf(ModelThrottledError)
+    })
+
     it('wraps 429 as ModelThrottledError', async () => {
       const client: any = {
         responses: {
@@ -710,28 +909,6 @@ describe("OpenAIModel (api: 'responses')", () => {
             const err: any = new Error('This model has a maximum context length of 8k.')
             err.code = 'context_length_exceeded'
             throw err
-          }),
-        },
-      }
-      const model = new OpenAIModel({ api: 'responses', client })
-      await expect(
-        collectIterator(model.stream([new Message({ role: 'user', content: [new TextBlock('x')] })]))
-      ).rejects.toBeInstanceOf(ContextWindowOverflowError)
-    })
-
-    it.each([
-      'maximum context length exceeded',
-      'context_length_exceeded',
-      'too many tokens',
-      'context length',
-      'Input is too long for requested model',
-      'input length and `max_tokens` exceed context limit',
-      'too many total text bytes',
-    ])('wraps context overflow message pattern "%s" as ContextWindowOverflowError', async (message) => {
-      const client: any = {
-        responses: {
-          create: vi.fn(async () => {
-            throw new Error(message)
           }),
         },
       }

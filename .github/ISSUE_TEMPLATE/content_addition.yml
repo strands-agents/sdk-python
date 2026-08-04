@@ -1,7 +1,7 @@
 name: Content Addition
 description: Suggest new content for the documentation
 title: "[NEW CONTENT] "
-labels: ["documentation", "enhancement"]
+labels: ["documentation"]
 assignees: []
 body:
   - type: markdown

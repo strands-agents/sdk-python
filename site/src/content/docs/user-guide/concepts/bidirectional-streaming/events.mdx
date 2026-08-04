@@ -1,7 +1,11 @@
 ---
 title: Events
+description: 'Send and receive bidirectional streaming events in Strands agents. Process audio, text, and tool activity in real time over persistent connections.'
 experimental: true
 tags: [bidi-streaming]
+sourceLinks:
+  - path: strands-py/src/strands/experimental/bidi/types/events.py
+  - path: strands-py/src/strands/experimental/bidi/types/io.py
 ---
 
 
@@ -111,14 +115,14 @@ Emitted when the streaming connection is established and ready for interaction.
 {
     "type": "bidi_connection_start",
     "connection_id": "conn_abc123",
-    "model": "amazon.nova-sonic-v1:0"
+    "model": "amazon.nova-2-sonic-v1:0"
 }
 ```
 
 **Properties:**
 
 - `connection_id`: Unique identifier for this streaming connection
-- `model`: Model identifier (e.g., "amazon.nova-sonic-v1:0", "gemini-2.0-flash-live")
+- `model`: Model identifier (e.g., "amazon.nova-2-sonic-v1:0", "gemini-2.0-flash-live")
 
 #### BidiConnectionRestartEvent
 

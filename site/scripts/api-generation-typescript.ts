@@ -21,7 +21,7 @@ const OUTPUT_DIR = '.build/api-docs/typescript'
 
 interface FileInfo {
   path: string
-  category: string // 'classes', 'interfaces', 'type-aliases', 'functions', or 'index'
+  category: string // 'classes', 'interfaces', 'type-aliases', 'functions', 'variables', 'enumerations', or 'index'
   name: string
   namespace?: string // set for members under namespaces/<ns>/
 }
@@ -149,13 +149,13 @@ async function processFile(file: FileInfo): Promise<void> {
   // For namespace index pages, rewrite category-prefixed links to absolute slug paths
   //   e.g. interfaces/TracerConfig.md -> /api/typescript/telemetry:TracerConfig
   let linkedFixed = content
-    .replace(/\]\(\.\.\/(classes|interfaces|type-aliases|functions)\/([^)]+)\)/g, '](../$2)')
+    .replace(/\]\(\.\.\/(classes|interfaces|type-aliases|functions|variables|enumerations)\/([^)]+)\)/g, '](../$2)')
     .replace(/\]\(\.\.\/([^./][^)]+\.md(?:#[^)]*)?)\)/g, ']($1)')
 
   if (file.namespace) {
     // Rewrite category-prefixed links in namespace pages/members to relative paths
     linkedFixed = linkedFixed.replace(
-      /\]\((classes|interfaces|type-aliases|functions|namespaces)\/([^)]+?)\.md((?:#[^)]*)?)\)/g,
+      /\]\((classes|interfaces|type-aliases|functions|variables|enumerations|namespaces)\/([^)]+?)\.md((?:#[^)]*)?)\)/g,
       (_match, _cat, name, hash) => `](../${file.namespace}:${name}/${hash})`,
     )
     // Also rewrite bare Name.md links (after ../category/ was already stripped) to relative paths
@@ -170,8 +170,10 @@ async function processFile(file: FileInfo): Promise<void> {
     .replace(/\]\(([^)]+)\.md((?:#[^)]+)?)\)/g, ']($1.mdx$2)')
 
   // Special-case: escape the literal string "<name>Data" which typedoc emits in prose
-  // to describe the naming pattern for data interfaces (e.g. "the <name>Data pattern")
-  const specialCased = linkedFixed.replace(/<name>Data/g, '\\<name>Data')
+  // to describe the naming pattern for data interfaces (e.g. "the <name>Data pattern").
+  // Encode the leading "<" as an HTML entity so MDX renders it as text instead of
+  // attempting to parse "<name>" as a JSX tag.
+  const specialCased = linkedFixed.replace(/<name>Data/g, '&lt;name>Data')
 
   // Escape MDX-unsafe characters (e.g. { } outside code blocks)
   const mdxSafe = await escapeMdxChars(specialCased)

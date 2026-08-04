@@ -16,8 +16,8 @@ import { warnOnce } from '../logging/warn-once.js'
 /** Default compression threshold ratio. */
 const DEFAULT_COMPRESSION_THRESHOLD = 0.7
 
-/** Default context window limit fallback when the model doesn't report one. */
-const DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
+/** @internal Default context window limit fallback when the model doesn't report one. */
+export const DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
 
 /**
  * Options passed to {@link ConversationManager.reduce}.

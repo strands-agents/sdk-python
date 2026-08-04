@@ -1,7 +1,11 @@
 ---
 title: OpenAI
+description: 'Run Strands agents on OpenAI models or any OpenAI-compatible API. Install the provider, configure OpenAIModel, and enable vision and structured output.'
 tags: [vision, structured-output]
 integrationType: model-provider
+sourceLinks:
+  - path: strands-py/src/strands/models/openai.py
+  - path: strands-ts/src/models/openai/model.ts
 ---
 
 [OpenAI](https://platform.openai.com/docs/overview) is an AI research and deployment company that provides a suite of powerful language models. The Strands Agents SDK implements an OpenAI provider, allowing you to run agents against any OpenAI or OpenAI-compatible model.
@@ -278,8 +282,10 @@ if __name__ == "__main__":
 </Tab>
 <Tab label="TypeScript">
 
-```ts
-// Custom client capability is not yet supported in the TypeScript SDK
+```typescript
+--8<-- "user-guide/concepts/model-providers/openai_imports.ts:custom_client_imports"
+
+--8<-- "user-guide/concepts/model-providers/openai.ts:custom_client"
 ```
 </Tab>
 </Tabs>

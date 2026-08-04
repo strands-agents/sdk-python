@@ -279,6 +279,34 @@ def test_normalize_schema_with_deeply_nested_objects():
     assert normalized == expected
 
 
+def _build_nested_schema(depth):
+    """Build a schema nested `depth` levels deep via chained object properties."""
+    schema = {"type": "object", "properties": {"value": {"type": "string"}}}
+    for _ in range(depth):
+        schema = {"type": "object", "properties": {"child": schema}}
+    return schema
+
+
+def test_normalize_schema_raises_value_error_when_too_deeply_nested():
+    """A pathologically deep schema raises ValueError rather than RecursionError."""
+    schema = _build_nested_schema(100)
+
+    with pytest.raises(ValueError, match="nesting exceeds"):
+        normalize_schema(schema)
+
+
+def test_normalize_tool_spec_raises_value_error_when_too_deeply_nested():
+    """normalize_tool_spec surfaces the depth bound as ValueError, not RecursionError."""
+    tool_spec = {
+        "name": "deep_tool",
+        "description": "tool with a hostile inputSchema",
+        "inputSchema": {"json": _build_nested_schema(100)},
+    }
+
+    with pytest.raises(ValueError, match="nesting exceeds"):
+        normalize_tool_spec(tool_spec)
+
+
 def test_normalize_schema_with_const_constraint():
     """Test that const constraints are preserved."""
     schema = {

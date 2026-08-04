@@ -369,7 +369,9 @@ class SageMakerAIModel(OpenAIModel):
                             )
 
                         # Handle reasoning content
-                        if choice["delta"].get("reasoning_content"):
+                        # vLLM v0.16.0+ uses "reasoning" instead of "reasoning_content"
+                        reasoning_text = choice["delta"].get("reasoning_content") or choice["delta"].get("reasoning")
+                        if reasoning_text:
                             if not reasoning_content_started:
                                 yield self.format_chunk(
                                     {"chunk_type": "content_start", "data_type": "reasoning_content"}
@@ -379,7 +381,7 @@ class SageMakerAIModel(OpenAIModel):
                                 {
                                     "chunk_type": "content_delta",
                                     "data_type": "reasoning_content",
-                                    "data": choice["delta"]["reasoning_content"],
+                                    "data": reasoning_text,
                                 }
                             )
 
@@ -455,13 +457,15 @@ class SageMakerAIModel(OpenAIModel):
                     yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
                 # Handle reasoning content
-                if message.get("reasoning_content"):
+                # vLLM v0.16.0+ uses "reasoning" instead of "reasoning_content"
+                reasoning_text = message.get("reasoning_content") or message.get("reasoning")
+                if reasoning_text:
                     yield self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
                     yield self.format_chunk(
                         {
                             "chunk_type": "content_delta",
                             "data_type": "reasoning_content",
-                            "data": message["reasoning_content"],
+                            "data": reasoning_text,
                         }
                     )
                     yield self.format_chunk({"chunk_type": "content_stop", "data_type": "reasoning_content"})
@@ -519,7 +523,7 @@ class SageMakerAIModel(OpenAIModel):
         content_parts = []
         for content in tool_result["content"]:
             if "json" in content:
-                content_parts.append(json.dumps(content["json"]))
+                content_parts.append(json.dumps(content["json"], ensure_ascii=False))
             elif "text" in content:
                 content_parts.append(content["text"])
             else:

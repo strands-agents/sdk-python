@@ -1,7 +1,7 @@
 name: Technical Correction
 description: Report technical inaccuracies in the documentation
 title: "[CORRECTION] "
-labels: ["documentation", "bug"]
+labels: ["documentation"]
 assignees: []
 body:
   - type: markdown

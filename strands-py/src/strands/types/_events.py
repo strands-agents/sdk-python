@@ -22,6 +22,7 @@ from .tools import ToolResult, ToolUse
 if TYPE_CHECKING:
     from ..agent import AgentResult
     from ..agent._agent_as_tool import _AgentAsTool
+    from ..experimental.checkpoint import Checkpoint
     from ..multiagent.base import MultiAgentResult, NodeResult
 
 
@@ -227,6 +228,7 @@ class EventLoopStopEvent(TypedEvent):
         request_state: Any,
         interrupts: Sequence[Interrupt] | None = None,
         structured_output: BaseModel | None = None,
+        checkpoint: "Checkpoint | None" = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -237,8 +239,11 @@ class EventLoopStopEvent(TypedEvent):
             request_state: Final state of the agent execution
             interrupts: Interrupts raised by user during agent execution.
             structured_output: Optional structured output result
+            checkpoint: Optional checkpoint when stop_reason == "checkpoint".
         """
-        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output)})
+        super().__init__(
+            {"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output, checkpoint)}
+        )
 
     @property
     @override
@@ -378,6 +383,16 @@ class ToolInterruptEvent(TypedEvent):
     def __init__(self, tool_use: ToolUse, interrupts: list[Interrupt]) -> None:
         """Set interrupt in the event payload."""
         super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
+
+    @property
+    def is_interrupt(self) -> bool:
+        """True — this is a control-flow signal, never a stage result.
+
+        Satisfies the ``InterruptControlEvent`` protocol so the middleware Output-phase
+        adapter recognizes an interrupt as never-a-result (see ``_middleware/registry.py``)
+        without the stage-agnostic registry importing tool-specific event types.
+        """
+        return True
 
     @property
     def tool_use_id(self) -> str:

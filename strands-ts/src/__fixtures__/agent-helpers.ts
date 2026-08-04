@@ -12,8 +12,11 @@ import type { Role } from '../types/messages.js'
 import { StateStore } from '../state-store.js'
 import type { JSONValue } from '../types/json.js'
 import { ToolRegistry } from '../registry/tool-registry.js'
+import { defaultSandbox } from '../sandbox/default.js'
+import type { Sandbox } from '../sandbox/base.js'
 import type { HookableEvent, StreamEvent } from '../hooks/events.js'
 import type { HookableEventConstructor, HookCallback } from '../hooks/types.js'
+import { AgentMetrics } from '../telemetry/meter.js'
 import { expectLoopMetrics, type LoopMetricsMatcher } from './metrics-helpers.js'
 
 /**
@@ -67,6 +70,12 @@ export function createMockAgent(data?: MockAgentData): MockAgent {
     modelState: new StateStore(),
     toolRegistry: data?.toolRegistry ?? new ToolRegistry(),
     cancelSignal: new AbortController().signal,
+    metrics: data?.extra?.metrics ?? new AgentMetrics(),
+    // Mirror the real Agent.sandbox getter: resolve the environment default lazily.
+    // An explicit `extra.sandbox` below overrides this accessor.
+    get sandbox(): Sandbox {
+      return defaultSandbox.get()
+    },
     addHook: <T extends HookableEvent>(eventType: HookableEventConstructor<T>, callback: HookCallback<T>) => {
       trackedHooks.push({
         eventType: eventType as HookableEventConstructor<HookableEvent>,
@@ -74,6 +83,9 @@ export function createMockAgent(data?: MockAgentData): MockAgent {
       })
       return () => {}
     },
+    // No-op so plugins that register middleware in initAgent (e.g. MemoryManager injection) work
+    // out of the box. Tests that inspect registrations override this via `extra.addMiddleware`.
+    addMiddleware: () => () => {},
     ...data?.extra,
     trackedHooks,
   } as unknown as MockAgent

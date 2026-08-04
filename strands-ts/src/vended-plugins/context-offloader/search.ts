@@ -45,14 +45,11 @@ function searchByPattern(
   scopeLabel: string
 ): string {
   let regex: RegExp
-  const safeInput =
-    pattern.length > MAX_PATTERN_LENGTH
-      ? pattern.slice(0, MAX_PATTERN_LENGTH).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      : pattern
+  const truncated = pattern.length > MAX_PATTERN_LENGTH ? pattern.slice(0, MAX_PATTERN_LENGTH) : pattern
   try {
-    regex = new RegExp(safeInput)
+    regex = new RegExp(truncated)
   } catch {
-    regex = new RegExp(safeInput.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    regex = new RegExp(truncated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   }
 
   const matchedSet = new Set<number>()
@@ -78,7 +75,8 @@ function searchByPattern(
     [...visible].sort((a, b) => a - b),
     matchedSet
   )
-  return truncate(`${header}\n\n${body}`, maxChars, 'output truncated, narrow your search')
+  const truncatedBody = truncate(body, maxChars, 'output truncated, narrow your search')
+  return `${header}\n\n${truncatedBody}`
 }
 
 /** Formats a contiguous range of lines with truncation. */
@@ -86,7 +84,8 @@ function searchByLineRange(lines: string[], start: number, end: number, totalLin
   const indices = Array.from({ length: end - start + 1 }, (_, i) => start + i)
   const header = `[Lines ${start + 1}-${end + 1} of ${totalLines}]`
   const body = formatLines(lines, indices, new Set())
-  return truncate(`${header}\n\n${body}`, maxChars, 'output truncated, narrow your range')
+  const truncatedBody = truncate(body, maxChars, 'output truncated, narrow your range')
+  return `${header}\n\n${truncatedBody}`
 }
 
 const TEXT_APPLICATION_TYPES = new Set([
