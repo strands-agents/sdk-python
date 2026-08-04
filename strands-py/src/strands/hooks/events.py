@@ -413,7 +413,9 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
         skip_node: A user defined message that when set, will skip the node execution and emit a
             :class:`~strands.types._events.MultiAgentNodeSkipEvent`. If set to ``True``, a default
             skip message is used. Any falsy value (``False``, ``""`` etc.) means "do not skip".
-            Takes precedence over ``cancel_node`` when both are truthy.
+            Takes precedence over ``cancel_node`` when both are truthy. In a graph the skipped node
+            records a ``NodeResult`` with ``result=None``, so an edge condition reading that node's
+            output has to handle ``None``.
         cancel_node: Alias for ``skip_node``, kept for backward compatibility. Reserved for a
             future abort-branch semantic, where downstream nodes do not run; until that exists it
             behaves identically to ``skip_node``.

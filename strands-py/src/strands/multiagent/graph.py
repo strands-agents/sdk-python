@@ -347,6 +347,9 @@ class GraphBuilder:
         The condition can be either:
         - A legacy callable: Callable[[GraphState], bool] - receives only graph state
         - A new-style callable: EdgeConditionWithContext - receives graph state and invocation_state
+
+        A condition that reads an upstream node's output must handle a ``NodeResult.result`` of ``None``:
+        a node bypassed via ``skip_node`` produced no output and records ``None`` there.
         """
 
         def resolve_node(node: str | GraphNode, node_type: str) -> GraphNode:

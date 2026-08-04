@@ -3690,3 +3690,40 @@ async def test_graph_fan_in_with_one_skipped_dependency():
     step_c_input = "".join(block.get("text", "") for block in step_c.stream_async.call_args.args[0])
     assert "From step_b:" in step_c_input
     assert "From step_a:" not in step_c_input
+
+
+@pytest.mark.asyncio
+async def test_graph_conditional_edge_from_skipped_node():
+    """An edge condition that accounts for a skipped node's None result routes on it normally."""
+
+    def upstream_produced_output(state):
+        node_result = state.results.get("step_a")
+        return node_result is not None and node_result.result is not None
+
+    def upstream_was_skipped(state):
+        node_result = state.results.get("step_a")
+        return node_result is not None and node_result.result is None
+
+    def skip_step_a(event):
+        if event.node_id == "step_a":
+            event.skip_node = "step_a skipped"
+        return event
+
+    step_b = create_mock_agent("step_b", "Step B completed")
+    step_c = create_mock_agent("step_c", "Step C completed")
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("step_a", "Should not run"), "step_a")
+    builder.add_node(step_b, "step_b")
+    builder.add_node(step_c, "step_c")
+    builder.add_edge("step_a", "step_b", condition=upstream_produced_output)
+    builder.add_edge("step_a", "step_c", condition=upstream_was_skipped)
+    builder.set_entry_point("step_a")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_step_a)
+
+    result = await graph.invoke_async("test task")
+
+    assert result.status == Status.COMPLETED
+    assert "step_b" not in graph.state.results
+    assert graph.state.results["step_c"].status == Status.COMPLETED
