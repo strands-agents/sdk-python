@@ -6,7 +6,12 @@ import pytest
 
 import strands
 from strands import Agent
-from strands._middleware.stages import ExecuteToolStage, MiddlewareInterruptResult, _resolve_middleware_interrupt
+from strands._middleware.stages import (
+    AgentStreamContext,
+    ExecuteToolStage,
+    MiddlewareInterruptResult,
+    _resolve_middleware_interrupt,
+)
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
@@ -442,3 +447,28 @@ def test_stored_human_response_takes_precedence_over_preemptive(calculator_tool)
     result = _resolve_middleware_interrupt(interrupts, interrupt_id, "gate", None, "auto-approve")
 
     assert result == MiddlewareInterruptResult(response="DENIED")
+
+
+# --- AgentStreamContext interrupt coverage ---
+
+
+def test_agent_stream_context_interrupt_id_and_resolution():
+    """AgentStreamContext.interrupt raises, resolves, and produces a stable namespaced id."""
+    from strands.interrupt import InterruptException
+
+    ctx = AgentStreamContext(agent=None, messages=[], invocation_state={}, _interrupts={})
+
+    interrupt_id = ctx._interrupt_id("gate")
+    assert interrupt_id.startswith("v1:middleware_agent_stream:")
+    assert interrupt_id == ctx._interrupt_id("gate")
+
+    with pytest.raises(InterruptException):
+        ctx.interrupt("gate")
+
+    resumed = AgentStreamContext(
+        agent=None,
+        messages=[],
+        invocation_state={},
+        _interrupts={interrupt_id: Interrupt(id=interrupt_id, name="gate", response="ok")},
+    )
+    assert resumed.interrupt("gate") == MiddlewareInterruptResult(response="ok")
