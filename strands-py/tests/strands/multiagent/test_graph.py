@@ -3582,3 +3582,111 @@ class TestResumeInFlightSibling:
         join_input_text = " ".join(str(block) for block in join_input)
         assert "From left:" in join_input_text
         assert "From right:" in join_input_text
+
+
+@pytest.mark.asyncio
+async def test_graph_skipped_node_survives_interrupted_sibling_resume():
+    """A node skipped in the same batch as an interrupted sibling still releases its downstream node on resume."""
+
+    def skip_a_interrupt_b(event):
+        if event.node_id == "step_a":
+            event.skip_node = "step_a skipped"
+        elif event.node_id == "step_b":
+            return event.interrupt("test_name", reason="test_reason")
+        return event
+
+    step_a = create_mock_agent("step_a", "Should not run")
+    step_b = create_mock_agent("step_b", "Step B completed")
+    step_c = create_mock_agent("step_c", "Step C completed")
+
+    builder = GraphBuilder()
+    builder.add_node(step_a, "step_a")
+    builder.add_node(step_b, "step_b")
+    builder.add_node(step_c, "step_c")
+    builder.add_edge("step_a", "step_c")
+    builder.set_entry_point("step_a")
+    builder.set_entry_point("step_b")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_a_interrupt_b)
+
+    result = await graph.invoke_async("test task")
+    assert result.status == Status.INTERRUPTED
+    assert graph.state.results["step_a"].status == Status.SKIPPED
+
+    interrupt = result.interrupts[0]
+    result = await graph.invoke_async(
+        [{"interruptResponse": {"interruptId": interrupt.id, "response": "test_response"}}]
+    )
+
+    assert result.status == Status.COMPLETED
+    assert "step_c" in graph.state.results, "downstream of the skipped node never ran after resume"
+    assert graph.state.results["step_c"].status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_deserialize_state_restores_skipped_status():
+    """A skipped node round-trips through session serialization as SKIPPED rather than COMPLETED."""
+
+    def skip_a_interrupt_b(event):
+        if event.node_id == "step_a":
+            event.skip_node = "step_a skipped"
+        elif event.node_id == "step_b":
+            return event.interrupt("test_name", reason="test_reason")
+        return event
+
+    def build_graph():
+        builder = GraphBuilder()
+        builder.add_node(create_mock_agent("step_a", "Should not run"), "step_a")
+        builder.add_node(create_mock_agent("step_b", "Step B completed"), "step_b")
+        builder.add_node(create_mock_agent("step_c", "Step C completed"), "step_c")
+        builder.add_edge("step_a", "step_c")
+        builder.set_entry_point("step_a")
+        builder.set_entry_point("step_b")
+        return builder.build()
+
+    graph = build_graph()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_a_interrupt_b)
+    await graph.invoke_async("test task")
+
+    payload = graph.serialize_state()
+    assert payload["next_nodes_to_execute"]
+
+    restored = build_graph()
+    restored.deserialize_state(payload)
+
+    assert restored.nodes["step_a"].execution_status == Status.SKIPPED
+    assert restored.nodes["step_b"].execution_status == Status.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_graph_fan_in_with_one_skipped_dependency():
+    """A fan-in node sees only its non-skipped dependency's output, with no header for the skipped one."""
+
+    def skip_step_a(event):
+        if event.node_id == "step_a":
+            event.skip_node = "step_a skipped"
+        return event
+
+    step_a = create_mock_agent("step_a", "Should not run")
+    step_b = create_mock_agent("step_b", "Step B completed")
+    step_c = create_mock_agent("step_c", "Step C completed")
+
+    builder = GraphBuilder()
+    builder.add_node(step_a, "step_a")
+    builder.add_node(step_b, "step_b")
+    builder.add_node(step_c, "step_c")
+    builder.add_edge("step_a", "step_c")
+    builder.add_edge("step_b", "step_c")
+    builder.set_entry_point("step_a")
+    builder.set_entry_point("step_b")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_step_a)
+
+    result = await graph.invoke_async("test task")
+
+    assert result.status == Status.COMPLETED
+    assert graph.state.results["step_c"].status == Status.COMPLETED
+
+    step_c_input = "".join(block.get("text", "") for block in step_c.stream_async.call_args.args[0])
+    assert "From step_b:" in step_c_input
+    assert "From step_a:" not in step_c_input

@@ -794,7 +794,9 @@ class Graph(MultiAgentBase):
 
             if self.state.status == Status.INTERRUPTED:
                 self._interrupt_state.context["completed_nodes"] = [
-                    node.node_id for node in current_batch if node.execution_status == Status.COMPLETED
+                    node.node_id
+                    for node in current_batch
+                    if node.execution_status in (Status.COMPLETED, Status.SKIPPED)
                 ]
                 return
 

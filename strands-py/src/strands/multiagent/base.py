@@ -30,7 +30,7 @@ class Status(Enum):
         PENDING: Task has not started execution yet.
         EXECUTING: Task is currently running.
         COMPLETED: Task finished successfully.
-        SKIPPED: Task was intentionally bypassed via cancel_node; downstream nodes still execute.
+        SKIPPED: Task was intentionally bypassed via ``skip_node`` rather than executed.
         FAILED: Task encountered an error and could not complete.
         INTERRUPTED: Task was interrupted by user.
     """
