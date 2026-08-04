@@ -95,6 +95,7 @@ const CONTEXT_WINDOW_LIMITS: Record<string, number> = {
   'anthropic.claude-opus-5': 1_000_000,
   'anthropic.claude-fable-5': 1_000_000,
   'anthropic.claude-sonnet-5': 1_000_000,
+  'anthropic.claude-mythos-5': 1_000_000,
   'anthropic.claude-opus-4-5-20251101-v1:0': 200_000,
   'anthropic.claude-opus-4-20250514-v1:0': 200_000,
   'anthropic.claude-opus-4-1-20250805-v1:0': 200_000,
