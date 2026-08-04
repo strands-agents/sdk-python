@@ -532,7 +532,10 @@ while result.status == Status.INTERRUPTED:
 
     result = swarm(responses)
 
-print(f"MESSAGE: {json.dumps(result.results['cleanup'].result.message, indent=2)}")
+if "cleanup" not in result.results:
+    print("MESSAGE: cleanup was skipped, so the swarm stopped before it ran")
+else:
+    print(f"MESSAGE: {json.dumps(result.results['cleanup'].result.message, indent=2)}")
 ```
 </Tab>
 <Tab label="TypeScript">
