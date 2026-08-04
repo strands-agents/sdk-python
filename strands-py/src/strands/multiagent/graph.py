@@ -158,7 +158,8 @@ class GraphState:
 
         Returns: (should_continue, reason)
         """
-        # Check node execution limit (only if set)
+        # Check node execution limit (only if set). A skipped node counts: the limit bounds graph traversal, and
+        # excluding skips lets a cycle whose nodes are all skipped loop forever.
         if max_node_executions is not None and len(self.execution_order) >= max_node_executions:
             return False, f"Max node executions reached: {max_node_executions}"
 
@@ -1231,8 +1232,21 @@ class Graph(MultiAgentBase):
                     if node_result.status != Status.SKIPPED:
                         dependency_results[edge.from_node.node_id] = node_result
 
-        if not dependency_results:
-            # No dependencies - return task as ContentBlocks
+        # Render each dependency's output. A dependency that flattens to no agent results contributes nothing,
+        # so it must not leave an empty "From <node>:" header behind. A nested graph whose nodes were all
+        # skipped is the case that reaches here with a non-skipped status but no output.
+        dependency_blocks: list[ContentBlock] = []
+        for dep_id, node_result in dependency_results.items():
+            agent_results = node_result.get_agent_results()
+            if not agent_results:
+                continue
+            dependency_blocks.append(ContentBlock(text=f"\nFrom {dep_id}:"))
+            for agent_result in agent_results:
+                agent_name = getattr(agent_result, "agent_name", "Agent")
+                dependency_blocks.append(ContentBlock(text=f"  - {agent_name}: {str(agent_result)}"))
+
+        if not dependency_blocks:
+            # No usable dependency output - return task as ContentBlocks
             if isinstance(self.state.task, str):
                 return [ContentBlock(text=self.state.task)]
             else:
@@ -1251,15 +1265,7 @@ class Graph(MultiAgentBase):
 
         # Add dependency outputs
         node_input.append(ContentBlock(text="\nInputs from previous nodes:"))
-
-        for dep_id, node_result in dependency_results.items():
-            node_input.append(ContentBlock(text=f"\nFrom {dep_id}:"))
-            # Get all agent results from this node (flattened if nested)
-            agent_results = node_result.get_agent_results()
-            for result in agent_results:
-                agent_name = getattr(result, "agent_name", "Agent")
-                result_text = str(result)
-                node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
+        node_input.extend(dependency_blocks)
 
         return node_input
 

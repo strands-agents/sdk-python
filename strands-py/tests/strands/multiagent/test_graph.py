@@ -3727,3 +3727,60 @@ async def test_graph_conditional_edge_from_skipped_node():
     assert result.status == Status.COMPLETED
     assert "step_b" not in graph.state.results
     assert graph.state.results["step_c"].status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_skipped_node_counts_toward_max_node_executions():
+    """A skipped node still counts toward max_node_executions, which bounds traversal rather than work done."""
+
+    def skip_step_a(event):
+        if event.node_id == "step_a":
+            event.skip_node = "step_a skipped"
+        return event
+
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("step_a", "Should not run"), "step_a")
+    builder.add_node(create_mock_agent("step_b", "Step B completed"), "step_b")
+    builder.add_edge("step_a", "step_b")
+    builder.set_entry_point("step_a")
+    builder.set_max_node_executions(1)
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_step_a)
+
+    result = await graph.invoke_async("test task")
+
+    assert result.status == Status.FAILED
+    assert "step_b" not in graph.state.results
+    assert [node.node_id for node in graph.state.execution_order] == ["step_a"]
+
+
+@pytest.mark.asyncio
+async def test_graph_nested_graph_with_only_skipped_nodes_leaves_no_header():
+    """A nested graph whose nodes were all skipped contributes no orphaned "From <node>:" header downstream."""
+
+    def skip_inner(event):
+        if event.node_id == "inner_step":
+            event.skip_node = "inner_step skipped"
+        return event
+
+    inner_builder = GraphBuilder()
+    inner_builder.add_node(create_mock_agent("inner_step", "Should not run"), "inner_step")
+    inner_builder.set_entry_point("inner_step")
+    inner_graph = inner_builder.build()
+    inner_graph.hooks.add_callback(BeforeNodeCallEvent, skip_inner)
+
+    downstream = create_mock_agent("downstream", "Downstream completed")
+
+    builder = GraphBuilder()
+    builder.add_node(inner_graph, "inner")
+    builder.add_node(downstream, "downstream")
+    builder.add_edge("inner", "downstream")
+    builder.set_entry_point("inner")
+    graph = builder.build()
+
+    result = await graph.invoke_async("test task")
+
+    assert result.status == Status.COMPLETED
+    downstream_input = downstream.stream_async.call_args.args[0]
+    assert len(downstream_input) == 1
+    assert downstream_input[0]["text"] == "test task"
