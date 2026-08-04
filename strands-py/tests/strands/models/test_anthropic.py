@@ -1508,6 +1508,64 @@ class TestPromptCaching:
 
         assert self._breakpoints(request) == [("messages", 2, {"type": "ephemeral"})]
 
+    def test_stripping_hand_placed_cache_points_warns(self, model, caplog):
+        """Replacing a caller's cache point can cost them caching, so it must not be silent.
+
+        A point placed ahead of per-call content protects a stable prefix; moving the boundary past that
+        content puts it inside the cached prefix, so every request writes and none reads. BedrockModel
+        warns on the same strip.
+        """
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "stable prefix"},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "volatile per-call content"},
+                ],
+            }
+        ]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages)
+
+        assert "stripped hand-placed cache points" in caplog.text
+        # And the relocation this warns about is pinned: the boundary ends up past the volatile block.
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        content = request["messages"][0]["content"]
+        assert "cache_control" not in content[0]
+        assert content[1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_no_warning_when_the_caller_placed_no_cache_points(self, model, caplog):
+        """The strip warning must not fire on the ordinary managed path, where nothing was discarded."""
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        messages = [{"role": "user", "content": [{"text": "no hand-placed points here"}]}]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        model.format_request(messages)
+
+        assert "stripped hand-placed cache points" not in caplog.text
+
+    def test_hand_placed_cache_points_are_honored_without_cache_config(self, model):
+        """Leaving cache_config unset is the documented way to keep control of placement."""
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "stable prefix"},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "volatile per-call content"},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        content = request["messages"][0]["content"]
+        assert content[0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in content[1]
+
     def test_caller_messages_are_not_mutated(self, model):
         messages = [{"role": "user", "content": [{"text": "one"}, {"cachePoint": {"type": "default"}}]}]
         before = copy.deepcopy(messages)

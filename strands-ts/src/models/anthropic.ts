@@ -556,7 +556,9 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     cacheManaged = false,
     cacheTargetMessage?: number
   ): Anthropic.MessageParam[] {
-    return messages.map((msg, messageIndex) => {
+    let strippedCachePoints = 0
+
+    const formatted = messages.map((msg, messageIndex) => {
       const role = (msg.role as string) === 'tool' ? 'user' : msg.role
 
       const content: Anthropic.ContentBlockParam[] = []
@@ -567,7 +569,8 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         if (block.type === 'cachePointBlock') {
           // While cacheConfig manages placement it owns every message breakpoint, so hand-placed cache
           // points are dropped instead of adding to the count.
-          if (!cacheManaged) this._attachCacheControl(content, block.ttl)
+          if (cacheManaged) strippedCachePoints += 1
+          else this._attachCacheControl(content, block.ttl)
           continue
         }
 
@@ -586,6 +589,20 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         content,
       }
     })
+
+    if (strippedCachePoints > 0) {
+      // Warn rather than stay silent: discarding a hand-placed cache point can silently *cost* the
+      // caller caching. A point placed deliberately ahead of per-call content (retrieved context, a
+      // timestamp) protects a stable prefix; replacing it with one on the newest turn puts that
+      // volatile content inside the cached prefix, so every request writes a new entry and none ever
+      // reads one. BedrockModel warns on the same strip, so this keeps the providers equally loud.
+      logger.warn(
+        `count=<${strippedCachePoints}> | stripped hand-placed cache points, cacheConfig manages ` +
+          `placement; unset cacheConfig to keep your own cache points`
+      )
+    }
+
+    return formatted
   }
 
   private _isCacheableBlock(

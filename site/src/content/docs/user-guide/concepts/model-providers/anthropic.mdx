@@ -277,6 +277,14 @@ active ones, so there is nothing to check and nothing to skip. Both values are a
   each request carries exactly one message breakpoint, on the newest turn, so a long session does not
   accumulate one per turn. Cache points you place by hand in the messages are replaced, because
   `cache_config` owns their placement.
+- **`cache_config` and hand-placed cache points do not combine — pick one.** Because `cache_config`
+  replaces your points with one on the newest turn, a point you placed deliberately *ahead* of content
+  that changes every call (retrieved context, a timestamp) does not survive: the boundary moves past
+  that content, so it lands inside the cached prefix and every request writes a new entry instead of
+  reading one. Since a cache write costs more than an uncached token, that is more expensive than not
+  caching at all. A warning is logged whenever your points are replaced. To keep control of placement,
+  leave `cache_config` unset and place cache points yourself — they are honored, including their `ttl`.
+  `BedrockModel` replaces hand-placed points the same way.
 - **The breakpoint is placed on the last block of the newest turn that can carry one.** Blocks the API
   rejects a breakpoint on (a reasoning block, for example) and blocks that are dropped when the request
   is built (media with a location source) are skipped, so the breakpoint lands on the nearest block

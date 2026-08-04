@@ -353,7 +353,17 @@ class AnthropicModel(Model):
             copied.append({"role": message["role"], "content": content})
 
         if stripped:
-            logger.debug("count=<%d> | stripped existing cache points, cache_config manages placement", stripped)
+            # Warn rather than debug: discarding a hand-placed cache point can silently *cost* the caller
+            # caching. A point placed deliberately ahead of per-call content (retrieved context, a
+            # timestamp) protects a stable prefix; replacing it with one on the newest turn puts that
+            # volatile content inside the cached prefix, so every request writes a new entry and none
+            # ever reads one. BedrockModel warns on the same strip, so this also keeps the two providers
+            # equally loud about it.
+            logger.warning(
+                "count=<%d> | stripped hand-placed cache points, cache_config manages placement; "
+                "unset cache_config to keep your own cache points",
+                stripped,
+            )
 
         last_user_idx = next(
             (idx for idx in reversed(range(len(copied))) if copied[idx]["role"] == "user" and copied[idx]["content"]),
