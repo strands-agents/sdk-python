@@ -42,6 +42,7 @@ class HumanInTheLoopClassifier(Protocol):
         ...
 
 
+@dataclass
 class LLMClassifierConfig:
     """Configuration for the built-in LLM risk classifier.
 
@@ -50,15 +51,8 @@ class LLMClassifierConfig:
         model: Model for risk evaluation. Defaults to the parent agent's model.
     """
 
-    def __init__(self, *, system_prompt: str | None = None, model: Model | None = None) -> None:
-        """Initialize classifier configuration.
-
-        Args:
-            system_prompt: Custom system prompt describing risk criteria.
-            model: Model to use for classification.
-        """
-        self.system_prompt = system_prompt
-        self.model = model
+    system_prompt: str | None = field(default=None)
+    model: Model | None = field(default=None)
 
 
 _DEFAULT_SYSTEM_PROMPT = """You are a risk evaluator for an AI agent's tool calls. Your job is to decide whether \
@@ -98,7 +92,7 @@ class _RiskDecision(BaseModel):
     reason: str = Field(description="Brief reason (under 10 words) why approval is or is not required")
 
 
-def create_llm_risk_classifier(config: LLMClassifierConfig | None = None) -> HumanInTheLoopClassifier:
+def _create_llm_risk_classifier(config: LLMClassifierConfig | None = None) -> HumanInTheLoopClassifier:
     """Create the built-in LLM risk classifier.
 
     Args:

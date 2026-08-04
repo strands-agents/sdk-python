@@ -14,7 +14,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from ...hooks.events import BeforeToolCallEvent
 from ...interventions.actions import Confirm, Deny, InterventionAction, Proceed, default_evaluate
 from ...interventions.handler import InterventionHandler
-from .classifier import ClassifierResult, HumanInTheLoopClassifier, LLMClassifierConfig, create_llm_risk_classifier
+from .classifier import ClassifierResult, HumanInTheLoopClassifier, LLMClassifierConfig, _create_llm_risk_classifier
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +292,7 @@ class HumanInTheLoop(InterventionHandler):
                 result = self._classifier(event)
                 if inspect.isawaitable(result):
                     result = await result
-                if not isinstance(getattr(result, "requires_human_in_the_loop", None), bool):
+                if not isinstance(result, ClassifierResult):
                     logger.warning(
                         "tool=<%s> | classifier returned malformed result, defaulting to approval required",
                         tool_name,
@@ -349,7 +349,7 @@ class HumanInTheLoop(InterventionHandler):
         if classifier is None or classifier is False:
             return None
         if classifier is True:
-            return create_llm_risk_classifier()
+            return _create_llm_risk_classifier()
         if isinstance(classifier, LLMClassifierConfig):
-            return create_llm_risk_classifier(classifier)
+            return _create_llm_risk_classifier(classifier)
         return classifier

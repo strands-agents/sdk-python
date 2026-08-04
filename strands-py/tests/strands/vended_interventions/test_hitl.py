@@ -832,7 +832,7 @@ class TestClassifierMode:
         mock_fn = MagicMock(return_value=ClassifierResult(requires_human_in_the_loop=False))
 
         with patch(
-            "strands.vended_interventions.hitl.hitl.create_llm_risk_classifier", return_value=mock_fn
+            "strands.vended_interventions.hitl.hitl._create_llm_risk_classifier", return_value=mock_fn
         ) as mock_create:
             config = LLMClassifierConfig(system_prompt="custom prompt")
             HumanInTheLoop(classifier=config)
@@ -967,7 +967,7 @@ class TestClassifierMode:
 
 
 class TestBuiltInClassifier:
-    """Tests for the actual create_llm_risk_classifier function body."""
+    """Tests for the _create_llm_risk_classifier function body."""
 
     @pytest.mark.asyncio
     async def test_creates_inner_agent_and_returns_decision(self):
@@ -975,11 +975,11 @@ class TestBuiltInClassifier:
 
         from strands.vended_interventions.hitl.classifier import (
             ClassifierResult,
+            _create_llm_risk_classifier,
             _RiskDecision,
-            create_llm_risk_classifier,
         )
 
-        classifier = create_llm_risk_classifier()
+        classifier = _create_llm_risk_classifier()
 
         mock_result = MagicMock()
         mock_result.structured_output = _RiskDecision(requires_approval=True, reason="destructive")
@@ -1005,9 +1005,9 @@ class TestBuiltInClassifier:
     async def test_raises_when_no_model_available(self):
         from unittest.mock import MagicMock
 
-        from strands.vended_interventions.hitl.classifier import create_llm_risk_classifier
+        from strands.vended_interventions.hitl.classifier import _create_llm_risk_classifier
 
-        classifier = create_llm_risk_classifier()
+        classifier = _create_llm_risk_classifier()
 
         event = MagicMock()
         event.tool_use = {"name": "tool", "input": {}}
@@ -1020,9 +1020,9 @@ class TestBuiltInClassifier:
     async def test_raises_when_structured_output_is_none(self):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from strands.vended_interventions.hitl.classifier import create_llm_risk_classifier
+        from strands.vended_interventions.hitl.classifier import _create_llm_risk_classifier
 
-        classifier = create_llm_risk_classifier()
+        classifier = _create_llm_risk_classifier()
 
         mock_result = MagicMock()
         mock_result.structured_output = None
@@ -1046,13 +1046,13 @@ class TestBuiltInClassifier:
 
         from strands.vended_interventions.hitl.classifier import (
             LLMClassifierConfig,
+            _create_llm_risk_classifier,
             _RiskDecision,
-            create_llm_risk_classifier,
         )
 
         configured_model = MagicMock(name="configured_model")
         agent_model = MagicMock(name="agent_model")
-        classifier = create_llm_risk_classifier(LLMClassifierConfig(model=configured_model))
+        classifier = _create_llm_risk_classifier(LLMClassifierConfig(model=configured_model))
 
         mock_result = MagicMock()
         mock_result.structured_output = _RiskDecision(requires_approval=False, reason="safe")
@@ -1077,12 +1077,12 @@ class TestBuiltInClassifier:
 
         from strands.vended_interventions.hitl.classifier import (
             LLMClassifierConfig,
+            _create_llm_risk_classifier,
             _RiskDecision,
-            create_llm_risk_classifier,
         )
 
         custom_prompt = "Only approve writes."
-        classifier = create_llm_risk_classifier(LLMClassifierConfig(system_prompt=custom_prompt))
+        classifier = _create_llm_risk_classifier(LLMClassifierConfig(system_prompt=custom_prompt))
 
         mock_result = MagicMock()
         mock_result.structured_output = _RiskDecision(requires_approval=False, reason="ok")
