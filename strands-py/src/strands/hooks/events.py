@@ -4,7 +4,6 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 import uuid
-import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -415,9 +414,9 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
             :class:`~strands.types._events.MultiAgentNodeSkipEvent`. If set to ``True``, a default
             skip message is used. Any falsy value (``False``, ``""`` etc.) means "do not skip".
             Takes precedence over ``cancel_node`` when both are truthy.
-        cancel_node: Deprecated. Use ``skip_node`` instead. When set to a truthy value, behaves
-            identically to ``skip_node`` but also emits a ``DeprecationWarning`` at the assignment
-            site.
+        cancel_node: Alias for ``skip_node``, kept for backward compatibility. Reserved for the
+            abort-branch semantics tracked in #2401; until that lands it behaves identically to
+            ``skip_node``.
     """
 
     source: "MultiAgentBase"
@@ -428,16 +427,6 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
 
     def _can_write(self, name: str) -> bool:
         return name in ["skip_node", "cancel_node"]
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Set attribute, emitting a DeprecationWarning when cancel_node is assigned a truthy value."""
-        if name == "cancel_node" and value:
-            warnings.warn(
-                "BeforeNodeCallEvent.cancel_node is deprecated; use skip_node instead",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        super().__setattr__(name, value)
 
     @override
     def _interrupt_id(self, name: str) -> str:

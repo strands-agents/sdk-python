@@ -1375,8 +1375,8 @@ async def test_swarm_skip_node(skip_node, skip_message, alist):
     [(True, "node skipped by user"), ("custom cancel message", "custom cancel message")],
 )
 @pytest.mark.asyncio
-async def test_swarm_cancel_node_deprecated(cancel_node, cancel_message, alist):
-    """Deprecated cancel_node still works but emits DeprecationWarning and produces multiagent_node_skip."""
+async def test_swarm_cancel_node_backward_compat(cancel_node, cancel_message, alist):
+    """cancel_node works as a backward-compatible alias for skip_node and produces multiagent_node_skip."""
 
     def cancel_callback(event):
         event.cancel_node = cancel_node
@@ -1386,8 +1386,7 @@ async def test_swarm_cancel_node_deprecated(cancel_node, cancel_message, alist):
     swarm = Swarm([agent])
     swarm.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
 
-    with pytest.warns(DeprecationWarning, match="cancel_node is deprecated"):
-        tru_events = await alist(swarm.stream_async("test task"))
+    tru_events = await alist(swarm.stream_async("test task"))
 
     exp_events = [
         {

@@ -2236,8 +2236,8 @@ async def test_graph_skip_node(skip_node, skip_message):
     [(True, "node skipped by user"), ("custom cancel message", "custom cancel message")],
 )
 @pytest.mark.asyncio
-async def test_graph_cancel_node_deprecated(cancel_node, cancel_message):
-    """cancel_node still works but emits a DeprecationWarning and produces a multiagent_node_skip event."""
+async def test_graph_cancel_node_backward_compat(cancel_node, cancel_message):
+    """cancel_node works as a backward-compatible alias for skip_node and produces a multiagent_node_skip event."""
 
     def cancel_callback(event):
         event.cancel_node = cancel_node
@@ -2251,10 +2251,9 @@ async def test_graph_cancel_node_deprecated(cancel_node, cancel_message):
     graph.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
 
     tru_skip_event = None
-    with pytest.warns(DeprecationWarning, match="cancel_node is deprecated"):
-        async for event in graph.stream_async("test task"):
-            if event.get("type") == "multiagent_node_skip":
-                tru_skip_event = event
+    async for event in graph.stream_async("test task"):
+        if event.get("type") == "multiagent_node_skip":
+            tru_skip_event = event
 
     exp_skip_event = MultiAgentNodeSkipEvent(node_id="test_agent", message=cancel_message)
     assert tru_skip_event == exp_skip_event
@@ -2316,8 +2315,8 @@ async def test_graph_skip_node_downstream_executes():
 
 
 @pytest.mark.asyncio
-async def test_graph_cancel_node_deprecated_downstream_executes():
-    """Deprecated cancel_node still allows downstream nodes to run; emits DeprecationWarning."""
+async def test_graph_cancel_node_backward_compat_downstream_executes():
+    """cancel_node, the backward-compatible alias for skip_node, still allows downstream nodes to run."""
     skipped_nodes: list[str] = []
 
     def cancel_step_a(event):
@@ -2336,10 +2335,9 @@ async def test_graph_cancel_node_deprecated_downstream_executes():
     graph = builder.build()
     graph.hooks.add_callback(BeforeNodeCallEvent, cancel_step_a)
 
-    with pytest.warns(DeprecationWarning, match="cancel_node is deprecated"):
-        async for event in graph.stream_async("test task"):
-            if event.get("type") == "multiagent_node_skip":
-                skipped_nodes.append(event["node_id"])
+    async for event in graph.stream_async("test task"):
+        if event.get("type") == "multiagent_node_skip":
+            skipped_nodes.append(event["node_id"])
 
     assert skipped_nodes == ["step_a"]
     assert graph.state.results["step_a"].status == Status.SKIPPED

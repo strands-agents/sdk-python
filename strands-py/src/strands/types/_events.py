@@ -599,9 +599,9 @@ class MultiAgentNodeCancelEvent(TypedEvent):
 class MultiAgentNodeSkipEvent(TypedEvent):
     """Event emitted when a node is bypassed via :attr:`BeforeNodeCallEvent.skip_node`.
 
-    Also triggered by the deprecated :attr:`BeforeNodeCallEvent.cancel_node` alias. The
-    orchestrator's behavior after skip depends on its type: a graph continues executing
-    downstream nodes, while a swarm stops the current run.
+    Also triggered by the :attr:`BeforeNodeCallEvent.cancel_node` alias. The orchestrator's
+    behavior after skip depends on its type: a graph continues executing downstream nodes,
+    while a swarm stops the current run.
     """
 
     def __init__(self, node_id: str, message: str) -> None:
