@@ -2268,6 +2268,34 @@ async def test_graph_cancel_node_backward_compat(cancel_node, cancel_message):
 
 
 @pytest.mark.asyncio
+async def test_graph_skip_node_takes_precedence_over_cancel_node():
+    """When both fields are set, skip_node wins, so the generic message is used rather than the cancel_node string."""
+
+    def skip_callback(event):
+        event.skip_node = True
+        event.cancel_node = "cancel_node message that must not win"
+        return event
+
+    agent = create_mock_agent("test_agent", "Should not execute")
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_entry_point("test_agent")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_callback)
+
+    tru_skip_event = None
+    async for event in graph.stream_async("test task"):
+        if event.get("type") == "multiagent_node_skip":
+            tru_skip_event = event
+
+    exp_skip_event = MultiAgentNodeSkipEvent(node_id="test_agent", message="node skipped by user")
+    assert tru_skip_event == exp_skip_event
+
+    assert graph.state.results["test_agent"].status == Status.SKIPPED
+    agent.__call__.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_graph_skip_node_downstream_executes():
     """Downstream nodes must run after an upstream node is skipped via skip_node."""
     skipped_nodes: list[str] = []
