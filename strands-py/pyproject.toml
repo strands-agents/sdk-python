@@ -183,6 +183,7 @@ dev-mode = true
 features = ["all"]
 dependencies = [
     "commitizen>=4.4.0,<5.0.0",
+    "complexipy>=6.2.0,<7.0.0",
     "hatch>=1.0.0,<2.0.0",
     "pre-commit>=3.2.0,<4.7.0",
 ]
@@ -199,6 +200,10 @@ test-lint = "hatch fmt --linter --check"
 
 test = "hatch test {args}"
 test-integ = "hatch test tests_integ {args}"
+
+# Report the cognitive complexity of functions this branch changes, matching
+# what the PR labeler will apply. Run from the repo root so both SDKs are seen.
+complexity = "cd .. && node .github/scripts/pr-metrics/run-analysis.mjs {args}"
 
 prepare = [
     "hatch run format",
