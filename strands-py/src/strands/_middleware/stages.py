@@ -200,10 +200,9 @@ class AgentStreamContext:
     # A snapshot of the agent's interrupts taken before the pass, threaded in so interrupt() can
     # resolve prior responses. It is a snapshot rather than the live dict because this context's
     # lifetime spans the whole pass: a tool cycle within the same pass ends and clears the live
-    # interrupts (see _InterruptState.end_tool_cycle), so reading a snapshot keeps a gate's re-read
-    # after next_fn stable. Empty outside a live interrupt cycle, so a response retained by a cycle
-    # that died mid-flight cannot resolve a gate. Required (the run loop is the sole constructor and
-    # always supplies it); excluded from repr to avoid dumping unrelated interrupt bookkeeping.
+    # interrupts, so reading a snapshot keeps a gate's re-read after next_fn stable. Required
+    # (the run loop is the sole constructor and always supplies it); excluded from repr to
+    # avoid dumping unrelated interrupt bookkeeping.
     _interrupts: Mapping[str, Interrupt] = field(repr=False)
 
     def interrupt(self, name: str, *, reason: Any = None, response: Any = None) -> MiddlewareInterruptResult:
@@ -219,11 +218,9 @@ class AgentStreamContext:
 
         Args:
             name: User-defined name for the interrupt. The interrupt id is derived from the name
-                alone (``v1:middleware_agent_stream:<uuid5(name)>``), so the name identifies *what
-                is being approved* for the whole interrupt cycle: an answered response is reused by
-                every later call with the same name in that cycle. Two middleware sharing a name
-                share one response, and reusing a name for a different action means the second
-                action inherits the first one's approval — give each decision its own name.
+                alone (``v1:middleware_agent_stream:<uuid5(name)>``), so the name must be unique
+                across all agent-stream middleware in a single invocation pass — two middleware
+                using the same name collide and share one response.
             reason: Optional reason for the interrupt (surfaced to the user).
             response: Optional preemptive response — when set, no interrupt is raised.
 
@@ -233,8 +230,7 @@ class AgentStreamContext:
         Raises:
             InterruptException: When no response is available yet and none was provided.
             RuntimeError: Raised by the run loop when this is called after the pass has already
-                produced its stop event, which resuming cannot replay. Interrupt before the pass
-                produces its assistant turn.
+                produced its stop event, which resuming cannot replay.
         """
         return _resolve_middleware_interrupt(self._interrupts, self._interrupt_id(name), name, reason, response)
 
@@ -242,9 +238,7 @@ class AgentStreamContext:
         """Derive the interrupt id for ``name``, namespaced to the agent-stream stage.
 
         Follows the SDK's ``v1:`` interrupt-id scheme (see ``types/interrupt.py``), hashing
-        the user-provided name so ids stay stable across resumes. The namespace prefix is shared
-        with ``_InterruptState``, which matches on it to decide which interrupts outlive a tool
-        cycle.
+        the user-provided name so ids stay stable across resumes.
         """
         return f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
