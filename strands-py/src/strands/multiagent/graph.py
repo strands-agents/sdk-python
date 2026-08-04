@@ -1221,7 +1221,7 @@ class Graph(MultiAgentBase):
 
                     return node_responses
 
-        # Get satisfied dependencies, excluding skipped nodes (they produced no output)
+        # Get satisfied dependencies
         dependency_results = {}
         for edge in self.edges:
             if (
@@ -1230,13 +1230,11 @@ class Graph(MultiAgentBase):
                 and edge.from_node.node_id in self.state.results
             ):
                 if edge.should_traverse(self.state, invocation_state=self._current_invocation_state):
-                    node_result = self.state.results[edge.from_node.node_id]
-                    if node_result.status != Status.SKIPPED:
-                        dependency_results[edge.from_node.node_id] = node_result
+                    dependency_results[edge.from_node.node_id] = self.state.results[edge.from_node.node_id]
 
         # Render each dependency's output. A dependency that flattens to no agent results contributes nothing,
-        # so it must not leave an empty "From <node>:" header behind. A nested graph whose nodes were all
-        # skipped is the case that reaches here with a non-skipped status but no output.
+        # so it must not leave an empty "From <node>:" header behind. That covers both a skipped node, whose
+        # result is None, and a nested graph whose own nodes were all skipped.
         dependency_blocks: list[ContentBlock] = []
         for dep_id, node_result in dependency_results.items():
             agent_results = node_result.get_agent_results()
