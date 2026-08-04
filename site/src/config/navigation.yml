@@ -368,9 +368,10 @@ sidebar:
           - docs/integrations/tools/strands-hubspot
           - docs/integrations/tools/strands-spraay
           - docs/integrations/tools/strands-sql
+          - docs/integrations/tools/strands-stigmer
           - docs/integrations/tools/strands-teams
           - docs/integrations/tools/strands-telegram
-          - docs/integrations/tools/strands-telegram-listener             
+          - docs/integrations/tools/strands-telegram-listener>>>>>>> 7702ef0 (docs(community): add Stigmer AWS method contracts tool)
 
 github:
   sections:
