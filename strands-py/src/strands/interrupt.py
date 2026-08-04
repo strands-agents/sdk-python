@@ -7,6 +7,9 @@ if TYPE_CHECKING:
     from .types.agent import AgentInput
     from .types.interrupt import InterruptResponseContent
 
+_AGENT_STREAM_INTERRUPT_ID_PREFIX = "v1:middleware_agent_stream:"
+"""Id prefix for interrupts scoped to a whole invocation pass rather than a single tool call."""
+
 
 @dataclass
 class Interrupt:
