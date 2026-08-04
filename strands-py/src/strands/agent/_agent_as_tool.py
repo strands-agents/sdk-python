@@ -192,7 +192,22 @@ class _AgentAsTool(AgentTool):
                 # orchestrator and sub-agent sharing an in-memory Interrupt object, so it works
                 # even when both have been independently rebuilt from storage (e.g. a stateless
                 # Lambda that recreates every agent each invocation).
-                prompt = self._restore_from_snapshot(sub_agent_snapshot, invocation_state)
+                try:
+                    prompt = self._restore_from_snapshot(sub_agent_snapshot, invocation_state)
+                except Exception as restore_error:
+                    # Log at ERROR so this is alertable. A failed restore silently destroys the
+                    # human's approval: the broad except below would convert it to an ordinary
+                    # tool error and the interrupt would be deactivated. Re-raise so callers see
+                    # a clear failure rather than a quiet success with lost state.
+                    logger.error(
+                        "tool_name=<%s>, tool_use_id=<%s> | "
+                        "failed to restore sub-agent from interrupt snapshot, "
+                        "the pending interrupt approval may be lost: %s",
+                        self._tool_name,
+                        tool_use_id,
+                        restore_error,
+                    )
+                    raise
                 logger.debug(
                     "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from serialized interrupt snapshot",
                     self._tool_name,

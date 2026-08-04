@@ -1,6 +1,7 @@
 """Tests for _AgentAsTool - the agent-as-tool adapter."""
 
 import json
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -1137,3 +1138,54 @@ def test_tool_interrupt_event_snapshot_not_in_dict():
     event_no_snapshot = ToolInterruptEvent(tool_use, [interrupt])
     assert event_no_snapshot.sub_agent_snapshot is None
     assert "sub_agent_snapshot" not in event_no_snapshot.get("tool_interrupt_event", {})
+
+
+# --- restore failure alertability ---
+
+
+@pytest.mark.asyncio
+async def test_stream_restore_failure_logs_error_and_propagates(fake_agent, caplog):
+    """A malformed snapshot causes an ERROR log and an error ToolResultEvent, not silent success."""
+    # A snapshot with an unsupported schema_version triggers SnapshotException inside load_snapshot.
+    bad_snapshot = {
+        "session_snapshot": {
+            "scope": "agent",
+            "schema_version": "99.0",
+            "created_at": "2025-01-01T00:00:00+00:00",
+            "data": {
+                "messages": [],
+                "state": {},
+                "conversation_manager_state": {
+                    "__name__": "SlidingWindowConversationManager",
+                    "removed_message_count": 0,
+                    "model_call_count": 0,
+                },
+                "interrupt_state": {"interrupts": {}, "context": {}, "activated": False},
+                "model_state": {},
+            },
+            "app_data": {},
+        },
+        "interrupt_id_map": {},
+    }
+    invocation_state = {
+        "_sub_agent_interrupt_resume": {
+            "responses": [],
+            "snapshots": {"orch-1": bad_snapshot},
+        }
+    }
+
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool_use = {"toolUseId": "orch-1", "name": "fake_agent", "input": {"input": "hello"}}
+
+    with caplog.at_level(logging.ERROR, logger="strands.agent._agent_as_tool"):
+        events = [event async for event in tool.stream(tool_use, invocation_state)]
+
+    # The error is logged at ERROR level (alertable).
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(error_records) == 1
+    assert "failed to restore sub-agent from interrupt snapshot" in error_records[0].message
+
+    # A tool error result is still produced (from the broad except) so the conversation stays valid.
+    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0]["tool_result"]["status"] == "error"
