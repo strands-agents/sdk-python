@@ -281,3 +281,40 @@ def get_message_metadata(message: Message) -> MessageMetadata:
     Individual fields (usage, metrics, custom) may not be present. Use .get() to safely access them.
     """
     return message.get("metadata", {})
+
+
+def _append_ephemeral_content(message: Message, blocks: list[ContentBlock]) -> Message:
+    """Append single-call content to a message, marking where the reusable prefix ends.
+
+    Content that is rebuilt on every model call (injected context) must sit
+    outside any cached prefix to avoid invalidating the cache. 
+    Appending puts it at the end and the leading ``cachePoint`` declares the
+    boundary, so providers that manage prompt caching keep the durable conversation cacheable.
+
+    A boundary another caller already opened is reused rather than duplicated, so several callers
+    appending in turn produce exactly one boundary ahead of all the ephemeral content. 
+
+    The input message is not mutated.
+
+    Args:
+        message: The message to append to.
+        blocks: The ephemeral content blocks to append.
+
+    Returns:
+        A new message with the boundary and ``blocks`` appended, or ``message`` when ``blocks``
+        is empty.
+    """
+    if not blocks:
+        return message
+
+    content = list(message["content"])
+    if content and not any("cachePoint" in block for block in content):
+        content.append({"cachePoint": {"type": "default"}})
+    content.extend(blocks)
+
+    appended: Message = {"role": message["role"], "content": content}
+    if "tracking_id" in message:
+        appended["tracking_id"] = message["tracking_id"]
+    if "metadata" in message:
+        appended["metadata"] = message["metadata"]
+    return appended

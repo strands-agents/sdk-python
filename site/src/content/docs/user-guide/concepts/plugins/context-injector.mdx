@@ -118,6 +118,12 @@ injector = ContextInjector(
 The rendered text is a prompt-injection surface. If it interpolates attacker-influenced data (tool output, user-derived state), escape it yourself before returning. A callback that throws fails open: injection is skipped and the model call proceeds.
 :::
 
+## Prompt Caching
+
+Injected text is appended to the end of the latest user message, so it is the last thing the model reads. It is preceded by a cache point marking where the reusable prefix ends, so providers that support prompt caching keep the volatile text out of the cached prefix and the rest of the conversation still gets cache hits. Providers without cache-point control ignore the marker.
+
+Injecting a large payload still costs input tokens on every model call, since the injected text itself is never cached. Prefer the default `'userTurn'` over `'everyTurn'` to reduce token costs, except for an autonomous agent that needs the context at each step.
+
 ## Related
 
 - [Memory](../memory/overview#context-injection) builds on this engine to inject retrieved knowledge before a model call.

@@ -834,7 +834,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
   /**
    * Inject a cache point at the end of the last user message.
-   * Strips any existing cache points from all messages first.
+   *
+   * A cache point already present in the last user message is left where it is: callers place one to
+   * mark the end of the reusable prefix, ahead of content that is rebuilt every call (e.g. injected
+   * context).
    *
    * @param messages - List of messages to inject cache point into (modified in place)
    */
@@ -844,14 +847,17 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
 
     let lastUserIdx: number | null = null
-
-    // Strip existing cache points and find last user message
     for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
-      const msg = messages[msgIdx]
-      if (!msg) continue
+      if (messages[msgIdx]?.role === 'user') {
+        lastUserIdx = msgIdx
+      }
+    }
 
-      const content = msg.content ?? []
-
+    // Strip cache points everywhere except the last user message, where auto mode would otherwise
+    // accumulate one per turn and blow Bedrock's 4-cache-point ceiling.
+    for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+      if (msgIdx === lastUserIdx) continue
+      const content = messages[msgIdx]?.content ?? []
       for (let blockIdx = content.length - 1; blockIdx >= 0; blockIdx--) {
         const block = content[blockIdx]
         if (block && 'cachePoint' in block) {
@@ -861,31 +867,36 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           )
         }
       }
-
-      if (msg.role === 'user') {
-        lastUserIdx = msgIdx
-      }
     }
 
     // Add cache point to last user message
     if (lastUserIdx !== null) {
       const lastMsg = messages[lastUserIdx]
       if (lastMsg && lastMsg.content) {
-        const cachePoint: BedrockCachePointBlock = { type: 'default' }
+        const content = lastMsg.content
         const ttl = this._config.cacheConfig?.messagesTTL
+
+        const placed = content.find((block) => block && 'cachePoint' in block)
+        if (placed?.cachePoint) {
+          if (ttl !== undefined && placed.cachePoint.ttl === undefined) {
+            placed.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+          }
+          logger.debug(`msg_idx=<${lastUserIdx}> | honored caller-placed cache point`)
+          return
+        }
+
+        const cachePoint: BedrockCachePointBlock = { type: 'default' }
         if (ttl !== undefined) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }
 
-        const content = lastMsg.content
-
         // Locate the first non-PDF document block
         let firstNonPdfDocIdx: number | null = null
-        for (let i = 0; i < content.length; i++) {
-          const block = content[i]
+        for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
+          const block = content[blockIdx]
           if (block && 'document' in block && block.document?.format !== 'pdf') {
-            firstNonPdfDocIdx = i
+            firstNonPdfDocIdx = blockIdx
             break
           }
         }

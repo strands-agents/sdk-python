@@ -1,4 +1,4 @@
-import { Message, TextBlock } from '../types/messages.js'
+import { appendEphemeralContent, Message, TextBlock } from '../types/messages.js'
 import type { MessageData } from '../types/messages.js'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
@@ -100,13 +100,13 @@ export function isUserTurn(messages: MessageData[]): boolean {
  * messages are returned as-is.
  *
  * Folding into the existing user message (rather than inserting a standalone message) keeps role
- * alternation valid in both chat and the autonomous tool loop. The block is placed to keep the message
- * valid for the model:
- * - A plain user ask: the text is **prepended**, leaving the user's own ask in the recency slot — the
- *   last thing the model reads.
- * - A tool-result turn (the message carries a `ToolResultBlock`): the text is **appended**,
- *   because providers require the tool result to be the first content block in the turn that answers a
- *   tool use.
+ * alternation valid in both chat and the autonomous tool loop.
+ *
+ * The text is appended behind a cache-point boundary via {@link appendEphemeralContent}. Two reasons:
+ * providers require a tool result to stay the first content block in the turn that answers a tool use, and
+ * a trailing run is the only placement a provider can exclude from a cached prefix. Prepending would put
+ * content that changes every call ahead of the stable conversation, invalidating the prompt cache from the
+ * first block onward.
  *
  * {@link Message} fields are readonly, so the target is rebuilt as a new {@link Message}. When there is
  * no `user` message, the input array is returned unchanged.
@@ -128,21 +128,7 @@ export function foldIntoLastUserMessage(messages: Message[], text: string): Mess
     return messages
   }
 
-  const target = messages[targetIndex]!
-  const injected = new TextBlock(text)
-  // A tool result must stay the first block in the turn that answers a tool use, so append rather than
-  // prepend when the target carries one.
-  const hasToolResult = target.content.some((block) => block.type === 'toolResultBlock')
-  const content = hasToolResult ? [...target.content, injected] : [injected, ...target.content]
-  const folded = new Message({
-    role: target.role,
-    content,
-    // Folding injects content into the same logical message, so keep its tracking id.
-    trackingId: target.trackingId,
-    ...(target.metadata !== undefined && { metadata: target.metadata }),
-  })
-
   const result = [...messages]
-  result[targetIndex] = folded
+  result[targetIndex] = appendEphemeralContent(messages[targetIndex]!, [new TextBlock(text)])
   return result
 }

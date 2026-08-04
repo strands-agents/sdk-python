@@ -19,18 +19,19 @@ const toolResult = () =>
 // resolveTrigger predicates take an InjectionContext; tests only exercise `messages`, so a minimal bag suffices.
 const injectionCtx = (messages: MessageData[]) => ({ messages }) as unknown as InjectionContext
 describe('foldIntoLastUserMessage', () => {
-  it('prepends the text as a leading TextBlock on the last user message, ahead of its content', () => {
+  it('appends the text as a trailing TextBlock on the last user message, after its content', () => {
     const messages = [user('original task'), assistant('prior step'), user('next ask')]
     const result = foldIntoLastUserMessage(messages, 'INJECTED')
 
-    // The earlier user/assistant turns are untouched; the last user message gains a leading INJECTED
-    // block ahead of its own content, keeping the user's ask in the recency slot.
+    // The earlier user/assistant turns are untouched; the last user message gains a trailing INJECTED
+    // block, so the volatile content forms a run at the end that a provider can exclude from the
+    // cached prefix.
     expect(result.map((m) => m.toJSON())).toStrictEqual([
       { role: 'user', content: [{ text: 'original task' }], trackingId: anyTrackingId },
       { role: 'assistant', content: [{ text: 'prior step' }], trackingId: anyTrackingId },
       {
         role: 'user',
-        content: [{ text: 'INJECTED' }, { text: 'next ask' }],
+        content: [{ text: 'next ask' }, { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
         trackingId: anyTrackingId,
       },
     ])
@@ -59,14 +60,13 @@ describe('foldIntoLastUserMessage', () => {
     const tr = toolResult()
     const result = foldIntoLastUserMessage([user('task'), assistant('thinking'), tr], 'INJECTED')
 
-    // Providers require the tool result to be the first block in the turn, so the injected text is
-    // appended rather than prepended here.
+    // Providers require the tool result to be the first block in the turn, so appending keeps it valid.
     expect(result.map((m) => m.toJSON())).toStrictEqual([
       { role: 'user', content: [{ text: 'task' }], trackingId: anyTrackingId },
       { role: 'assistant', content: [{ text: 'thinking' }], trackingId: anyTrackingId },
       {
         role: 'user',
-        content: [tr.toJSON().content[0], { text: 'INJECTED' }],
+        content: [tr.toJSON().content[0], { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
         trackingId: anyTrackingId,
       },
     ])
@@ -81,7 +81,7 @@ describe('foldIntoLastUserMessage', () => {
       { role: 'assistant', content: [{ text: 'a' }], trackingId: anyTrackingId },
       {
         role: 'user',
-        content: [{ text: 'INJECTED' }, { text: 'second' }],
+        content: [{ text: 'second' }, { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
         trackingId: anyTrackingId,
       },
     ])
@@ -162,7 +162,8 @@ describe('createInjectionMiddleware', () => {
   // The handler is an InvokeModelStage.Input transformer. It reads `context.messages` and derives the
   // InjectionContext (appState/agent) from `context.agent`, then spreads the rest through, so a context
   // carrying `messages` plus a mock agent exercises it faithfully.
-  const ctx = (messages: Message[]) => ({ messages, agent: createMockAgent() }) as unknown as InvokeModelContext
+  const ctx = (messages: Message[]) =>
+    ({ messages, agent: createMockAgent(), invocationState: {} }) as unknown as InvokeModelContext
 
   it('folds renderContent() text into the latest user message, leaving other context fields intact', async () => {
     const handler = createInjectionMiddleware({ renderContent: async () => 'INJECTED' })
@@ -172,7 +173,7 @@ describe('createInjectionMiddleware', () => {
       { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
       {
         role: 'user',
-        content: [{ text: 'INJECTED' }, { text: 'ask' }],
+        content: [{ text: 'ask' }, { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
         trackingId: anyTrackingId,
       },
     ])
@@ -194,7 +195,7 @@ describe('createInjectionMiddleware', () => {
   it('exposes appState and the agent on the InjectionContext', async () => {
     const appState = { get: () => 'stashed' }
     const agent = { appState } as unknown as InvokeModelContext['agent']
-    const input = { messages: [user('ask')], agent } as unknown as InvokeModelContext
+    const input = { messages: [user('ask')], agent, invocationState: {} } as unknown as InvokeModelContext
     let received: { appState: unknown; agent: unknown } | undefined
     const handler = createInjectionMiddleware({
       renderContent: async (context) => {
@@ -229,7 +230,7 @@ describe('createInjectionMiddleware', () => {
       { role: 'assistant', content: [{ text: 'a' }], trackingId: anyTrackingId },
       {
         role: 'user',
-        content: [tr.toJSON().content[0], { text: 'INJECTED' }],
+        content: [tr.toJSON().content[0], { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
         trackingId: anyTrackingId,
       },
     ])
@@ -265,5 +266,28 @@ describe('createInjectionMiddleware', () => {
     await handler(input)
 
     expect(before.content).toHaveLength(1) // the original user message is untouched
+  })
+
+  it('marks the injected text as ephemeral with a cachePoint boundary', async () => {
+    const handler = createInjectionMiddleware({ renderContent: async () => 'INJECTED' })
+    const result = await handler(ctx([user('ask')]))
+
+    expect(result.messages[0]!.toJSON()).toStrictEqual({
+      role: 'user',
+      content: [{ text: 'ask' }, { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
+      trackingId: anyTrackingId,
+    })
+  })
+
+  it('reuses one boundary when several injectors append on the same call', async () => {
+    const first = createInjectionMiddleware({ renderContent: async () => 'ONE' })
+    const second = createInjectionMiddleware({ renderContent: async () => 'TWO' })
+    const result = await second(await first(ctx([user('ask')])))
+
+    expect(result.messages[0]!.toJSON()).toStrictEqual({
+      role: 'user',
+      content: [{ text: 'ask' }, { cachePoint: { cacheType: 'default' } }, { text: 'ONE' }, { text: 'TWO' }],
+      trackingId: anyTrackingId,
+    })
   })
 })

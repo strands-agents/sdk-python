@@ -962,6 +962,40 @@ export class GuardContentBlock
 }
 
 /**
+ * Appends single-call content to a message, marking where the reusable prefix ends.
+ *
+ * Content that is rebuilt on every model call (e.g. injected context count) must sit outside
+ * any cached prefix to avoid invalidating the cache from that
+ * point on. Appending puts it at the end and the leading {@link CachePointBlock} declares the
+ * boundary, so providers that manage prompt caching keep the durable conversation cacheable.
+ *
+ * A boundary another caller already opened is reused rather than duplicated, so several callers
+ * appending in turn produce exactly one boundary ahead of all the ephemeral content.
+ *
+ * The input message is not mutated.
+ *
+ * @param message - The message to append to
+ * @param blocks - The ephemeral content blocks to append
+ * @returns A new message with the boundary and `blocks` appended, or `message` when `blocks` is empty
+ * @internal Framework primitive for producers of per-call content. Not part of the public API.
+ */
+export function appendEphemeralContent(message: Message, blocks: ContentBlock[]): Message {
+  if (blocks.length === 0) {
+    return message
+  }
+
+  const needsBoundary = message.content.length > 0 && !message.content.some((block) => block.type === 'cachePointBlock')
+
+  return new Message({
+    role: message.role,
+    content: [...message.content, ...(needsBoundary ? [new CachePointBlock({ cacheType: 'default' })] : []), ...blocks],
+    // The appended content belongs to the same logical message, so keep its tracking id.
+    trackingId: message.trackingId,
+    ...(message.metadata !== undefined && { metadata: message.metadata }),
+  })
+}
+
+/**
  * Converts ContentBlockData to a ContentBlock instance.
  * Handles all content block types including text, tool use/result, reasoning, cache points, guard content, and media blocks.
  *

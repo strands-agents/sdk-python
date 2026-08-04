@@ -1817,6 +1817,32 @@ def test_format_request_filters_s3_source_image(model, caplog):
     assert "Location sources are not supported by OpenAI" in caplog.text
 
 
+def test_format_request_skips_cache_point_in_message(model, caplog):
+    """Cache points in a message are skipped with a warning rather than raising.
+
+    OpenAI caches prefixes server-side and offers no cache-point control, so the block carries no
+    meaning here. Skipping matches how the system-prompt path and the Gemini/Vercel providers treat
+    cache points, and lets provider-agnostic callers mark ephemeral content without special-casing.
+    """
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"text": "durable ask"}, {"cachePoint": {"type": "default"}}, {"text": "EPHEMERAL"}],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    formatted_content = request["messages"][0]["content"]
+    assert formatted_content == [
+        {"text": "durable ask", "type": "text"},
+        {"text": "EPHEMERAL", "type": "text"},
+    ]
+    assert "cache points are not supported by OpenAI" in caplog.text
+
+
 def test_format_request_filters_location_source_document(model, caplog):
     """Test that documents with Location sources are filtered out with warning."""
     caplog.set_level(logging.WARNING, logger="strands.models.openai")

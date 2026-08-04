@@ -3230,6 +3230,92 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     assert "cachePoint" in cleaned_messages[2]["content"][-1]
 
 
+def test_inject_cache_point_honors_caller_placed_boundary(bedrock_client):
+    """A cache point the caller placed is left alone, not relocated to the end.
+
+    Callers open a boundary ahead of content that is rebuilt every call (injected context, a live
+    token count). Moving it to the end would pull that volatile content into the cached prefix.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "durable ask"}, {"cachePoint": {"type": "default"}}, {"text": "EPHEMERAL"}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "durable ask"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "EPHEMERAL"},
+    ]
+
+
+def test_inject_cache_point_applies_configured_ttl_to_a_honored_boundary(bedrock_client):
+    """A configured TTL still applies when the caller placed the boundary.
+
+    The caller owns placement; TTL remains provider policy. Dropping it here would silently fall
+    back to the default 5m, which means more 1.25x cache writes.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "durable ask"}, {"cachePoint": {"type": "default"}}, {"text": "EPHEMERAL"}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_inject_cache_point_keeps_a_hand_placed_ttl(bedrock_client):
+    """An explicit TTL on the placed boundary wins over the configured one."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "durable ask"}, {"cachePoint": {"type": "default", "ttl": "5m"}}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"][1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+
+
+def test_inject_cache_point_strips_boundaries_outside_the_last_user_message(bedrock_client):
+    """Stale boundaries from earlier turns are removed so they cannot exhaust the cache-point cap."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "old ask"}, {"cachePoint": {"type": "default"}}, {"text": "stale"}]},
+        {"role": "assistant", "content": [{"text": "reply"}]},
+        {"role": "user", "content": [{"text": "new ask"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [{"text": "old ask"}, {"text": "stale"}]
+    assert cleaned_messages[2]["content"] == [{"text": "new ask"}, {"cachePoint": {"type": "default"}}]
+
+
 def test_inject_cache_point_before_non_pdf_document(bedrock_client):
     """Test that cache point is inserted before non-PDF document blocks."""
     model = BedrockModel(

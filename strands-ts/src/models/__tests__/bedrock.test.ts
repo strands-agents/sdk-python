@@ -1701,6 +1701,63 @@ describe('BedrockModel', () => {
       expect(assistantLastBlock).not.toStrictEqual({ cachePoint: { type: 'default' } })
     })
 
+    it('honors a caller-placed cache point in the last user message', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('EPHEMERAL'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages, {}))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default' } },
+        { text: 'EPHEMERAL' },
+      ])
+    })
+
+    it('applies a configured messagesTTL to a honored boundary', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('EPHEMERAL'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages, {}))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content?.[1]).toStrictEqual({ cachePoint: { type: 'default', ttl: '1h' } })
+    })
+
+    it('keeps a hand-placed ttl on a honored boundary', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('durable ask'), new CachePointBlock({ cacheType: 'default', ttl: '5m' })],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages, {}))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content?.[1]).toStrictEqual({ cachePoint: { type: 'default', ttl: '5m' } })
+    })
+
     it('propagates cacheConfig ttls independently to tools and last user message', async () => {
       const provider = new BedrockModel({
         cacheConfig: { strategy: 'auto', toolsTTL: '1h', messagesTTL: '5m' },

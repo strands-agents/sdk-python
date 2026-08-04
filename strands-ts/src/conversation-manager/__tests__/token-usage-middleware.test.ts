@@ -5,6 +5,7 @@ import type { InvokeModelContext } from '../../middleware/stages.js'
 import type { Model } from '../../models/model.js'
 import { Agent } from '../../agent/agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
+import { ContextInjector } from '../../vended-plugins/context-injector/plugin.js'
 
 function createMockModel(contextWindowLimit?: number): Model {
   return {
@@ -54,8 +55,10 @@ describe('createTokenUsageMiddleware', () => {
 
     expect(result.messages.length).toBe(1)
     const lastMsg = result.messages[0]!
-    expect(lastMsg.content.length).toBe(2)
-    const statusBlock = lastMsg.content[1] as TextBlock
+    // The status text carries a live token count that changes every call, so it is appended behind a
+    // cachePoint boundary to keep it out of the prompt cache's reusable prefix.
+    expect(lastMsg.content.map((block) => block.type)).toStrictEqual(['textBlock', 'cachePointBlock', 'textBlock'])
+    const statusBlock = lastMsg.content[lastMsg.content.length - 1] as TextBlock
     expect(statusBlock.text).toContain('<context-status>')
     expect(statusBlock.text).toContain('25.0%')
     expect(statusBlock.text).toContain('<remaining>')
@@ -84,7 +87,9 @@ describe('createTokenUsageMiddleware', () => {
 
     const result = await middleware(context)
 
-    const statusBlock = (result.messages[0]! as Message).content[1] as TextBlock
+    const statusBlock = (result.messages[0]! as Message).content[
+      (result.messages[0]! as Message).content.length - 1
+    ] as TextBlock
     expect(statusBlock.text).toContain('<context-status>')
     expect(statusBlock.text).toContain('50.0%')
     expect(statusBlock.text).toContain('200,000')
@@ -111,7 +116,9 @@ describe('createTokenUsageMiddleware', () => {
 
     const result = await middleware(context)
 
-    const statusBlock = (result.messages[0]! as Message).content[1] as TextBlock
+    const statusBlock = (result.messages[0]! as Message).content[
+      (result.messages[0]! as Message).content.length - 1
+    ] as TextBlock
     expect(statusBlock.text).toContain('80.0%')
     expect(statusBlock.text).toContain('<remaining>~20,000 tokens</remaining>')
   })
@@ -188,5 +195,32 @@ describe('token usage middleware integration', () => {
     const lastMessage = secondCallMessages[secondCallMessages.length - 1]!
     const lastBlock = lastMessage.content[lastMessage.content.length - 1] as TextBlock
     expect(lastBlock.text).not.toContain('<context-status>')
+  })
+
+  it('shares one cache boundary with an injector so both volatile blocks stay outside the prefix', async () => {
+    const model = new MockMessageModel().addTurn(
+      { type: 'textBlock', text: 'response' },
+      { usage: { inputTokens: 1000, outputTokens: 100, totalTokens: 1100 } }
+    )
+    model.updateConfig({ contextWindowLimit: 100_000 })
+
+    const agent = new Agent({
+      model,
+      contextManager: 'agentic',
+      plugins: [new ContextInjector({ renderContent: async () => 'INJECTED' })],
+      printer: false,
+    })
+    const streamSpy = vi.spyOn(model, 'stream')
+
+    await agent.invoke('ask')
+
+    const sent = streamSpy.mock.calls[0]![0] as Message[]
+    const lastMessage = sent[sent.length - 1]!
+    expect(lastMessage.content.map((block) => block.type)).toStrictEqual([
+      'textBlock', // the durable ask
+      'cachePointBlock', // the single boundary
+      'textBlock', // <context-status>
+      'textBlock', // injected text
+    ])
   })
 })

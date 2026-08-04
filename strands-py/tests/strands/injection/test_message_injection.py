@@ -56,14 +56,17 @@ def invoke_ctx(messages: list[dict], agent: Any = None) -> InvokeModelContext:
 
 
 class TestFoldIntoLastUserMessage:
-    def test_prepends_text_ahead_of_user_content(self):
+    def test_appends_text_after_user_content(self):
         messages = [user("original task"), assistant("prior step"), user("next ask")]
         result = _fold_into_last_user_message(messages, "INJECTED")
 
         assert result == [
             {"role": "user", "content": [{"text": "original task"}]},
             {"role": "assistant", "content": [{"text": "prior step"}]},
-            {"role": "user", "content": [{"text": "INJECTED"}, {"text": "next ask"}]},
+            {
+                "role": "user",
+                "content": [{"text": "next ask"}, {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}],
+            },
         ]
 
     def test_returns_new_list_and_does_not_mutate_input(self):
@@ -84,7 +87,7 @@ class TestFoldIntoLastUserMessage:
         assert result == [
             {"role": "user", "content": [{"text": "task"}]},
             {"role": "assistant", "content": [{"text": "thinking"}]},
-            {"role": "user", "content": [tr["content"][0], {"text": "INJECTED"}]},
+            {"role": "user", "content": [tr["content"][0], {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}]},
         ]
 
     def test_targets_most_recent_user_message(self):
@@ -94,7 +97,10 @@ class TestFoldIntoLastUserMessage:
         assert result == [
             {"role": "user", "content": [{"text": "first"}]},
             {"role": "assistant", "content": [{"text": "a"}]},
-            {"role": "user", "content": [{"text": "INJECTED"}, {"text": "second"}]},
+            {
+                "role": "user",
+                "content": [{"text": "second"}, {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}],
+            },
         ]
 
     def test_preserves_message_metadata(self):
@@ -160,7 +166,7 @@ class TestCreateInjectionMiddleware:
 
         assert result.messages == [
             {"role": "assistant", "content": [{"text": "prior"}]},
-            {"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]},
+            {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}]},
         ]
 
     async def test_passes_conversation_to_render_content(self):
@@ -196,7 +202,9 @@ class TestCreateInjectionMiddleware:
         handler = _create_injection_middleware(render)
         result = await handler(invoke_ctx([user("ask")]))
 
-        assert result.messages == [{"role": "user", "content": [{"text": "INJECTED"}, {"text": "ask"}]}]
+        assert result.messages == [
+            {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}]}
+        ]
 
     async def test_returns_context_unchanged_when_trigger_does_not_fire(self):
         render = MagicMock(return_value="x")
@@ -215,7 +223,7 @@ class TestCreateInjectionMiddleware:
         assert result.messages == [
             {"role": "user", "content": [{"text": "task"}]},
             {"role": "assistant", "content": [{"text": "a"}]},
-            {"role": "user", "content": [tr["content"][0], {"text": "INJECTED"}]},
+            {"role": "user", "content": [tr["content"][0], {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}]},
         ]
 
     async def test_returns_context_unchanged_when_render_yields_empty(self):
@@ -243,3 +251,31 @@ class TestCreateInjectionMiddleware:
         await handler(ctx)
 
         assert len(before["content"]) == 1  # original user message untouched
+
+    async def test_marks_injected_text_ephemeral_with_a_cache_point_boundary(self):
+        # The boundary tells cache-managing providers where the reusable prefix ends; without it the
+        # per-call text would sit inside the cached prefix and invalidate it every turn.
+        handler = _create_injection_middleware(lambda context: "INJECTED")
+        result = await handler(invoke_ctx([user("ask")]))
+
+        assert result.messages == [
+            {
+                "role": "user",
+                "content": [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "INJECTED"}],
+            }
+        ]
+
+    async def test_reuses_one_boundary_across_injectors_on_the_same_call(self):
+        # Providers cap how many cache points a request may carry, so appending must not stack them.
+        ctx = invoke_ctx([user("ask")])
+        first = _create_injection_middleware(lambda context: "ONE")
+        second = _create_injection_middleware(lambda context: "TWO")
+
+        result = await second(await first(ctx))
+
+        assert result.messages == [
+            {
+                "role": "user",
+                "content": [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "ONE"}, {"text": "TWO"}],
+            }
+        ]

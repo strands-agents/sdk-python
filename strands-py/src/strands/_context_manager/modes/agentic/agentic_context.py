@@ -25,7 +25,7 @@ from ....agent.conversation_manager.compression.context_compression import (
 from ....agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
 from ....agent.conversation_manager.conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
 from ....tools.decorator import tool
-from ....types.content import Message, _ensure_tracking_id
+from ....types.content import Message, _append_ephemeral_content, _ensure_tracking_id
 from ....types.exceptions import ContextWindowOverflowException
 from ....types.tools import ToolContext
 
@@ -292,7 +292,8 @@ def create_token_usage_middleware() -> MiddlewareInputHandler:
     The block reports projected input-token usage against the context window limit of the
     model that will actually handle the call (``context.model``), so guidance stays correct
     even when middleware has redirected the call to a different model. The original messages
-    are not mutated; the last message is copied and the status text appended to the copy.
+    are not mutated; the last message is copied and the status text appended to the copy as 
+    ephemeral content to keep it out of the prompt cache's reusable prefix.
 
     Returns:
         An async ``MiddlewareInputHandler`` for the ``InvokeModelStage.Input`` phase.
@@ -318,14 +319,7 @@ def create_token_usage_middleware() -> MiddlewareInputHandler:
         if not messages:
             return context
 
-        last_message = messages[-1]
-        new_message: Message = {
-            "role": last_message["role"],
-            "content": [*last_message["content"], {"text": status_text}],
-        }
-        if "metadata" in last_message:
-            new_message["metadata"] = last_message["metadata"]
-        messages[-1] = new_message
+        messages[-1] = _append_ephemeral_content(messages[-1], [{"text": status_text}])
 
         return replace(context, messages=messages)
 

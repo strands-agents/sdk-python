@@ -1259,8 +1259,9 @@ async def test_init_agent_wires_middleware_to_provide_pipeline_folds_a_search_hi
         {
             "role": "user",
             "content": [
-                {"text": '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>'},
                 {"text": "what is my plan"},
+                {"cachePoint": {"type": "default"}},
+                {"text": '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>'},
             ],
         },
     ]
@@ -1287,7 +1288,11 @@ async def test_init_agent_forwards_trigger_to_registered_middleware():
         {"role": "assistant", "content": [{"text": "prev"}]},
         {
             "role": "user",
-            "content": [tool_result["content"][0], {"text": '<memory>\n<entry source="s">fact</entry>\n</memory>'}],
+            "content": [
+                tool_result["content"][0],
+                {"cachePoint": {"type": "default"}},
+                {"text": '<memory>\n<entry source="s">fact</entry>\n</memory>'},
+            ],
         },
     ]
     assert store.search.call_args.args[0] == "prev"

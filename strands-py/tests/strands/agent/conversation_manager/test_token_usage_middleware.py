@@ -8,6 +8,7 @@ from strands import Agent
 from strands._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
 from strands._middleware.stages import InvokeModelContext
 from strands.types.content import Message
+from strands.vended_plugins.context_injector import ContextInjector
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
@@ -57,8 +58,10 @@ class TestCreateTokenUsageMiddleware:
 
         assert len(result.messages) == 1
         last_msg = result.messages[0]
-        assert len(last_msg["content"]) == 2
-        status_text = last_msg["content"][1]["text"]
+        # The status text carries a live token count that changes every call, so it is appended
+        # behind a cachePoint boundary to keep it out of the prompt cache's reusable prefix.
+        assert [next(iter(block)) for block in last_msg["content"]] == ["text", "cachePoint", "text"]
+        status_text = last_msg["content"][-1]["text"]
         assert "<context-status>" in status_text
         assert "25.0%" in status_text
         assert "<remaining>" in status_text
@@ -71,7 +74,7 @@ class TestCreateTokenUsageMiddleware:
 
         result = await middleware(context)
 
-        status_text = result.messages[0]["content"][1]["text"]
+        status_text = result.messages[0]["content"][-1]["text"]
         assert "8,000 / 10,000 tokens (80.0%)" in status_text
         assert "<remaining>~2,000 tokens</remaining>" in status_text
 
@@ -91,7 +94,7 @@ class TestCreateTokenUsageMiddleware:
 
         result = await middleware(context)
 
-        status_text = result.messages[0]["content"][1]["text"]
+        status_text = result.messages[0]["content"][-1]["text"]
         assert "<context-status>" in status_text
         assert "50.0%" in status_text
         assert "200,000" in status_text
@@ -114,7 +117,7 @@ class TestCreateTokenUsageMiddleware:
 
         result = await middleware(context)
 
-        status_text = result.messages[0]["content"][1]["text"]
+        status_text = result.messages[0]["content"][-1]["text"]
         assert "80.0%" in status_text
         assert "<remaining>~20,000 tokens</remaining>" in status_text
 
@@ -188,3 +191,37 @@ class TestTokenUsageMiddlewareIntegration:
         for messages in seen_messages:
             for block in messages[-1]["content"]:
                 assert "<context-status>" not in block.get("text", "")
+
+
+@pytest.mark.asyncio
+async def test_shares_one_cache_boundary_with_an_injector():
+    """Both volatile blocks must sit behind a single cache-point boundary.
+
+    Agentic mode appends ``<context-status>`` and the injector appends after it. Both change every
+    call, so both belong outside the cached prefix. Two boundaries would waste one of the provider's
+    limited cache points, and a boundary between them would leave ``<context-status>`` inside the
+    cached prefix and invalidate it every turn.
+    """
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "ok"}]}])
+    seen_messages = []
+    original_stream = model.stream
+
+    def capturing_stream(messages, *args, **kwargs):
+        seen_messages.append([dict(message) for message in messages])
+        return original_stream(messages, *args, **kwargs)
+
+    model.stream = capturing_stream
+
+    agent = Agent(
+        model=model,
+        context_manager="agentic",
+        plugins=[ContextInjector(lambda context: "INJECTED")],
+        callback_handler=None,
+    )
+    await agent.invoke_async("ask")
+
+    content = seen_messages[0][-1]["content"]
+    assert [next(iter(block)) for block in content] == ["text", "cachePoint", "text", "text"]
+    assert content[0] == {"text": "ask"}
+    assert "<context-status>" in content[2]["text"]
+    assert content[3] == {"text": "INJECTED"}

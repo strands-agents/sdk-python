@@ -14,11 +14,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol
 
+from ..types.content import _append_ephemeral_content
 from .types import InjectionContext, InjectionTriggerPredicate
 
 if TYPE_CHECKING:
     from .._middleware.stages import InvokeModelContext
-    from ..types.content import ContentBlock, Message, Messages
+    from ..types.content import Messages
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +148,12 @@ def _fold_into_last_user_message(messages: Messages, text: str) -> Messages:
     """Fold ``text`` into the most recent ``user`` message as a text block, returning a NEW list.
 
     Folding into the existing user message (rather than inserting a standalone message) keeps
-    role alternation valid in both chat and the autonomous tool loop. The block is placed to
-    keep the message valid for the model:
+    role alternation valid in both chat and the autonomous tool loop.
 
-    - A plain user ask: the text is **prepended**, leaving the user's own ask in the recency
-      slot — the last thing the model reads.
-    - A tool-result turn (the message carries a tool result block): the text is **appended**,
-      because providers require the tool result to be the first content block in the turn that
-      answers a tool use.
+    The text is appended behind a cache-point boundary via
+    :func:`~strands.types.content._append_ephemeral_content`. Two reasons: providers require a tool
+    result to stay the first content block in the turn that answers a tool use, and a trailing run
+    is the only placement a provider can exclude from a cached prefix.
 
     The input list and its messages are never mutated. When there is no ``user`` message, the
     input list is returned unchanged.
@@ -174,17 +173,6 @@ def _fold_into_last_user_message(messages: Messages, text: str) -> Messages:
     if target_index < 0:
         return messages
 
-    target = messages[target_index]
-    injected: ContentBlock = {"text": text}
-    # A tool result must stay the first block in the turn that answers a tool use, so append
-    # rather than prepend when the target carries one.
-    has_tool_result = any("toolResult" in block for block in target["content"])
-    content = [*target["content"], injected] if has_tool_result else [injected, *target["content"]]
-
-    folded: Message = {"role": target["role"], "content": content}
-    if "metadata" in target:
-        folded["metadata"] = target["metadata"]
-
     result = list(messages)
-    result[target_index] = folded
+    result[target_index] = _append_ephemeral_content(messages[target_index], [{"text": text}])
     return result

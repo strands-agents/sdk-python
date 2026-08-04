@@ -409,6 +409,9 @@ class BedrockModel(Model):
     def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
         """Inject a cache point at the end of the last user message.
 
+        A cache point already present in the last user message is left where it is: callers place
+        one to mark the end of the reusable prefix, ahead of injected content that is rebuilt every call.
+
         Args:
             messages: List of messages to inject cache point into (modified in place).
         """
@@ -417,6 +420,14 @@ class BedrockModel(Model):
 
         last_user_idx: int | None = None
         for msg_idx, msg in enumerate(messages):
+            if msg.get("role") == "user":
+                last_user_idx = msg_idx
+
+        # Strip cache points everywhere except the last user message, where auto mode would
+        # otherwise accumulate one per turn and exceed Bedrock's 4-cache-point ceiling.
+        for msg_idx, msg in enumerate(messages):
+            if msg_idx == last_user_idx:
+                continue
             content = msg.get("content", [])
             for block_idx, block in reversed(list(enumerate(content))):
                 if "cachePoint" in block:
@@ -426,22 +437,27 @@ class BedrockModel(Model):
                         msg_idx,
                         block_idx,
                     )
-            if msg.get("role") == "user":
-                last_user_idx = msg_idx
 
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            cache_point: dict[str, Any] = {"type": "default"}
+            content = messages[last_user_idx]["content"]
             cache_config = self.config.get("cache_config")
+
+            placed = next((block for block in content if "cachePoint" in block), None)
+            if placed is not None:
+                if cache_config and cache_config.ttl and "ttl" not in placed["cachePoint"]:
+                    placed["cachePoint"]["ttl"] = cache_config.ttl
+                logger.debug("msg_idx=<%s> | honored caller-placed cache point", last_user_idx)
+                return
+
+            cache_point: dict[str, Any] = {"type": "default"}
             if cache_config and cache_config.ttl:
                 cache_point["ttl"] = cache_config.ttl
 
-            content = messages[last_user_idx]["content"]
-
             # Insert before non-PDF document blocks to avoid Bedrock ValidationException
             first_non_pdf_doc_idx: int | None = None
-            for i, block in enumerate(content):
+            for block_idx, block in enumerate(content):
                 if "document" in block and block["document"].get("format", "") != "pdf":
-                    first_non_pdf_doc_idx = i
+                    first_non_pdf_doc_idx = block_idx
                     break
 
             # Insert the cache point before the first non-PDF document so it is not directly

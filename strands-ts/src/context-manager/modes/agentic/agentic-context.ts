@@ -5,7 +5,7 @@
  */
 
 import { z } from 'zod'
-import { Message, TextBlock } from '../../../types/messages.js'
+import { appendEphemeralContent, Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
 import { pinMessage, unpinMessage, isPinned } from '../../../conversation-manager/compression/pin-message.js'
 import {
@@ -204,11 +204,8 @@ export function createTokenUsageMiddleware(model: Model): MiddlewareInputHandler
       return context
     }
 
-    messages[messages.length - 1] = new Message({
-      role: lastMessage.role,
-      content: [...lastMessage.content, new TextBlock(statusText)],
-      ...(lastMessage.metadata && { metadata: lastMessage.metadata }),
-    })
+    // Append as ephemeral content to avoid cache invalidation
+    messages[messages.length - 1] = appendEphemeralContent(lastMessage, [new TextBlock(statusText)])
 
     return { ...context, messages }
   }

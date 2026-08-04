@@ -9,6 +9,7 @@ import {
   GuardContentBlock,
   JsonBlock,
   generateTrackingId,
+  appendEphemeralContent,
   type MessageData,
   type SystemPromptData,
   systemPromptFromData,
@@ -818,5 +819,71 @@ describe('toJSON format', () => {
       image: { format: 'jpeg', source: { bytes: new Uint8Array([1, 2, 3]) } },
     })
     expect(typeof block.toJSON().guardContent.image?.source.bytes).toBe('string')
+  })
+})
+
+describe('appendEphemeralContent', () => {
+  const boundary = { cachePoint: { cacheType: 'default' } }
+
+  it('appends behind a cachePoint boundary', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('durable ask')] })
+
+    const appended = appendEphemeralContent(message, [new TextBlock('EPHEMERAL')])
+
+    expect(appended.content.map((block) => block.toJSON())).toStrictEqual([
+      { text: 'durable ask' },
+      boundary,
+      { text: 'EPHEMERAL' },
+    ])
+  })
+
+  it('returns the input unchanged when there are no blocks', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('ask')] })
+
+    expect(appendEphemeralContent(message, [])).toBe(message)
+  })
+
+  it('emits no boundary when content is empty', () => {
+    const message = new Message({ role: 'user', content: [] })
+
+    const appended = appendEphemeralContent(message, [new TextBlock('EPHEMERAL')])
+
+    expect(appended.content.map((block) => block.toJSON())).toStrictEqual([{ text: 'EPHEMERAL' }])
+  })
+
+  it('reuses a boundary another caller already opened', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('ask')] })
+
+    const first = appendEphemeralContent(message, [new TextBlock('ONE')])
+    const second = appendEphemeralContent(first, [new TextBlock('TWO')])
+
+    expect(second.content.map((block) => block.toJSON())).toStrictEqual([
+      { text: 'ask' },
+      boundary,
+      { text: 'ONE' },
+      { text: 'TWO' },
+    ])
+  })
+
+  it('does not mutate the input message', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('ask')] })
+
+    appendEphemeralContent(message, [new TextBlock('EPHEMERAL')])
+
+    expect(message.content).toHaveLength(1)
+  })
+
+  it('preserves identity fields', () => {
+    const message = new Message({
+      role: 'user',
+      content: [new TextBlock('ask')],
+      trackingId: 'durable-1',
+      metadata: { custom: { keep: 'me' } },
+    })
+
+    const appended = appendEphemeralContent(message, [new TextBlock('EPHEMERAL')])
+
+    expect(appended.trackingId).toBe('durable-1')
+    expect(appended.metadata).toStrictEqual({ custom: { keep: 'me' } })
   })
 })

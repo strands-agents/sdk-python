@@ -5,6 +5,8 @@ import { Message, TextBlock } from '../../../types/messages.js'
 import type { InvokeModelContext } from '../../../middleware/index.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import { anyTrackingId } from '../../../__fixtures__/message-helpers.js'
+import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
+import { Agent } from '../../../agent/agent.js'
 
 const user = (text: string) => new Message({ role: 'user', content: [new TextBlock(text)] })
 const assistant = (text: string) => new Message({ role: 'assistant', content: [new TextBlock(text)] })
@@ -42,7 +44,7 @@ describe('ContextInjector', () => {
       const { agent, addMiddleware } = makeAgent()
       plugin.initAgent(agent)
       const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
-      return handler({ messages, agent } as unknown as InvokeModelContext)
+      return handler({ messages, agent, invocationState: {} } as unknown as InvokeModelContext)
     }
 
     it('folds renderContent() text into the latest user message', async () => {
@@ -54,7 +56,7 @@ describe('ContextInjector', () => {
         { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
         {
           role: 'user',
-          content: [{ text: 'INJECTED' }, { text: 'ask' }],
+          content: [{ text: 'ask' }, { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
           trackingId: anyTrackingId,
         },
       ])
@@ -77,7 +79,7 @@ describe('ContextInjector', () => {
       expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
         {
           role: 'user',
-          content: [{ text: 'INJECTED' }, { text: 'ask' }],
+          content: [{ text: 'ask' }, { cachePoint: { cacheType: 'default' } }, { text: 'INJECTED' }],
           trackingId: anyTrackingId,
         },
         { role: 'assistant', content: [{ text: 'reply' }], trackingId: anyTrackingId },
@@ -96,7 +98,7 @@ describe('ContextInjector', () => {
         },
       }).initAgent(agent)
       const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
-      await handler({ messages: [user('ask')], agent } as unknown as InvokeModelContext)
+      await handler({ messages: [user('ask')], agent, invocationState: {} } as unknown as InvokeModelContext)
 
       expect(sawAgent).toBe(true)
       expect(sawAppState).toBe(true)
@@ -116,6 +118,25 @@ describe('ContextInjector', () => {
         { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
         { role: 'user', content: [{ text: 'ask' }], trackingId: anyTrackingId },
       ])
+    })
+  })
+
+  describe('against a real agent', () => {
+    it('marks injected text ephemeral and keeps it out of durable history', async () => {
+      const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'first' })
+      const agent = new Agent({
+        model,
+        plugins: [new ContextInjector({ renderContent: async () => '<ctx>EPHEMERAL</ctx>' })],
+        printer: false,
+      })
+
+      await agent.invoke('first ask')
+
+      // The injected text is ephemeral, so it must never reach durable history.
+      const durableText = agent.messages.flatMap((message) =>
+        message.content.filter((block) => block.type === 'textBlock').map((block) => block.text)
+      )
+      expect(durableText.some((text) => text.includes('EPHEMERAL'))).toBe(false)
     })
   })
 })

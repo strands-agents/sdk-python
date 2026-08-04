@@ -412,6 +412,10 @@ class OpenAIModel(Model):
                 if _has_location_source(content):
                     logger.warning("Location sources are not supported by OpenAI | skipping content block")
                     continue
+                if "cachePoint" in content:
+                    # OpenAI caches prefixes server-side and offers no cache-point control
+                    logger.warning("cache points are not supported by OpenAI | skipping content block")
+                    continue
                 filtered_contents.append(content)
 
             formatted_contents = [cls.format_request_message_content(content) for content in filtered_contents]
