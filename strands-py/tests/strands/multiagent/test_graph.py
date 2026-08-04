@@ -2223,10 +2223,10 @@ async def test_graph_skip_node(skip_node, skip_message):
     assert tru_skip_event == exp_skip_event
 
     assert graph.state.status == Status.COMPLETED
-    assert any(n.node_id == "test_agent" for n in graph.state.completed_nodes)
+    assert any(node.node_id == "test_agent" for node in graph.state.completed_nodes)
     assert "test_agent" in graph.state.results
     assert graph.state.results["test_agent"].status == Status.SKIPPED
-    skipped_node = next(n for n in graph.state.completed_nodes if n.node_id == "test_agent")
+    skipped_node = next(node for node in graph.state.completed_nodes if node.node_id == "test_agent")
     assert skipped_node.execution_status == Status.SKIPPED
     agent.__call__.assert_not_called()
 
@@ -2259,10 +2259,10 @@ async def test_graph_cancel_node_backward_compat(cancel_node, cancel_message):
     assert tru_skip_event == exp_skip_event
 
     assert graph.state.status == Status.COMPLETED
-    assert any(n.node_id == "test_agent" for n in graph.state.completed_nodes)
+    assert any(node.node_id == "test_agent" for node in graph.state.completed_nodes)
     assert "test_agent" in graph.state.results
     assert graph.state.results["test_agent"].status == Status.SKIPPED
-    skipped_node = next(n for n in graph.state.completed_nodes if n.node_id == "test_agent")
+    skipped_node = next(node for node in graph.state.completed_nodes if node.node_id == "test_agent")
     assert skipped_node.execution_status == Status.SKIPPED
     agent.__call__.assert_not_called()
 
@@ -2297,15 +2297,15 @@ async def test_graph_skip_node_downstream_executes():
     step_a.__call__.assert_not_called()
     step_b.stream_async.assert_called_once()
 
-    assert any(n.node_id == "step_a" for n in graph.state.completed_nodes)
-    assert any(n.node_id == "step_b" for n in graph.state.completed_nodes)
+    assert any(node.node_id == "step_a" for node in graph.state.completed_nodes)
+    assert any(node.node_id == "step_b" for node in graph.state.completed_nodes)
     assert "step_a" in graph.state.results
     assert "step_b" in graph.state.results
 
     # step_a was skipped — its NodeResult must carry Status.SKIPPED, not COMPLETED
     assert graph.state.results["step_a"].status == Status.SKIPPED
     assert graph.state.results["step_b"].status == Status.COMPLETED
-    skipped_node = next(n for n in graph.state.completed_nodes if n.node_id == "step_a")
+    skipped_node = next(node for node in graph.state.completed_nodes if node.node_id == "step_a")
     assert skipped_node.execution_status == Status.SKIPPED
 
     # step_b must receive only the original task — no orphaned "From step_a:" header
