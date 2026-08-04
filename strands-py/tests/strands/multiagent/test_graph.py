@@ -2267,12 +2267,16 @@ async def test_graph_cancel_node_backward_compat(cancel_node, cancel_message):
     agent.__call__.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    ("skip_node", "expected_message"),
+    [(True, "node skipped by user"), ("skip_node message", "skip_node message")],
+)
 @pytest.mark.asyncio
-async def test_graph_skip_node_takes_precedence_over_cancel_node():
-    """When both fields are set, skip_node wins, so the generic message is used rather than the cancel_node string."""
+async def test_graph_skip_node_takes_precedence_over_cancel_node(skip_node, expected_message):
+    """When both fields are set, skip_node supplies the message and cancel_node is ignored."""
 
     def skip_callback(event):
-        event.skip_node = True
+        event.skip_node = skip_node
         event.cancel_node = "cancel_node message that must not win"
         return event
 
@@ -2288,7 +2292,7 @@ async def test_graph_skip_node_takes_precedence_over_cancel_node():
         if event.get("type") == "multiagent_node_skip":
             tru_skip_event = event
 
-    exp_skip_event = MultiAgentNodeSkipEvent(node_id="test_agent", message="node skipped by user")
+    exp_skip_event = MultiAgentNodeSkipEvent(node_id="test_agent", message=expected_message)
     assert tru_skip_event == exp_skip_event
 
     assert graph.state.results["test_agent"].status == Status.SKIPPED
@@ -2298,7 +2302,7 @@ async def test_graph_skip_node_takes_precedence_over_cancel_node():
 @pytest.mark.asyncio
 async def test_graph_skip_node_downstream_executes():
     """Downstream nodes must run after an upstream node is skipped via skip_node."""
-    skipped_nodes: list[str] = []
+    skip_event_ids: list[str] = []
 
     def skip_step_a(event):
         if event.node_id == "step_a":
@@ -2316,12 +2320,22 @@ async def test_graph_skip_node_downstream_executes():
     graph = builder.build()
     graph.hooks.add_callback(BeforeNodeCallEvent, skip_step_a)
 
+    result = None
     async for event in graph.stream_async("test task"):
         if event.get("type") == "multiagent_node_skip":
-            skipped_nodes.append(event["node_id"])
+            skip_event_ids.append(event["node_id"])
+        if "result" in event:
+            result = event["result"]
 
-    assert skipped_nodes == ["step_a"]
+    assert skip_event_ids == ["step_a"]
     assert graph.state.status == Status.COMPLETED
+
+    # GraphResult counts the skip separately: completed_nodes stays "ran to success"
+    assert result is not None
+    assert result.total_nodes == 2
+    assert result.completed_nodes == 1
+    assert result.skipped_nodes == 1
+    assert result.failed_nodes == 0
     step_a.__call__.assert_not_called()
     step_b.stream_async.assert_called_once()
 
