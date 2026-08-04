@@ -40,7 +40,11 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      # Absent when the PR's base revision predated the tooling and analysis was
+      # skipped, so a missing artifact leaves labels untouched rather than failing.
       - name: Download metrics
+        id: download
+        continue-on-error: true
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: pr-metrics
@@ -49,6 +53,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Apply labels
+        if: steps.download.outcome == 'success'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |

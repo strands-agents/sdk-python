@@ -55,7 +55,21 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
+      # A PR branched before this workflow landed has no analyzer in its base
+      # revision. That is not an error: skip analysis rather than failing a
+      # contributor's PR for a tool their branch predates.
+      - name: Check for analysis tooling in base revision
+        id: tooling
+        run: |
+          if [ -d tooling/.github/scripts/pr-metrics/tools ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo 'Base revision predates the PR metrics tooling; skipping.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Install analysis tooling
+        if: steps.tooling.outputs.available == 'true'
         working-directory: tooling/.github/scripts/pr-metrics/tools
         run: |
           set -euo pipefail
@@ -63,6 +77,7 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Analyze
+        if: steps.tooling.outputs.available == 'true'
         working-directory: pr
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -79,11 +94,13 @@ jobs:
       # triggering run's head SHA before use, so a PR cannot forge another
       # PR's number here.
       - name: Record PR number
+        if: steps.tooling.outputs.available == 'true'
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: printf '%s' "$PR_NUMBER" > "$RUNNER_TEMP/pr-number.txt"
 
       - name: Upload metrics
+        if: steps.tooling.outputs.available == 'true'
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: pr-metrics
