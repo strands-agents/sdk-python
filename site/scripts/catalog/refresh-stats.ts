@@ -12,8 +12,6 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
 
-import { fetchJson, githubApiHeaders } from './http'
-
 export interface StatsEntry {
   id: string
   github?: string
@@ -89,6 +87,18 @@ export async function buildStats(
 // extracts garbage from a malformed response still takes the keep-previous
 // path there.
 
+function githubApiHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { accept: 'application/vnd.github+json' }
+  if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`
+  return headers
+}
+
+async function fetchJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
+  const res = await fetch(url, { headers })
+  if (!res.ok) throw new Error(`status=${res.status} url=${url}`)
+  return res.json()
+}
+
 const liveFetchers: StatsFetchers = {
   async githubRepo(repoUrl) {
     // Keep only the org/repo segments so tree/blob URLs resolve to the repo.
@@ -132,10 +142,10 @@ export function loadEntries(catalogDir: string): StatsEntry[] {
         languages?: { python?: { package?: string }; typescript?: { package?: string } }
       }
       if (!data?.github || typeof data.github !== 'string') {
-        console.warn(`entry=<${id}> | malformed yaml, skipping`)
+        console.warn(`entry=<${id}> | missing or non-string github field, skipping`)
         continue
       }
-      const languages = data?.languages ?? {}
+      const languages = data.languages ?? {}
       const entry: StatsEntry = { id }
       // Entries anchored to the SDK itself (no dedicated package or repo) must
       // not display the SDK's own downloads/stars as their popularity.

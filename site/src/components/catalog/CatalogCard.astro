@@ -25,7 +25,7 @@ const numberFormat = new Intl.NumberFormat('en', { notation: 'compact' })
 
 // Footer links render brand marks instead of text; the registry label picks
 // the icon ('PyPI' → Python snakes, 'npm' → npm block logo).
-const REGISTRY_ICONS: Record<string, readonly string[]> = { PyPI: PYPI_ICON, npm: NPM_ICON }
+const REGISTRY_ICONS: Record<'PyPI' | 'npm', readonly string[]> = { PyPI: PYPI_ICON, npm: NPM_ICON }
 
 // Internal docs hrefs need the deploy base path; external URLs must not get it.
 const href = card.external ? card.href : pathWithBase(card.href)
@@ -128,7 +128,7 @@ const href = card.external ? card.href : pathWithBase(card.href)
             title={link.label}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-              {(REGISTRY_ICONS[link.label] ?? []).map((d) => (
+              {REGISTRY_ICONS[link.label].map((d) => (
                 <path fill="currentColor" d={d} />
               ))}
             </svg>

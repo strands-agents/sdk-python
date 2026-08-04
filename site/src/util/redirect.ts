@@ -93,10 +93,6 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
   'docs/community/tools/strands-telegram-listener': 'docs/integrations/tools/strands-telegram-listener',
   'docs/community/tools/utcp': 'docs/integrations/tools/utcp',
 
-  // The integrations page briefly went by /catalog during development; the
-  // URL is referenced in repo history and PR discussion, so keep it working.
-  catalog: 'integrations',
-
   // CDK and deployment examples now live on GitHub
   'docs/examples/cdk/deploy_to_apprunner':
     'https://github.com/strands-agents/harness-sdk/blob/main/site/docs/examples/cdk/deploy_to_apprunner/README.md',

@@ -34,11 +34,10 @@ function switchHref(lang: LanguageSlug): string | undefined {
 
 // On docs pages that declare a single supported language, the other button is
 // disabled: there is nothing to switch to, and a silent no-op toggle reads as
-// a bug. starlightRoute is absent on non-Starlight pages (landing/changelog),
-// where the toggle stays fully enabled.
-const routeData = (Astro.locals as { starlightRoute?: { entry?: { data?: { languages?: string | string[] } } } })
-  .starlightRoute?.entry?.data
-const pageLanguages = routeData?.languages
+// a bug. Non-docs pages (landing/changelog) carry no languages frontmatter,
+// so the toggle stays fully enabled there.
+const routeData = Astro.locals.starlightRoute.entry.data
+const pageLanguages = routeData.languages
   ? (Array.isArray(routeData.languages) ? routeData.languages : [routeData.languages]).map((l) => l.toLowerCase())
   : undefined
 // An empty array carries no language restriction; treat it the same as an absent field.
