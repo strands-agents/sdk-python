@@ -149,17 +149,17 @@ export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 /**
  * Controls how an agent handles overlapping invocations.
  *
- * - `'throw'` (default) rejects overlapping work with {@link ConcurrentInvocationError}.
- * - `'unsafeReentrant'` allows overlap without protecting shared conversation state.
+ * - `'singleThreaded'` (default) rejects overlapping work with {@link ConcurrentInvocationError}.
+ * - `'unsafeConcurrent'` allows overlap without protecting shared conversation state.
  */
-export type ConcurrentInvocationMode = 'throw' | 'unsafeReentrant'
+export type ConcurrentInvocationMode = 'singleThreaded' | 'unsafeConcurrent'
 
 function resolveConcurrentInvocationMode(mode: ConcurrentInvocationMode | undefined): ConcurrentInvocationMode {
   switch (mode) {
     case undefined:
-    case 'throw':
-      return 'throw'
-    case 'unsafeReentrant':
+    case 'singleThreaded':
+      return 'singleThreaded'
+    case 'unsafeConcurrent':
       return mode
     default:
       throw new TypeError(`Unknown concurrentInvocationMode: ${String(mode)}`)
@@ -316,7 +316,7 @@ export type AgentConfig = {
   /**
    * Controls whether overlapping invocations are rejected or allowed.
    *
-   * Defaults to `'throw'`. In `'unsafeReentrant'` mode the invocation guard and
+   * Defaults to `'singleThreaded'`. In `'unsafeConcurrent'` mode the invocation guard and
    * idempotency-token deduplication are disabled. Concurrent calls may interleave
    * mutations to shared agent state, so callers are responsible for synchronization.
    */
@@ -495,6 +495,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   private _toolRegistry: ToolRegistry
   private _mcpClients: McpClient[]
   private _initialized: boolean
+  private _isInvoking = false
   private _activeInvocationCount = 0
   private readonly _inflightInvocations = new Map<string, Promise<AgentResult>>()
   private _abortController = new AbortController()
@@ -839,12 +840,13 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Callers must release via try/finally with {@link releaseLock}.
    */
   private acquireLock(): void {
-    if (this.concurrentInvocationMode === 'throw' && this._activeInvocationCount > 0) {
+    if (this.concurrentInvocationMode === 'singleThreaded' && this._isInvoking) {
       throw new ConcurrentInvocationError(
         'Agent is already processing an invocation. Wait for the current invoke() or stream() call to complete before invoking again.'
       )
     }
     this._activeInvocationCount++
+    this._isInvoking = true
   }
 
   /**
@@ -852,6 +854,9 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   private releaseLock(): void {
     this._activeInvocationCount = Math.max(0, this._activeInvocationCount - 1)
+    if (this._activeInvocationCount === 0) {
+      this._isInvoking = false
+    }
   }
 
   /**
@@ -964,7 +969,7 @@ export class Agent implements LocalAgent, InvokableAgent {
    * Whether the agent is currently processing an invocation.
    */
   get isInvoking(): boolean {
-    return this._activeInvocationCount > 0
+    return this._isInvoking
   }
 
   /**
@@ -1101,7 +1106,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     args: InvokeArgs,
     options?: InvokeOptions
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
-    const idempotencyToken = this.concurrentInvocationMode === 'throw' ? options?.idempotencyToken : undefined
+    const idempotencyToken = this.concurrentInvocationMode === 'singleThreaded' ? options?.idempotencyToken : undefined
     const inflight = idempotencyToken === undefined ? undefined : this._inflightInvocations.get(idempotencyToken)
 
     if (inflight) {

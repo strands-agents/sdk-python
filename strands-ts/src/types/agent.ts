@@ -93,10 +93,10 @@ export interface InvokeOptions {
   /**
    * Identifies a logical request for in-flight deduplication.
    *
-   * In the default `throw` concurrency mode, a call with the same token as an
+   * In the default `singleThreaded` concurrency mode, a call with the same token as an
    * invocation already in progress waits for that invocation and returns its
    * result without running the agent again. The token is ignored in
-   * `unsafeReentrant` mode and is forgotten once the invocation settles.
+   * `unsafeConcurrent` mode and is forgotten once the invocation settles.
    */
   idempotencyToken?: string
 

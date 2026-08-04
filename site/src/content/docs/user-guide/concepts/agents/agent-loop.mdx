@@ -343,7 +343,7 @@ Sometimes more than one request targets the same agent instance at once: a retri
   Advanced callers that provide their own synchronization can disable the guard:
 
   ```typescript
-  const agent = new Agent({ concurrentInvocationMode: 'unsafeReentrant' })
+  const agent = new Agent({ concurrentInvocationMode: 'unsafeConcurrent' })
   ```
 
   This mode allows overlapping calls and ignores idempotency tokens. It does not protect conversation history or other shared agent state from interleaved mutation; using a separate agent per independent task is safer.

@@ -926,11 +926,11 @@ describe('Agent', () => {
       await expect(agent.invoke('Later', { idempotencyToken: 'request-123' })).resolves.toBeDefined()
     })
 
-    it('allows overlapping invocations in unsafeReentrant mode and ignores idempotency tokens', async () => {
+    it('allows overlapping invocations in unsafeConcurrent mode and ignores idempotency tokens', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'textBlock', text: 'First response' })
         .addTurn({ type: 'textBlock', text: 'Second response' })
-      const agent = new Agent({ model, concurrentInvocationMode: 'unsafeReentrant' })
+      const agent = new Agent({ model, concurrentInvocationMode: 'unsafeConcurrent' })
 
       const first = agent.invoke('First', { idempotencyToken: 'shared-token' })
       const second = agent.invoke('Second', { idempotencyToken: 'shared-token' })
