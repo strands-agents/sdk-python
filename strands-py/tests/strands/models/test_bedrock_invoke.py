@@ -272,6 +272,28 @@ async def test_stream_non_streaming_anthropic(bedrock_client):
     assert _texts(events) == "ack"
 
 
+@pytest.mark.asyncio
+async def test_stream_non_streaming_openai_text_and_tool(bedrock_client):
+    body = unittest.mock.Mock()
+    body.read.return_value = json.dumps({
+        "choices": [{
+            "message": {
+                "content": "hi there",
+                "tool_calls": [{"id": "call_1", "function": {"name": "fn", "arguments": '{"x":1}'}}],
+            },
+            "finish_reason": "tool_calls",
+        }],
+        "usage": {"prompt_tokens": 6, "completion_tokens": 2, "total_tokens": 8},
+    }).encode("utf-8")
+    bedrock_client.invoke_model.return_value = {"body": body}
+
+    m = BedrockInvokeModel(model_id="meta.llama3-1-8b-instruct-v1:0", streaming=False)
+    events = await _collect(m, [{"role": "user", "content": [{"text": "hi"}]}])
+    assert _texts(events) == "hi there"
+    assert _tool_inputs(events) == '{"x":1}'
+    assert _stop_reason(events) == "tool_use"
+
+
 # ---- errors
 
 
@@ -293,6 +315,17 @@ async def test_stream_context_window_overflow(bedrock_client):
     )
     with pytest.raises(ContextWindowOverflowException):
         await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
+
+
+@pytest.mark.asyncio
+async def test_stream_access_denied_adds_note(bedrock_client):
+    bedrock_client.invoke_model_with_response_stream.side_effect = ClientError(
+        {"Error": {"Code": "AccessDeniedException", "Message": "You don't have access to the model"}},
+        "InvokeModelWithResponseStream",
+    )
+    with pytest.raises(ClientError) as err:
+        await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
+    assert any("model-access-issue" in note for note in getattr(err.value, "__notes__", []))
 
 
 # ---- structured output
