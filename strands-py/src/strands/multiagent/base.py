@@ -67,10 +67,13 @@ class NodeResult:
         - AgentResult: Uses AgentResult.__str__ (extracts text content)
         - MultiAgentResult: Uses MultiAgentResult.__str__ (recursive)
         - Exception: Uses the exception's string representation
+        - None (skipped node): Empty string, so callers that join node output omit it
 
         Returns:
             String representation of the node's result.
         """
+        if self.result is None:
+            return ""
         return str(self.result)
 
     def get_agent_results(self) -> list[AgentResult]:
