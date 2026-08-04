@@ -218,8 +218,8 @@ async function classifierCustomExample() {
     tools: [deleteFiles],
     interventions: [
       new HumanInTheLoop({
-        classifier: async (event) => ({
-          requiresApproval: event.toolUse.name.startsWith('delete'),
+        classifier: (event) => ({
+          requiresHumanInTheLoop: event.toolUse.name.startsWith('delete'),
           reason: 'destructive tool',
         }),
       }),

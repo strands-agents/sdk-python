@@ -1,7 +1,7 @@
 from strands import Agent, tool
 from strands.vended_interventions.hitl import (
-    ClassifierConfig,
     HumanInTheLoop,
+    LLMClassifierConfig,
 )
 
 
@@ -195,7 +195,7 @@ def classifier_custom_example():
         tools=[delete_files],
         interventions=[
             HumanInTheLoop(
-                classifier=ClassifierConfig(
+                classifier=LLMClassifierConfig(
                     system_prompt="Only flag destructive operations.",
                 ),
             ),
@@ -210,7 +210,7 @@ def classifier_custom_example():
 
         is_dangerous = event.tool_use["name"].startswith("delete")
         return ClassifierResult(
-            requires_approval=is_dangerous,
+            requires_human_in_the_loop=is_dangerous,
             reason="destructive tool" if is_dangerous else None,
         )
 

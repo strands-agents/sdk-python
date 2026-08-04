@@ -146,7 +146,7 @@ provide your own classification function:
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | <Syntax py="allowed_tools" ts="allowedTools" /> | <Syntax py="list[str]" ts="string[]" /> | <Syntax py="None" ts="undefined" /> | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
-| `classifier` | <Syntax py="bool, ClassifierConfig, or callable" ts="true, ClassifierConfig, or function" /> | <Syntax py="None" ts="undefined" /> | LLM risk classifier. `True` for built-in defaults, config object for custom prompt/model, or a custom function. |
+| `classifier` | <Syntax py="bool, LLMClassifierConfig, or callable" ts="boolean, LlmClassifierConfig, or function" /> | <Syntax py="None" ts="undefined" /> | LLM risk classifier. `True` for built-in defaults, config object for custom prompt/model, or a custom function. |
 | <Syntax py="enable_trust" ts="enableTrust" /> | <Syntax py="bool" ts="boolean" /> | <Syntax py="False" ts="false" /> | When enabled, trust responses are remembered for the session. |
 | <Syntax py="evaluate_trust" ts="evaluateTrust" /> | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
 | `evaluate` | Function | Accepts <Syntax py='True, "y", or "yes"' ts="true, 'y', or 'yes'" /> | Custom validator for approval responses. |
