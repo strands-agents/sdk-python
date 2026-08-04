@@ -5,7 +5,7 @@
  * document-wide, so these stay in sync with the filter bar's language/SDK
  * segments and the left rail's type/badge chips.
  */
-import { LANG_ICONS } from './icons'
+import CatalogSegments from './CatalogSegments.astro'
 import { TYPE_ICONS, VERIFIED_ICON, type FacetOption } from './types'
 
 interface Props {
@@ -17,40 +17,10 @@ interface Props {
 }
 
 const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
-
-const LANGUAGES = [
-  { value: 'python', label: 'Python' },
-  { value: 'typescript', label: 'TypeScript' },
-] as const
 ---
 
 <div class="cat-facet-row">
-  {
-    showSdkFacet && (
-      <div class="cat-seg" role="radiogroup" aria-label="SDK">
-        <button class="cat-seg-btn" type="button" role="radio" aria-checked="true" data-cat-sdk="agents">
-          Agents
-        </button>
-        <button class="cat-seg-btn" type="button" role="radio" aria-checked="false" data-cat-sdk="evals">
-          Evals
-        </button>
-      </div>
-    )
-  }
-  <div class="cat-seg" role="group" aria-label="Language">
-    {
-      LANGUAGES.map((l) => (
-        <button class="cat-seg-btn" type="button" data-cat-lang={l.value} aria-pressed="false">
-          <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
-            {LANG_ICONS[l.value].map((p) => (
-              <path fill="currentColor" d={p} />
-            ))}
-          </svg>
-          {l.label}
-        </button>
-      ))
-    }
-  </div>
+  <CatalogSegments showSdkFacet={showSdkFacet} />
   {
     hasFeatured && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="featured" aria-pressed="false">
