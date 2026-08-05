@@ -1,6 +1,8 @@
 """Tests for ``BedrockInvokeModel``."""
 
+import asyncio
 import json
+import time
 import unittest.mock
 
 import pydantic
@@ -10,6 +12,7 @@ from botocore.exceptions import ClientError
 import strands
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.models.bedrock_invoke import BedrockInvokeModel
+from strands.models.model import Model
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 CLAUDE_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
@@ -92,6 +95,55 @@ def test_update_config():
     cfg = m.get_config()
     assert cfg["temperature"] == 0.7
     assert cfg["max_tokens"] == 128
+
+
+def test_get_config_resolves_context_window_limit_for_known_model():
+    """A known model id resolves its context window limit so ConversationManager can compress proactively."""
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+    assert m.get_config()["context_window_limit"] == 200_000
+    assert m.context_window_limit == 200_000
+
+
+def test_get_config_keeps_explicit_context_window_limit():
+    m = BedrockInvokeModel(model_id=CLAUDE_ID, context_window_limit=42)
+    assert m.get_config()["context_window_limit"] == 42
+    assert m.context_window_limit == 42
+
+
+def test_get_config_context_window_limit_none_for_unknown_model():
+    m = BedrockInvokeModel(model_id="arn:aws:bedrock:us-east-1:123:imported-model/abc")
+    assert m.get_config().get("context_window_limit") is None
+    assert m.context_window_limit is None
+
+
+# ---- token counting
+
+
+@pytest.mark.asyncio
+async def test_count_tokens_uses_heuristic(bedrock_client):
+    """Native CountTokens is Converse-shaped, so this provider always estimates locally."""
+    messages = [{"role": "user", "content": [{"text": "count these tokens please"}]}]
+
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+    tru_count = await m.count_tokens(messages)
+    exp_count = await Model.count_tokens(m, messages)
+
+    assert tru_count == exp_count
+    bedrock_client.count_tokens.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_count_tokens_ignores_use_native_token_count(bedrock_client):
+    messages = [{"role": "user", "content": [{"text": "count these tokens please"}]}]
+
+    m = BedrockInvokeModel(model_id=CLAUDE_ID)
+    m.config["use_native_token_count"] = True  # type: ignore[typeddict-unknown-key]
+
+    tru_count = await m.count_tokens(messages)
+    exp_count = await Model.count_tokens(m, messages)
+
+    assert tru_count == exp_count
+    bedrock_client.count_tokens.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -325,7 +377,59 @@ async def test_stream_access_denied_adds_note(bedrock_client):
     )
     with pytest.raises(ClientError) as err:
         await _collect(BedrockInvokeModel(model_id=CLAUDE_ID), [{"role": "user", "content": [{"text": "x"}]}])
-    assert any("model-access-issue" in note for note in getattr(err.value, "__notes__", []))
+    notes = getattr(err.value, "__notes__", [])
+    assert any("required-iam-permissions" in note for note in notes)
+    assert any(f"Model id: {CLAUDE_ID}" in note for note in notes)
+
+
+# ---- cancellation
+
+
+def _slow_then_raise(bedrock_client):
+    """Make the streaming InvokeModel call block, then fail, mimicking a hung boto3 call."""
+
+    def slow_invoke(**kwargs):
+        time.sleep(0.1)
+        raise RuntimeError("simulated boto3 timeout")
+
+    bedrock_client.invoke_model_with_response_stream.side_effect = slow_invoke
+
+
+@pytest.mark.asyncio
+async def test_stream_cancellation_consumes_orphaned_task_exception(bedrock_client):
+    """Orphaned background task exception is consumed when stream generator is cancelled."""
+    _slow_then_raise(bedrock_client)
+
+    loop = asyncio.get_running_loop()
+    captured: list[dict] = []
+    loop.set_exception_handler(lambda _loop, ctx: captured.append(ctx))
+
+    gen = BedrockInvokeModel(model_id=CLAUDE_ID).stream([{"role": "user", "content": [{"text": "x"}]}])
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(gen.__anext__(), timeout=0.01)
+
+    await gen.aclose()
+
+    # Allow the background thread to finish and the done-callback to fire
+    await asyncio.sleep(0.2)
+
+    assert not captured, f"orphaned task exception was not consumed: {captured}"
+
+
+@pytest.mark.asyncio
+async def test_stream_cancellation_does_not_block_on_background_call(bedrock_client):
+    """Cancelling the generator returns promptly instead of waiting for the blocking boto3 call."""
+    _slow_then_raise(bedrock_client)
+
+    gen = BedrockInvokeModel(model_id=CLAUDE_ID).stream([{"role": "user", "content": [{"text": "x"}]}])
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(gen.__anext__(), timeout=0.01)
+
+    # The background thread still sleeps for ~0.1s; closing must not wait for it.
+    await asyncio.wait_for(gen.aclose(), timeout=0.05)
+
+    # Consume the orphaned task's exception so it doesn't leak into other tests.
+    await asyncio.sleep(0.2)
 
 
 # ---- structured output
