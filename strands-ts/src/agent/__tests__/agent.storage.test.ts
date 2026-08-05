@@ -90,9 +90,7 @@ describe('Agent storage', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const sessionManager = new SessionManager({ sessionId: 'test-session' })
       const agent = new Agent({ model, sessionManager })
-      await expect(agent.invoke('hi')).rejects.toThrow(
-        'SessionManager requires a storage backend'
-      )
+      await expect(agent.invoke('hi')).rejects.toThrow('SessionManager requires a storage backend')
     })
   })
 
