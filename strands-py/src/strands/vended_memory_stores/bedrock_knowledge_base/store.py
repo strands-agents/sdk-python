@@ -128,9 +128,8 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
         # Region hint for any default boto3 client the store constructs. Only an explicit
         # ``region_name`` config is threaded through; when absent, ``None`` is passed so boto3
-        # resolves the region itself rather than the store silently picking one — a wrong
-        # default would misroute region-scoped knowledge bases. Injected clients are used
-        # verbatim and bypass this.
+        # resolves the region itself rather than the store silently picking one.
+        # Injected clients bypass this and use their own region setup.
         self._region = kb_config.get("region_name")
 
         # The runtime client is built eagerly: search is the read path every store exercises. A
