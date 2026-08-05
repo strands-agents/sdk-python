@@ -235,8 +235,8 @@ class SwarmResult(MultiAgentResult):
 
 
 @dataclass
-class _TurnCheckpoint:
-    """The handoff state a node inherited, plus whether its turn committed.
+class _InflightTurn:
+    """A node turn in progress: the handoff state it inherited, and whether it committed.
 
     A checkpoint fires before the execution loop applies a handoff transition, so EXECUTING with a pending
     handoff is ambiguous on its own: the node may have committed that handoff or merely inherited it.
@@ -245,7 +245,8 @@ class _TurnCheckpoint:
         handoff_node: Handoff target as it stood before the node ran.
         handoff_message: Handoff message as it stood before the node ran.
         shared_context: Shared context as it stood before the node ran.
-        outcome: "open" until the turn either commits or is rolled back.
+        outcome: Set by the execution loop where the turn's fate is known. A rolled-back turn stays
+            recorded, so the next checkpoint still knows the node owes work.
     """
 
     handoff_node: SwarmNode | None
@@ -331,7 +332,7 @@ class Swarm(MultiAgentBase):
 
         self._resume_from_session = False
 
-        self._turn: _TurnCheckpoint | None = None
+        self._turn: _InflightTurn | None = None
 
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
@@ -826,7 +827,7 @@ class Swarm(MultiAgentBase):
                         self.state.completion_status = Status.FAILED
                         break
 
-                    self._turn = _TurnCheckpoint(
+                    self._turn = _InflightTurn(
                         self.state.handoff_node,
                         self.state.handoff_message,
                         copy.deepcopy(self.shared_context.context),

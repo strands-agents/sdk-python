@@ -12,7 +12,7 @@ from strands.hooks import AfterMultiAgentInvocationEvent, AfterNodeCallEvent, Be
 from strands.hooks.registry import HookRegistry
 from strands.interrupt import Interrupt, _InterruptState
 from strands.multiagent.base import Status
-from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState, _TurnCheckpoint
+from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState, _InflightTurn
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
 from strands.types._events import MultiAgentNodeStartEvent
@@ -2034,7 +2034,7 @@ def test_swarm_serialize_omits_handoff_the_resume_frontier_carries():
     )
     swarm.state.handoff_node = swarm.nodes["second"]
     swarm.state.handoff_message = "message for second"
-    swarm._turn = _TurnCheckpoint(None, None, {}, outcome="committed")
+    swarm._turn = _InflightTurn(None, None, {}, outcome="committed")
 
     snapshot = swarm.serialize_state()
 
