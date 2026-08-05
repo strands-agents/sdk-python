@@ -246,11 +246,38 @@ Always call `agent.stop()` **after** exiting the `run()` or `receive()` loop, ne
 Just like standard Strands agents, bidirectional agents can use tools during conversations:
 
 ```python
+import ast
 import asyncio
+import operator
 from strands import tool
 from strands.experimental.bidi import BidiAgent, BidiAudioIO
 from strands.experimental.bidi.models import BidiNovaSonicModel
-from strands_tools import calculator, current_time
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
+            base, exp = ev(n.left), ev(n.right)
+            if abs(exp) > 64:  # unbounded pow hangs uninterruptibly
+                raise ValueError(f"exponent too large: {exp}")
+            return base**exp
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"not arithmetic (+ - * / ** and parens only): {expression!r}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Define a custom tool
 @tool
@@ -271,7 +298,7 @@ def get_weather(location: str) -> str:
 model = BidiNovaSonicModel()
 agent = BidiAgent(
     model=model,
-    tools=[calculator, current_time, get_weather],
+    tools=[calculator, get_weather],
     system_prompt="You are a helpful assistant with access to tools."
 )
 
