@@ -16,22 +16,31 @@ import {
   FRONTMATTER_DESCRIPTION_PATTERN,
   FRONTMATTER_OPEN,
   isConsolidationChangelog,
-  pathsResolveSame,
-  resolveCanonicalKey,
-  resolveWriteTarget,
 } from '../internal.js'
+
+/**
+ * Actions each operation is permitted to emit. `deriveInsights` includes `update` because it may
+ * rewrite merged content as an update to an existing file.
+ */
+const OPERATION_ACTIONS: Record<ConsolidateOperation, string[]> = {
+  deduplicate: ['merge'],
+  deriveInsights: ['merge', 'update'],
+  resolveContradictions: ['update', 'delete'],
+  prune: ['delete'],
+  reorganize: ['move'],
+}
 
 /**
  * Validate a plan against the guardrails before any storage mutation.
  *
- * Guards five properties: every action is permitted by the requested operations, every path is
- * well-formed and references files that exist, every write carries well-formed content, every write
- * target resolves to exactly one stored key, and no two actions collide on a write target.
+ * Guards four properties: every action is permitted by the requested operations, every path is
+ * well-formed and references files that exist, every write carries well-formed content, and no two
+ * actions collide on a write target.
  *
  * All violations are accumulated so the rejection names every offending action at once rather than
  * surfacing them one at a time.
  *
- * @returns A newline-joined string of all violations when the plan is invalid, or `undefined` when it passes
+ * @returns An array of every violation found; empty when the plan passes
  *
  * @internal
  */
@@ -40,20 +49,10 @@ export function validatePlan(
   files: Map<string, string>,
   operations: ConsolidateOperation[],
   maxDirectories: number
-): string | undefined {
+): string[] {
   const violations: string[] = []
 
-  const allowedActions = new Set<string>()
-  if (operations.includes('deduplicate') || operations.includes('deriveInsights')) allowedActions.add('merge')
-  if (operations.includes('resolveContradictions')) {
-    allowedActions.add('update')
-    allowedActions.add('delete')
-  }
-  if (operations.includes('prune')) allowedActions.add('delete')
-  if (operations.includes('reorganize')) allowedActions.add('move')
-  // 'update' is only allowed when resolveContradictions or deriveInsights is active —
-  // deriveInsights may rewrite merged content as an update to an existing file
-  if (operations.includes('deriveInsights')) allowedActions.add('update')
+  const allowedActions = new Set(operations.flatMap((operation) => OPERATION_ACTIONS[operation]))
 
   // Seed with the directories already on disk, then let validateActionPaths add any new directory a
   // write introduces — so the maxDirectories budget is enforced against the plan's cumulative effect,
@@ -69,19 +68,17 @@ export function validatePlan(
       violations.push(`Action '${action.action}' is not allowed for operations: ${operations.join(', ')}`)
     }
 
-    // Counting distinct sources catches both a too-short list and a padded one — duplicate or
-    // case-variant sources would otherwise launder an in-place overwrite past the operations
-    // allow-list. Kept out of the schema so it flows through the accumulate-violations path.
+    // Count distinct sources: duplicate sources would otherwise launder an in-place overwrite past
+    // the operations allow-list.
     if (action.action === 'merge') {
-      const distinctSources = new Set(action.sources.map((source) => source.toLowerCase()))
+      const distinctSources = new Set(action.sources)
       if (distinctSources.size < 2) {
-        violations.push('Merge action requires at least 2 distinct source paths (case-insensitive)')
+        violations.push('Merge action requires at least 2 distinct source paths')
       }
     }
 
-    // Append without spreading: an action carries one violation per source path, so a plan with a
-    // huge sources array would blow the argument limit and crash with RangeError instead of being
-    // rejected with the message it was about to produce
+    // Append without spreading: a huge sources array would blow the argument limit and crash
+    // with RangeError instead of being rejected.
     const pathErrors = validateActionPaths(action, files, plannedDirs, maxDirectories)
     for (const pathError of pathErrors) violations.push(pathError)
 
@@ -89,15 +86,11 @@ export function validatePlan(
     if (contentError) violations.push(contentError)
   }
 
-  // Reject write targets that resolve to more than one stored key
-  const ambiguityErrors = validateTargetsUnambiguous(plan, files)
-  for (const ambiguityError of ambiguityErrors) violations.push(ambiguityError)
-
   // Reject plans where multiple actions write to the same target path
   const collisionErrors = validateNoTargetCollisions(plan, files)
   for (const collisionError of collisionErrors) violations.push(collisionError)
 
-  return violations.length > 0 ? violations.join('\n') : undefined
+  return violations
 }
 
 /**
@@ -117,22 +110,22 @@ function validateActionPaths(
   switch (action.action) {
     case 'merge': {
       for (const source of action.sources) {
-        if (!resolveCanonicalKey(files, source)) errors.push(`Merge source '${source}' does not exist`)
+        if (!files.has(source)) errors.push(`Merge source '${source}' does not exist`)
       }
       const pathError = validatePath(action.target, existingDirs, maxDirectories)
       if (pathError) errors.push(pathError)
       return errors
     }
     case 'update': {
-      if (!resolveCanonicalKey(files, action.path)) errors.push(`Update target '${action.path}' does not exist`)
+      if (!files.has(action.path)) errors.push(`Update target '${action.path}' does not exist`)
       return errors
     }
     case 'delete': {
-      if (!resolveCanonicalKey(files, action.path)) errors.push(`Delete target '${action.path}' does not exist`)
+      if (!files.has(action.path)) errors.push(`Delete target '${action.path}' does not exist`)
       return errors
     }
     case 'move': {
-      if (!resolveCanonicalKey(files, action.from)) errors.push(`Move source '${action.from}' does not exist`)
+      if (!files.has(action.from)) errors.push(`Move source '${action.from}' does not exist`)
       const pathError = validatePath(action.to, existingDirs, maxDirectories)
       if (pathError) errors.push(pathError)
       return errors
@@ -143,13 +136,10 @@ function validateActionPaths(
 /**
  * Validate the content a write action (merge or update) would put on disk.
  *
- * A schema-valid plan can still carry content that erases knowledge: the schema accepts any string,
- * so an empty or structurally broken value would be written verbatim — and for a merge, its sources
- * deleted afterwards. This requires the frontmatter shape {@link FileMemoryStore.add} produces
- * (`---\n`, YAML, `\n---\n`) plus a non-empty body, so a written file stays parseable by
- * {@link parseFrontmatter} and searchable.
- *
- * Non-write actions carry no content and are skipped, so delete, move, and prune stay unaffected.
+ * The schema accepts any string, so an empty or structurally broken value would be written verbatim
+ * (and for a merge, its sources deleted afterwards). This requires the frontmatter shape
+ * {@link FileMemoryStore.add} produces plus a non-empty body, so the file stays parseable and
+ * searchable. Non-write actions carry no content and are skipped.
  *
  * @returns A human-readable error string when the content is invalid, or `undefined` when it passes
  */
@@ -164,15 +154,11 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
   if (!action.content.startsWith(FRONTMATTER_OPEN)) {
     return `${label} must start with YAML frontmatter ('---' on the first line)`
   }
-  // Search from FRONTMATTER_OPEN.length (not length-1) so the close delimiter cannot overlap the
-  // open — '---\n---\n' would otherwise match by reusing the opening newline as the close's prefix
+  // Offset past the open so the close cannot overlap it ('---\n---\n' reusing the opening newline)
   const closingIndex = action.content.indexOf(FRONTMATTER_CLOSE, FRONTMATTER_OPEN.length)
   if (closingIndex === -1) {
     return `${label} is missing the closing frontmatter delimiter ('---' on its own line)`
   }
-  // Require the description in the form parseFrontmatter reads — empty frontmatter, unrelated fields,
-  // and an unquoted value all parse to an empty description, dropping a field add() always writes and
-  // search() ranks against
   const frontmatterRegion = action.content.slice(FRONTMATTER_OPEN.length, closingIndex + 1)
   if (!FRONTMATTER_DESCRIPTION_PATTERN.test(frontmatterRegion)) {
     return `${label} frontmatter needs a quoted description field (description: "a short summary")`
@@ -182,31 +168,6 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
   }
 
   return undefined
-}
-
-/**
- * Reject write targets that resolve to more than one stored key — two keys differing only by case, as
- * a case-sensitive backend can hold.
- *
- * No spelling of such a target is more defensible than another, and writing the model's own would mint
- * a third copy the delete pass leaves behind. {@link resolveWriteTarget} raises that as a throw because
- * the executor calls it for its return value; here the message is collected as a violation so the
- * rejection names every ambiguous target at once alongside the plan's other problems.
- *
- * @returns An array of human-readable error strings for every ambiguous target (empty when all resolve)
- */
-function validateTargetsUnambiguous(plan: ConsolidationPlan, files: Map<string, string>): string[] {
-  const errors: string[] = []
-  for (const action of plan.actions) {
-    const target = writeTargetOf(action)
-    if (target === undefined) continue
-    try {
-      resolveWriteTarget(files, target)
-    } catch (error) {
-      errors.push(String(error instanceof Error ? error.message : error))
-    }
-  }
-  return errors
 }
 
 /**
@@ -254,45 +215,37 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
     if (writeTarget !== undefined) writeTargets.push(writeTarget)
 
     if (action.action === 'merge') {
-      // Non-target merge sources are deleted during execution (case-normalized —
-      // a source that resolves to the same identity as the target is not vacated)
+      // Non-target merge sources are deleted during execution — a source equal to the target is not vacated
       for (const source of action.sources) {
-        if (!pathsResolveSame(source, action.target)) {
+        if (source !== action.target) {
           vacatedPaths.add(source)
         }
       }
     } else if (action.action === 'move') {
-      // A case-only rename (different string but same normalized identity) does not delete the
-      // source in execution — skip vacating to keep validation consistent with the executor.
-      // An exact-string identity move (from === to) still vacates, triggering the write-vs-vacate
-      // guard that rejects it as a no-op that would destroy content.
-      if (action.from === action.to || !pathsResolveSame(action.from, action.to)) {
-        vacatedPaths.add(action.from)
-      }
+      // A no-op rename (from === to) still vacates, triggering the write-vs-vacate guard that rejects
+      // it as a move that would destroy content
+      vacatedPaths.add(action.from)
     } else if (action.action === 'delete') {
       vacatedPaths.add(action.path)
     }
   }
 
-  // Check for two actions writing the same path (case-insensitive — divergent casing resolves
-  // to the same file on case-insensitive backends)
+  // Check for two actions writing the same path
   const seen = new Set<string>()
   for (const target of writeTargets) {
-    const normalized = target.toLowerCase()
-    if (seen.has(normalized)) {
+    if (seen.has(target)) {
       errors.push(`Multiple actions write to the same path '${target}'`)
     }
-    seen.add(normalized)
+    seen.add(target)
   }
 
   // A path both written and vacated in one plan is destroyed: writes run before deletes, so the
   // delete pass removes the content the write pass just produced. This single rule covers write +
   // delete on one path, an identity move (from === to), chained moves (one move's target is another
   // move's source), an update whose target is later moved away, and a move onto a since-deleted file.
-  // Case-normalized so case-only aliases are caught on case-insensitive backends.
-  const writeSetNormalized = new Set(writeTargets.map((t) => t.toLowerCase()))
+  const writeSet = new Set(writeTargets)
   for (const path of vacatedPaths) {
-    if (writeSetNormalized.has(path.toLowerCase())) {
+    if (writeSet.has(path)) {
       errors.push(
         `Path '${path}' is both written to and removed by the same plan (one action writes it, another deletes or moves it away), which would destroy its content`
       )
@@ -301,13 +254,9 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
 
   // Check for a write landing on a pre-existing file the plan does not vacate (vacated-and-written
   // targets are already rejected above). A self-overwrite — an update, or a merge into one of its
-  // own sources — is the one legitimate case. Case-normalized to catch aliases on case-insensitive
-  // backends.
-  const vacatedNormalized = new Set([...vacatedPaths].map((p) => p.toLowerCase()))
+  // own sources — is the one legitimate case.
   for (const target of writeTargets) {
-    const existsInFiles = [...files.keys()].some((key) => pathsResolveSame(key, target))
-    const isVacated = vacatedNormalized.has(target.toLowerCase())
-    if (existsInFiles && !isVacated && !planOverwritesSelf(plan, target)) {
+    if (files.has(target) && !vacatedPaths.has(target) && !planOverwritesSelf(plan, target)) {
       errors.push(`Target path '${target}' already exists and is not vacated by another action in the plan`)
     }
   }
@@ -326,19 +275,14 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
  */
 function planOverwritesSelf(plan: ConsolidationPlan, target: string): boolean {
   for (const action of plan.actions) {
-    if (
-      action.action === 'merge' &&
-      pathsResolveSame(action.target, target) &&
-      action.sources.some((s) => pathsResolveSame(s, target))
-    ) {
+    if (action.action === 'merge' && action.target === target && action.sources.includes(target)) {
       return true
     }
-    if (action.action === 'update' && pathsResolveSame(action.path, target)) {
+    if (action.action === 'update' && action.path === target) {
       return true
     }
-    // A case-only move (from and to resolve to same identity) is an in-place rename — writing
-    // the target is overwriting the source's own file, which is intentional
-    if (action.action === 'move' && pathsResolveSame(action.to, target) && pathsResolveSame(action.from, target)) {
+    // A no-op move (from === to === target) writes the target onto the source's own file, which is intentional
+    if (action.action === 'move' && action.to === target && action.from === target) {
       return true
     }
   }

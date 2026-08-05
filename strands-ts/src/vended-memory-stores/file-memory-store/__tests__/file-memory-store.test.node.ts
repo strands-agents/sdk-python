@@ -181,6 +181,13 @@ describe('FileMemoryStore', () => {
       expect(decoder.decode(bytes!)).toContain('Check CloudWatch logs first')
     })
 
+    it('lowercases a custom path so keys hold at most one spelling per case-fold', async () => {
+      const key = await store.add('Roadmap notes', { path: 'Projects/Roadmap.md', description: 'Roadmap' })
+      expect(key).toBe('projects/roadmap.md')
+      expect(await scoped.read('projects/roadmap.md')).not.toBeNull()
+      expect(await scoped.read('Projects/Roadmap.md')).toBeNull()
+    })
+
     it('appends .md extension to custom path if missing', async () => {
       await store.add('Deploy steps', { path: 'operations/deploy', description: 'Deploy process' })
       const bytes = await scoped.read('operations/deploy.md')

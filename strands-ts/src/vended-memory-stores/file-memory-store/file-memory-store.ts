@@ -177,13 +177,14 @@ export class FileMemoryStore implements MemoryStore {
    * Add a knowledge entry to the store.
    *
    * Writes a markdown file with YAML frontmatter. By default writes to `facts/` within the store's
-   * namespace. Pass `metadata.path` to write to a custom location within the namespace.
+   * namespace. Pass `metadata.path` to write to a custom location within the namespace; the key is
+   * lowercased, so `Projects/Roadmap.md` and `projects/roadmap.md` address the same file.
    *
    * @param content - The knowledge content to store
    * @param metadata - Optional metadata: `title`, `description`, and `path` (custom target path)
-   * @returns The canonical storage-relative key the entry was written under, normalized to
-   *   match what {@link search} and the backend's `list` report (slash runs collapsed, leading
-   *   and trailing slashes stripped)
+   * @returns The canonical storage-relative key the entry was written under, normalized to match
+   *   what {@link search} and the backend's `list` report (slash runs collapsed, leading and
+   *   trailing slashes stripped, lowercased)
    */
   async add(content: string, metadata?: Record<string, JSONValue>): Promise<string> {
     const customPath = metadata?.['path'] as string | undefined
@@ -199,8 +200,8 @@ export class FileMemoryStore implements MemoryStore {
       const slug = slugify(title) || `entry-${Date.now()}`
       key = `${FACTS_PREFIX}${slug}.md`
 
-      // Probe with read() so the backend resolves key identity — a case-insensitive filesystem
-      // treats Topic.md and topic.md as one file, which comparing list()'s spellings would miss.
+      // Probe with read() so the backend resolves key identity rather than comparing list()'s
+      // spellings, then suffix on a hit so a new slug never overwrites a stored entry.
       // Best-effort: two concurrent adds can settle on the same key, as Storage has no create-if-absent.
       let suffix = 1
       while (await this._storage.read(key)) {
@@ -209,9 +210,9 @@ export class FileMemoryStore implements MemoryStore {
       }
     }
 
-    // Canonicalize with the same helper the shipped backends apply internally, so the
-    // returned receipt matches the key search() and the backend's list() report.
-    const canonicalKey = normalizeKey(key)
+    // Canonicalize with the same helper the shipped backends apply internally, then lowercase so
+    // the store holds at most one spelling per case-fold.
+    const canonicalKey = normalizeKey(key).toLowerCase()
 
     // Reject single-dot path segments that normalizeKey does not strip. The OS collapses './' so
     // a key like './consolidation-changelog.md' would alias the reserved changelog on disk despite
@@ -267,6 +268,22 @@ export class FileMemoryStore implements MemoryStore {
    * ```
    */
   async consolidate(config: ConsolidateConfig): Promise<void> {
+    const maxFiles = config.maxFiles ?? 100
+    const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
+    const maxDirectories = config.maxDirectories ?? 8
+
+    // Validate synchronously, before any guard or I/O, so a malformed config fails at the call site.
+    // A NaN or non-positive cap would silently disable the guardrail it configures — NaN fails every
+    // comparison, so `files.size > NaN` is false and the gate never fires
+    const assertPositiveFinite = (name: string, value: number): void => {
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new TypeError(`${name} must be a positive finite number, got ${value}`)
+      }
+    }
+    assertPositiveFinite('maxFiles', maxFiles)
+    assertPositiveFinite('maxActionsPerPlan', maxActionsPerPlan)
+    assertPositiveFinite('maxDirectories', maxDirectories)
+
     if (!this.writable) {
       throw new ConsolidationError(
         'FileMemoryStore: consolidate requires a writable store (writable: false is searchable only, never written to)'
@@ -280,7 +297,7 @@ export class FileMemoryStore implements MemoryStore {
     }
     this._consolidating = true
     try {
-      await this._consolidate(config)
+      await this._consolidate(config, maxFiles, maxActionsPerPlan, maxDirectories)
     } finally {
       this._consolidating = false
     }
@@ -292,23 +309,13 @@ export class FileMemoryStore implements MemoryStore {
    *
    * @param config - Model and operation configuration
    */
-  private async _consolidate(config: ConsolidateConfig): Promise<void> {
+  private async _consolidate(
+    config: ConsolidateConfig,
+    maxFiles: number,
+    maxActionsPerPlan: number,
+    maxDirectories: number
+  ): Promise<void> {
     const operations = config.operations ?? [...CONSOLIDATE_OPERATIONS]
-    const maxDirectories = config.maxDirectories ?? 8
-
-    const maxFiles = config.maxFiles ?? 100
-    const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
-
-    // A NaN or non-positive cap would silently disable the guardrail it configures — NaN fails every
-    // comparison, so `files.size > NaN` is false and the gate never fires
-    const assertPositiveFinite = (name: string, value: number): void => {
-      if (!Number.isFinite(value) || value <= 0) {
-        throw new TypeError(`${name} must be a positive finite number, got ${value}`)
-      }
-    }
-    assertPositiveFinite('maxFiles', maxFiles)
-    assertPositiveFinite('maxActionsPerPlan', maxActionsPerPlan)
-    assertPositiveFinite('maxDirectories', maxDirectories)
 
     const files = await readAllFiles(this._storage)
     if (files.size === 0) return

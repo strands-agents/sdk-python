@@ -9,8 +9,6 @@
  * @internal
  */
 
-import { ConsolidationError } from '../../errors.js'
-
 /** @internal */
 export const encoder = new TextEncoder()
 
@@ -105,17 +103,6 @@ export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (i
 }
 
 /**
- * Case-normalized path identity comparison. Returns true when two paths would resolve to the same
- * file on a case-insensitive filesystem. This is a conservative approximation — backend-resolved
- * identity (probing the storage layer for true equivalence) is future work.
- *
- * @internal
- */
-export function pathsResolveSame(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase()
-}
-
-/**
  * Whether a path contains single-dot segments that the OS would collapse — e.g. `./foo.md` resolves
  * to `foo.md`. Shared between the public `add()` path (which uses it to prevent changelog aliasing
  * that `normalizeKey` does not strip) and consolidation's `validatePath` (which already rejects both
@@ -137,64 +124,5 @@ export function containsDotSegments(key: string): boolean {
  * @internal
  */
 export function isConsolidationChangelog(key: string): boolean {
-  return pathsResolveSame(key, CONSOLIDATION_CHANGELOG)
-}
-
-/**
- * Resolve a model-provided path to its canonical stored key using case-insensitive matching.
- *
- * Returns the stored key when exactly one key in `files` matches `path` via `pathsResolveSame`.
- * Returns `undefined` when zero or multiple keys match — zero means the path genuinely does not
- * exist, multiple means the backend is case-sensitive and stores ambiguous keys (safe to reject).
- * Callers that get `undefined` fall through to exact-case behavior, preserving the safe false-reject.
- *
- * @internal
- */
-export function resolveCanonicalKey(files: Map<string, string>, path: string): string | undefined {
-  // Fast path: exact match avoids scanning every key
-  if (files.has(path)) return path
-
-  const normalized = path.toLowerCase()
-  let found: string | undefined
-  for (const key of files.keys()) {
-    if (key.toLowerCase() === normalized) {
-      // Multiple matches — ambiguous resolution, bail out
-      if (found !== undefined) return undefined
-      found = key
-    }
-  }
-  return found
-}
-
-/**
- * Resolve the key a write action should land on, distinguishing the two reasons
- * {@link resolveCanonicalKey} returns `undefined`.
- *
- * Zero matches means the path is genuinely new, so the model's spelling is the right key. Two or more
- * means the backend is case-sensitive and already holds case-variant keys — no spelling is more
- * defensible, and writing the model's own mints a *third* file the delete pass will not clean up, so
- * this aborts instead. An exact match is exempt: that key *is* a stored file. The abort is recoverable
- * through consolidation itself, since a delete-only or move-out plan writes no ambiguous target.
- *
- * @returns The stored key when exactly one matches or `path` is itself a stored key, or `path`
- *   verbatim when none match
- * @throws ConsolidationError when two or more stored keys differ from `path` only by case and none is `path` itself
- *
- * @internal
- */
-export function resolveWriteTarget(files: Map<string, string>, path: string): string {
-  // Addresses a stored file directly, so writing it cannot mint a third spelling
-  if (files.has(path)) return path
-
-  const normalized = path.toLowerCase()
-  const matches = [...files.keys()].filter((key) => key.toLowerCase() === normalized)
-  if (matches.length > 1) {
-    throw new ConsolidationError(
-      `Consolidation aborted: write target '${path}' is ambiguous — the store holds ${matches.length} keys that ` +
-        `differ from it only by case (${matches.join(', ')}). Writing this spelling would create a third copy and ` +
-        `leave the duplicates in place. Resolve them first — a delete-only or move-out consolidation can do it — ` +
-        `then re-run.`
-    )
-  }
-  return matches[0] ?? path
+  return key.toLowerCase() === CONSOLIDATION_CHANGELOG
 }

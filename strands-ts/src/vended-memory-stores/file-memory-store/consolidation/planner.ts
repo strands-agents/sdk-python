@@ -70,10 +70,11 @@ export async function generatePlan(
   }
   const plan = extractPlan(result, maxActionsPerPlan)
 
-  const validationError = validatePlan(plan, files, operations, maxDirectories)
-  if (validationError) {
-    logger.warn(`validation_errors=<${validationError}>, plan=<${JSON.stringify(plan)}> | consolidation plan rejected`)
-    throw new ConsolidationError(`Consolidation plan validation failed: ${validationError}`)
+  const validationErrors = validatePlan(plan, files, operations, maxDirectories)
+  if (validationErrors.length > 0) {
+    const errorSummary = validationErrors.join('\n')
+    logger.warn(`validation_errors=<${errorSummary}>, plan=<${JSON.stringify(plan)}> | consolidation plan rejected`)
+    throw new ConsolidationError(`Consolidation plan validation failed: ${errorSummary}`)
   }
 
   return plan

@@ -20,9 +20,6 @@ import {
   encoder,
   isConsolidationChangelog,
   mapWithConcurrency,
-  pathsResolveSame,
-  resolveCanonicalKey,
-  resolveWriteTarget,
   STORAGE_READ_CONCURRENCY,
 } from '../internal.js'
 
@@ -85,39 +82,32 @@ export async function executePlan(
   plan: ConsolidationPlan,
   files: Map<string, string>
 ): Promise<DeleteFailure[]> {
-  // Writes before deletes — merged content lands before sources are removed
+  // Writes before deletes — merged content lands before sources are removed. Every path is already
+  // lowercased (stored keys by add(), plan paths by extractPlan), so a path is its own storage key.
   for (const action of plan.actions) {
     if (action.action === 'merge') {
-      // A new path resolves to itself; a differently-cased one folds into the stored file rather
-      // than duplicating it on case-sensitive backends
-      const canonicalTarget = resolveWriteTarget(files, action.target)
-      await storage.write(canonicalTarget, encoder.encode(action.content))
+      await storage.write(action.target, encoder.encode(action.content))
     } else if (action.action === 'update') {
-      const canonicalPath = resolveWriteTarget(files, action.path)
-      await storage.write(canonicalPath, encoder.encode(action.content))
+      await storage.write(action.path, encoder.encode(action.content))
     } else if (action.action === 'move') {
       // validatePlan guarantees every move source exists in `files`
-      const canonicalFrom = resolveCanonicalKey(files, action.from)
-      const content = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
+      const content = files.get(action.from)
       if (content === undefined) {
         throw new ConsolidationError(
           `Invariant violated: move source '${action.from}' missing from working set — plan not validated`
         )
       }
-      // A case-only rename rewrites in place rather than minting a key the delete pass skips
-      const canonicalTo = resolveWriteTarget(files, action.to)
-      await storage.write(canonicalTo, encoder.encode(content))
+      await storage.write(action.to, encoder.encode(content))
     }
   }
 
   // Best-effort deletes — attempt all, then report failures
   const deleteErrors: DeleteFailure[] = []
   for (const path of collectDeletePaths(plan)) {
-    const canonicalPath = resolveCanonicalKey(files, path) ?? path
     try {
-      await storage.delete(canonicalPath)
+      await storage.delete(path)
     } catch (error) {
-      deleteErrors.push({ path: canonicalPath, error })
+      deleteErrors.push({ path, error })
     }
   }
 
@@ -144,12 +134,12 @@ function collectDeletePaths(plan: ConsolidationPlan): string[] {
       case 'merge':
         for (const source of action.sources) {
           // Skip a source that is also the target — deleting it would remove the content just written
-          if (!pathsResolveSame(source, action.target)) pathsToDelete.push(source)
+          if (source !== action.target) pathsToDelete.push(source)
         }
         break
       case 'move':
-        // A case-only rename already rewrote the file in place — deleting would undo the write
-        if (!pathsResolveSame(action.from, action.to)) pathsToDelete.push(action.from)
+        // A no-op rename (from === to) already rewrote the file in place — deleting would undo the write
+        if (action.from !== action.to) pathsToDelete.push(action.from)
         break
     }
   }

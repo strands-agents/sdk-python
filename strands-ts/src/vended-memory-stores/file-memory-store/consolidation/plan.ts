@@ -89,5 +89,30 @@ export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPe
       `Consolidation plan exceeds action limit: ${plan.actions.length} actions (maxActionsPerPlan: ${maxActionsPerPlan})`
     )
   }
-  return plan
+  return lowercasePlanPaths(plan)
+}
+
+/**
+ * Lowercase every path a plan names so it matches the store's lowercased keys (see
+ * {@link FileMemoryStore.add}). With both sides lowercased, path identity is plain string equality —
+ * validation and execution never have to resolve casing.
+ */
+function lowercasePlanPaths(plan: ConsolidationPlan): ConsolidationPlan {
+  const actions = plan.actions.map((action) => {
+    switch (action.action) {
+      case 'merge':
+        return {
+          ...action,
+          sources: action.sources.map((source) => source.toLowerCase()),
+          target: action.target.toLowerCase(),
+        }
+      case 'update':
+        return { ...action, path: action.path.toLowerCase() }
+      case 'delete':
+        return { ...action, path: action.path.toLowerCase() }
+      case 'move':
+        return { ...action, from: action.from.toLowerCase(), to: action.to.toLowerCase() }
+    }
+  })
+  return { ...plan, actions }
 }
