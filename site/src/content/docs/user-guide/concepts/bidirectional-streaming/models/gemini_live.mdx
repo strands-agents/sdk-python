@@ -38,42 +38,13 @@ pip install 'strands-agents[bidi-all]'
 After installing `strands-agents[bidi-gemini]`, you can import and initialize the Strands Agents' Gemini Live provider as follows:
 
 ```python
-import ast
 import asyncio
-import operator
-
 from strands.experimental.bidi import BidiAgent
-from strands import tool
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands.experimental.bidi.models import BidiGeminiLiveModel
 from strands_tools import stop
 
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
-
-    Args:
-        expression: The arithmetic expression to evaluate.
-    """
-    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-           ast.Div: operator.truediv, ast.USub: operator.neg}
-
-    def ev(n):
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            return n.value
-        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
-            base, exp = ev(n.left), ev(n.right)
-            if abs(exp) > 64:  # unbounded pow hangs uninterruptibly
-                raise ValueError(f"exponent too large: {exp}")
-            return base**exp
-        if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.operand))
-        raise ValueError(f"not arithmetic (+ - * / ** and parens only): {expression!r}")
-
-    return str(ev(ast.parse(expression, mode="eval").body))
-
+--8<-- "_shared/calculator.py:calculator"
 async def main() -> None:
     model = BidiGeminiLiveModel(
         model_id="gemini-2.5-flash-native-audio-preview-09-2025",

@@ -21,39 +21,9 @@ The Strands Agents SDK automatically tracks key metrics during agent execution:
 All these metrics are accessible through the [`AgentResult`](@api/python/strands.agent.agent_result#AgentResult) object that's returned whenever you invoke an agent. They are available for local analysis. To export them to an observability backend, configure Strands telemetry as described in the [Traces](./traces.md) documentation:
 
 ```python
-import ast
-import operator
+from strands import Agent
 
-from strands import Agent, tool
-
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
-
-    Args:
-        expression: The arithmetic expression to evaluate.
-    """
-    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-           ast.Div: operator.truediv, ast.USub: operator.neg}
-
-    def ev(n):
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            return n.value
-        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
-            base, exp = ev(n.left), ev(n.right)
-            if abs(exp) > 64:
-                raise ValueError(f"exponent too large in {expression!r}: {exp}")
-            return base**exp
-        if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.operand))
-        raise ValueError(
-            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
-        )
-
-    return str(ev(ast.parse(expression, mode="eval").body))
-
+--8<-- "_shared/calculator.py:calculator"
 # Create an agent with tools
 agent = Agent(tools=[calculator])
 
@@ -119,39 +89,9 @@ The `agent_invocations` property is a list of [`AgentInvocation`](@api/python/st
 This allows you to track metrics at both the individual invocation level and across all invocations:
 
 ```python
-import ast
-import operator
+from strands import Agent
 
-from strands import Agent, tool
-
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
-
-    Args:
-        expression: The arithmetic expression to evaluate.
-    """
-    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-           ast.Div: operator.truediv, ast.USub: operator.neg}
-
-    def ev(n):
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            return n.value
-        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
-            base, exp = ev(n.left), ev(n.right)
-            if abs(exp) > 64:
-                raise ValueError(f"exponent too large in {expression!r}: {exp}")
-            return base**exp
-        if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.operand))
-        raise ValueError(
-            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
-        )
-
-    return str(ev(ast.parse(expression, mode="eval").body))
-
+--8<-- "_shared/calculator.py:calculator"
 agent = Agent(tools=[calculator])
 
 # First invocation
@@ -365,39 +305,9 @@ In addition to aggregate metrics, the Strands Agents SDK automatically collects 
 Each trace represents a cycle in the agent loop, with child traces for model invocations and tool calls:
 
 ```python
-import ast
-import operator
+from strands import Agent
 
-from strands import Agent, tool
-
-@tool
-def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
-
-    Args:
-        expression: The arithmetic expression to evaluate.
-    """
-    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-           ast.Div: operator.truediv, ast.USub: operator.neg}
-
-    def ev(n):
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            return n.value
-        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
-            base, exp = ev(n.left), ev(n.right)
-            if abs(exp) > 64:
-                raise ValueError(f"exponent too large in {expression!r}: {exp}")
-            return base**exp
-        if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.operand))
-        raise ValueError(
-            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
-        )
-
-    return str(ev(ast.parse(expression, mode="eval").body))
-
+--8<-- "_shared/calculator.py:calculator"
 agent = Agent(tools=[calculator])
 result = agent("What is 15 * 8 + 42?")
 

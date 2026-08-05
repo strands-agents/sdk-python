@@ -1,14 +1,17 @@
 
 import ast
-import asyncio
 import operator
 
-from strands import Agent, tool
+from strands import tool
 
-from strands_evals import Case, Experiment
-from strands_evals.evaluators import ToolSelectionAccuracyEvaluator
-from strands_evals.mappers import StrandsInMemorySessionMapper
-from strands_evals.telemetry import StrandsEvalsTelemetry
+_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.USub: operator.neg,
+}
+
 
 @tool
 def calculator(expression: str) -> str:
@@ -17,24 +20,20 @@ def calculator(expression: str) -> str:
     Args:
         expression: The arithmetic expression to evaluate.
     """
-    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
-           ast.Div: operator.truediv, ast.USub: operator.neg}
 
-    def ev(n):
-        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
-            return n.value
-        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
-            base, exp = ev(n.left), ev(n.right)
-            if abs(exp) > 64:
-                raise ValueError(f"exponent too large in {expression!r}: {exp}")
-            return base**exp
-        if isinstance(n, ast.BinOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.left), ev(n.right))
-        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
-            return ops[type(n.op)](ev(n.operand))
-        raise ValueError(
-            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
-        )
+    def ev(node: ast.AST) -> float:
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
+            base, exponent = ev(node.left), ev(node.right)
+            if abs(exponent) > 64:  # an unbounded pow hangs uninterruptibly
+                raise ValueError(f"exponent too large: {exponent}")
+            return base**exponent
+        if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
+            return _OPS[type(node.op)](ev(node.left), ev(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
+            return _OPS[type(node.op)](ev(node.operand))
+        raise ValueError(f"not arithmetic (+ - * / ** and parens only): {expression!r}")
 
     return str(ev(ast.parse(expression, mode="eval").body))
 
