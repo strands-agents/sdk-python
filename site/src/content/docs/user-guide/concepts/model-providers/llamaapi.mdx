@@ -32,7 +32,7 @@ After installing `llamaapi`, you can import and initialize Strands Agents' Llama
 from strands import Agent
 from strands.models.llamaapi import LlamaAPIModel
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 model = LlamaAPIModel(
     client_args={
         "api_key": "<KEY>",
@@ -118,3 +118,14 @@ print(f"Rating: {result.rating}")
 
 - [Python API](@api/python/strands.models.model)
 - [LlamaAPI](https://llama.developer.meta.com/docs/)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

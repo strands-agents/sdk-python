@@ -91,14 +91,14 @@ Direct tool calls are (by default) recorded in the conversation history:
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 agent = Agent(tools=[calculator])
 
 # Direct tool call with recording (default behavior)
-agent.tool.calculator(expression="123 * 456")
+agent.tool.calculator(a=123, b=456, op="*")
 
 # Direct tool call without recording
-agent.tool.calculator(expression="765 / 987", record_direct_tool_call=False)
+agent.tool.calculator(a=765, b=987, op="/", record_direct_tool_call=False)
 
 print(agent.messages)
 ```
@@ -335,3 +335,14 @@ Invocation state (<Syntax py="invocation_state" ts="invocationState" />):
 ## Persisting State Across Sessions
 
 For automatic persistence of agent state and conversation history across application restarts, see [Session Management](session-management.md). For manual, point-in-time capture and restore of agent state, see [Snapshots](snapshots.mdx).
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

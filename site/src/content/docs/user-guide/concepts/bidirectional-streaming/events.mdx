@@ -496,10 +496,9 @@ import asyncio
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
 
---8<-- "_shared/calculator.py:calculator"
 async def main():
     model = BidiNovaSonicModel()
-    agent = BidiAgent(model=model, tools=[calculator])
+    agent = BidiAgent(model=model, tools=[])
     
     async with agent as agent:
         await agent.send("What is 25 times 48?")

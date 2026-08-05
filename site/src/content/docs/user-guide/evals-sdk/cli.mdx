@@ -54,9 +54,8 @@ The two modes are mutually exclusive — argparse rejects mixing them.
 
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
 def build_agent():
-    return Agent(tools=[calculator], callback_handler=None)
+    return Agent(tools=[], callback_handler=None)
 ```
 
 The CLI synthesizes the standard task wrapper around it: telemetry setup → per-case OTel context (`session.id`, `gen_ai.conversation.id`) → factory call → invoke with `case.input` → map spans to a `Session` → return `{"output", "trajectory"}`. Trace-based evaluators (`HelpfulnessEvaluator`, `FaithfulnessEvaluator`, `GoalSuccessRateEvaluator`, etc.) read the `trajectory` directly.

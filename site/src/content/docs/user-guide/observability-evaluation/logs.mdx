@@ -99,7 +99,7 @@ The Strands Agents SDK logs information in several key areas. Let's look at what
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 # Create an agent with the calculator tool
 agent = Agent(tools=[calculator])
 result = agent("What is 125 * 37?")
@@ -262,3 +262,13 @@ You can implement your own logger to integrate with your application's logging s
 </Tab>
 </Tabs>
 
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

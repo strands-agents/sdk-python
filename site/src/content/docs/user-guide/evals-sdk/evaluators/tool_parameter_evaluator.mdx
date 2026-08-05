@@ -67,7 +67,6 @@ from strands_evals.evaluators import ToolParameterAccuracyEvaluator
 from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
---8<-- "_shared/calculator.py:calculator"
 # Setup telemetry
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 memory_exporter = telemetry.in_memory_exporter
@@ -79,7 +78,7 @@ def user_task_function(case: Case) -> dict:
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
         },
-        tools=[calculator],
+        tools=[],
         callback_handler=None
     )
     agent_response = agent(case.input)

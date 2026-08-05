@@ -4,43 +4,29 @@ Fast, code-based evaluation without LLM judges.
 """
 
 
-import ast
 import operator
 
 from strands import tool
 
 _OPS = {
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
-    ast.USub: operator.neg,
+    "+": operator.add,
+    "-": operator.sub,
+    "*": operator.mul,
+    "/": operator.truediv,
+    "**": operator.pow,
 }
 
 
 @tool
-def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+def calculator(a: float, b: float, op: str) -> float:
+    """Apply an arithmetic operator to two numbers.
 
     Args:
-        expression: The arithmetic expression to evaluate.
+        a: Left operand.
+        b: Right operand.
+        op: One of "+", "-", "*", "/", "**".
     """
-
-    def ev(node: ast.AST) -> float:
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return node.value
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Pow):
-            base, exponent = ev(node.left), ev(node.right)
-            if abs(exponent) > 64:  # an unbounded pow hangs uninterruptibly
-                raise ValueError(f"exponent too large: {exponent}")
-            return base**exponent
-        if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
-            return _OPS[type(node.op)](ev(node.left), ev(node.right))
-        if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
-            return _OPS[type(node.op)](ev(node.operand))
-        raise ValueError(f"not arithmetic (+ - * / ** and parens only): {expression!r}")
-
-    return str(ev(ast.parse(expression, mode="eval").body))
+    return _OPS[op](a, b)
 
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(tools=[calculator], callback_handler=None)

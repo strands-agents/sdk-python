@@ -28,10 +28,9 @@ Python uses the [`stream_async`](@api/python/strands.agent.agent#Agent.stream_as
 import asyncio
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
 # Initialize our agent without a callback handler
 agent = Agent(
-    tools=[calculator],
+    tools=[],
     callback_handler=None
 )
 
@@ -69,7 +68,6 @@ from pydantic import BaseModel
 from strands import Agent
 from strands_tools import http_request
 
---8<-- "_shared/calculator.py:calculator"
 app = FastAPI()
 
 class PromptRequest(BaseModel):
@@ -79,7 +77,7 @@ class PromptRequest(BaseModel):
 async def stream_response(request: PromptRequest):
     async def generate():
         agent = Agent(
-            tools=[calculator, http_request],
+            tools=[http_request],
             callback_handler=None
         )
 
@@ -122,10 +120,9 @@ This async stream processor illustrates the event loop lifecycle events and how 
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
 # Create agent with event loop tracker
 agent = Agent(
-    tools=[calculator],
+    tools=[],
     callback_handler=None
 )
 

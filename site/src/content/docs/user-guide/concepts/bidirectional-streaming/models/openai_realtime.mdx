@@ -43,7 +43,6 @@ from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands.experimental.bidi.models import BidiOpenAIRealtimeModel
 from strands_tools import stop
 
---8<-- "_shared/calculator.py:calculator"
 async def main() -> None:
     model = BidiOpenAIRealtimeModel(
         model_id="gpt-realtime",
@@ -55,7 +54,7 @@ async def main() -> None:
         client_config={"api_key": "<OPENAI_API_KEY>"},
     )
     # stop tool allows user to verbally stop agent execution.
-    agent = BidiAgent(model=model, tools=[calculator, stop])
+    agent = BidiAgent(model=model, tools=[stop])
 
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()

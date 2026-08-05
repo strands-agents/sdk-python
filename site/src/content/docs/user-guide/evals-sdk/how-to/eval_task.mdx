@@ -45,7 +45,6 @@ Accept a `Case` parameter to customize agent behavior per test case:
 
 ```python
 
---8<-- "_shared/calculator.py:calculator"
 @eval_task()
 def my_task(case):
     tools = [calculator] if (case.metadata or {}).get("use_calc") else []

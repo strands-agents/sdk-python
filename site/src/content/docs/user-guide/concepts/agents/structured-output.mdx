@@ -283,7 +283,7 @@ Combine structured output with tool usage to format tool execution results:
 from strands import Agent
 from pydantic import BaseModel, Field
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 class MathResult(BaseModel):
     operation: str = Field(description="the performed operation")
     result: int = Field(description="the result of the operation")
@@ -459,3 +459,14 @@ print(f"Size: {result.structured_output.employees}")    # 500
 ```
 </Tab>
 </Tabs>
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

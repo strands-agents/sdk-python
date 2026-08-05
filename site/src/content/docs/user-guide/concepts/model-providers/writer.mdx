@@ -26,7 +26,7 @@ After installing `writer`, you can import and initialize Strands Agents' Writer 
 from strands import Agent
 from strands.models.writer import WriterModel
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 model = WriterModel(
     client_args={"api_key": "<WRITER_API_KEY>"},
     # **model_config
@@ -293,3 +293,13 @@ Ensure your Writer API key is valid and has the necessary permissions. You can g
 - [Writer Models Guide](https://dev.writer.com/home/models)
 - [Writer API Reference](https://dev.writer.com/api-reference)
 
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

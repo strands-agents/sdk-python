@@ -296,8 +296,6 @@ import logging
 from strands import Agent
 from strands.multiagent.a2a import A2AServer
 
---8<-- "_shared/calculator.py:calculator"
-
 logging.basicConfig(level=logging.INFO)
 
 # Build a fresh agent for each A2A context so callers stay isolated
@@ -305,7 +303,7 @@ def create_agent(context_id: str) -> Agent:
     return Agent(
         name="Calculator Agent",
         description="A calculator agent that can perform basic arithmetic operations.",
-        tools=[calculator],
+        tools=[],
         callback_handler=None
     )
 

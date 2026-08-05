@@ -102,8 +102,7 @@ import os
 from strands import Agent
 from strands_vllm import VLLMModel, VLLMToolValidationHooks
 
---8<-- "_shared/calculator.py:calculator"
-
+# calculator is defined at the end of this page
 model = VLLMModel(
     base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
     model_id=os.getenv("VLLM_MODEL_ID", "<YOUR_MODEL_ID>"),
@@ -169,7 +168,7 @@ import os
 from strands import Agent
 from strands_vllm import TokenManager, VLLMModel, VLLMTokenRecorder, VLLMToolValidationHooks
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 async def main():
     model = VLLMModel(
         base_url=os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
@@ -274,3 +273,14 @@ Some models/chat templates only support one tool call per message. If you see `"
 * [Agent Lightning GitHub](https://github.com/microsoft/agent-lightning) - The absolute trainer to light up AI agents
 * [Agent Lightning Blog Post](https://blog.vllm.ai/2025/10/22/agent-lightning.html) - No More Retokenization Drift
 * [Strands Agents API](@api/python/strands.models.model)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

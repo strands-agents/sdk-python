@@ -272,7 +272,7 @@ This example demonstrates how to identify event emitted from an agent:
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 def process_event(event):
     """Shared event processor for both async iterators and callback handlers"""
     # Track event loop lifecycle
@@ -323,7 +323,7 @@ from typing import AsyncIterator
 from dataclasses import dataclass
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 @dataclass
 class SubAgentResult:
     agent: Agent
@@ -401,3 +401,14 @@ orchestrator_callback("What is 3+3?")
 - Learn about [Async Iterators](async-iterators.md) for asynchronous streaming
 - Explore [Callback Handlers](callback-handlers.md) for synchronous event processing
 - See the Agent API Reference for complete method documentation: [Python](@api/python/strands.agent.agent) | [TypeScript](@api/typescript/Agent)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

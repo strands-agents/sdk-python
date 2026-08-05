@@ -175,11 +175,10 @@ from strands_evals import Case, Experiment
 from strands_evals.evaluators import TrajectoryEvaluator
 from strands_evals.extractors import tools_use_extractor
 
---8<-- "_shared/calculator.py:calculator"
 # Define task function that captures tool usage
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(
-        tools=[calculator],
+        tools=[],
         system_prompt="You are a helpful assistant. Use tools when appropriate.",
         callback_handler=None
     )
@@ -233,7 +232,7 @@ evaluator = TrajectoryEvaluator(
 )
 
 # Update evaluator with tool descriptions to prevent context overflow
-sample_agent = Agent(tools=[calculator])
+sample_agent = Agent(tools=[])
 tool_descriptions = tools_use_extractor.extract_tools_description(sample_agent, is_short=True)
 evaluator.update_trajectory_description(tool_descriptions)
 
@@ -265,10 +264,9 @@ from strands import Agent
 from strands_evals import eval_task, TracedHandler, Case, Experiment
 from strands_evals.evaluators import HelpfulnessEvaluator
 
---8<-- "_shared/calculator.py:calculator"
 @eval_task(TracedHandler())
 def user_task_function():
-    return Agent(tools=[calculator], callback_handler=None)
+    return Agent(tools=[], callback_handler=None)
 
 # Create test cases for helpfulness evaluation
 test_cases = [
@@ -307,13 +305,12 @@ from strands_evals.evaluators import HelpfulnessEvaluator
 from strands_evals.telemetry import StrandsEvalsTelemetry
 from strands_evals.mappers import StrandsInMemorySessionMapper
 
---8<-- "_shared/calculator.py:calculator"
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 
 def user_task_function(case: Case) -> dict:
     telemetry.in_memory_exporter.clear()
     agent = Agent(
-        tools=[calculator],
+        tools=[],
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id

@@ -600,7 +600,7 @@ In Python, use the `cache_tools` parameter to enable tool caching independently:
 from strands import Agent
 from strands.models import BedrockModel
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 # Using tool caching with BedrockModel
 bedrock_model = BedrockModel(
     model_id="global.anthropic.claude-sonnet-4-6",
@@ -1078,3 +1078,13 @@ const agent = new Agent({ model: bedrockModel })
 - [Bedrock Model IDs Reference](https://docs.aws.amazon.com/bedrock/latest/userguide/model-ids.html)
 - [Bedrock Pricing](https://aws.amazon.com/bedrock/pricing/)
 
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

@@ -32,7 +32,7 @@ pip install strands-nvidia-nim strands-agents-tools
 from strands import Agent
 from strands_nvidia_nim import NvidiaNIM
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 model = NvidiaNIM(
     api_key="your-nvidia-nim-api-key",
     model_id="meta/llama-3.1-70b-instruct",
@@ -57,7 +57,7 @@ import os
 from strands import Agent
 from strands_nvidia_nim import NvidiaNIM
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 model = NvidiaNIM(
     api_key=os.getenv("NVIDIA_NIM_API_KEY"),
     model_id="meta/llama-3.1-70b-instruct",
@@ -122,3 +122,14 @@ The provider includes detection for context window overflow errors. If you encou
 * [PyPI Package](https://pypi.org/project/strands-nvidia-nim/)
 * [Nvidia NIM Documentation](https://docs.nvidia.com/nim/)
 * [Strands Custom Model Provider](../../user-guide/concepts/model-providers/custom_model_provider.md)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

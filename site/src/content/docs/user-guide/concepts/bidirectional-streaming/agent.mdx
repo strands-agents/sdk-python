@@ -47,7 +47,7 @@ The standard `Agent` follows a traditional request-response pattern:
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 agent = Agent(tools=[calculator])
 
 # Single request-response cycle
@@ -450,3 +450,14 @@ The agent automatically cleans up background tasks, model connections, I/O chann
 - [Model Providers](models/nova_sonic.md) - Provider-specific configuration
 - [Quickstart](quickstart.md) - Getting started guide
 - [Python API Reference](@api/python/strands.experimental.bidi.agent.agent) - Complete API documentation
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

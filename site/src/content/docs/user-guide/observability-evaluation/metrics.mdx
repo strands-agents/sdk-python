@@ -23,7 +23,7 @@ All these metrics are accessible through the [`AgentResult`](@api/python/strands
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 # Create an agent with tools
 agent = Agent(tools=[calculator])
 
@@ -91,7 +91,7 @@ This allows you to track metrics at both the individual invocation level and acr
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 agent = Agent(tools=[calculator])
 
 # First invocation
@@ -307,7 +307,7 @@ Each trace represents a cycle in the agent loop, with child traces for model inv
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 agent = Agent(tools=[calculator])
 result = agent("What is 15 * 8 + 42?")
 
@@ -358,3 +358,14 @@ Traces are separate from `AgentMetrics` and are accessed via `result.traces`. No
 4. **Benchmark Latency Metrics**: Monitor latency values to establish performance baselines. Compare these metrics across different agent configurations to identify optimal setups.
 
 5. **Regular Metrics Reviews**: Schedule periodic reviews of agent metrics to identify trends and opportunities for optimization. Look for gradual changes in performance that might indicate drift in tool behavior or model responses.
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

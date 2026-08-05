@@ -29,7 +29,7 @@ After installing the SageMaker dependencies, you can import and initialize the S
 from strands import Agent
 from strands.models.sagemaker import SageMakerAIModel
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 model = SageMakerAIModel(
     endpoint_config={
         "endpoint_name": "my-llm-endpoint",
@@ -111,3 +111,14 @@ Ensure your deployed model supports OpenAI-compatible chat completion APIs and v
 - [Python API Reference](@api/python/strands.models.model)
 - [Amazon SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 - [SageMaker Runtime API](https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

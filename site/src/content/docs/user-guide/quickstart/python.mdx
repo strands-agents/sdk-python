@@ -111,7 +111,7 @@ And finally our `agent.py` file where the goodies are:
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 # Define a custom tool as a Python function using the @tool decorator
 @tool
 def letter_counter(word: str, letter: str) -> int:
@@ -472,7 +472,7 @@ For asynchronous applications (like web servers or APIs), Strands provides an as
 import asyncio
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 # Initialize our agent without a callback handler
 agent = Agent(
     tools=[calculator],
@@ -559,3 +559,14 @@ Ready to learn more? Check out these resources:
 - [Multi-agent](../concepts/multi-agent/agents-as-tools.md) - Orchestrate multiple agents together as one system, with each agent completing specialized tasks
 - [Observability & Evaluation](../observability-evaluation/observability.md) - Understand how agents make decisions and improve them with data
 - [Operating Agents in Production](../deploy/operating-agents-in-production.md) - Taking agents from development to production, operating them responsibly at scale
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

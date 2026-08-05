@@ -29,7 +29,7 @@ After installing the `openai` package, you can import and initialize the Strands
 from strands import Agent
 from strands.models.openai import OpenAIModel
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 model = OpenAIModel(
     client_args={
         "api_key": "<FIREWORKS_API_KEY>",
@@ -87,3 +87,14 @@ Ensure you're using a model ID compatible with Fireworks AI (e.g., `accounts/fir
 * [Fireworks AI Models](https://fireworks.ai/models)
 * [OpenAI Python SDK](https://github.com/openai/openai-python)
 * [Strands Agents API](@api/python/strands.models.model)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

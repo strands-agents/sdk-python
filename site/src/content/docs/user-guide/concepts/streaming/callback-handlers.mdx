@@ -23,7 +23,7 @@ The simplest way to use a callback handler is to pass a callback function to you
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 def custom_callback_handler(**kwargs):
     # Process stream data
     if "data" in kwargs:
@@ -72,7 +72,7 @@ Custom callback handlers can be useful to debug sequences of events in the agent
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 def debugger_callback_handler(**kwargs):
     # Print the values in kwargs so that we can see everything
     print(kwargs)
@@ -95,7 +95,7 @@ This handler demonstrates how to buffer text and only show it when a complete me
 import json
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 def message_buffer_handler(**kwargs):
     # When a new message is created from the assistant, print its content
     if "message" in kwargs and kwargs["message"].get("role") == "assistant":
@@ -119,7 +119,7 @@ This callback handler illustrates the event loop lifecycle events and how they r
 ```python
 from strands import Agent
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 def event_loop_tracker(**kwargs):
     # Track event loop lifecycle
     if kwargs.get("init_event_loop", False):
@@ -170,3 +170,14 @@ When implementing callback handlers:
 2. **Handle All Event Types**: Be prepared for different event types
 3. **Graceful Errors**: Handle exceptions within your handler
 4. **State Management**: Store accumulated state in the `request_state`
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

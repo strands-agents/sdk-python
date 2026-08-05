@@ -245,7 +245,7 @@ print(f"Rating: {book_analysis.rating}")
 from strands import Agent
 from strands.models.ollama import OllamaModel
 
---8<-- "_shared/calculator.py:calculator"
+# calculator is defined at the end of this page
 # Create an Ollama model
 ollama_model = OllamaModel(
     host="http://localhost:11434",
@@ -284,3 +284,14 @@ response = agent("What's the square root of 144 plus the current time?")
 - [Ollama Documentation](https://github.com/ollama/ollama/blob/main/README.md)
 - [Ollama Docker Hub](https://hub.docker.com/r/ollama/ollama)
 - [Available Ollama Models](https://ollama.ai/library)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic — see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

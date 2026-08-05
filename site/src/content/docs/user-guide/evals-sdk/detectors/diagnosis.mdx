@@ -223,11 +223,10 @@ from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHa
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
 from strands_evals.evaluators import OutputEvaluator, GoalSuccessRateEvaluator
 
---8<-- "_shared/calculator.py:calculator"
 @eval_task(TracedHandler())
 def math_agent():
     return Agent(
-        tools=[calculator],
+        tools=[],
         system_prompt="You are a math assistant. Use the calculator tool for computations.",
         callback_handler=None,
     )
