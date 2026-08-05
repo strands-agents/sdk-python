@@ -388,7 +388,7 @@ const DEFAULT_AGENT_NAME = 'Strands Agent'
 const DEFAULT_AGENT_ID = 'agent'
 
 /** Result returned by tool-execution generators, threading the AfterToolsEvent back to the main loop. */
-type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent }
+type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent; toolsSkipped: boolean }
 
 /**
  * Orchestrates the interaction between a model, a set of tools, and MCP clients.
@@ -1168,11 +1168,13 @@ export class Agent implements LocalAgent, InvokableAgent {
     options: InvokeOptions,
     invocationState: InvocationState
   ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
+    // Snapshot so a gate that re-reads its response after next() still resolves even if a tool cycle called deactivate().
+    const interruptsSnapshot = { ...this._interruptState.interrupts }
     const context: AgentStreamContext = {
       agent: this,
       args,
       ...(options !== undefined && { options }),
-      interrupt: createMiddlewareInterrupt(this._interruptState, 'middleware:agentStream'),
+      interrupt: createMiddlewareInterrupt(this._interruptState, 'middleware:agentStream', interruptsSnapshot),
     }
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
@@ -1187,6 +1189,13 @@ export class Agent implements LocalAgent, InvokableAgent {
           return { result }
         }
       )
+      if (
+        this._interruptState.activated &&
+        result.stopReason !== 'interrupt' &&
+        !this._interruptState.pendingToolExecution
+      ) {
+        this._interruptState.deactivate()
+      }
       return result
     } catch (error) {
       if (error instanceof InterruptError) {
@@ -1497,10 +1506,9 @@ export class Agent implements LocalAgent, InvokableAgent {
           let completedToolResults: Map<string, ToolResultBlock> | undefined
 
           if (pendingExecution) {
-            // Resume from stored state - skip model call
+            // Resume from stored state - skip model call.
             assistantMessage = pendingExecution.assistantMessage
             completedToolResults = pendingExecution.completedToolResults
-            this._interruptState.clearPendingToolExecution()
           } else {
             const modelResult = yield* this._invokeModel(invocationState, structuredOutputChoice)
 
@@ -1609,6 +1617,14 @@ export class Agent implements LocalAgent, InvokableAgent {
           }
           const toolResultMessage = toolsResult.message
 
+          // Tools were skipped (not executed) — preserve pending state so the next resume
+          // can run them.
+          if (this.isCancelled && toolsResult.toolsSkipped && this._interruptState.pendingToolExecution) {
+            this._meter.endCycle(cycleStartTime)
+            this._tracer.endAgentLoopSpan(cycleSpan)
+            continue
+          }
+
           /**
            * Deferred append: both messages are added AFTER tool execution completes.
            * This keeps agent.messages in a valid, reinvokable state at all times.
@@ -1617,6 +1633,9 @@ export class Agent implements LocalAgent, InvokableAgent {
            */
           yield this._appendMessage(assistantMessage, invocationState)
           yield this._appendMessage(toolResultMessage, invocationState)
+
+          // Both messages are in history, so any stored pending execution is now stale.
+          this._interruptState.clearPendingToolExecution()
 
           // Deactivate interrupt state after successful tool execution so the next
           // cycle starts with a clean slate (new interrupts can be raised again).
@@ -2211,6 +2230,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     const toolResultBlocks: ToolResultBlock[] = []
     let toolResultMessage: Message
     let afterToolsEvent: AfterToolsEvent
+    let toolsSkipped = false
 
     try {
       if (toolUseBlocks.length === 0) {
@@ -2227,6 +2247,7 @@ export class Agent implements LocalAgent, InvokableAgent {
           : undefined
 
       if (cancelMessage) {
+        toolsSkipped = true
         toolResultBlocks.push(...this._cancelAllAsResults(toolUseBlocks, cancelMessage))
         for (const result of toolResultBlocks) {
           yield new ToolResultEvent({ agent: this, result, invocationState })
@@ -2254,7 +2275,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       yield afterToolsEvent
     }
 
-    return { message: toolResultMessage, afterToolsEvent }
+    return { message: toolResultMessage, afterToolsEvent, toolsSkipped }
   }
 
   /**
