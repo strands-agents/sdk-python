@@ -12,6 +12,7 @@
 import type { Storage } from '../../../storage/storage.js'
 import type { ConsolidateOperation } from '../types.js'
 import type { ConsolidationAction, ConsolidationPlan } from './plan.js'
+import { ConsolidationError } from '../../../errors.js'
 import { logger } from '../../../logging/logger.js'
 import {
   CONSOLIDATION_CHANGELOG,
@@ -99,7 +100,7 @@ export async function executePlan(
       const canonicalFrom = resolveCanonicalKey(files, action.from)
       const content = canonicalFrom !== undefined ? files.get(canonicalFrom) : undefined
       if (content === undefined) {
-        throw new Error(
+        throw new ConsolidationError(
           `Invariant violated: move source '${action.from}' missing from working set — plan not validated`
         )
       }

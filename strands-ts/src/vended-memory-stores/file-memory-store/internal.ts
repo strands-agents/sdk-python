@@ -9,6 +9,8 @@
  * @internal
  */
 
+import { ConsolidationError } from '../../errors.js'
+
 /** @internal */
 export const encoder = new TextEncoder()
 
@@ -176,7 +178,7 @@ export function resolveCanonicalKey(files: Map<string, string>, path: string): s
  *
  * @returns The stored key when exactly one matches or `path` is itself a stored key, or `path`
  *   verbatim when none match
- * @throws Error when two or more stored keys differ from `path` only by case and none is `path` itself
+ * @throws ConsolidationError when two or more stored keys differ from `path` only by case and none is `path` itself
  *
  * @internal
  */
@@ -187,7 +189,7 @@ export function resolveWriteTarget(files: Map<string, string>, path: string): st
   const normalized = path.toLowerCase()
   const matches = [...files.keys()].filter((key) => key.toLowerCase() === normalized)
   if (matches.length > 1) {
-    throw new Error(
+    throw new ConsolidationError(
       `Consolidation aborted: write target '${path}' is ambiguous — the store holds ${matches.length} keys that ` +
         `differ from it only by case (${matches.join(', ')}). Writing this spelling would create a third copy and ` +
         `leave the duplicates in place. Resolve them first — a delete-only or move-out consolidation can do it — ` +

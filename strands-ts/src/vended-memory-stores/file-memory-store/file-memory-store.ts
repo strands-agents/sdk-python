@@ -15,6 +15,7 @@ import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { Storage } from '../../storage/storage.js'
 import type { ConsolidateConfig, FileMemoryStoreConfig } from './types.js'
 import { CONSOLIDATE_OPERATIONS } from './types.js'
+import { ConsolidationError } from '../../errors.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
@@ -246,15 +247,15 @@ export class FileMemoryStore implements MemoryStore {
    * consolidation is in flight.
    *
    * @param config - Model and operation configuration
-   * @throws Error when a consolidation is already running on this store instance
+   * @throws ConsolidationError when the store is not writable or a consolidation is already running
+   *   on this store instance
    * @throws TypeError when maxFiles, maxActionsPerPlan, or maxDirectories is not a positive finite number
-   * @throws Error when the knowledge store exceeds the file count limit (maxFiles)
-   * @throws Error when structured output is undefined (model did not return a plan)
-   * @throws Error when the consolidation plan exceeds the action limit (maxActionsPerPlan)
-   * @throws Error when the consolidation plan fails validation
-   * @throws Error when the consolidation agent exceeds its turn limit without producing a plan
-   * @throws Error when a path the plan writes matches several stored keys differing only by case
-   *   (the store is left unchanged — no write or delete runs)
+   * @throws ConsolidationError when the knowledge store exceeds the file count limit (maxFiles)
+   * @throws StructuredOutputError when structured output is undefined (model did not return a plan)
+   * @throws ConsolidationError when the plan exceeds the action limit (maxActionsPerPlan), fails
+   *   validation, or the agent exceeds its turn limit without producing a plan
+   * @throws ConsolidationError when a path the plan writes matches several stored keys differing only
+   *   by case (the store is left unchanged — no write or delete runs)
    *
    * @example
    * ```typescript
@@ -267,13 +268,15 @@ export class FileMemoryStore implements MemoryStore {
    */
   async consolidate(config: ConsolidateConfig): Promise<void> {
     if (!this.writable) {
-      throw new Error(
+      throw new ConsolidationError(
         'FileMemoryStore: consolidate requires a writable store (writable: false is searchable only, never written to)'
       )
     }
     // Set synchronously before the first await so a concurrent call cannot slip past the check
     if (this._consolidating) {
-      throw new Error('A consolidation is already running on this store instance; run consolidation one at a time')
+      throw new ConsolidationError(
+        'A consolidation is already running on this store instance; run consolidation one at a time'
+      )
     }
     this._consolidating = true
     try {
@@ -312,7 +315,9 @@ export class FileMemoryStore implements MemoryStore {
 
     // Bounds the planner's input so a large corpus cannot blow past the model's context window
     if (files.size > maxFiles) {
-      throw new Error(`Knowledge store exceeds consolidation file limit: ${files.size} files (maxFiles: ${maxFiles})`)
+      throw new ConsolidationError(
+        `Knowledge store exceeds consolidation file limit: ${files.size} files (maxFiles: ${maxFiles})`
+      )
     }
 
     const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
@@ -324,7 +329,7 @@ export class FileMemoryStore implements MemoryStore {
 
     if (deleteErrors.length > 0) {
       const paths = deleteErrors.map((deleteError) => deleteError.path).join(', ')
-      throw new Error(
+      throw new ConsolidationError(
         `Plan executed but ${deleteErrors.length} delete(s) failed: ${paths}. ` +
           `Writes succeeded — duplicate content may remain until next consolidation.`
       )

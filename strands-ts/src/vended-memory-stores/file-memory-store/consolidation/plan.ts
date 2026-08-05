@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod'
+import { ConsolidationError, StructuredOutputError } from '../../../errors.js'
 import { logger } from '../../../logging/logger.js'
 
 /**
@@ -69,22 +70,22 @@ export type ConsolidationAction = ConsolidationPlan['actions'][number]
  * Runs the untrusted model output through the schema so everything downstream can rely on the plan's
  * shape, then bounds the action count. An oversized plan is a runaway signal, so that guard throws.
  *
- * @throws Error when the result carries no structured output
+ * @throws StructuredOutputError when the result carries no structured output
  * @throws ZodError when the structured output does not match {@link ConsolidationPlanSchema}
- * @throws Error when the plan's action count exceeds `maxActionsPerPlan`
+ * @throws ConsolidationError when the plan's action count exceeds `maxActionsPerPlan`
  *
  * @internal
  */
 export function extractPlan(result: { structuredOutput?: unknown }, maxActionsPerPlan: number): ConsolidationPlan {
   if (!result.structuredOutput) {
-    throw new Error('Model did not return structured output — cannot produce a consolidation plan')
+    throw new StructuredOutputError('Model did not return structured output — cannot produce a consolidation plan')
   }
   // Log before parsing so a plan rejected by the schema or the action-count guard is still
   // inspectable — the thrown errors carry no plan body
   logger.debug(`plan=<${JSON.stringify(result.structuredOutput)}> | raw consolidation plan returned by planner`)
   const plan = ConsolidationPlanSchema.parse(result.structuredOutput)
   if (plan.actions.length > maxActionsPerPlan) {
-    throw new Error(
+    throw new ConsolidationError(
       `Consolidation plan exceeds action limit: ${plan.actions.length} actions (maxActionsPerPlan: ${maxActionsPerPlan})`
     )
   }
