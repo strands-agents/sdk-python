@@ -289,11 +289,14 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
 
     if current_tool_use:
         input_parse_error: str | None = None
-        if "input" not in current_tool_use:
+        raw_input = current_tool_use.get("input", "")
+        if not isinstance(raw_input, str) or not raw_input.strip():
+            # contentBlockStart seeds input="" for every tool use, so an empty accumulated input means
+            # the model streamed no arguments (a parameterless tool call), not malformed JSON.
             current_tool_use["input"] = {}
         else:
             try:
-                current_tool_use["input"] = json.loads(current_tool_use["input"])
+                current_tool_use["input"] = json.loads(raw_input)
             except ValueError as e:
                 logger.warning(
                     "tool_name=<%s>, tool_use_id=<%s> | failed to parse tool input JSON",

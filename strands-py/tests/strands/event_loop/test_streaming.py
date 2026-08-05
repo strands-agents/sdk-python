@@ -329,6 +329,26 @@ def test_handle_content_block_stop_marks_malformed_tool_input(caplog):
     assert "tool_name=<search>, tool_use_id=<123> | failed to parse tool input JSON" in caplog.text
 
 
+@pytest.mark.parametrize("raw_input", ["", "   "], ids=["empty", "whitespace"])
+def test_handle_content_block_stop_treats_empty_input_as_no_arguments(raw_input):
+    # contentBlockStart seeds input="" for every tool use, so a parameterless tool call arrives here
+    # with empty (or whitespace-only) accumulated input. It must run, not be reported as malformed.
+    state = {
+        "content": [],
+        "current_tool_use": {"toolUseId": "123", "name": "get_time", "input": raw_input},
+        "text": "",
+        "reasoningText": "",
+        "citationsContent": [],
+        "redactedContent": b"",
+    }
+
+    updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
+
+    tool_use = updated_state["content"][0]["toolUse"]
+    assert tool_use["input"] == {}
+    assert "inputParseError" not in tool_use
+
+
 @pytest.mark.parametrize(
     ("state", "exp_updated_state"),
     [
