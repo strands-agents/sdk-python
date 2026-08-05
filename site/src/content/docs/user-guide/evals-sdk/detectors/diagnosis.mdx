@@ -217,13 +217,42 @@ If the trajectory is not a `Session` (e.g., it's a plain list of tool names), di
 This example shows the complete workflow: run evaluations with diagnosis, then analyze the results.
 
 ```python
+import ast
 import asyncio
+import operator
 
-from strands import Agent
+from strands import Agent, tool
 from strands_evals import Case, Experiment, DiagnosisConfig, eval_task, TracedHandler
 from strands_evals.detectors import ConfidenceLevel, DiagnosisTrigger
 from strands_evals.evaluators import OutputEvaluator, GoalSuccessRateEvaluator
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
+            base, exp = ev(n.left), ev(n.right)
+            if abs(exp) > 64:
+                raise ValueError(f"exponent too large in {expression!r}: {exp}")
+            return base**exp
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(
+            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
+        )
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 @eval_task(TracedHandler())
 def math_agent():
