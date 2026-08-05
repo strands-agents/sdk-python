@@ -1,5 +1,6 @@
 """Integration tests for snapshot-based session management."""
 
+import asyncio
 import os
 import tempfile
 from uuid import uuid4
@@ -86,8 +87,6 @@ def test_agent_with_s3_snapshot_session(bucket_name):
         agent_2("Hello again!")
         assert len(agent_2.messages) == 4
     finally:
-        import asyncio
-
         asyncio.run(manager.delete_session())
 
 
@@ -99,8 +98,6 @@ def test_snapshot_session_time_travel(temp_dir):
     agent = Agent(session_manager=manager)
     agent("My favorite color is blue.")
     agent("My favorite number is seven.")
-
-    import asyncio
 
     ids = asyncio.run(manager.list_snapshot_ids(agent))
     assert len(ids) == 2

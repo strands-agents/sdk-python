@@ -42,7 +42,6 @@ from ..types._snapshot import Snapshot
 from ..types.content import Message
 from ..types.exceptions import SnapshotException
 from ..types.session import decode_bytes_values, encode_bytes_values
-from .repository_session_manager import RepositorySessionManager
 from .session_manager import SessionManager
 
 if TYPE_CHECKING:
@@ -140,35 +139,9 @@ def _snapshot_key(session_id: str, agent_id: str, *, snapshot_id: str | None) ->
     return f"{prefix}{_IMMUTABLE_HISTORY}/snapshot_{snapshot_id}.json"
 
 
-def _encode_json(obj: dict[str, Any]) -> bytes:
-    """JSON-encode a dict to UTF-8 bytes, base64-encoding any bytes values."""
-    return json.dumps(encode_bytes_values(obj), ensure_ascii=False).encode("utf-8")
-
-
-def _decode_json_object(data: bytes, *, description: str) -> dict[str, Any]:
-    """Decode JSON bytes into a dict, base64-decoding any bytes values.
-
-    Args:
-        data: The stored bytes.
-        description: What the blob is, interpolated into error messages (e.g. ``"snapshot"``).
-
-    Raises:
-        SnapshotException: If the bytes are not a JSON object (malformed JSON, wrong encoding, or a
-            non-object top-level value). Translating here keeps a corrupt or truncated stored blob
-            from surfacing a raw decode error out of the agent constructor's restore-on-init path.
-    """
-    try:
-        decoded = decode_bytes_values(json.loads(data))
-    except (ValueError, UnicodeDecodeError) as error:
-        raise SnapshotException(f"Failed to deserialize {description}: {error}") from error
-    if not isinstance(decoded, dict):
-        raise SnapshotException(f"{description} is not an object: got {type(decoded).__name__}")
-    return decoded
-
-
 def _serialize_snapshot(snapshot: Snapshot) -> bytes:
     """Serialize a snapshot to JSON bytes, base64-encoding any bytes content."""
-    return _encode_json(snapshot.to_dict())
+    return json.dumps(encode_bytes_values(snapshot.to_dict()), ensure_ascii=False).encode("utf-8")
 
 
 def _deserialize_snapshot(data: bytes) -> Snapshot:
@@ -178,7 +151,12 @@ def _deserialize_snapshot(data: bytes) -> Snapshot:
         SnapshotException: If the bytes are not a valid, current-schema snapshot (malformed
             JSON, wrong encoding, wrong shape, or an unsupported schema/scope).
     """
-    decoded = _decode_json_object(data, description="snapshot")
+    try:
+        decoded = decode_bytes_values(json.loads(data))
+    except (ValueError, UnicodeDecodeError) as error:
+        raise SnapshotException(f"Failed to deserialize snapshot: {error}") from error
+    if not isinstance(decoded, dict):
+        raise SnapshotException(f"Snapshot is not an object: got {type(decoded).__name__}")
     try:
         return Snapshot.from_dict(decoded)
     except (KeyError, TypeError, AttributeError) as error:
@@ -231,7 +209,6 @@ class SnapshotSessionManager(SessionManager):
         storage: Storage | None = None,
         save_latest_on: SaveLatestStrategy = "invocation",
         snapshot_trigger: SnapshotTrigger | None = None,
-        migrate_from: RepositorySessionManager | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the snapshot session manager.
@@ -245,13 +222,6 @@ class SnapshotSessionManager(SessionManager):
             snapshot_trigger: Optional callback invoked after each invocation; when it
                 returns True an immutable snapshot is appended for checkpointing. An immutable
                 snapshot can also be forced at any point via :meth:`save_snapshot`.
-            migrate_from: Optional message-log session manager (``FileSessionManager``,
-                ``S3SessionManager``) to migrate from once. When set and no snapshot
-                exists yet, the agent is restored from the message log and an equivalent
-                snapshot is written; every later run restores from the snapshot and the
-                message-log store is never read or written again. The agent must be
-                constructed with the same conversation manager and system prompt it ran
-                with, since restore replays state into those live components.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
@@ -272,7 +242,6 @@ class SnapshotSessionManager(SessionManager):
         self._storage = _resolve_storage(storage if storage is not None else LocalFileStorage())
         self._save_latest_on: SaveLatestStrategy = save_latest_on
         self._snapshot_trigger = snapshot_trigger
-        self._migrate_from = migrate_from
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register lifecycle callbacks for snapshot persistence.
@@ -448,15 +417,6 @@ class SnapshotSessionManager(SessionManager):
         had_messages = len(agent.messages) > 0
         restored = await self._restore(agent)
 
-        if not restored and self._migrate_from is not None:
-            # No snapshot yet: restore through the message-log manager's proven path (offset +
-            # conversation-manager prepend + tool-use repair + stateful handling), then capture
-            # a snapshot so every later run restores from the snapshot instead. Guarded so the
-            # message-log store is only read, never written (see _restore_from_legacy).
-            if self._restore_from_legacy(agent):
-                await self._save_latest(agent)
-                restored = True
-
         if restored and had_messages:
             logger.warning(
                 "agent_id=<%s>, session_id=<%s> | agent had existing messages that were overwritten by session restore",
@@ -473,36 +433,6 @@ class SnapshotSessionManager(SessionManager):
                 len(agent.messages),
             )
             agent.messages = []
-
-    def _restore_from_legacy(self, agent: "Agent") -> bool:
-        """Restore the agent from the ``migrate_from`` message-log manager, read-only.
-
-        ``RepositorySessionManager.initialize`` creates new records when the session has no
-        agent yet, so migration only delegates to it when the agent record already exists.
-        This keeps migration a pure read of the message-log store.
-
-        Returns:
-            True if the agent existed in the message-log store and was restored, False otherwise.
-        """
-        legacy = self._migrate_from
-        if legacy is None:
-            return False
-
-        if legacy.session_repository.read_agent(legacy.session_id, agent.agent_id) is None:
-            logger.debug(
-                "agent_id=<%s>, session_id=<%s> | no message-log agent to migrate",
-                agent.agent_id,
-                legacy.session_id,
-            )
-            return False
-
-        legacy.initialize(agent)
-        logger.info(
-            "agent_id=<%s>, session_id=<%s> | migrated message-log session to snapshot",
-            agent.agent_id,
-            self.session_id,
-        )
-        return True
 
     async def _restore(self, agent: "Agent", *, snapshot_id: str | None = None) -> bool:
         """Load a snapshot into the agent. Returns False if none exists."""
