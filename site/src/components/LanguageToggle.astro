@@ -31,6 +31,19 @@ function switchHref(lang: LanguageSlug): string | undefined {
   const target = getLanguageSwitchTarget(currentPath, lang, docIds, apiCounterparts)
   return target ? pathWithBase(target) : undefined
 }
+
+// On docs pages that declare a single supported language, the other button is
+// disabled: there is nothing to switch to, and a silent no-op toggle reads as
+// a bug. Non-docs pages (landing/changelog) carry no languages frontmatter,
+// so the toggle stays fully enabled there.
+const routeData = Astro.locals.starlightRoute.entry.data
+const pageLanguages = routeData.languages
+  ? (Array.isArray(routeData.languages) ? routeData.languages : [routeData.languages]).map((l) => l.toLowerCase())
+  : undefined
+// An empty array carries no language restriction; treat it the same as an absent field.
+const resolvedLanguages = pageLanguages?.length ? pageLanguages : undefined
+const pythonDisabled = resolvedLanguages !== undefined && !resolvedLanguages.includes('python')
+const typescriptDisabled = resolvedLanguages !== undefined && !resolvedLanguages.includes('typescript')
 ---
 
 <language-toggle class="language-toggle" role="radiogroup" aria-label="Preferred language">
@@ -41,6 +54,8 @@ function switchHref(lang: LanguageSlug): string | undefined {
     aria-label="Python"
     data-lang="Python"
     data-switch-href={switchHref('python')}
+    disabled={pythonDisabled}
+    title={pythonDisabled ? 'This page is TypeScript-only' : undefined}
   >
     <svg class="lang-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
       <path fill="currentColor" d="M11.914 0C5.82 0 6.2 2.656 6.2 2.656l.007 2.752h5.814v.826H3.9S0 5.789 0 11.969c0 6.18 3.403 5.96 3.403 5.96h2.03v-2.867s-.109-3.42 3.35-3.42h5.766s3.24.052 3.24-3.148V3.202S18.28 0 11.914 0zM8.708 1.85a1.06 1.06 0 110 2.12 1.06 1.06 0 010-2.12z"/>
@@ -55,6 +70,8 @@ function switchHref(lang: LanguageSlug): string | undefined {
     aria-label="TypeScript"
     data-lang="TypeScript"
     data-switch-href={switchHref('typescript')}
+    disabled={typescriptDisabled}
+    title={typescriptDisabled ? 'This page is Python-only' : undefined}
   >
     <svg class="lang-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
       <path fill="currentColor" d="M0 12v12h24V0H0zm19.341-.956c.61.152 1.074.423 1.501.865.221.236.549.666.575.77.008.03-1.036.73-1.668 1.123-.023.015-.115-.084-.217-.236-.31-.45-.633-.644-1.128-.678-.728-.05-1.196.331-1.192.967a.88.88 0 00.102.45c.16.331.458.53 1.39.933 1.719.74 2.454 1.227 2.911 1.92.509.773.625 2.008.278 2.926-.38 1.023-1.325 1.716-2.655 1.95-.41.073-1.382.062-1.828-.018-.964-.172-1.878-.648-2.442-1.273-.221-.243-.652-.88-.625-.925.011-.016.11-.077.22-.141l.89-.514.69-.4.145.213c.201.31.643.731.91.872.766.404 1.817.347 2.335-.118a.883.883 0 00.313-.72c0-.278-.035-.4-.18-.61-.186-.266-.567-.49-1.649-.96-1.238-.533-1.771-.864-2.259-1.39a3.165 3.165 0 01-.659-1.2c-.091-.364-.114-1.27-.042-1.635.31-1.554 1.534-2.64 3.202-2.84.434-.05 1.443-.01 1.872.074zm-5.66 1.077l.007.983H10.15v8.876H7.787V12.104H4.25v-.963c0-.534.011-.98.026-.99.012-.016 2.125-.023 4.694-.018l4.665.011z"/>
@@ -107,6 +124,15 @@ function switchHref(lang: LanguageSlug): string | undefined {
 
   .lang-icon {
     flex-shrink: 0;
+  }
+
+  .lang-option:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .lang-option:disabled:hover {
+    color: var(--sl-color-gray-3);
   }
 
 </style>
@@ -189,17 +215,39 @@ function switchHref(lang: LanguageSlug): string | undefined {
       });
     }
 
+    /**
+     * On single-language pages the stored preference may be the disabled
+     * language; the page then behaves as the available language. Resolved
+     * once here so the radio, nav links, and inline tabs can never disagree.
+     * The stored preference itself is untouched — it still applies on the
+     * next multi-language page.
+     */
+    function effectiveLanguage(lang) {
+      var enabled = Array.prototype.filter.call(
+        document.querySelectorAll('language-toggle .lang-option'),
+        function (btn) { return !btn.disabled; }
+      );
+      // No toggle rendered on this page: the preference stands.
+      if (enabled.length === 0) return lang;
+      var match = enabled.some(function (btn) { return btn.dataset.lang === lang; });
+      return match ? lang : enabled[0].dataset.lang;
+    }
+
     function updateToggle(lang) {
+      // Exactly one radio is always checked: `lang` is already the effective
+      // language, so it always names an enabled button when one exists.
       document.querySelectorAll('language-toggle .lang-option').forEach(function (btn) {
+        if (btn.disabled) return;
         btn.setAttribute('aria-checked', btn.dataset.lang === lang ? 'true' : 'false');
       });
     }
 
     /** Full UI sync: toggle state + nav links + inline tabs. */
     function syncAll(lang) {
-      updateToggle(lang);
-      updateNavLinks(lang);
-      syncStarlightTabs(lang);
+      var effective = effectiveLanguage(lang);
+      updateToggle(effective);
+      updateNavLinks(effective);
+      syncStarlightTabs(effective);
     }
 
     // Restore on page load
@@ -216,7 +264,7 @@ function switchHref(lang: LanguageSlug): string | undefined {
     // them here too would run side effects like tab clicks twice).
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.lang-option');
-      if (!btn) return;
+      if (!btn || btn.disabled) return;
       var lang = btn.dataset.lang;
       if (!lang) return;
       // Notify same-tab listeners, including our own (storage events only fire cross-tab).
