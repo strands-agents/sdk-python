@@ -17,7 +17,7 @@ export interface NavLink {
    * Base path(s) used to determine active state and sidebar filtering (optional).
    * If not provided, href is used. Can be a single string or an array of strings
    * when a nav item encompasses multiple top-level sidebar sections.
-   * Example: basePath: ["/docs/community/", "/docs/labs/", "/docs/contribute/"]
+   * Example: basePath: ["/docs/integrations/", "/docs/labs/", "/docs/contribute/"]
    */
   basePath?: string | string[]
   /** Set to true for external links (opens in new tab) */
