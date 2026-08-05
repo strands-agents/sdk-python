@@ -533,7 +533,7 @@ while result.status == Status.INTERRUPTED:
     result = swarm(responses)
 
 if "cleanup" not in result.results:
-    print("MESSAGE: cleanup was skipped, so the swarm stopped before it ran")
+    print("MESSAGE: cleanup produced no result, which is how a skipped node looks in a swarm")
 else:
     print(f"MESSAGE: {json.dumps(result.results['cleanup'].result.message, indent=2)}")
 ```
