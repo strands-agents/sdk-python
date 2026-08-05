@@ -328,6 +328,8 @@ class GeminiModel(Model):
         system_prompt: str | None,
         params: dict[str, Any] | None,
         tool_choice: ToolChoice | None = None,
+        *,
+        is_vertex: bool = False,
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -338,6 +340,8 @@ class GeminiModel(Model):
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
             tool_choice: Selection strategy for tool invocation.
+            is_vertex: Whether the request is sent through Vertex AI, which does not support
+                `include_server_side_tool_invocations`.
 
         Returns:
             Gemini request config.
@@ -347,9 +351,29 @@ class GeminiModel(Model):
         tool_config = self._format_tool_choice(tool_choice) if tool_specs else None
         if tool_config is not None:
             # A tool config set in params wins, matching the other providers and the TypeScript SDK. A tool
-            # config expresses more than a ToolChoice can, so the explicit one is left whole rather than
+            # config expresses more than a ToolChoice, so the explicit one is left whole rather than
             # merged with, or replaced by, the narrower per-request choice.
             config_params.setdefault("tool_config", tool_config)
+
+        if tool_specs and self.config.get("gemini_tools") and not is_vertex:
+            # Gemini requires this flag when server-side built-in tools and function declarations are combined.
+            # Preserve any caller-supplied function-calling or retrieval settings.
+            existing_tool_config = config_params.get("tool_config")
+            if existing_tool_config is None:
+                config_params["tool_config"] = genai.types.ToolConfig(include_server_side_tool_invocations=True)
+            elif isinstance(existing_tool_config, genai.types.ToolConfig):
+                if existing_tool_config.include_server_side_tool_invocations is None:
+                    config_params["tool_config"] = existing_tool_config.model_copy(
+                        update={"include_server_side_tool_invocations": True},
+                    )
+            elif isinstance(existing_tool_config, dict):
+                config_params["tool_config"] = {
+                    **existing_tool_config,
+                    "include_server_side_tool_invocations": existing_tool_config.get(
+                        "include_server_side_tool_invocations",
+                        True,
+                    ),
+                }
 
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -364,6 +388,8 @@ class GeminiModel(Model):
         system_prompt: str | None,
         params: dict[str, Any] | None,
         tool_choice: ToolChoice | None = None,
+        *,
+        is_vertex: bool = False,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -375,12 +401,20 @@ class GeminiModel(Model):
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
             tool_choice: Selection strategy for tool invocation.
+            is_vertex: Whether the request is sent through Vertex AI, which does not support
+                `include_server_side_tool_invocations`.
 
         Returns:
             A Gemini streaming request.
         """
         return {
-            "config": self._format_request_config(tool_specs, system_prompt, params, tool_choice).to_json_dict(),
+            "config": self._format_request_config(
+                tool_specs,
+                system_prompt,
+                params,
+                tool_choice,
+                is_vertex=is_vertex,
+            ).to_json_dict(),
             "contents": [content.to_json_dict() for content in self._format_request_content(messages)],
             "model": self.config["model_id"],
         }
@@ -586,11 +620,17 @@ class GeminiModel(Model):
         Raises:
             ModelThrottledException: If the request is throttled by Gemini.
         """
+        gemini_client = self._get_client()
         request = self._format_request(
-            messages, tool_specs, system_prompt, self.config.get("params"), tool_choice=tool_choice
+            messages,
+            tool_specs,
+            system_prompt,
+            self.config.get("params"),
+            tool_choice=tool_choice,
+            is_vertex=getattr(gemini_client, "vertexai", False) is True,
         )
 
-        client = self._get_client().aio
+        client = gemini_client.aio
 
         try:
             response = await client.models.generate_content_stream(**request)

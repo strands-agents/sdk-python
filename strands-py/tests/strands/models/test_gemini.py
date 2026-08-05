@@ -1051,12 +1051,53 @@ async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client
                     ]
                 },
                 {"code_execution": {}},
-            ]
+            ],
+            "tool_config": {"include_server_side_tool_invocations": True},
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_and_function_tools_for_vertex(
+    gemini_client, messages, tool_spec, model_id
+):
+    gemini_client.vertexai = True
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(model_id=model_id, client=gemini_client, gemini_tools=[code_execution_tool])
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert "include_server_side_tool_invocations" not in request["config"]
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_merges_existing_tool_config(
+    gemini_client, messages, tool_spec, model_id
+):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    tool_config = genai.types.ToolConfig(
+        function_calling_config=genai.types.FunctionCallingConfig(
+            mode=genai.types.FunctionCallingConfigMode.AUTO,
+        ),
+    )
+    model = GeminiModel(
+        model_id=model_id,
+        client=gemini_client,
+        gemini_tools=[code_execution_tool],
+        params={"tool_config": tool_config},
+    )
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert request["config"]["tool_config"] == {
+        "function_calling_config": {"mode": "AUTO"},
+        "include_server_side_tool_invocations": True,
+    }
 
 
 @pytest.mark.parametrize(
