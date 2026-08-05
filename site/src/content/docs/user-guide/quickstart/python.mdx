@@ -109,7 +109,7 @@ from . import agent
 And finally our `agent.py` file where the goodies are:
 
 ```python
-from strands import Agent
+from strands import Agent, tool
 
 # calculator is defined at the end of this page
 # Define a custom tool as a Python function using the @tool decorator
@@ -563,7 +563,7 @@ Ready to learn more? Check out these resources:
 ## The `calculator` tool used above
 
 The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
+something to call. It is incidental to the topic: see
 [Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
 for how `@tool` works.
 

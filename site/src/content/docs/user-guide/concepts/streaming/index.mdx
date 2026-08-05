@@ -321,7 +321,7 @@ Utilizing both [agents as a tool](../multi-agent/agents-as-tools.md) and [tool s
 ```python
 from typing import AsyncIterator
 from dataclasses import dataclass
-from strands import Agent
+from strands import Agent, tool
 
 # calculator is defined at the end of this page
 @dataclass
@@ -405,7 +405,7 @@ orchestrator_callback("What is 3+3?")
 ## The `calculator` tool used above
 
 The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
+something to call. It is incidental to the topic: see
 [Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
 for how `@tool` works.
 
