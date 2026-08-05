@@ -128,8 +128,7 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
         # Region hint for any default boto3 client the store constructs. Only an explicit
         # ``region_name`` config is threaded through; when absent, ``None`` is passed so boto3
-        # resolves the region from its own chain (``AWS_DEFAULT_REGION`` env, then
-        # ``~/.aws/config`` — no IMDS) rather than the store silently picking one — a wrong
+        # resolves the region itself rather than the store silently picking one — a wrong
         # default would misroute region-scoped knowledge bases. Injected clients are used
         # verbatim and bypass this.
         self._region = kb_config.get("region_name")
