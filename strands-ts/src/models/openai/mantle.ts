@@ -17,14 +17,52 @@ import type { AwsCredentialIdentity, AwsCredentialIdentityProvider } from '@smit
 const MANTLE_DOCS_URL = 'https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html'
 
 /**
+ * Mantle-routed model ids served from `/openai/v1` instead of `/v1`.
+ *
+ * On Mantle the base path is a property of the individual model, not of its
+ * vendor prefix or the API surface. The two Gemma generations prove a prefix
+ * cannot decide it: `google.gemma-4-31b` is served from `/openai/v1` while
+ * `google.gemma-3-27b-it` is served from `/v1`. Sending a model to the wrong
+ * base path fails with HTTP 400 `validation_error` ("isn't supported on this
+ * route"), so this set is matched exactly rather than by prefix.
+ *
+ * Mantle exposes no way to discover a model's base path: `GET /v1/models`
+ * reports `status` but not routing, and there is no `/openai/v1/models`. The
+ * set below was therefore derived empirically by invoking every model listed in
+ * `us-east-1` on both base paths and both API surfaces, and it has to be
+ * updated when Mantle onboards models. The `mantle-routing` integ test replays
+ * that probe against the live catalog so drift surfaces as a test failure
+ * naming the offending ids rather than as a 400 in a user's application.
+ *
+ * Verified against the `us-east-1` catalog on 2026-08-05.
+ */
+const OPENAI_PATH_MODEL_IDS: ReadonlySet<string> = new Set([
+  // Hosted OpenAI models. Responses API only.
+  'openai.gpt-5.4',
+  'openai.gpt-5.4-2026-03-05',
+  'openai.gpt-5.5',
+  'openai.gpt-5.5-2026-04-23',
+  'openai.gpt-5.6-luna',
+  'openai.gpt-5.6-sol',
+  'openai.gpt-5.6-terra',
+  // Gemma 4. Both API surfaces. Gemma 3 is on /v1, so do not fold these into a prefix.
+  'google.gemma-4-26b-a4b',
+  'google.gemma-4-31b',
+  'google.gemma-4-e2b',
+  // xAI. Both API surfaces.
+  'xai.grok-4.3',
+])
+
+/**
  * Mantle-routed model id prefixes served from `/openai/v1` instead of `/v1`.
  *
- * On Mantle the base path is keyed by model family, not API surface: hosted
- * OpenAI models (`openai.gpt-5.*`) are served from `/openai/v1`, while other
- * models (e.g. `openai.gpt-oss-*`) use `/v1` — both on the same `/responses`
- * and `/chat/completions` endpoints.
+ * Prefixes are a forward-compatibility hedge for id families whose members are
+ * all served from `/openai/v1`, so a new point release works before it is added
+ * to {@link OPENAI_PATH_MODEL_IDS}. Only families with no `/v1` members may be
+ * listed: `google.gemma-` and `openai.gpt-` are both split across base paths and
+ * are deliberately absent.
  */
-const OPENAI_PATH_MODEL_PREFIXES = ['openai.gpt-5.'] as const
+const OPENAI_PATH_MODEL_PREFIXES = ['openai.gpt-5.', 'xai.'] as const
 
 // Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
 // Anchored so a malformed region (e.g. one containing '@', ':', '/', '#') cannot re-point
@@ -116,17 +154,31 @@ export function resolveMantleRegion(config: BedrockMantleConfig): string {
 }
 
 /**
- * Builds the Mantle base URL for a region and model id.
+ * Resolves the Mantle base path for a model id.
  *
- * The base path is keyed by model family: `openai.gpt-5.*` is served from
- * `/openai/v1`, all other Mantle-routed models from `/v1`. This mirrors the
- * Python SDK's `_resolve_mantle_base_path`.
+ * Mirrors the Python SDK's `_resolve_mantle_base_path`. Exported for the
+ * `mantle-routing` integ test, which asserts this resolution against the live
+ * Mantle catalog.
+ *
+ * @internal
+ */
+export function resolveMantleBasePath(modelId: string): '/v1' | '/openai/v1' {
+  if (OPENAI_PATH_MODEL_IDS.has(modelId)) {
+    return '/openai/v1'
+  }
+  if (OPENAI_PATH_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix))) {
+    return '/openai/v1'
+  }
+  return '/v1'
+}
+
+/**
+ * Builds the Mantle base URL for a region and model id.
  *
  * @internal
  */
 export function bedrockMantleBaseUrl(region: string, modelId: string): string {
-  const suffix = OPENAI_PATH_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix)) ? '/openai/v1' : '/v1'
-  return `https://bedrock-mantle.${region}.api.aws${suffix}`
+  return `https://bedrock-mantle.${region}.api.aws${resolveMantleBasePath(modelId)}`
 }
 
 /**

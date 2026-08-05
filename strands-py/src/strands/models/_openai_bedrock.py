@@ -26,17 +26,59 @@ _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws{path}"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
 
-# Mantle-routed model id prefixes served from /openai/v1 instead of /v1.
-_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.",)
+# Mantle-routed model ids served from /openai/v1 instead of /v1.
+#
+# On Mantle the base path is a property of the individual model, not of its vendor prefix
+# or the API surface. The two Gemma generations prove a prefix cannot decide it:
+# ``google.gemma-4-31b`` is served from ``/openai/v1`` while ``google.gemma-3-27b-it`` is
+# served from ``/v1``. Sending a model to the wrong base path fails with HTTP 400
+# ``validation_error`` ("isn't supported on this route"), so this set is matched exactly
+# rather than by prefix.
+#
+# Mantle exposes no way to discover a model's base path: ``GET /v1/models`` reports
+# ``status`` but not routing, and there is no ``/openai/v1/models``. The set below was
+# therefore derived empirically by invoking every model listed in ``us-east-1`` on both
+# base paths and both API surfaces, and it has to be updated when Mantle onboards models.
+# The ``test_mantle_routing`` integ test replays that probe against the live catalog so
+# drift surfaces as a test failure naming the offending ids rather than as a 400 in a
+# user's application.
+#
+# Verified against the ``us-east-1`` catalog on 2026-08-05.
+_OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
+    {
+        # Hosted OpenAI models. Responses API only.
+        "openai.gpt-5.4",
+        "openai.gpt-5.4-2026-03-05",
+        "openai.gpt-5.5",
+        "openai.gpt-5.5-2026-04-23",
+        "openai.gpt-5.6-luna",
+        "openai.gpt-5.6-sol",
+        "openai.gpt-5.6-terra",
+        # Gemma 4. Both API surfaces. Gemma 3 is on /v1, so do not fold these into a prefix.
+        "google.gemma-4-26b-a4b",
+        "google.gemma-4-31b",
+        "google.gemma-4-e2b",
+        # xAI. Both API surfaces.
+        "xai.grok-4.3",
+    }
+)
+
+# Prefixes are a forward-compatibility hedge for id families whose members are all served
+# from /openai/v1, so a new point release works before it is added to
+# _OPENAI_PATH_MODEL_IDS. Only families with no /v1 members may be listed:
+# ``google.gemma-`` and ``openai.gpt-`` are both split across base paths and are
+# deliberately absent.
+_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.")
 
 
 def _resolve_mantle_base_path(model_id: str) -> str:
     """Resolve the Mantle base path for ``model_id``.
 
-    Model ids matching :data:`_OPENAI_PATH_MODEL_PREFIXES` are served from
-    ``/openai/v1``; other Mantle-routed models (e.g. ``openai.gpt-oss-*``) use ``/v1``.
+    Models in :data:`_OPENAI_PATH_MODEL_IDS` (or matching
+    :data:`_OPENAI_PATH_MODEL_PREFIXES`) are served from ``/openai/v1``; other
+    Mantle-routed models (e.g. ``openai.gpt-oss-*``, ``google.gemma-3-*``) use ``/v1``.
     """
-    if model_id.startswith(_OPENAI_PATH_MODEL_PREFIXES):
+    if model_id in _OPENAI_PATH_MODEL_IDS or model_id.startswith(_OPENAI_PATH_MODEL_PREFIXES):
         return "/openai/v1"
     return "/v1"
 
@@ -108,8 +150,7 @@ def resolve_bedrock_client_args(
     ``client_args`` does not contain ``base_url`` or ``api_key`` before calling this
     function (typically at ``__init__`` time for fail-fast behavior).
 
-    The ``model_id`` selects the Mantle base path: ``openai.gpt-5.*`` is served from
-    ``/openai/v1`` while other models use ``/v1``.
+    The ``model_id`` selects the Mantle base path via :func:`_resolve_mantle_base_path`.
 
     Raises:
         ValueError: If no region can be resolved.
