@@ -3,10 +3,41 @@
 Fast, code-based evaluation without LLM judges.
 """
 
-
 import operator
+import asyncio
 
-from strands import tool
+from strands import Agent, tool
+from strands_evals import Case, Experiment
+from strands_evals.evaluators import Contains, Equals, StartsWith, ToolCalled
+
+# --- Output evaluators ---
+
+
+def get_response(case: Case) -> str:
+    agent = Agent(callback_handler=None)
+    return str(agent(case.input))
+
+
+cases = [
+    Case(
+        name="capital",
+        input="What is the capital of France? Reply with just the city name.",
+        expected_output="Paris",
+    ),
+]
+
+experiment = Experiment(
+    cases=cases,
+    evaluators=[
+        Contains(value="Paris", case_sensitive=False),
+        Equals(),  # compares against expected_output
+    ],
+)
+
+# --- Trajectory evaluator ---
+
+from strands_evals.extractors import tools_use_extractor
+
 
 _OPS = {
     "+": operator.add,
@@ -27,6 +58,7 @@ def calculator(a: float, b: float, op: str) -> float:
         op: One of "+", "-", "*", "/", "**".
     """
     return _OPS[op](a, b)
+
 
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(tools=[calculator], callback_handler=None)

@@ -27,9 +27,9 @@ After installing the SageMaker dependencies, you can import and initialize the S
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.sagemaker import SageMakerAIModel
 
-# calculator is defined at the end of this page
 model = SageMakerAIModel(
     endpoint_config={
         "endpoint_name": "my-llm-endpoint",
@@ -42,8 +42,8 @@ model = SageMakerAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is the square root of 64?")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 ```
 
 **Note**: Tool calling support varies by model. Models like [Mistral-Small-24B-Instruct-2501](https://aws.amazon.com/blogs/machine-learning/mistral-small-24b-instruct-2501-is-now-available-on-sagemaker-jumpstart-and-amazon-bedrock-marketplace/) have demonstrated reliable tool calling capabilities, but not all models deployed on SageMaker support this feature. Verify your model's capabilities before implementing tool-based workflows.
@@ -111,14 +111,3 @@ Ensure your deployed model supports OpenAI-compatible chat completion APIs and v
 - [Python API Reference](@api/python/strands.models.model)
 - [Amazon SageMaker Documentation](https://docs.aws.amazon.com/sagemaker/)
 - [SageMaker Runtime API](https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_runtime_InvokeEndpoint.html)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -25,9 +25,9 @@ After installing the `openai` package, you can import and initialize the Strands
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.openai import OpenAIModel
 
-# calculator is defined at the end of this page
 model = OpenAIModel(
     client_args={
         "api_key": "<NEBIUS_API_KEY>",
@@ -40,8 +40,8 @@ model = OpenAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-agent("What is 2+2?")
+agent = Agent(model=model, tools=[sleep])
+agent("Pause for 2 seconds, then tell me you are done.")
 ```
 
 ## Configuration
@@ -85,14 +85,3 @@ Ensure you're using a model ID compatible with Nebius Token Factory (e.g., `deep
 * [Nebius Token Factory Models](https://docs.tokenfactory.nebius.com/ai-models-inference/overview)
 * [OpenAI Python SDK](https://github.com/openai/openai-python)
 * [Strands Agents API](@api/python/strands.models.model)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -38,9 +38,9 @@ After installing dependencies, you can import and initialize the Strands Agents'
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.openai import OpenAIModel
 
-# calculator is defined at the end of this page
 model = OpenAIModel(
     client_args={
         "api_key": "<KEY>",
@@ -53,8 +53,8 @@ model = OpenAIModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 </Tab>
@@ -294,14 +294,3 @@ if __name__ == "__main__":
 
 - [Python API](@api/python/strands.models.model)
 - [OpenAI](https://platform.openai.com/docs/overview)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

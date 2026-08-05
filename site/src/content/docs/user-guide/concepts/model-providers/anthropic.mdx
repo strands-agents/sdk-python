@@ -38,9 +38,9 @@ After installing dependencies, you can import and initialize the Strands Agents'
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.anthropic import AnthropicModel
 
-# calculator is defined at the end of this page
 model = AnthropicModel(
     client_args={
         "api_key": "<KEY>",
@@ -53,8 +53,8 @@ model = AnthropicModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 </Tab>
@@ -245,14 +245,3 @@ When disabled (or if the API call fails), falls back to estimation with a charac
 
 - [Python API](@api/python/strands.models.model)
 - [Anthropic](https://platform.claude.com/docs/en/home)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

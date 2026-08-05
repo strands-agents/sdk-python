@@ -36,13 +36,13 @@ pip install strands-mlx strands-agents-tools
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands_mlx import MLXModel
 
-# calculator is defined at the end of this page
 model = MLXModel(model_id="mlx-community/Qwen3-1.7B-4bit")
-agent = Agent(model=model, tools=[calculator])
+agent = Agent(model=model, tools=[sleep])
 
-agent("What is 29 * 42?")
+agent("Pause for 2 seconds, then tell me you are done.")
 ```
 
 ### Vision Model
@@ -142,14 +142,3 @@ Ensure you're using a valid mlx-community model ID. Models are automatically dow
 - [MLX Documentation](https://ml-explore.github.io/mlx/)
 - [mlx-community Models](https://huggingface.co/mlx-community)
 - [Strands Agents SDK](https://strandsagents.com)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -1,7 +1,7 @@
-
 import operator
+from strands import Agent, tool
+import json
 
-from strands import tool
 
 _OPS = {
     "+": operator.add,

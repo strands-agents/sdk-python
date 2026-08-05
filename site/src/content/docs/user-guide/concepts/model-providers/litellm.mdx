@@ -24,9 +24,9 @@ After installing `litellm`, you can import and initialize Strands Agents' LiteLL
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.litellm import LiteLLMModel
 
-# calculator is defined at the end of this page
 model = LiteLLMModel(
     client_args={
         "api_key": "<KEY>",
@@ -39,8 +39,8 @@ model = LiteLLMModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 
@@ -185,14 +185,3 @@ print(f"Rating: {result.rating}")
 
 - [Python API](@api/python/strands.models.model)
 - [LiteLLM](https://docs.litellm.ai/docs/)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

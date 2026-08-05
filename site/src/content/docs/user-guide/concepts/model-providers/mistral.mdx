@@ -27,17 +27,17 @@ After installing `mistral`, you can import and initialize Strands Agents' Mistra
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.mistral import MistralModel
 
-# calculator is defined at the end of this page
 model = MistralModel(
     api_key="<YOUR_MISTRAL_API_KEY>",
     # **model_config
     model_id="mistral-large-latest",
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 
@@ -96,14 +96,3 @@ If you encounter the error `ModuleNotFoundError: No module named 'mistralai'`, t
 
 - [Python API Reference](@api/python/strands.models.model)
 - [Mistral AI Documentation](https://docs.mistral.ai/)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

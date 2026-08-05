@@ -42,9 +42,9 @@ After installing dependencies, you can import and initialize the Strands Agents'
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.gemini import GeminiModel
 
-# calculator is defined at the end of this page
 model = GeminiModel(
     client_args={
         "api_key": "<KEY>",
@@ -60,8 +60,8 @@ model = GeminiModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 </Tab>
@@ -331,9 +331,9 @@ Users can pass their own custom Gemini client to the GeminiModel for Strands Age
 ```python
 from google import genai
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.gemini import GeminiModel
 
-# calculator is defined at the end of this page
 client = genai.Client(api_key="<KEY>")
 
 model = GeminiModel(
@@ -349,8 +349,8 @@ model = GeminiModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 </Tab>
@@ -513,14 +513,3 @@ When disabled (or if the API call fails), falls back to estimation using the cha
 - [Google GenAI SDK documentation](https://googleapis.github.io/python-genai/)
 - [Google AI Studio](https://aistudio.google.com/)
 - [@google/genai TypeScript SDK](https://github.com/googleapis/js-genai)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

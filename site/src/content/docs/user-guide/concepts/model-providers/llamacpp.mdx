@@ -24,9 +24,9 @@ After setting up a llama.cpp server, you can import and initialize the Strands A
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.llamacpp import LlamaCppModel
 
-# calculator is defined at the end of this page
 model = LlamaCppModel(
     base_url="http://localhost:8080",
     # **model_config
@@ -38,8 +38,8 @@ model = LlamaCppModel(
     }
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 
@@ -238,14 +238,3 @@ When disabled (or if the call fails), falls back to estimation with a character-
 - [llama.cpp](https://github.com/ggml-org/llama.cpp)
 - [llama.cpp Server Documentation](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
 - [GGUF Models on Hugging Face](https://huggingface.co/models?search=gguf)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -24,17 +24,17 @@ After installing `writer`, you can import and initialize Strands Agents' Writer 
 
 ```python
 from strands import Agent
+from strands.vended_tools import sleep
 from strands.models.writer import WriterModel
 
-# calculator is defined at the end of this page
 model = WriterModel(
     client_args={"api_key": "<WRITER_API_KEY>"},
     # **model_config
     model_id="palmyra-x5",
 )
 
-agent = Agent(model=model, tools=[calculator])
-response = agent("What is 2+2")
+agent = Agent(model=model, tools=[sleep])
+response = agent("Pause for 2 seconds, then tell me you are done.")
 print(response)
 ```
 
@@ -292,14 +292,3 @@ Ensure your Writer API key is valid and has the necessary permissions. You can g
 - [Writer Documentation](https://dev.writer.com/)
 - [Writer Models Guide](https://dev.writer.com/home/models)
 - [Writer API Reference](https://dev.writer.com/api-reference)
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic — see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```
