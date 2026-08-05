@@ -423,8 +423,9 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
     source: "MultiAgentBase"
     node_id: str
     invocation_state: dict[str, Any] | None = None
-    skip_node: bool | str = False
     cancel_node: bool | str = False
+    # Appended rather than placed next to its alias so that cancel_node keeps its positional slot.
+    skip_node: bool | str = False
 
     def _can_write(self, name: str) -> bool:
         return name in ["skip_node", "cancel_node"]

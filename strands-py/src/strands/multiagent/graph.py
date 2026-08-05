@@ -182,12 +182,13 @@ class GraphResult(MultiAgentResult):
 
     total_nodes: int = 0
     completed_nodes: int = 0
-    skipped_nodes: int = 0
     failed_nodes: int = 0
     interrupted_nodes: int = 0
     execution_order: list["GraphNode"] = field(default_factory=list)
     edges: list[tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
     entry_points: list["GraphNode"] = field(default_factory=list)
+    # Appended rather than grouped with the other counters so that no existing positional argument shifts.
+    skipped_nodes: int = 0
 
 
 @dataclass
