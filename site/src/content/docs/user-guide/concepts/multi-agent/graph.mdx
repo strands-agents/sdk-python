@@ -54,7 +54,7 @@ A [`GraphNode`](@api/python/strands.multiagent.graph#GraphNode) represents a nod
 - **node_id**: Unique identifier for the node
 - **executor**: The Agent, A2AAgent, or MultiAgentBase instance to execute
 - **dependencies**: Set of nodes this node depends on
-- **execution_status**: Current status (PENDING, EXECUTING, COMPLETED, FAILED)
+- **execution_status**: Current status (PENDING, EXECUTING, COMPLETED, SKIPPED, FAILED, INTERRUPTED)
 - **result**: The NodeResult after execution
 - **execution_time**: Time taken to execute the node in milliseconds
 
