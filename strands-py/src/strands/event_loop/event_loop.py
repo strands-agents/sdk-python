@@ -596,6 +596,7 @@ async def _handle_model_execution(
 
             # Check if hooks want to retry the model call
             if after_model_call_event.retry:
+                agent.event_loop_metrics.update_usage(usage)
                 logger.debug(
                     "stop_reason=<%s>, retry_requested=<True> | hook requested model retry",
                     stop_reason,

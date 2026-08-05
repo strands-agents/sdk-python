@@ -68,6 +68,82 @@ export const changelogFrontmatterSchema = z
   })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
+// `package` is optional: an empty block (`python: {}`) marks a guide-only
+// integration (documented by a vendor dev-guide, no Strands-specific
+// installable package) as covering that language, so it still participates
+// in the language facet. The registry link derives from the package name at
+// build time (see toCardModel in util/catalog.ts), so entries never declare
+// registry URLs. `.strict()` makes a submitted `registry:` (or any other
+// stray key) fail the build with a clear error instead of being silently
+// ignored.
+const catalogLanguageSchema = z
+  .object({
+    // Package name as published on the registry (PyPI or npm)
+    package: z.string().optional(),
+  })
+  .strict()
+
+export const catalogEntrySchema = z
+  .object({
+    name: z.string(),
+    description: z.string(),
+    // Keep in sync with the docs frontmatter integrationType below and the
+    // display registry in src/components/catalog/types.ts (this schema can't
+    // import from components without tangling content config into the UI).
+    integrationType: z.enum([
+      'model-provider',
+      'tool',
+      'session-manager',
+      'memory-store',
+      'storage',
+      'integration',
+      'plugin',
+      'agent-extension',
+      'intervention',
+    ]),
+    // Which SDK's ecosystem this belongs to. The catalog's SDK facet stays
+    // hidden until at least one evals entry exists.
+    sdk: z.enum(['agents', 'evals']).default('agents'),
+    // Strict so a misspelled language key (`typeScript:`) fails the build
+    // instead of silently dropping the language from the entry's facets.
+    languages: z
+      .object({
+        python: catalogLanguageSchema.optional(),
+        typescript: catalogLanguageSchema.optional(),
+      })
+      .strict(),
+    // The single self-declared link: the maintainer shown on the card derives
+    // from this URL's owner segment, and registry links derive from the
+    // package names — submitters can't point them somewhere else.
+    github: z.string().url().startsWith('https://github.com/', 'github must start with https://github.com/'),
+    // Docs collection id of the detail page (e.g. 'docs/integrations/tools/strands-deepgram').
+    // Optional: entries without one link out to their GitHub repo instead.
+    docsPage: z.string().optional(),
+    // External URL of the integration's own Strands setup/instructions page
+    // (e.g. Temporal's docs for its Strands integration). When there is no
+    // on-site docsPage, the card's primary link prefers this over the bare
+    // GitHub repo so users land on usage instructions.
+    docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
+    // Editorial fields — maintainer-granted only; submitters leave them unset.
+    featured: z.boolean().default(false),
+    badges: z.array(z.enum(['verified'])).default([]),
+    // Drives the "New" badge on the catalog card.
+    addedDate: z.coerce.date(),
+  })
+  // A stray key (e.g. a self-declared `maintainer:`) fails the build with a
+  // clear error instead of being silently dropped.
+  .strict()
+  .superRefine((d, ctx) => {
+    if (!d.languages.python && !d.languages.typescript) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['languages'],
+        message: 'at least one language block (python or typescript) is required',
+      })
+    }
+  })
+export type CatalogEntryData = z.infer<typeof catalogEntrySchema>
+
 const blogSchema = z.object({
   title: z.string(),
   date: z.coerce.date(),
@@ -93,6 +169,13 @@ export const collections = {
       pattern: '**/*.{md,mdx}',
     }),
     schema: blogSchema,
+  }),
+  catalog: defineCollection({
+    loader: glob({
+      base: 'src/content/catalog',
+      pattern: '**/*.yaml',
+    }),
+    schema: catalogEntrySchema,
   }),
   changelog: defineCollection({
     loader: glob({
@@ -125,7 +208,7 @@ export const collections = {
         "404.mdx",
 
         "docs/user-guide/**/*.mdx",
-        "docs/community/**/*.mdx",
+        "docs/integrations/**/*.mdx",
         "docs/contribute/**/*.mdx",
         "docs/examples/**/[!index]*.mdx",
         "docs/labs/**/*.mdx",
