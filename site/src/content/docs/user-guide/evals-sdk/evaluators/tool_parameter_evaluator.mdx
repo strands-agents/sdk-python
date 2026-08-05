@@ -78,7 +78,7 @@ def user_task_function(case: Case) -> dict:
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
         },
-        tools=[],
+        tools=[calculator],
         callback_handler=None
     )
     agent_response = agent(case.input)
@@ -161,3 +161,14 @@ The judge determines if each parameter value can be traced back to information i
 - [**TrajectoryEvaluator**](trajectory_evaluator.md): Evaluates the overall sequence of tool calls
 - [**FaithfulnessEvaluator**](faithfulness_evaluator.md): Evaluates if responses are grounded in context
 - [**OutputEvaluator**](output_evaluator.md): Evaluates the quality of final outputs
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

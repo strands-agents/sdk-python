@@ -44,6 +44,7 @@ The decorator wraps your function so that `Experiment.run_evaluations` receives 
 Accept a `Case` parameter to customize agent behavior per test case:
 
 ```python
+# calculator is defined at the end of this page
 
 @eval_task()
 def my_task(case):
@@ -142,3 +143,14 @@ def task_function():
 - [Getting Started](../quickstart.md): Quickstart guide
 - [Evaluators Overview](../evaluators/index.md): Available evaluators
 - [Remote Trace Providers](trace_providers.md): Evaluate traces from production backends
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

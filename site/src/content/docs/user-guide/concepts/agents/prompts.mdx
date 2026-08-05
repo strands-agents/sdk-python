@@ -127,6 +127,7 @@ Prompting is a primary functionality of Strands that allows you to invoke tools 
 <Tab label="Python">
 
 ```python
+# calculator is defined at the end of this page
 result = agent.tool.calculator(a=12, b=12, op="*")
 ```
 </Tab>
@@ -194,3 +195,14 @@ For guidance on writing safe and responsible prompts, including defending agains
 * [Llama - Prompting](https://www.llama.com/docs/how-to-guides/prompting/)
 * [Anthropic - Prompt engineering overview](https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview)
 * [OpenAI - Prompt engineering](https://platform.openai.com/docs/guides/prompt-engineering/six-strategies-for-getting-better-results)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

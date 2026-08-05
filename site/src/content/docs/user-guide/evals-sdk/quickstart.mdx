@@ -178,7 +178,7 @@ from strands_evals.extractors import tools_use_extractor
 # Define task function that captures tool usage
 def get_response_with_tools(case: Case) -> dict:
     agent = Agent(
-        tools=[],
+        tools=[calculator],  # calculator is defined at the end of this page
         system_prompt="You are a helpful assistant. Use tools when appropriate.",
         callback_handler=None
     )
@@ -198,16 +198,16 @@ test_cases = [
         metadata={"category": "math", "expected_tools": ["calculator"]}
     ),
     Case[str, str](
-        name="time-1", 
-        input="What time is it right now?",
-        expected_trajectory=["current_time"],
-        metadata={"category": "time", "expected_tools": ["current_time"]}
+        name="calculation-2",
+        input="What is 12 * 12?",
+        expected_trajectory=["calculator"],
+        metadata={"category": "math", "expected_tools": ["calculator"]}
     ),
     Case[str, str](
         name="complex-1",
-        input="What time is it and what is 25 * 48?",
-        expected_trajectory=["current_time", "calculator"],
-        metadata={"category": "multi_tool", "expected_tools": ["current_time", "calculator"]}
+        input="What is 25 * 48, and then divide that by 4?",
+        expected_trajectory=["calculator", "calculator"],
+        metadata={"category": "multi_tool", "expected_tools": ["calculator"]}
     )
 ]
 
@@ -232,7 +232,7 @@ evaluator = TrajectoryEvaluator(
 )
 
 # Update evaluator with tool descriptions to prevent context overflow
-sample_agent = Agent(tools=[])
+sample_agent = Agent(tools=[calculator])
 tool_descriptions = tools_use_extractor.extract_tools_description(sample_agent, is_short=True)
 evaluator.update_trajectory_description(tool_descriptions)
 
@@ -266,7 +266,7 @@ from strands_evals.evaluators import HelpfulnessEvaluator
 
 @eval_task(TracedHandler())
 def user_task_function():
-    return Agent(tools=[], callback_handler=None)
+    return Agent(tools=[calculator], callback_handler=None)
 
 # Create test cases for helpfulness evaluation
 test_cases = [
@@ -310,7 +310,7 @@ telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
 def user_task_function(case: Case) -> dict:
     telemetry.in_memory_exporter.clear()
     agent = Agent(
-        tools=[],
+        tools=[calculator],
         trace_attributes={
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
@@ -566,3 +566,14 @@ Ready to dive deeper? Explore these resources:
 - [Experiment Generator](experiment_generator.md) - Automatically generate comprehensive test suites
 - [Serialization](how-to/serialization.md) - Save, load, and version your evaluation experiments
 - [Detectors](detectors/index.md) - Automatic failure detection and root cause analysis for agent traces
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

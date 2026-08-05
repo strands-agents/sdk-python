@@ -55,7 +55,7 @@ from strands_sglang import SGLangModel
 async def main():
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Instruct-2507")
     model = SGLangModel(tokenizer=tokenizer, base_url="http://localhost:30000")
-    agent = Agent(model=model, tools=[])
+    agent = Agent(model=model, tools=[calculator])
 
     model.reset()  # Reset TITO state for new episode
     result = await agent.invoke_async("What is 25 * 17?")
@@ -208,3 +208,14 @@ If TITO data doesn't match expected output, ensure you call `model.reset()` befo
 * [SGLang Documentation](https://docs.sglang.io/)
 * [Slime RL Training Framework](https://github.com/THUDM/slime/)
 * [Strands Agents API](@api/python/strands.models.model)
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

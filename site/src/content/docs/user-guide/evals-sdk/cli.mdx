@@ -324,3 +324,14 @@ A typical CI flow combines `validate` (fast schema gate) with `run` (the actual 
 - [Serialization](how-to/serialization.md) — the on-disk shapes consumed by `validate`, `report`, and `generate --experiment`.
 - [Experiment Generator](experiment_generator.md) — the API behind `strands-evals generate`.
 - [Detectors](detectors/index.md) — the API behind `strands-evals diagnose`.
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

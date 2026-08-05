@@ -498,7 +498,7 @@ from strands.experimental.bidi.models import BidiNovaSonicModel
 
 async def main():
     model = BidiNovaSonicModel()
-    agent = BidiAgent(model=model, tools=[])
+    agent = BidiAgent(model=model, tools=[calculator])
     
     async with agent as agent:
         await agent.send("What is 25 times 48?")
@@ -583,3 +583,14 @@ asyncio.run(main())
 Hook events are a separate concept from streaming events. While streaming events flow through `agent.receive()` during conversations, hook events are callbacks that trigger at specific lifecycle points (like initialization, message added, or interruption). Hook events allow you to inject custom logic for cross-cutting concerns like logging, analytics, and session persistence without processing the event stream directly.
 
 For details on hook events and usage patterns, see the [Hooks](hooks.md) documentation.
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```
