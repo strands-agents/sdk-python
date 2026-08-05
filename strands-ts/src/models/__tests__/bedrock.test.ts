@@ -495,7 +495,7 @@ describe('BedrockModel', () => {
             content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
-        system: [{ text: 'You are a helpful assistant' }],
+        system: [{ text: 'You are a helpful assistant' }, { cachePoint: { type: 'default' } }],
         toolConfig: {
           toolChoice: { auto: {} },
           tools: [
@@ -1620,7 +1620,8 @@ describe('BedrockModel', () => {
       vi.clearAllMocks()
     })
 
-    it('does not add cache points to string system prompt with cacheConfig', async () => {
+    it('appends a cache point to a string system prompt with cacheConfig', async () => {
+      // Regression guard for https://github.com/strands-agents/harness-sdk/issues/3144.
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
       const options: StreamOptions = {
@@ -1637,7 +1638,7 @@ describe('BedrockModel', () => {
             content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
-        system: [{ text: 'You are a helpful assistant' }],
+        system: [{ text: 'You are a helpful assistant' }, { cachePoint: { type: 'default' } }],
       })
     })
 
@@ -1783,7 +1784,7 @@ describe('BedrockModel', () => {
       collectIterator(provider.stream(messages, options))
 
       const call = mockConverseStreamCommand.mock.lastCall?.[0]
-      expect(call?.system).toStrictEqual([{ text: 'You are a helpful assistant' }])
+      expect(call?.system).toStrictEqual([{ text: 'You are a helpful assistant' }, { cachePoint: { type: 'default' } }])
       expect(call?.toolConfig?.tools).toStrictEqual([
         {
           toolSpec: {
@@ -3027,6 +3028,54 @@ describe('BedrockModel', () => {
           },
         ],
       })
+    })
+
+    it('carries systemTTL from cacheConfig into the appended system cache point', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', systemTTL: '1h' } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = { systemPrompt: 'static prompt' }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
+    })
+
+    it('does not duplicate the system cache point when caller placed one at the end', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = {
+        systemPrompt: [new TextBlock('static prompt'), new CachePointBlock({ cacheType: 'default', ttl: '1h' })],
+      }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default', ttl: '1h' } }])
+    })
+
+    it('skips the system cache point when the system prompt is absent', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toBeUndefined()
+    })
+
+    it('appends a system cache point under explicit anthropic strategy for ARN inference profiles', async () => {
+      const provider = new BedrockModel({
+        modelId: 'arn:aws:bedrock:us-east-1:123:application-inference-profile/abc',
+        cacheConfig: { strategy: 'anthropic' },
+      })
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+      const options: StreamOptions = { systemPrompt: 'static prompt' }
+
+      collectIterator(provider.stream(messages, options))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.system).toStrictEqual([{ text: 'static prompt' }, { cachePoint: { type: 'default' } }])
     })
   })
 
