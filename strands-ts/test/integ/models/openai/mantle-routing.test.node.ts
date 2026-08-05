@@ -56,67 +56,74 @@ async function serves(basePath: string, modelId: string, token: string): Promise
   )
   if (chat === 200) return true
 
-  const responses = await status(
-    `${basePath}/responses`,
-    { model: modelId, input: 'hi', max_output_tokens: 24 },
-    token
-  )
+  const responses = await status(`${basePath}/responses`, { model: modelId, input: 'hi', max_output_tokens: 24 }, token)
   return responses === 200
 }
 
-async function listModels(token: string): Promise<string[]> {
+/**
+ * List the live Mantle catalog, or `null` if this account cannot list it.
+ *
+ * `null` means "cannot run here" rather than "no models": an account may be able to mint a
+ * token but lack `bedrock-mantle:ListModels`. Callers skip on `null` so a permissions gap
+ * does not turn into a red build. Mirrors the Python test's `pytest.skip`.
+ */
+async function listModels(token: string): Promise<string[] | null> {
   const response = await globalThis.fetch(`${BASE}/v1/models`, {
     headers: { Authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
   if (response.status === 401 || response.status === 403) {
-    return []
+    return null
   }
   const payload = (await response.json()) as { data: { id: string }[] }
   return payload.data.map((m) => m.id).sort()
 }
 
 describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
-  it(
-    'routes every live Mantle model to the base path it is actually served from',
-    async () => {
-      const models = (await listModels(await mintToken())).filter(
-        (id) => !NOT_OPENAI_COMPATIBLE_PREFIXES.some((prefix) => id.startsWith(prefix))
-      )
-      expect(models.length).toBeGreaterThan(0)
+  it('routes every live Mantle model to the base path it is actually served from', async (ctx) => {
+    const catalog = await listModels(await mintToken())
+    if (catalog === null) {
+      ctx.skip('account lacks bedrock-mantle:ListModels')
+      return
+    }
 
-      const misrouted: Record<string, string> = {}
-      // Probe only the path the SDK would *not* use: if that one answers, we are wrong.
-      // Minting per model keeps long sweeps inside the token's lifetime.
-      await Promise.all(
-        models.map(async (modelId) => {
-          const resolved = resolveMantleBasePath(modelId)
-          const unused = resolved === '/v1' ? '/openai/v1' : '/v1'
-          if (await serves(unused, modelId, await mintToken())) {
-            misrouted[modelId] = resolved
-          }
-        })
-      )
+    const models = catalog.filter((id) => !NOT_OPENAI_COMPATIBLE_PREFIXES.some((prefix) => id.startsWith(prefix)))
+    expect(models.length).toBeGreaterThan(0)
 
-      expect(
-        misrouted,
-        'Mantle serves these models from the base path the SDK does not use. Update ' +
-          'OPENAI_PATH_MODEL_IDS in strands-ts/src/models/openai/mantle.ts (and the Python ' +
-          'mirror in strands-py/src/strands/models/_openai_bedrock.py)'
-      ).toEqual({})
-    },
-    600_000
-  )
+    const misrouted: Record<string, string> = {}
+    // Probe only the path the SDK would *not* use: if that one answers, we are wrong.
+    // Minting per model keeps long sweeps inside the token's lifetime.
+    await Promise.all(
+      models.map(async (modelId) => {
+        const resolved = resolveMantleBasePath(modelId)
+        const unused = resolved === '/v1' ? '/openai/v1' : '/v1'
+        if (await serves(unused, modelId, await mintToken())) {
+          misrouted[modelId] = resolved
+        }
+      })
+    )
 
-  it.each(['xai.grok-4.3', 'google.gemma-4-31b', 'google.gemma-3-27b-it', 'openai.gpt-oss-120b'])(
+    expect(
+      misrouted,
+      'Mantle serves these models from the base path the SDK does not use. Update ' +
+        'OPENAI_PATH_MODEL_IDS in strands-ts/src/models/openai/mantle.ts (and the Python ' +
+        'mirror in strands-py/src/strands/models/_openai_bedrock.py)'
+    ).toEqual({})
+  }, 600_000)
+
+  it.for(['xai.grok-4.3', 'google.gemma-4-31b', 'google.gemma-3-27b-it', 'openai.gpt-oss-120b'])(
     'serves %s from the resolved base path',
-    async (modelId) => {
+    { timeout: 120_000 },
+    async (modelId, ctx) => {
       const token = await mintToken()
       const models = await listModels(token)
+      if (models === null) {
+        ctx.skip('account lacks bedrock-mantle:ListModels')
+        return
+      }
       if (!models.includes(modelId)) return
 
       expect(await serves(resolveMantleBasePath(modelId), modelId, token)).toBe(true)
-    },
-    120_000
+    }
   )
 })

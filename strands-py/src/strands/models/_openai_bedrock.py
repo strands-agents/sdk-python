@@ -43,6 +43,13 @@ _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inferen
 # drift surfaces as a test failure naming the offending ids rather than as a 400 in a
 # user's application.
 #
+# This set is the *complete verified snapshot* of the ``/openai/v1`` catalog, not the
+# delta left over by ``_OPENAI_PATH_MODEL_PREFIXES``. Entries that a prefix already
+# matches are intentionally listed anyway: the prefixes are an additive forward-compat
+# hedge, so narrowing or removing one must never change how an already-verified id
+# routes. Add every id you verify, even a redundant one, and do not trim entries because
+# a prefix appears to cover them.
+#
 # Verified against the ``us-east-1`` catalog on 2026-08-05.
 _OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
     {
@@ -63,12 +70,18 @@ _OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
     }
 )
 
-# Prefixes are a forward-compatibility hedge for id families whose members are all served
-# from /openai/v1, so a new point release works before it is added to
-# _OPENAI_PATH_MODEL_IDS. Only families with no /v1 members may be listed:
-# ``google.gemma-`` and ``openai.gpt-`` are both split across base paths and are
-# deliberately absent.
-_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.")
+# Prefixes are an additive forward-compatibility hedge so a new *point release* of an
+# already-verified line works before it is added to _OPENAI_PATH_MODEL_IDS. Nothing here
+# is load-bearing for a verified id.
+#
+# Scope each prefix to a single model line, never to a vendor. A vendor-wide prefix bets
+# that the vendor will never split across base paths, which is the exact bet ``google.``
+# would have lost: Gemma 4 is on /openai/v1 and Gemma 3 is on /v1. So ``xai.grok-4.`` is
+# listed rather than ``xai.``, and the broader ``google.gemma-`` and ``openai.gpt-`` are
+# deliberately absent. A new line (a hypothetical ``xai.grok-5``) is left to fail the
+# drift test, which is the signal to verify it and add its id, rather than being silently
+# mis-routed.
+_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.grok-4.")
 
 
 def _resolve_mantle_base_path(model_id: str) -> str:

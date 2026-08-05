@@ -2041,6 +2041,25 @@ class TestOpenAIModelBedrockMantleConfig:
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
 
+    @pytest.mark.parametrize(
+        ("model_id", "expected_path"),
+        [("xai.grok-4.9", "/openai/v1"), ("xai.grok-5", "/v1")],
+    )
+    def test_bedrock_mantle_config_prefix_is_scoped_to_model_line(
+        self, model_id, expected_path, openai_client, mock_provide_token
+    ):
+        """Prefixes are scoped to a model line, not a vendor.
+
+        An unverified new line falls through to /v1 and trips the drift test instead of
+        being silently mis-routed.
+        """
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
+
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         """Optional credentials_provider and expiry are forwarded to provide_token."""
         _ = openai_client
