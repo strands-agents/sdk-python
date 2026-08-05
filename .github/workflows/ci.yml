@@ -127,6 +127,8 @@ jobs:
           package-manager-cache: false
       # node:test only, so no install step is needed.
       - run: npm run test:pr-metrics
+      - name: Check formatting
+        run: npx --yes prettier@3 --check '.github/scripts/pr-metrics/*.mjs'
 
   ci-gate:
     name: CI Gate

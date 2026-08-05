@@ -4,6 +4,31 @@
 // Both labelers must agree on what counts as a test, so the rules live here
 // rather than being duplicated across workflows.
 
+import fs from 'node:fs'
+import path from 'node:path'
+
+/**
+ * A repo-relative, forward-slash path for a location an analyzer reported.
+ *
+ * Analyzers emit absolute paths (and complexipy a file:// URI), while the diff
+ * is keyed by repo-relative paths; these must agree or every function looks
+ * untouched. Symlinks are resolved on both sides so a symlinked checkout root
+ * (/tmp -> /private/tmp on macOS) does not produce an escaping ../.. path.
+ */
+export function toRepoRelative(pathOrUri, repoRoot) {
+  const filePath = pathOrUri.startsWith('file://') ? pathOrUri.slice('file://'.length) : pathOrUri
+  if (!path.isAbsolute(filePath)) return filePath.split(path.sep).join('/')
+  return path.relative(realpath(repoRoot), realpath(filePath)).split(path.sep).join('/')
+}
+
+function realpath(p) {
+  try {
+    return fs.realpathSync(p)
+  } catch {
+    return p
+  }
+}
+
 /** Test files. Excluded from the size bucket and never analyzed for complexity. */
 const TEST_PATTERNS = [
   /(^|\/)tests?\//,

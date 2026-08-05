@@ -67,19 +67,3 @@ export function formatReport(report) {
   }
   return lines.join('\n')
 }
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8'))
-  const { DIFF_FILE, FILES_FILE, FUNCTIONS_FILE, REPORT_FILE } = process.env
-  if (!DIFF_FILE || !FILES_FILE || !FUNCTIONS_FILE) {
-    console.error('set DIFF_FILE, FILES_FILE and FUNCTIONS_FILE')
-    process.exit(2)
-  }
-  const report = buildReport({
-    diff: fs.readFileSync(DIFF_FILE, 'utf8'),
-    files: read(FILES_FILE),
-    functions: read(FUNCTIONS_FILE),
-  })
-  if (REPORT_FILE) fs.writeFileSync(REPORT_FILE, JSON.stringify(report))
-  console.log(formatReport(report))
-}

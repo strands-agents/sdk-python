@@ -43,7 +43,13 @@ function parseArgs(argv) {
 }
 
 function git(root, ...args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 })
+  // quotePath=false keeps non-ASCII paths literal instead of octal-escaped and
+  // quoted, so they match the paths the analyzers report.
+  return execFileSync('git', ['-c', 'core.quotePath=false', ...args], {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  })
 }
 
 /** Merge base, so a stale branch is not blamed for changes that landed on main. */
@@ -51,17 +57,53 @@ function mergeBase(root, base) {
   try {
     return git(root, 'merge-base', base, 'HEAD').trim()
   } catch {
-    return base
+    // No merge base (shallow clone, unrelated histories, or a ref this clone
+    // lacks). Fall back to the ref itself, but only if git can resolve it —
+    // otherwise every later git call fails with an opaque error.
+    try {
+      git(root, 'rev-parse', '--verify', `${base}^{commit}`)
+      return base
+    } catch {
+      throw new Error(
+        `cannot resolve a diff base from '${base}': it is neither mergeable with HEAD nor a known commit. ` +
+          'Pass --base <ref> with a ref this clone contains.'
+      )
+    }
   }
 }
 
+/**
+ * Files the range changes, with their churn.
+ *
+ * `-z` is what makes renames usable. In the default text format a rename is
+ * reported as the single combined path `dir/{old.py => new.py}`, which matches
+ * none of the classification patterns, so a renamed test would count toward the
+ * size bucket and a renamed source file would never be analyzed. With `-z`, git
+ * emits the old and new paths as separate NUL-delimited fields, and the churn
+ * reflects only the lines that actually changed rather than the whole file.
+ * `-z` also stops git quoting paths with spaces or non-ASCII bytes.
+ */
 function changedFiles(root, from) {
-  const numstat = git(root, 'diff', '--numstat', from, '--')
+  const numstat = git(root, 'diff', '--numstat', '-z', from, '--')
   const files = []
-  for (const line of numstat.trim().split('\n')) {
-    if (!line) continue
-    const [additions, deletions, filePath] = line.split('\t')
+  // Records are NUL-delimited. A normal change is "adds\tdels\tpath"; a rename
+  // or copy is "adds\tdels\t" followed by the old path and the new path as two
+  // further NUL-delimited fields.
+  const fields = numstat.split('\0')
+  for (let i = 0; i < fields.length; i += 1) {
+    const record = fields[i]
+    if (!record) continue
+    const [additions, deletions, inlinePath] = record.split('\t')
+    if (additions === undefined || deletions === undefined) continue
+
+    let filePath = inlinePath
+    if (!filePath) {
+      // Rename/copy: skip the old path, keep the new one.
+      i += 2
+      filePath = fields[i]
+    }
     if (!filePath) continue
+
     files.push({
       path: filePath,
       // "-" marks a binary file, which has no reviewable line count.
@@ -72,14 +114,19 @@ function changedFiles(root, from) {
   return files
 }
 
+/**
+ * Run an analyzer, reporting whether it ran at all.
+ *
+ * complexipy and eslint exit non-zero when they have findings, which is normal,
+ * so a non-zero exit is still success here. A missing binary or a signal death
+ * is not: those yield no exit status.
+ */
 function run(cmd, args, options = {}) {
   try {
     execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options })
     return true
   } catch (error) {
-    // complexipy and eslint exit non-zero when findings exist; the report file
-    // is still written, so only a missing report is a real failure.
-    return error.status !== undefined
+    return Number.isInteger(error.status)
   }
 }
 
@@ -92,8 +139,7 @@ function run(cmd, args, options = {}) {
  * in classify.mjs.
  */
 function complexityConfig() {
-  const toUrl = (specifier) =>
-    pathToFileURL(path.join(TOOLS_DIR, 'node_modules', specifier)).href
+  const toUrl = (specifier) => pathToFileURL(path.join(TOOLS_DIR, 'node_modules', specifier)).href
   return `
 import sonarjs from ${JSON.stringify(toUrl('eslint-plugin-sonarjs/cjs/plugin.js'))}
 import tsparser from ${JSON.stringify(toUrl('@typescript-eslint/parser/dist/index.js'))}
@@ -130,7 +176,7 @@ function analyzePython(root, tmp, pythonFiles) {
       sarif,
       ...pythonFiles,
     ],
-    { cwd: root },
+    { cwd: root }
   )
   if (!ok || !fs.existsSync(sarif)) {
     console.error('warning: complexipy did not produce a report; skipping Python complexity')
@@ -147,25 +193,20 @@ async function analyzeTypescript(root, tmp, tsFiles) {
   if (!fs.existsSync(eslint)) {
     console.error(
       `warning: complexity analyzers not installed in ${TOOLS_DIR}; skipping TypeScript complexity\n` +
-        '         run: npm ci --ignore-scripts --prefix .github/scripts/pr-metrics/tools',
+        '         run: npm ci --ignore-scripts --prefix .github/scripts/pr-metrics/tools'
     )
     return []
   }
-  // ESLint treats the config file's directory as the base path and silently
-  // ignores anything outside it, so the config must be written into the tree
-  // being analyzed rather than a temp directory.
-  const configPath = path.join(root, `.eslint.complexity.${process.pid}.mjs`)
+  // With an explicit -c, ESLint's base path is the cwd, not the config's
+  // directory — so the config lives in a temp dir and `cwd: root` is what keeps
+  // the analyzed files inside the base path.
+  const configPath = path.join(tmp, 'eslint.complexity.config.mjs')
   fs.writeFileSync(configPath, complexityConfig())
-  let ok
-  try {
-    ok = run(
-      eslint,
-      ['--no-config-lookup', '-c', configPath, '--format', 'json', '--output-file', report, ...tsFiles],
-      { cwd: root },
-    )
-  } finally {
-    fs.rmSync(configPath, { force: true })
-  }
+  const ok = run(
+    eslint,
+    ['--no-config-lookup', '-c', configPath, '--format', 'json', '--output-file', report, ...tsFiles],
+    { cwd: root }
+  )
   if (!ok || !fs.existsSync(report)) {
     console.error('warning: eslint did not produce a report; skipping TypeScript complexity')
     return []
@@ -178,6 +219,9 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
   const from = mergeBase(args.root, args.base)
   const files = changedFiles(args.root, from)
+  // Rename detection stays on to match changedFiles(): a renamed file then
+  // reports only its genuinely changed lines, instead of every line looking
+  // added and every pre-existing function counting as touched.
   const diff = git(args.root, 'diff', '-U0', from, '--')
 
   // Analyze only files the PR touches that still exist in the head revision.
@@ -204,6 +248,9 @@ async function main() {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL percent-encodes, which a bare string concatenation does not, so
+// comparing raw paths would silently no-op for a checkout path containing a
+// space or non-ASCII character.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main()
 }

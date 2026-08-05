@@ -11,6 +11,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { toRepoRelative } from './classify.mjs'
 
 const RULE_ID = 'sonarjs/cognitive-complexity'
 // "Refactor this function to reduce its Cognitive Complexity from 31 to the 15 allowed."
@@ -42,7 +43,54 @@ function isFunctionNode(ts, node) {
   )
 }
 
-/** All function line ranges in a source file, 1-indexed and inclusive. */
+/**
+ * The name a function is known by.
+ *
+ * Anonymous function expressions and arrows carry no name of their own, so fall
+ * back to whatever binds them — `const handler = () => {}` reads as `handler`,
+ * and `{ onEvent() {} }` as `onEvent`. Methods are qualified with their class so
+ * two same-named methods are distinguishable in a report.
+ */
+function functionName(ts, node) {
+  if (node.name) {
+    const own = node.name.getText()
+    if (ts.isMethodDeclaration(node) || ts.isGetAccessor(node) || ts.isSetAccessor(node)) {
+      const className = node.parent?.name?.getText()
+      return className ? `${className}::${own}` : own
+    }
+    return own
+  }
+  if (ts.isConstructorDeclaration(node)) {
+    const className = node.parent?.name?.getText()
+    return className ? `${className}::constructor` : 'constructor'
+  }
+  const parent = node.parent
+  if (parent) {
+    // const f = () => {} / f: () => {} / f = function () {}
+    if (ts.isVariableDeclaration(parent) || ts.isPropertyDeclaration(parent) || ts.isPropertyAssignment(parent)) {
+      return parent.name?.getText() ?? '<anonymous>'
+    }
+    if (ts.isBinaryExpression(parent) && parent.operatorToken?.kind === ts.SyntaxKind.EqualsToken) {
+      return parent.left?.getText() ?? '<anonymous>'
+    }
+    // A callback has no name of its own; the call it is passed to is the useful
+    // label, so `items.map(...)` reads as `map callback`.
+    if (ts.isCallExpression(parent)) {
+      const callee = parent.expression
+      const calleeName = ts.isPropertyAccessExpression(callee) ? callee.name.getText() : callee.getText?.()
+      if (calleeName) return `${calleeName} callback`
+    }
+  }
+  return '<anonymous>'
+}
+
+/**
+ * All function ranges in a source file, 1-indexed and inclusive, with names.
+ *
+ * The AST is the authority on names: sonarjs reports only a token position, and
+ * recovering a name from the source text at that position misreads arrow
+ * parameters and `async function*` as the function's name.
+ */
 export function functionRanges(ts, sourceText, fileName) {
   const source = ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, true)
   const ranges = []
@@ -51,28 +99,13 @@ export function functionRanges(ts, sourceText, fileName) {
       ranges.push({
         startLine: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
         endLine: source.getLineAndCharacterOfPosition(node.getEnd()).line + 1,
+        name: functionName(ts, node),
       })
     }
     ts.forEachChild(node, visit)
   }
   visit(source)
   return ranges
-}
-
-function toRepoRelative(filePath, repoRoot) {
-  if (!path.isAbsolute(filePath)) return filePath.split(path.sep).join('/')
-  // Resolve symlinks on both sides so a symlinked checkout root does not yield
-  // an escaping ../.. path.
-  const relative = path.relative(realpath(repoRoot), realpath(filePath))
-  return relative.split(path.sep).join('/')
-}
-
-function realpath(p) {
-  try {
-    return fs.realpathSync(p)
-  } catch {
-    return p
-  }
 }
 
 /** Smallest range containing `line`; sonarjs anchors nested arrows inside methods. */
@@ -87,18 +120,7 @@ function smallestEnclosing(ranges, line) {
   return best
 }
 
-/**
- * ESLint reports the offending token's position but not the function's name, so
- * recover it from the source line for a readable report.
- */
-function nameAt(sourceText, line, column) {
-  const text = sourceText.split('\n')[line - 1]
-  if (text === undefined) return '<anonymous>'
-  const identifier = /([A-Za-z_$][\w$]*)/.exec(text.slice(column - 1))
-  return identifier ? identifier[1] : '<anonymous>'
-}
-
-export function parseEslintReport(ts, report, repoRoot, readFile = (p) => fs.readFileSync(p, 'utf8')) {
+export function parseEslintReport(ts, report, repoRoot) {
   const functions = []
 
   for (const fileReport of report) {
@@ -106,10 +128,8 @@ export function parseEslintReport(ts, report, repoRoot, readFile = (p) => fs.rea
     if (findings.length === 0) continue
 
     let ranges = []
-    let sourceText = ''
     try {
-      sourceText = readFile(fileReport.filePath)
-      ranges = functionRanges(ts, sourceText, fileReport.filePath)
+      ranges = functionRanges(ts, fs.readFileSync(fileReport.filePath, 'utf8'), fileReport.filePath)
     } catch {
       // Unreadable file: fall back to the anchor line below.
     }
@@ -122,7 +142,7 @@ export function parseEslintReport(ts, report, repoRoot, readFile = (p) => fs.rea
       const enclosing = smallestEnclosing(ranges, finding.line)
       functions.push({
         file: relative,
-        name: nameAt(sourceText, finding.line, finding.column),
+        name: enclosing?.name ?? '<anonymous>',
         complexity: Number(match[1]),
         startLine: enclosing?.startLine ?? finding.line,
         endLine: enclosing?.endLine ?? finding.line,
@@ -130,16 +150,4 @@ export function parseEslintReport(ts, report, repoRoot, readFile = (p) => fs.rea
     }
   }
   return functions
-}
-
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const [reportPath] = process.argv.slice(2)
-  if (!reportPath) {
-    console.error('usage: complexity-typescript.mjs <eslint-json-file>')
-    process.exit(2)
-  }
-  const repoRoot = process.env.COMPLEXITY_REPO_ROOT ?? process.cwd()
-  const ts = await loadTypescript(process.env.PR_METRICS_TOOLS_DIR)
-  const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'))
-  process.stdout.write(JSON.stringify(parseEslintReport(ts, report, repoRoot)))
 }
