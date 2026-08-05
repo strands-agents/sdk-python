@@ -54,6 +54,8 @@ jobs:
               - '.github/scripts/pr-metrics/**'
               - '.github/workflows/pr-metrics-*'
               - '.github/workflows/ci.yml'
+              # Defines the test:pr-metrics script this job runs.
+              - 'package.json'
 
   dependency-review:
     name: Dependency Review
@@ -125,7 +127,10 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
-      # node:test only, so no install step is needed.
+      # The TypeScript cases need the pinned compiler, and skip silently without
+      # it — install so they actually run here.
+      - name: Install analyzers
+        run: npm ci --ignore-scripts --no-audit --no-fund --prefix .github/scripts/pr-metrics/tools
       - run: npm run test:pr-metrics
       - name: Check formatting
         run: npx --yes prettier@3 --check '.github/scripts/pr-metrics/*.mjs'

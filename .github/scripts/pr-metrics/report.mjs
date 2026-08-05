@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Decide the size/* and complexity/* labels for a PR.
 //
 // Pure data in, pure data out: takes a unified diff plus per-function
@@ -6,7 +5,6 @@
 // locally (`hatch run complexity` / `npm run complexity`) and in CI, so the
 // number a contributor sees matches the label the bot applies.
 
-import fs from 'node:fs'
 import { countsTowardSize, isAnalyzable, sizeLabel, complexityLabel } from './classify.mjs'
 import { parseChangedLines, rangeTouched } from './diff.mjs'
 

@@ -1,12 +1,8 @@
-#!/usr/bin/env node
 // Report cognitive complexity for Python functions, via complexipy.
 //
 // complexipy's JSON output omits line numbers, so we read its SARIF output
 // instead: that carries the `startLine`/`endLine` range each function spans,
 // which is what diff scoping needs.
-//
-// Usage: complexity-python.mjs <sarif-file>
-// Writes normalized `{file, name, complexity, startLine, endLine}` records to stdout.
 
 import { toRepoRelative } from './classify.mjs'
 

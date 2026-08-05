@@ -115,18 +115,20 @@ function changedFiles(root, from) {
 }
 
 /**
- * Run an analyzer, reporting whether it ran at all.
+ * Run an analyzer, reporting whether its output can be trusted.
  *
- * complexipy and eslint exit non-zero when they have findings, which is normal,
- * so a non-zero exit is still success here. A missing binary or a signal death
- * is not: those yield no exit status.
+ * `okStatuses` lists the exit codes that still mean "ran and produced a report",
+ * since both analyzers use a non-zero exit to report findings. Anything else — a
+ * missing binary (no status at all), a signal, or a fatal configuration error —
+ * means the report is absent or partial and must not be read as "no findings".
  */
-function run(cmd, args, options = {}) {
+function run(cmd, args, okStatuses, options = {}) {
   try {
     execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], ...options })
     return true
   } catch (error) {
-    return Number.isInteger(error.status)
+    if (!Number.isInteger(error.status)) return false
+    return okStatuses.includes(error.status)
   }
 }
 
@@ -176,6 +178,9 @@ function analyzePython(root, tmp, pythonFiles) {
       sarif,
       ...pythonFiles,
     ],
+    // complexipy exits 1 when any function exceeds the (zero) threshold, which
+    // is every run; the report is still written.
+    [1],
     { cwd: root }
   )
   if (!ok || !fs.existsSync(sarif)) {
@@ -205,6 +210,10 @@ async function analyzeTypescript(root, tmp, tsFiles) {
   const ok = run(
     eslint,
     ['--no-config-lookup', '-c', configPath, '--format', 'json', '--output-file', report, ...tsFiles],
+    // The complexity rule is a warning, so a clean run exits 0 and exit 1 means
+    // some other rule errored; either way the report is written. Exit 2 is a
+    // fatal config or parse failure and must not be read as "no findings".
+    [1],
     { cwd: root }
   )
   if (!ok || !fs.existsSync(report)) {

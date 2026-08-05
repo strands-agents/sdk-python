@@ -192,14 +192,19 @@ For docs contribution guidelines, see [site/CONTRIBUTING.md](./site/CONTRIBUTING
 Every PR is labeled with a `size/*` and a `complexity/*` label. Both are
 informational — they help reviewers budget attention and neither blocks a merge.
 
-You can see the same numbers before you push:
+You can see the same numbers before you push. From the repository root:
 
 ```bash
 npm run complexity:setup   # once, to install the analyzers
 npm run complexity         # report labels for your branch vs origin/main
 ```
 
-Python contributors can run `hatch run complexity` instead.
+Python contributors can use hatch instead, from `strands-py/`:
+
+```bash
+cd strands-py
+hatch run complexity
+```
 
 **`size/*`** counts changed lines in source and prose, and **excludes tests,
 lockfiles, and snapshots**. Thorough tests should never push a PR into a bigger

@@ -1,14 +1,18 @@
-// Tests for the PR metrics labeler.
+// Tests for the PR metrics labeler: `npm run test:pr-metrics`
 //
-// Uses node:test so they run with no install step: `node --test .github/scripts/pr-metrics/`
+// Uses node:test so the suite runs with no install step. The TypeScript cases
+// need the pinned compiler from tools/ and skip without it; `npm run
+// complexity:setup` installs it.
 
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
 import { classify, FileKind, countsTowardSize, isAnalyzable, sizeLabel, complexityLabel } from './classify.mjs'
 import { parseChangedLines, rangeTouched } from './diff.mjs'
 import { buildReport } from './report.mjs'
-import { escapeHtml, labelsFromMetrics } from './apply-labels.mjs'
+import { escapeHtml, labelsFromMetrics, resolvePrNumber } from './apply-labels.mjs'
 import { parseSarif } from './complexity-python.mjs'
+import { functionRanges, loadTypescript, parseEslintReport } from './complexity-typescript.mjs'
 
 test('classify separates tests from source', () => {
   assert.equal(classify('strands-py/src/strands/agent.py'), FileKind.SOURCE)
@@ -280,4 +284,160 @@ test('parseSarif reads complexity and line ranges from complexipy output', () =>
   assert.deepEqual(parseSarif(sarif, '/repo'), [
     { file: 'strands-py/src/strands/m.py', name: 'f', complexity: 37, startLine: 447, endLine: 654 },
   ])
+})
+
+// resolvePrNumber decides which PR gets labeled by a job holding
+// pull-requests: write, so its refusals matter as much as its successes.
+const stubCore = () => {
+  const warnings = []
+  return { warnings, info: () => {}, warning: (m) => warnings.push(m) }
+}
+const stubContext = (pullRequests, headSha = 'abc123') => ({
+  repo: { owner: 'o', repo: 'r' },
+  payload: { workflow_run: { head_sha: headSha, pull_requests: pullRequests } },
+})
+// Only reached when the event carries no associated PRs, as on a fork.
+const stubGithub = (associated) => ({
+  rest: {
+    repos: {
+      listPullRequestsAssociatedWithCommit: async () => ({ data: associated.map((number) => ({ number })) }),
+    },
+  },
+})
+
+test('resolvePrNumber honors a claim the API confirms', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([]),
+    context: stubContext([{ number: 42 }]),
+    core,
+    claimed: 42,
+  })
+  assert.equal(number, 42)
+  assert.deepEqual(core.warnings, [])
+})
+
+test('resolvePrNumber refuses a claim the API does not confirm', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([]),
+    context: stubContext([{ number: 42 }]),
+    core,
+    claimed: 99,
+  })
+  // Labeling PR 42 here would act on an artifact already shown to be lying.
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+test('resolvePrNumber falls back to the head sha for forks', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([7]),
+    context: stubContext([]),
+    core,
+    claimed: 7,
+  })
+  assert.equal(number, 7)
+})
+
+test('resolvePrNumber refuses when a commit maps to several PRs and nothing is claimed', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([1, 2]),
+    context: stubContext([]),
+    core,
+    claimed: null,
+  })
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /associated with PRs/)
+})
+
+test('resolvePrNumber returns null when no PR matches', async () => {
+  const core = stubCore()
+  assert.equal(await resolvePrNumber({ github: stubGithub([]), context: stubContext([]), core, claimed: null }), null)
+})
+
+// The TypeScript path carries more logic than the Python one (AST ranges, name
+// resolution, nesting) and previously had no coverage. It needs the pinned
+// typescript from tools/, so skip rather than fail when that is not installed.
+let ts = null
+try {
+  ts = await loadTypescript(new URL('tools', import.meta.url).pathname)
+} catch {
+  // Reported by the skip reason below.
+}
+const tsTest = (name, fn) => test(name, { skip: ts ? false : 'run npm run complexity:setup' }, fn)
+
+tsTest('functionRanges names declarations, methods and bound arrows', () => {
+  const ranges = functionRanges(
+    ts,
+    [
+      'export function topLevel(a) { return a }',
+      'class Widget {',
+      '  constructor() {}',
+      '  render(x) { return x }',
+      '  get size() { return 1 }',
+      '}',
+      'const bound = (y) => y + 1',
+      'const list = [1].map((n) => n * 2)',
+    ].join('\n'),
+    'sample.ts'
+  )
+  const names = ranges.map((r) => r.name)
+  assert.ok(names.includes('topLevel'))
+  assert.ok(names.includes('Widget::constructor'))
+  assert.ok(names.includes('Widget::render'))
+  assert.ok(names.includes('Widget::size'))
+  assert.ok(names.includes('bound'))
+  // An inline callback has no name of its own; the call it feeds is the label.
+  assert.ok(names.includes('map callback'))
+})
+
+tsTest('functionRanges spans a function body, not just its signature line', () => {
+  const ranges = functionRanges(ts, ['function outer() {', '  return 1', '}'].join('\n'), 'sample.ts')
+  assert.equal(ranges[0].startLine, 1)
+  assert.equal(ranges[0].endLine, 3)
+})
+
+tsTest('parseEslintReport resolves an anchor to its enclosing function range', () => {
+  const file = new URL('pr-metrics.test.fixture.ts', import.meta.url).pathname
+  fs.writeFileSync(file, ['class C {', '  method(a) {', '    return a', '  }', '}', ''].join('\n'))
+  try {
+    const functions = parseEslintReport(
+      ts,
+      [
+        {
+          filePath: file,
+          messages: [
+            {
+              ruleId: 'sonarjs/cognitive-complexity',
+              // sonarjs anchors at the method name on line 2, not the body.
+              line: 2,
+              column: 3,
+              message: 'Refactor this function to reduce its Cognitive Complexity from 31 to the 15 allowed.',
+            },
+          ],
+        },
+      ],
+      new URL('.', import.meta.url).pathname
+    )
+    assert.equal(functions.length, 1)
+    assert.equal(functions[0].complexity, 31)
+    assert.equal(functions[0].name, 'C::method')
+    // The range must cover the whole method so diff scoping can intersect it.
+    assert.equal(functions[0].startLine, 2)
+    assert.equal(functions[0].endLine, 4)
+  } finally {
+    fs.rmSync(file, { force: true })
+  }
+})
+
+tsTest('parseEslintReport ignores findings from other rules', () => {
+  const functions = parseEslintReport(
+    ts,
+    [{ filePath: '/nonexistent.ts', messages: [{ ruleId: 'no-unused-vars', line: 1, column: 1, message: 'x' }] }],
+    '/'
+  )
+  assert.deepEqual(functions, [])
 })

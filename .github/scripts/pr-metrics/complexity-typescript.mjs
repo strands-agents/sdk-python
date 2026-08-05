@@ -1,12 +1,8 @@
-#!/usr/bin/env node
 // Report cognitive complexity for TypeScript functions, via eslint-plugin-sonarjs.
 //
 // sonarjs anchors each finding at the function's *name*, not its body, so
 // `line === endLine` for every result. Diff scoping needs the full span, so we
 // resolve each anchor to the smallest enclosing function via the TypeScript AST.
-//
-// Usage: complexity-typescript.mjs <eslint-json-file>
-// Writes normalized `{file, name, complexity, startLine, endLine}` records to stdout.
 
 import fs from 'node:fs'
 import path from 'node:path'

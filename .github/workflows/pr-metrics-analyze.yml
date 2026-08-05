@@ -16,6 +16,12 @@ on:
   pull_request:
     branches: [main]
 
+# Superseded pushes are cancelled so a slow earlier run cannot finish last and
+# label the PR from a stale commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions: {}
 
 jobs:

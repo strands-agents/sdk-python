@@ -19,6 +19,13 @@ on:
     workflows: ['PR Metrics (Analyze)']
     types: [completed]
 
+# Serialized per PR so two runs cannot interleave their remove/add calls and
+# leave a PR with two size labels. Not cancel-in-progress: a cancelled run could
+# stop between removing the stale label and adding the new one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:

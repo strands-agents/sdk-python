@@ -59,7 +59,7 @@ export function labelsFromMetrics(metrics) {
 }
 
 /** Resolve the PR this artifact belongs to, verifying it against the run's head SHA. */
-async function resolvePrNumber({ github, context, core, claimed }) {
+export async function resolvePrNumber({ github, context, core, claimed }) {
   const run = context.payload.workflow_run
   const candidates = (run.pull_requests ?? []).map((pr) => pr.number)
 
