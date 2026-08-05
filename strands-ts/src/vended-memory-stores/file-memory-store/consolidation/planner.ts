@@ -13,7 +13,7 @@ import type { ConsolidationPlan } from './plan.js'
 import { Agent } from '../../../agent/agent.js'
 import { logger } from '../../../logging/logger.js'
 import { CONSOLIDATION_CHANGELOG, encoder } from '../internal.js'
-import { ConsolidationPlanSchema, extractPlan, summarizePayload, truncatePayload } from './plan.js'
+import { ConsolidationPlanSchema, extractPlan } from './plan.js'
 import { validatePlan } from './validate.js'
 
 /**
@@ -73,9 +73,7 @@ export async function generatePlan(
 
   const validationError = validatePlan(plan, files, operations, maxDirectories)
   if (validationError) {
-    logger.warn(
-      `validation_errors=<${truncatePayload(validationError)}>, plan=<${summarizePayload(plan)}> | consolidation plan rejected`
-    )
+    logger.warn(`validation_errors=<${validationError}>, plan=<${JSON.stringify(plan)}> | consolidation plan rejected`)
     throw new Error(`Consolidation plan validation failed: ${validationError}`)
   }
 

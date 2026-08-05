@@ -238,14 +238,12 @@ export class FileMemoryStore implements MemoryStore {
    * The planning agent is bounded by a turn limit (default 3) to prevent runaway loops.
    *
    * @remarks
-   * Not concurrency-safe. Each run snapshots the store up front and mutates it later, so a second
-   * call on this instance throws rather than planning against a stale snapshot — but that guard is
-   * instance-scoped, not a lock. {@link Storage} offers only unconditional read/write/delete/list,
-   * so nothing here can observe a writer in another process, on another instance, or calling
-   * {@link add} on this one. A concurrent {@link add} minting a fresh key is safe (the snapshot
-   * never saw it, so no action can name it); an `add` with an explicit `metadata.path` naming a
-   * snapshotted file is not, and can be silently discarded by a merge or delete. Do not write to
-   * the store while consolidation is in flight.
+   * Not safe for concurrent use — overlapping writes to the same store may overwrite each other.
+   * Each run snapshots the store up front and mutates it later, and {@link Storage} offers only
+   * unconditional read/write/delete/list, so nothing here can observe a writer in another process,
+   * on another instance, or calling {@link add} on this one. A second `consolidate` call on this
+   * instance throws, but that guard is instance-scoped, not a lock. Do not write to the store while
+   * consolidation is in flight.
    *
    * @param config - Model and operation configuration
    * @throws Error when a consolidation is already running on this store instance
@@ -255,8 +253,6 @@ export class FileMemoryStore implements MemoryStore {
    * @throws Error when the consolidation plan exceeds the action limit (maxActionsPerPlan)
    * @throws Error when the consolidation plan fails validation
    * @throws Error when the consolidation agent exceeds its turn limit without producing a plan
-   * @throws Error when a path the plan would create was claimed by a writer outside this run
-   *   (the store is left unchanged — no write or delete runs)
    * @throws Error when a path the plan writes matches several stored keys differing only by case
    *   (the store is left unchanged — no write or delete runs)
    *

@@ -18,14 +18,15 @@ import {
   isConsolidationChangelog,
   pathsResolveSame,
   resolveCanonicalKey,
+  resolveWriteTarget,
 } from '../internal.js'
 
 /**
  * Validate a plan against the guardrails before any storage mutation.
  *
- * Guards four properties: every action is permitted by the requested operations, every path is
- * well-formed and references files that exist, every write carries well-formed content, and no two
- * actions collide on a write target.
+ * Guards five properties: every action is permitted by the requested operations, every path is
+ * well-formed and references files that exist, every write carries well-formed content, every write
+ * target resolves to exactly one stored key, and no two actions collide on a write target.
  *
  * All violations are accumulated so the rejection names every offending action at once rather than
  * surfacing them one at a time.
@@ -87,6 +88,10 @@ export function validatePlan(
     const contentError = validateActionContent(action)
     if (contentError) violations.push(contentError)
   }
+
+  // Reject write targets that resolve to more than one stored key
+  const ambiguityErrors = validateTargetsUnambiguous(plan, files)
+  for (const ambiguityError of ambiguityErrors) violations.push(ambiguityError)
 
   // Reject plans where multiple actions write to the same target path
   const collisionErrors = validateNoTargetCollisions(plan, files)
@@ -180,6 +185,56 @@ function validateActionContent(action: ConsolidationAction): string | undefined 
 }
 
 /**
+ * Reject write targets that resolve to more than one stored key — two keys differing only by case, as
+ * a case-sensitive backend can hold.
+ *
+ * No spelling of such a target is more defensible than another, and writing the model's own would mint
+ * a third copy the delete pass leaves behind. {@link resolveWriteTarget} raises that as a throw because
+ * the executor calls it for its return value; here the message is collected as a violation so the
+ * rejection names every ambiguous target at once alongside the plan's other problems.
+ *
+ * @returns An array of human-readable error strings for every ambiguous target (empty when all resolve)
+ */
+function validateTargetsUnambiguous(plan: ConsolidationPlan, files: Map<string, string>): string[] {
+  const errors: string[] = []
+  for (const action of plan.actions) {
+    const target = writeTargetOf(action)
+    if (target === undefined) continue
+    try {
+      resolveWriteTarget(files, target)
+    } catch (error) {
+      errors.push(String(error instanceof Error ? error.message : error))
+    }
+  }
+  return errors
+}
+
+/**
+ * The path an action writes to, or `undefined` for a `delete`, which writes nothing.
+ *
+ * Each variant names its target with a different field, so every pass that reasons about write targets
+ * needs this mapping. Keeping it in one place is what stops those passes from disagreeing about what an
+ * action writes — a disagreement between validation and execution is how a plan slips past a guardrail.
+ *
+ * A variant added to {@link ConsolidationAction} without a case here fails to compile: `noImplicitReturns`
+ * makes the missing branch a `TS7030` error rather than a silent `undefined`.
+ *
+ * @internal
+ */
+export function writeTargetOf(action: ConsolidationAction): string | undefined {
+  switch (action.action) {
+    case 'merge':
+      return action.target
+    case 'update':
+      return action.path
+    case 'move':
+      return action.to
+    case 'delete':
+      return undefined
+  }
+}
+
+/**
  * Reject plans that would clobber data: two actions writing the same path, a path both written and
  * vacated in one plan, or a write landing on an existing file that no other action vacates (a
  * self-overwrite like an update is allowed).
@@ -195,8 +250,10 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
   const vacatedPaths = new Set<string>()
 
   for (const action of plan.actions) {
+    const writeTarget = writeTargetOf(action)
+    if (writeTarget !== undefined) writeTargets.push(writeTarget)
+
     if (action.action === 'merge') {
-      writeTargets.push(action.target)
       // Non-target merge sources are deleted during execution (case-normalized —
       // a source that resolves to the same identity as the target is not vacated)
       for (const source of action.sources) {
@@ -204,10 +261,7 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
           vacatedPaths.add(source)
         }
       }
-    } else if (action.action === 'update') {
-      writeTargets.push(action.path)
     } else if (action.action === 'move') {
-      writeTargets.push(action.to)
       // A case-only rename (different string but same normalized identity) does not delete the
       // source in execution — skip vacating to keep validation consistent with the executor.
       // An exact-string identity move (from === to) still vacates, triggering the write-vs-vacate

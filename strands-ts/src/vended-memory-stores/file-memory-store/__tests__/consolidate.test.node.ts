@@ -6,7 +6,6 @@ import { logger } from '../../../logging/logger.js'
 import { NAMESPACED } from '../../../storage/storage.js'
 import type { JSONValue } from '../../../types/json.js'
 import type { Storage } from '../../../storage/storage.js'
-import { summarizePayload, truncatePayload } from '../consolidation/plan.js'
 import { resolveWriteTarget } from '../internal.js'
 
 const encoder = new TextEncoder()
@@ -122,50 +121,6 @@ describe('FileMemoryStore.consolidate', () => {
       expect(await originalRead('facts/b.md')).toBeNull()
       expect(added).toBeDefined()
       expect(decoder.decode((await originalRead(added!))!)).toContain('A fact recorded mid-consolidation')
-    })
-
-    it('aborts without mutating when a writer outside the run claims a path the plan would create', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-      await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
-
-      const mergedContent = '---\ndescription: "Merged"\n---\n\nContent A and B\n'
-      const model = new MockMessageModel().addTurn(
-        buildPlanTurn({
-          actions: [
-            {
-              action: 'merge',
-              sources: ['facts/a.md', 'facts/b.md'],
-              target: 'facts/merged.md',
-              content: mergedContent,
-              reason: 'Same subject',
-            },
-          ],
-          summary: 'Merged A and B into a new file.',
-        })
-      )
-
-      // An external writer claims the merge target after the snapshot, so its content was never
-      // shown to the planner and the merge would destroy it
-      const originalRead = storage.read.bind(storage)
-      let claimed = false
-      vi.spyOn(storage, 'read').mockImplementation(async (key) => {
-        if (key === 'facts/b.md' && !claimed) {
-          claimed = true
-          await writeFile(storage, 'facts/merged.md', 'Claimed', 'Written by another writer')
-        }
-        return originalRead(key)
-      })
-
-      await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(
-        /created by another writer.*facts\/merged\.md/s
-      )
-
-      // Nothing was written or deleted: sources intact, the claimed file untouched
-      expect(await originalRead('facts/a.md')).not.toBeNull()
-      expect(await originalRead('facts/b.md')).not.toBeNull()
-      expect(decoder.decode((await originalRead('facts/merged.md'))!)).toContain('Written by another writer')
-      // An aborted run mutated nothing, so there is no changelog entry to record
-      expect(await originalRead('consolidation-changelog.md')).toBeNull()
     })
 
     it('executes a plan with no actions', async () => {
@@ -1111,87 +1066,6 @@ describe('FileMemoryStore.consolidate', () => {
 
       debugSpy.mockRestore()
     })
-
-    // Log payloads are bounded when the string is built, not gated on whether the level is enabled:
-    // the Logger interface cannot be asked, and an injected logger's debug is a real function even
-    // when it discards the record.
-    describe('bounded log payloads', () => {
-      const OVERSIZE_CONTENT = `---\ndescription: "Big"\n---\n\n${'x'.repeat(200_000)}\n`
-
-      it('bounds the plan payload in the validation-failure warn', async () => {
-        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-        const badPlan = buildPlanTurn({
-          actions: [{ action: 'update', path: 'facts/does-not-exist.md', content: OVERSIZE_CONTENT, reason: 'test' }],
-          summary: 'test',
-        })
-        const model = new MockMessageModel().addTurn(badPlan)
-
-        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-        await expect(store.consolidate({ model, operations: ['resolveContradictions'] })).rejects.toThrow()
-
-        // The warn fires and does not carry the 200KB body
-        expect(warnSpy).toHaveBeenCalledTimes(1)
-        const totalChars = warnSpy.mock.calls.flat().reduce<number>((sum, arg) => sum + String(arg).length, 0)
-        expect(totalChars).toBeLessThan(20_000)
-
-        // Still diagnostic: the offending path and the reason for rejection survive truncation
-        const message = String(warnSpy.mock.calls[0]![0])
-        expect(message).toContain('facts/does-not-exist.md')
-        expect(message).toContain('validation_errors=<')
-        expect(message).toContain('chars)')
-
-        warnSpy.mockRestore()
-      })
-
-      it('bounds the debug payload for a logger whose debug discards the record', async () => {
-        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-        const model = new MockMessageModel().addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'update', path: 'facts/a.md', content: OVERSIZE_CONTENT, reason: 'test' }],
-            summary: 'test',
-          })
-        )
-
-        // Mirrors an injected logger configured above debug level: a real function that drops the
-        // record. The payload must already be bounded before it is handed over.
-        let debugChars = 0
-        const debugSpy = vi.spyOn(logger, 'debug').mockImplementation((...args: unknown[]) => {
-          debugChars += args.reduce((sum: number, arg) => sum + String(arg).length, 0)
-        })
-
-        await store.consolidate({ model, operations: ['resolveContradictions'] })
-
-        expect(debugSpy).toHaveBeenCalled()
-        expect(debugChars).toBeLessThan(20_000)
-
-        debugSpy.mockRestore()
-      })
-
-      it('bounds a validation error that grows with the plan action count', async () => {
-        for (let index = 0; index < 60; index++) {
-          await writeFile(storage, `facts/file-${index}.md`, `File ${index}`, `Content ${index}`)
-        }
-
-        // Every action names a nonexistent path, so validation emits one message per action
-        const actions = Array.from({ length: 60 }, (_unused, index) => ({
-          action: 'delete',
-          path: `facts/missing-${index}.md`,
-          reason: 'test',
-        })) as JSONValue[]
-        const badPlan = buildPlanTurn({ actions, summary: 'test' })
-        const model = new MockMessageModel().addTurn(badPlan)
-
-        const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
-        await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow()
-
-        const totalChars = warnSpy.mock.calls.flat().reduce<number>((sum, arg) => sum + String(arg).length, 0)
-        expect(totalChars).toBeLessThan(20_000)
-
-        warnSpy.mockRestore()
-      })
-    })
   })
 
   describe('input-size guardrails', () => {
@@ -1278,28 +1152,6 @@ describe('FileMemoryStore.consolidate', () => {
 
       expect(await storage.read('facts/a.md')).toBeNull()
       expect(await storage.read('facts/b.md')).toBeNull()
-    })
-
-    // The aggregate budget is the only bound on `reason`, so a single field can legally carry the
-    // whole budget's worth of text into the changelog. The clip at the changelog boundary keeps one
-    // field from dominating the log and from bloating the file the next run reads-and-rewrites whole.
-    it('clips an oversized reason at the changelog boundary on a plan that executes', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-      const model = new MockMessageModel().addTurn(
-        buildPlanTurn({
-          actions: [{ action: 'delete', path: 'facts/a.md', reason: 'R'.repeat(10_000) }],
-          summary: 'S'.repeat(10_000),
-        })
-      )
-
-      await store.consolidate({ model, operations: ['prune'] })
-
-      expect(await storage.read('facts/a.md')).toBeNull()
-      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
-      expect(changelog).toContain(`${'R'.repeat(500)}…(+9500 chars)`)
-      expect(changelog).toContain(`${'S'.repeat(500)}…(+9500 chars)`)
-      expect(changelog).not.toContain('R'.repeat(501))
     })
   })
 
@@ -1810,43 +1662,10 @@ describe('FileMemoryStore.consolidate', () => {
     })
   })
 
-  describe('changelog forgery and byte-cap bypass guard (PR #3429 Blocker 4)', () => {
-    // A reason containing newlines plus '## ' forges a run header in the changelog, making a real
-    // deletion indistinguishable from the forged noise.
-    it('sanitizes reason and summary so newlines and leading # cannot forge changelog headers', async () => {
-      await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-      const model = new MockMessageModel().addTurn(
-        buildPlanTurn({
-          actions: [
-            {
-              action: 'delete',
-              path: 'facts/a.md',
-              reason: 'legit\n## FORGED-RUN\n\nActions (99):',
-            },
-          ],
-          summary: '## Another forged header\nwith newline',
-        })
-      )
-
-      await store.consolidate({ model, operations: ['prune'] })
-
-      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
-      // Only one markdown ## header exists — the legitimate timestamp header for this run.
-      // Without sanitization, the reason's '\n## FORGED-RUN' creates a second header on its own line.
-      const headers = changelog.match(/^## .+$/gm) ?? []
-      expect(headers).toHaveLength(1)
-      expect(headers[0]).not.toContain('FORGED-RUN')
-      expect(headers[0]).not.toContain('Another forged header')
-      // Newlines in reason/summary were flattened to spaces — no multi-line injection possible
-      expect(changelog.split('\n').filter((line) => line.startsWith('## ')).length).toBe(1)
-    })
-
-    // Paths are model-controlled: a newline in a merge target is now caught by the filename stem
-    // validation (control characters rejected), so the plan is rejected before execution. This
-    // provides defense-in-depth alongside the changelog's own sanitization for any chars that
-    // do pass validation.
-    it('sanitizes action paths so a filename cannot forge changelog headers', async () => {
+  describe('changelog forgery guard (PR #3429 Blocker 4)', () => {
+    // A newline in a model-chosen merge target is caught by the filename stem's control-character
+    // check, so the plan never executes and the path never reaches the changelog.
+    it('rejects a plan whose merge target carries control characters', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
@@ -1872,37 +1691,6 @@ describe('FileMemoryStore.consolidate', () => {
       // Files untouched — plan never executed
       expect(await storage.read('facts/a.md')).not.toBeNull()
       expect(await storage.read('facts/b.md')).not.toBeNull()
-    })
-
-    // The failed-delete branch interpolates a path that never passed validatePath: add() accepts an
-    // explicit metadata.path and normalizeKey strips neither newlines nor '#', so a key already in
-    // the store can carry a forged header into the log when its delete fails.
-    it('sanitizes the failed-delete path so a stored key cannot forge changelog headers', async () => {
-      const forgedPath = 'facts/evil\n## FORGED-VIA-DELETE\n\nActions (99):.md'
-      await store.add('Content A', { path: forgedPath })
-
-      const model = new MockMessageModel().addTurn(
-        buildPlanTurn({
-          actions: [{ action: 'delete', path: forgedPath, reason: 'prune' }],
-          summary: 'test',
-        })
-      )
-
-      // The backend refuses the delete, routing the path into the failed-delete branch. The error
-      // message echoes the key, so it carries the same newlines.
-      vi.spyOn(storage, 'delete').mockRejectedValueOnce(new Error(`Storage delete failed for '${forgedPath}'`))
-
-      await expect(store.consolidate({ model, operations: ['prune'] })).rejects.toThrow(/1 delete\(s\) failed/)
-
-      const changelog = decoder.decode((await storage.read('consolidation-changelog.md'))!)
-      // Exactly one run header — the legitimate timestamp for this run
-      const headers = changelog.match(/^## .+$/gm) ?? []
-      expect(headers).toHaveLength(1)
-      expect(headers[0]).not.toContain('FORGED-VIA-DELETE')
-      // The failure is still recorded, just flattened onto its own single line
-      expect(changelog).toContain('Failed deletes (1)')
-      expect(changelog).toContain('FORGED-VIA-DELETE')
-      expect(changelog.split('\n').filter((line) => line.startsWith('## ')).length).toBe(1)
     })
   })
 
@@ -2343,8 +2131,8 @@ describe('FileMemoryStore.consolidate', () => {
         expect(await storage.list('')).toEqual(['facts/Note.md', 'facts/note.md', 'facts/other.md'])
       })
 
-      // The ambiguity check runs as a pre-flight pass over every write target, not inline in the
-      // write loop, so a plan whose earlier actions are applicable does not land before the abort
+      // The ambiguity check runs during validation, over every write target, so a plan whose earlier
+      // actions are applicable is rejected as a whole rather than partly applied before the abort
       it('aborts before applying an earlier valid action in the same plan', async () => {
         await seedCaseVariants()
         await writeFile(storage, 'facts/other.md', 'Other', 'Content other')
@@ -2382,11 +2170,11 @@ describe('FileMemoryStore.consolidate', () => {
         expect(await storage.read('facts/stale.md')).not.toBeNull()
       })
 
-      // An ambiguous update or move destination never reaches execution: resolveCanonicalKey returns
-      // undefined for the ambiguous pair, so the update reads as a nonexistent target, and the move
-      // destination reads as an existing file no action vacates. Both are safe rejections rather than
-      // the raw write the merge path allowed — asserted here so a future change to either validation
-      // rule cannot quietly re-open the raw-write path that resolveWriteTarget now backstops.
+      // An ambiguous update or move destination is rejected twice over: the path-existence rules catch
+      // it first (resolveCanonicalKey returns undefined for the ambiguous pair, so the update reads as
+      // a nonexistent target and the move destination as an existing file no action vacates), and the
+      // ambiguity rule backstops it. Asserted here so a future change to the existence rules cannot
+      // quietly re-open a raw write onto a case-variant pair.
       it.each([
         {
           label: 'update on an ambiguous path',
@@ -2496,104 +2284,6 @@ describe('FileMemoryStore.consolidate', () => {
       const variant = await storage.read('facts/note.md')
       // On a case-sensitive store the variant key must be null (no duplicate written)
       expect(variant).toBeNull()
-    })
-  })
-})
-
-// summarizePayload and truncatePayload bound an untrusted plan-derived payload before it reaches a
-// diagnostic log field. Unit-tested directly because two of their branches — an unserializable value,
-// and a plan made large by action count rather than content size — are awkward to drive through a
-// full consolidate() run.
-describe('payload bounding', () => {
-  describe('summarizePayload', () => {
-    it('leaves a small plan fully intact so ordinary diagnostics are unchanged', () => {
-      const plan = { actions: [{ action: 'delete', path: 'facts/a.md', reason: 'prune' }], summary: 'ok' }
-
-      expect(summarizePayload(plan)).toBe(JSON.stringify(plan))
-    })
-
-    // The cap is generous enough that an ordinary plan logs whole, so a rejected plan stays fully
-    // diagnosable rather than truncated to a stub.
-    it('leaves a realistic multi-KB plan whole so the logged diagnostic is complete', () => {
-      const plan = {
-        actions: Array.from({ length: 6 }, (_unused, index) => ({
-          action: 'merge',
-          sources: [`facts/a-${index}.md`, `facts/b-${index}.md`],
-          target: `facts/merged-${index}.md`,
-          content: `---\ndescription: "Merged ${index}"\n---\n\n${'Prose. '.repeat(100)}\n`,
-          reason: 'dedup',
-        })),
-        summary: 'ordinary plan',
-      }
-
-      expect(summarizePayload(plan)).toBe(JSON.stringify(plan))
-    })
-
-    it('abbreviates a pathologically large body and reports how much was dropped', () => {
-      const summary = summarizePayload({ content: 'x'.repeat(200_000) })
-
-      expect(summary).toContain('chars)')
-      expect(summary.length).toBeLessThan(5000)
-    })
-
-    it('bounds the total for a plan made large by action count', () => {
-      // Each value is under the per-string cap, the whole is not
-      const actions = Array.from({ length: 2000 }, (_unused, index) => ({
-        action: 'delete',
-        path: `facts/file-${index}.md`,
-        reason: 'prune',
-      }))
-
-      const summary = summarizePayload({ actions, summary: 'bulk' })
-
-      expect(summary.length).toBeLessThan(33_000)
-      expect(summary).toContain('chars)')
-    })
-
-    it('returns a placeholder instead of throwing on a circular value', () => {
-      const circular: Record<string, unknown> = { actions: [] }
-      circular['self'] = circular
-
-      expect(summarizePayload(circular)).toBe('<unserializable>')
-    })
-
-    it('returns a placeholder instead of throwing on a BigInt value', () => {
-      expect(summarizePayload({ count: 1n })).toBe('<unserializable>')
-    })
-
-    it('renders undefined without throwing', () => {
-      expect(summarizePayload(undefined)).toBe('undefined')
-    })
-  })
-
-  describe('truncatePayload', () => {
-    it('passes a short validation error through unchanged', () => {
-      expect(truncatePayload("Delete target 'facts/a.md' does not exist")).toBe(
-        "Delete target 'facts/a.md' does not exist"
-      )
-    })
-
-    // Validation names every offending action — a cap tight enough for a compact log line would hide
-    // violations the diagnostic is meant to surface.
-    it('keeps a violation list long enough to name every offending action', () => {
-      const joined = Array.from(
-        { length: 200 },
-        (_unused, index) => `Delete target 'facts/${index}.md' does not exist`
-      ).join('\n')
-
-      expect(truncatePayload(joined)).toBe(joined)
-    })
-
-    it('bounds a violation list that grows past the cap', () => {
-      const joined = Array.from(
-        { length: 5000 },
-        (_unused, index) => `Delete target 'facts/${index}.md' does not exist`
-      ).join('\n')
-
-      const truncated = truncatePayload(joined)
-
-      expect(truncated.length).toBeLessThan(33_000)
-      expect(truncated).toContain('chars)')
     })
   })
 })
