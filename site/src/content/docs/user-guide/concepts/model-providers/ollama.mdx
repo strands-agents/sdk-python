@@ -242,9 +242,37 @@ print(f"Rating: {book_analysis.rating}")
 [Ollama models that support tool use](https://ollama.com/search?c=tools) can use tools through Strands' tool system:
 
 ```python
-from strands import Agent
+import ast
+import operator
+
+from strands import Agent, tool
 from strands.models.ollama import OllamaModel
-from strands_tools import calculator, current_time
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
+            base, exp = ev(n.left), ev(n.right)
+            if abs(exp) > 64:  # unbounded pow hangs uninterruptibly
+                raise ValueError(f"exponent too large: {exp}")
+            return base**exp
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(f"not arithmetic (+ - * / ** and parens only): {expression!r}")
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 # Create an Ollama model
 ollama_model = OllamaModel(
@@ -255,7 +283,7 @@ ollama_model = OllamaModel(
 # Create an agent with tools
 agent = Agent(
     model=ollama_model,
-    tools=[calculator, current_time]
+    tools=[calculator]
 )
 
 # Use the agent with tools
