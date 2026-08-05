@@ -1,12 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import { McpClient, Agent } from '@strands-agents/sdk'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { startTaskHTTPServer, type TaskHttpServerInfo } from '../__fixtures__/test-mcp-task-server.js'
 import { startHTTPServer, type HttpServerInfo } from '../__fixtures__/test-mcp-server.js'
 import { bedrock } from '../__fixtures__/model-providers.js'
 import { hasToolUse, countToolResults } from '../__fixtures__/test-helpers.js'
 
-import type { TasksConfig } from '@strands-agents/sdk'
+import type { ElicitationCallback, TasksConfig } from '@strands-agents/sdk'
+
+const MODERN_PROTOCOL_VERSION = '2026-07-28'
 
 /**
  * Creates a connected McpClient for the given server URL.
@@ -18,7 +19,7 @@ import type { TasksConfig } from '@strands-agents/sdk'
 function createClient(serverUrl: string, appName: string, tasksConfig?: TasksConfig): McpClient {
   return new McpClient({
     applicationName: appName,
-    transport: new StreamableHTTPClientTransport(new URL(serverUrl)),
+    url: serverUrl,
     ...(tasksConfig !== undefined && { tasksConfig }),
   })
 }
@@ -38,6 +39,102 @@ describe('MCP Task Integration Tests', () => {
   }, 30000)
 
   describe('McpClient.callTool() with Task-Enabled Server', () => {
+    it('preserves direct tool results when task support is enabled', async () => {
+      if (!taskServerInfo) throw new Error('Task server not started')
+
+      const client = createClient(taskServerInfo.url, 'test-direct-result-client', {})
+      try {
+        const tools = await client.listTools()
+        const directTool = tools.find((tool) => tool.name === 'direct_result')
+        if (!directTool) throw new Error('direct_result tool not found')
+
+        await expect(client.callTool(directTool, { value: 'direct response' })).resolves.toMatchObject({
+          content: [{ type: 'text', text: 'direct response' }],
+        })
+        expect(taskServerInfo.requests.filter((request) => request.method === 'tasks/get')).toEqual([])
+      } finally {
+        await client.disconnect()
+      }
+    }, 30000)
+
+    it('returns a task handle without polling and supports explicit lifecycle operations', async () => {
+      if (!taskServerInfo) throw new Error('Task server not started')
+
+      const client = createClient(taskServerInfo.url, 'test-task-lifecycle-client', {
+        useNotifications: false,
+      })
+      try {
+        const tools = await client.listTools()
+        const cancellableTool = tools.find((tool) => tool.name === 'cancellable_task')
+        if (!cancellableTool) throw new Error('cancellable_task tool not found')
+        const requestStart = taskServerInfo.requests.length
+
+        const task = await client.callToolWithTask(cancellableTool, { message: 'waiting' })
+        expect(task).toMatchObject({
+          resultType: 'task',
+          status: 'working',
+          statusMessage: 'waiting',
+        })
+        if (task.resultType !== 'task' || typeof task.taskId !== 'string') {
+          throw new Error('Expected a task handle')
+        }
+        const taskId = task.taskId
+
+        expect(taskServerInfo.requests.slice(requestStart).filter((request) => request.method === 'tasks/get')).toEqual(
+          []
+        )
+        await expect(client.getTask(taskId)).resolves.toMatchObject({
+          taskId,
+          status: 'working',
+        })
+        await expect(client.cancelTask(taskId)).resolves.toEqual({
+          resultType: 'complete',
+          _meta: expect.any(Object),
+        })
+        await expect(client.getTask(taskId)).resolves.toMatchObject({
+          taskId,
+          status: 'cancelled',
+        })
+
+        expect(
+          taskServerInfo.requests
+            .slice(requestStart)
+            .filter((request) => request.method.startsWith('tasks/'))
+            .map(({ method, taskId, mcpMethod, mcpName, protocolVersion }) => ({
+              method,
+              taskId,
+              mcpMethod,
+              mcpName,
+              protocolVersion,
+            }))
+        ).toEqual([
+          {
+            method: 'tasks/get',
+            taskId,
+            mcpMethod: 'tasks/get',
+            mcpName: taskId,
+            protocolVersion: MODERN_PROTOCOL_VERSION,
+          },
+          {
+            method: 'tasks/cancel',
+            taskId,
+            mcpMethod: 'tasks/cancel',
+            mcpName: taskId,
+            protocolVersion: MODERN_PROTOCOL_VERSION,
+          },
+          {
+            method: 'tasks/get',
+            taskId,
+            mcpMethod: 'tasks/get',
+            mcpName: taskId,
+            protocolVersion: MODERN_PROTOCOL_VERSION,
+          },
+        ])
+      } finally {
+        await client.disconnect()
+      }
+    }, 30000)
+
     it('extracts result from task tool that completes immediately', async () => {
       if (!taskServerInfo) throw new Error('Task server not started')
 
@@ -48,7 +145,6 @@ describe('MCP Task Integration Tests', () => {
         const instantTool = tools.find((t) => t.name === 'instant_task')
         expect(instantTool).toBeDefined()
 
-        // McpClient.callTool uses callToolStream internally
         const result = await client.callTool(instantTool!, { value: 'hello from instant task' })
 
         expect(result).toMatchObject({
@@ -69,7 +165,6 @@ describe('MCP Task Integration Tests', () => {
         const longRunningTool = tools.find((t) => t.name === 'long_running_task')
         expect(longRunningTool).toBeDefined()
 
-        // McpClient.callTool should wait for the task to complete and return the final result
         const result = await client.callTool(longRunningTool!, {
           duration: 300,
           message: 'Long task completed successfully!',
@@ -95,9 +190,74 @@ describe('MCP Task Integration Tests', () => {
         const failingTool = tools.find((t) => t.name === 'failing_task')
         expect(failingTool).toBeDefined()
 
-        // McpClient.callTool uses takeResult() which throws on task failure
         await expect(client.callTool(failingTool!, { error_message: 'This task failed on purpose!' })).rejects.toThrow(
           /failed/i
+        )
+      } finally {
+        await client.disconnect()
+      }
+    }, 30000)
+
+    it('handles task elicitation through tasks/update and returns the final result', async () => {
+      if (!taskServerInfo) throw new Error('Task server not started')
+
+      const elicitationCallback: ElicitationCallback = vi.fn().mockResolvedValue({
+        action: 'accept',
+        content: { value: 'integration answer' },
+      })
+      const client = new McpClient({
+        applicationName: 'test-task-elicitation-client',
+        url: taskServerInfo.url,
+        tasksConfig: {
+          pollIntervalMs: 10,
+          timeoutMs: 5_000,
+        },
+        elicitationCallback,
+      })
+      try {
+        const tools = await client.listTools()
+        const inputTool = tools.find((tool) => tool.name === 'input_required_task')
+        if (!inputTool) throw new Error('input_required_task tool not found')
+        const requestStart = taskServerInfo.requests.length
+
+        await expect(client.callTool(inputTool, { prompt: 'Provide integration input' })).resolves.toMatchObject({
+          content: [{ type: 'text', text: 'Input received: integration answer' }],
+        })
+        expect(elicitationCallback).toHaveBeenCalledOnce()
+        const updateRequests = taskServerInfo.requests
+          .slice(requestStart)
+          .filter((request) => request.method === 'tasks/update')
+        expect(updateRequests).toHaveLength(1)
+        expect(updateRequests[0]).toEqual(
+          expect.objectContaining({
+            method: 'tasks/update',
+            taskId: expect.any(String),
+            mcpMethod: 'tasks/update',
+            mcpName: updateRequests[0]!.taskId,
+            protocolVersion: MODERN_PROTOCOL_VERSION,
+          })
+        )
+      } finally {
+        await client.disconnect()
+      }
+    }, 30000)
+
+    it('translates a server-cancelled task consistently', async () => {
+      if (!taskServerInfo) throw new Error('Task server not started')
+
+      const client = createClient(taskServerInfo.url, 'test-cancelled-task-client', {
+        useNotifications: false,
+      })
+      try {
+        const tools = await client.listTools()
+        const cancelledTool = tools.find((tool) => tool.name === 'cancelled_task')
+        if (!cancelledTool) throw new Error('cancelled_task tool not found')
+
+        await expect(client.callTool(cancelledTool, { reason: 'Cancelled by integration fixture' })).rejects.toEqual(
+          expect.objectContaining({
+            name: 'McpTaskCancelledError',
+            statusMessage: 'Cancelled by integration fixture',
+          })
         )
       } finally {
         await client.disconnect()

@@ -1,4 +1,4 @@
-import { McpError, ErrorCode, UrlElicitationRequiredError } from '@modelcontextprotocol/sdk/types.js'
+import { ProtocolError, ProtocolErrorCode, UrlElicitationRequiredError } from '@modelcontextprotocol/client'
 
 import { createErrorResult, Tool, type ToolContext, type ToolStreamGenerator } from './tool.js'
 import type { ToolSpec } from './types.js'
@@ -74,7 +74,7 @@ export class McpTool extends Tool {
     } catch (error) {
       if (
         error instanceof UrlElicitationRequiredError ||
-        (error instanceof McpError && error.code === ErrorCode.UrlElicitationRequired)
+        (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired)
       ) {
         const elicitations =
           error instanceof UrlElicitationRequiredError
@@ -89,6 +89,9 @@ export class McpTool extends Tool {
             ],
           })
         }
+      }
+      if (error instanceof ProtocolError) {
+        return createErrorResult(new Error(`MCP error ${error.code}: ${error.message}`), toolUseId)
       }
       return createErrorResult(error, toolUseId)
     }

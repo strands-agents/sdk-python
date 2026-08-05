@@ -5,19 +5,27 @@
  * Supports stdio and HTTP transports.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import {
+  acceptedContent,
+  createMcpHandler,
+  inputRequired,
+  inputResponse,
+  McpServer,
+} from '@modelcontextprotocol/server'
+import { serveStdio } from '@modelcontextprotocol/server/stdio'
+import { toNodeHandler } from '@modelcontextprotocol/node'
 import { createServer, type Server as HttpServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as z from 'zod/v4'
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
 /**
  * Creates a test MCP server with echo, calculator, and error_tool tools using registerTool.
  */
 function createTestServer(): McpServer {
+  const confirmationSchema = z.object({
+    confirmed: z.boolean().describe('Whether the user confirms'),
+  })
+
   const server = new McpServer(
     {
       name: 'test-mcp-server',
@@ -116,26 +124,31 @@ function createTestServer(): McpServer {
         action: z.string(),
       },
     },
-    async ({ action }) => {
-      const result = await server.server.elicitInput({
-        message: `Do you want to proceed with: ${action}?`,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            confirmed: { type: 'boolean', description: 'Whether the user confirms' },
+    async ({ action }, context) => {
+      const response = inputResponse(context.mcpReq.inputResponses, 'confirmation')
+      if (response.kind === 'missing') {
+        return inputRequired({
+          inputRequests: {
+            confirmation: inputRequired.elicit({
+              message: `Do you want to proceed with: ${action}?`,
+              requestedSchema: confirmationSchema,
+            }),
           },
-        },
-      })
-
-      if (result.action === 'accept') {
-        return {
-          content: [{ type: 'text', text: `Action "${action}" confirmed by user` }],
-        }
+        })
       }
 
-      return {
-        content: [{ type: 'text', text: `Action "${action}" was ${result.action}d by user` }],
+      if (response.kind !== 'elicit') {
+        throw new Error('Confirmation input returned an unexpected response type')
       }
+      if (response.action !== 'accept') {
+        const outcome = response.action === 'cancel' ? 'cancelled' : 'declined'
+        return { content: [{ type: 'text', text: `Action "${action}" was ${outcome} by user` }] }
+      }
+
+      const content = acceptedContent(context.mcpReq.inputResponses, 'confirmation', confirmationSchema)
+      return content?.confirmed
+        ? { content: [{ type: 'text', text: `Action "${action}" confirmed by user` }] }
+        : { content: [{ type: 'text', text: `Action "${action}" was declined by user` }] }
     }
   )
 
@@ -176,70 +189,38 @@ export interface HttpServerInfo {
  * Uses stateless mode - creates a new transport for each request.
  */
 export async function startHTTPServer(): Promise<HttpServerInfo> {
-  const mcpServer = createTestServer()
-
-  const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === '/mcp' && req.method === 'POST') {
-      try {
-        // Read request body
-        let body = ''
-        await new Promise<void>((resolve) => {
-          req.on('data', (chunk) => {
-            body += chunk.toString()
-          })
-          req.on('end', () => {
-            resolve()
-          })
-        })
-
-        const parsedBody = body ? JSON.parse(body) : undefined
-
-        // Create a new transport for each request (stateless mode)
-        const transport = new StreamableHTTPServerTransport({
-          enableJsonResponse: true,
-        })
-
-        res.on('close', async () => {
-          await transport.close()
-        })
-
-        await mcpServer.connect(transport as Transport)
-        await transport.handleRequest(req, res, parsedBody)
-      } catch (error) {
-        console.error('Error handling MCP request:', error)
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' })
-          res.end(
-            JSON.stringify({
-              jsonrpc: '2.0',
-              error: {
-                code: -32603,
-                message: 'Internal server error',
-              },
-              id: null,
-            })
-          )
-        }
-      }
-    } else {
-      res.writeHead(404)
-      res.end()
+  const protocolHandler = createMcpHandler(createTestServer)
+  const nodeHandler = toNodeHandler(protocolHandler)
+  const httpServer = createServer((request, response) => {
+    const protocolRequest = request as Parameters<typeof nodeHandler>[0]
+    if (new URL(request.url ?? '/', 'http://127.0.0.1').pathname !== '/mcp') {
+      response.writeHead(404)
+      response.end()
+      return
     }
+    void nodeHandler(protocolRequest, response)
   })
 
-  return new Promise((resolve) => {
-    httpServer.listen(0, () => {
+  return await new Promise((resolve, reject) => {
+    httpServer.once('error', reject)
+    httpServer.listen(0, '127.0.0.1', () => {
+      httpServer.off('error', reject)
       const address = httpServer.address() as AddressInfo
       const port = address.port
-      const url = `http://localhost:${port}/mcp`
+      const url = `http://127.0.0.1:${port}/mcp`
 
       resolve({
         server: httpServer,
         port,
         url,
-        close: async () => {
-          return new Promise((resolveClose) => {
-            httpServer.close(() => {
+        close: async (): Promise<void> => {
+          await protocolHandler.close()
+          await new Promise<void>((resolveClose, rejectClose) => {
+            httpServer.close((error) => {
+              if (error) {
+                rejectClose(error)
+                return
+              }
               resolveClose()
             })
           })
@@ -251,7 +232,5 @@ export async function startHTTPServer(): Promise<HttpServerInfo> {
 
 // Start the stdio server when this file is run directly
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const server = createTestServer()
-  const transport = new StdioServerTransport()
-  await server.connect(transport)
+  void serveStdio(createTestServer)
 }

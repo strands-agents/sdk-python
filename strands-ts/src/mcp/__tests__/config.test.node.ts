@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { Client, SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { McpClient } from '../client.js'
 import { mcpServerLoader } from '../config.js'
 
@@ -18,33 +16,33 @@ vi.mock('node:path', () => ({
   join: (...segments: string[]) => segments.join('/'),
 }))
 
-vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
+vi.mock('@modelcontextprotocol/client/stdio', () => ({
   StdioClientTransport: vi.fn(function () {}),
   getDefaultEnvironment: vi.fn(() => ({ PATH: '/usr/bin', HOME: '/home/user' })),
 }))
 
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: vi.fn(function () {}),
-}))
-
-vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: vi.fn(function () {}),
-}))
-
-vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: vi.fn(function (this: Record<string, unknown>) {
-    this.connect = vi.fn()
-    this.close = vi.fn()
-    this.listTools = vi.fn()
-    this.callTool = vi.fn()
-    this.setRequestHandler = vi.fn()
-    this.setNotificationHandler = vi.fn()
-    this.getServerCapabilities = vi.fn()
-    this.getServerVersion = vi.fn()
-    this.getInstructions = vi.fn()
-    this.experimental = { tasks: { callToolStream: vi.fn() } }
-  }),
-}))
+vi.mock('@modelcontextprotocol/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@modelcontextprotocol/client')>()
+  return {
+    ...actual,
+    Client: vi.fn(function (this: Record<string, unknown>) {
+      this.connect = vi.fn()
+      this.close = vi.fn()
+      this.listTools = vi.fn()
+      this.callTool = vi.fn()
+      this.listen = vi.fn()
+      this.setRequestHandler = vi.fn()
+      this.setNotificationHandler = vi.fn()
+      this.getServerCapabilities = vi.fn()
+      this.getServerVersion = vi.fn()
+      this.getNegotiatedProtocolVersion = vi.fn()
+      this.getProtocolEra = vi.fn()
+      this.getInstructions = vi.fn()
+    }),
+    SSEClientTransport: vi.fn(function () {}),
+    StreamableHTTPClientTransport: vi.fn(function () {}),
+  }
+})
 
 describe('McpClient.loadServers', () => {
   // Register the Node loader after vi.mock hoisting so the resolver closes over the mocked
