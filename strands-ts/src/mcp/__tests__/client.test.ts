@@ -319,6 +319,143 @@ describe('MCP Integration', () => {
       expect(sdkClientMock.listTools).toHaveBeenNthCalledWith(3, { cursor: 'page3' })
     })
 
+    it('matches strings and regexes against the server-side name and passes the renamed tool to callbacks', async () => {
+      const callback = vi.fn((tool: McpTool) => tool.name === 'server_callback_tool')
+      const statefulPattern = /regex_/g
+      statefulPattern.lastIndex = 4
+      const filteredClient = new McpClient({
+        applicationName: 'TestApp',
+        transport: mockTransport,
+        prefix: 'server',
+        toolFilters: {
+          allowed: ['exact', statefulPattern, callback],
+          rejected: ['regex_rejected'],
+        },
+      })
+      const filteredSdkClient = vi.mocked(Client).mock.results.at(-1)!.value
+      filteredSdkClient.listTools.mockResolvedValue({
+        tools: [
+          { name: 'exact', inputSchema: {} },
+          { name: 'exact_extra', inputSchema: {} },
+          { name: 'regex_allowed', inputSchema: {} },
+          { name: 'xregex_unanchored', inputSchema: {} },
+          { name: 'regex_rejected', inputSchema: {} },
+          { name: 'callback_tool', inputSchema: {} },
+        ],
+      })
+
+      const tools = await filteredClient.listTools()
+
+      // 'exact' and /regex_/ matched despite every exposed name carrying the prefix, and
+      // 'xregex_unanchored' was dropped because the regex only matches from the start.
+      expect(tools.map((tool) => tool.name)).toEqual(['server_exact', 'server_regex_allowed', 'server_callback_tool'])
+      expect(callback.mock.calls.map(([tool]) => tool.name)).toEqual([
+        'server_exact_extra',
+        'server_xregex_unanchored',
+        'server_callback_tool',
+      ])
+      expect(statefulPattern.lastIndex).toBe(4)
+    })
+
+    it('applies allowed before rejected with rejected winning and distinguishes missing from empty allowed', async () => {
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [
+          { name: 'one', inputSchema: {} },
+          { name: 'two', inputSchema: {} },
+        ],
+      })
+
+      expect((await client.listTools({ toolFilters: { rejected: ['two'] } })).map((tool) => tool.name)).toEqual(['one'])
+      expect((await client.listTools({ toolFilters: { allowed: [] } })).map((tool) => tool.name)).toEqual([])
+      expect(
+        (await client.listTools({ toolFilters: { allowed: ['one'], rejected: ['one'] } })).map((tool) => tool.name)
+      ).toEqual([])
+    })
+
+    it('inherits constructor defaults while explicit empty prefix and filters disable them', async () => {
+      const defaultedClient = new McpClient({
+        applicationName: 'TestApp',
+        transport: mockTransport,
+        prefix: 'default',
+        toolFilters: { allowed: ['one'] },
+      })
+      const defaultedSdkClient = vi.mocked(Client).mock.results.at(-1)!.value
+      defaultedSdkClient.listTools.mockResolvedValue({
+        tools: [
+          { name: 'one', inputSchema: {} },
+          { name: 'two', inputSchema: {} },
+        ],
+      })
+
+      const defaultedTools = await defaultedClient.listTools()
+      expect(defaultedTools.map((tool) => tool.name)).toEqual(['default_one'])
+      expect(defaultedTools[0]!.toolSpec).toEqual({
+        name: 'default_one',
+        description: 'Tool which performs one',
+        inputSchema: {},
+      })
+      expect((await defaultedClient.listTools({ prefix: '', toolFilters: {} })).map((tool) => tool.name)).toEqual([
+        'one',
+        'two',
+      ])
+      expect(
+        (await defaultedClient.listTools({ prefix: 'override', toolFilters: { allowed: ['two'] } })).map(
+          (tool) => tool.name
+        )
+      ).toEqual(['override_two'])
+    })
+
+    it('filters and prefixes every page and invokes prefixed tools by the server-side name', async () => {
+      const prefixedClient = new McpClient({
+        applicationName: 'TestApp',
+        transport: mockTransport,
+        prefix: 'server',
+        toolFilters: { allowed: [/keep_/] },
+      })
+      const prefixedSdkClient = vi.mocked(Client).mock.results.at(-1)!.value
+      prefixedSdkClient.listTools
+        .mockResolvedValueOnce({
+          tools: [
+            { name: 'keep_one', inputSchema: {} },
+            { name: 'drop_one', inputSchema: {} },
+          ],
+          nextCursor: 'page2',
+        })
+        .mockResolvedValueOnce({ tools: [{ name: 'keep_two', inputSchema: {} }] })
+      prefixedSdkClient.callTool.mockResolvedValue({ content: [] })
+
+      const tools = await prefixedClient.listTools()
+      await prefixedClient.callTool(tools[1]!, { value: 1 })
+
+      expect(tools.map((tool) => tool.name)).toEqual(['server_keep_one', 'server_keep_two'])
+      expect(prefixedSdkClient.callTool).toHaveBeenCalledWith(
+        { name: 'keep_two', arguments: { value: 1 } },
+        undefined,
+        undefined
+      )
+    })
+
+    it('uses the server-side name for task-based invocation of a prefixed tool', async () => {
+      const taskClient = new McpClient({
+        applicationName: 'TestApp',
+        transport: mockTransport,
+        prefix: 'server',
+        tasksConfig: {},
+      })
+      const taskSdkClient = vi.mocked(Client).mock.results.at(-1)!.value
+      taskSdkClient.listTools.mockResolvedValue({ tools: [{ name: 'long_task', inputSchema: {} }] })
+      taskSdkClient.experimental.tasks.callToolStream.mockReturnValue(createMockCallToolStream({ content: [] })())
+
+      const [tool] = await taskClient.listTools()
+      await taskClient.callTool(tool!, {})
+
+      expect(taskSdkClient.experimental.tasks.callToolStream).toHaveBeenCalledWith(
+        { name: 'long_task', arguments: {} },
+        undefined,
+        expect.any(Object)
+      )
+    })
+
     it('generates description fallback when description is missing', async () => {
       sdkClientMock.listTools.mockResolvedValue({
         tools: [{ name: 'my_tool', inputSchema: {} }],
@@ -622,6 +759,51 @@ describe('MCP Integration', () => {
       expect(onToolsChanged).toHaveBeenCalledWith(['x', 'y'], expect.any(Array))
       const newTools = onToolsChanged.mock.calls[0]![1] as McpTool[]
       expect(newTools.map((t) => t.name)).toEqual(['z'])
+    })
+
+    it('keeps default registered names after an overridden listing', async () => {
+      client = new McpClient({ applicationName: 'TestApp', transport: mockTransport, prefix: 'default' })
+      sdkClientMock = vi.mocked(Client).mock.results.at(-1)!.value
+      sdkClientMock.connect.mockResolvedValue(undefined)
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [{ name: 'tool_a', description: 'A', inputSchema: {} }],
+      })
+      await client.listTools()
+      await client.listTools({ prefix: 'temporary' })
+      const onToolsChanged = vi.fn()
+      client.onToolsChanged = onToolsChanged
+
+      triggerToolsChanged()
+      await vi.waitFor(() => expect(onToolsChanged).toHaveBeenCalled())
+
+      expect(onToolsChanged).toHaveBeenCalledWith(['default_tool_a'], expect.any(Array))
+    })
+
+    it('reapplies constructor filters and prefix when refreshing', async () => {
+      client = new McpClient({
+        applicationName: 'TestApp',
+        transport: mockTransport,
+        prefix: 'server',
+        toolFilters: { allowed: ['tool_a'] },
+      })
+      sdkClientMock = vi.mocked(Client).mock.results.at(-1)!.value
+      sdkClientMock.connect.mockResolvedValue(undefined)
+      sdkClientMock.listTools.mockResolvedValue({
+        tools: [
+          { name: 'tool_a', inputSchema: {} },
+          { name: 'tool_b', inputSchema: {} },
+        ],
+      })
+      await client.listTools()
+      const onToolsChanged = vi.fn()
+      client.onToolsChanged = onToolsChanged
+
+      triggerToolsChanged()
+      await vi.waitFor(() => expect(onToolsChanged).toHaveBeenCalled())
+
+      expect(onToolsChanged).toHaveBeenCalledWith(['server_tool_a'], expect.any(Array))
+      const newTools = onToolsChanged.mock.calls[0]![1] as McpTool[]
+      expect(newTools.map((tool) => tool.name)).toEqual(['server_tool_a'])
     })
 
     it('does not throw when onToolsChanged is not set', async () => {

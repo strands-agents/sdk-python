@@ -6,6 +6,7 @@ Pauses agent execution before tool calls so a human can approve or deny them.
 import asyncio
 import inspect
 import json
+import logging
 import threading
 from collections.abc import Awaitable
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -13,6 +14,9 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from ...hooks.events import BeforeToolCallEvent
 from ...interventions.actions import Confirm, Deny, InterventionAction, Proceed, default_evaluate
 from ...interventions.handler import InterventionHandler
+from .classifier import ClassifierResult, HumanInTheLoopClassifier, LLMClassifierConfig, _create_llm_risk_classifier
+
+logger = logging.getLogger(__name__)
 
 _TRUST_RESPONSES = {"t", "trust"}
 _TRUSTED_TOOLS_KEY = "hitl:trusted_tools"
@@ -98,6 +102,12 @@ class HumanInTheLoop(InterventionHandler):
         # read_file runs freely, everything else pauses for approval
         agent = Agent(interventions=[HumanInTheLoop(allowed_tools=["read_file"])])
 
+        # LLM-driven risk classification — only risky calls get escalated
+        agent = Agent(interventions=[HumanInTheLoop(
+            allowed_tools=["read_file", "list_dir"],
+            classifier=True,
+        )])
+
         # CLI mode - prompts in terminal inline
         agent = Agent(interventions=[HumanInTheLoop(ask="stdio")])
 
@@ -115,6 +125,7 @@ class HumanInTheLoop(InterventionHandler):
         self,
         *,
         allowed_tools: list[str] | None = None,
+        classifier: bool | LLMClassifierConfig | HumanInTheLoopClassifier | None = None,
         enable_trust: bool = False,
         evaluate_trust: EvaluateCallback | None = None,
         evaluate: EvaluateCallback | None = None,
@@ -129,10 +140,17 @@ class HumanInTheLoop(InterventionHandler):
                 approval). For example, ``["read_file", "list_dir"]`` lets only those
                 two run freely, while ``["*", "!delete_file"]`` lets everything run
                 freely except ``delete_file``.
+            classifier: Determines how approval decisions are made for tools not in
+                ``allowed_tools``. Omitted/None: all non-allowed tools require approval.
+                ``True``: uses the built-in LLM risk classifier with defaults.
+                ``LLMClassifierConfig``: built-in LLM classifier with custom settings.
+                Custom callable: your own classification logic.
             enable_trust: When True, trust responses approve the tool AND remember it
                 in ``agent.state`` for the rest of the session (won't ask again).
                 Works in both interrupt/resume and inline ``ask`` modes. Negated
-                tools (``!tool``) cannot be trusted. Defaults to False.
+                tools (``!tool``) cannot be trusted. With a ``classifier``, trusting
+                a tool disables argument-level risk classification for that tool name
+                for the rest of the session. Defaults to False.
             evaluate_trust: Custom trust response validator. Defaults to accepting
                 ``"t"``/``"trust"`` (case-insensitive). When this returns True, the
                 tool is approved AND trusted for the session. Only evaluated when
@@ -160,6 +178,12 @@ class HumanInTheLoop(InterventionHandler):
         if isinstance(allowed_tools, str):
             raise ValueError("allowed_tools must be a list of tool names, not a single string")
         self._allowed_tools = set(allowed_tools or [])
+        self._classifier = self._resolve_classifier(classifier)
+        if self._classifier and "*" in self._allowed_tools:
+            logger.warning(
+                "classifier has no effect when allowed_tools contains '*' — all tools are already allowed"
+            )
+        self._classified_tool_use_ids: set[str] = set()
         self._enable_trust = enable_trust
         self._evaluate_trust = evaluate_trust if evaluate_trust is not None else self._is_trust_response
         self._evaluate = evaluate if evaluate is not None else default_evaluate
@@ -185,10 +209,13 @@ class HumanInTheLoop(InterventionHandler):
             otherwise a Confirm action (pausing via interrupt when no ``ask`` is set).
         """
         tool_name = event.tool_use["name"]
-        if not self._requires_approval(event):
+        classifier_result = await self._requires_approval(event)
+        if not classifier_result.requires_human_in_the_loop:
             return Proceed()
 
-        prompt = f'Tool "{tool_name}" requires human approval. Input: {json.dumps(event.tool_use["input"])}'
+        reason = f" — {classifier_result.reason}" if classifier_result.reason else ""
+        input_str = json.dumps(event.tool_use["input"])
+        prompt = f'Approve "{tool_name}"{reason}?\n  Input: {input_str}'
 
         is_negated = f"!{tool_name}" in self._allowed_tools
 
@@ -226,7 +253,7 @@ class HumanInTheLoop(InterventionHandler):
 
         return Confirm(prompt=prompt, response=response, evaluate=self._evaluate)
 
-    def _requires_approval(self, event: BeforeToolCallEvent) -> bool:
+    async def _requires_approval(self, event: BeforeToolCallEvent) -> ClassifierResult:
         """Decide whether the tool call needs human approval.
 
         Precedence (first match wins):
@@ -235,25 +262,52 @@ class HumanInTheLoop(InterventionHandler):
         2. Trusted at runtime via trust response (stored in ``agent.state``) -> runs freely
         3. Wildcard (``*``) -> runs freely
         4. Explicitly listed -> runs freely
-        5. Default -> requires approval
+        5. Classifier (if provided) -> its decision
+        6. Default (no classifier) -> requires approval
 
         Args:
             event: The tool call event under evaluation.
 
         Returns:
-            True if the tool requires human approval.
+            ClassifierResult indicating whether approval is required.
         """
         tool_name = event.tool_use["name"]
         if f"!{tool_name}" in self._allowed_tools:
-            return True
+            return ClassifierResult(requires_human_in_the_loop=True)
         trusted = event.agent.state.get(_TRUSTED_TOOLS_KEY) or []
         if tool_name in trusted:
-            return False
+            return ClassifierResult(requires_human_in_the_loop=False)
         if "*" in self._allowed_tools:
-            return False
+            return ClassifierResult(requires_human_in_the_loop=False)
         if tool_name in self._allowed_tools:
-            return False
-        return True
+            return ClassifierResult(requires_human_in_the_loop=False)
+
+        if self._classifier:
+            tool_use_id = event.tool_use["toolUseId"]
+            if tool_use_id in self._classified_tool_use_ids:
+                return ClassifierResult(requires_human_in_the_loop=True)
+            self._classified_tool_use_ids.add(tool_use_id)
+
+            try:
+                raw_result: Any = self._classifier(event)
+                if inspect.isawaitable(raw_result):
+                    raw_result = await raw_result
+                if not isinstance(raw_result, ClassifierResult):
+                    logger.warning(
+                        "tool=<%s> | classifier returned malformed result, defaulting to approval required",
+                        tool_name,
+                    )
+                    return ClassifierResult(requires_human_in_the_loop=True)
+                return raw_result
+            except Exception as error:
+                logger.warning(
+                    "tool=<%s> | classifier failed, defaulting to approval required",
+                    tool_name,
+                    exc_info=error,
+                )
+                return ClassifierResult(requires_human_in_the_loop=True)
+
+        return ClassifierResult(requires_human_in_the_loop=True)
 
     def _trust_tool(self, event: BeforeToolCallEvent, tool_name: str) -> None:
         """Remember a tool as trusted for the rest of the session.
@@ -279,3 +333,23 @@ class HumanInTheLoop(InterventionHandler):
         if isinstance(response, str):
             return response.lower().strip() in _TRUST_RESPONSES
         return False
+
+    @staticmethod
+    def _resolve_classifier(
+        classifier: bool | LLMClassifierConfig | HumanInTheLoopClassifier | None,
+    ) -> HumanInTheLoopClassifier | None:
+        """Resolve the classifier param into a callable or None.
+
+        Args:
+            classifier: The raw classifier param from the constructor.
+
+        Returns:
+            A classifier callable, or None if no classifier is configured.
+        """
+        if classifier is None or classifier is False:
+            return None
+        if classifier is True:
+            return _create_llm_risk_classifier()
+        if isinstance(classifier, LLMClassifierConfig):
+            return _create_llm_risk_classifier(classifier)
+        return classifier
