@@ -48,7 +48,7 @@ import { NullConversationManager } from '../conversation-manager/null-conversati
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
 import { AgentDelegation } from './agent-delegation.js'
-import { InMemoryStorage } from '../storage/in-memory-storage.js'
+import type { Storage } from '../storage/storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import { createMiddlewareInterrupt } from '../middleware/interrupt.js'
 import { MiddlewareRegistry, InvokeModelStage, AgentStreamStage } from '../middleware/index.js'
@@ -231,9 +231,9 @@ export type AgentConfig = {
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
    *
-   * @remarks The offloader uses in-memory storage that does not persist across process
-   * restarts. For agents using `sessionManager`, provide an explicit `ContextOffloader`
-   * with durable storage via the `plugins` parameter.
+   * @remarks The offloader uses in-memory storage by default. When an agent-level
+   * `storage` is provided, the offloader uses that instead. Alternatively, provide
+   * an explicit `ContextOffloader` with its own storage via the `plugins` parameter.
    */
   contextManager?: ContextManagerStrategy
   /**
@@ -322,6 +322,16 @@ export type AgentConfig = {
    * default changes.
    */
   sandbox?: Sandbox | false
+  /**
+   * Default storage backend for agent subsystems.
+   *
+   * When provided, subsystems that do not have their own explicit storage
+   * (e.g., SessionManager, ContextOffloader) resolve from this value. Each
+   * subsystem auto-namespaces under its own prefix (`session/`, `offloader/`)
+   * to avoid key collisions. Storage specified directly on a subsystem always
+   * takes precedence over this agent-level default.
+   */
+  storage?: Storage
 }
 
 /**
@@ -450,6 +460,11 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   public readonly memoryManager?: MemoryManager | undefined
 
+  /**
+   * Default storage backend for agent subsystems.
+   */
+  public readonly storage?: Storage | undefined
+
   private readonly _sandbox: Sandbox | false | undefined
 
   /**
@@ -500,6 +515,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this.id = config?.id ?? DEFAULT_AGENT_ID
     if (config?.description !== undefined) this.description = config.description
     this.sessionManager = config?.sessionManager
+    this.storage = config?.storage
     this.memoryManager =
       config?.memoryManager instanceof MemoryManager
         ? config.memoryManager
@@ -579,7 +595,6 @@ export class Agent implements LocalAgent, InvokableAgent {
       ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
-              storage: new InMemoryStorage(),
               maxResultTokens:
                 config?.contextManager === 'agentic'
                   ? AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
