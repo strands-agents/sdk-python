@@ -226,7 +226,7 @@ from strands_evals.evaluators import OutputEvaluator, GoalSuccessRateEvaluator
 @eval_task(TracedHandler())
 def math_agent():
     return Agent(
-        tools=[],
+        tools=[calculator],  # calculator is defined at the end of this page
         system_prompt="You are a math assistant. Use the calculator tool for computations.",
         callback_handler=None,
     )
@@ -277,3 +277,14 @@ asyncio.run(main())
 - [Detectors Overview](index.md): High-level detectors guide
 - [Task Decorator](../how-to/eval_task.md): Simplify task functions with `@eval_task`
 - [Remote Trace Providers](../how-to/trace_providers.md): Fetch traces from production backends
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

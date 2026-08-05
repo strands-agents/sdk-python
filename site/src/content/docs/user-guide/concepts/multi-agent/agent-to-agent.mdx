@@ -295,15 +295,16 @@ Create a Strands agent and expose it as an A2A server:
 import logging
 from strands import Agent
 from strands.multiagent.a2a import A2AServer
+from strands.vended_tools import sleep
 
 logging.basicConfig(level=logging.INFO)
 
 # Build a fresh agent for each A2A context so callers stay isolated
 def create_agent(context_id: str) -> Agent:
     return Agent(
-        name="Calculator Agent",
-        description="A calculator agent that can perform basic arithmetic operations.",
-        tools=[],
+        name="Sleepy Agent",
+        description="An agent that can pause for a bounded duration.",
+        tools=[sleep],
         callback_handler=None
     )
 
