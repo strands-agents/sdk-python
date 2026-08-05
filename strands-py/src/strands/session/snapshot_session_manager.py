@@ -25,7 +25,8 @@ import re
 from typing import TYPE_CHECKING, Any, Literal, Protocol, get_args, runtime_checkable
 
 from .._async import run_async
-from .._identifier import Identifier
+from .._identifier import Identifier, is_uuid7
+from .._identifier import new_uuid7 as _new_snapshot_id
 from .._identifier import validate as validate_identifier
 from ..experimental.hooks.events import BidiAgentInitializedEvent
 from ..hooks.events import (
@@ -35,13 +36,12 @@ from ..hooks.events import (
     MultiAgentInitializedEvent,
 )
 from ..hooks.registry import HookRegistry
+from ..storage.local_file_storage import LocalFileStorage
 from ..storage.storage import _NAMESPACED, Storage, _NamespacedStorage
 from ..types._snapshot import Snapshot
 from ..types.content import Message
 from ..types.exceptions import SnapshotException
 from ..types.session import decode_bytes_values, encode_bytes_values
-from ._snapshot_id import new_snapshot_id as _new_snapshot_id
-from ._snapshot_id import validate_snapshot_id as _validate_snapshot_id
 from .repository_session_manager import RepositorySessionManager
 from .session_manager import SessionManager
 
@@ -101,6 +101,22 @@ def _resolve_storage(storage: Storage) -> Storage:
     if getattr(storage, "_namespaced", None) is _NAMESPACED:
         return storage
     return _NamespacedStorage(storage, _SESSIONS_NAMESPACE)
+
+
+def _validate_snapshot_id(snapshot_id: str) -> None:
+    """Validate that a string is an SDK-vended snapshot id (a UUIDv7).
+
+    Snapshot ids are opaque handles callers get from ``list_snapshot_ids`` and never construct.
+    The fixed shape also guards the immutable-history key against traversal.
+
+    Args:
+        snapshot_id: The string to validate.
+
+    Raises:
+        ValueError: If the string is not a valid snapshot id.
+    """
+    if not is_uuid7(snapshot_id):
+        raise ValueError(f"'{snapshot_id}' is not a valid snapshot id")
 
 
 def _session_prefix(session_id: str) -> str:
@@ -212,7 +228,7 @@ class SnapshotSessionManager(SessionManager):
         self,
         session_id: str = "default-session",
         *,
-        storage: Storage,
+        storage: Storage | None = None,
         save_latest_on: SaveLatestStrategy = "invocation",
         snapshot_trigger: SnapshotTrigger | None = None,
         migrate_from: RepositorySessionManager | None = None,
@@ -222,7 +238,9 @@ class SnapshotSessionManager(SessionManager):
 
         Args:
             session_id: Unique session identifier. Must not contain path separators.
-            storage: Unified storage backend that persists snapshot blobs.
+            storage: Unified storage backend that persists snapshot blobs. Defaults to
+                :class:`~strands.storage.local_file_storage.LocalFileStorage`, which writes
+                under the local filesystem.
             save_latest_on: When to overwrite ``snapshot_latest``. See :data:`SaveLatestStrategy`.
             snapshot_trigger: Optional callback invoked after each invocation; when it
                 returns True an immutable snapshot is appended for checkpointing. An immutable
@@ -251,7 +269,7 @@ class SnapshotSessionManager(SessionManager):
             # Silently accepting an unknown value would register no save hooks — the session
             # would persist nothing with no error.
             raise ValueError(f"save_latest_on must be one of {_SAVE_LATEST_STRATEGIES}, got {save_latest_on!r}")
-        self._storage = _resolve_storage(storage)
+        self._storage = _resolve_storage(storage if storage is not None else LocalFileStorage())
         self._save_latest_on: SaveLatestStrategy = save_latest_on
         self._snapshot_trigger = snapshot_trigger
         self._migrate_from = migrate_from
@@ -449,7 +467,7 @@ class SnapshotSessionManager(SessionManager):
         # Stateful models manage history server-side, so restored messages would drift
         # from the server's view. Keep the restored model_state and drop the messages.
         if restored and agent.model.stateful and len(agent.messages) > 0:
-            logger.debug(
+            logger.warning(
                 "agent_id=<%s>, message_count=<%s> | discarding restored messages for stateful model",
                 agent.agent_id,
                 len(agent.messages),
