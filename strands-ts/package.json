@@ -190,9 +190,9 @@
   "license": "Apache-2.0",
   "devDependencies": {
     "@a2a-js/sdk": "^0.3.14",
-    "@ai-sdk/amazon-bedrock": "^5.0.12",
-    "@ai-sdk/openai": "^4.0.8",
-    "@ai-sdk/provider": "^4.0.2",
+    "@ai-sdk/amazon-bedrock": "^4.0.129",
+    "@ai-sdk/openai": "^3.0.41",
+    "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.115.0",
     "@aws-sdk/client-bedrock": "^3.1098.0",
     "@aws-sdk/client-bedrock-agent": "^3.1098.0",
