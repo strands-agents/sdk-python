@@ -288,6 +288,13 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        # Auto-inject a cachePoint at the end of the system prompt so repeated calls with
+        # the same static system prefix hit the cache. Anthropic docs describe the
+        # tools → system → messages prefix chain; caching only messages leaves the
+        # (usually largest and most static) system prefix uncached.
+        if self._should_cache_system(system_blocks):
+            system_blocks.append(self._build_system_cache_point())
+
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
@@ -386,6 +393,50 @@ class BedrockModel(Model):
             return {}
 
         return {"additionalModelRequestFields": additional_fields}
+
+    def _should_cache_system(self, system_blocks: list[SystemContentBlock]) -> bool:
+        """Whether to auto-inject a cache point at the end of the system prompt.
+
+        True only when auto caching is enabled for this model, ``system_blocks`` has cacheable
+        content, and no cachePoint has already been placed at the end of the system prefix.
+
+        Args:
+            system_blocks: The system content blocks that will be sent to Bedrock.
+
+        Returns:
+            True if a cache point should be appended.
+        """
+        cache_config = self.config.get("cache_config")
+        if not cache_config:
+            return False
+
+        resolved: str | None = cache_config.strategy
+        if resolved == "auto":
+            resolved = self._cache_strategy
+        if resolved != "anthropic":
+            return False
+
+        if not system_blocks:
+            return False
+
+        if "cachePoint" in system_blocks[-1]:
+            return False
+
+        return True
+
+    def _build_system_cache_point(self) -> SystemContentBlock:
+        """Build the cache point block appended to the system prompt.
+
+        Uses ``cache_config.ttl`` when set; falls back to Bedrock's ``default`` (5m).
+
+        Returns:
+            The cache point block.
+        """
+        cache_point: dict[str, Any] = {"type": "default"}
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.ttl:
+            cache_point["ttl"] = cache_config.ttl
+        return cast(SystemContentBlock, {"cachePoint": cache_point})
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
