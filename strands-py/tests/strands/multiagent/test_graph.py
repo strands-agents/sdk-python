@@ -2228,7 +2228,7 @@ async def test_graph_skip_node(skip_node, skip_message):
     assert graph.state.results["test_agent"].status == Status.SKIPPED
     skipped_node = next(node for node in graph.state.completed_nodes if node.node_id == "test_agent")
     assert skipped_node.execution_status == Status.SKIPPED
-    agent.__call__.assert_not_called()
+    agent.stream_async.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -2264,7 +2264,7 @@ async def test_graph_cancel_node_backward_compat(cancel_node, cancel_message):
     assert graph.state.results["test_agent"].status == Status.SKIPPED
     skipped_node = next(node for node in graph.state.completed_nodes if node.node_id == "test_agent")
     assert skipped_node.execution_status == Status.SKIPPED
-    agent.__call__.assert_not_called()
+    agent.stream_async.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -2300,7 +2300,7 @@ async def test_graph_skip_node_precedence_over_cancel_node(skip_node, cancel_nod
     assert tru_skip_event == exp_skip_event
 
     assert graph.state.results["test_agent"].status == Status.SKIPPED
-    agent.__call__.assert_not_called()
+    agent.stream_async.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -2340,7 +2340,7 @@ async def test_graph_skip_node_downstream_executes():
     assert result.completed_nodes == 1
     assert result.skipped_nodes == 1
     assert result.failed_nodes == 0
-    step_a.__call__.assert_not_called()
+    step_a.stream_async.assert_not_called()
     step_b.stream_async.assert_called_once()
 
     assert any(node.node_id == "step_a" for node in graph.state.completed_nodes)
