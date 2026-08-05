@@ -22,9 +22,39 @@ pip install 'strands-agents[openai]' strands-agents-tools
 After installing the `openai` package, you can import and initialize the Strands Agents' OpenAI-compatible provider for Crusoe models as follows:
 
 ```python
-from strands import Agent
+import ast
+import operator
+
+from strands import Agent, tool
 from strands.models.openai import OpenAIModel
-from strands_tools import calculator
+
+@tool
+def calculator(expression: str) -> str:
+    """Evaluate an arithmetic expression such as "144 ** 0.5" or "450 / 120".
+
+    Args:
+        expression: The arithmetic expression to evaluate.
+    """
+    ops = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+           ast.Div: operator.truediv, ast.USub: operator.neg}
+
+    def ev(n):
+        if isinstance(n, ast.Constant) and isinstance(n.value, (int, float)):
+            return n.value
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Pow):
+            base, exp = ev(n.left), ev(n.right)
+            if abs(exp) > 64:
+                raise ValueError(f"exponent too large in {expression!r}: {exp}")
+            return base**exp
+        if isinstance(n, ast.BinOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.left), ev(n.right))
+        if isinstance(n, ast.UnaryOp) and type(n.op) in ops:
+            return ops[type(n.op)](ev(n.operand))
+        raise ValueError(
+            f"{expression!r} is not arithmetic; supported: + - * / ** and parentheses over numbers"
+        )
+
+    return str(ev(ast.parse(expression, mode="eval").body))
 
 model = OpenAIModel(
     client_args={
