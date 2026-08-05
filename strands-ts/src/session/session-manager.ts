@@ -128,6 +128,11 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
   }
 
   private get _snapshotStorage(): SnapshotStorage {
+    if (!this._storage) {
+      throw new Error(
+        'SessionManager requires a storage backend. Provide storage in SessionManagerConfig or set storage on the Agent.'
+      )
+    }
     return this._storage.snapshot
   }
 
