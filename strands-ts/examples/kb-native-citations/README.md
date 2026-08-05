@@ -1,10 +1,16 @@
 # Bedrock Knowledge Base Native Citations Example
 
-Demonstrates how to configure and use `BedrockKnowledgeBaseStore` with native Bedrock Converse API citations.
+Demonstrates how to use `BedrockKnowledgeBaseStore` with native Bedrock Converse API citations using a user-land `FunctionTool`.
 
 ## Overview
 
-By default, knowledge base retrieval returns plain text snippets. By enabling `citationDocumentBlocks: true`, the SDK exposes a dedicated `retrieve_knowledge_base` tool to the agent. When called, it surfaces chunks as `DocumentBlock` objects with citations enabled (`{ citations: { enabled: true } }`), allowing Bedrock models to generate accurate, passage-level citations in their responses.
+By default, knowledge base retrieval returns plain text snippets via the built-in `search_memory` tool. To enable native passage-level citations, this example builds a custom `FunctionTool` that:
+
+1. Retrieves passages from the knowledge base via `store.search()`
+2. Wraps each passage in a `DocumentBlock` with `citations: { enabled: true }`
+3. Returns the blocks as the tool result
+
+When Bedrock's Converse API sees `DocumentBlock`s in a tool result, it generates accurate, chunk-level citation references in its response — attributing each assertion to its source passage.
 
 ## Prerequisites
 

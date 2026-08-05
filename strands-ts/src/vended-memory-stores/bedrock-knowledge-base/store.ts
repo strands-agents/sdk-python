@@ -14,36 +14,13 @@ import {
 } from '@aws-sdk/client-bedrock-agent'
 import type { S3Client } from '@aws-sdk/client-s3'
 import { v7 as uuidv7 } from 'uuid'
-import { z } from 'zod'
 
-import type {
-  MemoryEntry,
-  MemoryStore,
-  MemoryStoreConfig,
-  MemoryToolConfig,
-  SearchOptions,
-} from '../../memory/types.js'
+import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
 import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
-import type { Tool } from '../../tools/tool.js'
-import { FunctionTool } from '../../tools/function-tool.js'
-import { DocumentBlock } from '../../types/media.js'
-import { zodSchemaToJsonSchema } from '../../tools/zod-utils.js'
 import { logger } from '../../logging/logger.js'
 
 const DEFAULT_MAX_SEARCH_RESULTS = 10
-
-const RETRIEVE_INPUT_SCHEMA = zodSchemaToJsonSchema(
-  z.object({
-    query: z.string().describe('The search query to retrieve relevant passages for'),
-    maxResults: z
-      .number()
-      .int()
-      .positive()
-      .optional()
-      .describe('Maximum number of passages to retrieve. Defaults to the store default.'),
-  })
-)
 
 /**
  * Knowledge base types as defined by `GetKnowledgeBase`. A `MANAGED` KB uses
@@ -167,24 +144,6 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
    * filtering at search time is supplied separately as retrieval `userContext`.
    */
   accessControlList?: BedrockKnowledgeBaseAccessControlEntry[]
-  /**
-   * When `true`, {@link BedrockKnowledgeBaseStore.getTools} returns a `retrieve_knowledge_base` tool
-   * that converts each retrieved text chunk into a {@link DocumentBlock} (text source,
-   * `citations: { enabled: true }`) before returning to the model.
-   *
-   * This is the bridge between Bedrock Knowledge Bases and Bedrock's native citation feature:
-   * the model sees `DocumentBlock`s in the tool result, which Converse uses to generate
-   * chunk-level citations without fetching full source documents.
-   *
-   * @defaultValue false
-   */
-  citationDocumentBlocks?: boolean
-  /**
-   * Customizes the name and description of the `retrieve_knowledge_base` tool returned by
-   * {@link BedrockKnowledgeBaseStore.getTools} when {@link citationDocumentBlocks} is `true`.
-   * Omit to use the defaults.
-   */
-  retrieveToolConfig?: MemoryToolConfig
 }
 
 /**
@@ -245,9 +204,6 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   readonly writable: boolean
   readonly extraction?: boolean | ExtractionConfig
 
-  private readonly _citationDocumentBlocks: boolean
-  private readonly _retrieveToolConfig: MemoryToolConfig | undefined
-
   private readonly _runtimeClient: BedrockAgentRuntimeClient
   private _agentClient: BedrockAgentClient | undefined
   private _s3Client: S3Client | undefined
@@ -276,19 +232,8 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   public readonly accessControlList: BedrockKnowledgeBaseAccessControlEntry[] | undefined
 
   constructor(options: BedrockKnowledgeBaseStoreConfig) {
-    const {
-      config,
-      scope,
-      name,
-      description,
-      writable,
-      maxSearchResults,
-      filter,
-      extraction,
-      accessControlList,
-      citationDocumentBlocks,
-      retrieveToolConfig,
-    } = options
+    const { config, scope, name, description, writable, maxSearchResults, filter, extraction, accessControlList } =
+      options
 
     this.name = name
     if (description !== undefined) this.description = description
@@ -316,8 +261,6 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     this.scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
     this.filter = filter
     this.accessControlList = accessControlList
-    this._citationDocumentBlocks = citationDocumentBlocks ?? false
-    this._retrieveToolConfig = retrieveToolConfig
   }
 
   /**
@@ -416,73 +359,6 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
         metadata,
       }
     })
-  }
-
-  /**
-   * Returns a `retrieve_knowledge_base` tool when {@link citationDocumentBlocks} is `true`,
-   * otherwise returns an empty array.
-   *
-   * The tool issues a {@link RetrieveCommand} and converts each text chunk into a
-   * {@link DocumentBlock} with `citations: { enabled: true }`. Returning `DocumentBlock`s
-   * (rather than plain JSON) is what lets Bedrock's Converse API generate native chunk-level
-   * citations — the API inspects tool-result content and cites the passages it used.
-   *
-   * Use this alongside a {@link MemoryManager} with `searchToolConfig: false` so the model
-   * reaches for the retrieve tool (which returns citable blocks) rather than the plain
-   * `search_memory` tool (which returns JSON strings). See `examples/kb-native-citations` for
-   * a complete usage example.
-   *
-   * @returns Array containing one tool, or an empty array when citation blocks are disabled
-   */
-  getTools(): Tool[] {
-    if (!this._citationDocumentBlocks) {
-      return []
-    }
-
-    const toolName = this._retrieveToolConfig?.name ?? 'retrieve_knowledge_base'
-    const toolDescription =
-      this._retrieveToolConfig?.description ??
-      `Search the knowledge base and return cited document passages. Results include source citations so the model can attribute each fact to its origin.${this.description ? `\n\nKnowledge base: ${this.description}` : ''}`
-
-    return [
-      new FunctionTool({
-        name: toolName,
-        description: toolDescription,
-        inputSchema: RETRIEVE_INPUT_SCHEMA,
-        callback: async (rawInput: unknown): Promise<JSONValue> => {
-          const input = rawInput as { query: string; maxResults?: number }
-          const results = await this.search(input.query, {
-            ...(input.maxResults !== undefined && { maxSearchResults: input.maxResults }),
-          })
-
-          if (results.length === 0) {
-            return 'No passages found for this query.' as unknown as JSONValue
-          }
-
-          // Each retrieved passage becomes a DocumentBlock with citations enabled. The name is
-          // derived from the source location metadata (S3 URI or a generic label) so the model
-          // has a human-readable source reference alongside the cited excerpt.
-          // FunctionTool._wrapInToolResult recognises DocumentBlock[] and passes them through
-          // as a multi-block ToolResultBlock, which Bedrock Converse uses for native citations.
-          return results.map((entry, index) => {
-            const sourceUri =
-              typeof entry.metadata?._sourceLocation === 'object' &&
-              entry.metadata._sourceLocation !== null &&
-              's3Location' in (entry.metadata._sourceLocation as object)
-                ? ((entry.metadata._sourceLocation as { s3Location?: { uri?: string } }).s3Location?.uri ?? '')
-                : ''
-            const docName = sourceUri || `passage-${index + 1}`
-
-            return new DocumentBlock({
-              name: docName,
-              format: 'txt',
-              source: { text: entry.content },
-              citations: { enabled: true },
-            })
-          }) as unknown as JSONValue
-        },
-      }),
-    ]
   }
 
   /**
