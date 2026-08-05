@@ -226,9 +226,7 @@ class TestRegionResolution:
     """Default boto3 clients receive the configured region as a hint; otherwise boto3 resolves it.
 
     Only an explicit ``region_name`` config is threaded into the store's default ``boto3.client``
-    calls. When it is absent, ``None`` is passed so boto3 resolves the region from its own chain
-    (``AWS_REGION`` env, ``~/.aws/config``, IMDS) rather than the store silently picking one — a
-    wrong default region would misroute region-scoped knowledge bases.
+    calls. When it is absent, ``None`` is passed so boto3 resolves the region from its own chain.
     """
 
     def test_no_config_passes_none_so_boto_resolves(self, monkeypatch, tmp_path):
