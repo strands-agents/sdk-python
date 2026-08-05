@@ -170,6 +170,13 @@ short-circuiting before the chain. `ExecuteToolContext.tool` is therefore `Agent
 
 Context fields (`messages`, `system_prompt`, `tool_specs`, `tool_choice`) are deep-copied when building the middleware context. `invocation_state` is shared by reference. `model_state` is excluded from the context entirely — middleware cannot access or modify it. The terminal reads it directly from the agent at invocation time.
 
+## Per-call model
+
+`InvokeModelContext.model` is the model the terminal invokes, initialized from `agent.model`. Middleware can point a single call at a different model via `replace()`, without mutating agent state; the terminal streams `context.model`, so the replacement also drives the trace span's `model_id`:
+```python
+modified = replace(context, model=other_model)
+```
+
 ## Context transformation
 
 Middleware creates modified contexts via `dataclasses.replace()`:

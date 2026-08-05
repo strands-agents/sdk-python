@@ -347,7 +347,11 @@ async def test_hook_retry_on_successful_call():
                 "role": "assistant",
                 "content": [{"text": "This is a much longer and more detailed response"}],
             },
-        ]
+        ],
+        usages=[
+            {"inputTokens": 1000, "outputTokens": 1000, "totalTokens": 2000},
+            {"inputTokens": 7, "outputTokens": 7, "totalTokens": 14},
+        ],
     )
 
     # Hook that retries if response is too short
@@ -380,6 +384,11 @@ async def test_hook_retry_on_successful_call():
 
     # Verify final result is the longer response
     assert result.message["content"][0]["text"] == "This is a much longer and more detailed response"
+
+    # https://github.com/strands-agents/harness-sdk/issues/3623: retried calls still incur billable usage.
+    tru_usage = agent.event_loop_metrics.accumulated_usage
+    exp_usage = {"inputTokens": 1007, "outputTokens": 1007, "totalTokens": 2014}
+    assert tru_usage == exp_usage
 
 
 @pytest.mark.asyncio

@@ -388,6 +388,21 @@ describe('SessionManager', () => {
       expect(snapshot).not.toBeNull()
     })
 
+    it('saves snapshot_latest when saveLatestOn is message', async () => {
+      sessionManager = new SessionManager({
+        sessionId: 'test-session',
+        storage: { snapshot: storage },
+        saveLatestOn: 'message',
+      })
+
+      await initPluginAndInvokeHook(sessionManager, new AfterInvocationEvent(createMockEvent(mockAgent)))
+
+      const snapshot = await storage.loadSnapshot({
+        location: { sessionId: 'test-session', scope: 'agent', scopeId: 'test-agent' },
+      })
+      expect(snapshot).not.toBeNull()
+    })
+
     it('does not save snapshot_latest when saveLatestOn is trigger', async () => {
       sessionManager = new SessionManager({
         sessionId: 'test-session',

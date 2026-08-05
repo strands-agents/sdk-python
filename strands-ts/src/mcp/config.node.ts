@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
-import type { McpClientConfig, McpClientOptions, McpTransport } from './client.js'
+import type { McpClientConfig, McpClientOptions, McpToolFilters, McpTransport } from './client.js'
 import type { McpServerConfig } from './config.js'
 import { logger } from '../logging/index.js'
 
@@ -120,7 +120,30 @@ function baseOptions(name: string, server: McpServerConfig, defaults?: McpClient
   const opts: McpClientOptions = { ...defaults, applicationName: defaults?.applicationName ?? name }
   if (server.continueOnError != null) opts.continueOnError = server.continueOnError
   if (server.tasksConfig != null) opts.tasksConfig = server.tasksConfig
+  if (server.prefix !== undefined) opts.prefix = interpolateEnv(server.prefix)
+  if (server.toolFilters !== undefined) opts.toolFilters = compileToolFilters(name, server.toolFilters)
   return opts
+}
+
+function compileToolFilters(name: string, filters: NonNullable<McpServerConfig['toolFilters']>): McpToolFilters {
+  const compiled: McpToolFilters = {}
+  if (filters.allowed !== undefined)
+    compiled.allowed = compileFilterMatchers(name, 'allowed', filters.allowed.map(interpolateEnv))
+  if (filters.rejected !== undefined)
+    compiled.rejected = compileFilterMatchers(name, 'rejected', filters.rejected.map(interpolateEnv))
+  return compiled
+}
+
+function compileFilterMatchers(name: string, key: 'allowed' | 'rejected', patterns: string[]): RegExp[] {
+  return patterns.map((pattern) => {
+    try {
+      return new RegExp(pattern)
+    } catch (error) {
+      throw new SyntaxError(`Server "${name}": invalid regex in toolFilters.${key}: "${pattern}": ${String(error)}`, {
+        cause: error,
+      })
+    }
+  })
 }
 
 /**

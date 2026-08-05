@@ -3,7 +3,6 @@ title: Vended Tools
 description: "Pre-built tools included in the SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes."
 sidebar:
   label: "Vended Tools"
-languages: [python, typescript]
 tags: [tool-authoring]
 sourceLinks:
   - path: strands-ts/src/vended-tools/file-editor/file-editor.ts
@@ -11,10 +10,11 @@ sourceLinks:
   - path: strands-ts/src/vended-tools/http-request/http-request.ts
   - path: strands-ts/src/vended-tools/notebook/notebook.ts
   - path: strands-ts/src/vended-tools/sleep/sleep.ts
-  - path: strands-ts/src/vended-tools/stop/stop.ts
+  - path: strands-ts/src/experimental/vended-tools/stop/stop.ts
   - path: strands-py/src/strands/vended_tools/http_request/http_request.py
+  - path: strands-py/src/strands/vended_tools/shell/shell.py
   - path: strands-py/src/strands/vended_tools/sleep/sleep.py
-  - path: strands-py/src/strands/vended_tools/stop/stop.py
+  - path: strands-py/src/strands/experimental/tools/stop/stop.py
 ---
 
 Vended tools are pre-built tools included directly in the Strands SDK for common agent tasks like file operations, shell commands, HTTP requests, and persistent notes. 
@@ -40,7 +40,7 @@ Each tool is imported from its own subpath under `@strands-agents/sdk/vended-too
 | [Notebook](#notebook) | Manage persistent text notebooks | TypeScript (Node.js, browsers) |
 | [Bash](#bash) | Execute shell commands with persistent sessions | Python, TypeScript (Node.js, Unix/Linux/macOS) |
 | [Sleep](#sleep) | Pause execution for a bounded, cancellable duration | Python, TypeScript (Node.js, browsers) |
-| [Stop](#stop) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
+| [Stop](#stop-experimental) | Gracefully end the agent loop when the task is complete | Python, TypeScript (Node.js, browsers) |
 
 ### File Editor
 
@@ -85,11 +85,15 @@ Lets your agent call external APIs and fetch web content. Supports all HTTP meth
 
 _Supported in: Python; Node.js 20+, modern browsers (TypeScript)._
 
-The Python tool ships with a strict default posture that rejects non-public destinations (loopback, RFC1918, link-local, multicast, reserved, and known cloud-metadata endpoints), refuses non-http and non-https schemes, caps redirect chains, response bodies, and response headers, and rejects model-supplied Authorization, Cookie, and Proxy-Authorization headers unless the tool operator has opted the target host in. Redirects are re-validated at every hop and cross-origin hops strip credentials. Use the make_http_request factory to relax individual controls when the deployment requires it.
+<Tabs>
+<Tab label="Python">
 
-:::caution[Security Warning]
-Even with the default posture, this tool can call any public URL. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
-:::
+The Python tool delegates all networking to an `httpx.AsyncClient`. Use the `make_http_request` factory to supply a pre-configured client with authentication, timeouts, redirects, proxies, or other transport-level configuration.
+
+</Tab>
+<Tab label="TypeScript">
+</Tab>
+</Tabs>
 
 **Example:**
 
@@ -113,16 +117,17 @@ agent = Agent(tools=[http_request])
 agent("Get data from https://api.example.com/data")
 ```
 
-Custom posture:
+Custom configuration with a pre-configured client:
 
 ```python
+import httpx
 from strands import Agent
 from strands.vended_tools import make_http_request
 
-tool = make_http_request(
-    allow_private_hosts=["metrics.internal.example.com"],
-    allow_auth_for_hosts=["api.example.com"],
+client = httpx.AsyncClient(
+    headers={"Authorization": "Bearer token"},
 )
+tool = make_http_request(client=client)
 agent = Agent(tools=[tool])
 ```
 
@@ -157,14 +162,18 @@ _Supported in: Node.js, browsers._
 
 ---
 
-### Bash
+### Bash / Shell
 
-Lets your agent run shell commands and act on the output. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
+Lets your agent run shell commands and act on the output. The two SDKs expose
+different tools here:
+
+- **TypeScript `bash`** spawns a persistent `bash` process on the host. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
+- **Python `shell`** (and TypeScript's `makeShell`) routes each command through the agent's [Sandbox](../sandbox/index.mdx) and is stateless: every call runs in a fresh shell, so variables and the working directory do not carry over. The sandbox decides the interpreter — `sh` locally and in Docker, the remote login shell over SSH — so use portable POSIX syntax.
 
 _Supported in: Node.js on Unix/Linux/macOS (TypeScript), all platforms (Python)._
 
 :::caution[Security Warning]
-This tool executes arbitrary bash commands. Without a [Sandbox](../sandbox/index.mdx), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
+These tools execute arbitrary shell commands. Without a [Sandbox](../sandbox/index.mdx), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](../sandbox/index.mdx) for production.
 :::
 
 **Example - File Operations:**
@@ -183,9 +192,9 @@ This tool executes arbitrary bash commands. Without a [Sandbox](../sandbox/index
 
 ```python
 from strands import Agent
-from strands.vended_tools import bash
+from strands.vended_tools import shell
 
-agent = Agent(tools=[bash])
+agent = Agent(tools=[shell])
 agent("List all Python files in the current directory and count them")
 ```
 
@@ -269,7 +278,10 @@ agent = Agent(tools=[short_sleep])
 
 ---
 
-### Stop
+### Stop (Experimental)
+
+> This tool is experimental and subject to change in future
+> revisions without notice.
 
 Lets the model gracefully end the agent loop with an optional final message. The default loop already terminates when the model returns without any tool call; the stop tool is useful when you want an explicit "I am done" affordance, when a workflow enforces that termination is a deliberate model decision, or when a sub-agent needs to signal completion back to a coordinator via the loop's last assistant message.
 
@@ -295,7 +307,7 @@ The two SDKs shim onto different loop-termination primitives, which produces a s
 
 ```python
 from strands import Agent
-from strands.vended_tools import stop
+from strands.experimental.tools import stop
 
 agent = Agent(
     tools=[stop],
@@ -307,7 +319,7 @@ result = agent("Summarize the changes in ./CHANGELOG.md")
 </Tab>
 </Tabs>
 
-📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-tools/stop/README.md)
+📖 [Full API Reference](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/experimental/vended-tools/stop/README.md)
 
 ---
 
