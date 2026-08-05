@@ -2337,11 +2337,14 @@ export class Agent implements LocalAgent, InvokableAgent {
    * @returns Estimated input token count
    */
   private async _estimateInputTokens(streamOptions: StreamOptions): Promise<number> {
-    // Find the last assistant message with usage metadata
+    // Skip calls that used the cache: providers disagree on whether a cached portion is included in
+    // `inputTokens`, so those fall through to counting the messages below rather than being guessed.
     let lastAssistantIdx = -1
-    for (let i = this.messages.length - 1; i >= 0; i--) {
-      if (this.messages[i]!.role === 'assistant' && this.messages[i]!.metadata?.usage) {
-        lastAssistantIdx = i
+    for (let index = this.messages.length - 1; index >= 0; index--) {
+      const message = this.messages[index]!
+      const usage = message.role === 'assistant' ? message.metadata?.usage : undefined
+      if (usage && !usage.cacheReadInputTokens && !usage.cacheWriteInputTokens) {
+        lastAssistantIdx = index
         break
       }
     }

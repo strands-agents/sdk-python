@@ -11,11 +11,14 @@ These tests validate end-to-end behavior of ``context_manager="agentic"``:
 They make real Bedrock API calls and rely on default AWS credential resolution.
 """
 
+import re
+
 import pytest
 
 import strands
 from strands import Agent
 from strands.models import BedrockModel
+from strands.models.model import CacheConfig
 from strands.types.content import Messages
 
 
@@ -108,6 +111,49 @@ class TestMiddlewareContextInjection:
         assert "<used>" in status_text
         assert "<remaining>" in status_text
         assert "</context-status>" in status_text
+
+    def test_context_status_tracks_real_size_once_the_cache_is_warm(self):
+        """The reported figure must survive prompt caching.
+
+        Once the cache is warm most of the prompt is reported under the cache counters, not
+        ``inputTokens``. An estimator anchored on it collapses and stops prompting compression.
+        """
+        model = BedrockModel(cache_config=CacheConfig(strategy="auto"), max_tokens=512)
+        seen_messages: list[Messages] = []
+        original_stream = model.stream
+
+        def capturing_stream(messages, *args, **kwargs):
+            seen_messages.append([dict(message) for message in messages])
+            return original_stream(messages, *args, **kwargs)
+
+        model.stream = capturing_stream
+
+        agent = Agent(model=model, context_manager="agentic", callback_handler=None)
+        filler = "This is background context that stays stable across turns. " * 200
+        agent(f"{filler}\n\nReply with OK.")
+        agent("Reply with OK again.")
+        agent("And once more.")
+
+        reported = []
+        for messages in seen_messages:
+            for message in messages:
+                for block in message["content"]:
+                    text = block.get("text", "")
+                    if "<context-status>" in text:
+                        used = re.search(r"<used>([\d,]+) /", text)
+                        if used:
+                            reported.append(int(used.group(1).replace(",", "")))
+
+        # Without this the test would pass vacuously on a cold cache.
+        usages = [
+            message["metadata"]["usage"] for message in agent.messages if message.get("metadata", {}).get("usage")
+        ]
+        assert any(usage.get("cacheReadInputTokens", 0) > 0 for usage in usages), (
+            f"expected the prompt cache to engage, got {usages}"
+        )
+
+        assert len(reported) > 1
+        assert all(used > 500 for used in reported), f"context-status collapsed under caching: {reported}"
 
     def test_context_status_not_injected_when_not_agentic(self, model):
         seen_messages: list[Messages] = []

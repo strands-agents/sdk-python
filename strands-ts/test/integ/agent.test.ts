@@ -156,6 +156,26 @@ describe.each(allProviders)('Agent with $name', ({ name, skip, createModel, mode
         expect(result.lastMessage.role).toBe('assistant')
         expect(result.lastMessage.content.length).toBeGreaterThan(0)
       })
+
+      it('reports inputTokens as the whole prompt when nothing was served from cache', async () => {
+        // Token estimation anchors on inputTokens only when no cache counters are present. Pins that
+        // precondition: with no caching, inputTokens must cover the whole prompt on every provider.
+        const agent = new Agent({
+          model: createModel(),
+          printer: false,
+        })
+
+        const prompt = `Summarize in one word: ${'the quick brown fox jumps over the lazy dog. '.repeat(120)}`
+        await agent.invoke(prompt)
+
+        const usage = agent.messages.find((message) => message.role === 'assistant' && message.metadata?.usage)
+          ?.metadata?.usage
+        expect(usage).toBeDefined()
+        expect(usage?.cacheReadInputTokens ?? 0).toBe(0)
+        expect(usage?.cacheWriteInputTokens ?? 0).toBe(0)
+        // The prompt alone exceeds 500 tokens, so a small count means inputTokens is not the whole prompt.
+        expect(usage!.inputTokens).toBeGreaterThan(500)
+      })
     })
 
     describe('Multi-turn Conversations', () => {

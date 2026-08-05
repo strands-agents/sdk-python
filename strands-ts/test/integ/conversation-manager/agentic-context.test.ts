@@ -103,6 +103,45 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
       expect(statusText).toContain('</context-status>')
     })
 
+    it('context-status keeps tracking real context size once the prompt cache is warm', async () => {
+      // Once the cache is warm most of the prompt is reported under the cache counters, not
+      // inputTokens. An estimator anchored on it collapses and stops prompting compression.
+      const model = bedrock.createModel({ maxTokens: 512, cacheConfig: { strategy: 'auto' } })
+      const streamSpy = vi.spyOn(model, 'stream')
+
+      const agent = new Agent({
+        model,
+        contextManager: 'agentic',
+        printer: false,
+      })
+
+      const filler = 'This is background context that stays stable across turns. '.repeat(200)
+      await agent.invoke(`${filler}\n\nReply with OK.`)
+      await agent.invoke('Reply with OK again.')
+      await agent.invoke('And once more.')
+
+      const reported: number[] = []
+      for (const call of streamSpy.mock.calls) {
+        for (const message of call[0] as Message[]) {
+          for (const block of message.content) {
+            if (block.type === 'textBlock' && (block as TextBlock).text.includes('<context-status>')) {
+              const used = /<used>([\d,]+) \//.exec((block as TextBlock).text)?.[1]
+              if (used) reported.push(Number(used.replace(/,/g, '')))
+            }
+          }
+        }
+      }
+
+      // Without this the test would pass vacuously on a cold cache.
+      const usages = agent.messages.filter((message) => message.metadata?.usage).map((m) => m.metadata!.usage!)
+      expect(usages.some((usage) => (usage.cacheReadInputTokens ?? 0) > 0)).toBe(true)
+
+      expect(reported.length).toBeGreaterThan(1)
+      for (const used of reported) {
+        expect(used).toBeGreaterThan(500)
+      }
+    })
+
     it('context-status is NOT injected when contextManager is not agentic', async () => {
       const model = bedrock.createModel({ maxTokens: 1024 })
       const streamSpy = vi.spyOn(model, 'stream')
@@ -135,16 +174,21 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
         printer: false,
       })
 
+      // Total context is what grows; inputTokens alone can shrink as the cache warms.
+      const contextSize = (message: Message | undefined) => {
+        const usage = message?.metadata?.usage
+        if (!usage) return 0
+        return usage.inputTokens + (usage.cacheReadInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0)
+      }
+
       await agent.invoke('Say hello in one word.')
-      const firstAssistant = agent.messages.find((m) => m.role === 'assistant' && m.metadata?.usage)
-      const firstInputTokens = firstAssistant?.metadata?.usage?.inputTokens ?? 0
+      const firstContextSize = contextSize(agent.messages.find((m) => m.role === 'assistant' && m.metadata?.usage))
 
       await agent.invoke('Now count from 1 to 10.')
       const assistants = agent.messages.filter((m) => m.role === 'assistant' && m.metadata?.usage)
-      const lastAssistant = assistants[assistants.length - 1]
-      const secondInputTokens = lastAssistant?.metadata?.usage?.inputTokens ?? 0
+      const secondContextSize = contextSize(assistants[assistants.length - 1])
 
-      expect(secondInputTokens).toBeGreaterThan(firstInputTokens)
+      expect(secondContextSize).toBeGreaterThan(firstContextSize)
     })
   })
 

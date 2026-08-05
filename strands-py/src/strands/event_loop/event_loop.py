@@ -136,11 +136,13 @@ async def _estimate_input_tokens(agent: "Agent") -> int:
     """
     messages = agent.messages
 
-    # Find the last assistant message with usage metadata
+    # Skip calls that used the cache: providers disagree on whether a cached portion is included in
+    # ``inputTokens``, so those fall through to counting the messages below rather than being guessed.
     last_assistant_idx = -1
-    for i, msg in reversed(list(enumerate(messages))):
-        if msg.get("role") == "assistant" and msg.get("metadata", {}).get("usage"):
-            last_assistant_idx = i
+    for index, message in reversed(list(enumerate(messages))):
+        usage = message.get("metadata", {}).get("usage") if message.get("role") == "assistant" else None
+        if usage and not (usage.get("cacheReadInputTokens") or usage.get("cacheWriteInputTokens")):
+            last_assistant_idx = index
             break
 
     if last_assistant_idx >= 0:
