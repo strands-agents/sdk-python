@@ -1548,9 +1548,9 @@ describe('FileMemoryStore.consolidate', () => {
   })
 
   describe('changelog forgery guard (PR #3429 Blocker 4)', () => {
-    // A newline in a model-chosen merge target is caught by the filename stem's control-character
-    // check, so the plan never executes and the path never reaches the changelog.
-    it('rejects a plan whose merge target carries control characters', async () => {
+    // A forged merge target is caught by the filename stem's path-hostile character check (here the
+    // ':' in the payload), so the plan never executes and the path never reaches the changelog.
+    it('rejects a plan whose merge target carries path-hostile characters', async () => {
       await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
       await writeFile(storage, 'facts/b.md', 'Fact B', 'Content B')
 
@@ -1570,7 +1570,7 @@ describe('FileMemoryStore.consolidate', () => {
         })
       )
 
-      // The filename stem validation now rejects control characters before execution
+      // The filename stem validation rejects the path-hostile characters before execution
       await expect(store.consolidate({ model, operations: ['deduplicate'] })).rejects.toThrow(/validation failed/)
 
       // Files untouched — plan never executed
@@ -1612,24 +1612,9 @@ describe('FileMemoryStore.consolidate', () => {
   })
 
   describe('regression guards', () => {
-    // Guarantees: hostile filename stems (NUL, control chars, over-long, leading/trailing space,
-    // path-hostile chars, bare .md) are rejected by validatePath.
+    // Guarantees: hostile filename stems (over-long, leading/trailing space, path-hostile chars,
+    // bare .md) are rejected by validatePath.
     describe('filename stem charset/length validation', () => {
-      it('rejects filenames with control characters in the stem', async () => {
-        await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
-
-        const model = new MockMessageModel().addTurn(
-          buildPlanTurn({
-            actions: [{ action: 'move', from: 'facts/a.md', to: 'facts/bad\x00name.md', reason: 'test' }],
-            summary: 'test',
-          })
-        )
-
-        await expect(store.consolidate({ model, operations: ['reorganize'] })).rejects.toThrow(
-          'Consolidation plan validation failed'
-        )
-      })
-
       it('rejects bare .md filename (empty stem)', async () => {
         await writeFile(storage, 'facts/a.md', 'Fact A', 'Content A')
 

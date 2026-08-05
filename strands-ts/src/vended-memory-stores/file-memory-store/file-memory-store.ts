@@ -19,18 +19,19 @@ import { ConsolidationError } from '../../errors.js'
 import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
+import { generatePlan } from './consolidation/planner.js'
 import {
   CONSOLIDATION_CHANGELOG,
-  containsDotSegments,
-  decoder,
-  encoder,
-  isConsolidationChangelog,
+  executePlan,
   mapWithConcurrency,
-  parseFrontmatter,
+  readAllFiles,
+  recordChangelog,
   STORAGE_READ_CONCURRENCY,
-} from './internal.js'
-import { generatePlan } from './consolidation/planner.js'
-import { executePlan, readAllFiles, recordChangelog } from './consolidation/execute.js'
+} from './consolidation/execute.js'
+import { FRONTMATTER_DESCRIPTION_PATTERN } from './consolidation/validate.js'
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
 
 /**
  * Top-level storage namespace shared by every file memory store, isolating them as a group from
@@ -57,6 +58,36 @@ function slugify(text: string): string {
     .trim()
     .replace(/\s+/g, '-')
     .slice(0, 50)
+}
+
+/** Extract description from YAML frontmatter and return the remaining body. */
+function parseFrontmatter(content: string): { description: string; body: string } {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
+  if (!match) return { description: '', body: content }
+
+  const frontmatter = match[1] ?? ''
+  const body = match[2] ?? ''
+
+  const descMatch = frontmatter.match(FRONTMATTER_DESCRIPTION_PATTERN)
+  if (!descMatch) return { description: '', body }
+
+  const rawDesc = descMatch[1] ?? ''
+  let description: string
+  try {
+    description = JSON.parse(rawDesc) as string
+  } catch {
+    description = rawDesc.slice(1, -1)
+  }
+  return { description, body }
+}
+
+/**
+ * Whether a path contains single-dot segments that the OS would collapse — e.g. `./foo.md` resolves
+ * to `foo.md`. {@link add} uses it to prevent changelog aliasing that {@link normalizeKey} does not
+ * strip. Does NOT check `..` — {@link normalizeKey} already handles that.
+ */
+function containsDotSegments(key: string): boolean {
+  return key.split('/').some((seg) => seg === '.')
 }
 
 /**
@@ -97,12 +128,8 @@ export class FileMemoryStore implements MemoryStore {
 
   /**
    * Guards against overlapping {@link consolidate} runs on this instance. Set synchronously before
-   * the first `await` and cleared in a `finally`, so a second concurrent call observes it and throws
-   * rather than planning against a stale snapshot and racing on the same keys.
-   *
-   * Instance-scoped only, and not a lock — it is unaware of {@link add}, of other store instances
-   * over the same storage, and of other processes. See {@link consolidate}'s remarks for what that
-   * leaves exposed.
+   * the first `await` and cleared in a `finally`, so a second concurrent call throws rather than
+   * racing on a stale snapshot. Instance-scoped, not a lock — see {@link consolidate}'s remarks.
    */
   private _consolidating = false
 
@@ -116,11 +143,9 @@ export class FileMemoryStore implements MemoryStore {
   }
 
   /**
-   * Auto-scopes keys under `memory/<name>/` so this store never collides with other subsystems
-   * (sessions, context offloading) sharing the same backend, nor with a differently-named file
-   * memory store on it — distinct {@link name}s yield non-overlapping scopes. Two stores sharing
-   * both a name and a backend still share storage. Storage that is already namespaced — e.g. handed
-   * down pre-scoped by a future router — is used as-is, so scoping never stacks twice.
+   * Auto-scopes keys under `memory/<name>/` so this store never collides with other subsystems or
+   * differently-named stores on the same backend. Two stores sharing both a name and a backend still
+   * share storage. Already-namespaced storage is used as-is, so scoping never stacks twice.
    */
   private _resolveStorage(storage: Storage): Storage {
     if (NAMESPACED in storage) return storage
@@ -145,7 +170,7 @@ export class FileMemoryStore implements MemoryStore {
     const scored = (
       await mapWithConcurrency(allKeys, STORAGE_READ_CONCURRENCY, async (key) => {
         // The changelog is an audit artifact, not knowledge — never return it as a memory
-        if (isConsolidationChangelog(key)) return null
+        if (key === CONSOLIDATION_CHANGELOG) return null
         try {
           const bytes = await this._storage.read(key)
           if (!bytes) return null
@@ -210,19 +235,16 @@ export class FileMemoryStore implements MemoryStore {
       }
     }
 
-    // Canonicalize with the same helper the shipped backends apply internally, then lowercase so
-    // the store holds at most one spelling per case-fold.
+    // Canonicalize, then lowercase so the store holds at most one spelling per case-fold.
     const canonicalKey = normalizeKey(key).toLowerCase()
 
-    // Reject single-dot path segments that normalizeKey does not strip. The OS collapses './' so
-    // a key like './consolidation-changelog.md' would alias the reserved changelog on disk despite
-    // failing the string-equality guard below. Consolidation's validatePath already rejects dots;
-    // this closes the same gap in the public add() path.
+    // Reject single-dot segments normalizeKey does not strip: the OS collapses './', so
+    // './consolidation-changelog.md' would alias the reserved changelog past the guard below.
     if (containsDotSegments(canonicalKey)) {
       throw new Error("Path must not contain '.' segments: use a direct path without dot-directory references")
     }
 
-    if (isConsolidationChangelog(canonicalKey)) {
+    if (canonicalKey === CONSOLIDATION_CHANGELOG) {
       throw new Error(`Path must not be the reserved '${CONSOLIDATION_CHANGELOG}' file`)
     }
 
@@ -240,23 +262,17 @@ export class FileMemoryStore implements MemoryStore {
    * The planning agent is bounded by a turn limit (default 3) to prevent runaway loops.
    *
    * @remarks
-   * Not safe for concurrent use — overlapping writes to the same store may overwrite each other.
-   * Each run snapshots the store up front and mutates it later, and {@link Storage} offers only
-   * unconditional read/write/delete/list, so nothing here can observe a writer in another process,
-   * on another instance, or calling {@link add} on this one. A second `consolidate` call on this
-   * instance throws, but that guard is instance-scoped, not a lock. Do not write to the store while
-   * consolidation is in flight.
+   * Not safe for concurrent use. Each run snapshots the store up front and mutates it later, and
+   * {@link Storage} has no conditional write, so a writer in another process or instance — or an
+   * {@link add} on this one — can be silently overwritten. A second `consolidate` on this instance
+   * throws, but that guard is instance-scoped, not a lock. Do not write while consolidation runs.
    *
    * @param config - Model and operation configuration
-   * @throws ConsolidationError when the store is not writable or a consolidation is already running
-   *   on this store instance
    * @throws TypeError when maxFiles, maxActionsPerPlan, or maxDirectories is not a positive finite number
-   * @throws ConsolidationError when the knowledge store exceeds the file count limit (maxFiles)
-   * @throws StructuredOutputError when structured output is undefined (model did not return a plan)
-   * @throws ConsolidationError when the plan exceeds the action limit (maxActionsPerPlan), fails
-   *   validation, or the agent exceeds its turn limit without producing a plan
-   * @throws ConsolidationError when a path the plan writes matches several stored keys differing only
-   *   by case (the store is left unchanged — no write or delete runs)
+   * @throws StructuredOutputError when the model returns no plan
+   * @throws ConsolidationError when the store is not writable, a run is already in flight, the store
+   *   exceeds maxFiles, or the plan is unusable (over the action limit, fails validation, or the turn
+   *   limit is hit without a plan)
    *
    * @example
    * ```typescript
@@ -272,9 +288,8 @@ export class FileMemoryStore implements MemoryStore {
     const maxActionsPerPlan = config.maxActionsPerPlan ?? 1000
     const maxDirectories = config.maxDirectories ?? 8
 
-    // Validate synchronously, before any guard or I/O, so a malformed config fails at the call site.
-    // A NaN or non-positive cap would silently disable the guardrail it configures — NaN fails every
-    // comparison, so `files.size > NaN` is false and the gate never fires
+    // Validate before any I/O so a malformed config fails at the call site. A NaN cap would silently
+    // disable its guardrail — `files.size > NaN` is always false, so the gate never fires.
     const assertPositiveFinite = (name: string, value: number): void => {
       if (!Number.isFinite(value) || value <= 0) {
         throw new TypeError(`${name} must be a positive finite number, got ${value}`)

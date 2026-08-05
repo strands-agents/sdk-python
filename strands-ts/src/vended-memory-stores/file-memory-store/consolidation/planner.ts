@@ -14,9 +14,11 @@ import type { ConsolidationPlan } from './plan.js'
 import { Agent } from '../../../agent/agent.js'
 import { ConsolidationError } from '../../../errors.js'
 import { logger } from '../../../logging/logger.js'
-import { CONSOLIDATION_CHANGELOG, encoder } from '../internal.js'
+import { CONSOLIDATION_CHANGELOG } from './execute.js'
 import { ConsolidationPlanSchema, extractPlan } from './plan.js'
 import { validatePlan } from './validate.js'
+
+const encoder = new TextEncoder()
 
 /**
  * Maximum agent loop turns for consolidation planning. Structured-output planning with a
@@ -54,7 +56,8 @@ export async function generatePlan(
   const userMessage = buildPlannerUserMessage(files)
 
   const agent = new Agent({
-    model: config.model,
+    // Omit when unset so Agent falls back to its default model
+    ...(config.model ? { model: config.model } : {}),
     systemPrompt,
     printer: false,
     structuredOutputSchema: ConsolidationPlanSchema,
@@ -142,12 +145,9 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
 }
 
 /**
- * Render the full working set into the planner's user message.
- *
- * Content is serialized as a single JSON object (path → content) wrapped in {@link EVIDENCE_OPEN}
- * tags. JSON escaping confines each body to its own string value — a body cannot terminate the
- * value it sits in, so it cannot reach the planner's instruction level. Angle brackets are escaped
- * beyond what JSON requires so a body cannot even reproduce the evidence tags as literal text.
+ * Render the full working set into the planner's user message as a single JSON object (path →
+ * content) wrapped in {@link EVIDENCE_OPEN} tags. JSON escaping confines each body to its own string
+ * value, so untrusted content cannot break out to the planner's instruction level.
  */
 function buildPlannerUserMessage(files: Map<string, string>): string {
   const jsonEvidence = JSON.stringify(Object.fromEntries(files), null, 2)

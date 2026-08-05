@@ -12,7 +12,8 @@ import { ConsolidationError, StructuredOutputError } from '../../../errors.js'
 import { logger } from '../../../logging/logger.js'
 
 /**
- * Clip `text` to `limit`, appending a `…(+N chars)` marker so a clipped value is distinguishable from one that fit.
+ * Clip `text` to `limit`, appending a `…(+N chars)` marker so a clipped value is distinguishable
+ * from one that fit.
  *
  * @internal
  */

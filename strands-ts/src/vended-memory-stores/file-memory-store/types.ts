@@ -20,10 +20,9 @@ export interface FileMemoryStoreConfig extends MemoryStoreConfig {
 }
 
 /**
- * Every maintenance operation the consolidation agent can perform, in application order.
- * The default set {@link FileMemoryStore.consolidate} runs when `operations` is omitted, and the
- * single source of truth from which {@link ConsolidateOperation} is derived — add an operation here
- * and the union type widens with it, so the two can never drift.
+ * Every maintenance operation the consolidation agent can perform, in application order. The default
+ * set {@link FileMemoryStore.consolidate} runs when `operations` is omitted, and the source of truth
+ * {@link ConsolidateOperation} is derived from, so the two can never drift.
  *
  * - `deduplicate` — merge files with overlapping content
  * - `resolveContradictions` — fix conflicting facts across files
@@ -49,33 +48,27 @@ export type ConsolidateOperation = (typeof CONSOLIDATE_OPERATIONS)[number]
  * Configuration for {@link FileMemoryStore.consolidate}.
  */
 export interface ConsolidateConfig {
-  /** The model to use for consolidation reasoning. */
-  model: Model
+  /** The model to use for consolidation reasoning. Defaults to the {@link Agent} default model. */
+  model?: Model
 
   /** Which maintenance operations to run. Defaults to all operations. */
   operations?: ConsolidateOperation[]
 
   /**
    * Maximum subdirectories allowed under the store's namespace. Defaults to 8 — enough to group
-   * knowledge by topic while keeping the tree shallow and navigable, so it never fragments into
-   * many sparse directories.
+   * knowledge by topic while keeping the tree shallow, so it never fragments into sparse directories.
    */
   maxDirectories?: number
 
   /**
-   * Maximum number of knowledge files allowed as planner input. Defaults to 100.
-   *
-   * Bounds the single-call planner input; plan output scales with touched files. The default keeps
-   * the whole corpus within a single model context so consolidation can reason over it holistically.
+   * Maximum number of knowledge files allowed as planner input. Defaults to 100. Keeps the whole
+   * corpus within a single model context so consolidation can reason over it holistically.
    */
   maxFiles?: number
 
   /**
-   * Maximum number of actions a single consolidation plan may contain. Defaults to 1000.
-   *
-   * Bounds the planner *output*: `maxFiles` caps the input, but the model could otherwise return
-   * an arbitrarily large action list. A plan exceeding this limit is rejected before any storage
-   * mutation.
+   * Maximum number of actions a single consolidation plan may contain. Defaults to 1000. Bounds the
+   * planner *output* (`maxFiles` caps the input); an exceeding plan is rejected before any mutation.
    */
   maxActionsPerPlan?: number
 }

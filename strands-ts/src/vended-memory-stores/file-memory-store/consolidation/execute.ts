@@ -14,14 +14,49 @@ import type { ConsolidateOperation } from '../types.js'
 import type { ConsolidationAction, ConsolidationPlan } from './plan.js'
 import { ConsolidationError } from '../../../errors.js'
 import { logger } from '../../../logging/logger.js'
-import {
-  CONSOLIDATION_CHANGELOG,
-  decoder,
-  encoder,
-  isConsolidationChangelog,
-  mapWithConcurrency,
-  STORAGE_READ_CONCURRENCY,
-} from '../internal.js'
+
+const encoder = new TextEncoder()
+const decoder = new TextDecoder()
+
+/**
+ * Path (within the store's namespace) reserved for the consolidation audit log. Owned here because
+ * this module both writes it ({@link recordChangelog}) and excludes it from the working set
+ * ({@link readAllFiles}); {@link FileMemoryStore} and the plan validator import it to keep it out of
+ * search results and off every plan's write targets.
+ *
+ * @internal
+ */
+export const CONSOLIDATION_CHANGELOG = 'consolidation-changelog.md'
+
+/**
+ * Cap on concurrent storage reads when fanning out over the store's keys. An unbounded fan-out can
+ * exhaust a backend's connection pool or trip throttling on a large corpus.
+ *
+ * @internal
+ */
+export const STORAGE_READ_CONCURRENCY = 8
+
+/**
+ * Map `items` through `fn` running at most `limit` calls concurrently, preserving input order.
+ * A worker pool pulls from a shared cursor so a slow item never blocks others in its batch.
+ *
+ * @internal
+ */
+export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+  const worker = async (): Promise<void> => {
+    while (cursor < items.length) {
+      const index = cursor++
+      // index is bounded by items.length — the item is always present
+      const item = items[index] as T
+      results[index] = await fn(item)
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  await Promise.all(workers)
+  return results
+}
 
 /**
  * A delete that failed during execution, paired with the error the backend raised.
@@ -46,7 +81,7 @@ export interface DeleteFailure {
 export async function readAllFiles(storage: Storage): Promise<Map<string, string>> {
   const files = new Map<string, string>()
   const allKeys = await storage.list('')
-  const keysToRead = allKeys.filter((key) => !isConsolidationChangelog(key))
+  const keysToRead = allKeys.filter((key) => key !== CONSOLIDATION_CHANGELOG)
 
   const entries = await mapWithConcurrency(keysToRead, STORAGE_READ_CONCURRENCY, async (key) => {
     const bytes = await storage.read(key)
@@ -66,8 +101,8 @@ export async function readAllFiles(storage: Storage): Promise<Map<string, string
  *    duplicates rather than dropping content that had nowhere else to live. This protects sources,
  *    not overwrite targets: an `update` rewrites in place by design.
  * 2. **Deletes** — best-effort. All are attempted and failures returned, not thrown, so the caller
- *    can still record the changelog for a partial run. A missing key is a no-op per the
- *    {@link Storage} contract, so a delete only fails on a genuine backend error.
+ *    can still record the changelog for a partial run. A missing key is a no-op, so a delete only
+ *    fails on a genuine backend error.
  *
  * Not safe for concurrent use — writes land unconditionally, so a file created after this run's
  * snapshot can be overwritten by a plan that never saw it. {@link Storage} offers no conditional
@@ -161,12 +196,9 @@ export async function recordChangelog(
   plan: ConsolidationPlan,
   deleteErrors: DeleteFailure[]
 ): Promise<void> {
-  // Full ISO 8601 rather than a prettier form — the trailing 'Z' states the timezone is UTC, which an
-  // audit entry needs more than it needs to read nicely
+  // ISO 8601 — the trailing 'Z' marks the timestamp as UTC, which an audit entry needs
   const timestamp = new Date().toISOString()
 
-  // Each variant names its paths with different fields, so only that part varies — the action name and
-  // reason are shaped identically for all four
   const describePaths = (action: ConsolidationAction): string => {
     switch (action.action) {
       case 'merge':
