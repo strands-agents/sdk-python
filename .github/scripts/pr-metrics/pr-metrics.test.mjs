@@ -13,6 +13,7 @@ import { buildReport } from './report.mjs'
 import { escapeHtml, labelsFromMetrics, resolvePrNumber } from './apply-labels.mjs'
 import { parseSarif } from './complexity-python.mjs'
 import { functionRanges, loadTypescript, parseEslintReport } from './complexity-typescript.mjs'
+import { parseNumstatZ } from './run-analysis.mjs'
 
 test('classify separates tests from source', () => {
   assert.equal(classify('strands-py/src/strands/agent.py'), FileKind.SOURCE)
@@ -170,6 +171,52 @@ test('renamed paths resolve to plain paths, not brace notation', () => {
   assert.equal(isAnalyzable('strands-py/src/strands/agent2.py'), true)
   // The brace form must NOT be mistaken for analyzable source.
   assert.equal(isAnalyzable('strands-py/src/strands/{agent.py => agent2.py}'), false)
+})
+
+// Exercises the -z record parsing directly, rather than only asserting the
+// contract it is supposed to satisfy. Records are built by joining on NUL so no
+// escape sequence has to be embedded in a literal.
+const numstatZ = (...records) => records.join('\0') + '\0'
+
+test('parseNumstatZ keeps the new path of a rename and drops the old one', () => {
+  const files = parseNumstatZ(numstatZ('9\t0\t', 'old/streaming.py', 'new/streaming.py'))
+  assert.deepEqual(files, [{ path: 'new/streaming.py', additions: 9, deletions: 0 }])
+})
+
+test('parseNumstatZ does not treat a tab-leading path as a rename', () => {
+  // A path beginning with a tab leaves an empty third tab-field, exactly like a
+  // rename header; misreading it swallowed the next two files entirely.
+  const files = parseNumstatZ(numstatZ('1\t0\t\tsneaky.py', '900\t0\ta.py', '900\t0\tb.py'))
+  assert.deepEqual(files, [
+    { path: '\tsneaky.py', additions: 1, deletions: 0 },
+    { path: 'a.py', additions: 900, deletions: 0 },
+    { path: 'b.py', additions: 900, deletions: 0 },
+  ])
+})
+
+test('parseNumstatZ preserves a tab inside a path', () => {
+  const files = parseNumstatZ(numstatZ('1\t0\tdir/ta\tb.py'))
+  assert.deepEqual(files, [{ path: 'dir/ta\tb.py', additions: 1, deletions: 0 }])
+})
+
+test('parseNumstatZ reads binary files as zero churn', () => {
+  assert.deepEqual(parseNumstatZ(numstatZ('-\t-\timage.png')), [{ path: 'image.png', additions: 0, deletions: 0 }])
+})
+
+test('parseNumstatZ handles a binary rename followed by a plain record', () => {
+  const files = parseNumstatZ(numstatZ('-\t-\t', 'old.bin', 'new.bin', '2\t1\tplain.py'))
+  assert.deepEqual(files, [
+    { path: 'new.bin', additions: 0, deletions: 0 },
+    { path: 'plain.py', additions: 2, deletions: 1 },
+  ])
+})
+
+test('parseNumstatZ ignores empty and malformed records', () => {
+  assert.deepEqual(parseNumstatZ(''), [])
+  assert.deepEqual(parseNumstatZ(numstatZ('', '')), [])
+  // Fewer than two tabs cannot be a numstat record.
+  assert.deepEqual(parseNumstatZ(numstatZ('garbage')), [])
+  assert.deepEqual(parseNumstatZ(numstatZ('1\tonly-one-tab')), [])
 })
 
 test('parseChangedLines is not fooled by an added line whose content starts with ++', () => {

@@ -167,6 +167,17 @@ function displayInt(value, max) {
   return n === null ? '?' : String(n)
 }
 
+/**
+ * A summary table row with every cell escaped.
+ *
+ * `addTable` writes cell data into `<td>` unescaped, so escaping here rather
+ * than at each call site keeps a future artifact-derived cell from regressing
+ * silently.
+ */
+function summaryRow(cells) {
+  return cells.map((cell) => escapeHtml(cell))
+}
+
 async function summarize({ core, metrics, desired }) {
   const { complexity } = metrics
   const counted = displayInt(metrics?.size?.countedLines, MAX_REASONABLE_LINES)
@@ -179,18 +190,18 @@ async function summarize({ core, metrics, desired }) {
       { data: 'Label', header: true },
       { data: 'Detail', header: true },
     ],
-    [
+    summaryRow([
       'Size',
       desired.find((l) => l.startsWith('size/')) ?? 'n/a',
       `${counted} lines counted, ${excluded} excluded (tests and generated files)`,
-    ],
-    [
+    ]),
+    summaryRow([
       'Complexity',
       desired.find((l) => l.startsWith('complexity/')) ?? 'n/a',
       maxComplexity === null
         ? 'no SDK source functions touched'
         : `max cognitive complexity ${maxComplexity} among functions this PR touches`,
-    ],
+    ]),
   ])
 
   const offenders = Array.isArray(complexity?.offenders) ? complexity.offenders : []

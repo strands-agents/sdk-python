@@ -83,22 +83,39 @@ function mergeBase(root, base) {
  * reflects only the lines that actually changed rather than the whole file.
  * `-z` also stops git quoting paths with spaces or non-ASCII bytes.
  */
-function changedFiles(root, from) {
-  const numstat = git(root, 'diff', '--numstat', '-z', from, '--')
+export function changedFiles(root, from) {
+  return parseNumstatZ(git(root, 'diff', '--numstat', '-z', from, '--'))
+}
+
+/**
+ * Parse `git diff --numstat -z` output.
+ *
+ * Records are NUL-delimited. A normal change is "adds\tdels\tpath"; a rename or
+ * copy is "adds\tdels\t" followed by the old path and the new path as two
+ * further NUL-delimited fields.
+ */
+export function parseNumstatZ(numstat) {
   const files = []
-  // Records are NUL-delimited. A normal change is "adds\tdels\tpath"; a rename
-  // or copy is "adds\tdels\t" followed by the old path and the new path as two
-  // further NUL-delimited fields.
   const fields = numstat.split('\0')
+
   for (let i = 0; i < fields.length; i += 1) {
     const record = fields[i]
     if (!record) continue
-    const [additions, deletions, inlinePath] = record.split('\t')
-    if (additions === undefined || deletions === undefined) continue
 
-    let filePath = inlinePath
-    if (!filePath) {
-      // Rename/copy: skip the old path, keep the new one.
+    // Only the first two tabs are delimiters, since only the counts are
+    // guaranteed tab-free. Splitting on every tab would read a path that itself
+    // begins with a tab as a rename record — whose third field is also empty —
+    // and the skip below would then swallow the next two files.
+    const firstTab = record.indexOf('\t')
+    const secondTab = firstTab < 0 ? -1 : record.indexOf('\t', firstTab + 1)
+    if (secondTab < 0) continue
+
+    const additions = record.slice(0, firstTab)
+    const deletions = record.slice(firstTab + 1, secondTab)
+    let filePath = record.slice(secondTab + 1)
+
+    if (filePath === '') {
+      // Rename or copy: skip the old path, keep the new one.
       i += 2
       filePath = fields[i]
     }
@@ -259,7 +276,8 @@ async function main() {
 
 // pathToFileURL percent-encodes, which a bare string concatenation does not, so
 // comparing raw paths would silently no-op for a checkout path containing a
-// space or non-ASCII character.
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+// space or non-ASCII character. It also rejects a missing argv[1], which is the
+// case when this module is imported from `node -e`, a worker, or the REPL.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main()
 }
