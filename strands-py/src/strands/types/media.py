@@ -55,7 +55,7 @@ AudioFormat = Literal[
 class AudioSource(TypedDict, total=False):
     """Contains the content of an audio file.
 
-    Only one of `bytes` or `s3Location` should be specified.
+    Only one of `bytes` or `location` should be specified.
 
     Attributes:
         bytes: The binary content of the audio file.

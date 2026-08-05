@@ -2402,9 +2402,9 @@ def test_format_request_audio_s3_location(model, model_id):
     ]
 
     formatted_request = model.format_request(messages)
-    audio_source = formatted_request["messages"][0]["content"][0]["audio"]["source"]
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
 
-    assert audio_source == {"s3Location": {"uri": "s3://my-bucket/audio.wav"}}
+    assert audio_block == {"format": "wav", "source": {"s3Location": {"uri": "s3://my-bucket/audio.wav"}}}
 
 
 def test_format_request_audio_non_s3_location_skipped(model, model_id, caplog):
@@ -2455,10 +2455,7 @@ def test_format_request_filters_audio_content_blocks(model, model_id):
     formatted_request = model.format_request(messages)
 
     audio_block = formatted_request["messages"][0]["content"][0]["audio"]
-    expected = {"format": "flac", "source": {"bytes": b"audio_data"}}
-    assert audio_block == expected
-    assert "duration" not in audio_block
-    assert "sampleRate" not in audio_block
+    assert audio_block == {"format": "flac", "source": {"bytes": b"audio_data"}}
 
 
 def test_format_request_filters_document_content_blocks(model, model_id):

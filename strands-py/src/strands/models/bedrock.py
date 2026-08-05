@@ -616,13 +616,12 @@ class BedrockModel(Model):
                     return None
             elif "bytes" in source:
                 formatted_audio_source = {"bytes": source["bytes"]}
-            result: dict[str, Any] = {"format": audio["format"], "source": formatted_audio_source}
-            return {"audio": result}
+            return {"audio": {"format": audio["format"], "source": formatted_audio_source}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
         if "cachePoint" in content:
             cache_point = content["cachePoint"]
-            result = {"type": cache_point["type"]}
+            result: dict[str, Any] = {"type": cache_point["type"]}
             if "ttl" in cache_point:
                 result["ttl"] = cache_point["ttl"]
             return {"cachePoint": result}
