@@ -1020,3 +1020,50 @@ async def test_stream_resume_keeps_stored_turn_when_it_cannot_be_loaded(fake_age
     tru_continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
     exp_continuations = {"tool-123": unloadable}
     assert tru_continuations == exp_continuations
+
+
+def test_namespaced_interrupt_ids_are_not_captured_by_another_call(fake_agent, orchestrator):
+    """One tool call cannot match another call's answers, whatever the model made the ids look like.
+
+    Tool use IDs are model-derived, so one call's ID can end in the separator plus the start of
+    another call's interrupt IDs. Without escaping, that call would match the other's answers.
+    """
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    local_id = "v1:before_tool_call:sub-1:abc"
+
+    answered = _AgentAsTool._namespace_interrupts("ob", [Interrupt(id=local_id, name="approval", reason="r")])[0]
+    orchestrator._interrupt_state.interrupts[answered.id] = answered
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": answered.id, "response": "APPROVE"}}
+    ]
+    orchestrator._interrupt_state.activate()
+
+    invocation_state = {"agent": orchestrator}
+
+    tru_answered = tool._interrupt_responses(invocation_state, "ob")
+    exp_answered = [{"interruptResponse": {"interruptId": local_id, "response": "APPROVE"}}]
+    assert tru_answered == exp_answered
+
+    tru_other = tool._interrupt_responses(invocation_state, "ob:v1")
+    exp_other = []
+    assert tru_other == exp_other
+
+    assert tool._parent_awaiting_resume(invocation_state, "ob") is True
+    assert tool._parent_awaiting_resume(invocation_state, "ob:v1") is False
+
+
+def test_namespaced_interrupt_ids_round_trip_a_separator_bearing_tool_use_id(fake_agent, orchestrator):
+    """A tool use ID containing the separator still maps its own answers back to the local ID."""
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    local_id = "v1:before_tool_call:sub-2:def"
+
+    namespaced = _AgentAsTool._namespace_interrupts("ob:v1", [Interrupt(id=local_id, name="approval", reason="r")])[0]
+    orchestrator._interrupt_state.interrupts[namespaced.id] = namespaced
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": namespaced.id, "response": "APPROVE"}}
+    ]
+    orchestrator._interrupt_state.activate()
+
+    tru_responses = tool._interrupt_responses({"agent": orchestrator}, "ob:v1")
+    exp_responses = [{"interruptResponse": {"interruptId": local_id, "response": "APPROVE"}}]
+    assert tru_responses == exp_responses

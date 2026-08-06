@@ -10,6 +10,7 @@ import copy
 import logging
 import threading
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from typing_extensions import override
 
@@ -281,6 +282,12 @@ class _AgentAsTool(AgentTool):
         Restores messages and state to the values captured at construction time.
         This mirrors the pattern used by ``GraphNode.reset_executor_state()``.
 
+        The reset is unconditional, so exposing one ``Agent`` instance as a tool to several
+        orchestrators at once lets one orchestrator's call clear a turn another one has parked on an
+        interrupt. The parked orchestrator still resumes correctly, because it reinstates the turn
+        from its own interrupt record, but the other call fails; give each orchestrator its own
+        sub-agent instance instead of sharing one.
+
         Args:
             tool_use_id: Tool use ID for logging context.
         """
@@ -297,12 +304,29 @@ class _AgentAsTool(AgentTool):
         return self._agent._interrupt_state.activated
 
     @staticmethod
+    def _namespace_prefix(tool_use_id: str) -> str:
+        """Build the prefix that namespaces a sub-agent interrupt id to this tool call.
+
+        The tool use ID is percent-encoded so the prefix cannot contain the separator. Tool use IDs and
+        interrupt IDs are both model-derived strings: with a raw prefix, a tool use ID ending in the
+        separator plus the start of another call's interrupt IDs would match that call's answers and
+        route them to the wrong sub-agent.
+
+        Args:
+            tool_use_id: Tool use ID of this agent-as-tool call.
+
+        Returns:
+            Prefix, separator included, for interrupt IDs belonging to this call.
+        """
+        return f"{quote(tool_use_id, safe='')}:"
+
+    @staticmethod
     def _namespace_interrupts(tool_use_id: str, interrupts: list[Interrupt]) -> list[Interrupt]:
         """Copy sub-agent interrupts with their ids namespaced by this tool call.
 
         A sub-agent derives an interrupt id from its own toolUseId, so two sub-agents invoked in the
-        same turn can raise the same id. Prefixing with the outer ``tool_use_id`` keeps them distinct
-        at the orchestrator level and keeps the sub-agent-local id recoverable by stripping the prefix.
+        same turn can raise the same id. Namespacing keeps them distinct at the orchestrator level and
+        keeps the sub-agent-local id recoverable by stripping the prefix.
 
         Args:
             tool_use_id: Tool use ID of this agent-as-tool call.
@@ -311,8 +335,9 @@ class _AgentAsTool(AgentTool):
         Returns:
             Orchestrator-visible copies carrying namespaced ids.
         """
+        prefix = _AgentAsTool._namespace_prefix(tool_use_id)
         return [
-            Interrupt(id=f"{tool_use_id}:{interrupt.id}", name=interrupt.name, reason=interrupt.reason)
+            Interrupt(id=f"{prefix}{interrupt.id}", name=interrupt.name, reason=interrupt.reason)
             for interrupt in interrupts
         ]
 
@@ -340,7 +365,7 @@ class _AgentAsTool(AgentTool):
         if parent is None or not parent._interrupt_state.activated:
             return False
 
-        prefix = f"{tool_use_id}:"
+        prefix = _AgentAsTool._namespace_prefix(tool_use_id)
         return any(interrupt_id.startswith(prefix) for interrupt_id in parent._interrupt_state.interrupts)
 
     @staticmethod
@@ -363,7 +388,7 @@ class _AgentAsTool(AgentTool):
         if parent is None:
             return []
 
-        prefix = f"{tool_use_id}:"
+        prefix = _AgentAsTool._namespace_prefix(tool_use_id)
         responses: list[InterruptResponseContent] = []
         for response in parent._interrupt_state.context.get("responses") or []:
             interrupt_id = response["interruptResponse"]["interruptId"]
