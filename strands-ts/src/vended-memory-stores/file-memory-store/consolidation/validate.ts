@@ -72,9 +72,8 @@ export function validatePlan(
 
   const allowedActions = new Set(operations.flatMap((operation) => OPERATION_ACTIONS[operation]))
 
-  // Seed with the directories already on disk, then let validateActionPaths add any new directory a
-  // write introduces — so the maxDirectories budget is enforced against the plan's cumulative effect,
-  // not each action in isolation.
+  // Seed with directories already on disk; validateActionPaths adds each new one a write introduces,
+  // so the maxDirectories budget covers the plan's cumulative effect, not each action alone.
   const plannedDirs = new Set<string>()
   for (const key of files.keys()) {
     const idx = key.indexOf('/')
@@ -95,8 +94,7 @@ export function validatePlan(
       }
     }
 
-    // Append without spreading: a huge sources array would blow the argument limit and crash
-    // with RangeError instead of being rejected.
+    // Append without spreading: a huge sources array would blow the argument limit with a RangeError
     const pathErrors = validateActionPaths(action, files, plannedDirs, maxDirectories)
     for (const pathError of pathErrors) violations.push(pathError)
 
@@ -219,8 +217,8 @@ function validateNoTargetCollisions(plan: ConsolidationPlan, files: Map<string, 
   const writeTargets: string[] = []
   const vacatedPaths = new Set<string>()
   // Writes that legitimately land on an existing file because the action also reads it: an update,
-  // a merge folding in one of its own sources, or a no-op move. A merge onto a file that is NOT a
-  // source is excluded — the model never saw its content, so overwriting would destroy data.
+  // a merge folding in one of its own sources, or a no-op move. A merge onto a non-source file is
+  // excluded — the model never saw its content, so overwriting would destroy data.
   const safeOverwrites = new Set<string>()
 
   for (const action of plan.actions) {

@@ -3,8 +3,8 @@
  *
  * This module owns every interaction with the planner agent — building the prompt, making the call,
  * and checking its output — whereas `plan.ts` owns only the plan's schema and types. It never touches
- * storage: it is handed the run's file snapshot and returns a validated plan, so the decision of what
- * to change is fully separated from carrying it out.
+ * storage: handed the run's file snapshot, it returns a validated plan, keeping the decision of what
+ * to change separate from carrying it out.
  *
  * @internal
  */
@@ -146,8 +146,10 @@ function buildPlannerSystemPrompt(operations: ConsolidateOperation[]): string {
 
 /**
  * Render the full working set into the planner's user message as a single JSON object (path →
- * content) wrapped in {@link EVIDENCE_OPEN} tags. JSON escaping confines each body to its own string
- * value, so untrusted content cannot break out to the planner's instruction level.
+ * content) wrapped in {@link EVIDENCE_OPEN} tags.
+ *
+ * Confinement comes from the JSON structure, not the tags: `JSON.stringify` does not escape a
+ * literal `</file-evidence>` in a body, so the delimiter is a reader's aid, not a hard boundary.
  */
 function buildPlannerUserMessage(files: Map<string, string>): string {
   const jsonEvidence = JSON.stringify(Object.fromEntries(files), null, 2)

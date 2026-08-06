@@ -20,14 +20,8 @@ import { LocalFileStorage } from '../../storage/local-file-storage.js'
 import { NAMESPACED, namespace, normalizeKey } from '../../storage/storage.js'
 import { DEFAULT_MAX_SEARCH_RESULTS, tokenize, tokenOverlapScore } from '../../memory/search/keyword.js'
 import { generatePlan } from './consolidation/planner.js'
-import {
-  CONSOLIDATION_CHANGELOG,
-  executePlan,
-  mapWithConcurrency,
-  readAllFiles,
-  recordChangelog,
-  STORAGE_READ_CONCURRENCY,
-} from './consolidation/execute.js'
+import { CONSOLIDATION_CHANGELOG, executePlan, readAllFiles, recordChangelog } from './consolidation/execute.js'
+import { mapWithConcurrency, STORAGE_READ_CONCURRENCY } from './concurrency.js'
 import { FRONTMATTER_DESCRIPTION_PATTERN } from './consolidation/validate.js'
 
 const encoder = new TextEncoder()
@@ -289,7 +283,7 @@ export class FileMemoryStore implements MemoryStore {
     const maxDirectories = config.maxDirectories ?? 8
 
     // Validate before any I/O so a malformed config fails at the call site. A NaN cap would silently
-    // disable its guardrail — `files.size > NaN` is always false, so the gate never fires.
+    // disable its guardrail — every `value > NaN` comparison is false, so the gate never fires.
     const assertPositiveFinite = (name: string, value: number): void => {
       if (!Number.isFinite(value) || value <= 0) {
         throw new TypeError(`${name} must be a positive finite number, got ${value}`)
@@ -332,15 +326,9 @@ export class FileMemoryStore implements MemoryStore {
   ): Promise<void> {
     const operations = config.operations ?? [...CONSOLIDATE_OPERATIONS]
 
-    const files = await readAllFiles(this._storage)
+    // readAllFiles enforces maxFiles against the key listing before reading any content.
+    const files = await readAllFiles(this._storage, maxFiles)
     if (files.size === 0) return
-
-    // Bounds the planner's input so a large corpus cannot blow past the model's context window
-    if (files.size > maxFiles) {
-      throw new ConsolidationError(
-        `Knowledge store exceeds consolidation file limit: ${files.size} files (maxFiles: ${maxFiles})`
-      )
-    }
 
     const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
 

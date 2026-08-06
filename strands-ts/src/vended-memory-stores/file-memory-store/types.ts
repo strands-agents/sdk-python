@@ -61,8 +61,9 @@ export interface ConsolidateConfig {
   maxDirectories?: number
 
   /**
-   * Maximum number of knowledge files allowed as planner input. Defaults to 100. Keeps the whole
-   * corpus within a single model context so consolidation can reason over it holistically.
+   * Maximum number of knowledge files allowed as planner input. Defaults to 100. Bounds the file
+   * *count*, not payload size — a few very large files can still overflow the model context and
+   * surface as a provider error rather than a {@link ConsolidationError}.
    */
   maxFiles?: number
 

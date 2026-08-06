@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { CONSOLIDATION_CHANGELOG, executePlan, mapWithConcurrency, readAllFiles, recordChangelog } from '../execute.js'
+import { CONSOLIDATION_CHANGELOG, executePlan, readAllFiles, recordChangelog } from '../execute.js'
 import { InMemoryStorage } from '../../../../storage/in-memory-storage.js'
 import type { ConsolidationPlan } from '../plan.js'
 import type { Storage } from '../../../../storage/storage.js'
@@ -20,54 +20,13 @@ async function readText(storage: Storage, path: string): Promise<string | null> 
   return bytes ? decoder.decode(bytes) : null
 }
 
-describe('mapWithConcurrency', () => {
-  it('preserves input order regardless of completion order', async () => {
-    const delays = [30, 5, 20, 1]
-    const result = await mapWithConcurrency(delays, 2, async (delay) => {
-      await new Promise((resolve) => setTimeout(resolve, delay))
-      return delay
-    })
-
-    expect(result).toEqual(delays)
-  })
-
-  it('never runs more than `limit` calls at once', async () => {
-    let active = 0
-    let peak = 0
-    const items = Array.from({ length: 12 }, (_, index) => index)
-
-    await mapWithConcurrency(items, 3, async (item) => {
-      active++
-      peak = Math.max(peak, active)
-      await new Promise((resolve) => setTimeout(resolve, 5))
-      active--
-      return item
-    })
-
-    expect(peak).toBeLessThanOrEqual(3)
-  })
-
-  it('returns an empty array for no items', async () => {
-    expect(await mapWithConcurrency([], 4, async (item) => item)).toEqual([])
-  })
-
-  it('propagates an error thrown by the worker function', async () => {
-    await expect(
-      mapWithConcurrency([1, 2, 3], 2, async (item) => {
-        if (item === 2) throw new Error('boom')
-        return item
-      })
-    ).rejects.toThrow('boom')
-  })
-})
-
 describe('readAllFiles', () => {
   it('reads every knowledge file into a path→content map', async () => {
     const storage = new InMemoryStorage()
     await seed(storage, 'facts/a.md', 'A body')
     await seed(storage, 'ops/b.md', 'B body')
 
-    const files = await readAllFiles(storage)
+    const files = await readAllFiles(storage, 100)
 
     expect(files).toEqual(
       new Map([
@@ -82,13 +41,13 @@ describe('readAllFiles', () => {
     await seed(storage, 'facts/a.md', 'A body')
     await seed(storage, CONSOLIDATION_CHANGELOG, '# Changelog\n')
 
-    const files = await readAllFiles(storage)
+    const files = await readAllFiles(storage, 100)
 
     expect([...files.keys()]).toEqual(['facts/a.md'])
   })
 
   it('returns an empty map for an empty store', async () => {
-    expect(await readAllFiles(new InMemoryStorage())).toEqual(new Map())
+    expect(await readAllFiles(new InMemoryStorage(), 100)).toEqual(new Map())
   })
 
   it('propagates a backend read error', async () => {
@@ -100,7 +59,34 @@ describe('readAllFiles', () => {
       return encoder.encode('good')
     })
 
-    await expect(readAllFiles(storage)).rejects.toThrow('backend failure')
+    await expect(readAllFiles(storage, 100)).rejects.toThrow('backend failure')
+  })
+
+  it('rejects an oversized store on the key count, before reading any content', async () => {
+    const storage = new InMemoryStorage()
+    await seed(storage, 'facts/a.md', 'A body')
+    await seed(storage, 'facts/b.md', 'B body')
+    await seed(storage, 'facts/c.md', 'C body')
+    const readSpy = vi.spyOn(storage, 'read')
+
+    await expect(readAllFiles(storage, 2)).rejects.toThrow(
+      'Knowledge store exceeds consolidation file limit: 3 files (maxFiles: 2)'
+    )
+    // The guard must fire before the content fan-out — reading the corpus just to reject it
+    // defeats the purpose of the limit.
+    expect(readSpy).not.toHaveBeenCalled()
+  })
+
+  it('excludes the changelog from the maxFiles count', async () => {
+    const storage = new InMemoryStorage()
+    await seed(storage, 'facts/a.md', 'A body')
+    await seed(storage, 'facts/b.md', 'B body')
+    await seed(storage, CONSOLIDATION_CHANGELOG, '# Changelog\n')
+
+    // Two knowledge files + the changelog: at maxFiles=2 the changelog must not tip it over.
+    const files = await readAllFiles(storage, 2)
+
+    expect([...files.keys()].sort()).toEqual(['facts/a.md', 'facts/b.md'])
   })
 })
 
