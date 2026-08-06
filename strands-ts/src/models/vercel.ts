@@ -28,7 +28,7 @@ import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import type { ModelStreamEvent, Usage } from './streaming.js'
 import { Message, TextBlock, type ToolResultContent } from '../types/messages.js'
 import { encodeBase64, ImageBlock, DocumentBlock, VideoBlock } from '../types/media.js'
-import { Model, type BaseModelConfig, type StreamOptions } from './model.js'
+import { Model, type BaseModelConfig, type CacheConfig, type StreamOptions } from './model.js'
 import {
   ModelContentBlockDeltaEvent,
   ModelContentBlockStartEvent,
@@ -40,6 +40,16 @@ import {
 import { ContextWindowOverflowError, ModelError, ModelThrottledError } from '../errors.js'
 import { toMimeType } from '../mime.js'
 import { logger } from '../logging/logger.js'
+import { warnOnce } from '../logging/warn-once.js'
+
+/**
+ * Underlying-provider prefixes whose native APIs require per-block cache markers
+ * (`providerOptions.<provider>.cacheControl` or `.cachePoint`). Vercel does not vend
+ * a cross-provider caching abstraction, so cacheConfig on this adapter cannot inject
+ * those markers automatically; we warn once per model when caching is requested against
+ * one of these providers.
+ */
+const VERCEL_PER_BLOCK_CACHE_PROVIDERS = ['anthropic', 'amazon-bedrock', 'bedrock']
 
 /**
  * Error message patterns that indicate context window overflow.
@@ -72,7 +82,27 @@ type LanguageModelCallSettings = Omit<LanguageModelV3CallOptions, 'prompt' | 'to
  * Note: `maxTokens` (from BaseModelConfig) maps to `maxOutputTokens` in the underlying call.
  * If both are set, `maxOutputTokens` takes precedence.
  */
-export interface VercelModelConfig extends BaseModelConfig, LanguageModelCallSettings {}
+export interface VercelModelConfig extends BaseModelConfig, LanguageModelCallSettings {
+  /**
+   * Configuration for prompt caching. The Vercel AI SDK does not vend a cross-provider
+   * caching abstraction — each provider package accepts caching hints under its own
+   * `providerOptions.<provider>` slot with a different shape (`cacheControl` on Anthropic,
+   * `cachePoint` on Bedrock, `promptCacheKey` on OpenAI, `cachedContent` on Google).
+   *
+   * `cacheConfig` is accepted on this adapter for cross-SDK portability, but its effect
+   * depends on the underlying provider:
+   *
+   * - `openai.*` / `openai-responses.*`: server-auto caching; no client action needed.
+   *   This field is a documented no-op.
+   * - `google.*` (Gemini 2.5+ paid tier): implicit server-side caching is on by default;
+   *   this field is a documented no-op.
+   * - `anthropic.*` / `amazon-bedrock.*`: caching requires per-block markers via
+   *   `providerOptions.<provider>.cacheControl` or `.cachePoint`. This field cannot
+   *   inject those, so it logs a warning and does nothing. Configure caching by passing
+   *   `providerOptions` through `params` on individual message parts.
+   */
+  cacheConfig?: CacheConfig
+}
 
 /**
  * Options for creating a VercelModel instance.
@@ -141,7 +171,18 @@ export class VercelModel extends Model<VercelModelConfig> {
     const tools = options?.toolSpecs ? formatTools(options.toolSpecs) : undefined
     const toolChoice = options?.toolChoice ? formatToolChoice(options.toolChoice) : undefined
 
-    const { modelId: _, maxTokens, ...callSettings } = this._config
+    const { modelId: _, maxTokens, cacheConfig, ...callSettings } = this._config
+
+    if (cacheConfig) {
+      const providerName = this._provider.provider ?? ''
+      if (VERCEL_PER_BLOCK_CACHE_PROVIDERS.some((prefix) => providerName.startsWith(prefix))) {
+        warnOnce(
+          logger,
+          `provider=<${providerName}> | vercel cacheConfig cannot inject per-block cache markers; ` +
+            `set providerOptions.<provider>.cacheControl or .cachePoint on message parts directly`
+        )
+      }
+    }
 
     const callOptions: LanguageModelV3CallOptions = {
       prompt,

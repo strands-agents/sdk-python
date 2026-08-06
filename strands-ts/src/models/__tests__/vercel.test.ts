@@ -945,4 +945,52 @@ describe('VercelModel', () => {
       expect(args).not.toHaveProperty('toolChoice')
     })
   })
+
+  describe('cacheConfig', () => {
+    it('strips cacheConfig from downstream call settings', async () => {
+      const { collect, callArgs } = setupCaptureTest(minimalParts, { cacheConfig: { strategy: 'auto' } })
+      await collect([])
+
+      expect(callArgs()).not.toHaveProperty('cacheConfig')
+    })
+
+    it('warns on Anthropic underlying providers that need per-block markers', async () => {
+      const parts: LanguageModelV3StreamPart[] = [
+        { type: 'stream-start', warnings: [] },
+        { type: 'finish', usage: testUsage, finishReason: stopFinish },
+      ]
+      const mock: LanguageModelV3 = { ...createMockModel(parts), provider: 'anthropic.messages' }
+      const model = new VercelModel({ provider: mock, cacheConfig: { strategy: 'auto' } })
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      await collectIterator(model.stream([]))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vercel cacheConfig cannot inject'))
+      warnSpy.mockRestore()
+    })
+
+    it('warns on Bedrock underlying providers that need per-block markers', async () => {
+      const parts: LanguageModelV3StreamPart[] = [
+        { type: 'stream-start', warnings: [] },
+        { type: 'finish', usage: testUsage, finishReason: stopFinish },
+      ]
+      const mock: LanguageModelV3 = { ...createMockModel(parts), provider: 'amazon-bedrock.chat' }
+      const model = new VercelModel({ provider: mock, cacheConfig: { strategy: 'auto' } })
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      await collectIterator(model.stream([]))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('vercel cacheConfig cannot inject'))
+      warnSpy.mockRestore()
+    })
+
+    it('does not warn on OpenAI underlying providers (server-auto)', async () => {
+      const parts: LanguageModelV3StreamPart[] = [
+        { type: 'stream-start', warnings: [] },
+        { type: 'finish', usage: testUsage, finishReason: stopFinish },
+      ]
+      const mock: LanguageModelV3 = { ...createMockModel(parts), provider: 'openai.chat' }
+      const model = new VercelModel({ provider: mock, cacheConfig: { strategy: 'auto' } })
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      await collectIterator(model.stream([]))
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('vercel cacheConfig cannot inject'))
+      warnSpy.mockRestore()
+    })
+  })
 })
