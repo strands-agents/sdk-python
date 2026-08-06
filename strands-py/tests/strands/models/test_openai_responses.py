@@ -1847,7 +1847,7 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
     @pytest.mark.parametrize(
         ("model_id", "expected_path"),
         [
-            # Matched only by a prefix, absent from _OPENAI_PATH_MODEL_IDS.
+            # Point releases within a verified line, beyond the verified catalog.
             ("xai.grok-4.9", "/openai/v1"),
             ("openai.gpt-5.9-unreleased", "/openai/v1"),
             # New lines the prefixes deliberately do not cover.
@@ -1855,8 +1855,8 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
             ("xai.grok-5-preview", "/v1"),
         ],
     )
-    def test_bedrock_mantle_config_prefix_hedge(self, model_id, expected_path, openai_client, mock_provide_token):
-        """The prefix hedge through the Responses model, which shares _resolve_mantle_base_path."""
+    def test_bedrock_mantle_config_unverified_ids(self, model_id, expected_path, openai_client, mock_provide_token):
+        """Ids beyond the verified catalog, through the Responses model (shares _resolve_mantle_base_path)."""
         _ = openai_client
         _ = mock_provide_token
         model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})

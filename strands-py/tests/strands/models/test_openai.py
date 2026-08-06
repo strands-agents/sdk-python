@@ -2044,7 +2044,7 @@ class TestOpenAIModelBedrockMantleConfig:
     @pytest.mark.parametrize(
         ("model_id", "expected_path"),
         [
-            # Matched only by a prefix, absent from _OPENAI_PATH_MODEL_IDS.
+            # Point releases within a verified line, beyond the verified catalog.
             ("xai.grok-4.9", "/openai/v1"),
             ("openai.gpt-5.9-unreleased", "/openai/v1"),
             # New lines the prefixes deliberately do not cover.
@@ -2052,8 +2052,8 @@ class TestOpenAIModelBedrockMantleConfig:
             ("xai.grok-5-preview", "/v1"),
         ],
     )
-    def test_bedrock_mantle_config_prefix_hedge(self, model_id, expected_path, openai_client, mock_provide_token):
-        """The only coverage of the prefix branch: no live id is matched by prefix alone."""
+    def test_bedrock_mantle_config_unverified_ids(self, model_id, expected_path, openai_client, mock_provide_token):
+        """Ids beyond the verified catalog: a known line routes by prefix, a new line falls to /v1."""
         _ = openai_client
         _ = mock_provide_token
         model = OpenAIModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})

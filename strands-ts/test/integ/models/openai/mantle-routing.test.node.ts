@@ -3,7 +3,7 @@
  *
  * Mantle serves each model from exactly one base path (`/v1` or `/openai/v1`), rejects
  * the other with HTTP 400, and exposes no API that reports the routing, so
- * `OPENAI_PATH_MODEL_IDS` in `mantle.ts` goes stale whenever Mantle onboards a model.
+ * `OPENAI_PATH_MODEL_PREFIXES` in `mantle.ts` goes stale whenever Mantle onboards a model.
  * For every model in the live catalog, this test asserts that the resolved path serves
  * it, probing the other path only on failure to distinguish misrouted from unserved ids.
  * Only HTTP 200 and 400 count as answers; any other status is retried and, if it
@@ -168,7 +168,7 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
     expect(
       ids('misrouted'),
       'Mantle serves these models from the base path the SDK does not use. Update ' +
-        'OPENAI_PATH_MODEL_IDS in strands-ts/src/models/openai/mantle.ts (and the Python ' +
+        'OPENAI_PATH_MODEL_PREFIXES in strands-ts/src/models/openai/mantle.ts (and the Python ' +
         'mirror in strands-py/src/strands/models/_openai_bedrock.py)'
     ).toEqual({})
 

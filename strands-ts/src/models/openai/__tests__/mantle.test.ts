@@ -215,15 +215,15 @@ describe('OpenAIModel bedrockMantleConfig', () => {
       expect(baseURLFor({ api: 'chat', modelId, bedrockMantleConfig: { region: 'us-west-2' } })).toBe(url)
     })
 
-    // The only coverage of the prefix branch: no live id is matched by prefix alone.
+    // Ids beyond the verified catalog: a known line routes by prefix, a new line falls to /v1.
     it.each([
-      // Matched only by a prefix, absent from OPENAI_PATH_MODEL_IDS.
+      // Point releases within a verified line, beyond the verified catalog.
       ['xai.grok-4.9', '/openai/v1'],
       ['openai.gpt-5.9-unreleased', '/openai/v1'],
       // New lines the prefixes deliberately do not cover.
       ['xai.grok-5', '/v1'],
       ['xai.grok-5-preview', '/v1'],
-    ])('resolves %s to %s via the prefix hedge', (modelId, expected) => {
+    ])('resolves unverified %s to %s', (modelId, expected) => {
       expect(baseURLFor({ modelId, bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
         `https://bedrock-mantle.us-west-2.api.aws${expected}`
       )

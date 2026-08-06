@@ -20,47 +20,23 @@ _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws{path}"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
 
-# Mantle model ids served from /openai/v1; all other Mantle models use /v1, and the wrong
-# base path fails with HTTP 400. The base path is a per-model property that no Mantle API
-# reports (``google.gemma-4-*`` is on /openai/v1, ``google.gemma-3-*`` is on /v1), so this
-# set is the complete /openai/v1 catalog verified against ``us-east-1`` on 2026-08-05.
-# Ids covered by ``_OPENAI_PATH_MODEL_PREFIXES`` are still listed so narrowing a prefix
-# never reroutes a verified id. The ``test_mantle_routing`` integ test fails naming any
-# id that drifts.
-_OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
-    {
-        # Hosted OpenAI models. Responses API only.
-        "openai.gpt-5.4",
-        "openai.gpt-5.4-2026-03-05",
-        "openai.gpt-5.5",
-        "openai.gpt-5.5-2026-04-23",
-        "openai.gpt-5.6-luna",
-        "openai.gpt-5.6-sol",
-        "openai.gpt-5.6-terra",
-        # Gemma 4. Both API surfaces.
-        "google.gemma-4-26b-a4b",
-        "google.gemma-4-31b",
-        "google.gemma-4-e2b",
-        # xAI. Both API surfaces.
-        "xai.grok-4.3",
-    }
-)
-
-# Forward-compatibility hedge: routes a new point release of a verified line before its id
-# is added to ``_OPENAI_PATH_MODEL_IDS``. Keep each prefix scoped to a single model line,
-# never a vendor, since one vendor's lines can split across base paths (Gemma 4 vs Gemma 3).
-# A new line falls through to /v1 and is caught by the drift test.
-_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.grok-4.")
+# Mantle model lines served from /openai/v1; every other Mantle model uses /v1, and the
+# wrong base path fails with HTTP 400. The base path is a per-model property that no
+# Mantle API reports, so these prefixes were verified against the ``us-east-1`` catalog on
+# 2026-08-05. Scope each prefix to a single model line, never a vendor: one vendor's lines
+# can split across base paths (``google.gemma-4-*`` is on /openai/v1, ``google.gemma-3-*``
+# is on /v1). An unmatched new line falls through to /v1; the ``test_mantle_routing``
+# integ test fails naming any id that routes wrong.
+_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.grok-4.", "google.gemma-4-")
 
 
 def _resolve_mantle_base_path(model_id: str) -> str:
     """Resolve the Mantle base path for ``model_id``.
 
-    Models in :data:`_OPENAI_PATH_MODEL_IDS` (or matching
-    :data:`_OPENAI_PATH_MODEL_PREFIXES`) are served from ``/openai/v1``; other
-    Mantle-routed models (e.g. ``openai.gpt-oss-*``, ``google.gemma-3-*``) use ``/v1``.
+    Models matching :data:`_OPENAI_PATH_MODEL_PREFIXES` are served from ``/openai/v1``;
+    other Mantle-routed models (e.g. ``openai.gpt-oss-*``, ``google.gemma-3-*``) use ``/v1``.
     """
-    if model_id in _OPENAI_PATH_MODEL_IDS or model_id.startswith(_OPENAI_PATH_MODEL_PREFIXES):
+    if model_id.startswith(_OPENAI_PATH_MODEL_PREFIXES):
         return "/openai/v1"
     return "/v1"
 

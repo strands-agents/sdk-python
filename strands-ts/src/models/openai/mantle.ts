@@ -13,40 +13,16 @@ import type { AwsCredentialIdentity, AwsCredentialIdentityProvider } from '@smit
 const MANTLE_DOCS_URL = 'https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html'
 
 /**
- * Mantle model ids served from `/openai/v1`; all other Mantle models use `/v1`,
- * and the wrong base path fails with HTTP 400. The base path is a per-model
- * property that no Mantle API reports (`google.gemma-4-*` is on `/openai/v1`,
- * `google.gemma-3-*` is on `/v1`), so this set is the complete `/openai/v1`
- * catalog verified against `us-east-1` on 2026-08-05. Ids covered by
- * {@link OPENAI_PATH_MODEL_PREFIXES} are still listed so narrowing a prefix
- * never reroutes a verified id. The `mantle-routing` integ test fails naming
- * any id that drifts.
+ * Mantle model lines served from `/openai/v1`; every other Mantle model uses
+ * `/v1`, and the wrong base path fails with HTTP 400. The base path is a
+ * per-model property that no Mantle API reports, so these prefixes were
+ * verified against the `us-east-1` catalog on 2026-08-05. Scope each prefix to
+ * a single model line, never a vendor: one vendor's lines can split across base
+ * paths (`google.gemma-4-*` is on `/openai/v1`, `google.gemma-3-*` is on
+ * `/v1`). An unmatched new line falls through to `/v1`; the `mantle-routing`
+ * integ test fails naming any id that routes wrong.
  */
-const OPENAI_PATH_MODEL_IDS: ReadonlySet<string> = new Set([
-  // Hosted OpenAI models. Responses API only.
-  'openai.gpt-5.4',
-  'openai.gpt-5.4-2026-03-05',
-  'openai.gpt-5.5',
-  'openai.gpt-5.5-2026-04-23',
-  'openai.gpt-5.6-luna',
-  'openai.gpt-5.6-sol',
-  'openai.gpt-5.6-terra',
-  // Gemma 4. Both API surfaces.
-  'google.gemma-4-26b-a4b',
-  'google.gemma-4-31b',
-  'google.gemma-4-e2b',
-  // xAI. Both API surfaces.
-  'xai.grok-4.3',
-])
-
-/**
- * Forward-compatibility hedge: routes a new point release of a verified line
- * before its id is added to {@link OPENAI_PATH_MODEL_IDS}. Keep each prefix
- * scoped to a single model line, never a vendor, since one vendor's lines can
- * split across base paths (Gemma 4 vs Gemma 3). A new line falls through to
- * `/v1` and is caught by the drift test.
- */
-const OPENAI_PATH_MODEL_PREFIXES = ['openai.gpt-5.', 'xai.grok-4.'] as const
+const OPENAI_PATH_MODEL_PREFIXES = ['openai.gpt-5.', 'xai.grok-4.', 'google.gemma-4-'] as const
 
 // Matches AWS region identifiers such as us-east-1, ap-southeast-1, and us-gov-east-1.
 // Anchored so a malformed region (e.g. one containing '@', ':', '/', '#') cannot re-point
@@ -147,13 +123,7 @@ export function resolveMantleRegion(config: BedrockMantleConfig): string {
  * @internal
  */
 export function resolveMantleBasePath(modelId: string): '/v1' | '/openai/v1' {
-  if (OPENAI_PATH_MODEL_IDS.has(modelId)) {
-    return '/openai/v1'
-  }
-  if (OPENAI_PATH_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix))) {
-    return '/openai/v1'
-  }
-  return '/v1'
+  return OPENAI_PATH_MODEL_PREFIXES.some((prefix) => modelId.startsWith(prefix)) ? '/openai/v1' : '/v1'
 }
 
 /**
