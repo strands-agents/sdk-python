@@ -48,6 +48,26 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
 }
 
 /**
+ * Restores a retrieved numeric metadata attribute to the number the caller stored.
+ *
+ * Bedrock serializes a NUMBER attribute with a trailing fraction — a stored `3` arrives in the
+ * `Retrieve` response as `3.0` — and `Retrieve` types `metadata` as an untyped document. Because
+ * `'3.0'` does not round-trip through a JS number exactly, `@aws-sdk/core` (3.977+) preserves it
+ * as a `NumericValue` — `{ string: '3.0', type: 'bigDecimal' }` — instead of parsing it, so
+ * without this a caller who stored `{ version: 3 }` reads back an object. Strings, booleans, and
+ * numbers whose text round-trips (e.g. `2.5`) arrive bare.
+ *
+ * A value that is not a `NumericValue` or does not parse to a finite number is returned untouched.
+ */
+function fromAttributeValue(value: JSONValue): JSONValue {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
+  const { string: encoded, type } = value as { string?: JSONValue; type?: JSONValue }
+  if (typeof encoded !== 'string' || type !== 'bigDecimal') return value
+  const parsed = Number(encoded)
+  return Number.isFinite(parsed) ? parsed : value
+}
+
+/**
  * S3 ingestion settings for {@link BedrockKnowledgeBaseStore}, required when `dataSourceType` is `'S3'`.
  *
  * An S3 data source indexes objects from a bucket — there is no inline-text path — so `add` uploads
@@ -344,7 +364,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       const metadata: Record<string, JSONValue> = {}
       if (result.metadata) {
         for (const [key, value] of Object.entries(result.metadata)) {
-          metadata[key] = value as JSONValue
+          metadata[key] = fromAttributeValue(value as JSONValue)
         }
       }
       if (result.location) {

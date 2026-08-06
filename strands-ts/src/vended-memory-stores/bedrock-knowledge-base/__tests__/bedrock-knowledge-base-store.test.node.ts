@@ -338,6 +338,66 @@ describe('BedrockKnowledgeBaseStore', () => {
       ])
     })
 
+    // Bedrock returns a stored integer as `3.0`, which `@aws-sdk/core` preserves as a
+    // NumericValue `{ string, type: 'bigDecimal' }` in the untyped metadata document.
+    // Guards against #3692: the caller must read back the number they stored.
+    it('unwraps NumericValue metadata back into the number that was stored', async () => {
+      const { store, runtime } = makeStore()
+      runtime.send.mockResolvedValue({
+        retrievalResults: [
+          {
+            content: { text: 'fact' },
+            metadata: {
+              priority: 'high',
+              verified: true,
+              ratio: 2.5,
+              version: { string: '3.0', type: 'bigDecimal' },
+              delta: { string: '-12.0', type: 'bigDecimal' },
+              zero: { string: '0.0', type: 'bigDecimal' },
+            },
+          },
+        ],
+      })
+
+      const [entry] = await store.search('q')
+      expect(entry?.metadata).toStrictEqual({
+        priority: 'high',
+        verified: true,
+        ratio: 2.5,
+        version: 3,
+        delta: -12,
+        zero: 0,
+      })
+    })
+
+    it('passes through objects that are not parseable NumericValues rather than coercing them', async () => {
+      const { store, runtime } = makeStore()
+      const unparseable = { string: 'not-a-number', type: 'bigDecimal' }
+      // Number('Infinity') parses, so it needs an explicit guard: returning it
+      // would put a non-JSON value into metadata.
+      const infinite = { string: 'Infinity', type: 'bigDecimal' }
+      const unknownTag = { string: 'x', type: 'someFutureType' }
+      const notAWrapper = { string: 'no type field' }
+      const wrapperOfWrongTypes = { string: 3, type: 7 }
+      runtime.send.mockResolvedValue({
+        retrievalResults: [
+          {
+            content: { text: 'fact' },
+            metadata: { unparseable, infinite, unknownTag, notAWrapper, wrapperOfWrongTypes },
+          },
+        ],
+      })
+
+      const [entry] = await store.search('q')
+      expect(entry?.metadata).toStrictEqual({
+        unparseable,
+        infinite,
+        unknownTag,
+        notAWrapper,
+        wrapperOfWrongTypes,
+      })
+    })
+
     it('defaults missing content to an empty string and omits absent metadata', async () => {
       const { store, runtime } = makeStore()
       runtime.send.mockResolvedValue({ retrievalResults: [{}] })
