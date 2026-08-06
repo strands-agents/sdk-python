@@ -23,13 +23,14 @@ mcp = FastMCP(APP_NAME)
 
 @mcp.tool()
 def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
-    """Search the curated documentation catalog by title.
+    """Search the curated documentation catalog.
 
     The catalog contains Strands Agents user guides, API reference pages, and
-    examples. Search ranking uses document titles, so use title-like keywords
-    such as "bedrock model", "structured output", or "MCP tools". The top
-    results are fetched on demand to provide content snippets, but page content
-    does not affect ranking.
+    examples. Ranking starts from document titles and also considers page
+    content once a page has been fetched (hydrated), so both title-like keywords
+    ("bedrock model", "MCP tools") and body terms ("guardrail", "temperature")
+    work. The top results are fetched on demand to hydrate the index and provide
+    content snippets.
 
     Call fetch_doc with a result URL to read the page or one of its sections.
 
@@ -46,7 +47,7 @@ def search_docs(query: str, k: int = 5) -> List[Dict[str, Any]]:
           different queries.
         - snippet: Contextual content preview
 
-        Returns an empty list when no document title matches. If a result page
+        Returns an empty list when no document matches. If a result page
         cannot be fetched, its title is used as the snippet.
 
     """

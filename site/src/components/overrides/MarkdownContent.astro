@@ -1,15 +1,21 @@
 ---
 import '@astrojs/starlight/style/markdown.css';
 import CommunityContributionAside from '../CommunityContributionAside.astro';
+import IntegrationsBackLink from '../IntegrationsBackLink.astro';
 import LanguageSupportAside from '../LanguageSupportAside.astro';
 import ExperimentalAside from '../ExperimentalAside.astro';
 import PageTags from '../PageTags.astro';
 
 const { starlightRoute } = Astro.locals;
 const { languages, community, experimental } = starlightRoute.entry.data;
+// Integration doc pages render without the docs sidebar (see route-middleware.ts);
+// the back strip is their route to the /integrations catalog.
+const isIntegrationsPage =
+  starlightRoute.id === 'docs/integrations' || starlightRoute.id.startsWith('docs/integrations/');
 ---
 
 <div class="sl-markdown-content">
+  {isIntegrationsPage && <IntegrationsBackLink />}
   {experimental && <ExperimentalAside />}
   {community && <CommunityContributionAside />}
   {/* Language support aside is omitted for community pages — the CommunityContributionAside already

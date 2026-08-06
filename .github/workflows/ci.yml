@@ -101,11 +101,9 @@ jobs:
     name: MCP
     needs: detect-changes
     if: needs.detect-changes.outputs.mcp == 'true'
-    uses: ./.github/workflows/mcp-test-lint.yml
+    uses: ./.github/workflows/mcp-pr-and-push.yml
     permissions:
       contents: read
-    with:
-      ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
   ci-gate:
     name: CI Gate
