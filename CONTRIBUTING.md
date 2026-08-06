@@ -197,7 +197,7 @@ A few things that help us help you:
 
 - **Keep changes small and incremental.** A focused PR that does one thing is far easier for us to understand, guide, and merge than a large one that touches many areas. When in doubt, split it up.
 - **Open an issue first for anything significant**, so we can align on the approach before you (or your agent) invest the time.
-- **Review every line your agent generates.** Delete what you don't need, simplify what's over-engineered, and make sure tests actually exercise the behavior — not just pass.
+- **Review every line your agent generates.** Delete what you don't need, simplify what's over-engineered, and make sure tests actually exercise the behavior — not just pass. Trim comments that narrate the agent's reasoning: a comment should state only what a reader cannot infer from the code.
 
 High-quality PRs get reviewed faster and are far more likely to be accepted. Taking the time to understand and trim your changes is the single best thing you can do to get them merged.
 
