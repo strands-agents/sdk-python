@@ -102,8 +102,10 @@ function tokenOverlapScore(queryTokens: Set<string>, content: string): number {
  * Each {@link add} rewrites the whole file, so this fits modest volumes, not fit for high volume
  * production workloads. Use a managed store like {@link BedrockKnowledgeBaseStore} for that.
  *
- * Persistence is backed by the unified `Storage` interface: `persist: true` (the default) uses a
- * `LocalFileStorage`, `persist: false` an ephemeral `InMemoryStorage`.
+ * Persistence is backed by the unified `Storage` interface internally: `persist: true` (the default)
+ * uses a `LocalFileStorage`, `persist: false` an ephemeral `InMemoryStorage`. Unlike other
+ * subsystems (SessionManager, ContextOffloader), this store does not accept an external `Storage`
+ * or resolve from the agent-level `storage` — it manages its own backend via `persist` and `path`.
  *
  * The on-disk format is shared with the Python SDK's `TestMemoryStore`: records use the same
  * camelCase keys (`id`, `content`, `metadata`, `createdAt`) and the same timestamp shape, so a
