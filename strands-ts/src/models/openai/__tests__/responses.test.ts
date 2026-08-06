@@ -494,6 +494,12 @@ describe("OpenAIModel (api: 'responses')", () => {
       const req = await runOnce()
       expect(req.prompt_cache_key).toBeUndefined()
       expect(req.prompt_cache_retention).toBeUndefined()
+      expect(req.prompt_cache_options).toBeUndefined()
+    })
+
+    it('forwards promptCacheOptions verbatim on the request', async () => {
+      const req = await runOnce({ promptCacheOptions: { mode: 'explicit' } })
+      expect(req.prompt_cache_options).toEqual({ mode: 'explicit' })
     })
   })
 

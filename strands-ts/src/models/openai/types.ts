@@ -107,6 +107,15 @@ export interface OpenAIResponsesConfig extends OpenAIBaseConfig {
    * is sent on every turn.
    */
   stateful?: boolean
+
+  /**
+   * Fine-grained caching mode for models that support it (GPT-5.6 on Bedrock Mantle:
+   * sol/terra/luna). `{ mode: 'implicit' }` (default) lets the server cache automatically;
+   * `{ mode: 'explicit' }` requires the caller to mark cache breakpoints on specific
+   * content blocks (not yet exposed as a first-class SDK surface). Passed through to the
+   * request verbatim.
+   */
+  promptCacheOptions?: { mode: 'implicit' | 'explicit' }
 }
 
 /**

@@ -163,6 +163,12 @@ class OpenAIResponsesModel(Model):
                 extended retention on models that support it (GPT-5 family, GPT-4.1). Callers
                 that pass a value not supported by the target model will get a runtime error
                 from the vendor SDK.
+            prompt_cache_options: Fine-grained caching mode for models that support it
+                (GPT-5.6 on Bedrock Mantle: ``sol``/``terra``/``luna``). Accepts
+                ``{"mode": "implicit"}`` (default — server caches automatically) or
+                ``{"mode": "explicit"}`` (the caller marks cache breakpoints on specific
+                content blocks; not yet exposed as a first-class SDK surface). Passed
+                through to the request verbatim.
         """
 
         model_id: str
@@ -172,6 +178,7 @@ class OpenAIResponsesModel(Model):
         cache_config: CacheConfig | None
         prompt_cache_key: str | None
         prompt_cache_retention: str | None
+        prompt_cache_options: dict[str, Any] | None
 
     def __init__(
         self,
@@ -611,6 +618,8 @@ class OpenAIResponsesModel(Model):
             request["prompt_cache_key"] = prompt_cache_key
         if prompt_cache_retention := self.config.get("prompt_cache_retention"):
             request["prompt_cache_retention"] = prompt_cache_retention
+        if prompt_cache_options := self.config.get("prompt_cache_options"):
+            request["prompt_cache_options"] = prompt_cache_options
 
         return request
 

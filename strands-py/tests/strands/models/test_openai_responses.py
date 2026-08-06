@@ -1837,6 +1837,15 @@ def test_format_request_cache_config_is_documented_noop(openai_client, model_id,
     assert "cache_config" not in request
 
 
+def test_format_request_includes_prompt_cache_options(model, messages):
+    """prompt_cache_options passes through verbatim for GPT-5.6 explicit-mode support."""
+    model.update_config(prompt_cache_options={"mode": "explicit"})
+
+    request = model._format_request(messages)
+
+    assert request["prompt_cache_options"] == {"mode": "explicit"}
+
+
 # =============================================================================
 # Bedrock Mantle (bedrock_mantle_config) integration with OpenAIResponsesModel
 # =============================================================================
