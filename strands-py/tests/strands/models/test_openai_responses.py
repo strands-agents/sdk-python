@@ -121,7 +121,8 @@ def test_update_config(model, model_id):
             },
             {
                 "type": "input_file",
-                "file_url": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+                "filename": "test doc.pdf",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
         # Image
