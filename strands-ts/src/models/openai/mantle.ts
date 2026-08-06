@@ -6,10 +6,6 @@
  * OpenAI SDK consumes. Tokens are minted on demand via
  * `@aws/bedrock-token-generator` so long-running agents survive the bearer
  * token's maximum lifetime.
- *
- * `@aws/bedrock-token-generator` is declared as an optional peer dependency, so
- * the import is lazy: it happens the first time the OpenAI client's async
- * `apiKey` setter is invoked.
  */
 
 import type { AwsCredentialIdentity, AwsCredentialIdentityProvider } from '@smithy/types'

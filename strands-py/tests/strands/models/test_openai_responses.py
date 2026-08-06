@@ -1856,12 +1856,7 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         ],
     )
     def test_bedrock_mantle_config_prefix_hedge(self, model_id, expected_path, openai_client, mock_provide_token):
-        """The prefix hedge, reached through the Responses model rather than Chat Completions.
-
-        Both models share _resolve_mantle_base_path, so this is parity: the hedge is not
-        exercised by any live id, and a reader checking Responses coverage should see the
-        same rows as test_openai.py rather than having to infer the shared helper.
-        """
+        """The prefix hedge through the Responses model, which shares _resolve_mantle_base_path."""
         _ = openai_client
         _ = mock_provide_token
         model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})

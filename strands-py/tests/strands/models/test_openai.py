@@ -2053,13 +2053,7 @@ class TestOpenAIModelBedrockMantleConfig:
         ],
     )
     def test_bedrock_mantle_config_prefix_hedge(self, model_id, expected_path, openai_client, mock_provide_token):
-        """The prefix hedge, which no live id exercises.
-
-        Every id Mantle serves today is also an exact entry in _OPENAI_PATH_MODEL_IDS, so
-        without these cases deleting the prefix check leaves the suite green. Prefixes are
-        scoped to a model line, not a vendor, so an unverified new line falls through to
-        /v1 and trips the drift test instead of being silently mis-routed.
-        """
+        """The only coverage of the prefix branch: no live id is matched by prefix alone."""
         _ = openai_client
         _ = mock_provide_token
         model = OpenAIModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})

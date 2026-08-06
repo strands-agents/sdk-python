@@ -208,8 +208,7 @@ test('internal mode grants the Mantle actions the base-path drift tests need', (
     (p.Properties?.PolicyDocument?.Statement ?? []).flatMap((s: any) => s.Action ?? []),
   );
 
-  // ListModels is what the Mantle base-path drift tests enumerate. Without it they skip
-  // instead of running, so the routing table can go stale unnoticed. See #3654.
+  // The Mantle routing drift tests skip without ListModels. See #3654.
   expect(actions).toEqual(
     expect.arrayContaining([
       'bedrock-mantle:CreateInference',

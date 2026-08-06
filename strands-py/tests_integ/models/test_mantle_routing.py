@@ -1,31 +1,14 @@
-"""Drift detection for the Bedrock Mantle base-path table.
+"""Drift detection for the hand-maintained Mantle base-path table (#3654).
 
-Mantle serves each model from exactly one base path (``/v1`` or ``/openai/v1``) and
-rejects the other with HTTP 400 ``validation_error``. The path is a property of the
-individual model and is *not* discoverable from the API: ``GET /v1/models`` reports
-``status`` but not routing, and there is no ``/openai/v1/models``. So
-:data:`strands.models._openai_bedrock._OPENAI_PATH_MODEL_IDS` is a hand-maintained
-table, and it silently goes stale whenever Mantle onboards a model.
-
-This test closes that gap. For every listed model it asserts the positive (the resolved
-path really does serve the model) and only then checks the other path, so all three ways
-the table can be wrong are distinguishable:
-
-* the resolved path is silent and the other one answers: mis-routed,
-* neither path answers: the id is unroutable through ``OpenAIModel`` at all,
-* the resolved path answers: correct, and a dual-served model needs no table edit.
-
-Only HTTP 200 ("served") and 400 ("this route does not serve the model") are treated as
-answers. Any other status means *undetermined*, is retried, and fails the test if it
-persists rather than being counted as "not served". That includes transient 429/5xx
-responses and timeouts as well as permanent 401/403/404 access or entitlement gaps. A
-detector that reports "no drift" when it means "could not tell" is worse than none,
-because the "Verified against the us-east-1 catalog" note in the table would look
-CI-backed when it is not. The #3654 reporter hit exactly such a transient
-``internal_server_error``.
+Mantle serves each model from exactly one base path (``/v1`` or ``/openai/v1``), rejects
+the other with HTTP 400, and exposes no API that reports the routing, so
+:data:`strands.models._openai_bedrock._OPENAI_PATH_MODEL_IDS` goes stale whenever Mantle
+onboards a model. For every model in the live catalog, this test asserts that the
+resolved path serves it, probing the other path only on failure to distinguish misrouted
+from unserved ids. Only HTTP 200 and 400 count as answers; any other status is retried
+and, if it persists, fails the test as undetermined rather than passing as "no drift".
 
 Failure means the table needs updating, not that the SDK is broken for existing models.
-See https://github.com/strands-agents/harness-sdk/issues/3654.
 """
 
 import concurrent.futures
@@ -146,9 +129,8 @@ def _serves(base_path: str, model_id: str, token: str) -> bool | None:
 def test_mantle_base_path_table_matches_live_catalog():
     """Every live Mantle model is routed to the base path it is actually served from.
 
-    Well over the global 90s cap: a clean sweep finishes in well under a minute because
-    the resolved path answers first, but a drifted or flaky model pays the retry backoff on
-    both paths, and that is precisely the run that has to report rather than time out.
+    The 600s timeout covers the retry backoff a drifted or flaky sweep pays on both
+    paths; a clean sweep finishes in under a minute.
     """
     models = [
         model_id
@@ -160,10 +142,8 @@ def test_mantle_base_path_table_matches_live_catalog():
     def check(model_id: str) -> tuple[str, str, str]:
         """Classify ``model_id`` as ok / misrouted / unserved / undetermined.
 
-        Probes the resolved path first, so a correctly routed model costs the same as
-        before and a model served from *both* paths classifies as ok rather than sending a
-        maintainer to edit a table that cannot satisfy it. Minting per model keeps long
-        sweeps inside the token's lifetime.
+        The resolved path is probed first, so a model served from both paths is ok.
+        Minting per model keeps long sweeps inside the token's lifetime.
         """
         resolved = _resolve_mantle_base_path(model_id)
         other = "/openai/v1" if resolved == "/v1" else "/v1"
@@ -185,8 +165,7 @@ def test_mantle_base_path_table_matches_live_catalog():
     def ids(verdict: str) -> dict[str, str]:
         return {model_id: resolved for model_id, outcome, resolved in results if outcome == verdict}
 
-    # Asserted before the two below so an inconclusive probe cannot be mistaken for a
-    # clean sweep: an undetermined model is a gap in coverage, not a pass.
+    # Checked first so an inconclusive probe cannot read as a clean sweep.
     undetermined = ids("undetermined")
     assert not undetermined, (
         "Mantle never returned a definitive 200/400 for these models, so their routing "

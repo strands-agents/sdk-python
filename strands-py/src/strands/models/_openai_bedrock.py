@@ -4,12 +4,6 @@ Converts a ``bedrock_mantle_config`` dict into the ``base_url`` and ``api_key`` 
 OpenAI Python SDK consumes. Tokens are minted on demand via
 ``aws_bedrock_token_generator.provide_token`` so long-running agents survive the
 bearer token's maximum lifetime.
-
-``aws_bedrock_token_generator`` is part of the ``openai`` extras group
-(``pip install strands-agents[openai]``) but is *not* included in the ``litellm``
-or ``sagemaker`` extras, which also pull in the ``openai`` package. The import is
-therefore lazy — it happens inside :func:`resolve_bedrock_client_args` so that
-those other extras never trigger an ``ImportError`` at module load.
 """
 
 from __future__ import annotations
