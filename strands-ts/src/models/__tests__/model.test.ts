@@ -1111,3 +1111,32 @@ describe('countTokens', () => {
     expect(result).toBe(expected)
   })
 })
+
+describe('estimateUtilization', () => {
+  it('returns ratio of inputTokens to contextWindowLimit', () => {
+    const provider = new TestModelProvider()
+    provider.updateConfig({ contextWindowLimit: 100_000 })
+
+    expect(provider.estimateUtilization(50_000)).toBe(0.5)
+  })
+
+  it('uses DEFAULT_CONTEXT_WINDOW_LIMIT when contextWindowLimit is not set', () => {
+    const provider = new TestModelProvider()
+
+    expect(provider.estimateUtilization(100_000)).toBe(100_000 / 200_000)
+  })
+
+  it('returns value above 1.0 when tokens exceed limit', () => {
+    const provider = new TestModelProvider()
+    provider.updateConfig({ contextWindowLimit: 1000 })
+
+    expect(provider.estimateUtilization(1500)).toBeGreaterThan(1.0)
+  })
+
+  it('returns 0 for zero tokens', () => {
+    const provider = new TestModelProvider()
+    provider.updateConfig({ contextWindowLimit: 100_000 })
+
+    expect(provider.estimateUtilization(0)).toBe(0)
+  })
+})

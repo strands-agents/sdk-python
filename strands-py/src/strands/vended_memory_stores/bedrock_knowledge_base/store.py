@@ -126,10 +126,15 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self._data_source_type = kb_config.get("data_source_type")
         self._data_source_id = kb_config.get("data_source_id")
 
+        # Region hint for any default boto3 client the store constructs. Only an explicit
+        # ``region_name`` config is threaded through; when absent, ``None`` is passed so boto3
+        # resolves the region itself. Injected clients bypass this and use their own region setup.
+        self._region = kb_config.get("region_name")
+
         # The runtime client is built eagerly: search is the read path every store exercises. A
         # default client is only constructed when none was injected.
         self._runtime_client: AgentsforBedrockRuntimeClient = kb_config.get("runtime_client") or boto3.client(
-            "bedrock-agent-runtime"
+            "bedrock-agent-runtime", region_name=self._region
         )
 
         # The knowledge base type — either provided in config or resolved in ``initialize()``.
@@ -526,19 +531,21 @@ class BedrockKnowledgeBaseStore(MemoryStore):
     def _get_s3_client(self) -> S3Client:
         """Return the S3 client, constructing a default one lazily on first use.
 
-        A default client is built with no extra configuration. Callers needing a specific region,
-        credentials, or endpoint build the client themselves and inject it via the ``s3`` config.
+        A default client is built with no extra configuration beyond the resolved region. Callers
+        needing specific credentials or an endpoint build the client themselves and inject it via
+        the ``s3`` config.
         """
         if self._s3_client is None:
-            self._s3_client = boto3.client("s3")
+            self._s3_client = boto3.client("s3", region_name=self._region)
         return self._s3_client
 
     def _get_agent_client(self) -> AgentsforBedrockClient:
         """Return the agent client, constructing a default one lazily on first use.
 
-        A default client is built with no extra configuration. Callers needing a specific region,
-        credentials, or endpoint build the client themselves and inject it via ``agent_client``.
+        A default client is built with no extra configuration beyond the resolved region. Callers
+        needing specific credentials or an endpoint build the client themselves and inject it via
+        ``agent_client``.
         """
         if self._agent_client is None:
-            self._agent_client = boto3.client("bedrock-agent")
+            self._agent_client = boto3.client("bedrock-agent", region_name=self._region)
         return self._agent_client

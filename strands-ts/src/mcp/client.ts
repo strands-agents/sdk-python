@@ -75,10 +75,41 @@ export interface McpClientCredentials {
   scopes?: string[]
 }
 
+/** Decides whether a tool matches a filter. Receives the tool under its agent-facing name. */
+export type McpToolFilterCallback = (tool: McpTool) => boolean
+
+/**
+ * Matches a tool for filtering. A string matches the server-side tool name exactly; a `RegExp`
+ * matches it from the start (as Python's `Pattern.match` does); a callback receives the tool.
+ */
+export type McpToolMatcher = string | RegExp | McpToolFilterCallback
+
+/** Filters controlling which MCP tools a client exposes. */
+export interface McpToolFilters {
+  /** When present, only tools matching at least one matcher are exposed. */
+  allowed?: McpToolMatcher[]
+  /** Tools matching at least one matcher are excluded, even when also allowed. */
+  rejected?: McpToolMatcher[]
+}
+
+/** Per-call overrides for {@link McpClient.listTools}. */
+export interface McpListToolsOptions {
+  /** Prefix for agent-facing tool names. An empty string disables a prefix set on the client. */
+  prefix?: string
+  /** Tool filters. An empty object disables filters set on the client. */
+  toolFilters?: McpToolFilters
+}
+
 /** Behavioral options shared by all MCP client configurations. */
 export interface McpClientOptions extends RuntimeConfig {
   /** Disable OpenTelemetry MCP instrumentation. */
   disableMcpInstrumentation?: boolean
+
+  /** Prefix for agent-facing tool names, applied as `<prefix>_<toolName>`. */
+  prefix?: string
+
+  /** Filters controlling which tools this client exposes. */
+  toolFilters?: McpToolFilters
 
   /**
    * Configuration for task-augmented tool execution (experimental).
@@ -151,6 +182,10 @@ export class McpClient {
   private _disableMcpInstrumentation: boolean
   private _tasksConfig: TasksConfig | undefined
   private _elicitationCallback: ElicitationCallback | undefined
+  private _prefix: string | undefined
+  private _toolFilters: McpToolFilters | undefined
+  /** Server-side name of each listed tool, which differs from `tool.name` when a prefix is set. */
+  private _serverToolNames = new WeakMap<McpTool, string>()
   private _registeredToolNames = new Set<string>()
   private _onToolsChanged: ((oldTools: string[], newTools: McpTool[]) => void) | undefined
   private _refreshingTools = false
@@ -165,6 +200,8 @@ export class McpClient {
     this._logHandler = args.logHandler ?? defaultLogHandler
     this._tasksConfig = args.tasksConfig
     this._elicitationCallback = args.elicitationCallback
+    this._prefix = args.prefix
+    this._toolFilters = args.toolFilters
     this._client = new Client(
       {
         name: this._clientName,
@@ -313,35 +350,51 @@ export class McpClient {
   /**
    * Lists the tools available on the server and returns them as executable McpTool instances.
    *
+   * A prefix renames tools for the agent only; tools are always invoked, and matched by string and
+   * `RegExp` filters, under their server-side name.
+   *
+   * @param options - Overrides for the prefix and filters set on the client. An omitted field uses
+   *                  the client's value; an explicit empty string or empty object disables it.
    * @returns A promise that resolves with an array of McpTool instances.
    */
-  public async listTools(): Promise<McpTool[]> {
+  public async listTools(options?: McpListToolsOptions): Promise<McpTool[]> {
     await this.connect()
     if (this._state === 'failed') return []
 
+    const prefix = options?.prefix === undefined ? this._prefix : options.prefix
+    const toolFilters = options?.toolFilters === undefined ? this._toolFilters : options.toolFilters
     const tools: McpTool[] = []
     let cursor: string | undefined
 
     do {
       const result = await this._client.listTools(cursor ? { cursor } : undefined)
 
-      tools.push(
-        ...result.tools.map(
-          (toolSpec) =>
-            new McpTool({
-              name: toolSpec.name,
-              description: toolSpec.description || `Tool which performs ${toolSpec.name}`,
-              inputSchema: toolSpec.inputSchema as JSONSchema,
-              ...(toolSpec.outputSchema !== undefined && { outputSchema: toolSpec.outputSchema as JSONSchema }),
-              client: this,
-            })
-        )
-      )
+      for (const toolSpec of result.tools) {
+        const toolName = prefix ? `${prefix}_${toolSpec.name}` : toolSpec.name
+        if (prefix) {
+          logger.debug(`tool_rename=<${toolSpec.name}->${toolName}> | renamed tool`)
+        }
+
+        const tool = new McpTool({
+          name: toolName,
+          description: toolSpec.description || `Tool which performs ${toolSpec.name}`,
+          inputSchema: toolSpec.inputSchema as JSONSchema,
+          ...(toolSpec.outputSchema !== undefined && { outputSchema: toolSpec.outputSchema as JSONSchema }),
+          client: this,
+        })
+        this._serverToolNames.set(tool, toolSpec.name)
+
+        if (shouldIncludeTool(tool, toolSpec.name, toolFilters)) tools.push(tool)
+      }
 
       cursor = result.nextCursor
     } while (cursor)
 
-    this._registeredToolNames = new Set(tools.map((t) => t.name))
+    // Per-call overrides are transient, so they must not become the baseline that a later
+    // tools-changed refresh reports as the previously registered names.
+    if (options?.prefix === undefined && options?.toolFilters === undefined) {
+      this._registeredToolNames = new Set(tools.map((tool) => tool.name))
+    }
 
     return tools
   }
@@ -409,13 +462,16 @@ export class McpClient {
     const toolArgs = enhancedArgs as Record<string, unknown>
 
     // When tasksConfig is undefined, call tools directly without task management
+    // Use the server-side name for server communication; tool.name may carry a prefix.
+    const toolName = this._serverToolNames.get(tool) ?? tool.name
+
     if (this._tasksConfig === undefined) {
-      return (await this._client.callTool({ name: tool.name, arguments: toolArgs }, undefined, options)) as JSONValue
+      return (await this._client.callTool({ name: toolName, arguments: toolArgs }, undefined, options)) as JSONValue
     }
 
     // When tasksConfig is defined (even as empty object), use task-based invocation
     // which supports long-running tools with progress tracking
-    const stream = this._client.experimental.tasks.callToolStream({ name: tool.name, arguments: toolArgs }, undefined, {
+    const stream = this._client.experimental.tasks.callToolStream({ name: toolName, arguments: toolArgs }, undefined, {
       timeout: this._tasksConfig.ttl ?? McpClient.DEFAULT_TTL,
       maxTotalTimeout: this._tasksConfig.pollTimeout ?? McpClient.DEFAULT_POLL_TIMEOUT,
       resetTimeoutOnProgress: true,
@@ -425,6 +481,29 @@ export class McpClient {
     const result = await takeResult(stream)
     return result as JSONValue
   }
+}
+
+/**
+ * Decides whether a listed tool is exposed: allowed is applied first, then rejected, so a rejected
+ * tool is excluded even when also allowed.
+ */
+function shouldIncludeTool(tool: McpTool, serverToolName: string, filters: McpToolFilters | undefined): boolean {
+  if (!filters) return true
+  if (filters.allowed !== undefined && !matchesAnyMatcher(tool, serverToolName, filters.allowed)) return false
+  if (filters.rejected !== undefined && matchesAnyMatcher(tool, serverToolName, filters.rejected)) return false
+  return true
+}
+
+function matchesAnyMatcher(tool: McpTool, serverToolName: string, matchers: McpToolMatcher[]): boolean {
+  return matchers.some((matcher) => {
+    if (typeof matcher === 'function') return matcher(tool)
+    if (typeof matcher === 'string') return matcher === serverToolName
+
+    // The sticky flag anchors the match at the start of the name, matching Python's Pattern.match.
+    // A fresh RegExp keeps the caller's lastIndex untouched.
+    const anchored = new RegExp(matcher.source, matcher.flags.includes('y') ? matcher.flags : `${matcher.flags}y`)
+    return anchored.test(serverToolName)
+  })
 }
 
 function defaultLogHandler(params: LoggingMessageNotificationParams): void {

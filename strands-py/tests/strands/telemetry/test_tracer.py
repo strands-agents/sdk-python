@@ -453,6 +453,7 @@ def test_start_tool_call_span_latest_conventions(mock_tracer, monkeypatch):
                 "gen_ai.tool.call.id": "123",
             }
         )
+        mock_span.set_attribute.assert_any_call("gen_ai.tool.call.arguments", serialize(tool["input"]))
         mock_span.add_event.assert_called_with(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -685,7 +686,12 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
 
     tracer.end_tool_call_span(mock_span, tool_result)
 
-    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "success"})
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.tool.status": "success",
+            "gen_ai.tool.call.result": serialize(tool_result.get("content")),
+        }
+    )
     mock_span.add_event.assert_called_with(
         "gen_ai.client.inference.operation.details",
         attributes={
@@ -706,6 +712,19 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
         },
     )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+def test_end_tool_call_span_latest_conventions_error_omits_result(mock_span, monkeypatch):
+    """The gen_ai.tool.call.result attribute is scoped to successful executions and omitted on error status."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    tracer = Tracer()
+    tool_result = {"toolUseId": "abc", "status": "error", "content": [{"text": "tool exploded"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool exploded")
     mock_span.end.assert_called_once()
 
 
