@@ -5,5 +5,5 @@ languages:
   python:
     package: strands-stigmer
 github: https://github.com/LNSHRIVAS/stigmer
-docsUrl: https://stigmer.network
+docsUrl: https://stigmer.network/strands-stigmer/
 addedDate: 2026-08-05
