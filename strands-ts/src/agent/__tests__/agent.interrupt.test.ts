@@ -1,9 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Agent } from '../agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../__fixtures__/tool-helpers.js'
-import { ToolResultBlock } from '../../types/messages.js'
-import { AfterToolCallEvent, BeforeToolCallEvent, BeforeToolsEvent, InterruptEvent } from '../../hooks/events.js'
+import { TextBlock, ToolResultBlock, ToolUseBlock } from '../../types/messages.js'
+import {
+  AfterToolCallEvent,
+  BeforeToolCallEvent,
+  BeforeToolsEvent,
+  InterruptEvent,
+  MessageAddedEvent,
+} from '../../hooks/events.js'
 import { FunctionTool } from '../../tools/function-tool.js'
 import { InterruptResponseContent } from '../../types/interrupt.js'
 import type { InterruptState, PendingToolExecution } from '../../interrupt.js'
@@ -636,6 +642,49 @@ describe('Agent interrupt system', () => {
       expect(result2).toMatchObject({ stopReason: 'interrupt' })
       expect(interruptCount).toBe(3)
     })
+
+    it('preserves the pending tool interrupt when a resume is cancelled before the tool runs', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'confirmTool', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('confirmTool', (context) => {
+        if (!toolExecuted) {
+          // First execution attempt raises the interrupt; later attempts run for real.
+          context.interrupt({ name: 'confirm', reason: 'Approve?' })
+        }
+        toolExecuted = true
+        return 'executed'
+      })
+
+      const agent = new Agent({ model, tools: [tool], printer: false })
+
+      const interruptResult = await agent.invoke('Go')
+      expect(interruptResult.stopReason).toBe('interrupt')
+      expect(getPendingToolExecution(agent)).toBeDefined()
+
+      // Resume, but cancel before the tool runs (a BeforeToolsEvent hook cancels this pass).
+      const cancelHook = agent.addHook(BeforeToolsEvent, () => {
+        agent.cancel()
+      })
+      const cancelledResult = await agent.invoke([
+        new InterruptResponseContent({ interruptId: interruptResult.interrupts![0]!.id, response: 'yes' }),
+      ])
+      expect(cancelledResult.stopReason).toBe('cancelled')
+      expect(toolExecuted).toBe(false)
+
+      // The pending tool interrupt survives the cancelled pass and is still resumable.
+      expect(getPendingToolExecution(agent)).toBeDefined()
+
+      // A subsequent resume (without the cancel hook) runs the tool to completion.
+      cancelHook()
+      const finalResult = await agent.invoke([
+        new InterruptResponseContent({ interruptId: interruptResult.interrupts![0]!.id, response: 'yes' }),
+      ])
+      expect(finalResult.stopReason).toBe('endTurn')
+      expect(toolExecuted).toBe(true)
+    })
   })
 
   describe('event contract during interrupt', () => {
@@ -894,6 +943,88 @@ describe('Agent interrupt system', () => {
     })
   })
 
+  describe('resume with hook-rewritten toolUseId', () => {
+    // Guards provider correlation and resume lookup against hook-rewritten tool-use IDs (#3268).
+    it.each(['sequential', 'concurrent'] as const)(
+      'runs the completed tool exactly once across interrupt and resume (%s)',
+      async (toolExecutor) => {
+        const model = new MockMessageModel()
+          .addTurn([
+            { type: 'toolUseBlock', name: 'toolA', toolUseId: 'tool-a', input: {} },
+            { type: 'toolUseBlock', name: 'toolB', toolUseId: 'tool-b', input: {} },
+          ])
+          .addTurn({ type: 'textBlock', text: 'Done' })
+        const providerIdSnapshots: Array<{ toolUseIds: string[]; toolResultIds: string[] }> = []
+        const originalStream = model.stream.bind(model)
+        vi.spyOn(model, 'stream').mockImplementation((messages, options) => {
+          const content = messages.flatMap((message) => message.content)
+          const toolUseIds = content
+            .filter((block): block is ToolUseBlock => block instanceof ToolUseBlock)
+            .map((block) => block.toolUseId)
+          const toolResultIds = content
+            .filter((block): block is ToolResultBlock => block instanceof ToolResultBlock)
+            .map((block) => block.toolUseId)
+          if (toolResultIds.length > 0) {
+            providerIdSnapshots.push({ toolUseIds, toolResultIds })
+          }
+          return originalStream(messages, options)
+        })
+
+        const executionLog: string[] = []
+        const toolA = createMockTool('toolA', () => {
+          executionLog.push('A')
+          return 'A result'
+        })
+        const toolB = new FunctionTool({
+          name: 'toolB',
+          description: 'Interrupting tool B',
+          inputSchema: { type: 'object', properties: {} },
+          callback: (_input, context) => {
+            executionLog.push('B')
+            const response = context!.interrupt<string>({ name: 'confirm_b', reason: 'Approve B?' })
+            return `B: ${response}`
+          },
+        })
+
+        const agent = new Agent({ model, tools: [toolA, toolB], toolExecutor, printer: false })
+        agent.addHook(BeforeToolCallEvent, (event) => {
+          if (event.toolUse.name === 'toolA') {
+            event.toolUse = { ...event.toolUse, toolUseId: 'rewritten-a' }
+          }
+        })
+        agent.addHook(AfterToolCallEvent, (event) => {
+          if (event.toolUse.name === 'toolA') {
+            event.result = new ToolResultBlock({
+              toolUseId: 'after-rewritten-a',
+              status: event.result.status,
+              content: event.result.content,
+              ...(event.result.error !== undefined && { error: event.result.error }),
+            })
+          }
+        })
+
+        const interruptResult = await agent.invoke('Go')
+        expect(interruptResult.stopReason).toBe('interrupt')
+        expect(executionLog).toEqual(['A', 'B'])
+
+        const pendingExecution = getPendingToolExecution(agent)
+        expect(Object.keys(pendingExecution!.completedToolResults)).toEqual(['tool-a'])
+        expect(pendingExecution!.completedToolResults['tool-a']!.toolResult.toolUseId).toBe('tool-a')
+
+        // Resume — only B re-executes.
+        const finalResult = await agent.invoke([
+          new InterruptResponseContent({
+            interruptId: interruptResult.interrupts![0]!.id,
+            response: 'approved',
+          }),
+        ])
+        expect(finalResult.stopReason).toBe('endTurn')
+        expect(executionLog).toEqual(['A', 'B', 'B'])
+        expect(providerIdSnapshots).toEqual([{ toolUseIds: ['tool-a', 'tool-b'], toolResultIds: ['tool-a', 'tool-b'] }])
+      }
+    )
+  })
+
   describe('InterruptEvent emission', () => {
     it('yields one InterruptEvent per unanswered interrupt at stop, tagged with source', async () => {
       const model = new MockMessageModel()
@@ -947,6 +1078,99 @@ describe('Agent interrupt system', () => {
 
       expect(events).toHaveLength(1)
       expect(events[0]!.interrupt).toMatchObject({ name: 'approve', source: 'tool' })
+    })
+  })
+
+  describe('cancel during approved tool execution', () => {
+    it('runs an approved tool only once when the resume is cancelled while the tool is in flight', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'sendEmail', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+        .addTurn({ type: 'textBlock', text: 'Nothing else happened' })
+
+      let raised = false
+      const sideEffects: string[] = []
+      let releaseTool!: () => void
+      const toolReleased = new Promise<void>((resolve) => (releaseTool = resolve))
+      let toolStarted!: () => void
+      const toolInFlight = new Promise<void>((resolve) => (toolStarted = resolve))
+
+      const tool = createMockTool('sendEmail', (context) => {
+        if (!raised) {
+          raised = true
+          context.interrupt({ name: 'confirm', reason: 'Send the email?' })
+        }
+        // eslint-disable-next-line require-yield
+        return (async function* () {
+          sideEffects.push('email sent')
+          toolStarted()
+          await toolReleased
+          return new ToolResultBlock({
+            toolUseId: context.toolUse.toolUseId,
+            status: 'success',
+            content: [new TextBlock('sent')],
+          })
+        })()
+      })
+
+      const agent = new Agent({ model, tools: [tool], printer: false })
+      const interruptResult = await agent.invoke('Send the email')
+      const interruptId = interruptResult.interrupts![0]!.id
+
+      // Human approves, then presses "stop" while the tool is still running.
+      const inflight = agent.invoke([new InterruptResponseContent({ interruptId, response: 'yes' })])
+      await toolInFlight
+      agent.cancel()
+      releaseTool()
+      expect((await inflight).stopReason).toBe('cancelled')
+
+      // The tool ran and its result is in history, so nothing is left to resume.
+      expect(getPendingToolExecution(agent)).toBeUndefined()
+
+      const toolUseIds = agent.messages.flatMap((m) =>
+        m.content.filter((b): b is ToolUseBlock => b.type === 'toolUseBlock').map((b) => b.toolUseId)
+      )
+      expect(toolUseIds).toEqual(['tool-1'])
+
+      // A fresh prompt is accepted (the agent is not wedged as interrupted).
+      await agent.invoke('what happened?')
+      expect(sideEffects).toEqual(['email sent'])
+    })
+  })
+
+  describe('stream break at InterruptEvent', () => {
+    it('does not replay a stored tool cycle when the stream is broken at InterruptEvent', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'deleteFiles', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+        .addTurn({ type: 'textBlock', text: 'Second' })
+
+      let raised = false
+      let toolRuns = 0
+      const tool = createMockTool('deleteFiles', (context) => {
+        if (!raised) {
+          raised = true
+          context.interrupt({ name: 'confirm', reason: 'Delete?' })
+        }
+        toolRuns += 1
+        return 'deleted'
+      })
+
+      const agent = new Agent({ model, tools: [tool], printer: false })
+
+      // HITL streaming consumer: stop consuming once the interrupt surfaces.
+      for await (const event of agent.stream('Delete old files')) {
+        if (event instanceof InterruptEvent) break
+      }
+
+      // Kill switch to prevent infinite replay if the bug regresses.
+      agent.addHook(MessageAddedEvent, () => {
+        if (agent.messages.length > 30) agent.cancel()
+      })
+
+      const result = await agent.invoke('anything new')
+      expect(toolRuns).toBe(1)
+      expect(result.stopReason).toBe('endTurn')
     })
   })
 })

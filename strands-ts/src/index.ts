@@ -144,6 +144,10 @@ export type { ZodToolConfig } from './tools/zod-tool.js'
 // Tool factory function
 export { tool } from './tools/tool-factory.js'
 
+// Tool executors
+export { ConcurrentToolExecutor } from './tools/executors/concurrent.js'
+export { SequentialToolExecutor } from './tools/executors/sequential.js'
+
 // Streaming event types
 export type {
   Usage,
@@ -279,6 +283,10 @@ export type { Logger } from './logging/types.js'
 // MCP Client types and implementations
 export {
   type McpClientOptions,
+  type McpListToolsOptions,
+  type McpToolFilterCallback,
+  type McpToolFilters,
+  type McpToolMatcher,
   type McpClientConfig,
   type McpClientCredentials,
   type McpTransport,
@@ -286,6 +294,7 @@ export {
   type TasksConfig,
   type McpConnectionState,
   type McpServerConfig,
+  type SerializableMcpToolFilters,
   McpClient,
 } from './mcp/index.js'
 export type { ElicitationCallback, ElicitationContext } from './types/elicitation.js'

@@ -450,6 +450,10 @@ export class Tracer {
       })
 
       if (this._useLatestConventions) {
+        // The execute_tool span convention records tool inputs in the dedicated
+        // gen_ai.tool.call.arguments span attribute (Opt-In), which spec-compliant
+        // consumers read on tool spans.
+        span.setAttribute('gen_ai.tool.call.arguments', JSON.stringify(tool.input, jsonReplacer))
         this._addEvent(
           span,
           'gen_ai.client.inference.operation.details',
@@ -506,6 +510,13 @@ export class Tracer {
         attributes['gen_ai.tool.status'] = statusStr
 
         if (this._useLatestConventions) {
+          // The execute_tool span convention records tool outputs in the dedicated
+          // gen_ai.tool.call.result span attribute (Opt-In), which spec-compliant
+          // consumers read on tool spans. The spec scopes the attribute to successful
+          // executions; failures are captured in the span status instead.
+          if (statusStr !== 'error') {
+            attributes['gen_ai.tool.call.result'] = JSON.stringify(toolResult.content, jsonReplacer)
+          }
           this._addEvent(
             span,
             'gen_ai.client.inference.operation.details',

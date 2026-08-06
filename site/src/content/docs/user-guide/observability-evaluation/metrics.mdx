@@ -1,5 +1,6 @@
 ---
 title: Metrics
+description: 'Track agent performance metrics in Strands: token usage, latency, tool call counts, and event loop cycles, all available through AgentResult.'
 tags: [observability]
 ---
 
@@ -17,7 +18,7 @@ The Strands Agents SDK automatically tracks key metrics during agent execution:
 - **Tool usage**: Call counts, success rates, and execution times for each tool
 - **Event loop cycles**: Number of reasoning cycles and their durations
 
-All these metrics are accessible through the [`AgentResult`](@api/python/strands.agent.agent_result#AgentResult) object that's returned whenever you invoke an agent:
+All these metrics are accessible through the [`AgentResult`](@api/python/strands.agent.agent_result#AgentResult) object that's returned whenever you invoke an agent. They are available for local analysis. To export them to an observability backend, configure Strands telemetry as described in the [Traces](./traces.md) documentation:
 
 ```python
 from strands import Agent

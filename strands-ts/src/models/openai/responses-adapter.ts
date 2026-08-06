@@ -171,7 +171,7 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
         case 'citationsBlock': {
           const citBlock = block as { content: Array<{ text: string }> }
           for (const c of citBlock.content) {
-            contentItems.push({ type: 'output_text', text: c.text })
+            contentItems.push({ type: role === 'user' ? 'input_text' : 'output_text', text: c.text })
           }
           break
         }
@@ -214,15 +214,33 @@ function formatResponsesMessages(messages: Message[]): ResponseInputItem[] {
       }
     }
 
-    // Cast is needed because assistant messages here use `output_text` content
-    // blocks, which the SDK's input types model as `ResponseOutputMessage` —
-    // a response-shaped type that requires `id`/`status`/`annotations`. The API
-    // accepts these fields as omitted on input, but the SDK types don't reflect that.
     if (contentItems.length > 0) {
-      input.push({
-        role,
-        content: contentItems,
-      } as unknown as ResponseInputItem)
+      if (role === 'assistant') {
+        // Only the string EasyInputMessage form is a valid assistant *input* shape
+        // without the full ResponseOutputMessage metadata (id/status/annotations),
+        // which has already been discarded by this point. Non-text assistant history
+        // has no valid input shape either. Replaying verbatim output items is
+        // tracked in https://github.com/strands-agents/harness-sdk/issues/3389.
+        const droppedTypes = contentItems.filter((item) => item.type !== 'output_text').map((item) => item.type)
+        if (droppedTypes.length > 0) {
+          logger.warn(
+            `content_type=<${droppedTypes.join(', ')}> | non-text assistant history content has no valid responses api input shape | dropping`
+          )
+        }
+        const text = contentItems
+          .filter((item) => item.type === 'output_text')
+          .map((item) => item.text as string)
+          .join('\n')
+        if (text) input.push({ role: 'assistant', content: text })
+      } else {
+        // Cast is needed only because `contentItems` is built as a loosely-typed
+        // record array; the user-role items themselves (`input_text`/`input_image`/
+        // `input_file`) are valid `EasyInputMessage` content.
+        input.push({
+          role,
+          content: contentItems,
+        } as unknown as ResponseInputItem)
+      }
     }
 
     input.push(...toolCallItems)
@@ -378,6 +396,17 @@ function mapResponsesUsage(usage: ResponseUsage): NonNullable<ResponsesStreamSta
   return mapped
 }
 
+function createResponsesStreamError(
+  message: string | undefined,
+  code: string | null | undefined
+): Error & { code?: string } {
+  const error = new Error(message || 'OpenAI Responses API response failed') as Error & { code?: string }
+  if (code) {
+    error.code = code
+  }
+  return error
+}
+
 /**
  * Maps a single Responses API stream event to zero or more SDK events. Mutates
  * `state` and, when `stateful` is `true`, writes `responseId` into `modelState`.
@@ -499,6 +528,15 @@ export function mapResponsesEventToSDK(
         state.stopReason = 'maxTokens'
       }
       break
+    }
+
+    case 'response.failed': {
+      const error = event.response.error
+      throw createResponsesStreamError(error?.message, error?.code)
+    }
+
+    case 'error': {
+      throw createResponsesStreamError(event.message, event.code)
     }
 
     case 'response.completed': {
