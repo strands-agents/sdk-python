@@ -4,11 +4,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import strands
 from strands.agent._agent_as_tool import _AgentAsTool
+from strands.agent.agent import Agent
 from strands.agent.agent_result import AgentResult
+from strands.hooks import BeforeToolCallEvent, HookProvider, HookRegistry
 from strands.interrupt import Interrupt, _InterruptState
+from strands.session.file_session_manager import FileSessionManager
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 async def _mock_stream_async(result, intermediate_events=None):
@@ -30,9 +35,26 @@ def mock_agent():
 @pytest.fixture
 def fake_agent():
     """A real Agent instance for tests that need Agent-specific features."""
-    from strands.agent.agent import Agent
-
     return Agent(name="fake_agent", callback_handler=None)
+
+
+def interrupt_result_for(interrupt_id):
+    """An interrupt result carrying a single sub-agent-local interrupt."""
+    return AgentResult(
+        stop_reason="interrupt",
+        message={"role": "assistant", "content": [{"text": "needs approval"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        interrupts=[Interrupt(id=interrupt_id, name="approval", reason="need approval")],
+    )
+
+
+@pytest.fixture
+def orchestrator():
+    """Stand-in orchestrator: agent-as-tool only reads its interrupt state via invocation_state."""
+    parent = MagicMock()
+    parent._interrupt_state = _InterruptState()
+    return parent
 
 
 @pytest.fixture
@@ -488,15 +510,18 @@ def interrupt_result():
 
 @pytest.mark.asyncio
 async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, tool_use, interrupt_result):
-    """When the sub-agent returns an interrupt result, _AgentAsTool should yield ToolInterruptEvent."""
+    """A sub-agent interrupt propagates upward with its id namespaced by this tool call."""
     mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result)
 
     events = [event async for event in tool.stream(tool_use, {})]
 
     assert len(events) == 1
     assert isinstance(events[0], ToolInterruptEvent)
-    assert events[0].interrupts == interrupt_result.interrupts
     assert events[0].tool_use_id == "tool-123"
+
+    tru_interrupts = events[0].interrupts
+    exp_interrupts = [Interrupt(id="tool-123:interrupt-1", name="approval", reason="need approval")]
+    assert tru_interrupts == exp_interrupts
 
 
 @pytest.mark.asyncio
@@ -525,13 +550,18 @@ async def test_stream_interrupt_forwards_intermediate_events(tool, mock_agent, t
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_resume_forwards_responses(fake_agent):
-    """On resume, _AgentAsTool should forward interrupt responses to the sub-agent."""
-    interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval", response="APPROVE")
-
-    # Put the sub-agent in an activated interrupt state with the response already set
-    fake_agent._interrupt_state.interrupts["interrupt-1"] = interrupt
+async def test_stream_interrupt_resume_forwards_responses(fake_agent, orchestrator):
+    """Resume maps the orchestrator's interrupt responses back to sub-agent-local ids."""
+    fake_agent._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
     fake_agent._interrupt_state.activate()
+
+    orchestrator._interrupt_state.interrupts["tool-123:interrupt-1"] = Interrupt(
+        id="tool-123:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": "tool-123:interrupt-1", "response": "APPROVE"}}
+    ]
+    orchestrator._interrupt_state.activate()
 
     normal_result = AgentResult(
         stop_reason="end_turn",
@@ -544,37 +574,36 @@ async def test_stream_interrupt_resume_forwards_responses(fake_agent):
     tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
     tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "do something"}}
 
-    events = [event async for event in tool.stream(tool_use, {})]
+    events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
 
-    # Should have called stream_async with interrupt responses, not the original prompt
-    call_args = fake_agent.stream_async.call_args
-    agent_input = call_args[0][0]
-    assert isinstance(agent_input, list)
-    assert len(agent_input) == 1
-    assert agent_input[0]["interruptResponse"]["interruptId"] == "interrupt-1"
-    assert agent_input[0]["interruptResponse"]["response"] == "APPROVE"
+    tru_prompt = fake_agent.stream_async.call_args[0][0]
+    exp_prompt = [{"interruptResponse": {"interruptId": "interrupt-1", "response": "APPROVE"}}]
+    assert tru_prompt == exp_prompt
 
-    # Should produce a normal result
-    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+    result_events = [event for event in events if isinstance(event, ToolResultEvent)]
     assert len(result_events) == 1
     assert result_events[0]["tool_result"]["status"] == "success"
 
 
 @pytest.mark.asyncio
-async def test_stream_interrupt_resume_skips_state_reset(fake_agent):
-    """When resuming from interrupt with preserve_context=False, state reset should be skipped."""
-    fake_agent.messages = [{"role": "user", "content": [{"text": "initial"}]}]
-    fake_agent.state.set("key", "value")
-
-    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
-
-    # Simulate the sub-agent being in interrupt state after a previous invocation
-    interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval", response="APPROVE")
-    fake_agent._interrupt_state.interrupts["interrupt-1"] = interrupt
+async def test_stream_interrupt_resume_skips_state_reset(fake_agent, orchestrator):
+    """Resuming an interrupt keeps the sub-agent's interrupted turn instead of resetting it."""
+    fake_agent.messages = [
+        {"role": "user", "content": [{"text": "initial"}]},
+        {"role": "assistant", "content": [{"text": "working on it"}]},
+    ]
+    fake_agent._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
     fake_agent._interrupt_state.activate()
 
-    # Mutate messages to simulate sub-agent progress before interrupt
-    fake_agent.messages.append({"role": "assistant", "content": [{"text": "working on it"}]})
+    orchestrator._interrupt_state.interrupts["tool-123:interrupt-1"] = Interrupt(
+        id="tool-123:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": "tool-123:interrupt-1", "response": "APPROVE"}}
+    ]
+    orchestrator._interrupt_state.activate()
+
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
     normal_result = AgentResult(
         stop_reason="end_turn",
@@ -585,10 +614,9 @@ async def test_stream_interrupt_resume_skips_state_reset(fake_agent):
     fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(normal_result))
 
     tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "do something"}}
-    async for _ in tool.stream(tool_use, {}):
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
         pass
 
-    # Messages should NOT have been reset — the sub-agent needs its conversation history intact
     assert len(fake_agent.messages) == 2
 
 
@@ -609,19 +637,18 @@ async def test_is_sub_agent_interrupted_true_when_activated(fake_agent):
 
 
 @pytest.mark.asyncio
-async def test_build_interrupt_responses(fake_agent):
-    """_build_interrupt_responses packages sub-agent interrupts into response content blocks."""
+async def test_interrupt_responses_maps_only_this_calls_answers(fake_agent, orchestrator):
+    """Only answers addressed to this tool call are mapped, and the local id keeps its own colons."""
     tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
 
-    interrupt_a = Interrupt(id="id-a", name="a", reason="r", response="yes")
-    interrupt_b = Interrupt(id="id-b", name="b", reason="r", response=None)
-    fake_agent._interrupt_state.interrupts = {"id-a": interrupt_a, "id-b": interrupt_b}
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": "tool-123:v1:before_tool_call:sub-1:abc", "response": "APPROVE"}},
+        {"interruptResponse": {"interruptId": "tool-456:v1:before_tool_call:sub-2:def", "response": "DENY"}},
+    ]
 
-    responses = tool._build_interrupt_responses()
-
-    # Only interrupt_a has a response
-    assert len(responses) == 1
-    assert responses[0] == {"interruptResponse": {"interruptId": "id-a", "response": "yes"}}
+    tru_responses = tool._interrupt_responses({"agent": orchestrator}, "tool-123")
+    exp_responses = [{"interruptResponse": {"interruptId": "v1:before_tool_call:sub-1:abc", "response": "APPROVE"}}]
+    assert tru_responses == exp_responses
 
 
 # --- concurrency ---
@@ -720,3 +747,241 @@ def test_agent_mixed_with_regular_tools_in_tools_list():
 
     assert "my_tool" in parent.tool_names
     assert "helper_agent" in parent.tool_names
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_stores_continuation_for_ephemeral_sub_agent(fake_agent, orchestrator, interrupt_result):
+    """An ephemeral sub-agent's interrupted turn is stored in the orchestrator's interrupt context."""
+    fake_agent.messages = [{"role": "user", "content": [{"text": "go"}]}]
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result))
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
+    assert list(continuations) == ["tool-123"]
+
+    tru_messages = continuations["tool-123"]["data"]["messages"]
+    exp_messages = [{"role": "user", "content": [{"text": "go"}]}]
+    assert tru_messages == exp_messages
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_stores_no_continuation_when_context_is_preserved(
+    fake_agent, orchestrator, interrupt_result
+):
+    """A context-preserving sub-agent owns its state, so the orchestrator stores nothing for it."""
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result))
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    tru_context = orchestrator._interrupt_state.context
+    exp_context = {}
+    assert tru_context == exp_context
+
+
+@pytest.mark.asyncio
+async def test_stream_resume_restores_ephemeral_sub_agent_from_continuation(orchestrator):
+    """An ephemeral sub-agent rebuilt from scratch resumes from the stored continuation."""
+    interrupted = Agent(name="fake_agent", callback_handler=None)
+    interrupted.messages = [{"role": "user", "content": [{"text": "go"}]}]
+    interrupted._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
+    interrupted._interrupt_state.activate()
+
+    orchestrator._interrupt_state.interrupts["tool-123:interrupt-1"] = Interrupt(
+        id="tool-123:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.context.update(
+        {
+            "responses": [{"interruptResponse": {"interruptId": "tool-123:interrupt-1", "response": "APPROVE"}}],
+            "sub_agent_continuations": {"tool-123": interrupted.take_snapshot(preset="session").to_dict()},
+        }
+    )
+    orchestrator._interrupt_state.activate()
+
+    rebuilt = Agent(name="fake_agent", callback_handler=None)
+    normal_result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "done"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+    rebuilt.stream_async = MagicMock(return_value=_mock_stream_async(normal_result))
+
+    tool = _AgentAsTool(rebuilt, name="fake_agent", description="desc", preserve_context=False)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    tru_messages = rebuilt.messages
+    exp_messages = [{"role": "user", "content": [{"text": "go"}]}]
+    assert tru_messages == exp_messages
+    assert list(rebuilt._interrupt_state.interrupts) == ["interrupt-1"]
+
+    tru_prompt = rebuilt.stream_async.call_args[0][0]
+    exp_prompt = [{"interruptResponse": {"interruptId": "interrupt-1", "response": "APPROVE"}}]
+    assert tru_prompt == exp_prompt
+
+    # The continuation is consumed; a sub-agent that interrupts again stores a fresh one.
+    tru_continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
+    exp_continuations = {}
+    assert tru_continuations == exp_continuations
+
+
+@pytest.mark.asyncio
+async def test_stream_resume_leaves_unanswered_sub_agent_pending(fake_agent, orchestrator):
+    """A sub-agent whose interrupt was not answered is re-invoked with no responses so it re-raises."""
+    fake_agent._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
+    fake_agent._interrupt_state.activate()
+
+    orchestrator._interrupt_state.interrupts["tool-123:interrupt-1"] = Interrupt(
+        id="tool-123:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": "tool-999:interrupt-1", "response": "APPROVE"}}
+    ]
+    orchestrator._interrupt_state.activate()
+
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result_for("interrupt-1")))
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    tru_prompt = fake_agent.stream_async.call_args[0][0]
+    exp_prompt = []
+    assert tru_prompt == exp_prompt
+
+
+@pytest.mark.asyncio
+async def test_stream_ignores_interrupt_belonging_to_another_call(fake_agent, orchestrator, agent_result):
+    """An interrupt the orchestrator holds for a different tool call is not adopted by this one."""
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+
+    # The sub-agent still carries another caller's parked turn, e.g. after restoring a shared session.
+    fake_agent.messages = [{"role": "user", "content": [{"text": "another caller's turn"}]}]
+    fake_agent._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
+    fake_agent._interrupt_state.activate()
+
+    orchestrator._interrupt_state.interrupts["tool-999:interrupt-1"] = Interrupt(
+        id="tool-999:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.activate()
+
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(agent_result))
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    tru_prompt = fake_agent.stream_async.call_args[0][0]
+    exp_prompt = "go"
+    assert tru_prompt == exp_prompt
+
+    tru_messages = fake_agent.messages
+    exp_messages = []
+    assert tru_messages == exp_messages
+
+
+@pytest.mark.asyncio
+async def test_stream_resume_without_restorable_turn_reports_an_error(fake_agent, orchestrator, caplog):
+    """A context-preserving sub-agent that lost its interrupted turn fails loudly instead of silently."""
+    orchestrator._interrupt_state.interrupts["tool-123:interrupt-1"] = Interrupt(
+        id="tool-123:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": "tool-123:interrupt-1", "response": "APPROVE"}}
+    ]
+    orchestrator._interrupt_state.activate()
+
+    fake_agent.stream_async = MagicMock()
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    with caplog.at_level("ERROR"):
+        events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
+
+    fake_agent.stream_async.assert_not_called()
+    assert len(events) == 1
+    assert events[0]["tool_result"]["status"] == "error"
+    assert "session manager" in events[0]["tool_result"]["content"][0]["text"]
+    assert "cannot resume" in caplog.text
+
+
+def test_nested_interrupt_resumes_after_rehydration(tmp_path):
+    """Regression test for https://github.com/strands-agents/harness-sdk/issues/3076.
+
+    A stateless handler rebuilds the orchestrator and its sub-agent on every request, so resuming a
+    nested interrupt has to work from persisted data rather than a shared in-memory ``Interrupt``.
+    """
+    executions = []
+
+    @strands.tool
+    def dangerous_action(target: str) -> str:
+        """Perform an action that requires confirmation."""
+        executions.append(target)
+        return f"done: {target}"
+
+    class ConfirmHook(HookProvider):
+        def register_hooks(self, registry: HookRegistry, **kwargs) -> None:
+            registry.add_callback(BeforeToolCallEvent, self._confirm)
+
+        def _confirm(self, event: BeforeToolCallEvent) -> None:
+            if event.tool_use["name"] != "dangerous_action":
+                return
+            if event.interrupt("confirm_dangerous", reason="confirm?") != "APPROVE":
+                event.cancel_tool = "not approved"
+
+    def tool_use_message(tool_use_id, name, tool_input):
+        return {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": tool_use_id, "name": name, "input": tool_input}}],
+        }
+
+    def text_message(text):
+        return {"role": "assistant", "content": [{"text": text}]}
+
+    def build_orchestrator(sub_agent_responses, orchestrator_responses):
+        sub_agent = Agent(
+            name="worker",
+            agent_id="worker",
+            model=MockedModelProvider(sub_agent_responses),
+            tools=[dangerous_action],
+            hooks=[ConfirmHook()],
+            callback_handler=None,
+        )
+        return Agent(
+            name="orchestrator",
+            agent_id="orchestrator",
+            model=MockedModelProvider(orchestrator_responses),
+            tools=[sub_agent.as_tool()],
+            callback_handler=None,
+            session_manager=FileSessionManager("session-3076", storage_dir=str(tmp_path)),
+        )
+
+    orchestrator = build_orchestrator(
+        [tool_use_message("sub-1", "dangerous_action", {"target": "prod-db"}), text_message("done")],
+        [tool_use_message("orch-1", "worker", {"input": "go"}), text_message("all done")],
+    )
+    interrupted_result = orchestrator("do the thing that needs confirmation")
+
+    assert interrupted_result.stop_reason == "interrupt"
+    assert executions == []
+    interrupt_id = interrupted_result.interrupts[0].id
+
+    # Process boundary: every agent is rebuilt and only the session survives.
+    resumed_orchestrator = build_orchestrator([text_message("done")], [text_message("all done")])
+    tru_result = resumed_orchestrator([{"interruptResponse": {"interruptId": interrupt_id, "response": "APPROVE"}}])
+
+    assert tru_result.stop_reason == "end_turn"
+
+    tru_executions = executions
+    exp_executions = ["prod-db"]
+    assert tru_executions == exp_executions

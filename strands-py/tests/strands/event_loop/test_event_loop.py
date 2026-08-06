@@ -2371,3 +2371,28 @@ async def test_event_loop_cycle_cancel_after_tools_stops_without_checkpointing(
 
     assert events[-1]["stop"][0] == "cancelled"
     assert model.stream.call_count == 1
+
+
+def test_park_interrupt_context_keeps_keys_the_event_loop_does_not_own():
+    """Parking a turn refreshes the loop's own interrupt-context keys and preserves everyone else's."""
+    agent = MagicMock()
+    agent._interrupt_state = _InterruptState(
+        context={
+            "tool_use_message": {"role": "assistant", "content": [{"text": "an earlier park"}]},
+            "tool_results": [{"toolUseId": "tool-0", "status": "success", "content": []}],
+            "responses": [{"interruptResponse": {"interruptId": "answered", "response": "APPROVE"}}],
+            "sub_agent_continuations": {"tool-1": {"scope": "agent"}},
+        }
+    )
+    message = {"role": "assistant", "content": [{"toolUse": {"toolUseId": "tool-1", "name": "t", "input": {}}}]}
+    tool_results = [{"toolUseId": "tool-2", "status": "success", "content": [{"text": "ok"}]}]
+
+    strands.event_loop.event_loop._park_interrupt_context(agent, message, tool_results)
+
+    tru_context = agent._interrupt_state.context
+    exp_context = {
+        "tool_use_message": message,
+        "tool_results": tool_results,
+        "sub_agent_continuations": {"tool-1": {"scope": "agent"}},
+    }
+    assert tru_context == exp_context

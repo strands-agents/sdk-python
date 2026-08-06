@@ -14,7 +14,9 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from ..agent.state import AgentState
+from ..interrupt import Interrupt
 from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
+from ..types._snapshot import Snapshot
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
 from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
@@ -23,6 +25,9 @@ if TYPE_CHECKING:
     from .agent import Agent
 
 logger = logging.getLogger(__name__)
+
+_CONTINUATIONS_KEY = "sub_agent_continuations"
+"""Key under which an orchestrator's interrupt context holds interrupted sub-agent turns, keyed by tool use id."""
 
 
 class _AgentAsTool(AgentTool):
@@ -183,8 +188,33 @@ class _AgentAsTool(AgentTool):
 
         try:
             # Determine if we are resuming the sub-agent from an interrupt.
-            if self._is_sub_agent_interrupted():
-                prompt = self._build_interrupt_responses()
+            if self._parent_awaiting_resume(invocation_state, tool_use_id):
+                restored = self._restore_continuation(invocation_state, tool_use_id)
+                if not restored and not self._is_sub_agent_interrupted():
+                    logger.error(
+                        "tool_name=<%s>, tool_use_id=<%s> | cannot resume: the sub-agent's interrupted turn "
+                        "is not available, so the interrupt response cannot be applied",
+                        self._tool_name,
+                        tool_use_id,
+                    )
+                    yield ToolResultEvent(
+                        {
+                            "toolUseId": tool_use_id,
+                            "status": "error",
+                            "content": [
+                                {
+                                    "text": (
+                                        f"Agent '{self._tool_name}' could not resume its interrupted turn. A "
+                                        "sub-agent used with preserve_context=True keeps its own state, so it "
+                                        "needs a session manager for that state to survive rehydration."
+                                    )
+                                }
+                            ],
+                        }
+                    )
+                    return
+
+                prompt = self._interrupt_responses(invocation_state, tool_use_id)
                 logger.debug(
                     "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from interrupt",
                     self._tool_name,
@@ -214,7 +244,9 @@ class _AgentAsTool(AgentTool):
 
             # Propagate sub-agent interrupts to the parent agent.
             if result.stop_reason == "interrupt" and result.interrupts:
-                yield ToolInterruptEvent(tool_use, list(result.interrupts))
+                interrupts = list(result.interrupts)
+                self._stash_continuation(invocation_state, tool_use_id)
+                yield ToolInterruptEvent(tool_use, self._namespace_interrupts(tool_use_id, interrupts))
                 return
 
             if result.structured_output:
@@ -272,21 +304,149 @@ class _AgentAsTool(AgentTool):
         """Check whether the wrapped agent is in an activated interrupt state."""
         return self._agent._interrupt_state.activated
 
-    def _build_interrupt_responses(self) -> list[InterruptResponseContent]:
-        """Build interrupt response payloads from the sub-agent's interrupt state.
+    @staticmethod
+    def _namespace_interrupts(tool_use_id: str, interrupts: list[Interrupt]) -> list[Interrupt]:
+        """Copy sub-agent interrupts with their ids namespaced by this tool call.
 
-        The parent agent's ``_interrupt_state.resume()`` sets ``.response`` on the shared
-        ``Interrupt`` objects (registered by the executor), so we re-package them in the
-        format expected by ``Agent.stream_async``.
+        A sub-agent derives an interrupt id from its own toolUseId, so two sub-agents invoked in the
+        same turn can raise the same id. Prefixing with the outer ``tool_use_id`` keeps them distinct
+        at the orchestrator level and keeps the sub-agent-local id recoverable by stripping the prefix.
+
+        Args:
+            tool_use_id: Tool use ID of this agent-as-tool call.
+            interrupts: Interrupts raised inside the sub-agent.
 
         Returns:
-            List of interrupt response content blocks for resuming the sub-agent.
+            Orchestrator-visible copies carrying namespaced ids.
         """
         return [
-            {"interruptResponse": {"interruptId": interrupt.id, "response": interrupt.response}}
-            for interrupt in self._agent._interrupt_state.interrupts.values()
-            if interrupt.response is not None
+            Interrupt(id=f"{tool_use_id}:{interrupt.id}", name=interrupt.name, reason=interrupt.reason)
+            for interrupt in interrupts
         ]
+
+    @staticmethod
+    def _parent_agent(invocation_state: dict[str, Any]) -> Agent | None:
+        """Get the orchestrator running this tool call, if the invocation state carries one."""
+        parent: Agent | None = invocation_state.get("agent")
+        return parent
+
+    def _parent_awaiting_resume(self, invocation_state: dict[str, Any], tool_use_id: str) -> bool:
+        """Check whether the orchestrator is waiting on an interrupt raised by this tool call.
+
+        Keyed on the orchestrator rather than on the sub-agent so a sub-agent that shares a session
+        with another caller cannot adopt a pending turn that belongs to someone else.
+
+        Args:
+            invocation_state: Context for the tool invocation.
+            tool_use_id: Tool use ID of this agent-as-tool call.
+
+        Returns:
+            True if the orchestrator holds an interrupt raised by this call.
+        """
+        parent = self._parent_agent(invocation_state)
+        if parent is None or not parent._interrupt_state.activated:
+            return False
+
+        prefix = f"{tool_use_id}:"
+        return any(interrupt_id.startswith(prefix) for interrupt_id in parent._interrupt_state.interrupts)
+
+    def _interrupt_responses(
+        self, invocation_state: dict[str, Any], tool_use_id: str
+    ) -> list[InterruptResponseContent]:
+        """Map the orchestrator's interrupt responses back to sub-agent-local ids.
+
+        The orchestrator persists the human's answers as data, so this survives a rehydration
+        boundary where orchestrator and sub-agent no longer share an in-memory ``Interrupt``. An
+        empty list means none of the answers belong to this call, and the sub-agent re-raises its
+        interrupt and stays pending.
+
+        Args:
+            invocation_state: Context for the tool invocation.
+            tool_use_id: Tool use ID of this agent-as-tool call.
+
+        Returns:
+            Interrupt response content blocks addressed to the sub-agent.
+        """
+        parent = self._parent_agent(invocation_state)
+        if parent is None:
+            return []
+
+        prefix = f"{tool_use_id}:"
+        responses: list[InterruptResponseContent] = []
+        for response in parent._interrupt_state.context.get("responses") or []:
+            interrupt_id = response["interruptResponse"]["interruptId"]
+            if interrupt_id.startswith(prefix):
+                responses.append(
+                    {
+                        "interruptResponse": {
+                            "interruptId": interrupt_id[len(prefix) :],
+                            "response": response["interruptResponse"]["response"],
+                        }
+                    }
+                )
+
+        return responses
+
+    def _stash_continuation(self, invocation_state: dict[str, Any], tool_use_id: str) -> None:
+        """Store the sub-agent's interrupted turn in the orchestrator's interrupt context.
+
+        Only for ``preserve_context=False`` sub-agents: they are ephemeral by contract and may not
+        have a session manager, so the orchestrator holds the turn for them and Strands persists it
+        with the orchestrator's own interrupt record. A sub-agent that preserves context owns its
+        state and keeps it in its own session.
+
+        Args:
+            invocation_state: Context for the tool invocation.
+            tool_use_id: Tool use ID of this agent-as-tool call.
+        """
+        if self._preserve_context:
+            return
+
+        parent = self._parent_agent(invocation_state)
+        if parent is None:
+            return
+
+        continuations: dict[str, Any] = parent._interrupt_state.context.setdefault(_CONTINUATIONS_KEY, {})
+        continuations[tool_use_id] = self._agent.take_snapshot(preset="session").to_dict()
+        logger.debug(
+            "tool_name=<%s>, tool_use_id=<%s> | stored interrupted sub-agent turn for resume",
+            self._tool_name,
+            tool_use_id,
+        )
+
+    def _restore_continuation(self, invocation_state: dict[str, Any], tool_use_id: str) -> bool:
+        """Rebuild the sub-agent's interrupted turn from the orchestrator's interrupt context.
+
+        The turn is consumed: a sub-agent that interrupts again stores a fresh one.
+
+        Args:
+            invocation_state: Context for the tool invocation.
+            tool_use_id: Tool use ID of this agent-as-tool call.
+
+        Returns:
+            True if the interrupted turn was restored onto the sub-agent.
+        """
+        parent = self._parent_agent(invocation_state)
+        if parent is None:
+            return False
+
+        continuations = parent._interrupt_state.context.get(_CONTINUATIONS_KEY) or {}
+        continuation = continuations.pop(tool_use_id, None)
+        if continuation is None:
+            return False
+
+        try:
+            self._agent.load_snapshot(Snapshot.from_dict(continuation))
+        except Exception as error:
+            logger.error(
+                "tool_name=<%s>, tool_use_id=<%s> | failed to restore interrupted sub-agent turn: %s",
+                self._tool_name,
+                tool_use_id,
+                error,
+            )
+            return False
+
+        return True
 
     @override
     def get_display_properties(self) -> dict[str, str]:
