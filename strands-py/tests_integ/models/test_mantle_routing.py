@@ -7,10 +7,20 @@ individual model and is *not* discoverable from the API: ``GET /v1/models`` repo
 :data:`strands.models._openai_bedrock._OPENAI_PATH_MODEL_IDS` is a hand-maintained
 table, and it silently goes stale whenever Mantle onboards a model.
 
-This test closes that gap. It lists the live catalog and, for every model, probes the
-path the SDK would *not* use. A model that answers on the unused path is mis-routed, so
-the test fails naming the offending ids. That turns "Mantle onboarded a model and the SDK
-sends it to the wrong route" from a 400 in a user's application into a CI failure.
+This test closes that gap. For every listed model it asserts the positive (the resolved
+path really does serve the model) and only then checks the other path, so all three ways
+the table can be wrong are distinguishable:
+
+* the resolved path is silent and the other one answers: mis-routed,
+* neither path answers: the id is unroutable through ``OpenAIModel`` at all,
+* the resolved path answers: correct, and a dual-served model needs no table edit.
+
+Only HTTP 200 ("served") and 400 ("this route does not serve the model") are treated as
+answers. A 429, a 5xx, or a timeout means *undetermined*, is retried, and fails the test
+if it persists rather than being counted as "not served". A detector that reports "no
+drift" when it means "could not tell" is worse than none, because the "Verified against
+the us-east-1 catalog" note in the table would look CI-backed when it is not. The #3654
+reporter hit exactly such a transient ``internal_server_error``.
 
 Failure means the table needs updating, not that the SDK is broken for existing models.
 See https://github.com/strands-agents/harness-sdk/issues/3654.
@@ -18,6 +28,7 @@ See https://github.com/strands-agents/harness-sdk/issues/3654.
 
 import concurrent.futures
 import json
+import time
 import urllib.error
 import urllib.request
 
@@ -29,6 +40,11 @@ _REGION = "us-east-1"
 _BASE = f"https://bedrock-mantle.{_REGION}.api.aws"
 _TIMEOUT = 30
 _MAX_WORKERS = 8
+
+# Statuses that answer "does this route serve this model": 200 yes, 400 no. Everything
+# else (429, 5xx, timeout) is transient noise and must not be read as "no".
+_DEFINITIVE = (200, 400)
+_ATTEMPTS = 3
 
 # Models that answer on neither OpenAI-compatible base path. The Anthropic family is served
 # from /anthropic/v1/messages (a different protocol, reached via AnthropicModel, not
@@ -57,7 +73,7 @@ def _list_models(token: str) -> list[str]:
 
 
 def _status(path: str, body: dict, token: str) -> int:
-    """POST to a Mantle route and return the HTTP status (0 on timeout)."""
+    """POST to a Mantle route and return the HTTP status (0 on timeout or transport error)."""
     request = urllib.request.Request(
         f"{_BASE}{path}",
         data=json.dumps(body).encode(),
@@ -69,51 +85,112 @@ def _status(path: str, body: dict, token: str) -> int:
             return response.status
     except urllib.error.HTTPError as e:
         return e.code
-    except Exception:  # noqa: BLE001 - a hung route is "not served", same as a 400
+    except Exception:  # noqa: BLE001 - transport failure is undetermined, not "not served"
         return 0
 
 
-def _serves(base_path: str, model_id: str, token: str) -> bool:
-    """Whether Mantle serves ``model_id`` from ``base_path`` on either API surface."""
-    chat = _status(
-        f"{base_path}/chat/completions",
-        {"model": model_id, "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 8},
-        token,
-    )
-    if chat == 200:
-        return True
-    responses = _status(
-        f"{base_path}/responses",
-        {"model": model_id, "input": "hi", "max_output_tokens": 24},
-        token,
-    )
-    return responses == 200
+def _status_settled(path: str, body: dict, token: str) -> int:
+    """``_status`` retried with backoff until it answers 200/400, or the last status seen."""
+    status = 0
+    for attempt in range(_ATTEMPTS):
+        status = _status(path, body, token)
+        if status in _DEFINITIVE:
+            return status
+        time.sleep(2**attempt)
+    return status
 
 
+def _serves(base_path: str, model_id: str, token: str) -> bool | None:
+    """Whether Mantle serves ``model_id`` from ``base_path``.
+
+    Returns ``True`` if either API surface answers 200, ``False`` only if both
+    definitively reject with 400, and ``None`` when a surface never settled (the route
+    could not be determined and the caller must not treat that as "not served").
+    """
+    surfaces = (
+        (
+            "chat/completions",
+            {"model": model_id, "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 8},
+        ),
+        ("responses", {"model": model_id, "input": "hi", "max_output_tokens": 24}),
+    )
+
+    determined = True
+    for surface, body in surfaces:
+        status = _status_settled(f"{base_path}/{surface}", body, token)
+        if status == 200:
+            return True
+        if status != 400:
+            determined = False
+    return False if determined else None
+
+
+@pytest.mark.timeout(600)
 def test_mantle_base_path_table_matches_live_catalog():
-    """Every live Mantle model is routed to the base path it is actually served from."""
-    token = _token()
-    models = [model_id for model_id in _list_models(token) if not model_id.startswith(_NOT_OPENAI_COMPATIBLE_PREFIXES)]
+    """Every live Mantle model is routed to the base path it is actually served from.
+
+    Well over the global 90s cap: a clean sweep finishes in well under a minute because
+    the resolved path answers first, but a drifted or flaky model pays the retry backoff on
+    both paths, and that is precisely the run that has to report rather than time out.
+    """
+    models = [
+        model_id for model_id in _list_models(_token()) if not model_id.startswith(_NOT_OPENAI_COMPATIBLE_PREFIXES)
+    ]
     assert models, "Mantle returned no OpenAI-compatible models"
 
-    def check(model_id: str) -> tuple[str, str, bool]:
+    def check(model_id: str) -> tuple[str, str, str]:
+        """Classify ``model_id`` as ok / misrouted / unserved / undetermined.
+
+        Probes the resolved path first, so a correctly routed model costs the same as
+        before and a model served from *both* paths classifies as ok rather than sending a
+        maintainer to edit a table that cannot satisfy it. Minting per model keeps long
+        sweeps inside the token's lifetime.
+        """
         resolved = _resolve_mantle_base_path(model_id)
-        unused = "/openai/v1" if resolved == "/v1" else "/v1"
-        # Probe only the path the SDK would *not* use: if that one answers, we are wrong.
-        # Minting per model keeps long sweeps inside the token's lifetime.
-        return model_id, resolved, _serves(unused, model_id, _token())
+        other = "/openai/v1" if resolved == "/v1" else "/v1"
+
+        on_resolved = _serves(resolved, model_id, _token())
+        if on_resolved:
+            return model_id, "ok", resolved
+
+        on_other = _serves(other, model_id, _token())
+        if on_other:
+            return model_id, "misrouted", resolved
+        if on_resolved is None or on_other is None:
+            return model_id, "undetermined", resolved
+        return model_id, "unserved", resolved
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
         results = list(pool.map(check, models))
 
-    misrouted = {model_id: resolved for model_id, resolved, wrong in results if wrong}
+    def ids(verdict: str) -> dict[str, str]:
+        return {model_id: resolved for model_id, outcome, resolved in results if outcome == verdict}
+
+    # Asserted before the two below so a transient blip cannot be mistaken for a clean
+    # sweep: an undetermined model is a gap in coverage, not a pass.
+    undetermined = ids("undetermined")
+    assert not undetermined, (
+        "Mantle never returned a definitive 200/400 for these models, so their routing "
+        f"could not be verified (transient 429/5xx/timeout): {undetermined}"
+    )
+
+    misrouted = ids("misrouted")
     assert not misrouted, (
         "Mantle serves these models from the base path the SDK does not use. Update "
         "_OPENAI_PATH_MODEL_IDS in strands/models/_openai_bedrock.py (and the TypeScript "
         f"mirror in strands-ts/src/models/openai/mantle.ts): {misrouted}"
     )
 
+    unserved = ids("unserved")
+    assert not unserved, (
+        "Mantle lists these models but serves them from neither OpenAI-compatible base "
+        "path, so OpenAIModel cannot reach them at all. They likely speak another "
+        "protocol (as anthropic.* does via /anthropic/v1/messages) and need adding to "
+        f"_NOT_OPENAI_COMPATIBLE_PREFIXES, or the account lacks access: {unserved}"
+    )
 
+
+@pytest.mark.timeout(180)
 @pytest.mark.parametrize(
     "model_id",
     ["xai.grok-4.3", "google.gemma-4-31b", "google.gemma-3-27b-it", "openai.gpt-oss-120b"],
@@ -124,4 +201,4 @@ def test_mantle_resolved_base_path_is_served(model_id):
     if model_id not in _list_models(token):
         pytest.skip(f"{model_id} is not in the {_REGION} catalog")
 
-    assert _serves(_resolve_mantle_base_path(model_id), model_id, token)
+    assert _serves(_resolve_mantle_base_path(model_id), model_id, token) is True

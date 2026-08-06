@@ -215,12 +215,19 @@ describe('OpenAIModel bedrockMantleConfig', () => {
       expect(baseURLFor({ api: 'chat', modelId, bedrockMantleConfig: { region: 'us-west-2' } })).toBe(url)
     })
 
-    // Prefixes are scoped to a model line, not a vendor, so an unverified new line falls
-    // through to /v1 and trips the drift test instead of being silently mis-routed.
+    // The prefix hedge, which no live id exercises: every id Mantle serves today is also an
+    // exact entry in OPENAI_PATH_MODEL_IDS, so without these cases deleting the prefix
+    // check leaves the suite green. Prefixes are scoped to a model line, not a vendor, so
+    // an unverified new line falls through to /v1 and trips the drift test instead of being
+    // silently mis-routed.
     it.each([
+      // Matched only by a prefix, absent from OPENAI_PATH_MODEL_IDS.
       ['xai.grok-4.9', '/openai/v1'],
+      ['openai.gpt-5.9-unreleased', '/openai/v1'],
+      // New lines the prefixes deliberately do not cover.
       ['xai.grok-5', '/v1'],
-    ])('scopes the xai prefix to the verified grok-4 line: %s → %s', (modelId, expected) => {
+      ['xai.grok-5-preview', '/v1'],
+    ])('resolves %s to %s via the prefix hedge', (modelId, expected) => {
       expect(baseURLFor({ modelId, bedrockMantleConfig: { region: 'us-west-2' } })).toBe(
         `https://bedrock-mantle.us-west-2.api.aws${expected}`
       )

@@ -2043,15 +2043,22 @@ class TestOpenAIModelBedrockMantleConfig:
 
     @pytest.mark.parametrize(
         ("model_id", "expected_path"),
-        [("xai.grok-4.9", "/openai/v1"), ("xai.grok-5", "/v1")],
+        [
+            # Matched only by a prefix, absent from _OPENAI_PATH_MODEL_IDS.
+            ("xai.grok-4.9", "/openai/v1"),
+            ("openai.gpt-5.9-unreleased", "/openai/v1"),
+            # New lines the prefixes deliberately do not cover.
+            ("xai.grok-5", "/v1"),
+            ("xai.grok-5-preview", "/v1"),
+        ],
     )
-    def test_bedrock_mantle_config_prefix_is_scoped_to_model_line(
-        self, model_id, expected_path, openai_client, mock_provide_token
-    ):
-        """Prefixes are scoped to a model line, not a vendor.
+    def test_bedrock_mantle_config_prefix_hedge(self, model_id, expected_path, openai_client, mock_provide_token):
+        """The prefix hedge, which no live id exercises.
 
-        An unverified new line falls through to /v1 and trips the drift test instead of
-        being silently mis-routed.
+        Every id Mantle serves today is also an exact entry in _OPENAI_PATH_MODEL_IDS, so
+        without these cases deleting the prefix check leaves the suite green. Prefixes are
+        scoped to a model line, not a vendor, so an unverified new line falls through to
+        /v1 and trips the drift test instead of being silently mis-routed.
         """
         _ = openai_client
         _ = mock_provide_token
