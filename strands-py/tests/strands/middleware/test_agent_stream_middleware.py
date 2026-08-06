@@ -64,11 +64,7 @@ def test_wrap_receives_agent_stream_context(agent):
 
 
 def test_context_invocation_state_shared_by_reference(agent):
-    """invocation_state is shared by reference: the context holds the caller's dict and mutations stick.
-
-    Mirrors the TS copy-on-input suite, which pins that AgentStreamContext shares args/options by
-    reference. Python's analog is invocation_state (see the README "shared by reference" callout).
-    """
+    """invocation_state is shared by reference: mutations in middleware are visible to the caller."""
     caller_state = {"key": "value"}
     is_same_object = False
 
@@ -152,13 +148,7 @@ def test_wrap_can_filter_events(agent):
 
 
 def test_wrap_buffers_content_across_a_multi_turn_pass():
-    """Middleware wraps a whole multi-cycle pass and can suppress intermediate-turn content.
-
-    A single AgentStreamStage pass spans every event-loop cycle of the invocation (tool-use turn
-    then follow-up turn), so middleware can buffer text deltas per turn and emit only the final
-    turn's — the TS "stream final turn only" use case. This exercises the stage across more than
-    one turn, which the single-turn wrap tests do not.
-    """
+    """Middleware wraps a whole multi-cycle pass and can suppress intermediate-turn content."""
     tool_use_msg = {
         "role": "assistant",
         "content": [{"text": "Let me calculate.", "toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}],
@@ -263,12 +253,7 @@ def test_wrap_dropping_stop_event_raises_actionable_error(agent):
 
 
 def test_input_transforms_context_reaches_event_loop(agent):
-    """A replace()-based context transform reaches the event loop, not just the next middleware.
-
-    The terminal must run against the (possibly transformed) context it receives — a handler
-    returning ``replace(context, invocation_state=...)`` must have that replacement drive the
-    event loop cycle, or the transform is silently dropped.
-    """
+    """A replace()-based context transform reaches the event loop."""
     from strands.hooks import BeforeModelCallEvent
 
     marker_seen_by_model = False
@@ -288,13 +273,7 @@ def test_input_transforms_context_reaches_event_loop(agent):
 
 
 def test_messages_in_place_edit_reaches_history_but_replace_is_dropped(agent):
-    """`messages` is shared by reference for in-place edits; ``replace(messages=...)`` is dropped.
-
-    Input messages are appended to ``agent.messages`` before the chain runs, so mutating a message
-    in place reaches the model, but swapping the list on the context does not (the terminal streams
-    against ``agent.messages``, not ``ctx.messages``). This documents the deliberate asymmetry with
-    ``invocation_state`` (which the terminal does read from the context).
-    """
+    """`messages` is shared by reference for in-place edits; `replace(messages=...)` is silently dropped."""
 
     async def edit_in_place(context, next_fn):
         context.messages[0]["content"] = [{"text": "mutated-in-place"}]
@@ -497,12 +476,7 @@ def test_middleware_interrupt_with_preemptive_response_skips_interrupt(agent):
 
 
 def test_resumed_interrupt_deactivates_state_after_completion():
-    """After a resumed AgentStreamStage interrupt completes with end_turn, interrupt state clears.
-
-    An agent-stream interrupt activates the interrupt state without a pending tool execution,
-    so unless the run loop deactivates on non-interrupt completion, the state would leak and
-    break the next fresh invocation. This guards that lifecycle.
-    """
+    """After a resumed interrupt completes with end_turn, interrupt state is deactivated."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"text": "First"}]},
@@ -534,14 +508,7 @@ def test_resumed_interrupt_deactivates_state_after_completion():
 
 
 def test_resumed_interrupt_can_proceed_into_a_tool_call():
-    """A resumed AgentStreamStage interrupt whose pass then calls a tool completes cleanly.
-
-    An agent-stream interrupt activates interrupt state with an empty context (no tool context).
-    On resume the pass falls through to a normal model call that may return a tool_use, so the
-    tool-execution path's context reads are gated on the presence of tool context rather than on
-    `activated` alone — a resumed agent-stream interrupt that proceeds into a tool call runs and
-    finishes without tripping over the empty context.
-    """
+    """A resumed agent-stream interrupt whose pass calls a tool completes without error."""
     tool_use_msg = {
         "role": "assistant",
         "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}],
@@ -577,13 +544,7 @@ def test_resumed_interrupt_can_proceed_into_a_tool_call():
 
 
 def test_resumed_interrupt_reads_response_after_a_tool_cycle_runs():
-    """A gate that re-reads its approval after next_fn drains still sees it when a tool ran.
-
-    The middleware resolves its interrupt before next_fn and re-reads it after the chain drains.
-    The inner pass runs a tool, whose successful cycle deactivates interrupt state in the event
-    loop. The re-read must still return the resumed response (from a snapshot taken before the
-    pass) rather than re-raising — otherwise the resume never converges.
-    """
+    """A gate that re-reads its approval after next_fn drains still resolves when a tool cycle ran."""
     tool_use_msg = {
         "role": "assistant",
         "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}],
@@ -621,13 +582,7 @@ def test_resumed_interrupt_reads_response_after_a_tool_cycle_runs():
 
 
 def test_resumed_agent_stream_interrupt_then_tool_interrupt():
-    """A resumed agent-stream interrupt whose pass then raises a tool interrupt stops cleanly.
-
-    Exercises the interaction between the two interrupt mechanisms: the agent-stream interrupt is
-    resolved on resume (it carries a response, so it will not re-raise) while a fresh tool
-    interrupt is raised in the same pass. The pass must stop with the tool interrupt, and resuming
-    that one must drive the invocation to completion.
-    """
+    """A resumed agent-stream interrupt followed by a tool interrupt stops and resumes cleanly."""
     tool_use_msg = {
         "role": "assistant",
         "content": [{"toolUse": {"toolUseId": "t1", "name": "confirm_tool", "input": {}}}],
@@ -675,13 +630,7 @@ def test_resumed_agent_stream_interrupt_then_tool_interrupt():
 
 
 def test_cancel_during_agent_stream_interrupt_resume_clears_state():
-    """Cancelling a resumed AgentStreamStage interrupt clears the interrupt state.
-
-    An agent-stream interrupt never stores tool context, so a cancelled resume ends the pass
-    with stop_reason "cancelled" and the run loop deactivates the interrupt state — the agent is
-    left clean and reusable. (This is the agent-stream counterpart to a tool interrupt, whose
-    state the event loop deliberately preserves across a cancelled resume.)
-    """
+    """Cancelling a resumed agent-stream interrupt clears the interrupt state."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"text": "First"}]},
@@ -715,13 +664,7 @@ def test_cancel_during_agent_stream_interrupt_resume_clears_state():
 
 
 def test_sequential_agent_stream_interrupts_across_passes():
-    """Two agent-stream interrupts in a row each halt and resume, cycling activate/deactivate.
-
-    The chain is rebuilt per pass, so the interrupt state must fully reset between them: a first
-    interrupt halts and resumes, a second (distinct) interrupt halts and resumes, and the final
-    pass completes with clean state. This guards the activate -> deactivate -> activate ->
-    deactivate lifecycle the run loop drives across passes.
-    """
+    """Two sequential agent-stream interrupts each halt and resume independently."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"text": "a"}]},
@@ -758,13 +701,7 @@ def test_sequential_agent_stream_interrupts_across_passes():
 
 
 def test_interrupt_message_uses_last_message_when_messages_exist(agent):
-    """The interrupt result message is the last message in history.
-
-    Python appends the prompt to history before the AgentStreamStage chain runs, so at interrupt
-    time ``self.messages[-1]`` is the current pass's user prompt (unlike TS, which appends inside
-    ``next()`` and so hits the "Interrupted" fallback for a fresh agent). This pins the Python
-    behavior — the result message is the last existing message.
-    """
+    """The interrupt result message is the last message in history (the user prompt)."""
 
     async def gate(context, next_fn):
         context.interrupt("gate")
@@ -833,19 +770,12 @@ def test_after_invocation_hook_fires_when_middleware_short_circuits(agent):
 
 
 def test_user_message_added_hook_fires_before_the_chain(agent):
-    """The input MessageAddedEvent fires before the AgentStreamStage chain, not inside it.
-
-    Input messages are appended to history before the chain runs, so a wrap middleware sees the
-    user turn already in ``agent.messages`` when it starts. This pins that ordering (a divergence
-    from TS, which appends inside the terminal) so it can't regress silently.
-    """
+    """The input MessageAddedEvent fires before the AgentStreamStage chain starts."""
     from strands.hooks import MessageAddedEvent
 
     order: list[str] = []
 
-    agent.hooks.add_callback(
-        MessageAddedEvent, lambda event: order.append(f"msg_added:{event.message['role']}")
-    )
+    agent.hooks.add_callback(MessageAddedEvent, lambda event: order.append(f"msg_added:{event.message['role']}"))
 
     async def middleware(context, next_fn):
         order.append("middleware-before")
@@ -861,12 +791,7 @@ def test_user_message_added_hook_fires_before_the_chain(agent):
 
 
 def test_user_message_added_hook_fires_even_when_middleware_short_circuits(agent):
-    """The input MessageAddedEvent fires even when a middleware short-circuits the pass.
-
-    Because the input is appended before the chain, a short-circuit (which never runs the
-    terminal) still records the user turn in history and still fires MessageAddedEvent — unlike
-    TS, where the append lives in the terminal and is skipped on short-circuit.
-    """
+    """The input MessageAddedEvent fires even when middleware short-circuits the pass."""
     from strands.hooks import MessageAddedEvent
 
     added_roles: list[str] = []
@@ -932,13 +857,7 @@ def test_tool_interrupt_surfaces_through_agent_stream_chain():
 
 
 def test_agent_stream_interrupt_reports_all_unanswered_interrupts():
-    """An agent-stream interrupt reports every still-unanswered interrupt, not just the one it raised.
-
-    Mixing interrupt sources within one invocation: a tool raises two interrupts, the caller
-    resumes only one, and on the resumed pass an agent-stream middleware raises a fresh one. The
-    resulting stop must report both the still-unanswered tool interrupt and the new agent-stream
-    one, so a caller treating ``result.interrupts`` as "everything I owe an answer to" is correct.
-    """
+    """An agent-stream interrupt reports all unanswered interrupts, not just the one it raised."""
     from strands.interrupt import Interrupt
     from strands.types._events import ToolInterruptEvent
 
@@ -989,13 +908,7 @@ def test_agent_stream_interrupt_reports_all_unanswered_interrupts():
 
 
 def test_resumed_interrupt_is_not_re_asked_after_a_later_tool_interrupt():
-    """An answered gate is asked once, even when a later pass of the same cycle interrupts again.
-
-    The gate reads its approval before next_fn only. The resumed pass runs a successful tool cycle
-    (which completes the tool resume) and then a second tool raises its own interrupt, so a further
-    pass follows. The gate's answer must survive those passes: asking again would make the human
-    re-approve the same action once per interrupt round trip.
-    """
+    """An answered gate is not re-asked on later passes within the same interrupt cycle."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}]},
@@ -1038,14 +951,7 @@ def test_resumed_interrupt_is_not_re_asked_after_a_later_tool_interrupt():
 
 
 def test_answered_interrupt_is_not_reused_by_a_later_invocation():
-    """A gate's answer dies with its interrupt cycle, so the next invocation asks again.
-
-    The answered response is kept across the passes of one cycle (so the human is asked once),
-    which must not turn into a standing approval. The resumed pass here runs a tool, so the tool
-    cycle completes the tool resume and leaves the state deactivated with the answer still held —
-    the cycle therefore ends without the run loop's interrupt-completion path firing, and the
-    answer has to be dropped anyway.
-    """
+    """A gate's answer does not carry over to the next invocation — the human is asked again."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "calc", "input": {}}}]},
@@ -1082,12 +988,7 @@ def test_answered_interrupt_is_not_reused_by_a_later_invocation():
 
 
 def test_interrupt_after_the_pass_completes_raises():
-    """Interrupting after the stream finished is refused instead of replaying the pass.
-
-    Resuming such an interrupt has no tool-use message to replay, so the event loop would call the
-    model a second time and append a duplicate assistant turn. The agent raises an actionable error
-    instead. Interrupting before or while draining next_fn is unaffected.
-    """
+    """Interrupting after the stream finished raises RuntimeError instead of corrupting history."""
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello!"}]}])
     agent = Agent(model=model, callback_handler=None)
 
@@ -1130,11 +1031,7 @@ def test_after_invocation_result_is_the_stop_event_when_a_trailing_event_follows
 
 
 def test_middleware_yielded_interrupt_stop_preserves_interrupt_state():
-    """A pass that stops on an interrupt keeps its interrupt state, even with no tool context.
-
-    Middleware can surface an interrupt stop itself (short-circuiting the pass). The run loop must
-    not clear interrupt state after such a pass: the caller still owes a response.
-    """
+    """A pass that stops on an interrupt keeps its interrupt state active."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"text": "first"}]},
@@ -1209,13 +1106,7 @@ def _charge_gate(gate_calls):
 
 
 def test_answered_interrupt_is_not_persisted_as_a_standing_approval(tmp_path):
-    """A completed cycle leaves no answered interrupt in the session.
-
-    The cycle is released before ``AfterInvocationEvent``, which is where the session manager
-    syncs, so the persisted state carries no response. A fresh agent restored from that session —
-    the ordinary one-agent-per-request server shape — must gate again rather than resolve against
-    what the previous cycle answered.
-    """
+    """A completed cycle leaves no answered interrupt in the persisted session."""
     gate_calls: list[str] = []
     charges: list[str] = []
 
@@ -1242,12 +1133,7 @@ def test_answered_interrupt_is_not_persisted_as_a_standing_approval(tmp_path):
 
 
 def test_answered_interrupt_is_released_when_a_pass_ends_with_an_error():
-    """A raise from an AfterInvocationEvent hook does not strand an answered interrupt.
-
-    The hook runs inside the run loop's ``finally`` and is a public extension point, so a failure
-    there (a session write error, a summarizing conversation manager whose model call fails) must
-    not leave a response behind for the next cycle to resolve against.
-    """
+    """A raise from AfterInvocationEvent does not strand an answered interrupt."""
     from strands.hooks import AfterInvocationEvent
 
     gate_calls: list[str] = []
@@ -1281,11 +1167,7 @@ def test_answered_interrupt_is_released_when_a_pass_ends_with_an_error():
 
 @pytest.mark.asyncio
 async def test_answered_interrupt_is_not_reused_after_the_caller_abandons_the_stream():
-    """A caller that stops consuming the stream leaves no usable approval behind.
-
-    The run loop's cleanup only runs if the generator is driven to completion, so a disconnected
-    client must not leave a response that the next cycle's gate resolves against.
-    """
+    """A caller that stops consuming the stream leaves no usable approval behind."""
     gate_calls: list[str] = []
     charges: list[str] = []
     agent = _charging_agent(_charge_gate(gate_calls), charges)
@@ -1310,12 +1192,7 @@ async def test_answered_interrupt_is_not_reused_after_the_caller_abandons_the_st
 
 
 def test_interrupt_after_a_tool_interrupt_stop_is_allowed():
-    """Gating on top of a tool interrupt works: the stored tool use is replayed on resume.
-
-    Refusing a post-result interrupt is only correct when resuming would re-call the model. A pass
-    that stopped for a tool interrupt has a tool-use message to replay, so the pass-level gate can
-    still interrupt after the stream drains and the caller answers both in one round trip.
-    """
+    """Gating on top of a tool interrupt works: the stored tool use is replayed on resume."""
     tool_use = {
         "role": "assistant",
         "content": [{"toolUse": {"toolUseId": "t1", "name": "confirm_tool", "input": {}}}],
@@ -1350,11 +1227,7 @@ def test_interrupt_after_a_tool_interrupt_stop_is_allowed():
 
 
 def test_interrupt_after_the_pass_completes_on_a_resumed_pass_leaves_no_state():
-    """The refusal clears interrupt state, so the agent stays usable afterwards.
-
-    A refusal on a resumed pass would otherwise leave the state activated with an interrupt the
-    caller can no longer answer, wedging every later call.
-    """
+    """The refusal clears interrupt state, so the agent stays usable afterwards."""
     model = MockedModelProvider(
         [
             {"role": "assistant", "content": [{"text": "first"}]},
@@ -1404,12 +1277,7 @@ async def _drain_until_tool_result(agent, prompt):
 
 @pytest.mark.asyncio
 async def test_answered_interrupt_is_not_persisted_when_a_stream_is_abandoned(tmp_path):
-    """An abandoned stream leaves no answered interrupt in the session.
-
-    Sessions sync on every message added, including the one right after a tool cycle retains an
-    answered response, so keeping the retained response out of the session cannot rely on the
-    end-of-cycle release running.
-    """
+    """An abandoned stream leaves no answered interrupt in the persisted session."""
     gate_calls: list[str] = []
     charges: list[str] = []
 
@@ -1431,11 +1299,7 @@ async def test_answered_interrupt_is_not_persisted_when_a_stream_is_abandoned(tm
 
 @pytest.mark.asyncio
 async def test_restored_agent_reports_an_answerable_interrupt(tmp_path):
-    """A restored agent never reports an interrupt stop the caller cannot answer.
-
-    A stale answered entry would both satisfy the gate silently and be filtered out of the reported
-    interrupts, leaving the caller told to respond with nothing to respond to.
-    """
+    """A restored agent gates again rather than resolving against a stale approval."""
     gate_calls: list[str] = []
     charges: list[str] = []
 
@@ -1458,11 +1322,7 @@ async def test_restored_agent_reports_an_answerable_interrupt(tmp_path):
 
 
 def test_interrupt_after_a_middleware_yielded_result_is_allowed():
-    """Gating after a short-circuited pass works: nothing was produced for a resume to replay.
-
-    A middleware that yields the result itself never calls the model, so the resumed pass replays
-    nothing and re-yields the same result — there is no duplicate assistant turn to prevent.
-    """
+    """Gating after a short-circuited pass works since nothing was produced for a resume to replay."""
     agent = Agent(
         model=MockedModelProvider([{"role": "assistant", "content": [{"text": "unused"}]}]),
         callback_handler=None,
@@ -1486,11 +1346,7 @@ def test_interrupt_after_a_middleware_yielded_result_is_allowed():
 
 
 def test_answered_interrupt_is_released_when_conversation_management_raises():
-    """A failure in conversation management does not strand an answered interrupt.
-
-    apply_management runs inside the run loop's finally, so the release has to happen before it for
-    a raise there to leave nothing behind.
-    """
+    """A failure in conversation management does not strand an answered interrupt."""
     gate_calls: list[str] = []
     charges: list[str] = []
     agent = _charging_agent(_charge_gate(gate_calls), charges)

@@ -1319,9 +1319,6 @@ class Agent(AgentBase):
                     structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
                 )
 
-                # Run this invocation pass through the AgentStreamStage middleware chain, whose
-                # terminal drives the event loop cycle. With no middleware registered the registry
-                # returns the terminal directly.
                 pass_progress = _PassProgress()
                 middleware_context = AgentStreamContext(
                     agent=self,
@@ -1338,18 +1335,12 @@ class Agent(AgentBase):
                         middleware_context,
                         self._make_agent_stream_terminal(structured_output_context, limits, pass_progress),
                     ):
-                        # Middleware may yield more events after the stop event, so capture the
-                        # last EventLoopStopEvent as the result rather than the final event.
                         if isinstance(event, EventLoopStopEvent):
                             agent_result = AgentResult(*event["stop"])
                         yield event
 
                     # A resumed AgentStreamStage interrupt that finished without tool execution
-                    # (e.g. a plain end_turn) never hits the tool path's deactivate(), so clear
-                    # the interrupt state here. Guard on the absence of tool context so this only
-                    # fires for agent-stream interrupts (which never store one) and never wipes a
-                    # pending tool interrupt — the event loop owns tool-interrupt state, and some
-                    # paths (e.g. cancel mid-resume) intentionally leave it activated.
+                    # never hits the tool path's deactivate(), so clear the interrupt state here.
                     if (
                         self._interrupt_state.activated
                         and (agent_result is None or agent_result.stop_reason != "interrupt")
@@ -1357,14 +1348,12 @@ class Agent(AgentBase):
                     ):
                         self._interrupt_state.deactivate()
                 except InterruptException as interrupt_exception:
+                    # Refuse a late interrupt — resuming would re-call the model
+                    # and corrupt history.
                     if (
                         pass_progress.event_loop_produced_result
                         and "tool_use_message" not in self._interrupt_state.context
                     ):
-                        # The event loop already produced this pass's result with nothing stored
-                        # to replay, so resuming would call the model again. Refuse rather than
-                        # corrupt the conversation. Tool interrupts are exempt (stored tool use
-                        # is replayed on resume).
                         self._interrupt_state.deactivate()
                         raise RuntimeError(
                             f"interrupt_name=<{interrupt_exception.interrupt.name}> | agent-stream middleware "
@@ -1372,10 +1361,6 @@ class Agent(AgentBase):
                             "produces its assistant turn"
                         ) from interrupt_exception
 
-                    # Middleware-initiated interrupt (context.interrupt() with no response yet).
-                    # interrupt() is read-only, so this handler is the single registration site
-                    # before surfacing EventLoopStopEvent("interrupt"). Keep an existing unanswered
-                    # registration; replace a stale one that already carries a response.
                     registered = self._interrupt_state.interrupts.get(interrupt_exception.interrupt.id)
                     if registered is None or registered.response is not None:
                         self._interrupt_state.interrupts[interrupt_exception.interrupt.id] = (
@@ -1387,10 +1372,7 @@ class Agent(AgentBase):
                         if self.messages
                         else {"role": "assistant", "content": [{"text": "Interrupted"}]}
                     )
-                    # Report every still-unanswered interrupt, not just the one raised here: a
-                    # prior interrupt (e.g. a tool interrupt only partially answered on this
-                    # resume) may still be outstanding, and the caller needs the full set to
-                    # resume cleanly (matching the TS getUnansweredInterrupts() contract).
+                    # Surface all unanswered interrupts so the caller can build a complete resume payload.
                     unanswered = [
                         interrupt
                         for interrupt in self._interrupt_state.interrupts.values()
@@ -1408,10 +1390,6 @@ class Agent(AgentBase):
 
             finally:
                 if not self._interrupt_state.activated:
-                    # Nothing is owed a resume, so the interrupt cycle is over. Release
-                    # invocation-scoped responses so the next cycle asks again rather than
-                    # resolving against a stale approval. Runs before AfterInvocationEvent
-                    # and apply_management so the released state is what gets persisted.
                     self._interrupt_state.end_interrupt_cycle()
 
                 self.conversation_manager.apply_management(self)

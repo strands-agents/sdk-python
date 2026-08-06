@@ -45,13 +45,11 @@ class _InterruptState:
     """Track the state of interrupt events raised by the user.
 
     Note, unanswered interrupts are cleared after resuming; an answered invocation-scoped response
-    is retained for the rest of its interrupt cycle (see ``interrupts`` below).
+    is retained for the rest of its interrupt cycle.
 
     Attributes:
-        interrupts: Interrupts raised by the user. An answered invocation-scoped interrupt can
-            outlive ``activated`` being cleared: it is held until the interrupt cycle it belongs
-            to ends (see ``end_tool_cycle`` and ``end_interrupt_cycle``), so ``activated`` alone
-            does not imply this mapping is empty.
+        interrupts: Interrupts raised by the user. May be non-empty even when ``activated`` is
+            False because retained responses persist until their cycle ends.
         context: Additional context associated with an interrupt event.
         activated: True if agent is in an interrupt state, False otherwise.
     """
@@ -77,12 +75,7 @@ class _InterruptState:
         self._version += 1
 
     def end_tool_cycle(self) -> None:
-        """Clear the state a completed tool cycle owns, keeping answered invocation-scoped ones.
-
-        An answered invocation-scoped interrupt belongs to the interrupt cycle, not this tool
-        cycle, and later passes may still read its response. An unanswered one is not kept — it
-        is either about to be re-raised or no longer wanted.
-        """
+        """Clear a completed tool cycle's state, keeping answered invocation-scoped responses."""
         self.interrupts = {
             interrupt_id: interrupt
             for interrupt_id, interrupt in self.interrupts.items()
@@ -93,11 +86,7 @@ class _InterruptState:
         self._version += 1
 
     def end_interrupt_cycle(self) -> None:
-        """Release invocation-scoped interrupts once their interrupt cycle is over.
-
-        Stops a stale approval from silently resolving a later cycle's gate. Only bumps the
-        version when something was actually released, so a no-op does not dirty session state.
-        """
+        """Release invocation-scoped interrupts once their interrupt cycle is over."""
         remaining = {
             interrupt_id: interrupt
             for interrupt_id, interrupt in self.interrupts.items()
@@ -161,9 +150,8 @@ class _InterruptState:
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management.
 
-        A response retained by ``end_tool_cycle`` while deactivated is readable only for the
-        remainder of the pass that retained it, so it is never serialized: sessions sync mid-pass
-        (on message-added), and persisting it would hand a restored agent a standing approval.
+        Exclude deactivated invocation-scoped responses — persisting them would
+        give a restored agent a standing approval.
         """
         interrupts = self.interrupts
         if not self.activated:
@@ -190,8 +178,7 @@ class _InterruptState:
             interrupts={
                 interrupt_id: Interrupt(**interrupt_data)
                 for interrupt_id, interrupt_data in data["interrupts"].items()
-                # Deactivated state carries no invocation-scoped response (see to_dict); drop any
-                # a previously written session still holds rather than reviving it as an approval.
+                # Mirror to_dict's filter — don't revive a stale response as a standing approval.
                 if activated or not interrupt_id.startswith(_AGENT_STREAM_INTERRUPT_ID_PREFIX)
             },
             context=data["context"],

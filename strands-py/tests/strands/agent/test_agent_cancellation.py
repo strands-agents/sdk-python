@@ -297,13 +297,7 @@ async def test_agent_cancel_continue_after():
 
 @pytest.mark.asyncio
 async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
-    """Cancelling a resumed tool interrupt must not wipe the pending interrupt state.
-
-    A tool interrupt stores its resume context (tool_use_message / tool_results) and keeps the
-    interrupt state activated. If the resume is cancelled before the tool executes, the event
-    loop deliberately leaves that state intact so the interrupt can still be resumed later. The
-    interrupt state must survive the cancelled pass rather than being deactivated.
-    """
+    """Cancelling a resumed tool interrupt preserves the pending interrupt state for a later resume."""
 
     @tool(context=True)
     def approver(tool_context) -> str:
@@ -369,12 +363,7 @@ def _approve_all(result):
 
 @pytest.mark.asyncio
 async def test_hook_cancelled_tool_batch_does_not_replay_the_stored_tool_use():
-    """A hook that cancels the tool batch on a resumed pass does not let the tool run anyway.
-
-    Cancelling a batch does not abort the pass — the event loop continues with cancel results — so
-    the tool-resume bookkeeping is cleared like any other cycle. Keeping it would replay the stored
-    tool use and execute the tool the hook just denied.
-    """
+    """A hook that cancels the tool batch prevents the tool from running on a resumed pass."""
     ran: list[str] = []
     deny = [False]
     agent = _charge_agent([_CHARGE_TOOL_USE, _CHARGE_DONE], ran, deny)
