@@ -576,3 +576,43 @@ async def test_stream_non_overflow_bad_request_propagates(model, messages, alist
     with unittest.mock.patch.object(model.client.chat.completions, "create", side_effect=error):
         with pytest.raises(llama_api_client.BadRequestError, match="invalid 'model' parameter"):
             await alist(model.stream(messages))
+
+
+def test_format_request_includes_prompt_cache_key(model, messages):
+    """prompt_cache_key on the model config is forwarded verbatim."""
+    model.update_config(prompt_cache_key="agent-abc")
+
+    request = model.format_request(messages)
+
+    assert request["prompt_cache_key"] == "agent-abc"
+
+
+def test_format_request_includes_prompt_cache_retention(model, messages):
+    """prompt_cache_retention on the model config is forwarded verbatim."""
+    model.update_config(prompt_cache_retention="24h")
+
+    request = model.format_request(messages)
+
+    assert request["prompt_cache_retention"] == "24h"
+
+
+def test_format_request_omits_cache_fields_when_unset(model, messages):
+    """Absent cache fields are not sent."""
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+    assert "prompt_cache_retention" not in request
+
+
+def test_format_request_cache_config_is_documented_noop(llamaapi_client, messages):
+    """cache_config is accepted for portability but the SDK does not touch the request."""
+    _ = llamaapi_client
+    from strands.models import CacheConfig
+
+    model = LlamaAPIModel(model_id="Llama-4-Maverick-17B-128E-Instruct-FP8", cache_config=CacheConfig(strategy="auto"))
+
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+    assert "prompt_cache_retention" not in request
+    assert "cache_config" not in request

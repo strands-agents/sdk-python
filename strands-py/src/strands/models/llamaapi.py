@@ -21,7 +21,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,15 @@ class LlamaAPIModel(Model):
             top_p: Top-p.
             max_completion_tokens: Maximum completion tokens.
             top_k: Top-k.
+            cache_config: Configuration for prompt caching. The Llama API caches automatically
+                for any request that shares a stable prefix, so this config is accepted for
+                cross-provider portability and is a documented no-op — the SDK injects nothing
+                into the request. Use ``prompt_cache_key`` for better cache-hit rates at scale.
+            prompt_cache_key: Optional identifier that helps the Llama API group similar
+                requests when caching. Recommended when many agents share a stable system
+                prefix. See https://ai.developer.meta.com/docs/features/prompt-caching.
+            prompt_cache_retention: Retention policy on the Responses API. ``"in_memory"``
+                (default) or ``"24h"`` on models that support extended retention.
         """
 
         model_id: str
@@ -58,6 +67,9 @@ class LlamaAPIModel(Model):
         top_p: float | None
         max_completion_tokens: int | None
         top_k: int | None
+        cache_config: CacheConfig | None
+        prompt_cache_key: str | None
+        prompt_cache_retention: str | None
 
     def __init__(
         self,
@@ -264,6 +276,10 @@ class LlamaAPIModel(Model):
             request["max_completion_tokens"] = self.config["max_completion_tokens"]
         if "top_k" in self.config:
             request["top_k"] = self.config["top_k"]
+        if prompt_cache_key := self.config.get("prompt_cache_key"):
+            request["prompt_cache_key"] = prompt_cache_key
+        if prompt_cache_retention := self.config.get("prompt_cache_retention"):
+            request["prompt_cache_retention"] = prompt_cache_retention
 
         return request
 
