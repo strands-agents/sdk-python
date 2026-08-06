@@ -825,7 +825,8 @@ class ConstantToolArguments(HookProvider):
 </Tab>
 </Tabs>
 
-For example, to always force the `calculator` tool to use precision of 1 digit:
+For example, to always force the `calculator` tool to divide, whatever operator the model
+asks for:
 
 <Tabs>
 <Tab label="Python">
@@ -833,7 +834,7 @@ For example, to always force the `calculator` tool to use precision of 1 digit:
 ```python
 fix_parameters = ConstantToolArguments({
     "calculator": {
-        "precision": 1,
+        "op": "/",
     }
 })
 
@@ -1310,3 +1311,14 @@ The TypeScript SDK does not export a `HookProvider` interface. Instead, use the 
 ```
 </Tab>
 </Tabs>
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the model has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

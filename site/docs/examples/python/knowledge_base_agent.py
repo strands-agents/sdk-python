@@ -33,7 +33,8 @@ DEFAULT_KB_ID = "demokb123"
 KB_ID = os.environ.get("STRANDS_KNOWLEDGE_BASE_ID")
 
 # Data source to ingest into. Only CUSTOM and S3 data sources accept writes.
-DATA_SOURCE_ID = os.environ.get("STRANDS_DATA_SOURCE_ID", "demods123")
+DEFAULT_DATA_SOURCE_ID = "demods123"
+DATA_SOURCE_ID = os.environ.get("STRANDS_DATA_SOURCE_ID")
 
 if not KB_ID:
     print("\n⚠️  Warning: STRANDS_KNOWLEDGE_BASE_ID environment variable is not set!")
@@ -43,6 +44,15 @@ if not KB_ID:
     KB_ID = DEFAULT_KB_ID
 else:
     print(f"Using Knowledge Base ID: {KB_ID}")
+
+if not DATA_SOURCE_ID:
+    print("\n⚠️  Warning: STRANDS_DATA_SOURCE_ID environment variable is not set!")
+    print("Storing needs the ID of a CUSTOM or S3 data source in your knowledge base.")
+    print("For example: export STRANDS_DATA_SOURCE_ID=your_data_source_id")
+    print(f"Using DEFAULT_DATA_SOURCE_ID '{DEFAULT_DATA_SOURCE_ID}', so storing will fail.")
+    DATA_SOURCE_ID = DEFAULT_DATA_SOURCE_ID
+else:
+    print(f"Using Data Source ID: {DATA_SOURCE_ID}")
 
 # The store is called directly rather than registered as a tool, so the workflow
 # below decides when to read and when to write.

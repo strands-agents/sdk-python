@@ -28,19 +28,28 @@ const myTool = new FunctionTool({
   callback: async () => 'result',
 })
 
+const OPS: Record<string, (a: number, b: number) => number> = {
+  '+': (a, b) => a + b,
+  '-': (a, b) => a - b,
+  '*': (a, b) => a * b,
+  '/': (a, b) => a / b,
+  '**': (a, b) => a ** b,
+}
+
 const calculator = new FunctionTool({
   name: 'calculator',
-  description: 'Perform calculations',
+  description: 'Apply an arithmetic operator to two numbers',
   inputSchema: {
     type: 'object',
     properties: {
-      expression: { type: 'string', description: 'Mathematical expression to evaluate' },
+      a: { type: 'number', description: 'Left operand' },
+      b: { type: 'number', description: 'Right operand' },
+      op: { type: 'string', description: 'One of "+", "-", "*", "/", "**"' },
     },
   },
   callback: async (input: unknown) => {
-    // Simple mock implementation
-    const typedInput = input as { expression: string }
-    return eval(typedInput.expression).toString()
+    const { a, b, op } = input as { a: number; b: number; op: string }
+    return OPS[op](a, b).toString()
   },
 })
 
@@ -364,7 +373,7 @@ async function fixedToolArgumentsExample() {
   // --8<-- [start:fixed_tool_arguments_usage]
   const fixParameters = new ConstantToolArguments({
     calculator: {
-      precision: 1,
+      op: '/',
     },
   })
 

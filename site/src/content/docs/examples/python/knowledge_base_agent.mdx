@@ -9,16 +9,16 @@ This [example](https://github.com/strands-agents/harness-sdk/blob/main/site/docs
 
 ## Setup Requirements
 
-> **Important**: This example requires a knowledge base to be set up. You must initialize the knowledge base ID using the `STRANDS_KNOWLEDGE_BASE_ID` environment variable:
+> **Important**: This example requires a knowledge base to be set up. You must initialize the knowledge base ID and the data source ID using these environment variables:
 >
 > ```bash
 > export STRANDS_KNOWLEDGE_BASE_ID=your_kb_id
 > export STRANDS_DATA_SOURCE_ID=your_data_source_id
 > ```
 >
-> Storing requires a `CUSTOM` or `S3` data source, since those are the only types that accept direct ingestion. `STRANDS_DATA_SOURCE_ID` identifies it.
+> Storing requires a `CUSTOM` or `S3` data source, since those are the only types that accept direct ingestion. `STRANDS_DATA_SOURCE_ID` identifies it. Both variables fall back to placeholder IDs, so set them even for read-only use: leaving `STRANDS_DATA_SOURCE_ID` unset points ingestion at a data source that does not exist.
 >
-> This example was tested using a Bedrock knowledge base. If you experience odd behavior or missing data, verify that you've properly initialized this environment variable.
+> This example was tested using a Bedrock knowledge base. If you experience odd behavior or missing data, verify that you've properly initialized these environment variables.
 
 ## Overview
 

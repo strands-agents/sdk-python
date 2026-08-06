@@ -192,9 +192,9 @@ These tools execute arbitrary shell commands. Without a [Sandbox](../sandbox/ind
 
 ```python
 from strands import Agent
-from strands.vended_tools import bash
+from strands.vended_tools import shell
 
-agent = Agent(tools=[bash])
+agent = Agent(tools=[shell])
 agent("List all Python files in the current directory and count them")
 ```
 
