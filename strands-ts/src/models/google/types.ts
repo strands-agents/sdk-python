@@ -3,7 +3,7 @@
  */
 
 import type { GoogleGenAI, GoogleGenAIOptions, Tool } from '@google/genai'
-import type { BaseModelConfig } from '../model.js'
+import type { BaseModelConfig, CacheConfig } from '../model.js'
 
 /**
  * Configuration interface for Google model provider.
@@ -52,6 +52,21 @@ export interface GoogleModelConfig extends BaseModelConfig {
    * @defaultValue false
    */
   useNativeTokenCount?: boolean
+
+  /**
+   * Configuration for prompt caching. Gemini 2.5+ models on the paid tier already cache
+   * prompt prefixes automatically (implicit caching), so this config is accepted for
+   * cross-provider portability and is a documented no-op — the SDK injects nothing into
+   * the request.
+   *
+   * Gemini also offers *explicit* caching via a separate `CachedContent` resource, which
+   * has a create/reference/delete lifecycle and bills for storage while the cache is
+   * alive. That is a distinct feature with real cost implications; use the underlying
+   * `@google/genai` SDK directly for it.
+   *
+   * @see https://ai.google.dev/gemini-api/docs/caching
+   */
+  cacheConfig?: CacheConfig
 }
 
 /**

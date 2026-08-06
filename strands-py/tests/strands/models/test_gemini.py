@@ -1499,3 +1499,14 @@ class TestCountTokens:
         gemini_client.aio.models.count_tokens.assert_not_called()
         assert isinstance(result, int)
         assert result >= 0
+
+
+def test_gemini_accepts_cache_config_as_documented_noop(gemini_client):
+    """cache_config is accepted for cross-provider portability; Gemini caches implicitly."""
+    _ = gemini_client
+    from strands.models import CacheConfig
+
+    model = GeminiModel(model_id="gemini-2.5-flash", cache_config=CacheConfig(strategy="auto"))
+
+    # The field lives on the config but is not surfaced into the generate call.
+    assert model.get_config().get("cache_config") is not None

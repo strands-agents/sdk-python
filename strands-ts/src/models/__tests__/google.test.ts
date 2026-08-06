@@ -1399,4 +1399,16 @@ describe('GoogleModel', () => {
       expect(result).toBe(2) // heuristic: Math.ceil('hello'.length / 4)
     })
   })
+
+  describe('cacheConfig', () => {
+    it('accepts cacheConfig as a documented no-op — no injection into the request config', () => {
+      const model = new GoogleModel({
+        modelId: 'gemini-2.5-flash',
+        apiKey: 'fake',
+        cacheConfig: { strategy: 'auto' },
+      })
+      const config = model.getConfig()
+      expect(config.cacheConfig).toEqual({ strategy: 'auto' })
+    })
+  })
 })

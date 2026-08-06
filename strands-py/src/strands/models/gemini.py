@@ -22,7 +22,7 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +53,23 @@ class GeminiModel(Model):
             use_native_token_count: Whether to use the native Gemini count_tokens API.
                 When True, count_tokens() calls the Gemini API for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
+            cache_config: Configuration for prompt caching. Gemini 2.5+ models on the paid
+                tier already cache prompt prefixes automatically (implicit caching), so this
+                config is accepted for cross-provider portability and is a documented no-op —
+                the SDK injects nothing into the request.
+
+                Gemini also offers *explicit* caching via a separate ``CachedContent``
+                resource (POST /v1beta/cachedContents), which has a create/reference/delete
+                lifecycle and bills for storage while the cache is alive. That is a distinct
+                feature with real cost implications; use the underlying ``google-genai``
+                SDK directly for it. See https://ai.google.dev/gemini-api/docs/caching.
         """
 
         model_id: Required[str]
         params: dict[str, Any]
         gemini_tools: list[genai.types.Tool]
         use_native_token_count: bool
+        cache_config: CacheConfig | None
 
     def __init__(
         self,
