@@ -264,7 +264,8 @@ def test_format_request_tool_message_with_document():
     assert isinstance(tru_result["output"], list)
     assert len(tru_result["output"]) == 1
     assert tru_result["output"][0]["type"] == "input_file"
-    assert "file_url" in tru_result["output"][0]
+    assert "file_data" in tru_result["output"][0]
+    assert tru_result["output"][0]["filename"] == "test.pdf"
 
 
 def test_format_request_messages(system_prompt):
