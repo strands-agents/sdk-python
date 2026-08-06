@@ -985,3 +985,38 @@ def test_nested_interrupt_resumes_after_rehydration(tmp_path):
     tru_executions = executions
     exp_executions = ["prod-db"]
     assert tru_executions == exp_executions
+
+
+@pytest.mark.asyncio
+async def test_stream_resume_keeps_stored_turn_when_it_cannot_be_loaded(fake_agent, orchestrator, caplog):
+    """A stored turn that fails to load is kept, so a later attempt can still apply the human's answer."""
+    unloadable = Agent(name="fake_agent", callback_handler=None).take_snapshot(preset="session").to_dict()
+    unloadable["schema_version"] = "0.0"
+
+    orchestrator._interrupt_state.interrupts["tool-123:interrupt-1"] = Interrupt(
+        id="tool-123:interrupt-1", name="approval", reason="r"
+    )
+    orchestrator._interrupt_state.context.update(
+        {
+            "responses": [{"interruptResponse": {"interruptId": "tool-123:interrupt-1", "response": "APPROVE"}}],
+            "sub_agent_continuations": {"tool-123": unloadable},
+        }
+    )
+    orchestrator._interrupt_state.activate()
+
+    fake_agent.stream_async = MagicMock()
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    with caplog.at_level("ERROR"):
+        events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
+
+    fake_agent.stream_async.assert_not_called()
+    assert len(events) == 1
+    assert events[0]["tool_result"]["status"] == "error"
+    assert "stored turn failed to load" in events[0]["tool_result"]["content"][0]["text"]
+    assert "failed to restore interrupted sub-agent turn" in caplog.text
+
+    tru_continuations = orchestrator._interrupt_state.context["sub_agent_continuations"]
+    exp_continuations = {"tool-123": unloadable}
+    assert tru_continuations == exp_continuations

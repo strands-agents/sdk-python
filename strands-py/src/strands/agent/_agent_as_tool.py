@@ -201,15 +201,7 @@ class _AgentAsTool(AgentTool):
                         {
                             "toolUseId": tool_use_id,
                             "status": "error",
-                            "content": [
-                                {
-                                    "text": (
-                                        f"Agent '{self._tool_name}' could not resume its interrupted turn. A "
-                                        "sub-agent used with preserve_context=True keeps its own state, so it "
-                                        "needs a session manager for that state to survive rehydration."
-                                    )
-                                }
-                            ],
+                            "content": [{"text": self._unresumable_message(invocation_state, tool_use_id)}],
                         }
                     )
                     return
@@ -330,7 +322,8 @@ class _AgentAsTool(AgentTool):
         parent: Agent | None = invocation_state.get("agent")
         return parent
 
-    def _parent_awaiting_resume(self, invocation_state: dict[str, Any], tool_use_id: str) -> bool:
+    @staticmethod
+    def _parent_awaiting_resume(invocation_state: dict[str, Any], tool_use_id: str) -> bool:
         """Check whether the orchestrator is waiting on an interrupt raised by this tool call.
 
         Keyed on the orchestrator rather than on the sub-agent so a sub-agent that shares a session
@@ -343,16 +336,15 @@ class _AgentAsTool(AgentTool):
         Returns:
             True if the orchestrator holds an interrupt raised by this call.
         """
-        parent = self._parent_agent(invocation_state)
+        parent = _AgentAsTool._parent_agent(invocation_state)
         if parent is None or not parent._interrupt_state.activated:
             return False
 
         prefix = f"{tool_use_id}:"
         return any(interrupt_id.startswith(prefix) for interrupt_id in parent._interrupt_state.interrupts)
 
-    def _interrupt_responses(
-        self, invocation_state: dict[str, Any], tool_use_id: str
-    ) -> list[InterruptResponseContent]:
+    @staticmethod
+    def _interrupt_responses(invocation_state: dict[str, Any], tool_use_id: str) -> list[InterruptResponseContent]:
         """Map the orchestrator's interrupt responses back to sub-agent-local ids.
 
         The orchestrator persists the human's answers as data, so this survives a rehydration
@@ -367,7 +359,7 @@ class _AgentAsTool(AgentTool):
         Returns:
             Interrupt response content blocks addressed to the sub-agent.
         """
-        parent = self._parent_agent(invocation_state)
+        parent = _AgentAsTool._parent_agent(invocation_state)
         if parent is None:
             return []
 
@@ -387,11 +379,37 @@ class _AgentAsTool(AgentTool):
 
         return responses
 
+    @staticmethod
+    def _stored_continuation(invocation_state: dict[str, Any], tool_use_id: str) -> dict[str, Any] | None:
+        """Get the interrupted turn the orchestrator holds for this tool call, if there is one."""
+        parent = _AgentAsTool._parent_agent(invocation_state)
+        if parent is None:
+            return None
+
+        continuations: dict[str, Any] = parent._interrupt_state.context.get(_CONTINUATIONS_KEY) or {}
+        continuation: dict[str, Any] | None = continuations.get(tool_use_id)
+        return continuation
+
+    def _unresumable_message(self, invocation_state: dict[str, Any], tool_use_id: str) -> str:
+        """Explain why the interrupted turn could not be reinstated, for the failed tool result."""
+        if self._stored_continuation(invocation_state, tool_use_id) is not None:
+            return (
+                f"Agent '{self._tool_name}' could not resume its interrupted turn: the stored turn failed to "
+                "load, so the interrupt response was not applied. See the logged error for the cause."
+            )
+
+        return (
+            f"Agent '{self._tool_name}' could not resume its interrupted turn. A sub-agent used with "
+            "preserve_context=True keeps its own state, so it needs a session manager for that state to "
+            "survive rehydration."
+        )
+
     def _stash_continuation(self, invocation_state: dict[str, Any], tool_use_id: str) -> None:
         """Store the sub-agent's interrupted turn in the orchestrator's interrupt context.
 
-        Only for ``preserve_context=False`` sub-agents: they are ephemeral by contract and may not
-        have a session manager, so the orchestrator holds the turn for them and Strands persists it
+        Only for ``preserve_context=False`` sub-agents: they are ephemeral by contract and are rejected
+        at construction if they have a session manager, so the orchestrator holds the turn for them and
+        Strands persists it
         with the orchestrator's own interrupt record. A sub-agent that preserves context owns its
         state and keeps it in its own session.
 
@@ -430,14 +448,16 @@ class _AgentAsTool(AgentTool):
         if parent is None:
             return False
 
-        continuations = parent._interrupt_state.context.get(_CONTINUATIONS_KEY) or {}
-        continuation = continuations.pop(tool_use_id, None)
+        continuation = self._stored_continuation(invocation_state, tool_use_id)
         if continuation is None:
             return False
 
         try:
             self._agent.load_snapshot(Snapshot.from_dict(continuation))
         except Exception as error:
+            # Leave the stored turn in place: a load can fail for a reason a later attempt survives,
+            # such as a schema version the running SDK does not accept yet, and dropping it here would
+            # destroy the only copy of the turn the human already answered.
             logger.error(
                 "tool_name=<%s>, tool_use_id=<%s> | failed to restore interrupted sub-agent turn: %s",
                 self._tool_name,
@@ -446,6 +466,7 @@ class _AgentAsTool(AgentTool):
             )
             return False
 
+        del parent._interrupt_state.context[_CONTINUATIONS_KEY][tool_use_id]
         return True
 
     @override
