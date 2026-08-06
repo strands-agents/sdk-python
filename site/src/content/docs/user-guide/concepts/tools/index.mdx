@@ -29,12 +29,12 @@ Tools are passed to agents during initialization or at runtime, making them avai
 ```python
 from strands import Agent
 from strands_tools import file_read
-from strands.vended_tools import shell
+from strands.vended_tools import bash
 
 # calculator is defined at the end of this page
 # Add tools to our agent
 agent = Agent(
-    tools=[calculator, file_read, shell]
+    tools=[calculator, file_read, bash]
 )
 
 # Agent will automatically determine when to use the calculator tool
@@ -42,7 +42,7 @@ agent("What is 42 ^ 9")
 
 print("\n\n")  # Print new lines
 
-# Agent will use the shell and file reader tool when appropriate
+# Agent will use the bash and file reader tool when appropriate
 agent("Show me the contents of a single file in this directory")
 ```
 </Tab>

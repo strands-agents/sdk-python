@@ -536,7 +536,7 @@ Here is an example that captures streamed data from the agent and logs it instea
 ```python
 import logging
 from strands import Agent
-from strands.vended_tools import shell
+from strands.vended_tools import bash
 
 logger = logging.getLogger("my_agent")
 
@@ -555,7 +555,7 @@ def callback_handler(**kwargs):
 
 # Create an agent with the callback handler
 agent = Agent(
-    tools=[shell],
+    tools=[bash],
     callback_handler=callback_handler
 )
 
