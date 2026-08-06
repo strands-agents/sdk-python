@@ -109,10 +109,31 @@ from . import agent
 And finally our `agent.py` file where the goodies are:
 
 ```python
+import operator
+
 from strands import Agent, tool
 
-# calculator is defined at the end of this page
+_OPS = {
+    "+": operator.add,
+    "-": operator.sub,
+    "*": operator.mul,
+    "/": operator.truediv,
+    "**": operator.pow,
+}
+
 # Define a custom tool as a Python function using the @tool decorator
+@tool
+def calculator(a: float, b: float, op: str) -> float:
+    """Apply an arithmetic operator to two numbers.
+
+    Args:
+        a: Left operand.
+        b: Right operand.
+        op: One of "+", "-", "*", "/", "**".
+    """
+    return _OPS[op](a, b)
+
+# And another one
 @tool
 def letter_counter(word: str, letter: str) -> int:
     """
@@ -133,8 +154,7 @@ def letter_counter(word: str, letter: str) -> int:
 
     return word.lower().count(letter.lower())
 
-# Create an agent with tools from the community-driven strands-tools package
-# as well as our custom letter_counter tool
+# Create an agent with both of our custom tools
 agent = Agent(tools=[calculator, letter_counter])
 
 # Ask the agent a question that uses the available tools
@@ -214,8 +234,9 @@ print(result.metrics.get_summary())
       },
       "tool_info": {
         "input_params": {
-          "expression": "sqrt(144)",
-          "mode": "evaluate"
+          "a": 144,
+          "b": 0.5,
+          "op": "**"
         },
         "name": "calculator",
         "tool_use_id": "tooluse_jR3LAfuASrGil31Ix9V7qQ"
@@ -240,8 +261,9 @@ print(result.metrics.get_summary())
               {
                 "toolUse": {
                   "input": {
-                    "expression": "sqrt(144)",
-                    "mode": "evaluate"
+                    "a": 144,
+                    "b": 0.5,
+                    "op": "**"
                   },
                   "name": "calculator",
                   "toolUseId": "tooluse_jR3LAfuASrGil31Ix9V7qQ"
@@ -267,7 +289,7 @@ print(result.metrics.get_summary())
                 "toolResult": {
                   "content": [
                     {
-                      "text": "Result: 12"
+                      "text": "12.0"
                     }
                   ],
                   "status": "success",
@@ -472,7 +494,7 @@ For asynchronous applications (like web servers or APIs), Strands provides an as
 import asyncio
 from strands import Agent
 
-# calculator is defined at the end of this page
+# calculator is the tool defined in agent.py above
 # Initialize our agent without a callback handler
 agent = Agent(
     tools=[calculator],
@@ -514,7 +536,7 @@ Here is an example that captures streamed data from the agent and logs it instea
 ```python
 import logging
 from strands import Agent
-from strands_tools import shell
+from strands.vended_tools import shell
 
 logger = logging.getLogger("my_agent")
 
@@ -553,20 +575,10 @@ See the [Callback Handlers](../concepts/streaming/callback-handlers.md) document
 Ready to learn more? Check out these resources:
 
 - [Examples](../../examples/README.md) - Examples for many use cases, multi-agent systems, autonomous agents, and more
+- [Custom tools](../concepts/tools/custom-tools.md) - More on the `@tool` decorator used by the `calculator` and `letter_counter` tools above
 - [Community Supported Tools](../concepts/tools/community-tools-package.md) - The `strands-agents-tools` package provides many powerful example tools for your agents to use during development
 - [Agent Loop](../concepts/agents/agent-loop.md) - Learn how Strands agents work under the hood
 - [State & Sessions](../concepts/agents/state.md) - Understand how agents maintain context and state across a conversation or workflow
 - [Multi-agent](../concepts/multi-agent/agents-as-tools.md) - Orchestrate multiple agents together as one system, with each agent completing specialized tasks
 - [Observability & Evaluation](../observability-evaluation/observability.md) - Understand how agents make decisions and improve them with data
 - [Operating Agents in Production](../deploy/operating-agents-in-production.md) - Taking agents from development to production, operating them responsibly at scale
-
-## The `calculator` tool used above
-
-The examples on this page use a small arithmetic tool so the model has
-something to call. It is incidental to the topic: see
-[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
-for how `@tool` works.
-
-```python
---8<-- "_shared/calculator.py:calculator"
-```

@@ -462,7 +462,7 @@ from strands_evals.evaluators import TrajectoryEvaluator
 # Define tool context
 tool_context = """
 Available tools:
-- calculator(expression: str) -> float: Evaluate mathematical expressions
+- calculator(a: float, b: float, op: str) -> float: Apply an arithmetic operator to two numbers
 - current_time() -> str: Get the current date and time
 - file_read(path: str) -> str: Read file contents
 """

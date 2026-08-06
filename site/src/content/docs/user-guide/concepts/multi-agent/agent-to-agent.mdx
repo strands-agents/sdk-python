@@ -295,16 +295,16 @@ Create a Strands agent and expose it as an A2A server:
 import logging
 from strands import Agent
 from strands.multiagent.a2a import A2AServer
-from strands.vended_tools import sleep
 
 logging.basicConfig(level=logging.INFO)
 
 # Build a fresh agent for each A2A context so callers stay isolated
+# calculator is defined at the end of this page
 def create_agent(context_id: str) -> Agent:
     return Agent(
-        name="Sleepy Agent",
-        description="An agent that can pause for a bounded duration.",
-        tools=[sleep],
+        name="Calculator Agent",
+        description="A calculator agent.",
+        tools=[calculator],
         callback_handler=None
     )
 
@@ -745,3 +745,14 @@ If you encounter bugs or need to request features for A2A support:
 1. Check the [A2A documentation](https://a2aproject.github.io/A2A/latest/) for protocol-specific issues
 2. Report Strands-specific issues on [GitHub](https://github.com/strands-agents/harness-sdk/issues/new/choose)
 3. Include relevant error messages and code samples in your reports
+
+## The `calculator` tool used above
+
+The examples on this page use a small arithmetic tool so the served agent has
+something to call. It is incidental to the topic: see
+[Custom tools](/docs/user-guide/concepts/tools/custom-tools/#basic-example)
+for how `@tool` works.
+
+```python
+--8<-- "_shared/calculator.py:calculator"
+```

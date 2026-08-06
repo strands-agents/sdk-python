@@ -28,6 +28,7 @@ Python uses the [`stream_async`](@api/python/strands.agent.agent#Agent.stream_as
 import asyncio
 from strands import Agent
 
+# calculator is defined at the end of this page
 # Initialize our agent without a callback handler
 agent = Agent(
     tools=[calculator],
@@ -120,6 +121,7 @@ This async stream processor illustrates the event loop lifecycle events and how 
 ```python
 from strands import Agent
 
+# calculator is defined at the end of this page
 # Create agent with event loop tracker
 agent = Agent(
     tools=[calculator],

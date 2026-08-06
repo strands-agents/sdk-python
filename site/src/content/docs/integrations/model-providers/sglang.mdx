@@ -55,6 +55,7 @@ from strands_sglang import SGLangModel
 async def main():
     tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B-Instruct-2507")
     model = SGLangModel(tokenizer=tokenizer, base_url="http://localhost:30000")
+    # calculator is defined at the end of this page
     agent = Agent(model=model, tools=[calculator])
 
     model.reset()  # Reset TITO state for new episode
