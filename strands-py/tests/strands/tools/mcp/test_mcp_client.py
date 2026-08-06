@@ -555,8 +555,12 @@ async def test_call_tool_async_caller_cancellation_timeout_preserves_cancelled_e
                 with pytest.raises(asyncio.CancelledError):
                     await caller
                 assert await asyncio.to_thread(call_cancelled.wait, 1)
+                # The client logs the expired window, then sends the cancellation notification, and
+                # only then retains the unfinished invocation. Waiting on the log alone would
+                # observe the client mid-sequence, so wait for the retained task itself. The
+                # client runs on its own thread, so nothing else orders these two observations.
                 for _ in range(150):
-                    if "did not finish within bounded cancellation cleanup" in caplog.text:
+                    if client._background_cleanup_tasks:
                         break
                     await asyncio.sleep(0.01)
 

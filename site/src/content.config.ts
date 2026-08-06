@@ -5,6 +5,24 @@ import { glob, file } from 'astro/loaders'
 import { pathToDocsSlug } from './util/links'
 import { TagSchema } from './config/tags'
 
+export const ALL_SDK_LANGUAGES = ['python', 'typescript'] as const
+
+export const docsLanguagesSchema = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .superRefine((val, ctx) => {
+    if (!val) return
+    const langs = Array.isArray(val) ? val.map((l) => l.toLowerCase()) : [val.toLowerCase()]
+    if (ALL_SDK_LANGUAGES.every((l) => langs.includes(l))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'languages must not list all supported SDKs (python and typescript) — ' +
+          'omit the field entirely when a feature is available in all languages',
+      })
+    }
+  })
+
 const authorSchema = z.object({
   name: z.string(),
   role: z.string(),
@@ -220,8 +238,7 @@ export const collections = {
     schema: docsSchema({
       // We have certain flags/behavior based on the following properties; see CMS-README.md for more info
       extend: z.object({
-        // Can be a single value or an array of supported values
-        languages: z.union([z.string(), z.array(z.string())]).optional(),
+        languages: docsLanguagesSchema,
         community: z.boolean().default(false),
         experimental: z.boolean().default(false),
         // Category for TypeScript API docs (classes, interfaces, type-aliases, functions)
