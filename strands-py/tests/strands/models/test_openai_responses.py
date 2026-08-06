@@ -110,7 +110,7 @@ def test_update_config(model, model_id):
 @pytest.mark.parametrize(
     "content, exp_result",
     [
-        # Document
+        # Document content goes in file_data with a filename, never file_url (#3572)
         (
             {
                 "document": {
@@ -122,6 +122,20 @@ def test_update_config(model, model_id):
             {
                 "type": "input_file",
                 "filename": "test doc",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+            },
+        ),
+        # Document without the optional name falls back to a default filename
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "type": "input_file",
+                "filename": "document",
                 "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
@@ -248,10 +262,17 @@ def test_format_request_tool_message_with_image():
 
 
 def test_format_request_tool_message_with_document():
-    """Test that tool results with documents return an array output."""
+    """Test that tool results with documents return an array output.
+
+    Document content must be sent as ``file_data`` + ``filename``, not ``file_url`` —
+    Azure OpenAI treats ``file_url`` as a URL to download and rejects a data URI.
+    A document without the optional ``name`` falls back to a default filename.
+    See: https://github.com/strands-agents/harness-sdk/issues/3572
+    """
     tool_result = {
         "content": [
             {"document": {"format": "pdf", "name": "test.pdf", "source": {"bytes": b"fake_pdf_data"}}},
+            {"document": {"format": "pdf", "source": {"bytes": b"fake_pdf_data"}}},
         ],
         "status": "success",
         "toolUseId": "c3",
@@ -263,11 +284,12 @@ def test_format_request_tool_message_with_document():
     assert tru_result["call_id"] == "c3"
     # When documents are present, output should be an array
     assert isinstance(tru_result["output"], list)
-    assert len(tru_result["output"]) == 1
+    assert len(tru_result["output"]) == 2
     assert tru_result["output"][0]["type"] == "input_file"
     assert tru_result["output"][0]["filename"] == "test.pdf"
     assert "file_data" in tru_result["output"][0]
     assert "file_url" not in tru_result["output"][0]
+    assert tru_result["output"][1]["filename"] == "document"
 
 
 def test_format_request_messages(system_prompt):
