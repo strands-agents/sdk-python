@@ -161,9 +161,8 @@ export class IntegTestRole extends Construct {
           'bedrock:RetrieveAndGenerate',
           'bedrock-mantle:CreateInference',
           'bedrock-mantle:CallWithBearerToken',
-          // Read-only catalog listing. The Mantle base-path tables in both SDKs are
-          // hand-maintained because routing is not discoverable, so their drift tests
-          // enumerate GET /v1/models. Without this they skip rather than run. See #3654.
+          // Lets the Mantle routing drift tests enumerate GET /v1/models; without it
+          // they skip rather than run. See #3654.
           'bedrock-mantle:ListModels',
           'bedrock:CountTokens',
         ],

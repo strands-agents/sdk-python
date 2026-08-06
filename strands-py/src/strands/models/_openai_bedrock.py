@@ -26,31 +26,13 @@ _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws{path}"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
 
-# Mantle-routed model ids served from /openai/v1 instead of /v1.
-#
-# On Mantle the base path is a property of the individual model, not of its vendor prefix
-# or the API surface. The two Gemma generations prove a prefix cannot decide it:
-# ``google.gemma-4-31b`` is served from ``/openai/v1`` while ``google.gemma-3-27b-it`` is
-# served from ``/v1``. Sending a model to the wrong base path fails with HTTP 400
-# ``validation_error`` ("isn't supported on this route"), so this set is matched exactly
-# rather than by prefix.
-#
-# Mantle exposes no way to discover a model's base path: ``GET /v1/models`` reports
-# ``status`` but not routing, and there is no ``/openai/v1/models``. The set below was
-# therefore derived empirically by invoking every model listed in ``us-east-1`` on both
-# base paths and both API surfaces, and it has to be updated when Mantle onboards models.
-# The ``test_mantle_routing`` integ test replays that probe against the live catalog so
-# drift surfaces as a test failure naming the offending ids rather than as a 400 in a
-# user's application.
-#
-# This set is the *complete verified snapshot* of the ``/openai/v1`` catalog, not the
-# delta left over by ``_OPENAI_PATH_MODEL_PREFIXES``. Entries that a prefix already
-# matches are intentionally listed anyway: the prefixes are an additive forward-compat
-# hedge, so narrowing or removing one must never change how an already-verified id
-# routes. Add every id you verify, even a redundant one, and do not trim entries because
-# a prefix appears to cover them.
-#
-# Verified against the ``us-east-1`` catalog on 2026-08-05.
+# Mantle model ids served from /openai/v1; all other Mantle models use /v1, and the wrong
+# base path fails with HTTP 400. The base path is a per-model property that no Mantle API
+# reports (``google.gemma-4-*`` is on /openai/v1, ``google.gemma-3-*`` is on /v1), so this
+# set is the complete /openai/v1 catalog verified against ``us-east-1`` on 2026-08-05.
+# Ids covered by ``_OPENAI_PATH_MODEL_PREFIXES`` are still listed so narrowing a prefix
+# never reroutes a verified id. The ``test_mantle_routing`` integ test fails naming any
+# id that drifts.
 _OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
     {
         # Hosted OpenAI models. Responses API only.
@@ -61,7 +43,7 @@ _OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
         "openai.gpt-5.6-luna",
         "openai.gpt-5.6-sol",
         "openai.gpt-5.6-terra",
-        # Gemma 4. Both API surfaces. Gemma 3 is on /v1, so do not fold these into a prefix.
+        # Gemma 4. Both API surfaces.
         "google.gemma-4-26b-a4b",
         "google.gemma-4-31b",
         "google.gemma-4-e2b",
@@ -70,17 +52,10 @@ _OPENAI_PATH_MODEL_IDS: frozenset[str] = frozenset(
     }
 )
 
-# Prefixes are an additive forward-compatibility hedge so a new *point release* of an
-# already-verified line works before it is added to _OPENAI_PATH_MODEL_IDS. Nothing here
-# is load-bearing for a verified id.
-#
-# Scope each prefix to a single model line, never to a vendor. A vendor-wide prefix bets
-# that the vendor will never split across base paths, which is the exact bet ``google.``
-# would have lost: Gemma 4 is on /openai/v1 and Gemma 3 is on /v1. So ``xai.grok-4.`` is
-# listed rather than ``xai.``, and the broader ``google.gemma-`` and ``openai.gpt-`` are
-# deliberately absent. A new line (a hypothetical ``xai.grok-5``) is left to fail the
-# drift test, which is the signal to verify it and add its id, rather than being silently
-# mis-routed.
+# Forward-compatibility hedge: routes a new point release of a verified line before its id
+# is added to ``_OPENAI_PATH_MODEL_IDS``. Keep each prefix scoped to a single model line,
+# never a vendor, since one vendor's lines can split across base paths (Gemma 4 vs Gemma 3).
+# A new line falls through to /v1 and is caught by the drift test.
 _OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.grok-4.")
 
 
