@@ -50,6 +50,7 @@ def bedrock_client(session_cls):
     mock_client = session_cls.return_value.client.return_value
     mock_client.meta = unittest.mock.MagicMock()
     mock_client.meta.region_name = "us-west-2"
+    mock_client.meta.service_model.shape_for.return_value.enum = ["png", "jpeg"]
     yield mock_client
 
 
@@ -2847,6 +2848,64 @@ async def test_format_request_with_guardrail_latest_message(model):
 
 
 @pytest.mark.asyncio
+async def test_format_request_with_guardrail_latest_message_uses_service_model_formats(model):
+    """Test that guardContent image formats are read from the botocore service model."""
+    model.client.meta.service_model.shape_for.return_value.enum = ["png", "jpeg", "webp"]
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"image": {"format": "webp", "source": {"bytes": b"fake_image_data"}}}],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    assert request["messages"][0]["content"][0]["guardContent"]["image"]["format"] == "webp"
+    model.client.meta.service_model.shape_for.assert_called_once_with("GuardrailConverseImageFormat")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("image_format", ["gif", "webp"])
+async def test_format_request_with_guardrail_latest_message_unsupported_image_format(model, image_format, caplog):
+    """Test that guardContent does not wrap image formats that Bedrock guardrails reject."""
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock")
+
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Look at this image"},
+                {"image": {"format": image_format, "source": {"bytes": b"fake_image_data"}}},
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+    formatted_messages = request["messages"]
+
+    # Latest user message text should still be wrapped
+    assert "guardContent" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
+
+    # GuardrailConverseImageBlock only accepts png and jpeg, so the image is left unwrapped
+    assert "guardContent" not in formatted_messages[0]["content"][1]
+    assert formatted_messages[0]["content"][1]["image"]["format"] == image_format
+    assert f"image_format=<{image_format}> | format not supported by bedrock guardrails" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_format_request_with_guardrail_latest_message_after_tool_use(model):
     """Test that guardContent wraps the last user text message even when a toolResult follows it."""
     model.update_config(
@@ -3169,6 +3228,111 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     # New cache point should be at end of last user message
     assert len(cleaned_messages[2]["content"]) == 2
     assert "cachePoint" in cleaned_messages[2]["content"][-1]
+
+
+def test_inject_cache_point_before_non_pdf_document(bedrock_client):
+    """Test that cache point is inserted before non-PDF document blocks."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this file"},
+                {"document": {"format": "md", "name": "readme", "source": {"bytes": b"# Hello"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze this file"},
+        {"cachePoint": {"type": "default"}},
+        {"document": {"format": "md", "name": "readme", "source": {"bytes": b"# Hello"}}},
+    ]
+
+
+def test_inject_cache_point_after_pdf_document(bedrock_client):
+    """Test that cache point is appended at end when only PDF documents are present."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this PDF"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze this PDF"},
+        {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+
+def test_inject_cache_point_mixed_pdf_and_non_pdf_documents(bedrock_client):
+    """Test that cache point is inserted before the first non-PDF document in mixed content."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze these files"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+                {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze these files"},
+        {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+        {"cachePoint": {"type": "default"}},
+        {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+    ]
+
+
+def test_inject_cache_point_skipped_when_leading_non_pdf_document(bedrock_client):
+    """Test that no cache point is injected when a non-PDF document is the first block.
+
+    A leading cache point has no prefix to cache and Bedrock rejects it with a ValidationException,
+    so injection is skipped for that message.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+                {"text": "Analyze this file"},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+        {"text": "Analyze this file"},
+    ]
 
 
 def test_inject_cache_point_anthropic_strategy_skips_model_check(bedrock_client):

@@ -10,11 +10,11 @@ import {
   ToolUseBlock,
   ToolResultBlock,
   VideoBlock,
-  type Model,
 } from '../../index.js'
 import { AfterInvocationEvent, AfterModelCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
 import type { Agent } from '../../agent/agent.js'
+import { Model } from '../../models/model.js'
 import type { BaseModelConfig } from '../../models/model.js'
 
 async function triggerSlidingWindow(manager: SlidingWindowConversationManager, agent: Agent): Promise<void> {
@@ -193,6 +193,26 @@ describe('SlidingWindowConversationManager', () => {
           content: [new TextBlock(expectedText)],
         })
       )
+    })
+
+    it('preserves the durable message id when truncating tool results', () => {
+      const manager = new SlidingWindowConversationManager({ shouldTruncateResults: true })
+      const original = 'A'.repeat(200) + 'MIDDLE_CONTENT_TO_REMOVE'.repeat(10) + 'B'.repeat(200)
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new ToolResultBlock({ toolUseId: 'tool-1', status: 'success', content: [new TextBlock(original)] }),
+          ],
+          trackingId: 'durable-1',
+        }),
+      ]
+
+      const changed = (manager as any)._truncateToolResults(messages, 0)
+
+      expect(changed).toBe(true)
+      // The message stays in history with its content truncated, so its tracking id must survive.
+      expect(messages[0]!.trackingId).toBe('durable-1')
     })
 
     it('leaves small tool results unchanged', () => {
@@ -1172,7 +1192,10 @@ describe('SlidingWindowConversationManager', () => {
         new Message({ role: 'user', content: [new TextBlock('Message 3')] }),
         new Message({ role: 'assistant', content: [new TextBlock('Response 3')] }),
       ]
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: Model.prototype.estimateUtilization,
+      } as any
       const mockAgent = createMockAgent({ messages })
       manager.initAgent(mockAgent)
 
@@ -1196,7 +1219,10 @@ describe('SlidingWindowConversationManager', () => {
         new Message({ role: 'user', content: [new TextBlock('Message 1')] }),
         new Message({ role: 'assistant', content: [new TextBlock('Response 1')] }),
       ]
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: Model.prototype.estimateUtilization,
+      } as any
       const mockAgent = createMockAgent({ messages })
       manager.initAgent(mockAgent)
 

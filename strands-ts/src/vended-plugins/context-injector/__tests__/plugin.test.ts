@@ -4,6 +4,7 @@ import { InvokeModelStage } from '../../../middleware/index.js'
 import { Message, TextBlock } from '../../../types/messages.js'
 import type { InvokeModelContext } from '../../../middleware/index.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
+import { anyTrackingId } from '../../../__fixtures__/message-helpers.js'
 
 const user = (text: string) => new Message({ role: 'user', content: [new TextBlock(text)] })
 const assistant = (text: string) => new Message({ role: 'assistant', content: [new TextBlock(text)] })
@@ -50,8 +51,12 @@ describe('ContextInjector', () => {
         user('ask'),
       ])
       expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
-        { role: 'assistant', content: [{ text: 'prior' }] },
-        { role: 'user', content: [{ text: 'INJECTED' }, { text: 'ask' }] },
+        { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
+        {
+          role: 'user',
+          content: [{ text: 'INJECTED' }, { text: 'ask' }],
+          trackingId: anyTrackingId,
+        },
       ])
     })
 
@@ -70,8 +75,12 @@ describe('ContextInjector', () => {
       ])
       // No later user message than index 0, so the fold targets it.
       expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
-        { role: 'user', content: [{ text: 'INJECTED' }, { text: 'ask' }] },
-        { role: 'assistant', content: [{ text: 'reply' }] },
+        {
+          role: 'user',
+          content: [{ text: 'INJECTED' }, { text: 'ask' }],
+          trackingId: anyTrackingId,
+        },
+        { role: 'assistant', content: [{ text: 'reply' }], trackingId: anyTrackingId },
       ])
     })
 
@@ -104,8 +113,8 @@ describe('ContextInjector', () => {
       )
       // Unchanged: the original messages, no injected block.
       expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
-        { role: 'assistant', content: [{ text: 'prior' }] },
-        { role: 'user', content: [{ text: 'ask' }] },
+        { role: 'assistant', content: [{ text: 'prior' }], trackingId: anyTrackingId },
+        { role: 'user', content: [{ text: 'ask' }], trackingId: anyTrackingId },
       ])
     })
   })

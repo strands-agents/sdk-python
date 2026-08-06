@@ -41,13 +41,13 @@ class MockBidiModel:
 
     async def send(self, content):
         if not self._started:
-            raise RuntimeError("model not started | call start before sending/receiving")
+            raise RuntimeError("model not started | call start before sending")
         # Mock implementation - in real tests, this would trigger events
 
     async def receive(self):
         """Async generator yielding mock events."""
         if not self._started:
-            raise RuntimeError("model not started | call start before sending/receiving")
+            raise RuntimeError("model not started | call start before receiving")
 
         # Yield connection start event
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)

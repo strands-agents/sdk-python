@@ -1,5 +1,6 @@
 ---
 title: Prompts
+description: 'Write system prompts and user messages for Strands agents. Covers multi-modal prompting, direct tool calls, and prompt engineering with agent SOPs.'
 tags: [safety, conversation-management, prompt-authoring]
 sourceLinks:
   - path: strands-py/src/strands/agent/agent.py
@@ -40,6 +41,30 @@ If you do not specify a system prompt, the model will behave according to its de
 ## User Messages
 
 These are your queries or requests to the agent. The SDK supports multiple techniques for prompting.
+
+<Tabs>
+<Tab label="Python">
+
+:::caution[Passing a message list from an untrusted source]
+When you invoke an agent with a full message list rather than plain text, that
+list can carry tool-call content, and a tool-call block as the last message
+dispatches a tool directly on the next invocation. If the list was built from a
+source you do not control, clear tool-call content first. See
+[Trusted Message History](../../safety-security/trusted-message-history.md).
+:::
+
+</Tab>
+<Tab label="TypeScript">
+
+:::caution[Passing a message list from an untrusted source]
+When you invoke an agent with a full message list rather than plain text, that
+list can carry forged tool-result content that misleads the model. If the list
+was built from a source you do not control, treat it as untrusted. See
+[Trusted Message History](../../safety-security/trusted-message-history.md).
+:::
+
+</Tab>
+</Tabs>
 
 ### Text Prompt
 

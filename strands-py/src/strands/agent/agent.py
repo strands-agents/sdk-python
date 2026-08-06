@@ -77,7 +77,14 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, split_system_prompt
+from ..types.content import (
+    ContentBlock,
+    Message,
+    Messages,
+    SystemContentBlock,
+    _ensure_tracking_id,
+    split_system_prompt,
+)
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
@@ -117,7 +124,12 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported values for the ``context_manager`` parameter."""
+"""Supported values for the ``context_manager`` parameter.
+
+- ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
+- ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
+  This mode may change in future versions.
+"""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
@@ -404,7 +416,7 @@ class Agent(AgentBase):
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
 
-            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 
         self._plugin_registry = _PluginRegistry(self)
 
@@ -421,12 +433,10 @@ class Agent(AgentBase):
 
         self._concurrency = _ConcurrencyController(concurrent_invocation_mode)
 
-        # In the future, we'll have a RetryStrategy base class but until
-        # that API is determined we only allow ModelRetryStrategy
         if (
             retry_strategy is not None
             and not isinstance(retry_strategy, _DefaultRetryStrategySentinel)
-            and type(retry_strategy) is not ModelRetryStrategy
+            and not isinstance(retry_strategy, ModelRetryStrategy)
         ):
             raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
 
@@ -588,6 +598,8 @@ class Agent(AgentBase):
         The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
+        - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 
@@ -1268,6 +1280,12 @@ class Agent(AgentBase):
             try:
                 yield InitEventLoopEvent()
 
+                # Backfill ids for any messages that entered history outside the append chokepoint
+                # (e.g. a caller doing agent.messages.append(...) directly, or a legacy session
+                # restored without ids), so every message carries one before the model is called.
+                for message in self.messages:
+                    _ensure_tracking_id(message)
+
                 await self._append_messages(*current_messages)
 
                 structured_output_context = StructuredOutputContext(
@@ -1513,8 +1531,12 @@ class Agent(AgentBase):
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
 
     async def _append_messages(self, *messages: Message) -> None:
-        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
+
+        Assigns a durable tracking id to any message that does not already have one.
+        """
         for message in messages:
+            _ensure_tracking_id(message)
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 

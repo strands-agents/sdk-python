@@ -10,6 +10,7 @@ from strands.agent.conversation_manager.summarizing_conversation_manager import 
 )
 from strands.hooks.events import BeforeModelCallEvent
 from strands.hooks.registry import HookRegistry
+from strands.models.model import Model
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -141,6 +142,24 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
     # Recent messages should be preserved
     assert "Message 3" in str(mock_agent.messages[-2]["content"])
     assert "Response 3" in str(mock_agent.messages[-1]["content"])
+
+
+def test_reduce_context_summary_message_has_durable_id(summarizing_manager, mock_agent):
+    """The generated summary message should carry a durable tracking id like any other message."""
+    mock_agent.messages = [
+        {"role": "user", "content": [{"text": "Message 1"}]},
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        {"role": "user", "content": [{"text": "Message 2"}]},
+        {"role": "assistant", "content": [{"text": "Response 2"}]},
+        {"role": "user", "content": [{"text": "Message 3"}]},
+        {"role": "assistant", "content": [{"text": "Response 3"}]},
+    ]
+
+    summarizing_manager.reduce_context(mock_agent)
+
+    summary_message = mock_agent.messages[0]
+    assert isinstance(summary_message.get("tracking_id"), str)
+    assert summary_message["tracking_id"]
 
 
 def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, mock_agent):
@@ -820,6 +839,8 @@ def _make_summarizing_threshold_agent(messages, summary_response="Summary of con
     agent.messages = messages
     agent.model = MagicMock()
     agent.model.context_window_limit = context_window_limit
+    agent.model._utilization_limit_warned = False
+    agent.model.estimate_utilization = lambda input_tokens: Model.estimate_utilization(agent.model, input_tokens)
     agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream(summary_response))
     return agent
 
@@ -882,6 +903,8 @@ def test_proactive_compression_swallows_errors():
     agent.messages = messages
     agent.model = MagicMock()
     agent.model.context_window_limit = 1000
+    agent.model._utilization_limit_warned = False
+    agent.model.estimate_utilization = lambda input_tokens: Model.estimate_utilization(agent.model, input_tokens)
     agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_error(RuntimeError("model failed")))
 
     registry = HookRegistry()
