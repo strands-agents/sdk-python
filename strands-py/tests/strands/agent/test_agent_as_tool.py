@@ -1041,7 +1041,8 @@ def test_nested_interrupt_resumes_after_rehydration(tmp_path, confirmable_action
 def test_nested_interrupt_resumes_after_rehydration_with_a_sub_agent_session_manager(tmp_path, confirmable_action):
     """A context-preserving sub-agent that owns a session manager resumes across a process boundary.
 
-    This is the configuration issue #3076 describes literally: ``preserve_context=True``, with both the
+    This is the configuration https://github.com/strands-agents/harness-sdk/issues/3076 describes
+    literally: ``preserve_context=True``, with both the
     orchestrator and the sub-agent rebuilt from the session store. The orchestrator parks no turn for a
     sub-agent that preserves context, so the resume runs entirely off the sub-agent's own session plus
     the answer the orchestrator carries as data.
@@ -1158,7 +1159,10 @@ async def test_stream_resume_reraises_the_interrupt_when_the_parked_turn_cannot_
     interrupt record when a turn ends - so the parked turn and the human's answer have to be carried by
     a still-pending interrupt to survive for another attempt.
     """
-    unloadable = Agent(name="fake_agent", callback_handler=None).take_snapshot(preset="session").to_dict()
+    interrupted = Agent(name="fake_agent", callback_handler=None)
+    interrupted._interrupt_state.interrupts["interrupt-1"] = Interrupt(id="interrupt-1", name="approval", reason="r")
+    interrupted._interrupt_state.activate()
+    unloadable = interrupted.take_snapshot(preset="session").to_dict()
     unloadable["schema_version"] = "0.0"
 
     parent_id = namespaced_id("tool-123", "interrupt-1")
@@ -1278,3 +1282,147 @@ async def test_stream_interrupt_warns_when_a_context_preserving_sub_agent_has_no
             pass
 
     assert "preserve_context=True with no session manager" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_resume_reraises_only_the_interrupts_the_parked_turn_still_awaits(
+    fake_agent, orchestrator, caplog
+):
+    """Re-raising skips an interrupt the sub-agent has already finished with.
+
+    The orchestrator keeps every interrupt id it was handed until its own turn ends, so after a
+    sub-agent interrupts twice its first id is still recorded there while the parked turn has moved on.
+    Handing that id back would point the caller at an interrupt the reinstated sub-agent does not hold,
+    and answering it fails the call - taking the parked turn and the pending answer with it.
+    """
+    interrupted = Agent(name="fake_agent", callback_handler=None)
+    interrupted._interrupt_state.interrupts["interrupt-2"] = Interrupt(id="interrupt-2", name="approval", reason="r")
+    interrupted._interrupt_state.activate()
+    unloadable = interrupted.take_snapshot(preset="session").to_dict()
+    unloadable["schema_version"] = "0.0"
+
+    consumed_id = namespaced_id("tool-123", "interrupt-1")
+    awaited_id = namespaced_id("tool-123", "interrupt-2")
+    orchestrator._interrupt_state.interrupts[consumed_id] = Interrupt(
+        id=consumed_id, name="approval", reason="r", response="APPROVE"
+    )
+    orchestrator._interrupt_state.interrupts[awaited_id] = Interrupt(id=awaited_id, name="approval", reason="r")
+    orchestrator._interrupt_state.context.update(
+        {
+            "responses": [{"interruptResponse": {"interruptId": awaited_id, "response": "APPROVE"}}],
+            "sub_agent_continuations": {"tool-123": unloadable},
+        }
+    )
+    orchestrator._interrupt_state.activate()
+
+    fake_agent.stream_async = MagicMock()
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    with caplog.at_level("ERROR"):
+        events = [event async for event in tool.stream(tool_use, {"agent": orchestrator})]
+
+    fake_agent.stream_async.assert_not_called()
+
+    tru_interrupt_ids = [interrupt.id for interrupt in events[0]["tool_interrupt_event"]["interrupts"]]
+    exp_interrupt_ids = [awaited_id]
+    assert tru_interrupt_ids == exp_interrupt_ids
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_parks_a_turn_that_is_isolated_from_the_sub_agent(
+    fake_agent, orchestrator, interrupt_result
+):
+    """A parked turn is a copy: later work on the same sub-agent instance cannot alter it.
+
+    A snapshot carries the sub-agent's interrupt context by reference, so an orchestrator reusing one
+    sub-agent instance would otherwise see its parked turn rewritten under it.
+    """
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(interrupt_result))
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "go"}}
+
+    async for _ in tool.stream(tool_use, {"agent": orchestrator}):
+        pass
+
+    fake_agent._interrupt_state.context["responses"] = [
+        {"interruptResponse": {"interruptId": "later", "response": "DENY"}}
+    ]
+
+    tru_parked_context = orchestrator._interrupt_state.context["sub_agent_continuations"]["tool-123"]["data"][
+        "interrupt_state"
+    ]["context"]
+    exp_parked_context = {}
+    assert tru_parked_context == exp_parked_context
+
+
+def test_nested_interrupt_that_reraises_twice_runs_each_confirmed_action_once(tmp_path, confirmable_action):
+    """A sub-agent that interrupts twice keeps both confirmations distinct across a failed reinstate.
+
+    The orchestrator holds every interrupt id it was handed until its own turn ends, so by the second
+    interrupt the first id is still recorded while the parked turn has moved past it. Re-raising has to
+    offer only what the parked turn still awaits, otherwise the caller answers a dead id and the call
+    fails - losing the parked turn and the answer with it.
+    """
+    dangerous_action, confirm_hook, executions = confirmable_action
+
+    def build_orchestrator(sub_agent_responses, orchestrator_responses):
+        sub_agent = Agent(
+            name="worker",
+            agent_id="worker",
+            model=MockedModelProvider(sub_agent_responses),
+            tools=[dangerous_action],
+            hooks=[confirm_hook],
+            callback_handler=None,
+        )
+        return Agent(
+            name="orchestrator",
+            agent_id="orchestrator",
+            model=MockedModelProvider(orchestrator_responses),
+            tools=[sub_agent.as_tool()],
+            callback_handler=None,
+            session_manager=FileSessionManager("session-twice", storage_dir=str(tmp_path)),
+        )
+
+    def approve(orchestrator, interrupt_id):
+        return orchestrator([{"interruptResponse": {"interruptId": interrupt_id, "response": "APPROVE"}}])
+
+    first_interrupt = build_orchestrator(
+        [tool_use_message("sub-1", "dangerous_action", {"target": "first"}), text_message("sub done")],
+        [tool_use_message("orch-1", "worker", {"input": "go"}), text_message("all done")],
+    )("do both guarded steps")
+
+    assert first_interrupt.stop_reason == "interrupt"
+
+    # Answering the first confirmation runs it, then the sub-agent interrupts again for the second.
+    second_interrupt = approve(
+        build_orchestrator(
+            [tool_use_message("sub-2", "dangerous_action", {"target": "second"}), text_message("sub done")],
+            [text_message("all done")],
+        ),
+        first_interrupt.interrupts[0].id,
+    )
+
+    assert second_interrupt.stop_reason == "interrupt"
+    assert executions == ["first"]
+    second_id = second_interrupt.interrupts[0].id
+
+    # The parked turn cannot be read, so the second confirmation has to survive to be answered again.
+    assert set_parked_turn_schema_version(tmp_path, "0.0") == 1
+
+    reraised = approve(build_orchestrator([text_message("sub done")], [text_message("all done")]), second_id)
+
+    tru_reraised_ids = [interrupt.id for interrupt in reraised.interrupts]
+    exp_reraised_ids = [second_id]
+    assert tru_reraised_ids == exp_reraised_ids
+    assert executions == ["first"]
+
+    assert set_parked_turn_schema_version(tmp_path, "1.0") == 1
+
+    tru_result = approve(build_orchestrator([text_message("sub done")], [text_message("all done")]), second_id)
+
+    assert tru_result.stop_reason == "end_turn"
+
+    tru_executions = executions
+    exp_executions = ["first", "second"]
+    assert tru_executions == exp_executions

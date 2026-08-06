@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import logging
 import threading
+from collections.abc import Collection
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -79,6 +80,20 @@ def _namespace_interrupts(tool_use_id: str, interrupts: list[Interrupt]) -> list
     ]
 
 
+def _parked_turn_interrupt_ids(turn: dict[str, Any]) -> set[str]:
+    """Get the sub-agent-local ids of the interrupts a parked turn is still waiting on.
+
+    Args:
+        turn: Serialized snapshot of an interrupted sub-agent turn.
+
+    Returns:
+        Interrupt IDs the sub-agent will raise again when the turn is reinstated.
+    """
+    interrupt_state: dict[str, Any] = (turn.get("data") or {}).get("interrupt_state") or {}
+    interrupts: dict[str, Any] = interrupt_state.get("interrupts") or {}
+    return set(interrupts)
+
+
 class _ParentCall:
     """The orchestrator's record of one agent-as-tool call.
 
@@ -119,12 +134,23 @@ class _ParentCall:
 
         return any(interrupt_id.startswith(self._prefix) for interrupt_id in self._parent._interrupt_state.interrupts)
 
-    def pending_interrupts(self) -> list[Interrupt]:
-        """Get the namespaced interrupts the orchestrator holds for this call."""
+    def pending_interrupts(self, local_ids: Collection[str] | None = None) -> list[Interrupt]:
+        """Get the namespaced interrupts the orchestrator holds for this call.
+
+        Args:
+            local_ids: Restrict the result to interrupts whose sub-agent-local id is in this
+                collection. The orchestrator keeps every id it has been handed until its own turn
+                ends, including ones the sub-agent has since finished with, so a caller that wants
+                the interrupts the sub-agent is actually still waiting on has to say which those are.
+
+        Returns:
+            Interrupts the orchestrator holds for this call, in the order it recorded them.
+        """
         return [
             interrupt
             for interrupt_id, interrupt in self._parent._interrupt_state.interrupts.items()
             if interrupt_id.startswith(self._prefix)
+            and (local_ids is None or interrupt_id[len(self._prefix) :] in local_ids)
         ]
 
     def responses(self) -> list[InterruptResponseContent]:
@@ -336,8 +362,16 @@ class _AgentAsTool(AgentTool):
             # Determine if we are resuming the sub-agent from an interrupt.
             if parent_call is not None and parent_call.awaiting_resume:
                 if not self._reinstate_turn(parent_call) and not self._agent._interrupt_state.activated:
-                    pending = parent_call.pending_interrupts()
-                    if parent_call.parked_turn() is not None and pending:
+                    # Only the interrupts the parked turn is still waiting on: the orchestrator also
+                    # holds ids the sub-agent has already finished with, and handing one of those back
+                    # would send the caller to an interrupt that no longer exists on the sub-agent.
+                    parked_turn = parent_call.parked_turn()
+                    pending = (
+                        parent_call.pending_interrupts(local_ids=_parked_turn_interrupt_ids(parked_turn))
+                        if parked_turn is not None
+                        else []
+                    )
+                    if pending:
                         # The answer cannot be applied yet, but the turn is still parked, so raise the
                         # interrupt again instead of failing the call: the orchestrator parks it once more,
                         # keeping both the turn and the pending interrupt for another attempt. Failing here
@@ -549,8 +583,9 @@ class _AgentAsTool(AgentTool):
             # Keep the parked turn: a load can fail for a reason a later attempt survives, such as a schema
             # version the running SDK does not accept yet, and this is the only copy of the turn the human
             # already answered. The caller re-raises the interrupt so the turn stays parked with it. A
-            # failure after the first field was applied leaves the sub-agent mismatched; it is not invoked,
-            # and an ephemeral sub-agent is reset on its next fresh call.
+            # failure after the first field was applied leaves the sub-agent mismatched. It is not
+            # invoked unless it is itself still activated from an earlier turn in this process, and an
+            # ephemeral sub-agent is reset on its next fresh call.
             logger.error(
                 "tool_name=<%s>, agent_name=<%s>, tool_use_id=<%s> | failed to reinstate interrupted "
                 "sub-agent turn: %s",
