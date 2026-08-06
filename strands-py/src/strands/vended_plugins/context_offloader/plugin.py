@@ -387,12 +387,16 @@ class ContextOffloader(Plugin):
             context_lines: Lines before AND after each match (like grep -C). Default: 5.
                 Without pattern/line_range, returns first N lines.
             tool_context: Injected by the framework. Not user-facing.
+
+        Raises:
+            ValueError: If the reference is unknown, the content is binary and pattern/line_range/context_lines
+                were supplied, or line_range falls outside the content.
         """
         storage = self._storage_for_agent(tool_context.agent)
         try:
             content_bytes, content_type = await _retrieve_content(storage, reference)
-        except KeyError:
-            return f"Error: reference not found: {reference}"
+        except KeyError as error:
+            raise ValueError(f"reference not found: {reference}") from error
 
         # Refresh the eviction cycle so actively-retrieved content survives
         # eviction for unified Storage backends, matching InMemoryStorage.retrieve.
@@ -402,8 +406,8 @@ class ContextOffloader(Plugin):
             return self._decode_full_content(content_bytes, content_type, reference)
 
         if not _is_searchable_content(content_type):
-            return (
-                f"Error: cannot search binary content ({content_type}). "
+            raise ValueError(
+                f"cannot search binary content ({content_type}). "
                 "Omit pattern/line_range/context_lines to retrieve the full content."
             )
 
