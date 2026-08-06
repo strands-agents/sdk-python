@@ -463,8 +463,8 @@ from strands_evals.evaluators import TrajectoryEvaluator
 tool_context = """
 Available tools:
 - calculator(a: float, b: float, op: str) -> float: Apply an arithmetic operator to two numbers
-- current_time() -> str: Get the current date and time
 - file_read(path: str) -> str: Read file contents
+- file_write(path: str, content: str) -> str: Write content to a file
 """
 
 # Generate experiment automatically
@@ -475,7 +475,7 @@ async def generate_experiment():
         context=tool_context,
         num_cases=5,
         evaluator=TrajectoryEvaluator,
-        task_description="Assistant with calculation and time tools",
+        task_description="Assistant with calculation and file tools",
         num_topics=2  # Distribute across multiple topics
     )
     

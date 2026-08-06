@@ -498,6 +498,7 @@ from strands.experimental.bidi.models import BidiNovaSonicModel
 
 async def main():
     model = BidiNovaSonicModel()
+    # calculator is defined at the end of this page
     agent = BidiAgent(model=model, tools=[calculator])
     
     async with agent as agent:

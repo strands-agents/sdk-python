@@ -2,7 +2,7 @@
 """
 # Knowledge Base Agent
 
-This example demonstrates a Strands agent that can intelligently determine 
+This example demonstrates a Strands agent that can intelligently determine
 whether to store information to a knowledge base or retrieve information from it
 based on the user's query.
 
@@ -22,15 +22,18 @@ based on the user's query.
 - "The capital of France is Paris"
 """
 
+import asyncio
 import os
-import sys
-from pathlib import Path
 from strands import Agent
-from strands_tools import use_llm, memory
+from strands.vended_memory_stores import BedrockKnowledgeBaseStore
+from strands_tools import use_llm
 
 # Set knowledge base ID (can be overridden by environment variable)
 DEFAULT_KB_ID = "demokb123"
 KB_ID = os.environ.get("STRANDS_KNOWLEDGE_BASE_ID")
+
+# Data source to ingest into. Only CUSTOM and S3 data sources accept writes.
+DATA_SOURCE_ID = os.environ.get("STRANDS_DATA_SOURCE_ID", "demods123")
 
 if not KB_ID:
     print("\n⚠️  Warning: STRANDS_KNOWLEDGE_BASE_ID environment variable is not set!")
@@ -40,6 +43,19 @@ if not KB_ID:
     KB_ID = DEFAULT_KB_ID
 else:
     print(f"Using Knowledge Base ID: {KB_ID}")
+
+# The store is called directly rather than registered as a tool, so the workflow
+# below decides when to read and when to write.
+store = BedrockKnowledgeBaseStore(
+    name="knowledge_base",
+    description="Facts the user has asked to remember.",
+    writable=True,
+    config={
+        "knowledge_base_id": KB_ID,
+        "data_source_type": "CUSTOM",
+        "data_source_id": DATA_SOURCE_ID,
+    },
+)
 
 # System prompt to determine action
 ACTION_SYSTEM_PROMPT = """
@@ -55,7 +71,7 @@ Examples:
 - "What's my birthday?" -> "retrieve"
 - "The capital of France is Paris" -> "store"
 - "What is the capital of France?" -> "retrieve"
-- "My name is John" -> "store" 
+- "My name is John" -> "store"
 - "Who am I?" -> "retrieve"
 - "I live in Seattle" -> "store"
 - "Where do I live?" -> "retrieve"
@@ -65,12 +81,11 @@ Only respond with "store" or "retrieve" - no explanation, prefix, or any other t
 
 # System prompt for generating answers from retrieved information
 ANSWER_SYSTEM_PROMPT = """
-You are a helpful knowledge assistant that provides clear, concise answers 
+You are a helpful knowledge assistant that provides clear, concise answers
 based on information retrieved from a knowledge base.
 
-The information from the knowledge base contains document IDs, titles, 
-content previews and relevance scores. Focus on the actual content and 
-ignore the metadata.
+The information from the knowledge base contains the stored text of each match.
+Focus on the actual content and ignore any metadata.
 
 Your responses should:
 1. Be direct and to the point
@@ -81,9 +96,7 @@ Your responses should:
 6. Begin the response with \n
 
 When analyzing the knowledge base results:
-- Higher scores (closer to 1.0) indicate more relevant results
 - Look for patterns across multiple results
-- Prioritize information from results with higher scores
 - Ignore any JSON formatting or technical elements in the content
 
 Example response for conflicting information:
@@ -102,10 +115,10 @@ def determine_action(agent, query):
         prompt=f"Query: {query}",
         system_prompt=ACTION_SYSTEM_PROMPT
     )
-    
+
     # Clean and extract the action
     action_text = str(result).lower().strip()
-    
+
     # Default to retrieve if response isn't clear
     if "store" in action_text:
         return "store"
@@ -114,26 +127,27 @@ def determine_action(agent, query):
 
 def run_kb_agent(query):
     """Process a user query with the knowledge base agent."""
-    agent = Agent(tools=[memory, use_llm])
-    
+    agent = Agent(tools=[use_llm])
+
     # Determine the action - store or retrieve
     action = determine_action(agent, query)
-    
+
     if action == "store":
-        # For store actions, store the full query
-        agent.tool.memory(action="store", content=query)
+        # For store actions, store the full query. The store's methods are async,
+        # so this sync workflow drives them with asyncio.run.
+        asyncio.run(store.add(query))
         print("\nI've stored this information.")
     else:
         # For retrieve actions, query the knowledge base with appropriate parameters
-        result = agent.tool.memory(
-            action="retrieve", 
-            query=query,
-            min_score=0.4,  # Set reasonable minimum score threshold
-            max_results=9   # Retrieve a good number of results
+        entries = asyncio.run(
+            store.search(
+                query,
+                options={"max_search_results": 9},  # Limit number of results
+            )
         )
-        # Convert the result to a string to extract just the content text
-        result_str = str(result)
-        
+        # Join the matched content to pass to the answering agent
+        result_str = "\n".join(entry.content for entry in entries)
+
         # Generate a clear, conversational answer using the retrieved information
         answer = agent.tool.use_llm(
             prompt=f"User question: \"{query}\"\n\nInformation from knowledge base:\n{result_str}\n\nStart your answer with newline character and provide a helpful answer based on this information:",
@@ -148,7 +162,7 @@ if __name__ == "__main__":
     print("- \"Remember that my birthday is on July 25\"")
     print("- \"What day is my birthday?\"")
     print("\nType your request below or 'exit' to quit:")
-    
+
     # Interactive loop
     while True:
         try:
@@ -156,14 +170,14 @@ if __name__ == "__main__":
             if user_input.lower() in ["exit", "quit"]:
                 print("\nGoodbye! 👋")
                 break
-            
+
             if not user_input.strip():
                 continue
-                
+
             # Process the input through the knowledge base agent
             print("Processing...")
             run_kb_agent(user_input)
-            
+
         except KeyboardInterrupt:
             print("\n\nExecution interrupted. Exiting...")
             break

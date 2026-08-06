@@ -13,7 +13,10 @@ This [example](https://github.com/strands-agents/harness-sdk/blob/main/site/docs
 >
 > ```bash
 > export STRANDS_KNOWLEDGE_BASE_ID=your_kb_id
+> export STRANDS_DATA_SOURCE_ID=your_data_source_id
 > ```
+>
+> Storing requires a `CUSTOM` or `S3` data source, since those are the only types that accept direct ingestion. `STRANDS_DATA_SOURCE_ID` identifies it.
 >
 > This example was tested using a Bedrock knowledge base. If you experience odd behavior or missing data, verify that you've properly initialized this environment variable.
 
@@ -21,7 +24,7 @@ This [example](https://github.com/strands-agents/harness-sdk/blob/main/site/docs
 
 | Feature            | Description                            |
 | ------------------ | -------------------------------------- |
-| **Tools Used**     | use_llm, memory                        |
+| **Tools Used**     | use_llm, BedrockKnowledgeBaseStore     |
 | **Complexity**     | Beginner                               |
 | **Agent Type**     | Single Agent with Decision Workflow    |
 | **Interaction**    | Command Line Interface                 |
@@ -29,13 +32,13 @@ This [example](https://github.com/strands-agents/harness-sdk/blob/main/site/docs
 
 ## Tool Overview
 
-The knowledge base agent utilizes two primary tools:
+The knowledge base agent combines a memory store with one tool:
 
-1. **memory**: Enables storing and retrieving information from a knowledge base with capabilities for:
+1. **BedrockKnowledgeBaseStore**: A [memory store](../../../user-guide/concepts/memory/bedrock-knowledge-base.md) the workflow calls directly, rather than registering it as a tool, with capabilities for:
 
     - Storing text content with automatic indexing
     - Retrieving information based on semantic similarity
-    - Setting relevance thresholds and result limits
+    - Limiting the number of results returned
 
 2. **use_llm**: Provides language model capabilities for:
 
@@ -53,8 +56,8 @@ flowchart TD
     C --> D["Actions"]
     
     subgraph D ["Actions"]
-        E["memory() (store)"] 
-        F["memory() (retrieve)"] --> G["use_llm()"]
+        E["store.add()"] 
+        F["store.search()"] --> G["use_llm()"]
     end
 ```
 
@@ -91,11 +94,12 @@ flowchart TD
    ```python
    if action == "store":
        # Store path
-       agent.tool.memory(action="store", content=query)
+       asyncio.run(store.add(query))
        print("\nI've stored this information.")
    else:
        # Retrieve path
-       result = agent.tool.memory(action="retrieve", query=query, min_score=0.4, max_results=9)
+       entries = asyncio.run(store.search(query, options={"max_search_results": 9}))
+       result_str = "\n".join(entry.content for entry in entries)
        # Generate response from retrieved information
        answer = agent.tool.use_llm(prompt=f"User question: \"{query}\"\n\nInformation from knowledge base:\n{result_str}...",
                              system_prompt=ANSWER_SYSTEM_PROMPT)
@@ -107,7 +111,7 @@ flowchart TD
 
    ```mermaid
    flowchart LR
-       A["User Query"] --> B["memory() Retrieval"]
+       A["User Query"] --> B["store.search()"]
        B --> C["use_llm()"]
        C --> D["Response"]
    ```
@@ -125,15 +129,15 @@ Explicitly defining the workflow in code ensures deterministic agent behavior ra
 
 ### 2. Optimized Tool Usage
 
-Direct tool calls allow for precise parameter tuning:
+Calling the store directly allows for precise parameter tuning:
 
 ```python
 # Optimized retrieval parameters
-result = agent.tool.memory(
-    action="retrieve", 
-    query=query,
-    min_score=0.4,  # Set minimum relevance threshold
-    max_results=9   # Limit number of results
+entries = asyncio.run(
+    store.search(
+        query,
+        options={"max_search_results": 9},  # Limit number of results
+    )
 )
 ```
 

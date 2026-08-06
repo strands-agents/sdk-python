@@ -78,7 +78,7 @@ def user_task_function(case: Case) -> dict:
             "gen_ai.conversation.id": case.session_id,
             "session.id": case.session_id
         },
-        tools=[calculator],
+        tools=[calculator],  # calculator is defined at the end of this page
         callback_handler=None
     )
     agent_response = agent(case.input)

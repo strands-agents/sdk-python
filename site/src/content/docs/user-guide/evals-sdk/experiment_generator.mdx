@@ -50,10 +50,10 @@ async def generate_experiment():
     experiment = await generator.from_context_async(
         context="""
         Available tools:
-        - calculator(expression: str) -> float: Evaluate mathematical expressions
-        - current_time() -> str: Get current date and time
+        - calculator(a: float, b: float, op: str) -> float: Apply an arithmetic operator to two numbers
+        - file_read(path: str) -> str: Read file contents
         """,
-        task_description="Math and time assistant",
+        task_description="Math and file assistant",
         num_cases=5,
         evaluator=OutputEvaluator
     )
