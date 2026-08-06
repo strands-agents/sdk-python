@@ -523,10 +523,16 @@ The `countTokens()` method uses a character-based heuristic to estimate token co
 
 The Model base class provides an
 <Syntax
-  py="estimate_utilization()"
-  ts="estimateUtilization()"
+  py="estimate_utilization(input_tokens)"
+  ts="estimateUtilization(inputTokens)"
 /> method that computes the fraction of the context window
-consumed by a given input token count:
+consumed by a given input token count. It uses the model's
+configured
+<Syntax
+  py="context_window_limit"
+  ts="contextWindowLimit"
+/> as the denominator, falling back to a default of 200,000
+tokens when not set:
 
 <Tabs>
 <Tab label="Python">

@@ -66,7 +66,7 @@ In Python, you extend the `Model` class from `strands.models` and implement the 
 The base class also provides these optional methods you can override:
 
 - `count_tokens()`: Estimate input token count (defaults to a character-based heuristic)
-- `estimate_utilization()`: Compute the ratio of input tokens to context window limit
+- `estimate_utilization()`: Compute the ratio of input tokens to `context_window_limit` (defaults to 200,000 when not configured). See [Utilization Estimation](../agents/conversation-management/#utilization-estimation).
 
 The Python implementation uses async generators to yield `StreamEvent` objects.
 </Tab>
@@ -81,7 +81,7 @@ In TypeScript, you extend the `Model` class from `@strands-agents/sdk` and imple
 The base class also provides these optional methods you can override:
 
 - `countTokens()`: Estimate input token count (defaults to a character-based heuristic)
-- `estimateUtilization()`: Compute the ratio of input tokens to context window limit
+- `estimateUtilization()`: Compute the ratio of input tokens to `contextWindowLimit` (defaults to 200,000 when not configured). See [Utilization Estimation](../agents/conversation-management/#utilization-estimation).
 
 The TypeScript implementation uses async iterables to yield `ModelStreamEvent` objects.
 
