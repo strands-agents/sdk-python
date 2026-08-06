@@ -156,6 +156,12 @@ describe('BedrockModel', () => {
   const BEDROCK_NOOP_TOOL_CONFIG = {
     tools: [{ toolSpec: { ...NOOP_TOOL_SPEC, inputSchema: { json: NOOP_TOOL_SPEC.inputSchema } } }],
   }
+  const BEDROCK_NOOP_TOOL_CONFIG_WITH_CACHE = {
+    tools: [
+      { toolSpec: { ...NOOP_TOOL_SPEC, inputSchema: { json: NOOP_TOOL_SPEC.inputSchema } } },
+      { cachePoint: { type: 'default' } },
+    ],
+  }
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -207,6 +213,7 @@ describe('BedrockModel', () => {
       expect(provider.getConfig()).toStrictEqual({
         modelId: customModelId,
         contextWindowLimit: 200_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -323,6 +330,7 @@ describe('BedrockModel', () => {
         modelId: 'global.anthropic.claude-sonnet-4-6',
         temperature: 0.5,
         contextWindowLimit: 1_000_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -334,6 +342,7 @@ describe('BedrockModel', () => {
       expect(provider.getConfig()).toStrictEqual({
         modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
         contextWindowLimit: 200_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -342,6 +351,7 @@ describe('BedrockModel', () => {
       expect(provider.getConfig()).toStrictEqual({
         modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
         contextWindowLimit: 1_000_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -350,6 +360,7 @@ describe('BedrockModel', () => {
       expect(provider.getConfig()).toStrictEqual({
         modelId: 'us.anthropic.claude-sonnet-4-6',
         contextWindowLimit: 1_000_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -358,6 +369,7 @@ describe('BedrockModel', () => {
       expect(provider.getConfig()).toStrictEqual({
         modelId: 'global.anthropic.claude-sonnet-4-6',
         contextWindowLimit: 1_000_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -369,6 +381,7 @@ describe('BedrockModel', () => {
       expect(provider.getConfig()).toStrictEqual({
         modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
         contextWindowLimit: 100_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -376,6 +389,7 @@ describe('BedrockModel', () => {
       const provider = new BedrockModel({ modelId: 'unknown.model-v1:0' })
       expect(provider.getConfig()).toStrictEqual({
         modelId: 'unknown.model-v1:0',
+        cacheConfig: { strategy: 'auto' },
       })
     })
   })
@@ -389,6 +403,7 @@ describe('BedrockModel', () => {
         temperature: 0.8,
         maxTokens: 2048,
         contextWindowLimit: 1_000_000,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -404,6 +419,7 @@ describe('BedrockModel', () => {
         modelId: 'custom-model',
         temperature: 0.8,
         maxTokens: 1024,
+        cacheConfig: { strategy: 'auto' },
       })
     })
 
@@ -444,6 +460,7 @@ describe('BedrockModel', () => {
         modelId: 'test-model',
         maxTokens: 1024,
         temperature: 0.7,
+        cacheConfig: { strategy: 'auto' },
       })
     })
   })
@@ -597,11 +614,12 @@ describe('BedrockModel', () => {
                   toolUseId: 'tool-123',
                 },
               },
+              { cachePoint: { type: 'default' } },
             ],
             role: 'user',
           },
         ],
-        toolConfig: BEDROCK_NOOP_TOOL_CONFIG,
+        toolConfig: BEDROCK_NOOP_TOOL_CONFIG_WITH_CACHE,
         modelId: expect.any(String),
       })
     })
@@ -625,7 +643,7 @@ describe('BedrockModel', () => {
 
       expect(mockConverseStreamCommand).toHaveBeenLastCalledWith(
         expect.objectContaining({
-          toolConfig: BEDROCK_NOOP_TOOL_CONFIG,
+          toolConfig: BEDROCK_NOOP_TOOL_CONFIG_WITH_CACHE,
         })
       )
     })
@@ -661,9 +679,10 @@ describe('BedrockModel', () => {
       collectIterator(provider.stream(messages, options))
 
       const call = mockConverseStreamCommand.mock.calls[0]![0] as unknown as Record<string, unknown>
-      const toolConfig = call.toolConfig as { tools: Array<{ toolSpec?: { name: string } }> }
-      expect(toolConfig.tools[0]!.toolSpec!.name).toBe('calc')
-      expect(toolConfig.tools.length).toBe(1)
+      const toolConfig = call.toolConfig as { tools: Array<{ toolSpec?: { name: string }; cachePoint?: unknown }> }
+      const toolSpecEntries = toolConfig.tools.filter((entry) => entry.toolSpec !== undefined)
+      expect(toolSpecEntries[0]!.toolSpec!.name).toBe('calc')
+      expect(toolSpecEntries.length).toBe(1)
     })
 
     it('formats tool specs without outputSchema in Bedrock requests', async () => {
@@ -694,6 +713,7 @@ describe('BedrockModel', () => {
             inputSchema: { json: { type: 'object' } },
           },
         },
+        { cachePoint: { type: 'default' } },
       ])
     })
 
@@ -736,6 +756,7 @@ describe('BedrockModel', () => {
                   redactedContent: new Uint8Array(1),
                 },
               },
+              { cachePoint: { type: 'default' } },
             ],
           },
         ],
@@ -799,7 +820,10 @@ describe('BedrockModel', () => {
     })
 
     it('preserves ttl on user-supplied cache point blocks in messages', async () => {
-      const provider = new BedrockModel()
+      // Use a non-Anthropic model so auto caching is a no-op and the user-supplied cache point
+      // (including its TTL) passes through untouched. Auto mode strips and re-injects cache
+      // points, dropping caller-provided TTL.
+      const provider = new BedrockModel({ modelId: 'amazon.titan-text-express-v1' })
       const messages = [
         new Message({
           role: 'user',
@@ -843,7 +867,10 @@ describe('BedrockModel', () => {
     })
 
     it('forwards arbitrary ttl strings without client-side validation (Bedrock validates server-side)', async () => {
-      const provider = new BedrockModel()
+      // Use a non-Anthropic model so auto caching is a no-op and the user-supplied cache point
+      // (including its TTL) forwards as-is; auto mode rewrites user cache points and drops
+      // their TTL.
+      const provider = new BedrockModel({ modelId: 'amazon.titan-text-express-v1' })
       const messages = [
         new Message({
           role: 'user',
@@ -1558,10 +1585,14 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
-        system: [{ text: 'You are a helpful assistant' }, { text: 'Additional context here' }],
+        system: [
+          { text: 'You are a helpful assistant' },
+          { text: 'Additional context here' },
+          { cachePoint: { type: 'default' } },
+        ],
       })
     })
 
@@ -1583,7 +1614,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
         system: [
@@ -1594,7 +1625,7 @@ describe('BedrockModel', () => {
       })
     })
 
-    it('does not warn when array system prompt is provided without cacheConfig', async () => {
+    it('does not warn when array system prompt is provided with a trailing cache point', async () => {
       const provider = new BedrockModel()
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
@@ -1607,8 +1638,12 @@ describe('BedrockModel', () => {
 
       collectIterator(provider.stream(messages, options))
 
-      // Verify no warning was logged
-      expect(warnSpy).not.toHaveBeenCalled()
+      // No cache-point-strip warnings should fire when caller-provided cache points sit at the
+      // end of the system prompt and messages contain no existing cache points to strip.
+      const stripWarnings = warnSpy.mock.calls.filter((args) =>
+        args.some((arg) => typeof arg === 'string' && arg.includes('stripped existing cache point'))
+      )
+      expect(stripWarnings).toHaveLength(0)
 
       // Verify array is used as-is
       expect(mockConverseStreamCommand).toHaveBeenLastCalledWith({
@@ -1616,7 +1651,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
         system: [{ text: 'You are a helpful assistant' }, { cachePoint: { type: 'default' } }],
@@ -1974,7 +2009,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
       })
@@ -2002,7 +2037,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
         system: [
@@ -2015,6 +2050,7 @@ describe('BedrockModel', () => {
               },
             },
           },
+          { cachePoint: { type: 'default' } },
         ],
       })
     })
@@ -2043,7 +2079,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
         system: [
@@ -2083,7 +2119,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
         system: [
@@ -2095,6 +2131,7 @@ describe('BedrockModel', () => {
               },
             },
           },
+          { cachePoint: { type: 'default' } },
         ],
       })
     })
@@ -2121,7 +2158,7 @@ describe('BedrockModel', () => {
         messages: [
           {
             role: 'user',
-            content: [{ text: 'Hello' }],
+            content: [{ text: 'Hello' }, { cachePoint: { type: 'default' } }],
           },
         ],
         system: [
@@ -2133,6 +2170,7 @@ describe('BedrockModel', () => {
               },
             },
           },
+          { cachePoint: { type: 'default' } },
         ],
       })
     })
@@ -2227,6 +2265,7 @@ describe('BedrockModel', () => {
                   },
                 },
               },
+              { cachePoint: { type: 'default' } },
             ],
           },
         ],
@@ -2268,6 +2307,7 @@ describe('BedrockModel', () => {
                   },
                 },
               },
+              { cachePoint: { type: 'default' } },
             ],
           },
         ],
@@ -2309,6 +2349,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2347,6 +2388,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2385,6 +2427,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2429,6 +2472,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2457,7 +2501,10 @@ describe('BedrockModel', () => {
           messages: [
             {
               role: 'user',
-              content: [{ image: { format: 'png', source: { bytes: imageBytes } } }],
+              content: [
+                { image: { format: 'png', source: { bytes: imageBytes } } },
+                { cachePoint: { type: 'default' } },
+              ],
             },
           ],
         })
@@ -2482,7 +2529,10 @@ describe('BedrockModel', () => {
           messages: [
             {
               role: 'user',
-              content: [{ image: { format: 'png', source: { s3Location: { uri: 's3://bucket/image.png' } } } }],
+              content: [
+                { image: { format: 'png', source: { s3Location: { uri: 's3://bucket/image.png' } } } },
+                { cachePoint: { type: 'default' } },
+              ],
             },
           ],
         })
@@ -2506,7 +2556,10 @@ describe('BedrockModel', () => {
           messages: [
             {
               role: 'user',
-              content: [{ video: { format: 'three_gp', source: { bytes: videoBytes } } }],
+              content: [
+                { video: { format: 'three_gp', source: { bytes: videoBytes } } },
+                { cachePoint: { type: 'default' } },
+              ],
             },
           ],
         })
@@ -2524,6 +2577,8 @@ describe('BedrockModel', () => {
 
       collectIterator(provider.stream(messages))
 
+      // Auto caching skips the cache point when a leading non-PDF document leaves no prefix
+      // to cache (see _injectCachePoint), so the message content passes through unchanged.
       expect(mockConverseStreamCommand).toHaveBeenLastCalledWith(
         expect.objectContaining({
           messages: [
@@ -2651,7 +2706,7 @@ describe('BedrockModel', () => {
             },
             {
               role: 'user',
-              content: [{ text: 'Follow up' }],
+              content: [{ text: 'Follow up' }, { cachePoint: { type: 'default' } }],
             },
           ],
         })
@@ -2693,6 +2748,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2731,6 +2787,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2769,6 +2826,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2813,6 +2871,7 @@ describe('BedrockModel', () => {
                     status: 'success',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           ],
@@ -2841,7 +2900,10 @@ describe('BedrockModel', () => {
           messages: [
             {
               role: 'user',
-              content: [{ image: { format: 'png', source: { bytes: imageBytes } } }],
+              content: [
+                { image: { format: 'png', source: { bytes: imageBytes } } },
+                { cachePoint: { type: 'default' } },
+              ],
             },
           ],
         })
@@ -2866,7 +2928,10 @@ describe('BedrockModel', () => {
           messages: [
             {
               role: 'user',
-              content: [{ image: { format: 'png', source: { s3Location: { uri: 's3://bucket/image.png' } } } }],
+              content: [
+                { image: { format: 'png', source: { s3Location: { uri: 's3://bucket/image.png' } } } },
+                { cachePoint: { type: 'default' } },
+              ],
             },
           ],
         })
@@ -2890,7 +2955,10 @@ describe('BedrockModel', () => {
           messages: [
             {
               role: 'user',
-              content: [{ video: { format: 'three_gp', source: { bytes: videoBytes } } }],
+              content: [
+                { video: { format: 'three_gp', source: { bytes: videoBytes } } },
+                { cachePoint: { type: 'default' } },
+              ],
             },
           ],
         })
@@ -2908,6 +2976,8 @@ describe('BedrockModel', () => {
 
       collectIterator(provider.stream(messages))
 
+      // Auto caching skips the cache point when a leading non-PDF document leaves no prefix
+      // to cache (see _injectCachePoint), so the message content passes through unchanged.
       expect(mockConverseStreamCommand).toHaveBeenLastCalledWith(
         expect.objectContaining({
           messages: [
@@ -2961,11 +3031,12 @@ describe('BedrockModel', () => {
                     toolUseId: 'tool-123',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
               role: 'user',
             },
           ],
-          toolConfig: BEDROCK_NOOP_TOOL_CONFIG,
+          toolConfig: BEDROCK_NOOP_TOOL_CONFIG_WITH_CACHE,
           modelId: expect.any(String),
         })
       })
@@ -2999,11 +3070,12 @@ describe('BedrockModel', () => {
                     toolUseId: 'tool-123',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
               role: 'user',
             },
           ],
-          toolConfig: BEDROCK_NOOP_TOOL_CONFIG,
+          toolConfig: BEDROCK_NOOP_TOOL_CONFIG_WITH_CACHE,
           modelId: expect.any(String),
         })
       })
@@ -3041,11 +3113,12 @@ describe('BedrockModel', () => {
                     toolUseId: 'tool-123',
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
               role: 'user',
             },
           ],
-          toolConfig: BEDROCK_NOOP_TOOL_CONFIG,
+          toolConfig: BEDROCK_NOOP_TOOL_CONFIG_WITH_CACHE,
           modelId: 'anthropic.claude-3-5-sonnet-20241022-v2:0',
         })
       })
@@ -3771,6 +3844,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -3815,6 +3889,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -3857,7 +3932,8 @@ describe('BedrockModel', () => {
         collectIterator(provider.stream(messages))
 
         // The latest message is a toolResult, but guardContent should wrap the FIRST user message
-        // which contains text, not the toolResult
+        // which contains text, not the toolResult. Auto caching still injects a cache point on
+        // the LAST user message (the toolResult), independent of the guardContent wrap logic.
         expect(mockConverseStreamCommand).toHaveBeenLastCalledWith(
           expect.objectContaining({
             messages: [
@@ -3893,6 +3969,7 @@ describe('BedrockModel', () => {
                       toolUseId: 'tool-123',
                     }),
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -3917,7 +3994,7 @@ describe('BedrockModel', () => {
             messages: [
               {
                 role: 'user',
-                content: [{ text: 'Hello world' }],
+                content: [{ text: 'Hello world' }, { cachePoint: { type: 'default' } }],
               },
             ],
           })
@@ -3940,7 +4017,7 @@ describe('BedrockModel', () => {
             messages: [
               {
                 role: 'user',
-                content: [{ text: 'Hello world' }],
+                content: [{ text: 'Hello world' }, { cachePoint: { type: 'default' } }],
               },
             ],
           })
@@ -3975,6 +4052,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
               {
@@ -4023,6 +4101,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4095,6 +4174,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4155,6 +4235,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4201,6 +4282,7 @@ describe('BedrockModel', () => {
                       source: { bytes: imageBytes },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4248,6 +4330,7 @@ describe('BedrockModel', () => {
                       source: { bytes: imageBytes },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4303,6 +4386,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4351,6 +4435,7 @@ describe('BedrockModel', () => {
                       source: undefined,
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4408,6 +4493,7 @@ describe('BedrockModel', () => {
                       },
                     },
                   },
+                  { cachePoint: { type: 'default' } },
                 ],
               },
             ],
@@ -4583,8 +4669,8 @@ describe('BedrockModel', () => {
         modelId: expect.any(String),
         input: {
           converse: {
-            messages: [{ role: 'user', content: [{ text: 'hello' }] }],
-            system: [{ text: 'Be helpful.' }],
+            messages: [{ role: 'user', content: [{ text: 'hello' }, { cachePoint: { type: 'default' } }] }],
+            system: [{ text: 'Be helpful.' }, { cachePoint: { type: 'default' } }],
           },
         },
       })
@@ -4603,7 +4689,7 @@ describe('BedrockModel', () => {
         modelId: expect.any(String),
         input: {
           converse: {
-            messages: [{ role: 'user', content: [{ text: 'hello' }] }],
+            messages: [{ role: 'user', content: [{ text: 'hello' }, { cachePoint: { type: 'default' } }] }],
             toolConfig: {
               tools: [
                 {
@@ -4613,6 +4699,7 @@ describe('BedrockModel', () => {
                     inputSchema: { json: { type: 'object', properties: {} } },
                   },
                 },
+                { cachePoint: { type: 'default' } },
               ],
             },
           },
@@ -4632,7 +4719,7 @@ describe('BedrockModel', () => {
         modelId: expect.any(String),
         input: {
           converse: {
-            messages: [{ role: 'user', content: [{ text: 'hello' }] }],
+            messages: [{ role: 'user', content: [{ text: 'hello' }, { cachePoint: { type: 'default' } }] }],
           },
         },
       })

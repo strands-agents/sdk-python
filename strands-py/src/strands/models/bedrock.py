@@ -101,7 +101,10 @@ class BedrockModel(Model):
             additional_request_fields: Additional fields to include in the Bedrock request
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
-            cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
+            cache_config: Configuration for prompt caching. Defaults to CacheConfig(strategy="auto"),
+                which places cache points on the system prompt, tools (when tool caching is
+                separately enabled via cache_tools), and last user message when the model
+                supports Anthropic-style caching. Pass cache_config=None to disable caching.
             cache_tools: Cache point type for tools. Pass a string (e.g. "default") for the default 5m TTL,
                 or a CacheToolsConfig instance to set both type and TTL (e.g. "1h").
             guardrail_id: ID of the guardrail to apply
@@ -193,6 +196,7 @@ class BedrockModel(Model):
         self.config = BedrockModel.BedrockConfig(
             model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
+            cache_config=CacheConfig(strategy="auto"),
         )
         self.update_config(**model_config)
 

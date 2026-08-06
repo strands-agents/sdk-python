@@ -3788,10 +3788,13 @@ class TestCountTokens:
         with caplog.at_level(logging.WARNING, logger="strands.models.bedrock"):
             await model_with_client.count_tokens(messages=messages)
 
-        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
-        assert len(warning_records) == 1
-        assert "bedrock:CountTokens permission denied" in warning_records[0].message
-        assert error_message in warning_records[0].message
+        matching_records = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "bedrock:CountTokens permission denied" in r.message
+        ]
+        assert len(matching_records) == 1
+        assert error_message in matching_records[0].message
 
     @pytest.mark.asyncio
     async def test_does_not_cache_model_id_for_other_errors(self, bedrock_client, messages):
@@ -3964,9 +3967,21 @@ def test_format_request_auto_preserves_caller_placed_system_cache_point(bedrock_
     ]
 
 
-def test_format_request_no_cache_config_leaves_system_untouched(bedrock_client, messages):
-    """With no cache_config, the system prompt is passed through unchanged."""
+def test_format_request_default_cache_config_appends_system_cache_point(bedrock_client, messages):
+    """BedrockModel defaults cache_config to auto, so Claude models get a system cache point."""
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
+
+    assert tru_request["system"] == [
+        {"text": "static"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+
+def test_format_request_explicit_cache_config_none_disables_caching(bedrock_client, messages):
+    """Passing cache_config=None explicitly turns caching off, overriding the default."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=None)
 
     tru_request = model.format_request(messages, system_prompt_content=[{"text": "static"}])
 

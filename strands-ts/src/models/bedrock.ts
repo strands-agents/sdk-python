@@ -267,7 +267,12 @@ export interface BedrockModelConfig extends BaseModelConfig {
   stopSequences?: string[]
 
   /**
-   * Configuration for prompt caching.
+   * Configuration for prompt caching. Defaults to `{ strategy: 'auto' }`, which places
+   * cache points on the system prompt and the last user message for models that support
+   * Anthropic-style caching (Claude family, `us.anthropic.*` / `eu.anthropic.*` /
+   * `global.anthropic.*` cross-region profiles). Unsupported models silently skip
+   * injection. Pass `cacheConfig: undefined` (via a spread with the field omitted) or an
+   * empty object with `strategy` unset to disable caching.
    *
    * @see https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
    */
@@ -426,9 +431,13 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
     const { region, clientConfig, apiKey, ...modelConfig } = options ?? {}
 
-    // Initialize model config with default model ID if not provided
+    // Initialize model config with defaults: default model ID and cacheConfig=auto.
+    // Auto caching places cache points on system, tools (when cache_tools is set), and the
+    // last user message for models that support Anthropic-style caching; unsupported models
+    // silently skip injection.
     this._config = {
       modelId: MODEL_DEFAULTS.bedrock.modelId,
+      cacheConfig: { strategy: 'auto' },
       ...modelConfig,
     }
 
