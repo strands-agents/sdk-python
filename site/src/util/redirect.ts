@@ -42,8 +42,8 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
 
   // robots-sim was archived (strands-labs/robots-sim); its capabilities are
   // now covered by Strands Robots' built-in simulation. Point the old page
-  // at the labs overview so backlinks keep resolving.
-  'docs/labs/robots-sim': 'docs/labs',
+  // straight at Strands Robots so backlinks land on the successor project.
+  'docs/labs/robots-sim': 'docs/labs/robots',
 
   // community-packages content lives on the interactive integrations page
   // (an Astro page — buildStaticRedirects validates those targets against
