@@ -406,8 +406,82 @@ class BedrockModel(Model):
 
         return [{"cachePoint": cache_point}]
 
+    @staticmethod
+    def _is_non_pdf_document(block: dict[str, Any]) -> bool:
+        """Whether a content block is a document Bedrock refuses to have a cache point placed after.
+
+        Args:
+            block: The content block to test.
+
+        Returns:
+            True for a document block whose format is not pdf.
+        """
+        return "document" in block and block["document"].get("format", "") != "pdf"
+
+    @classmethod
+    def _first_non_pdf_document_idx(cls, content: list[dict[str, Any]]) -> int | None:
+        """Return the index of the first non-PDF document block, if any.
+
+        Args:
+            content: The content blocks of a message.
+
+        Returns:
+            The index of the first non-PDF document block, or None when there is none.
+        """
+        return next((idx for idx, block in enumerate(content) if cls._is_non_pdf_document(block)), None)
+
+    def _honor_placed_cache_point(
+        self,
+        content: list[dict[str, Any]],
+        placed_idx: int,
+        msg_idx: int,
+        cache_config: CacheConfig | None,
+    ) -> None:
+        """Keep a caller-placed cache point, applying the configured TTL and the document rule.
+
+        A TTL the caller wrote on the point wins over ``cache_config.ttl``: it is the more specific
+        instruction. Bedrock wants TTLs non-increasing across toolConfig, system and messages, so a
+        caller placing a longer TTL than the one configured for tools owns that ordering.
+
+        Args:
+            content: Content blocks of the last user message (modified in place).
+            placed_idx: Index of the caller-placed cache point.
+            msg_idx: Index of the message, for logging.
+            cache_config: The configured cache settings, if any.
+        """
+        placed = content[placed_idx]
+        if cache_config and cache_config.ttl and "ttl" not in placed["cachePoint"]:
+            placed["cachePoint"]["ttl"] = cache_config.ttl
+
+        # Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back
+        # over the adjacent run of them. Moving further would evict durable content - usually the
+        # document itself, the expensive part - from the cached prefix for no reason.
+        target_idx = placed_idx
+        while target_idx > 0 and self._is_non_pdf_document(content[target_idx - 1]):
+            target_idx -= 1
+
+        if target_idx != placed_idx:
+            del content[placed_idx]
+            if target_idx == 0:
+                # Nothing precedes the documents, so there is no prefix to cache.
+                logger.debug("msg_idx=<%s> | dropped cache point ahead of a leading document", msg_idx)
+                return
+            content.insert(target_idx, placed)
+            logger.debug("msg_idx=<%s>, block_idx=<%s> | relocated caller-placed cache point", msg_idx, target_idx)
+            return
+
+        logger.debug("msg_idx=<%s>, block_idx=<%s> | honored caller-placed cache point", msg_idx, placed_idx)
+
     def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
-        """Inject a cache point at the end of the last user message.
+        """Ensure the last user message carries exactly one cache point.
+
+        A cache point already present in the last user message is honored where it sits rather than
+        replaced: a caller places one to mark where its reusable prefix ends, ahead of content that is
+        rebuilt every call. Moving it to the end of the message would put that per-call content inside
+        the cached prefix, so every request would write a new entry and none would ever read one.
+
+        Cache points in earlier messages are still removed, so they cannot accumulate one per turn
+        against the provider's cache-point budget.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
@@ -417,6 +491,12 @@ class BedrockModel(Model):
 
         last_user_idx: int | None = None
         for msg_idx, msg in enumerate(messages):
+            if msg.get("role") == "user":
+                last_user_idx = msg_idx
+
+        for msg_idx, msg in enumerate(messages):
+            if msg_idx == last_user_idx:
+                continue
             content = msg.get("content", [])
             for block_idx, block in reversed(list(enumerate(content))):
                 if "cachePoint" in block:
@@ -426,8 +506,6 @@ class BedrockModel(Model):
                         msg_idx,
                         block_idx,
                     )
-            if msg.get("role") == "user":
-                last_user_idx = msg_idx
 
         if last_user_idx is not None and messages[last_user_idx].get("content"):
             cache_point: dict[str, Any] = {"type": "default"}
@@ -437,12 +515,22 @@ class BedrockModel(Model):
 
             content = messages[last_user_idx]["content"]
 
+            placed_idxs = [idx for idx, block in enumerate(content) if "cachePoint" in block]
+            if placed_idxs:
+                # One boundary per message: the first marks where the reusable prefix ends, and extras
+                # would spend the provider's cache-point budget for nothing.
+                for extra_idx in reversed(placed_idxs[1:]):
+                    del content[extra_idx]
+                    logger.warning(
+                        "msg_idx=<%s>, block_idx=<%s> | stripped existing cache point (auto mode manages cache points)",
+                        last_user_idx,
+                        extra_idx,
+                    )
+                self._honor_placed_cache_point(content, placed_idxs[0], last_user_idx, cache_config)
+                return
+
             # Insert before non-PDF document blocks to avoid Bedrock ValidationException
-            first_non_pdf_doc_idx: int | None = None
-            for i, block in enumerate(content):
-                if "document" in block and block["document"].get("format", "") != "pdf":
-                    first_non_pdf_doc_idx = i
-                    break
+            first_non_pdf_doc_idx = self._first_non_pdf_document_idx(content)
 
             # Insert the cache point before the first non-PDF document so it is not directly
             # preceded by that block, which Bedrock rejects with a ValidationException
