@@ -125,12 +125,28 @@ class BedrockKnowledgeBaseStoreConfig(MemoryStoreConfig, total=False):
             it). The same entries apply to ``CUSTOM`` (inline) and ``S3`` (sidecar) writes. Affects
             writes only; ACL filtering at search time is supplied separately as retrieval
             ``userContext``.
+        score_threshold: Minimum relevance a result must clear to be returned. Omitted means no
+            filtering: every result the knowledge base returns is kept, which is the behavior of a
+            store that sets neither field. Filtering happens after retrieval, so a search may return
+            fewer entries than ``max_search_results`` -- or none at all. A result the knowledge base
+            did not score is kept, as there is nothing to compare it against.
+        score_metric: How to read the scores this knowledge base returns, which decides the direction
+            ``score_threshold`` filters in. ``'similarity'`` (the default) treats a higher score as
+            the better match and keeps ``score >= score_threshold``. ``'distance'`` treats a lower
+            score as the better match and keeps ``score <= score_threshold``; a vector knowledge base
+            backed by Aurora PostgreSQL with pgvector's ``<=>`` operator returns cosine distance and
+            needs this, otherwise a threshold discards its closest matches and keeps its worst. The
+            metric is not detected automatically: it is a property of the vector store behind the
+            knowledge base, which ``Retrieve`` does not report, and guessing it wrong silently drops
+            the results the caller most wanted. Ignored when ``score_threshold`` is unset.
     """
 
     config: Required[BedrockKnowledgeBaseConfig]
     scope: str
     filter: dict[str, Any]
     access_control_list: list[BedrockKnowledgeBaseAccessControlEntry]
+    score_threshold: float
+    score_metric: Literal["similarity", "distance"]
 
 
 @dataclass

@@ -66,6 +66,20 @@ def _to_attribute_value(value: Any) -> _AttributeValue | None:
     return None
 
 
+def _passes_score_threshold(score: float | None, threshold: float | None, metric: str) -> bool:
+    """Whether a retrieval score clears ``threshold``, reading the score as ``metric`` says to.
+
+    An unset threshold keeps everything. A result the knowledge base did not score is also kept:
+    there is nothing to compare it against, and a threshold should not silently discard entries whose
+    relevance is unknown.
+    """
+    if threshold is None or score is None:
+        return True
+    # A distance runs opposite a similarity -- 0 is a perfect match -- so the threshold is a ceiling
+    # for one and a floor for the other.
+    return score <= threshold if metric == "distance" else score >= threshold
+
+
 class BedrockKnowledgeBaseStore(MemoryStore):
     """A :class:`~strands.memory.types.MemoryStore` backed by Amazon Bedrock Knowledge Bases.
 
@@ -104,8 +118,9 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             **store_config: See :class:`BedrockKnowledgeBaseStoreConfig`.
 
         Raises:
-            ValueError: If ``max_search_results`` is less than 1, or (when ``writable``) if the write
-                configuration is invalid.
+            ValueError: If ``max_search_results`` is less than 1, if ``score_metric`` is not
+                ``'similarity'`` or ``'distance'``, or (when ``writable``) if the write configuration
+                is invalid.
         """
         kb_config = store_config["config"]
         self.name = store_config["name"]
@@ -114,6 +129,15 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         if max_search_results is not None and max_search_results < 1:
             raise ValueError("BedrockKnowledgeBaseStore: max_search_results must be at least 1.")
         self.max_search_results = max_search_results
+        self.score_threshold = store_config.get("score_threshold")
+        # Validated rather than trusted to the type: a ``TypedDict`` is not checked at runtime, and a
+        # typo here would not fail -- it would fall through to the similarity branch and filter
+        # backwards on a distance-scored knowledge base, which is the mistake this field exists to
+        # prevent.
+        score_metric = store_config.get("score_metric", "similarity")
+        if score_metric not in ("similarity", "distance"):
+            raise ValueError("BedrockKnowledgeBaseStore: score_metric must be 'similarity' or 'distance'.")
+        self.score_metric = score_metric
         self.writable = store_config.get("writable", False)
         self.extraction = store_config.get("extraction")
 
@@ -192,6 +216,11 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             user-provided attributes plus two reserved synthetic keys: ``_relevance_score`` (number)
             and ``_source_location`` (Bedrock retrieval location object).
 
+            When the store sets ``score_threshold``, results that do not clear it are dropped here
+            rather than at the knowledge base -- ``Retrieve`` has no minimum-score parameter -- so
+            fewer than ``max_search_results`` entries may come back, and a query the knowledge base
+            has no good answer for can legitimately return none.
+
         Raises:
             ValueError: If ``options.max_search_results`` is less than 1.
         """
@@ -229,14 +258,18 @@ class BedrockKnowledgeBaseStore(MemoryStore):
 
         entries: list[MemoryEntry] = []
         for result in response.get("retrievalResults") or []:
+            score = result.get("score")
+            if not _passes_score_threshold(score, self.score_threshold, self.score_metric):
+                continue
+
             metadata: Metadata = {}
             if result.get("metadata"):
                 for key, value in result["metadata"].items():
                     metadata[key] = value
             if result.get("location"):
                 metadata["_source_location"] = result["location"]
-            if result.get("score") is not None:
-                metadata["_relevance_score"] = result["score"]
+            if score is not None:
+                metadata["_relevance_score"] = score
 
             content = (result.get("content") or {}).get("text") or ""
             entries.append(MemoryEntry(content=content, metadata=metadata))
