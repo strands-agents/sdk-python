@@ -812,3 +812,32 @@ def test_format_request_filters_location_source_document(model, caplog):
     user_content = formatted_messages[0]["content"]
     assert user_content == "analyze this document"
     assert "Location sources are not supported by Mistral" in caplog.text
+
+
+def test_format_request_includes_prompt_cache_key(model, messages):
+    """prompt_cache_key on the model config is forwarded verbatim."""
+    model.update_config(prompt_cache_key="agent-abc")
+
+    request = model.format_request(messages)
+
+    assert request["prompt_cache_key"] == "agent-abc"
+
+
+def test_format_request_omits_prompt_cache_key_when_unset(model, messages):
+    """Absent prompt_cache_key is not sent."""
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+
+
+def test_format_request_cache_config_is_documented_noop(mistral_client, model_id, max_tokens, messages):
+    """cache_config alone does not opt requests into caching — prompt_cache_key does."""
+    _ = mistral_client
+    from strands.models import CacheConfig
+
+    model = MistralModel(model_id=model_id, max_tokens=max_tokens, cache_config=CacheConfig(strategy="auto"))
+
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+    assert "cache_config" not in request

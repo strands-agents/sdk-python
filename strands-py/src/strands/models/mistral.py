@@ -19,7 +19,7 @@ from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,16 @@ class MistralModel(Model):
             temperature: Controls randomness in generation (0.0 to 1.0).
             top_p: Controls diversity via nucleus sampling.
             stream: Whether to enable streaming responses.
+            cache_config: Configuration for prompt caching. Mistral's chat completions caches
+                requests that share the same ``prompt_cache_key`` and a common prompt prefix;
+                unlike Anthropic and Bedrock, there is no per-block cache marker to inject, so
+                ``cache_config`` is accepted for cross-provider portability and is a
+                documented no-op — set ``prompt_cache_key`` to actually opt in to caching.
+                Cached tokens bill at 10% of standard input.
+                See https://docs.mistral.ai/api/ for details.
+            prompt_cache_key: Optional caller-supplied identifier that Mistral uses to group
+                similar requests for cache lookups. Requests sharing the same key and a
+                common prefix hit the cache.
         """
 
         model_id: str
@@ -58,6 +68,8 @@ class MistralModel(Model):
         temperature: float | None
         top_p: float | None
         stream: bool | None
+        cache_config: CacheConfig | None
+        prompt_cache_key: str | None
 
     def __init__(
         self,
@@ -290,6 +302,9 @@ class MistralModel(Model):
                 }
                 for tool_spec in tool_specs
             ]
+
+        if prompt_cache_key := self.config.get("prompt_cache_key"):
+            request["prompt_cache_key"] = prompt_cache_key
 
         return request
 
