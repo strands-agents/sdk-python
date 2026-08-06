@@ -16,11 +16,13 @@
  * - the resolved path answers: correct, and a dual-served model needs no table edit.
  *
  * Only HTTP 200 ("served") and 400 ("this route does not serve the model") are treated as
- * answers. A 429, a 5xx, or a timeout means *undetermined*, is retried, and fails the test
- * if it persists rather than being counted as "not served". A detector that reports "no
- * drift" when it means "could not tell" is worse than none, because the "Verified against
- * the us-east-1 catalog" note in the table would look CI-backed when it is not. The #3654
- * reporter hit exactly such a transient `internal_server_error`.
+ * answers. Any other status means *undetermined*, is retried, and fails the test if it
+ * persists rather than being counted as "not served". That includes transient 429/5xx
+ * responses and timeouts as well as permanent 401/403/404 access or entitlement gaps. A
+ * detector that reports "no drift" when it means "could not tell" is worse than none,
+ * because the "Verified against the us-east-1 catalog" note in the table would look
+ * CI-backed when it is not. The #3654 reporter hit exactly such a transient
+ * `internal_server_error`.
  *
  * Failure means the table needs updating, not that the SDK is broken for existing models.
  * See https://github.com/strands-agents/harness-sdk/issues/3654.
@@ -36,7 +38,7 @@ const BASE = `https://bedrock-mantle.${REGION}.api.aws`
 const TIMEOUT_MS = 30_000
 
 // Statuses that answer "does this route serve this model": 200 yes, 400 no. Everything
-// else (429, 5xx, timeout) is transient noise and must not be read as "no".
+// else is inconclusive and must not be read as "no".
 const DEFINITIVE = [200, 400]
 const ATTEMPTS = 3
 
@@ -71,7 +73,9 @@ async function statusSettled(path: string, body: unknown, token: string): Promis
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     latest = await status(path, body, token)
     if (DEFINITIVE.includes(latest)) return latest
-    await sleep(2 ** attempt * 1000)
+    if (attempt < ATTEMPTS - 1) {
+      await sleep(2 ** attempt * 1000)
+    }
   }
   return latest
 }
@@ -101,9 +105,9 @@ async function serves(basePath: string, modelId: string, token: string): Promise
 /**
  * List the live Mantle catalog, or `null` if this account cannot list it.
  *
- * `null` means "cannot run here" rather than "no models": an account may be able to mint a
- * token but lack `bedrock-mantle:ListModels`. Callers skip on `null` so a permissions gap
- * does not turn into a red build. Mirrors the Python test's `pytest.skip`.
+ * `null` means "cannot run locally" rather than "no models": an account may be able to mint
+ * a token but lack `bedrock-mantle:ListModels`. CI treats the same permission gap as a
+ * failure so the drift detector cannot silently switch off.
  */
 async function listModels(token: string): Promise<string[] | null> {
   const response = await globalThis.fetch(`${BASE}/v1/models`, {
@@ -111,6 +115,9 @@ async function listModels(token: string): Promise<string[] | null> {
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
   if (response.status === 401 || response.status === 403) {
+    if (globalThis.process?.env?.CI === 'true' || globalThis.process?.env?.GITHUB_ACTIONS === 'true') {
+      throw new Error(`account lacks bedrock-mantle:ListModels (${response.status})`)
+    }
     return null
   }
   if (!response.ok) {
@@ -171,12 +178,12 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
           .map(([modelId]) => [modelId, resolvedFor[modelId]!])
       )
 
-    // Asserted before the two below so a transient blip cannot be mistaken for a clean
-    // sweep: an undetermined model is a gap in coverage, not a pass.
+    // Asserted before the two below so an inconclusive probe cannot be mistaken for a
+    // clean sweep: an undetermined model is a gap in coverage, not a pass.
     expect(
       ids('undetermined'),
       'Mantle never returned a definitive 200/400 for these models, so their routing could ' +
-        'not be verified (transient 429/5xx/timeout)'
+        'not be verified (transient 429/5xx/timeout, or permanent 401/403/404; check model entitlement)'
     ).toEqual({})
 
     expect(
@@ -191,13 +198,13 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
       'Mantle lists these models but serves them from neither OpenAI-compatible base path, ' +
         'so OpenAIModel cannot reach them at all. They likely speak another protocol (as ' +
         'anthropic.* does via /anthropic/v1/messages) and need adding to ' +
-        'NOT_OPENAI_COMPATIBLE_PREFIXES, or the account lacks access'
+        'NOT_OPENAI_COMPATIBLE_PREFIXES'
     ).toEqual({})
   }, 600_000)
 
   it.for(['xai.grok-4.3', 'google.gemma-4-31b', 'google.gemma-3-27b-it', 'openai.gpt-oss-120b'])(
     'serves %s from the resolved base path',
-    { timeout: 120_000 },
+    { timeout: 240_000 },
     async (modelId, ctx) => {
       const token = await mintToken()
       const models = await listModels(token)
@@ -205,7 +212,10 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
         ctx.skip('account lacks bedrock-mantle:ListModels')
         return
       }
-      if (!models.includes(modelId)) return
+      if (!models.includes(modelId)) {
+        ctx.skip(`${modelId} is not in the ${REGION} catalog`)
+        return
+      }
 
       expect(await serves(resolveMantleBasePath(modelId), modelId, token)).toBe(true)
     }

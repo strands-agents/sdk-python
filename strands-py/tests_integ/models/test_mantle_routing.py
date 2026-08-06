@@ -16,11 +16,13 @@ the table can be wrong are distinguishable:
 * the resolved path answers: correct, and a dual-served model needs no table edit.
 
 Only HTTP 200 ("served") and 400 ("this route does not serve the model") are treated as
-answers. A 429, a 5xx, or a timeout means *undetermined*, is retried, and fails the test
-if it persists rather than being counted as "not served". A detector that reports "no
-drift" when it means "could not tell" is worse than none, because the "Verified against
-the us-east-1 catalog" note in the table would look CI-backed when it is not. The #3654
-reporter hit exactly such a transient ``internal_server_error``.
+answers. Any other status means *undetermined*, is retried, and fails the test if it
+persists rather than being counted as "not served". That includes transient 429/5xx
+responses and timeouts as well as permanent 401/403/404 access or entitlement gaps. A
+detector that reports "no drift" when it means "could not tell" is worse than none,
+because the "Verified against the us-east-1 catalog" note in the table would look
+CI-backed when it is not. The #3654 reporter hit exactly such a transient
+``internal_server_error``.
 
 Failure means the table needs updating, not that the SDK is broken for existing models.
 See https://github.com/strands-agents/harness-sdk/issues/3654.
@@ -28,9 +30,11 @@ See https://github.com/strands-agents/harness-sdk/issues/3654.
 
 import concurrent.futures
 import json
+import os
 import time
 import urllib.error
 import urllib.request
+from typing import NoReturn
 
 import pytest
 
@@ -42,7 +46,7 @@ _TIMEOUT = 30
 _MAX_WORKERS = 8
 
 # Statuses that answer "does this route serve this model": 200 yes, 400 no. Everything
-# else (429, 5xx, timeout) is transient noise and must not be read as "no".
+# else is inconclusive and must not be read as "no".
 _DEFINITIVE = (200, 400)
 _ATTEMPTS = 3
 
@@ -52,12 +56,24 @@ _ATTEMPTS = 3
 _NOT_OPENAI_COMPATIBLE_PREFIXES = ("anthropic.",)
 
 
-def _token() -> str:
-    """Mint a Mantle bearer token, or skip if the ambient chain can't produce one."""
+def _skip_locally_or_fail_in_ci(message: str) -> NoReturn:
+    """Skip when running locally, but keep CI permission regressions red."""
+    if os.getenv("CI") == "true" or os.getenv("GITHUB_ACTIONS") == "true":
+        pytest.fail(message)
+    pytest.skip(message)
+
+
+def _mint_token() -> str:
+    """Mint a Mantle bearer token."""
+    return resolve_bedrock_client_args({"region": _REGION})["api_key"]
+
+
+def _token_or_skip() -> str:
+    """Mint a Mantle bearer token, or skip when local prerequisites are absent."""
     try:
-        return resolve_bedrock_client_args({"region": _REGION})["api_key"]
+        return _mint_token()
     except Exception as e:  # noqa: BLE001 - any credential/import failure means "can't run here"
-        pytest.skip(f"cannot mint a Bedrock Mantle token: {e}")
+        _skip_locally_or_fail_in_ci(f"cannot mint a Bedrock Mantle token: {e}")
 
 
 def _list_models(token: str) -> list[str]:
@@ -67,7 +83,7 @@ def _list_models(token: str) -> list[str]:
             payload = json.load(response)
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
-            pytest.skip(f"account lacks bedrock-mantle:ListModels ({e.code})")
+            _skip_locally_or_fail_in_ci(f"account lacks bedrock-mantle:ListModels ({e.code})")
         raise
     return sorted(model["id"] for model in payload["data"])
 
@@ -96,7 +112,8 @@ def _status_settled(path: str, body: dict, token: str) -> int:
         status = _status(path, body, token)
         if status in _DEFINITIVE:
             return status
-        time.sleep(2**attempt)
+        if attempt < _ATTEMPTS - 1:
+            time.sleep(2**attempt)
     return status
 
 
@@ -134,7 +151,9 @@ def test_mantle_base_path_table_matches_live_catalog():
     both paths, and that is precisely the run that has to report rather than time out.
     """
     models = [
-        model_id for model_id in _list_models(_token()) if not model_id.startswith(_NOT_OPENAI_COMPATIBLE_PREFIXES)
+        model_id
+        for model_id in _list_models(_token_or_skip())
+        if not model_id.startswith(_NOT_OPENAI_COMPATIBLE_PREFIXES)
     ]
     assert models, "Mantle returned no OpenAI-compatible models"
 
@@ -149,11 +168,11 @@ def test_mantle_base_path_table_matches_live_catalog():
         resolved = _resolve_mantle_base_path(model_id)
         other = "/openai/v1" if resolved == "/v1" else "/v1"
 
-        on_resolved = _serves(resolved, model_id, _token())
+        on_resolved = _serves(resolved, model_id, _mint_token())
         if on_resolved:
             return model_id, "ok", resolved
 
-        on_other = _serves(other, model_id, _token())
+        on_other = _serves(other, model_id, _mint_token())
         if on_other:
             return model_id, "misrouted", resolved
         if on_resolved is None or on_other is None:
@@ -166,12 +185,13 @@ def test_mantle_base_path_table_matches_live_catalog():
     def ids(verdict: str) -> dict[str, str]:
         return {model_id: resolved for model_id, outcome, resolved in results if outcome == verdict}
 
-    # Asserted before the two below so a transient blip cannot be mistaken for a clean
-    # sweep: an undetermined model is a gap in coverage, not a pass.
+    # Asserted before the two below so an inconclusive probe cannot be mistaken for a
+    # clean sweep: an undetermined model is a gap in coverage, not a pass.
     undetermined = ids("undetermined")
     assert not undetermined, (
         "Mantle never returned a definitive 200/400 for these models, so their routing "
-        f"could not be verified (transient 429/5xx/timeout): {undetermined}"
+        "could not be verified (transient 429/5xx/timeout, or permanent 401/403/404; "
+        f"check model entitlement): {undetermined}"
     )
 
     misrouted = ids("misrouted")
@@ -186,18 +206,18 @@ def test_mantle_base_path_table_matches_live_catalog():
         "Mantle lists these models but serves them from neither OpenAI-compatible base "
         "path, so OpenAIModel cannot reach them at all. They likely speak another "
         "protocol (as anthropic.* does via /anthropic/v1/messages) and need adding to "
-        f"_NOT_OPENAI_COMPATIBLE_PREFIXES, or the account lacks access: {unserved}"
+        f"_NOT_OPENAI_COMPATIBLE_PREFIXES: {unserved}"
     )
 
 
-@pytest.mark.timeout(180)
+@pytest.mark.timeout(240)
 @pytest.mark.parametrize(
     "model_id",
     ["xai.grok-4.3", "google.gemma-4-31b", "google.gemma-3-27b-it", "openai.gpt-oss-120b"],
 )
 def test_mantle_resolved_base_path_is_served(model_id):
     """The resolved base path actually serves each regression-case model."""
-    token = _token()
+    token = _token_or_skip()
     if model_id not in _list_models(token):
         pytest.skip(f"{model_id} is not in the {_REGION} catalog")
 

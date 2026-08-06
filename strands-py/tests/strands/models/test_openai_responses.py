@@ -1823,8 +1823,8 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
     @pytest.mark.parametrize(
         ("model_id", "expected_path"),
         [
-            # Regression: these used to fall through to /v1, which Mantle rejects with
-            # HTTP 400 validation_error. See #3654.
+            # Regression for #3654: Mantle rejects the wrong base path with HTTP 400
+            # validation_error. The affected ids use /openai/v1; controls below pin /v1.
             ("xai.grok-4.3", "/openai/v1"),
             ("google.gemma-4-31b", "/openai/v1"),
             ("openai.gpt-5.6-terra", "/openai/v1"),
