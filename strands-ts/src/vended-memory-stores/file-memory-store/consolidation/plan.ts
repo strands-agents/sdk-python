@@ -12,16 +12,6 @@ import { ConsolidationError, StructuredOutputError } from '../../../errors.js'
 import { logger } from '../../../logging/logger.js'
 
 /**
- * Clip `text` to `limit`, appending a `…(+N chars)` marker so a clipped value is distinguishable
- * from one that fit.
- *
- * @internal
- */
-export function clipWithCount(text: string, limit: number): string {
-  return text.length > limit ? `${text.slice(0, limit)}…(+${text.length - limit} chars)` : text
-}
-
-/**
  * Schema for a consolidation plan, used both as the planner's structured-output contract and as the
  * parse gate on what it returns.
  *
