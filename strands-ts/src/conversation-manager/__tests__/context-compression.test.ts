@@ -3,9 +3,12 @@ import {
   adjustSplitPointForToolPairs,
   findValidTrimPoint,
   generateSummary,
+  generateSummaryCacheAligned,
   matchesMessageType,
   DEFAULT_SUMMARIZATION_PROMPT,
+  DEFAULT_SUMMARIZATION_INSTRUCTION,
 } from '../compression/context-compression.js'
+import type { ToolSpec } from '../../tools/types.js'
 import { pinMessage, partitionPinned } from '../compression/pin-message.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
 
@@ -25,6 +28,20 @@ function toolResultMsg(toolUseId: string, text = 'result'): Message {
     role: 'user',
     content: [new ToolResultBlock({ toolUseId, status: 'success', content: [new TextBlock(text)] })],
   })
+}
+
+/** Mock model whose aggregated stream resolves to a single assistant text message. */
+function mockModel(summaryText: string) {
+  const message = new Message({ role: 'assistant', content: [new TextBlock(summaryText)] })
+  return {
+    streamAggregated: vi.fn(() => ({
+      next: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: undefined })
+        .mockResolvedValueOnce({ done: true, value: { message } }),
+      [Symbol.asyncIterator]: vi.fn(),
+    })),
+  }
 }
 
 describe('adjustSplitPointForToolPairs', () => {
@@ -150,19 +167,6 @@ describe('partitionPinned', () => {
 })
 
 describe('generateSummary', () => {
-  function mockModel(summaryText: string) {
-    const message = new Message({ role: 'assistant', content: [new TextBlock(summaryText)] })
-    return {
-      streamAggregated: vi.fn(() => ({
-        next: vi
-          .fn()
-          .mockResolvedValueOnce({ done: false, value: undefined })
-          .mockResolvedValueOnce({ done: true, value: { message } }),
-        [Symbol.asyncIterator]: vi.fn(),
-      })),
-    }
-  }
-
   it('returns a user-role message', async () => {
     const model = mockModel('Summary of conversation')
     const messages = [textMsg('user', 'hello'), textMsg('assistant', 'hi')]
@@ -217,6 +221,128 @@ describe('generateSummary', () => {
 
     await expect(generateSummary([textMsg('user', 'hello')], model as any)).rejects.toThrow(
       'Failed to generate summary'
+    )
+  })
+})
+
+describe('generateSummaryCacheAligned', () => {
+  const toolSpecs: ToolSpec[] = [{ name: 'search', description: 'search tool', inputSchema: { type: 'object' } }]
+
+  it('returns a user-role message', async () => {
+    const model = mockModel('Summary')
+    const result = await generateSummaryCacheAligned([textMsg('user', 'hello')], model as any, {})
+    expect(result.role).toBe('user')
+  })
+
+  it('passes the system prompt and tool specs through', async () => {
+    const model = mockModel('Summary')
+    await generateSummaryCacheAligned([textMsg('user', 'hello')], model as any, {
+      systemPrompt: 'Live system prompt',
+      toolSpecs,
+    })
+
+    expect(model.streamAggregated).toHaveBeenCalledWith(expect.any(Array), {
+      systemPrompt: 'Live system prompt',
+      toolSpecs,
+    })
+  })
+
+  it('appends the instruction as a new user turn when the history ends with an assistant message', async () => {
+    const model = mockModel('Summary')
+    const history = [textMsg('user', 'hello'), textMsg('assistant', 'hi')]
+    await generateSummaryCacheAligned(history, model as any, { systemPrompt: 'Live', toolSpecs })
+
+    const passedMessages = (model.streamAggregated.mock.calls[0] as unknown as [Message[]])[0]
+    expect(passedMessages).toHaveLength(3)
+    expect(passedMessages.slice(0, 2)).toEqual(history)
+    const trailing = passedMessages[2]!
+    expect(trailing.role).toBe('user')
+    expect(trailing.content).toHaveLength(1)
+    expect((trailing.content[0] as TextBlock).text).toBe(DEFAULT_SUMMARIZATION_INSTRUCTION)
+  })
+
+  it('merges the instruction into a clone of the final user message when the history ends with a user message', async () => {
+    const model = mockModel('Summary')
+    const history = [textMsg('user', 'hello'), textMsg('assistant', 'hi'), textMsg('user', 'more')]
+    await generateSummaryCacheAligned(history, model as any, { systemPrompt: 'Live', toolSpecs })
+
+    const passedMessages = (model.streamAggregated.mock.calls[0] as unknown as [Message[]])[0]
+    // No extra turn: consecutive user roles would be rejected by providers like Bedrock
+    expect(passedMessages).toHaveLength(3)
+    // The prefix is the exact same message instances as the live history
+    expect(passedMessages[0]).toBe(history[0])
+    expect(passedMessages[1]).toBe(history[1])
+    const merged = passedMessages[2]!
+    expect(merged.role).toBe('user')
+    expect(merged).not.toBe(history[2])
+    expect(merged.content).toHaveLength(2)
+    expect((merged.content[0] as TextBlock).text).toBe('more')
+    expect((merged.content[1] as TextBlock).text).toBe(DEFAULT_SUMMARIZATION_INSTRUCTION)
+    // The live history's final message is not mutated
+    expect(history[2]!.content).toHaveLength(1)
+    expect((history[2]!.content[0] as TextBlock).text).toBe('more')
+  })
+
+  it('delivers the instruction as a user-turn text block, not the system prompt', async () => {
+    const model = mockModel('Summary')
+    await generateSummaryCacheAligned([textMsg('user', 'hello')], model as any, { systemPrompt: 'Live' })
+
+    const [passedMessages, options] = model.streamAggregated.mock.calls[0] as unknown as [
+      Message[],
+      { systemPrompt?: string },
+    ]
+    expect(options.systemPrompt).toBe('Live')
+    const trailing = passedMessages[passedMessages.length - 1]!
+    expect(trailing.role).toBe('user')
+    const lastBlock = trailing.content[trailing.content.length - 1]!
+    expect((lastBlock as TextBlock).text).toBe(DEFAULT_SUMMARIZATION_INSTRUCTION)
+  })
+
+  it('uses a custom instruction when provided', async () => {
+    const model = mockModel('Summary')
+    await generateSummaryCacheAligned([textMsg('user', 'hello')], model as any, { instruction: 'Custom instruction' })
+
+    const passedMessages = (model.streamAggregated.mock.calls[0] as unknown as [Message[]])[0]
+    const trailing = passedMessages[passedMessages.length - 1]!
+    const lastBlock = trailing.content[trailing.content.length - 1]!
+    expect((lastBlock as TextBlock).text).toBe('Custom instruction')
+  })
+
+  it('does not mutate the original messages array on the assistant-tail path', async () => {
+    const model = mockModel('Summary')
+    const original = [textMsg('user', 'hello'), textMsg('assistant', 'hi')]
+    await generateSummaryCacheAligned(original, model as any, {})
+    expect(original).toHaveLength(2)
+    expect(original[1]!.content).toHaveLength(1)
+  })
+
+  it('throws if the model returns no response', async () => {
+    const model = {
+      streamAggregated: vi.fn(() => ({
+        next: vi.fn().mockResolvedValueOnce({ done: true, value: undefined }),
+        [Symbol.asyncIterator]: vi.fn(),
+      })),
+    }
+
+    await expect(generateSummaryCacheAligned([textMsg('user', 'hello')], model as any, {})).rejects.toThrow(
+      'Failed to generate summary'
+    )
+  })
+
+  it('throws if the model responds with tool use instead of a text summary', async () => {
+    const message = new Message({
+      role: 'assistant',
+      content: [new ToolUseBlock({ toolUseId: 'id-1', name: 'search', input: {} })],
+    })
+    const model = {
+      streamAggregated: vi.fn(() => ({
+        next: vi.fn().mockResolvedValueOnce({ done: true, value: { message } }),
+        [Symbol.asyncIterator]: vi.fn(),
+      })),
+    }
+
+    await expect(generateSummaryCacheAligned([textMsg('user', 'hello')], model as any, { toolSpecs })).rejects.toThrow(
+      'model responded with tool use'
     )
   })
 })
