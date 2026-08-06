@@ -479,8 +479,9 @@ class TestBlocker2CacheBeforeIndexing:
             f"Got {len(results_after)} results."
         )
 
-    def test_fetch_failure_does_not_cache_none(self):
-        """When fetch_and_clean raises, the URL should remain retryable (cache stays None)."""
+    def test_fetch_failure_is_negatively_cached_until_ttl(self):
+        """When fetch_and_clean raises, the URL is negatively cached for the TTL
+        (no immediate re-fetch), then re-fetched once the entry expires."""
         cache._INDEX = indexer.IndexSearch()
         url = "https://strandsagents.com/flaky.md"
         cache._URL_CACHE[url] = None
@@ -510,12 +511,20 @@ class TestBlocker2CacheBeforeIndexing:
                 page1 = cache.ensure_page(url)
                 assert page1 is None
 
-                # Cache should still be None so retry is possible
-                assert cache._URL_CACHE.get(url) is None, "Failed fetch should not populate cache"
+                # The URL is negatively cached as a _FailedEntry, not left at None
+                entry = cache._URL_CACHE.get(url)
+                assert isinstance(entry, cache._FailedEntry)
 
-                # Second call: fetch succeeds
+                # Within TTL: short-circuited, no re-fetch attempt
                 page2 = cache.ensure_page(url)
-                assert page2 is not None
+                assert page2 is None
+                assert call_count[0] == 1
+
+                # Expire the entry: next call re-fetches and succeeds
+                entry._timestamp -= cache._FAILED_TTL_SECONDS + 1
+                page3 = cache.ensure_page(url)
+                assert page3 is not None
+                assert call_count[0] == 2
 
         # Term should be searchable
         results = cache._INDEX.search("flakyterm")

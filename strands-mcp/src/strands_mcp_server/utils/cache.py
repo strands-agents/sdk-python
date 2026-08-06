@@ -191,15 +191,25 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
             return cached
     try:
         raw = doc_fetcher.fetch_and_clean(url)
-        display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
-        page = doc_fetcher.Page(url=url, title=display_title, content=raw.content)
+    except Exception:
+        # Only FETCH failures are negatively cached: a failed fetch is treated as
+        # a transient outage and short-circuited for the TTL. Indexing failures
+        # below must NOT be cached here — they are left un-cached so the next call
+        # re-fetches and retries indexing (see the failure handling note above).
+        logger.exception("Failed to fetch page: %s", url)
+        _URL_CACHE[url] = _FailedEntry()  # negatively cache the failure
+        return None
 
-        # Commit indexing + caching atomically under _CACHE_LOCK. The network fetch
-        # above runs outside the lock, so a concurrent caller (e.g. the prefetch
-        # daemon) may have hydrated this URL while we were fetching; if so, defer to
-        # its result and skip the redundant reindex. The fetch itself is not
-        # serialized, so a rare concurrent double-fetch is possible - that is
-        # duplicated network work, not index corruption.
+    display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
+    page = doc_fetcher.Page(url=url, title=display_title, content=raw.content)
+
+    # Commit indexing + caching atomically under _CACHE_LOCK. The network fetch
+    # above runs outside the lock, so a concurrent caller (e.g. the prefetch
+    # daemon) may have hydrated this URL while we were fetching; if so, defer to
+    # its result and skip the redundant reindex. The fetch itself is not
+    # serialized, so a rare concurrent double-fetch is possible - that is
+    # duplicated network work, not index corruption.
+    try:
         with _CACHE_LOCK:
             existing = _URL_CACHE.get(url)
             if existing is not None:
@@ -212,12 +222,12 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
 
             # Only cache after indexing succeeds
             _URL_CACHE[url] = page
-
-        return page
     except Exception:
-        logger.exception("Failed to fetch page: %s", url)
-        _URL_CACHE[url] = _FailedEntry()  # negatively cache the failure
+        # Indexing/caching failure: leave the page un-cached (no _FailedEntry) so
+        # the next call re-fetches and retries indexing.
         return None
+
+    return page
 
 
 def needs_hydration(url: str) -> bool:
