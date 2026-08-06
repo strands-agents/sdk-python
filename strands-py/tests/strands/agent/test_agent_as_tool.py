@@ -1053,11 +1053,16 @@ def test_namespaced_interrupt_ids_are_not_captured_by_another_call(fake_agent, o
 
 
 def test_namespaced_interrupt_ids_round_trip_a_separator_bearing_tool_use_id(fake_agent, orchestrator):
-    """A tool use ID containing the separator still maps its own answers back to the local ID."""
+    """A tool use ID containing the separator is encoded in the prefix and still round-trips."""
     tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
     local_id = "v1:before_tool_call:sub-2:def"
 
     namespaced = _AgentAsTool._namespace_interrupts("ob:v1", [Interrupt(id=local_id, name="approval", reason="r")])[0]
+
+    tru_namespaced_id = namespaced.id
+    exp_namespaced_id = f"ob%3Av1:{local_id}"
+    assert tru_namespaced_id == exp_namespaced_id
+
     orchestrator._interrupt_state.interrupts[namespaced.id] = namespaced
     orchestrator._interrupt_state.context["responses"] = [
         {"interruptResponse": {"interruptId": namespaced.id, "response": "APPROVE"}}

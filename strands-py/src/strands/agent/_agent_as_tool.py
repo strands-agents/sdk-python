@@ -482,7 +482,9 @@ class _AgentAsTool(AgentTool):
         except Exception as error:
             # Leave the stored turn in place: a load can fail for a reason a later attempt survives,
             # such as a schema version the running SDK does not accept yet, and dropping it here would
-            # destroy the only copy of the turn the human already answered.
+            # destroy the only copy of the turn the human already answered. A failure after the first
+            # field has been applied leaves the sub-agent itself mismatched; the caller reports the
+            # error without invoking it, and an ephemeral sub-agent is reset on its next fresh call.
             logger.error(
                 "tool_name=<%s>, tool_use_id=<%s> | failed to restore interrupted sub-agent turn: %s",
                 self._tool_name,
@@ -491,7 +493,7 @@ class _AgentAsTool(AgentTool):
             )
             return False
 
-        del parent._interrupt_state.context[_CONTINUATIONS_KEY][tool_use_id]
+        parent._interrupt_state.context[_CONTINUATIONS_KEY].pop(tool_use_id, None)
         return True
 
     @override
