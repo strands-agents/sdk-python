@@ -3138,6 +3138,8 @@ def test_inject_cache_point_applies_ttl_to_the_first_of_several_placed_points(be
                 {"cachePoint": {"type": "default"}},
                 {"text": "per-call"},
                 {"cachePoint": {"type": "default"}},
+                {"text": "more per-call"},
+                {"cachePoint": {"type": "default"}},
             ],
         }
     ]
@@ -3149,6 +3151,7 @@ def test_inject_cache_point_applies_ttl_to_the_first_of_several_placed_points(be
         {"text": "durable ask"},
         {"cachePoint": {"type": "default", "ttl": "1h"}},
         {"text": "per-call"},
+        {"text": "more per-call"},
     ]
     assert tru_content == exp_content
 
@@ -3164,6 +3167,38 @@ def test_inject_cache_point_leaves_an_honored_point_after_a_pdf_document(bedrock
 
     tru_content = cleaned_messages[0]["content"]
     exp_content = [{"text": "ask"}, pdf, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_relocates_over_the_adjacent_document_run_only(bedrock_client):
+    """Only the run directly preceding the point blocks it; earlier documents stay in the prefix."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    earlier = {"document": {"format": "csv", "name": "earlier", "source": {"bytes": b"x"}}}
+    adjacent = {"document": {"format": "csv", "name": "adjacent", "source": {"bytes": b"y"}}}
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze these"},
+                earlier,
+                {"text": "notes"},
+                adjacent,
+                {"cachePoint": {"type": "default"}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [
+        {"text": "analyze these"},
+        earlier,
+        {"text": "notes"},
+        {"cachePoint": {"type": "default"}},
+        adjacent,
+    ]
     assert tru_content == exp_content
 
 

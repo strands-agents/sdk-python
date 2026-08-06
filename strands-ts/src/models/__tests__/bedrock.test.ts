@@ -1803,6 +1803,243 @@ describe('BedrockModel', () => {
       expect(lastBlock).toStrictEqual({ cachePoint: { type: 'default' } })
     })
 
+    it('honors a cache point the caller placed in the last user message', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('<context-status>rebuilt each call</context-status>'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default' } },
+        { text: '<context-status>rebuilt each call</context-status>' },
+      ])
+    })
+
+    it('keeps only the first of three cache points, and gives it the configured ttl', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('per-call'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('more per-call'),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default', ttl: '1h' } },
+        { text: 'per-call' },
+        { text: 'more per-call' },
+      ])
+    })
+
+    it('relocates an honored cache point over the adjacent document run only', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const earlier = new DocumentBlock({ name: 'earlier', format: 'md', source: { bytes: new Uint8Array([1]) } })
+      const adjacent = new DocumentBlock({ name: 'adjacent', format: 'md', source: { bytes: new Uint8Array([2]) } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('analyze these'),
+            earlier,
+            new TextBlock('notes'),
+            adjacent,
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'analyze these' },
+        { document: { name: 'earlier', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+        { text: 'notes' },
+        { cachePoint: { type: 'default' } },
+        { document: { name: 'adjacent', format: 'md', source: { bytes: new Uint8Array([2]) } } },
+      ])
+    })
+
+    it('still strips cache points in earlier messages', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('old ask'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+        new Message({ role: 'assistant', content: [new TextBlock('reply')] }),
+        new Message({
+          role: 'user',
+          content: [new TextBlock('new ask'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.map((msg) => msg.content)).toStrictEqual([
+        [{ text: 'old ask' }],
+        [{ text: 'reply' }],
+        [{ text: 'new ask' }, { cachePoint: { type: 'default' } }],
+      ])
+    })
+
+    it('applies the configured messagesTTL to an honored cache point without one', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('per-call'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default', ttl: '1h' } },
+        { text: 'per-call' },
+      ])
+    })
+
+    it('keeps a hand-placed ttl on an honored cache point', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('durable ask'), new CachePointBlock({ cacheType: 'default', ttl: '5m' })],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default', ttl: '5m' } },
+      ])
+    })
+
+    it('relocates an honored cache point ahead of a directly preceding non-PDF document', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('analyze this'),
+            new DocumentBlock({ name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } }),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('per-call'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'analyze this' },
+        { cachePoint: { type: 'default' } },
+        { document: { name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+        { text: 'per-call' },
+      ])
+    })
+
+    it('does not relocate an honored cache point a document does not directly precede', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('analyze this'),
+            new DocumentBlock({ name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } }),
+            new TextBlock('notes'),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'analyze this' },
+        { document: { name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+        { text: 'notes' },
+        { cachePoint: { type: 'default' } },
+      ])
+    })
+
+    it('leaves an honored cache point after a PDF document', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('analyze this'),
+            new DocumentBlock({ name: 'report', format: 'pdf', source: { bytes: new Uint8Array([1]) } }),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'analyze this' },
+        { document: { name: 'report', format: 'pdf', source: { bytes: new Uint8Array([1]) } } },
+        { cachePoint: { type: 'default' } },
+      ])
+    })
+
+    it('drops an honored cache point when a non-PDF document leads the message', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new DocumentBlock({ name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } }),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { document: { name: 'readme', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+      ])
+    })
+
     it('inserts cache point before a non-PDF document block', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [
