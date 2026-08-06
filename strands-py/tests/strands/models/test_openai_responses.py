@@ -1844,6 +1844,31 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
 
+    @pytest.mark.parametrize(
+        ("model_id", "expected_path"),
+        [
+            # Matched only by a prefix, absent from _OPENAI_PATH_MODEL_IDS.
+            ("xai.grok-4.9", "/openai/v1"),
+            ("openai.gpt-5.9-unreleased", "/openai/v1"),
+            # New lines the prefixes deliberately do not cover.
+            ("xai.grok-5", "/v1"),
+            ("xai.grok-5-preview", "/v1"),
+        ],
+    )
+    def test_bedrock_mantle_config_prefix_hedge(self, model_id, expected_path, openai_client, mock_provide_token):
+        """The prefix hedge, reached through the Responses model rather than Chat Completions.
+
+        Both models share _resolve_mantle_base_path, so this is parity: the hedge is not
+        exercised by any live id, and a reader checking Responses coverage should see the
+        same rows as test_openai.py rather than having to infer the shared helper.
+        """
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
+
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         _ = openai_client
         from datetime import timedelta
