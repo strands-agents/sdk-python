@@ -637,6 +637,8 @@ In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig`
 
 Messages caching allows you to reuse cached conversation context across multiple requests. By default, message caching is not enabled. To enable it, choose Option A for automatic cache management in agent workflows, or Option B for manual control over cache placement.
 
+The two compose: with `cache_config` set, a cache point you place yourself in the last user message is kept where you put it, and automatic placement steps aside. That matters when your last user message ends with content rebuilt on every call — retrieved context, a timestamp, injected state — because a cache point after that content puts it inside the cached prefix, so every request writes a new cache entry and none ever reads one. Place the cache point ahead of the per-call content to keep the durable prefix cacheable. Cache points in earlier messages are still removed, so they cannot accumulate one per turn against the provider's cache-point budget.
+
 **Option A: Automatic Cache Strategy (Claude models only)**
 
 Enable automatic cache point management for agent workflows with multi-turn conversations. The SDK automatically places a cache point at the end of the last user message to maximize cache hits without requiring manual management.
