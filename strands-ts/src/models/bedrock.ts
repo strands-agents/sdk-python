@@ -833,31 +833,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Whether a content block is a document Bedrock refuses to have a cache point placed after.
-   *
-   * @param block - The content block to test
-   * @returns True for a document block whose format is not pdf
-   */
-  private _isNonPdfDocument(block: BedrockContentBlock | undefined): boolean {
-    return !!block && 'document' in block && block.document?.format !== 'pdf'
-  }
-
-  /**
-   * Locate the first non-PDF document block, if any.
-   *
-   * @param content - The content blocks of a message
-   * @returns The index of the first non-PDF document block, or null when there is none
-   */
-  private _firstNonPdfDocumentIdx(content: BedrockContentBlock[]): number | null {
-    for (let i = 0; i < content.length; i++) {
-      if (this._isNonPdfDocument(content[i])) {
-        return i
-      }
-    }
-    return null
-  }
-
-  /**
    * Keep a caller-placed cache point, applying the configured TTL and the document rule.
    *
    * A TTL the caller wrote on the point wins over `cacheConfig.messagesTTL`: it is the more specific
@@ -886,7 +861,11 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     // the adjacent run of them. Moving further would evict durable content - usually the document
     // itself, the expensive part - from the cached prefix for no reason.
     let targetIdx = placedIdx
-    while (targetIdx > 0 && this._isNonPdfDocument(content[targetIdx - 1])) {
+    while (targetIdx > 0) {
+      const previous = content[targetIdx - 1]
+      if (!previous || !('document' in previous) || previous.document?.format === 'pdf') {
+        break
+      }
       targetIdx--
     }
 
@@ -985,7 +964,15 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }
 
-        const firstNonPdfDocIdx = this._firstNonPdfDocumentIdx(content)
+        // Locate the first non-PDF document block
+        let firstNonPdfDocIdx: number | null = null
+        for (let i = 0; i < content.length; i++) {
+          const block = content[i]
+          if (block && 'document' in block && block.document?.format !== 'pdf') {
+            firstNonPdfDocIdx = i
+            break
+          }
+        }
 
         // Insert the cache point before the first non-PDF document so it is not directly
         // preceded by that block, which Bedrock rejects with a ValidationException

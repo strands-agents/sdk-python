@@ -406,30 +406,6 @@ class BedrockModel(Model):
 
         return [{"cachePoint": cache_point}]
 
-    @staticmethod
-    def _is_non_pdf_document(block: dict[str, Any]) -> bool:
-        """Whether a content block is a document Bedrock refuses to have a cache point placed after.
-
-        Args:
-            block: The content block to test.
-
-        Returns:
-            True for a document block whose format is not pdf.
-        """
-        return "document" in block and block["document"].get("format", "") != "pdf"
-
-    @classmethod
-    def _first_non_pdf_document_idx(cls, content: list[dict[str, Any]]) -> int | None:
-        """Return the index of the first non-PDF document block, if any.
-
-        Args:
-            content: The content blocks of a message.
-
-        Returns:
-            The index of the first non-PDF document block, or None when there is none.
-        """
-        return next((idx for idx, block in enumerate(content) if cls._is_non_pdf_document(block)), None)
-
     def _honor_placed_cache_point(
         self,
         content: list[dict[str, Any]],
@@ -457,7 +433,10 @@ class BedrockModel(Model):
         # over the adjacent run of them. Moving further would evict durable content - usually the
         # document itself, the expensive part - from the cached prefix for no reason.
         target_idx = placed_idx
-        while target_idx > 0 and self._is_non_pdf_document(content[target_idx - 1]):
+        while target_idx > 0:
+            previous = content[target_idx - 1]
+            if "document" not in previous or previous["document"].get("format", "") == "pdf":
+                break
             target_idx -= 1
 
         if target_idx != placed_idx:
@@ -530,7 +509,11 @@ class BedrockModel(Model):
                 return
 
             # Insert before non-PDF document blocks to avoid Bedrock ValidationException
-            first_non_pdf_doc_idx = self._first_non_pdf_document_idx(content)
+            first_non_pdf_doc_idx: int | None = None
+            for i, block in enumerate(content):
+                if "document" in block and block["document"].get("format", "") != "pdf":
+                    first_non_pdf_doc_idx = i
+                    break
 
             # Insert the cache point before the first non-PDF document so it is not directly
             # preceded by that block, which Bedrock rejects with a ValidationException

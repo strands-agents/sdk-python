@@ -3547,6 +3547,27 @@ def test_inject_cache_point_mixed_pdf_and_non_pdf_documents(bedrock_client):
     ]
 
 
+def test_inject_cache_point_before_the_first_of_several_non_pdf_documents(bedrock_client):
+    """A cache point after any of them would be directly preceded by a document, which Bedrock rejects."""
+    _ = bedrock_client
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+    first = {"document": {"format": "csv", "name": "first", "source": {"bytes": b"a,b,c"}}}
+    second = {"document": {"format": "csv", "name": "second", "source": {"bytes": b"d,e,f"}}}
+
+    cleaned_messages = [{"role": "user", "content": [{"text": "Analyze these files"}, first, second]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze these files"},
+        {"cachePoint": {"type": "default"}},
+        first,
+        second,
+    ]
+
+
 def test_inject_cache_point_skipped_when_leading_non_pdf_document(bedrock_client):
     """Test that no cache point is injected when a non-PDF document is the first block.
 

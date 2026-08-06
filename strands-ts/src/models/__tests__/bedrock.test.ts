@@ -2108,6 +2108,31 @@ describe('BedrockModel', () => {
       ])
     })
 
+    it('inserts cache point before the first of several non-PDF documents', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('Analyze these files'),
+            new DocumentBlock({ name: 'first', format: 'csv', source: { bytes: new Uint8Array([1]) } }),
+            new DocumentBlock({ name: 'second', format: 'csv', source: { bytes: new Uint8Array([2]) } }),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      // A cache point after either document would be directly preceded by one, which Bedrock rejects.
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'Analyze these files' },
+        { cachePoint: { type: 'default' } },
+        { document: { name: 'first', format: 'csv', source: { bytes: new Uint8Array([1]) } } },
+        { document: { name: 'second', format: 'csv', source: { bytes: new Uint8Array([2]) } } },
+      ])
+    })
+
     it('skips cache point when a non-PDF document is the first block', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [
