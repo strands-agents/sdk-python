@@ -63,7 +63,7 @@ from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
 from ._openai_errors import classify_openai_error  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
-from .model import BaseModelConfig, Model  # noqa: E402
+from .model import BaseModelConfig, CacheConfig, Model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +149,29 @@ class OpenAIResponsesModel(Model):
             use_native_token_count: Whether to use the native OpenAI input_tokens.count API.
                 When True, count_tokens() calls the OpenAI API for accurate counts.
                 When False (default), skips the API call and uses the local estimator.
+            cache_config: Configuration for prompt caching. The Responses API caches automatically
+                for any prompt over the vendor threshold, so this config is accepted for
+                cross-provider portability and is a documented no-op — the SDK injects nothing
+                into the request. Use ``prompt_cache_key`` when you need better cache-hit rates
+                under load or ``prompt_cache_retention="24h"`` when the model supports extended
+                retention.
+            prompt_cache_key: Optional identifier that helps OpenAI route similar requests to
+                the same cache node under high throughput. See
+                https://platform.openai.com/docs/guides/prompt-caching for details.
+            prompt_cache_retention: Retention policy for cached prompts. ``"in_memory"`` is the
+                default (5-10 minutes idle, up to 1 hour absolute); ``"24h"`` opts in to
+                extended retention on models that support it (GPT-5 family, GPT-4.1). Callers
+                that pass a value not supported by the target model will get a runtime error
+                from the vendor SDK.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stateful: bool
         use_native_token_count: bool
+        cache_config: CacheConfig | None
+        prompt_cache_key: str | None
+        prompt_cache_retention: str | None
 
     def __init__(
         self,
@@ -589,6 +606,11 @@ class OpenAIResponsesModel(Model):
                 ),
             ]
             request.update(self._format_request_tool_choice(tool_choice))
+
+        if prompt_cache_key := self.config.get("prompt_cache_key"):
+            request["prompt_cache_key"] = prompt_cache_key
+        if prompt_cache_retention := self.config.get("prompt_cache_retention"):
+            request["prompt_cache_retention"] = prompt_cache_retention
 
         return request
 

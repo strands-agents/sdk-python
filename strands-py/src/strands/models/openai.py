@@ -25,7 +25,7 @@ from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
 from ._openai_errors import classify_openai_error
 from ._validation import _has_location_source, validate_config_keys
-from .model import BaseModelConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +57,22 @@ class OpenAIModel(Model):
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/chat/create.
             stream: Whether to use OpenAI chat completion streaming. Defaults to True.
+            cache_config: Configuration for prompt caching. OpenAI's Chat Completions API caches
+                automatically for any prompt over the vendor threshold (1024 tokens on current
+                models), so this config is accepted for cross-provider portability and is a
+                documented no-op — the SDK injects nothing into the request. Use
+                ``prompt_cache_key`` when you need better cache-hit rates under load.
+            prompt_cache_key: Optional identifier that helps OpenAI route similar requests to
+                the same cache node under high throughput. Recommended when many agents share a
+                stable system prompt. See
+                https://platform.openai.com/docs/guides/prompt-caching for details.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stream: bool
+        cache_config: CacheConfig | None
+        prompt_cache_key: str | None
 
     def __init__(
         self,
@@ -520,6 +531,9 @@ class OpenAIModel(Model):
             **(self._format_request_tool_choice(tool_choice)),
             **params,
         }
+
+        if prompt_cache_key := self.config.get("prompt_cache_key"):
+            request["prompt_cache_key"] = prompt_cache_key
 
         if stream:
             request["stream_options"] = stream_options

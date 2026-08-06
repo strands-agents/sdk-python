@@ -388,6 +388,59 @@ describe('OpenAIModel', () => {
     })
   })
 
+  describe('prompt caching plumbing', () => {
+    it('forwards promptCacheKey verbatim on the request', async () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = createMockClientWithCapture(captured)
+      const provider = new OpenAIModel({
+        api: 'chat',
+        modelId: 'gpt-4o',
+        client: mockClient,
+        promptCacheKey: 'agent-abc',
+      })
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      expect(captured.request.prompt_cache_key).toBe('agent-abc')
+    })
+
+    it('forwards promptCacheRetention verbatim on the request', async () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = createMockClientWithCapture(captured)
+      const provider = new OpenAIModel({
+        api: 'chat',
+        modelId: 'gpt-4o',
+        client: mockClient,
+        promptCacheRetention: '24h',
+      })
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      expect(captured.request.prompt_cache_retention).toBe('24h')
+    })
+
+    it('accepts cacheConfig as a no-op — nothing is injected into the request', async () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = createMockClientWithCapture(captured)
+      const provider = new OpenAIModel({
+        api: 'chat',
+        modelId: 'gpt-4o',
+        client: mockClient,
+        cacheConfig: { strategy: 'auto' },
+      })
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      expect(captured.request.prompt_cache_key).toBeUndefined()
+      expect(captured.request.prompt_cache_retention).toBeUndefined()
+      expect(captured.request.cache_config).toBeUndefined()
+      expect(captured.request.cacheConfig).toBeUndefined()
+    })
+
+    it('omits prompt_cache_* keys when neither is configured', async () => {
+      const captured: { request: any } = { request: null }
+      const mockClient = createMockClientWithCapture(captured)
+      const provider = new OpenAIModel({ api: 'chat', modelId: 'gpt-4o', client: mockClient })
+      await collectIterator(provider.stream([new Message({ role: 'user', content: [new TextBlock('Hi')] })]))
+      expect(captured.request.prompt_cache_key).toBeUndefined()
+      expect(captured.request.prompt_cache_retention).toBeUndefined()
+    })
+  })
+
   describe('stream', () => {
     describe('validation', () => {
       it('throws error when messages array is empty', async () => {

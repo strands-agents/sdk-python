@@ -1793,6 +1793,51 @@ class TestCountTokens:
 
 
 # =============================================================================
+# cache_config, prompt_cache_key, and prompt_cache_retention plumbing
+# =============================================================================
+
+
+def test_format_request_includes_prompt_cache_key(model, messages):
+    """prompt_cache_key on the model config is forwarded verbatim."""
+    model.update_config(prompt_cache_key="agent-abc")
+
+    request = model._format_request(messages)
+
+    assert request["prompt_cache_key"] == "agent-abc"
+
+
+def test_format_request_includes_prompt_cache_retention(model, messages):
+    """prompt_cache_retention on the model config is forwarded verbatim."""
+    model.update_config(prompt_cache_retention="24h")
+
+    request = model._format_request(messages)
+
+    assert request["prompt_cache_retention"] == "24h"
+
+
+def test_format_request_omits_cache_fields_when_unset(model, messages):
+    """Absent cache fields are not sent."""
+    request = model._format_request(messages)
+
+    assert "prompt_cache_key" not in request
+    assert "prompt_cache_retention" not in request
+
+
+def test_format_request_cache_config_is_documented_noop(openai_client, model_id, messages):
+    """cache_config is accepted for portability but the SDK does not touch the request."""
+    _ = openai_client
+    from strands.models import CacheConfig
+
+    model = OpenAIResponsesModel(model_id=model_id, cache_config=CacheConfig(strategy="auto"))
+
+    request = model._format_request(messages)
+
+    assert "prompt_cache_key" not in request
+    assert "prompt_cache_retention" not in request
+    assert "cache_config" not in request
+
+
+# =============================================================================
 # Bedrock Mantle (bedrock_mantle_config) integration with OpenAIResponsesModel
 # =============================================================================
 

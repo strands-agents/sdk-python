@@ -5,7 +5,7 @@
 import type OpenAI from 'openai'
 import type { ApiKeySetter } from 'openai/client'
 import type { ClientOptions } from 'openai'
-import type { BaseModelConfig } from '../model.js'
+import type { BaseModelConfig, CacheConfig } from '../model.js'
 import type { BedrockMantleConfig } from './mantle.js'
 
 /**
@@ -52,6 +52,29 @@ interface OpenAIBaseConfig extends BaseModelConfig {
    * - Responses API: `model`, `input`, `stream`, `store`
    */
   params?: Record<string, unknown>
+
+  /**
+   * Configuration for prompt caching. OpenAI caches automatically for any prompt over the
+   * vendor threshold (1024 tokens on current models), so this config is accepted for
+   * cross-provider portability and is a documented no-op — the SDK injects nothing into
+   * the request. Use `promptCacheKey` when you need better cache-hit rates under load.
+   */
+  cacheConfig?: CacheConfig
+
+  /**
+   * Optional identifier that helps OpenAI route similar requests to the same cache node
+   * under high throughput. Recommended when many agents share a stable system prompt.
+   * @see https://platform.openai.com/docs/guides/prompt-caching
+   */
+  promptCacheKey?: string
+
+  /**
+   * Retention policy for cached prompts. `'in_memory'` is the default (5-10 minutes idle,
+   * up to 1 hour absolute); `'24h'` opts in to extended retention on models that support
+   * it (GPT-5 family, GPT-4.1). Passing a value not supported by the target model surfaces
+   * a runtime error from the vendor SDK.
+   */
+  promptCacheRetention?: 'in_memory' | '24h'
 }
 
 /**

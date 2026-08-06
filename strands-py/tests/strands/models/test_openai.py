@@ -1973,6 +1973,40 @@ def test_format_request_messages_multiple_tool_calls_with_images():
 
 
 # =============================================================================
+# cache_config and prompt_cache_key plumbing
+# =============================================================================
+
+
+def test_format_request_includes_prompt_cache_key(model, messages):
+    """prompt_cache_key on the model config is forwarded verbatim."""
+    model.update_config(prompt_cache_key="agent-abc")
+
+    request = model.format_request(messages)
+
+    assert request["prompt_cache_key"] == "agent-abc"
+
+
+def test_format_request_omits_prompt_cache_key_when_unset(model, messages):
+    """Absent prompt_cache_key is not sent."""
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+
+
+def test_format_request_cache_config_is_documented_noop(openai_client, model_id, messages):
+    """cache_config is accepted for portability but the SDK does not touch the request."""
+    _ = openai_client
+    from strands.models import CacheConfig
+
+    model = OpenAIModel(model_id=model_id, cache_config=CacheConfig(strategy="auto"))
+
+    request = model.format_request(messages)
+
+    assert "prompt_cache_key" not in request
+    assert "cache_config" not in request
+
+
+# =============================================================================
 # Bedrock Mantle (bedrock_mantle_config) integration with OpenAIModel
 # =============================================================================
 

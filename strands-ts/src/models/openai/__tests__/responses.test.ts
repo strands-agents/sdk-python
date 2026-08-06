@@ -471,6 +471,30 @@ describe("OpenAIModel (api: 'responses')", () => {
       const req = await runOnce({}, messages)
       expect(req.input[0]).toEqual({ role: 'user', content: [{ type: 'input_text', text: 'quoted passage' }] })
     })
+
+    it('forwards promptCacheKey verbatim on the request', async () => {
+      const req = await runOnce({ promptCacheKey: 'agent-abc' })
+      expect(req.prompt_cache_key).toBe('agent-abc')
+    })
+
+    it('forwards promptCacheRetention verbatim on the request', async () => {
+      const req = await runOnce({ promptCacheRetention: '24h' })
+      expect(req.prompt_cache_retention).toBe('24h')
+    })
+
+    it('accepts cacheConfig as a no-op — nothing is injected into the request', async () => {
+      const req = await runOnce({ cacheConfig: { strategy: 'auto' } })
+      expect(req.prompt_cache_key).toBeUndefined()
+      expect(req.prompt_cache_retention).toBeUndefined()
+      expect(req.cache_config).toBeUndefined()
+      expect(req.cacheConfig).toBeUndefined()
+    })
+
+    it('omits prompt_cache_* keys when neither is configured', async () => {
+      const req = await runOnce()
+      expect(req.prompt_cache_key).toBeUndefined()
+      expect(req.prompt_cache_retention).toBeUndefined()
+    })
   })
 
   describe('stream event mapping', () => {

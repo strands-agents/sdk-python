@@ -138,6 +138,13 @@ export function formatChatRequest(
     }
   }
 
+  if (config.promptCacheKey !== undefined) {
+    ;(request as unknown as Record<string, unknown>).prompt_cache_key = config.promptCacheKey
+  }
+  if (config.promptCacheRetention !== undefined) {
+    ;(request as unknown as Record<string, unknown>).prompt_cache_retention = config.promptCacheRetention
+  }
+
   if ('n' in request && request.n !== undefined && request.n !== null && request.n > 1) {
     throw new Error('Streaming with n > 1 is not supported')
   }

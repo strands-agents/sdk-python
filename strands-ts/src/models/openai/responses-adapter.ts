@@ -125,6 +125,13 @@ export function formatResponsesRequest(
   if (config.maxTokens !== undefined) request.max_output_tokens = config.maxTokens
   if (config.topP !== undefined) request.top_p = config.topP
 
+  if (config.promptCacheKey !== undefined) {
+    ;(request as unknown as Record<string, unknown>).prompt_cache_key = config.promptCacheKey
+  }
+  if (config.promptCacheRetention !== undefined) {
+    ;(request as unknown as Record<string, unknown>).prompt_cache_retention = config.promptCacheRetention
+  }
+
   return request
 }
 
