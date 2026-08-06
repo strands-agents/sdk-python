@@ -153,9 +153,7 @@ Optional fields (validated by Zod in `site/src/content.config.ts`):
 
 These render contextual banners automatically (experimental → community → languages). Anything not in this table is silently stripped by Zod at build time, so don't invent fields like `contentType` or `lastReviewed` — add them to the schema first if they'd be useful.
 
-**`languages` field usage:**
-- Set `languages: python` or `languages: typescript` when a feature is available in only one SDK language. This renders a "Language Support" banner.
-- **Do not** set `languages: [python, typescript]` — listing all supported languages is redundant and the build will reject it. Omit the field entirely when a feature is available in all languages.
+Do not set `languages: [python, typescript]` — listing all supported languages is redundant. Omit the field when a feature is available in all languages.
 
 ## TypeScript Snippet Scoping
 
