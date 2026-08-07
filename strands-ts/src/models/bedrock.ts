@@ -890,7 +890,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       content.splice(placedIdx, 1)
       if (targetIdx === 0) {
         // Nothing precedes the documents, so there is no prefix to cache.
-        logger.debug(`msg_idx=<${msgIdx}> | dropped cache point ahead of a leading document`)
+        logger.warn(`msg_idx=<${msgIdx}> | dropped cache point ahead of a leading document`)
         return false
       }
       content.splice(targetIdx, 0, placed)
