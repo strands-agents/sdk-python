@@ -1402,6 +1402,35 @@ describe('AnthropicModel', () => {
       warnSpy.mockRestore()
     })
 
+    it('does not warn at exactly the breakpoint ceiling', async () => {
+      // The guard's boundary, and the direction it must not fire in. A request carrying exactly the
+      // ceiling is legal, so the guard has to stay silent. Without this the suite stays green when `>`
+      // becomes `>=`, and also when the warning fires unconditionally: every maxed-out request would
+      // then carry a warning telling the caller to remove points from a request the API accepts.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('a'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('b'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('c'),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages, { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toHaveLength(MAX_BREAKPOINTS)
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('too many cache breakpoints'))
+      warnSpy.mockRestore()
+    })
+
     it('warns when it strips hand-placed cache points, and relocates the boundary past the tail', async () => {
       // Replacing a caller's cache point can cost them caching: a point placed ahead of per-call
       // content protects a stable prefix, and moving the boundary past that content puts it inside the
