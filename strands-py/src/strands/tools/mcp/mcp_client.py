@@ -32,12 +32,9 @@ import anyio
 import httpx
 from mcp import ClientSession, ListToolsResult, StdioServerParameters, stdio_client
 from mcp.client.auth.extensions.client_credentials import ClientCredentialsOAuthProvider
-from mcp.client.session import ElicitationFnT
+from mcp.client.session import ElicitationFnT, ProgressFnT
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
-from mcp.shared.exceptions import McpError
-from mcp.shared.session import ProgressFnT
 from mcp.types import (
     BlobResourceContents,
     CancelledNotification,
@@ -64,6 +61,7 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
+from ._compat import MCPError, streamable_http_transport
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
@@ -982,7 +980,7 @@ class MCPClient(ToolProvider):
             MCPToolResult: Error result containing either the elicitation data or the
                 original exception message.
         """
-        if isinstance(exception, McpError) and exception.error.code == -32042:
+        if isinstance(exception, MCPError) and exception.error.code == -32042:
             try:
                 error_data = ElicitationRequiredErrorData.model_validate(exception.error.data)
                 elicitations = [e.model_dump(exclude_none=True) for e in error_data.elicitations]
@@ -1759,7 +1757,7 @@ def _resolve_transport_callable(
     if scheme == "http" and (auth is not None or auth_provider is not None):
         logger.warning("url=<%s> | sending oauth credentials over plaintext http", server_url)
     resolved_auth = _build_client_credentials_auth(server_url, auth) if auth is not None else auth_provider
-    return lambda: streamablehttp_client(url=server_url, headers=headers, auth=resolved_auth)
+    return lambda: streamable_http_transport(url=server_url, headers=headers, auth=resolved_auth)
 
 
 # Matches ${VAR} and ${env:VAR} where VAR is a valid environment variable identifier.
@@ -1849,7 +1847,7 @@ def _config_transport_callable(name: str, transport: str, server: dict[str, Any]
                 raise ValueError(f"server '{name}': streamable-http transport requires 'url'")
             headers = server.get("headers")
             resolved_auth = _parse_config_auth(name, cast(str, url), server.get("auth"))
-            return lambda: streamablehttp_client(url=cast(str, url), headers=headers, auth=resolved_auth)
+            return lambda: streamable_http_transport(url=cast(str, url), headers=headers, auth=resolved_auth)
 
         case "sse":
             url = server.get("url")

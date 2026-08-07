@@ -28,7 +28,7 @@ def transports():
     """Patch the three transport constructors as imported into mcp_client."""
     with (
         patch("strands.tools.mcp.mcp_client.stdio_client") as stdio,
-        patch("strands.tools.mcp.mcp_client.streamablehttp_client") as http,
+        patch("strands.tools.mcp.mcp_client.streamable_http_transport") as http,
         patch("strands.tools.mcp.mcp_client.sse_client") as sse,
         patch("strands.tools.mcp.mcp_client.StdioServerParameters") as params,
     ):
