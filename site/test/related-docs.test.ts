@@ -49,7 +49,7 @@ describe('relatedUserGuideFor (headless: top 10, specificity-weighted Jaccard)',
 
   it('ignores candidates outside the user-guide tree', () => {
     const current = doc('docs/user-guide/a', 'A', ['x'])
-    const blogLike = doc('docs/community/b', 'B', ['x'])
+    const blogLike = doc('docs/integrations/b', 'B', ['x'])
     const userGuide = doc('docs/user-guide/c', 'C', ['x'])
 
     const result = relatedUserGuideFor(current, [current, blogLike, userGuide])
@@ -57,7 +57,7 @@ describe('relatedUserGuideFor (headless: top 10, specificity-weighted Jaccard)',
   })
 
   it('returns empty when the current page is not in the user-guide tree', () => {
-    const current = doc('docs/community/a', 'A', ['x'])
+    const current = doc('docs/integrations/a', 'A', ['x'])
     const other = doc('docs/user-guide/b', 'B', ['x'])
 
     expect(relatedUserGuideFor(current, [current, other])).toEqual([])
@@ -137,7 +137,7 @@ describe('userGuidePagesWithTag', () => {
 
   it('ignores pages outside the user-guide tree', () => {
     const current = doc('docs/user-guide/a', 'A', ['safety'])
-    const blog = doc('docs/community/b', 'Blog Post', ['safety'])
+    const blog = doc('docs/integrations/b', 'Blog Post', ['safety'])
     const guide = doc('docs/user-guide/c', 'Guide', ['safety'])
 
     const result = userGuidePagesWithTag('safety', current, [current, blog, guide])

@@ -57,11 +57,12 @@ describe('Agent contextManager', () => {
       expect(conversationManager._compressionThreshold).toBe(0.85)
     })
 
-    it('adds ContextOffloader plugin with benchmark defaults', () => {
+    it('adds ContextOffloader plugin with benchmark defaults', async () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const agent = new Agent({ model, contextManager: 'auto' })
-      const pending = getPending(agent)
-      const offloader = pending.find((p: any) => p.name === 'strands:context-offloader') as any
+      await agent.invoke('hi')
+      const plugins = internals(agent)._pluginRegistry._plugins
+      const offloader = plugins.get('strands:context-offloader') as any
       expect(offloader).toBeDefined()
       expect(offloader._maxResultTokens).toBe(1500)
       expect(offloader._previewTokens).toBe(750)

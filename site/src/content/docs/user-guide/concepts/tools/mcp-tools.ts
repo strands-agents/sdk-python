@@ -116,6 +116,77 @@ const agentMultiple = new Agent({
 })
 // --8<-- [end:multiple_servers]
 
+{
+  // --8<-- [start:tool_filtering]
+  // String matching - loads only specified tools
+  const filteredClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'uvx',
+      args: ['awslabs.aws-documentation-mcp-server@latest'],
+    }),
+    toolFilters: { allowed: ['search_documentation', 'read_documentation'] },
+  })
+
+  // Regex patterns
+  const regexClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'uvx',
+      args: ['awslabs.aws-documentation-mcp-server@latest'],
+    }),
+    toolFilters: { allowed: [/^search_.*/] },
+  })
+
+  // Callbacks receive the tool itself
+  const callbackClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'uvx',
+      args: ['awslabs.aws-documentation-mcp-server@latest'],
+    }),
+    toolFilters: { rejected: [(tool) => tool.name.endsWith('_internal')] },
+  })
+
+  // Combined filters - applies allowed first, then rejected
+  const combinedClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'uvx',
+      args: ['awslabs.aws-documentation-mcp-server@latest'],
+    }),
+    toolFilters: {
+      allowed: [/.*documentation$/],
+      rejected: ['read_documentation'],
+    },
+  })
+  // --8<-- [end:tool_filtering]
+  void filteredClient
+  void regexClient
+  void callbackClient
+  void combinedClient
+}
+
+{
+  // --8<-- [start:tool_prefixing]
+  const awsDocsClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'uvx',
+      args: ['awslabs.aws-documentation-mcp-server@latest'],
+    }),
+    prefix: 'aws_docs',
+  })
+
+  const otherClient = new McpClient({
+    transport: new StdioClientTransport({
+      command: 'uvx',
+      args: ['other-mcp-server@latest'],
+    }),
+    prefix: 'other',
+  })
+
+  // Tools will be named: aws_docs_search_documentation, other_search, etc.
+  const agent = new Agent({ tools: [awsDocsClient, otherClient] })
+  // --8<-- [end:tool_prefixing]
+  void agent
+}
+
 // --8<-- [start:mcp_server]
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'

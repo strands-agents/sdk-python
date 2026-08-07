@@ -1,0 +1,46 @@
+---
+/**
+ * SDK + language segmented controls shared by the filter bar and the search
+ * dialog's facets. Static markup with data-cat-* hooks; the page script binds
+ * every instance document-wide, so all copies stay in sync.
+ */
+import { LANG_ICONS } from './icons'
+
+interface Props {
+  showSdkFacet: boolean
+}
+
+const { showSdkFacet } = Astro.props
+
+const LANGUAGES = [
+  { value: 'python', label: 'Python' },
+  { value: 'typescript', label: 'TypeScript' },
+] as const
+---
+
+{
+  showSdkFacet && (
+    <div class="cat-seg" role="radiogroup" aria-label="SDK">
+      <button class="cat-seg-btn" type="button" role="radio" aria-checked="true" data-cat-sdk="agents">
+        Agents
+      </button>
+      <button class="cat-seg-btn" type="button" role="radio" aria-checked="false" data-cat-sdk="evals">
+        Evals
+      </button>
+    </div>
+  )
+}
+<div class="cat-seg" role="group" aria-label="Language">
+  {
+    LANGUAGES.map((l) => (
+      <button class="cat-seg-btn" type="button" data-cat-lang={l.value} aria-pressed="false">
+        <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+          {LANG_ICONS[l.value].map((p) => (
+            <path fill="currentColor" d={p} />
+          ))}
+        </svg>
+        {l.label}
+      </button>
+    ))
+  }
+</div>

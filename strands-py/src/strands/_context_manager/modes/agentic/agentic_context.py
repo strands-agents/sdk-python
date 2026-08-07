@@ -23,7 +23,7 @@ from ....agent.conversation_manager.compression.context_compression import (
     matches_message_type,
 )
 from ....agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
-from ....agent.conversation_manager.conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
+from ....models._defaults import DEFAULT_CONTEXT_WINDOW_LIMIT
 from ....tools.decorator import tool
 from ....types.content import Message, _ensure_tracking_id
 from ....types.exceptions import ContextWindowOverflowException
