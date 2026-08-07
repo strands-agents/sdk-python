@@ -126,6 +126,15 @@ test('the diff and deploy environments are disjoint', () => {
   expect(DIFF_ENVIRONMENTS.filter((name) => deployEnvironments.includes(name))).toEqual([]);
 });
 
+// Every deploy touches the one stack, and CloudFormation rejects a second UPDATE
+// while one is in flight. The workflow-level group is per pull request, so
+// without a constant group of its own a PR deploy could overlap a main deploy.
+test('all deploys serialize on one concurrency group', () => {
+  const block = jobBlock('deploy');
+
+  expect(block).toMatch(/concurrency:\s*\n\s*group: test-infra-deploy-stack\s*\n\s*cancel-in-progress: false/);
+});
+
 // --- The diff job's containment ---
 
 // The default diff method creates a change set with the *deploy* role, which the
