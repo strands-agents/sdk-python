@@ -226,12 +226,13 @@ def test_bidi_audio_io_output_configs(py_audio, audio_output):
 
 
 def test_config_defaults():
-    config = AudioProcessingConfig()
-    assert config.echo_cancellation is True
-    assert config.noise_suppression is True
-    assert config.auto_gain_control is True
-    assert config.ns_level == 1
-    assert config.stream_delay_ms == 0
+    assert AudioProcessingConfig() == AudioProcessingConfig(
+        echo_cancellation=True,
+        noise_suppression=True,
+        auto_gain_control=True,
+        ns_level=1,
+        stream_delay_ms=0,
+    )
 
 
 @pytest.mark.parametrize("bad_level", [-1, 4, 10, 99])
@@ -709,3 +710,43 @@ async def test_end_to_end_capture_cancels_echo(py_audio, aec_agent):
 
     result = np.frombuffer(base64.b64decode(event.audio), dtype=np.int16)
     np.testing.assert_array_equal(result, cleaned)
+
+
+# ---------------------------------------------------------------------------
+# Real pywebrtc-audio library contract (skipped when the extra is not installed)
+#
+# The tests above mock the C extension. These exercise the actual library — pure
+# compute, no audio hardware — to catch contract drift the mocks cannot (e.g. the
+# far=None-when-EC-on rejection, empty-frame rejection, and output length).
+# ---------------------------------------------------------------------------
+
+
+def test_real_library_roundtrip_and_contract():
+    pytest.importorskip("pywebrtc_audio")
+
+    # Echo cancellation on: first frame with an empty reference buffer must not crash (the empty buffer is
+    # zero-filled, never passed as None), and output length matches input.
+    proc = _AudioProcessor(AudioProcessingConfig())
+    proc.start(input_rate=16000, output_rate=16000, num_channels=1)
+
+    mic = (np.ones(160, dtype=np.int16) * 1000).tobytes()
+    out = proc.process_capture(mic)
+    assert len(out) == len(mic)
+
+    # With a recorded reference the pairing still yields a matching-length frame.
+    proc.record_playback((np.ones(160, dtype=np.int16) * 500).tobytes())
+    assert len(proc.process_capture(mic)) == len(mic)
+
+    # The empty shutdown sentinel is returned unchanged rather than reaching the C extension.
+    assert proc.process_capture(b"") == b""
+
+
+def test_real_library_echo_cancellation_off():
+    pytest.importorskip("pywebrtc_audio")
+
+    # Noise suppression / AGC without echo cancellation: no reference is used (far=None) and it still runs.
+    proc = _AudioProcessor(AudioProcessingConfig(echo_cancellation=False))
+    proc.start(input_rate=16000, output_rate=16000, num_channels=1)
+
+    mic = (np.ones(160, dtype=np.int16) * 800).tobytes()
+    assert len(proc.process_capture(mic)) == len(mic)

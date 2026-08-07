@@ -64,8 +64,10 @@ __all__ = [
     "ToolStreamEvent",
     # Model interface
     "BidiModel",
-    # IO configuration
+    # IO channels and configuration
     "AudioProcessingConfig",
+    "BidiAudioIO",
+    "BidiTextIO",
     # Built-in tools (deprecated)
     "stop_conversation",
 ]

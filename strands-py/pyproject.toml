@@ -236,6 +236,12 @@ exclude = ["src/strands/experimental/bidi"]
 module = ["cedarpy", "cedar_mcp_schema_generator"]
 ignore_missing_imports = true
 
+# pywebrtc-audio is an optional dependency (bidi-aec extra). Ignore its missing stubs so type-checking
+# passes whether or not it is installed in the current environment.
+[[tool.mypy.overrides]]
+module = ["pywebrtc_audio", "pywebrtc_audio.*"]
+ignore_missing_imports = true
+
 [[tool.mypy.overrides]]
 module = ["strands.experimental.bidi.*"]
 follow_imports = "skip"

@@ -49,7 +49,7 @@ def _check_pywebrtc_available() -> None:
         ImportError: If pywebrtc-audio is not installed.
     """
     try:
-        import pywebrtc_audio  # type: ignore[import-not-found]  # noqa: F401
+        import pywebrtc_audio  # noqa: F401
     except ImportError as error:
         raise ImportError(
             "pywebrtc-audio is required for audio processing. Install it with: pip install strands-agents[bidi-aec]"
@@ -101,7 +101,7 @@ class _AudioProcessor:
                 f"{_SUPPORTED_SAMPLE_RATES}. Configure the model's audio input_rate accordingly."
             )
 
-        from pywebrtc_audio import AudioProcessor  # type: ignore[import-not-found]
+        from pywebrtc_audio import AudioProcessor
 
         # Discard any reference frames left over from a previous session so a restart never pairs stale
         # far-end audio with fresh mic input. Safe without a lock: start() runs before the PyAudio stream
@@ -169,7 +169,7 @@ class _AudioProcessor:
         # With echo cancellation off there is no reference signal; pass far=None (noise suppression and
         # auto gain control still run on the mic signal alone).
         far = self._take_reference(near) if self._config.echo_cancellation else None
-        cleaned = self._processor.process(near, far)
+        cleaned: npt.NDArray[np.int16] = self._processor.process(near, far)
         return cleaned.astype(np_.int16).tobytes()
 
     def reset_reference(self) -> None:
@@ -355,6 +355,7 @@ class _BidiAudioInput(BidiInput):
         # the newest mic frame paired with the newest reference frame. An unbounded (or differently sized)
         # mic buffer would let the reference saturate and drop frames first, inverting the pairing and
         # collapsing echo cancellation. This overrides input_buffer_size while processing is on.
+        buffer_size: int | None
         if processor is not None and processor._config.echo_cancellation:
             buffer_size = processor._max_ref_frames
         else:
