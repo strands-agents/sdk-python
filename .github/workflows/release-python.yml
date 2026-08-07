@@ -389,8 +389,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      # discussions: write lets gh release create open the linked
-      # announcement discussion.
+      # discussions: write lets the announcement step below create the
+      # release-linked discussion.
       discussions: write
       # actions: write lets this job dispatch the changelog-sync workflow below.
       actions: write
@@ -412,9 +412,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NEW_TAG: ${{ needs.scan-commits.outputs.new_tag }}
           RELEASE_SHA: ${{ needs.scan-commits.outputs.release_sha }}
-          # Empty on forks: a fork may not have Discussions or this category
-          # configured, and an unknown category fails release creation.
-          DISCUSSION_CATEGORY: ${{ github.event.repository.fork != true && 'Announcements' || '' }}
         run: |
           set -euo pipefail
           # Push the tag over git rather than letting `gh release create
@@ -433,14 +430,35 @@ jobs:
           fi
 
           # Tag now exists on the remote, so this only attaches notes to it.
-          # The discussion flag posts the notes to the Discussions board as
-          # the release announcement.
           if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
             gh release create "$NEW_TAG" \
               --title "$NEW_TAG" \
-              --notes-file release-notes.md \
-              ${DISCUSSION_CATEGORY:+--discussion-category "$DISCUSSION_CATEGORY"}
+              --notes-file release-notes.md
           fi
+
+      # Post the release notes to the Discussions board. Runs after the
+      # release exists and is non-fatal (same contract as the changelog
+      # dispatch below): a missing or renamed category must not fail a
+      # release whose tag is already pushed. A category PATCH on a published
+      # release creates and links the discussion; re-runs are a no-op once
+      # one is linked.
+      - name: Post announcement discussion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_TAG: ${{ needs.scan-commits.outputs.new_tag }}
+          # Empty on forks: a fork may not have Discussions or this
+          # category configured.
+          DISCUSSION_CATEGORY: ${{ github.event.repository.fork != true && 'Announcements' || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DISCUSSION_CATEGORY" ]; then
+            echo "Fork run; skipping the announcement discussion."
+            exit 0
+          fi
+          RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/${NEW_TAG//\//%2F}" --jq .id) \
+            && gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" \
+                 -f discussion_category_name="$DISCUSSION_CATEGORY" --jq .discussion_url \
+            || echo "::warning::Failed to post the $NEW_TAG announcement discussion; create it from the release page."
 
       # Trigger the changelog sync directly. A release created with the built-in
       # GITHUB_TOKEN (above) does NOT emit a `release` event, by design, so the
