@@ -329,16 +329,19 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
         async def select(self, context, **kwargs):
             context.messages.append({"role": "user", "content": [{"text": "injected"}]})
             context.messages[0]["content"][0]["text"] = "rewritten"
+            context.tool_specs.clear()
             return context.candidates[0]
 
     m = _model()
     router = ModelRouter(models=[m], strategy=_Mutating())
     context = _invoke_context({}, model=m)
     context.messages = [{"role": "user", "content": [{"text": "original"}]}]
+    context.tool_specs = [{"name": "calculator", "inputSchema": {"json": {}}}]
 
     await router._selection_middleware()(context)
 
     assert context.messages == [{"role": "user", "content": [{"text": "original"}]}]
+    assert context.tool_specs == [{"name": "calculator", "inputSchema": {"json": {}}}]
 
 
 # --- construction guards ---

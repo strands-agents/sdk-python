@@ -290,10 +290,9 @@ class ModelRouter(Plugin):
             key = self._state_key(context.agent)
             state = _routing_state(context.invocation_state, key)
             if state is None:
-                # Snapshot: a strategy must not be able to mutate the request this call runs on.
                 routing_context = self._routing_context(
-                    copy.deepcopy(context.messages),
-                    copy.deepcopy(context.system_prompt),
+                    context.messages,
+                    context.system_prompt,
                     context.tool_specs,
                     context.invocation_state,
                 )
@@ -393,8 +392,8 @@ class ModelRouter(Plugin):
             agent._system_prompt_content if agent._system_prompt_content is not None else agent.system_prompt
         )
         return self._routing_context(
-            copy.deepcopy(agent.messages),
-            copy.deepcopy(system_prompt),
+            agent.messages,
+            system_prompt,
             agent.tool_registry.get_all_tool_specs(),
             invocation_state,
             attempts,
@@ -408,11 +407,15 @@ class ModelRouter(Plugin):
         invocation_state: Mapping[str, Any],
         attempts: Sequence[RoutingAttempt] = (),
     ) -> RoutingContext:
-        """Build a ``RoutingContext`` over this router's candidates."""
+        """Build a ``RoutingContext`` over this router's candidates.
+
+        The request collections are deep-copied here, the one place every ask goes through, so a
+        strategy that ignores the read-only contract cannot alter the request the model runs on.
+        """
         return RoutingContext(
-            messages=messages,
-            system_prompt=system_prompt,
-            tool_specs=tool_specs,
+            messages=copy.deepcopy(messages),
+            system_prompt=copy.deepcopy(system_prompt),
+            tool_specs=copy.deepcopy(tool_specs),
             candidates=self._candidates,
             invocation_state=invocation_state,
             attempts=tuple(attempts),
