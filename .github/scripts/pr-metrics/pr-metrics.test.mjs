@@ -339,11 +339,16 @@ const stubCore = () => {
   const warnings = []
   return { warnings, info: () => {}, warning: (m) => warnings.push(m) }
 }
-const stubContext = (pullRequests, headSha = 'abc123') => ({
+const FORK_REPO_ID = 42
+const stubContext = (pullRequests, headSha = 'abc123', headRepoId = FORK_REPO_ID) => ({
   repo: { owner: 'o', repo: 'r' },
-  payload: { workflow_run: { head_sha: headSha, pull_requests: pullRequests } },
+  payload: {
+    workflow_run: { head_sha: headSha, head_repository: { id: headRepoId }, pull_requests: pullRequests },
+  },
 })
 // Only reached when the event carries no associated PRs, as on a fork.
+// prHeads values are 'sha' strings (head repo defaults to the fork's), an
+// Error to throw, or `{ sha, repoId }` to control the head repository.
 const stubGithub = (associated, prHeads = {}) => ({
   rest: {
     repos: {
@@ -351,10 +356,11 @@ const stubGithub = (associated, prHeads = {}) => ({
     },
     pulls: {
       get: async ({ pull_number: pullNumber }) => {
-        const sha = prHeads[pullNumber]
-        if (sha instanceof Error) throw sha
-        if (!sha) throw Object.assign(new Error('Not Found'), { status: 404 })
-        return { data: { head: { sha } } }
+        const entry = prHeads[pullNumber]
+        if (entry instanceof Error) throw entry
+        if (!entry) throw Object.assign(new Error('Not Found'), { status: 404 })
+        const { sha, repoId = FORK_REPO_ID } = typeof entry === 'string' ? { sha: entry } : entry
+        return { data: { head: { sha, repo: { id: repoId } } } }
       },
     },
   },
@@ -415,6 +421,20 @@ test('resolvePrNumber refuses a claim whose PR head does not match the run', asy
   const core = stubCore()
   const number = await resolvePrNumber({
     github: stubGithub([], { 3704: 'different-sha' }),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 3704,
+  })
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+// A commit object can be pushed into any repository, so a matching SHA alone
+// does not tie the claim to this PR — the head repository must match too.
+test('resolvePrNumber refuses a claim whose head repository differs despite a matching sha', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], { 3704: { sha: 'abc123', repoId: 999 } }),
     context: stubContext([], 'abc123'),
     core,
     claimed: 3704,

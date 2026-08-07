@@ -106,7 +106,10 @@ export async function resolvePrNumber({ github, context, core, claimed }) {
       throw error
     }
     if (head === run.head_sha && headRepoId != null && headRepoId === run.head_repository?.id) return claimed
-    core.warning(`artifact claimed PR #${claimed}, whose head ${head} is not ${run.head_sha}; not labeling`)
+    core.warning(
+      `artifact claimed PR #${claimed}, whose head ${head} (repo ${headRepoId}) does not match ` +
+        `the run's ${run.head_sha} (repo ${run.head_repository?.id}); not labeling`
+    )
     return null
   }
   // The artifact's claim is only honored if the API independently agrees the PR
