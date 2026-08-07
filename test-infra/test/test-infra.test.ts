@@ -298,63 +298,115 @@ test('persistent bucket policy grants access without DeleteBucket', () => {
   expect(persistentStmt.Action).not.toContain('s3:DeleteBucket');
 });
 
-// --- Deploy Role ---
+// --- CI Roles ---
 
-test('internal mode creates a deploy role trusted only by main of this repo', () => {
-  const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+const OIDC_SUBJECT = 'token.actions.githubusercontent.com:sub';
+const OIDC_WORKFLOW_REF = 'token.actions.githubusercontent.com:job_workflow_ref';
 
-  template.hasResourceProperties('AWS::IAM::Role', {
-    RoleName: 'StrandsTestInfraDeployRole',
-    AssumeRolePolicyDocument: {
-      Statement: [
-        Match.objectLike({
-          Action: 'sts:AssumeRoleWithWebIdentity',
-          Principal: {
-            Federated: Match.stringLikeRegexp('oidc-provider/token.actions.githubusercontent.com$'),
-          },
-          Condition: {
-            StringEquals: {
-              'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
-              'token.actions.githubusercontent.com:sub':
-                'repo:strands-agents/harness-sdk:ref:refs/heads/main',
-              'token.actions.githubusercontent.com:job_workflow_ref':
-                'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main',
-            },
-          },
-        }),
-      ],
-    },
+/** The trust-policy condition block of the named fixed-name role. */
+function trustConditions(template: Template, roleName: string): any {
+  const role = Object.values(template.findResources('AWS::IAM::Role')).find(
+    (candidate: any) => candidate.Properties?.RoleName === roleName,
+  ) as any;
+  expect(role).toBeDefined();
+
+  const statements = role.Properties.AssumeRolePolicyDocument.Statement;
+  expect(statements).toHaveLength(1);
+  expect(statements[0].Action).toBe('sts:AssumeRoleWithWebIdentity');
+  expect(statements[0].Principal.Federated).toMatch(
+    /oidc-provider\/token\.actions\.githubusercontent\.com$/,
+  );
+  return statements[0].Condition.StringEquals;
+}
+
+/** The single inline policy of the named fixed-name role. */
+function inlinePolicyStatements(template: Template, logicalIdPrefix: string): any[] {
+  const policies = Object.entries(template.findResources('AWS::IAM::Policy'))
+    .filter(([logicalId]) => logicalId.startsWith(logicalIdPrefix))
+    .map(([, policy]) => policy as any);
+  expect(policies).toHaveLength(1);
+  return policies[0].Properties.PolicyDocument.Statement;
+}
+
+// The subject is the environment, not the ref: `pull_request_target` reports the
+// default branch in GITHUB_REF, so a ref subject cannot tell a reviewed push from
+// a pull request. `job_workflow_ref` is what pins branch and workflow file.
+test('internal mode creates a deploy role trusted only by the two deploy environments', () => {
+  const conditions = trustConditions(
+    synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] }),
+    'StrandsTestInfraDeployRole',
+  );
+
+  expect(conditions).toEqual({
+    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    [OIDC_SUBJECT]: [
+      'repo:strands-agents/harness-sdk:environment:test-infra-deploy',
+      'repo:strands-agents/harness-sdk:environment:test-infra-deploy-approval',
+    ],
+    [OIDC_WORKFLOW_REF]:
+      'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main',
   });
+  // A bare ref subject would be minted by a pull-request run of this workflow
+  // too, so it must not be trusted.
+  expect(JSON.stringify(conditions[OIDC_SUBJECT])).not.toContain('ref:refs/heads');
 });
 
 test('the deploy role can only assume the CDK bootstrap roles', () => {
   const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
 
-  const policies = Object.entries(template.findResources('AWS::IAM::Policy'))
-    .filter(([logicalId]) => logicalId.startsWith('StrandsTestInfraDeployRole'))
-    .map(([, policy]) => policy as any);
-  expect(policies).toHaveLength(1);
-
-  const statements = policies[0].Properties.PolicyDocument.Statement;
+  const statements = inlinePolicyStatements(template, 'StrandsTestInfraDeployRole');
   expect(statements).toHaveLength(1);
   expect(statements[0].Action).toBe('sts:AssumeRole');
-  // Each ARN renders as an Fn::Join around the partition ref, so the trailing
-  // literal is what carries the bootstrap role name.
-  const roleArnTails = statements[0].Resource.map((arn: any) => arn['Fn::Join'][1].at(-1));
-  expect(roleArnTails).toEqual(
+  expect(statements[0].Resource).toEqual(
     ['deploy', 'file-publishing', 'image-publishing', 'lookup'].map(
-      (name) => `:iam::123456789012:role/cdk-hnb659fds-${name}-role-123456789012-us-east-1`,
+      (name) =>
+        `arn:aws:iam::123456789012:role/cdk-hnb659fds-${name}-role-123456789012-us-east-1`,
     ),
   );
 });
 
-test('community mode creates no deploy role', () => {
+// The diff job runs a pull request's own CDK code before anyone has approved it,
+// so its role is trusted for different environments than the deploy role — that
+// disjointness is what stops a diff-job token from assuming the deploy role.
+test('internal mode creates a diff role trusted only by the approval-check environments', () => {
+  const conditions = trustConditions(
+    synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] }),
+    'StrandsTestInfraDiffRole',
+  );
+
+  expect(conditions).toEqual({
+    'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+    [OIDC_SUBJECT]: [
+      'repo:strands-agents/harness-sdk:environment:auto-approve',
+      'repo:strands-agents/harness-sdk:environment:manual-approval',
+    ],
+    [OIDC_WORKFLOW_REF]:
+      'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main',
+  });
+});
+
+// `lookup` is ReadOnlyAccess. `deploy` is the one that can pass the
+// CloudFormation execution role, so it stays out of reach of pull-request code.
+test('the diff role can only assume the CDK bootstrap lookup role', () => {
+  const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+  const statements = inlinePolicyStatements(template, 'StrandsTestInfraDiffRole');
+  expect(statements).toHaveLength(1);
+  expect(statements[0].Action).toBe('sts:AssumeRole');
+  // A single resource renders as a string, not a one-element list.
+  expect(statements[0].Resource).toBe(
+    'arn:aws:iam::123456789012:role/cdk-hnb659fds-lookup-role-123456789012-us-east-1',
+  );
+});
+
+test('community mode creates neither CI role', () => {
   const template = synth({ internal: false });
 
   const roleNames = Object.values(template.findResources('AWS::IAM::Role')).map(
     (role: any) => role.Properties?.RoleName,
   );
   expect(roleNames).not.toContain('StrandsTestInfraDeployRole');
+  expect(roleNames).not.toContain('StrandsTestInfraDiffRole');
 });
 
 // --- Feature Toggling ---

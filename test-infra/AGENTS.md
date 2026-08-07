@@ -27,10 +27,13 @@ See `README.md` in this directory for setup instructions. The default `npx cdk d
 
 ## Changes to this directory deploy themselves
 
-Once a change under `test-infra/` merges to `main`, `.github/workflows/test-infra-deploy.yml` deploys the stack to the team's test account (internal mode). So a permission you add to `integ-test-role.ts` reaches the live role without anyone deploying by hand — and a mistake reaches it just as fast. Two constraints that workflow depends on:
+Once a change under `test-infra/` merges to `main`, `.github/workflows/test-infra-deploy.yml` deploys the stack to the team's test account (internal mode). So a permission you add to `integ-test-role.ts` reaches the live role without anyone deploying by hand — and a mistake reaches it just as fast. A pull request additionally gets a read-only `cdk diff` posted to it, and can be deployed before merge by approving the `test-infra-deploy-approval` environment. Three constraints that workflow depends on:
 
-- The deploy role's trust is pinned to `repo:strands-agents/harness-sdk:ref:refs/heads/main`. Adding an `environment:` to the deploy job rewrites the OIDC subject and breaks the deploy.
-- `StrandsTestInfraDeployRole` is created by the stack it deploys, so never rename or narrow it without a plan for the manual deploy that repairs it.
+- **The GitHub environment a job declares *is* its authorization.** The deploy role trusts the subjects `…:environment:test-infra-deploy` (post-merge, unprotected) and `…:environment:test-infra-deploy-approval` (pull request, required reviewers) — and nothing else. Never point the pull-request path at an unprotected environment, and never reuse either name for a job that runs unreviewed code. The read-only diff job has its own role and its own environments (`auto-approve` / `manual-approval`) precisely so that a pull request's code cannot hold a token the deploy role accepts.
+- **`job_workflow_ref` pins this one workflow file on `main`.** Renaming or moving it breaks both roles until `DEPLOY_WORKFLOW_PATH` is updated with it (a unit test fails if they disagree). It is also why the PR trigger is `pull_request_target`: that runs `main`'s copy of the workflow, so a pull request cannot rewrite the steps that handle it.
+- `StrandsTestInfraDeployRole` and `StrandsTestInfraDiffRole` are created by the stack they deploy, so never rename or narrow them without a plan for the manual deploy that repairs them.
+
+Approving a pull-request deploy authorizes that pull request's TypeScript to run with credentials that can change the account. The diff tells you what it *says* it will change; only the code tells you what it will do.
 
 And the inverse of the rule above: never deploy to the team account **without** `STRANDS_TEST_INFRA_INTERNAL=true`. Community mode omits the deploy role and the integ role's OIDC trust from the template, so CloudFormation deletes both — taking CI's integration tests and its ability to deploy this stack with them.
 
