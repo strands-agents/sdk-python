@@ -23,9 +23,10 @@ if TYPE_CHECKING:
 class RoutingAttempt:
     """A candidate this invocation already used, and how the call ended.
 
-    ``exception`` is ``None`` when the call succeeded, and is otherwise the same object
-    ``AfterModelCallEvent`` reports. Attempts are in chronological order, so a strategy can tell a
-    first failure from a repeated one and treat a candidate that recovered as healthy.
+    ``candidate`` is the instance from ``RoutingContext.candidates``, not a copy. ``exception`` is
+    ``None`` when the call succeeded, and is otherwise the same object ``AfterModelCallEvent`` reports.
+    Attempts are in chronological order, so a strategy can tell a first failure from a repeated one
+    and treat a candidate that recovered as healthy.
     """
 
     candidate: RoutingCandidate
@@ -36,8 +37,10 @@ class RoutingAttempt:
 class RoutingContext:
     """Read-only inputs a strategy sees when choosing a candidate.
 
-    The collections must not be mutated. They are snapshots taken when the router asks, so object
-    identity is not stable between the opening choice and a later ask. In a multi-agent run, one
+    ``messages``, ``system_prompt``, and ``tool_specs`` are fresh copies per ask, so do not mutate
+    them and do not rely on their object identity across asks. ``candidates`` and the ``candidate`` on
+    each ``RoutingAttempt`` are the router's own instances and are stable for the router's lifetime,
+    so a strategy may correlate attempts with candidates by identity. In a multi-agent run, one
     ``invocation_state`` may be shared across nodes, so its ``"agent"`` value may identify a sibling.
 
     A strategy is asked on every invocation because the right model usually depends on the request:
@@ -68,5 +71,8 @@ class RoutingStrategy(Protocol):
         Called with no attempts for the initial choice, then again after each failed call with that
         failure appended. Returning ``None`` ends routing and lets the model's error surface, so a
         strategy that declines to reconsider keeps the invocation on the model it first chose.
+
+        The return value must be one of the ``context.candidates`` instances; the router matches by
+        identity, so an equal-looking ``RoutingCandidate`` built by the strategy is rejected.
         """
         ...

@@ -694,6 +694,32 @@ async def test_router_records_each_outcome_for_the_strategy():
 
 
 @pytest.mark.asyncio
+async def test_candidate_identity_is_stable_across_asks_so_strategies_can_correlate_attempts():
+    # RoutingContext documents this: request snapshots are fresh per ask, candidates are not, and
+    # FallbackStrategy plus the router's own validation both match candidates by identity.
+    seen = []
+
+    class _Recording:
+        async def select(self, context, **kwargs):
+            seen.append((context.candidates, tuple(a.candidate for a in context.attempts)))
+            return context.candidates[len(context.attempts) % len(context.candidates)]
+
+    router = ModelRouter(models=[_model("first"), _model("second")], strategy=_Recording())
+    agent, state, invocation_state = _hook_scaffold(router)
+
+    await router._on_model_result(_model_result(invocation_state, agent, error=ValueError("down")))
+
+    opening = await router._selection_middleware()(_invoke_context({}, model=router.default_model))
+    assert opening.model is router.default_model
+
+    # A failover ask (attempts populated) and an opening ask (attempts empty).
+    assert [len(attempts) for _, attempts in seen] == [1, 0]
+    for candidates, attempt_candidates in seen:
+        assert all(c is d for c, d in zip(candidates, router.candidates, strict=True))
+        assert all(any(a is c for c in router.candidates) for a in attempt_candidates)
+
+
+@pytest.mark.asyncio
 async def test_fallback_cycles_back_to_a_failed_candidate_in_the_next_round():
     router = ModelRouter(models=[_model("first"), _model("second")])
     agent, state, invocation_state = _hook_scaffold(router)
