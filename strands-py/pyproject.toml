@@ -86,7 +86,9 @@ bidi-io = [
 ]
 bidi-gemini = ["google-genai>=1.32.0,<3.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
-bidi-aec = ["pywebrtc-audio>=0.1.0,<1.0.0", "numpy>=1.21.0,<3.0.0"]
+# bidi-aec depends on bidi-io: the audio processing lives in io/audio.py, which imports pyaudio at module
+# scope. Pulling in bidi-io makes `pip install strands-agents[bidi-aec]` usable on its own.
+bidi-aec = ["strands-agents[bidi-io]", "pywebrtc-audio>=0.1.0,<1.0.0", "numpy>=1.21.0,<3.0.0"]
 
 cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]
 

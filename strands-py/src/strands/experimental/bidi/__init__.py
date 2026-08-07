@@ -77,7 +77,7 @@ def __getattr__(name: str) -> Any:
     This defers the import of optional dependencies until actually needed.
     """
     if name == "AudioProcessingConfig":
-        from .io.audio import AudioProcessingConfig
+        from .types.io import AudioProcessingConfig
 
         return AudioProcessingConfig
     if name == "BidiAudioIO":
