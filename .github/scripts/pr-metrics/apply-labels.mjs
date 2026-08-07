@@ -84,6 +84,7 @@ export async function resolvePrNumber({ github, context, core, claimed }) {
     // claimed PR's actual head is the commit this run analyzed, which makes the
     // metrics correct for that PR by definition.
     let head
+    let headRepoId
     try {
       const { data } = await github.rest.pulls.get({
         owner: context.repo.owner,
@@ -91,6 +92,9 @@ export async function resolvePrNumber({ github, context, core, claimed }) {
         pull_number: claimed,
       })
       head = data.head.sha
+      // A commit object can be pushed into any repository, so the SHA alone only
+      // proves the tree. The head repository is what pins the claim to this PR.
+      headRepoId = data.head.repo?.id
     } catch (error) {
       // Only a 404 refutes the claim. Anything else (5xx, rate limit, network)
       // is a transient lookup failure — rethrow so the run fails visibly and
@@ -101,7 +105,7 @@ export async function resolvePrNumber({ github, context, core, claimed }) {
       }
       throw error
     }
-    if (head === run.head_sha) return claimed
+    if (head === run.head_sha && headRepoId != null && headRepoId === run.head_repository?.id) return claimed
     core.warning(`artifact claimed PR #${claimed}, whose head ${head} is not ${run.head_sha}; not labeling`)
     return null
   }
