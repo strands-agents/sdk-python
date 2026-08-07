@@ -1,0 +1,166 @@
+name: "Test Infra: Deploy"
+
+# Keeps the deployed StrandsTestInfraStack in sync with test-infra/.
+#
+# The stack owns the IAM role integration tests assume, so a permission change
+# that merges without a deployment silently does nothing — the symptom is an
+# integ test failing on AccessDenied for a grant that exists in the code.
+#
+# Deploys post-merge only: IAM changes should not reach the account before review
+# lands, and a PR-triggered deploy would hand fork authors the deploy role.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'test-infra/**'
+      - '.github/workflows/test-infra-deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'test-infra/**'
+      - '.github/workflows/test-infra-deploy.yml'
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one: CloudFormation rejects a second
+# UPDATE while one is in flight, and interrupting a deploy can leave the stack
+# in UPDATE_ROLLBACK_IN_PROGRESS.
+concurrency:
+  group: test-infra-deploy-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: test-infra
+
+jobs:
+  validate:
+    name: Type-check and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: test-infra/package-lock.json
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test
+
+  deploy:
+    name: Deploy StrandsTestInfraStack
+    needs: validate
+    # Forks have neither the account nor the secrets, and a PR run must never
+    # deploy — it would apply IAM changes before review.
+    if: github.event_name != 'pull_request' && github.repository == 'strands-agents/harness-sdk'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      id-token: write # request the OIDC token the deploy role is trusted for
+      contents: read
+    # Do not add `environment:` to this job, and do not rename this file. The
+    # deploy role's trust policy pins both the OIDC subject
+    # (`repo:<owner>/<repo>:ref:refs/heads/main` — an environment rewrites it to
+    # `…:environment:<name>`) and `job_workflow_ref`, which carries this file's
+    # path. See test-infra/lib/constructs/github-deploy-role.ts.
+    env:
+      # Required in the team's test account: internal mode is what attaches the
+      # GitHub OIDC trust and the base policy the integ test role needs. Never
+      # set it for a deploy to any other account — see test-infra/AGENTS.md.
+      STRANDS_TEST_INFRA_INTERNAL: 'true'
+      STRANDS_TEST_INFRA_PRIVATE_REPOS: ${{ secrets.STRANDS_TEST_INFRA_PRIVATE_REPOS }}
+      STRANDS_TEST_INFRA_BUCKET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_BUCKET_NAMES }}
+      STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES }}
+      STRANDS_TEST_INFRA_SECRET_NAMES: ${{ secrets.STRANDS_TEST_INFRA_SECRET_NAMES }}
+      # Extra runner roles trusted to assume the integ test role. Optional to the
+      # stack, required here: an empty value silently drops those principals from
+      # the live role's trust policy.
+      STRANDS_TEST_INFRA_RUNNER_ROLES: ${{ secrets.STRANDS_TEST_INFRA_RUNNER_ROLES }}
+      # Pins the deployment to the team account, so a mis-set deploy-role secret
+      # cannot apply internal mode somewhere else: the CDK CLI refuses to deploy
+      # when the credentials belong to a different account.
+      STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT: ${{ secrets.STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Every secret below is load-bearing: an empty list does not fail the
+      # deploy, it deploys a role with those entries removed. Refusing to start
+      # is the only way that stays a loud failure instead of a quiet one.
+      - name: Check the deploy can run
+        env:
+          STRANDS_TEST_INFRA_DEPLOY_ROLE: ${{ secrets.STRANDS_TEST_INFRA_DEPLOY_ROLE }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::test-infra deploys only from main (got $GITHUB_REF). The deploy role's OIDC trust is pinned to refs/heads/main."
+            exit 1
+          fi
+          missing=()
+          for name in STRANDS_TEST_INFRA_DEPLOY_ROLE \
+                      STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT \
+                      STRANDS_TEST_INFRA_PRIVATE_REPOS \
+                      STRANDS_TEST_INFRA_BUCKET_NAMES \
+                      STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES \
+                      STRANDS_TEST_INFRA_SECRET_NAMES \
+                      STRANDS_TEST_INFRA_RUNNER_ROLES; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secrets: ${missing[*]}. See test-infra/README.md (Automated deployment)."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: test-infra/package-lock.json
+
+      - run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.STRANDS_TEST_INFRA_DEPLOY_ROLE }}
+          # Account and region come from these credentials; the stack reads them
+          # via CDK_DEFAULT_ACCOUNT / CDK_DEFAULT_REGION.
+          aws-region: us-east-1
+          mask-aws-account-id: true
+
+      # Recorded in the job summary so the account-side effect of a merge is
+      # auditable after the fact, not just inferable from the diff.
+      - name: Diff against the deployed stack
+        run: |
+          set -uo pipefail
+          status=0
+          npx cdk diff StrandsTestInfraStack --no-color > "$RUNNER_TEMP/cdk-diff.txt" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/cdk-diff.txt"
+          {
+            echo '### `cdk diff` StrandsTestInfraStack'
+            echo '```'
+            cat "$RUNNER_TEMP/cdk-diff.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Deploy
+        run: npx cdk deploy StrandsTestInfraStack --require-approval never --no-color
