@@ -184,6 +184,26 @@ test('the deploy job pipes cdk deploy, stderr included, through the redactor', (
   expect(block).toMatch(/npx cdk deploy [^\n]*2>&1 \|\n\s*python3 "\$RUNNER_TEMP\/redact\.py"/);
 });
 
+// The redactor is inlined twice, once per credentialed job, because on
+// pull_request_target a composite action read from the tree would be the pull
+// request's action. Duplication is the price of that, and drift is the risk it
+// creates: a round-2 review mutated only the deploy copy's sort order — losing
+// the longest-match-first property — and every test still passed.
+test('the two inlined redactor copies are identical', () => {
+  const script = (job: string): string => {
+    const block = jobBlock(job);
+    const open = block.indexOf(`cat > "$RUNNER_TEMP/redact.py" <<'PY'`);
+    expect(open).toBeGreaterThan(-1);
+    const from = block.indexOf('\n', open) + 1;
+    const end = block.indexOf('\n          PY', from);
+    expect(end).toBeGreaterThan(from);
+    return block.slice(from, end);
+  };
+
+  expect(script('deploy')).toBe(script('diff'));
+  expect(script('diff')).toContain('key=len, reverse=True');
+});
+
 // The diff text is a rendering of the pull request's own CDK code, so a resource
 // named `::stop-commands::…` would be executed as a workflow command when printed.
 test('the redactor neutralizes workflow commands and fences', () => {
