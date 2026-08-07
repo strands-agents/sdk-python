@@ -12,7 +12,7 @@ describe('MultiAgentPluginRegistry', () => {
       const registry = new MultiAgentPluginRegistry([{ name: 'failing-plugin', initMultiAgent }])
       const orchestrator = {} as MultiAgent
 
-      // Keeps multi-agent plugin initialization fail-closed across retries (#3477).
+      // Keeps multi-agent plugin initialization fail-closed across retries.
       await expect(registry.initialize(orchestrator)).rejects.toBe(initializationError)
       await expect(registry.initialize(orchestrator)).rejects.toBe(initializationError)
 

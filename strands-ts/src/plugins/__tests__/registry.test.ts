@@ -169,7 +169,7 @@ describe('PluginRegistry', () => {
       })
       registry = new PluginRegistry([{ name: 'failing-plugin', initAgent }])
 
-      // Keeps plugin initialization fail-closed across retries (#3477).
+      // Keeps plugin initialization fail-closed across retries.
       await expect(registry.initialize(mockAgent)).rejects.toBe(initializationError)
       await expect(registry.initialize(mockAgent)).rejects.toBe(initializationError)
 
