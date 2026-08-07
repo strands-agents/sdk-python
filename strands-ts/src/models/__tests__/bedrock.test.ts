@@ -1803,6 +1803,47 @@ describe('BedrockModel', () => {
       expect(lastBlock).toStrictEqual({ cachePoint: { type: 'default' } })
     })
 
+    it('applies the configured messagesTTL over a null ttl on the caller point', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const point = new CachePointBlock({ cacheType: 'default' })
+      // Off the typed path, but reachable from untyped JSON: a null ttl is not a ttl.
+      ;(point as unknown as { ttl: string | null }).ttl = null
+      const messages = [new Message({ role: 'user', content: [new TextBlock('durable ask'), point] })]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default', ttl: '1h' } },
+      ])
+    })
+
+    it('replaces a leading caller-placed cache point with automatic placement', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new CachePointBlock({ cacheType: 'default' }), new TextBlock('durable ask')],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([{ text: 'durable ask' }, { cachePoint: { type: 'default' } }])
+    })
+
+    it('leaves a message that was only a cache point empty', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [new Message({ role: 'user', content: [new CachePointBlock({ cacheType: 'default' })] })]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([])
+    })
+
     it('honors a cache point the caller placed in the last user message', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [

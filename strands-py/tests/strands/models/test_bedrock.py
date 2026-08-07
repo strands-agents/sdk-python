@@ -3221,6 +3221,75 @@ def test_inject_cache_point_does_not_relocate_a_point_a_document_does_not_preced
     assert tru_content == exp_content
 
 
+def test_inject_cache_point_replaces_a_leading_caller_point_with_automatic_placement(bedrock_client):
+    """Bedrock rejects a cache point with nothing ahead of it: "There is nothing available to cache"."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [{"role": "user", "content": [{"cachePoint": {"type": "default"}}, {"text": "durable ask"}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "durable ask"}, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_leaves_a_message_that_was_only_a_cache_point_empty(bedrock_client):
+    """Re-adding a point to an emptied message would rebuild the request Bedrock just refused."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [{"role": "user", "content": [{"cachePoint": {"type": "default"}}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = []
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_an_explicit_none_ttl_from_a_caller_point(bedrock_client):
+    """botocore refuses ``ttl: None`` outright, so it cannot survive to the request."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": None}}]}
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_an_empty_string_ttl_from_a_caller_point(bedrock_client):
+    """Bedrock rejects "" against its TTL enum, so it must not reach the request."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cleaned_messages = [{"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": ""}}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_applies_the_configured_ttl_over_an_explicit_none(bedrock_client):
+    """An explicit None is not a caller TTL, so the configured one still applies."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": None}}]}
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    assert tru_content == exp_content
+
+
 def test_inject_cache_point_honors_a_point_in_the_last_user_message(bedrock_client):
     """A caller marks where its reusable prefix ends; moving the point would cache per-call content."""
     _ = bedrock_client

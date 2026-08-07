@@ -836,25 +836,42 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * Keep a caller-placed cache point, applying the configured TTL and the document rule.
    *
    * A TTL the caller wrote on the point wins over `cacheConfig.messagesTTL`: it is the more specific
-   * instruction. Bedrock wants TTLs non-increasing across toolConfig, system and messages, so a
-   * caller placing a longer TTL than the one configured for tools owns that ordering.
+   * instruction. Bedrock wants TTLs non-increasing across toolConfig, system and messages, so a caller
+   * placing a longer TTL than the one configured for tools owns that ordering.
    *
    * @param content - Content blocks of the last user message (modified in place)
    * @param placedIdx - Index of the caller-placed cache point
    * @param msgIdx - Index of the message, for logging
+   * @returns True when the point was kept, possibly relocated. False when nothing cacheable precedes
+   *   it, so the point was removed: Bedrock rejects a cache point with no content ahead of it ("There
+   *   is nothing available to cache"). The caller then retries automatic placement, which lands a point
+   *   only if the remaining content allows one - for a leading document it declines too.
    */
-  private _honorPlacedCachePoint(content: BedrockContentBlock[], placedIdx: number, msgIdx: number): void {
+  private _honorPlacedCachePoint(content: BedrockContentBlock[], placedIdx: number, msgIdx: number): boolean {
     // Unreachable in practice - the caller scans for cache points to get this index - but the
     // compiler cannot know that under noUncheckedIndexedAccess.
     const placed = content[placedIdx]
     if (!placed || !('cachePoint' in placed)) {
-      return
+      return false
     }
 
+    // An empty or null TTL is not a TTL - Bedrock rejects "" against its enum - so clear it and let the
+    // configured TTL apply as though the caller had written none.
+    if (!placed.cachePoint.ttl) {
+      delete placed.cachePoint.ttl
+    }
     const ttl = this._config.cacheConfig?.messagesTTL
     if (ttl !== undefined && placed.cachePoint.ttl === undefined) {
       // Bedrock validates TTL values server-side, so accept any string here.
       placed.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+    }
+
+    if (placedIdx === 0) {
+      content.splice(placedIdx, 1)
+      logger.warn(
+        `msg_idx=<${msgIdx}> | removed cache point with no content ahead of it, falling back to automatic placement`
+      )
+      return false
     }
 
     // Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back over
@@ -874,14 +891,15 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       if (targetIdx === 0) {
         // Nothing precedes the documents, so there is no prefix to cache.
         logger.debug(`msg_idx=<${msgIdx}> | dropped cache point ahead of a leading document`)
-        return
+        return false
       }
       content.splice(targetIdx, 0, placed)
       logger.debug(`msg_idx=<${msgIdx}>, block_idx=<${targetIdx}> | relocated caller-placed cache point`)
-      return
+      return true
     }
 
     logger.debug(`msg_idx=<${msgIdx}>, block_idx=<${placedIdx}> | honored caller-placed cache point`)
+    return true
   }
 
   /**
@@ -953,8 +971,16 @@ export class BedrockModel extends Model<BedrockModelConfig> {
               `msg_idx=<${lastUserIdx}>, block_idx=<${extraIdx}> | stripped existing cache point (auto mode manages cache points)`
             )
           }
-          this._honorPlacedCachePoint(content, placedIdxs[0] as number, lastUserIdx)
-          return
+          if (this._honorPlacedCachePoint(content, placedIdxs[0] as number, lastUserIdx)) {
+            return
+          }
+          if (content.length === 0) {
+            // Removing the point emptied the message, so there is nothing left to cache and
+            // re-adding one would rebuild the request Bedrock just refused.
+            logger.debug(`msg_idx=<${lastUserIdx}> | no content left to cache`)
+            return
+          }
+          // The point could not legally stay, so fall through to automatic placement below.
         }
 
         const cachePoint: BedrockCachePointBlock = { type: 'default' }

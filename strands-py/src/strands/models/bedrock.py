@@ -412,7 +412,7 @@ class BedrockModel(Model):
         placed_idx: int,
         msg_idx: int,
         cache_config: CacheConfig | None,
-    ) -> None:
+    ) -> bool:
         """Keep a caller-placed cache point, applying the configured TTL and the document rule.
 
         A TTL the caller wrote on the point wins over ``cache_config.ttl``: it is the more specific
@@ -424,10 +424,31 @@ class BedrockModel(Model):
             placed_idx: Index of the caller-placed cache point.
             msg_idx: Index of the message, for logging.
             cache_config: The configured cache settings, if any.
+
+        Returns:
+            True when the point was kept, possibly relocated. False when nothing cacheable precedes it,
+            so the point was removed: Bedrock rejects a cache point with no content ahead of it ("There
+            is nothing available to cache"). The caller then retries automatic placement, which lands a
+            point only if the remaining content allows one - for a leading document it declines too, so
+            the message ends up with no cache point at all.
         """
         placed = content[placed_idx]
-        if cache_config and cache_config.ttl and "ttl" not in placed["cachePoint"]:
-            placed["cachePoint"]["ttl"] = cache_config.ttl
+
+        if placed_idx == 0:
+            del content[placed_idx]
+            logger.warning(
+                "msg_idx=<%s> | removed cache point with no content ahead of it, falling back to automatic placement",
+                msg_idx,
+            )
+            return False
+
+        cache_point = placed["cachePoint"]
+        # An empty or ``None`` TTL is not a TTL: botocore rejects None outright and Bedrock rejects ""
+        # against its enum. Drop the key so the configured TTL applies as though the caller wrote none.
+        if "ttl" in cache_point and not cache_point["ttl"]:
+            del cache_point["ttl"]
+        if cache_config and cache_config.ttl and "ttl" not in cache_point:
+            cache_point["ttl"] = cache_config.ttl
 
         # Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back
         # over the adjacent run of them. Moving further would evict durable content - usually the
@@ -442,14 +463,16 @@ class BedrockModel(Model):
         if target_idx != placed_idx:
             del content[placed_idx]
             if target_idx == 0:
-                # Nothing precedes the documents, so there is no prefix to cache.
-                logger.debug("msg_idx=<%s> | dropped cache point ahead of a leading document", msg_idx)
-                return
+                # Nothing precedes the documents, so there is no prefix to cache. Automatic placement
+                # declines for the same reason, leaving the message with no cache point.
+                logger.warning("msg_idx=<%s> | dropped cache point ahead of a leading document", msg_idx)
+                return False
             content.insert(target_idx, placed)
             logger.debug("msg_idx=<%s>, block_idx=<%s> | relocated caller-placed cache point", msg_idx, target_idx)
-            return
+            return True
 
         logger.debug("msg_idx=<%s>, block_idx=<%s> | honored caller-placed cache point", msg_idx, placed_idx)
+        return True
 
     def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
         """Ensure the last user message carries exactly one cache point.
@@ -505,8 +528,15 @@ class BedrockModel(Model):
                         last_user_idx,
                         extra_idx,
                     )
-                self._honor_placed_cache_point(content, placed_idxs[0], last_user_idx, cache_config)
-                return
+                if self._honor_placed_cache_point(content, placed_idxs[0], last_user_idx, cache_config):
+                    return
+                if not content:
+                    # Removing the point emptied the message, so there is nothing left to cache and
+                    # re-adding one would rebuild the request Bedrock just refused. Bedrock rejects an
+                    # empty message too, exactly as the pre-existing strip path already did.
+                    logger.debug("msg_idx=<%s> | no content left to cache", last_user_idx)
+                    return
+                # The point could not legally stay, so fall through to automatic placement below.
 
             # Insert before non-PDF document blocks to avoid Bedrock ValidationException
             first_non_pdf_doc_idx: int | None = None
