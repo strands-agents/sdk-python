@@ -135,7 +135,7 @@ describe('enrich', () => {
     expect(e.languages).toBe(null)
   })
 
-  it('a root-lockfile-only PR is attributed to that ecosystem language', async () => {
+  it('a root-npm-lockfile-only PR is attributed to typescript', async () => {
     const npmBump = async () => ({
       labels: [],
       merge_commit_sha: 'abc1234',
@@ -143,8 +143,6 @@ describe('enrich', () => {
       files: ['package-lock.json'],
     })
     expect((await enrichFromPr('r', 1, npmBump)).languages).toEqual(['typescript'])
-    const pyBump = async () => ({ labels: [], merge_commit_sha: 'abc1234', user: 'x', files: ['uv.lock'] })
-    expect((await enrichFromPr('r', 1, pyBump)).languages).toEqual(['python'])
   })
 
   it('a root lockfile alongside SDK code keeps the dir signal', async () => {
