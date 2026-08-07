@@ -3343,18 +3343,68 @@ def test_inject_cache_point_applies_configured_ttl_to_an_honored_point(bedrock_c
     assert tru_point == exp_point
 
 
-def test_inject_cache_point_keeps_a_hand_placed_ttl(bedrock_client):
+def test_inject_cache_point_normalizes_the_ttl_of_a_relocated_point(bedrock_client):
+    """The relocation path must normalize too: a caller TTL there is just as capable of a rejection."""
     _ = bedrock_client
-    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="5m"))
+    doc = {"document": {"format": "csv", "name": "d", "source": {"bytes": b"x"}}}
     cleaned_messages = [
-        {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "5m"}}]}
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze"},
+                doc,
+                {"cachePoint": {"type": "default", "ttl": "1h"}},
+                {"text": "per-call"},
+            ],
+        }
     ]
 
     model._inject_cache_point(cleaned_messages)
 
-    tru_point = cleaned_messages[0]["content"][1]
-    exp_point = {"cachePoint": {"type": "default", "ttl": "5m"}}
-    assert tru_point == exp_point
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "analyze"}, {"cachePoint": {"type": "default", "ttl": "5m"}}, doc, {"text": "per-call"}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_normalizes_a_hand_placed_ttl_to_the_configured_one(bedrock_client):
+    """A caller TTL can invalidate the request: Bedrock rejects a longer TTL after a shorter one."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    # A trailing block makes the honored POSITION observable: a strip-and-re-append would move the
+    # point to the end, so this also fails against the behaviour this PR replaces.
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "5m"}}, {"text": "per-call"}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}, {"text": "per-call"}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_a_hand_placed_ttl_when_none_is_configured(bedrock_client):
+    """With no configured TTL there is nothing to normalize to, so the caller's TTL still goes."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    # A trailing block makes the honored POSITION observable: a strip-and-re-append would move the
+    # point to the end, so this also fails against the behaviour this PR replaces.
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}, {"text": "per-call"}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "per-call"}]
+    assert tru_content == exp_content
 
 
 def test_inject_cache_point_relocates_an_honored_point_ahead_of_a_non_pdf_document(bedrock_client):

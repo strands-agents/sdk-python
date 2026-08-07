@@ -1970,12 +1970,17 @@ describe('BedrockModel', () => {
       ])
     })
 
-    it('keeps a hand-placed ttl on an honored cache point', async () => {
-      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+    it('does not forward an empty configured messagesTTL', async () => {
+      // "" is not a TTL - Bedrock rejects it against its enum - and Python drops it, so TS must too.
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '' as never } })
       const messages = [
         new Message({
           role: 'user',
-          content: [new TextBlock('durable ask'), new CachePointBlock({ cacheType: 'default', ttl: '5m' })],
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default', ttl: '1h' }),
+            new TextBlock('per-call'),
+          ],
         }),
       ]
 
@@ -1984,7 +1989,84 @@ describe('BedrockModel', () => {
       const call = mockConverseStreamCommand.mock.lastCall?.[0]
       expect(call?.messages?.[0]?.content).toStrictEqual([
         { text: 'durable ask' },
+        { cachePoint: { type: 'default' } },
+        { text: 'per-call' },
+      ])
+    })
+
+    it('normalizes the ttl of a relocated cache point', async () => {
+      // The relocation path must normalize too: a caller ttl there is just as capable of a rejection.
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '5m' } })
+      const doc = new DocumentBlock({ name: 'd', format: 'md', source: { bytes: new Uint8Array([1]) } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('analyze'),
+            doc,
+            new CachePointBlock({ cacheType: 'default', ttl: '1h' }),
+            new TextBlock('per-call'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'analyze' },
         { cachePoint: { type: 'default', ttl: '5m' } },
+        { document: { name: 'd', format: 'md', source: { bytes: new Uint8Array([1]) } } },
+        { text: 'per-call' },
+      ])
+    })
+
+    it('normalizes a hand-placed ttl to the configured one', async () => {
+      // A caller ttl can invalidate the request: Bedrock rejects a longer ttl after a shorter one.
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto', messagesTTL: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          // A trailing block makes the honored POSITION observable: a strip-and-re-append would move
+          // the point to the end, so this also fails against the behaviour this change replaces.
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default', ttl: '5m' }),
+            new TextBlock('per-call'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default', ttl: '1h' } },
+        { text: 'per-call' },
+      ])
+    })
+
+    it('drops a hand-placed ttl when no messagesTTL is configured', async () => {
+      const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('durable ask'),
+            new CachePointBlock({ cacheType: 'default', ttl: '1h' }),
+            new TextBlock('per-call'),
+          ],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      const call = mockConverseStreamCommand.mock.lastCall?.[0]
+      expect(call?.messages?.[0]?.content).toStrictEqual([
+        { text: 'durable ask' },
+        { cachePoint: { type: 'default' } },
+        { text: 'per-call' },
       ])
     })
 

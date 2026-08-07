@@ -835,9 +835,10 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   /**
    * Keep a caller-placed cache point, applying the configured TTL and the document rule.
    *
-   * A TTL the caller wrote on the point wins over `cacheConfig.messagesTTL`: it is the more specific
-   * instruction. Bedrock wants TTLs non-increasing across toolConfig, system and messages, so a caller
-   * placing a longer TTL than the one configured for tools owns that ordering.
+   * The caller's position is honored; their TTL is not. Bedrock processes cache points in the order
+   * toolConfig, system, messages and rejects a longer TTL that follows a shorter one (see CacheConfig),
+   * so a TTL written here can turn a working configuration into a rejected request. Normalizing to
+   * `cacheConfig.messagesTTL` is what makes the honored path TTL-identical to the automatic one.
    *
    * @param content - Content blocks of the last user message (modified in place)
    * @param placedIdx - Index of the caller-placed cache point
@@ -855,23 +856,24 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return false
     }
 
-    // An empty or null TTL is not a TTL - Bedrock rejects "" against its enum - so clear it and let the
-    // configured TTL apply as though the caller had written none.
-    if (!placed.cachePoint.ttl) {
-      delete placed.cachePoint.ttl
-    }
-    const ttl = this._config.cacheConfig?.messagesTTL
-    if (ttl !== undefined && placed.cachePoint.ttl === undefined) {
-      // Bedrock validates TTL values server-side, so accept any string here.
-      placed.cachePoint.ttl = ttl as BedrockSdkCacheTTL
-    }
-
     if (placedIdx === 0) {
       content.splice(placedIdx, 1)
       logger.warn(
         `msg_idx=<${msgIdx}> | removed cache point with no content ahead of it, falling back to automatic placement`
       )
       return false
+    }
+
+    // Honor the caller's position, not their TTL: Bedrock processes cache points in the order
+    // toolConfig, system, messages and rejects a longer TTL that follows a shorter one, so a TTL
+    // written here can invalidate a request against one configured for tools or system. Deleting it
+    // unconditionally also handles null and "", which are rejected before placement is even judged.
+    delete placed.cachePoint.ttl
+    const ttl = this._config.cacheConfig?.messagesTTL
+    if (ttl) {
+      // Bedrock validates TTL values server-side, so accept any string here. An empty configured TTL
+      // is not a TTL, matching the Python side rather than forwarding "" for the enum to reject.
+      placed.cachePoint.ttl = ttl as BedrockSdkCacheTTL
     }
 
     // Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back over
@@ -962,9 +964,13 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         }
 
         if (placedIdxs.length > 0) {
-          // One boundary per message: the first marks where the reusable prefix ends, and extras
-          // would spend the provider's cache-point budget for nothing. Descending, so each removal
-          // is above every index still to be used.
+          // One boundary per message, so this change's budget footprint matches the strip it replaces.
+          // Extras are not worthless - a second point ahead of the per-call tail doubles the cached
+          // prefix - but Bedrock allows only four cache points per request and the budget is shared
+          // across toolConfig, system and messages. The SDK already spends up to two of them via
+          // cacheTools and cachePrompt, so honoring a caller's extras needs that arithmetic first, or
+          // three caller points become a hard rejection rather than weaker caching. Descending, so
+          // each removal is above every index still to be used.
           for (const extraIdx of placedIdxs.slice(1).reverse()) {
             content.splice(extraIdx, 1)
             logger.warn(

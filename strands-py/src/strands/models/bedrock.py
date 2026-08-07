@@ -413,11 +413,14 @@ class BedrockModel(Model):
         msg_idx: int,
         cache_config: CacheConfig | None,
     ) -> bool:
-        """Keep a caller-placed cache point, applying the configured TTL and the document rule.
+        """Keep a caller-placed cache point, taking the configured TTL and the document rule.
 
-        A TTL the caller wrote on the point wins over ``cache_config.ttl``: it is the more specific
-        instruction. Bedrock wants TTLs non-increasing across toolConfig, system and messages, so a
-        caller placing a longer TTL than the one configured for tools owns that ordering.
+        The caller's *position* is honored; their TTL is not. Bedrock processes cache points in the
+        order toolConfig, system, messages and rejects a longer TTL that follows a shorter one, so a
+        TTL written here can turn a working configuration into a rejected request - verified against
+        the API: tools at 5m with a hand-placed 1h on the message is rejected, the same shape at 5m is
+        accepted. Normalizing to ``cache_config.ttl`` is what makes the honored path TTL-identical to
+        the automatic one, which is the only behaviour this method should be changing.
 
         Args:
             content: Content blocks of the last user message (modified in place).
@@ -443,11 +446,11 @@ class BedrockModel(Model):
             return False
 
         cache_point = placed["cachePoint"]
-        # An empty or ``None`` TTL is not a TTL: botocore rejects None outright and Bedrock rejects ""
-        # against its enum. Drop the key so the configured TTL applies as though the caller wrote none.
-        if "ttl" in cache_point and not cache_point["ttl"]:
-            del cache_point["ttl"]
-        if cache_config and cache_config.ttl and "ttl" not in cache_point:
+        # Dropping it unconditionally also handles a caller TTL of None or "", which botocore and
+        # Bedrock respectively reject before the request can even be judged on placement. The
+        # non-increasing rule itself is documented on CacheConfig.
+        cache_point.pop("ttl", None)
+        if cache_config and cache_config.ttl:
             cache_point["ttl"] = cache_config.ttl
 
         # Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back
@@ -519,8 +522,12 @@ class BedrockModel(Model):
 
             placed_idxs = [idx for idx, block in enumerate(content) if "cachePoint" in block]
             if placed_idxs:
-                # One boundary per message: the first marks where the reusable prefix ends, and extras
-                # would spend the provider's cache-point budget for nothing.
+                # One boundary per message, so this PR's budget footprint matches the strip it replaces.
+                # Extras are not worthless - a second point ahead of the per-call tail doubles the cached
+                # prefix - but Bedrock allows only four cache points per request and the budget is shared
+                # across toolConfig, system and messages. The SDK already spends up to two of them via
+                # cache_tools and cache_prompt, so honoring a caller's extras needs that arithmetic
+                # first, or three caller points become a hard rejection rather than weaker caching.
                 for extra_idx in reversed(placed_idxs[1:]):
                     del content[extra_idx]
                     logger.warning(
