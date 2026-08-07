@@ -9,7 +9,8 @@ candidates after healthier ones. The API is provisional and may change before it
 These symbols are re-exported from ``strands.models``.
 """
 
-from .router import CandidateInput, FallbackStrategy, ModelRouter, RoutingCandidate
+from .fallback_strategy import FallbackStrategy
+from .router import CandidateInput, ModelRouter, RoutingCandidate
 from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
 
 __all__ = [
@@ -21,3 +22,6 @@ __all__ = [
     "RoutingContext",
     "RoutingStrategy",
 ]
+
+# Module layout, following ``agent/conversation_manager``: ``strategy`` holds the contract,
+# ``router`` the orchestration, and each concrete strategy its own module.

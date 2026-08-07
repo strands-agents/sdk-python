@@ -9,13 +9,11 @@ The router orchestrates only. It resolves a candidate to a concrete model, appli
 gives each new candidate a fresh retry budget, and holds per-invocation state. It has no failover
 policy, so a strategy can change routing behavior without changing the router.
 
-The default ``FallbackStrategy`` follows declaration order, making ``ModelRouter(models=[a, b])``
-ordered failover, with two refinements: a successful call clears the failures recorded before it, so
-a candidate that failed earlier becomes eligible again, and candidates with more recorded failures
-are tried after healthier ones. A strategy that fails or declines the opening choice degrades to the
-first declared candidate; ``max_switches`` caps switches per invocation. A strategy that re-offers the
-candidate that just failed is taken to mean "stay here", so the model's error surfaces rather than the
-router resetting the retry budget again.
+The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter(models=[a, b])`` ordered
+failover; see ``fallback_strategy`` for what it decides. A strategy that fails or declines the opening
+choice degrades to the first declared candidate; ``max_switches`` caps switches per invocation. A
+strategy that re-offers the candidate that just failed is taken to mean "stay here", so the model's
+error surfaces rather than the router resetting the retry budget again.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, so its strategy picks from a clean slate every time and the group performs no internal
@@ -35,13 +33,14 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
 
 from ..._middleware.stages import InvokeModelStage
 from ...hooks.events import AfterInvocationEvent, AfterModelCallEvent, BeforeInvocationEvent
 from ...hooks.registry import HookOrder
 from ...plugins.plugin import Plugin
 from ..model import Model
+from .fallback_strategy import FallbackStrategy
 from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
 
 if TYPE_CHECKING:
@@ -49,6 +48,8 @@ if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -79,29 +80,6 @@ class _RoutingState:
     model: Model
     attempts: list[RoutingAttempt] = field(default_factory=list)
     switches: int = 0
-
-
-class FallbackStrategy:
-    """Works down the candidates in declaration order, preferring the ones failing least.
-
-    A success clears the failures before it, so a later failure may return to an earlier candidate.
-    Candidates that keep failing sink below healthy ones.
-    """
-
-    async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
-        """Return the least-failed candidate not yet tried since the last success, else ``None``."""
-        failures: dict[int, int] = {}
-        for attempt in context.attempts:
-            if attempt.exception is None:
-                failures.pop(id(attempt.candidate), None)
-            else:
-                failures[id(attempt.candidate)] = failures.get(id(attempt.candidate), 0) + 1
-
-        tried_now = {id(attempt.candidate) for attempt in _attempts_since_success(context.attempts)}
-        available = [candidate for candidate in context.candidates if id(candidate) not in tried_now]
-        if not available:
-            return None
-        return min(available, key=lambda candidate: failures.get(id(candidate), 0))
 
 
 class ModelRouter(Plugin):
@@ -409,13 +387,13 @@ class ModelRouter(Plugin):
     ) -> RoutingContext:
         """Build a ``RoutingContext`` over this router's candidates.
 
-        The request collections are deep-copied here, the one place every ask goes through, so a
-        strategy that ignores the read-only contract cannot alter the request the model runs on.
+        Snapshotting happens here, the one place every ask goes through, so a strategy that ignores
+        the read-only contract cannot alter the request the model runs on.
         """
         return RoutingContext(
-            messages=copy.deepcopy(messages),
-            system_prompt=copy.deepcopy(system_prompt),
-            tool_specs=copy.deepcopy(tool_specs),
+            messages=_snapshot(messages),
+            system_prompt=_snapshot(system_prompt),
+            tool_specs=_snapshot(tool_specs),
             candidates=self._candidates,
             invocation_state=invocation_state,
             attempts=tuple(attempts),
@@ -426,12 +404,16 @@ CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
 """What ``ModelRouter(models=...)`` accepts for each candidate."""
 
 
-def _attempts_since_success(attempts: Sequence[RoutingAttempt]) -> Sequence[RoutingAttempt]:
-    """Return the trailing attempts that all failed, dropping everything up to the last success."""
-    for index in range(len(attempts) - 1, -1, -1):
-        if attempts[index].exception is None:
-            return attempts[index + 1 :]
-    return attempts
+def _snapshot(value: _T) -> _T:
+    """Isolate request data from the strategy, keeping the original if a payload cannot be copied.
+
+    Isolation is defensive, so it must never be what fails a servable request.
+    """
+    try:
+        return copy.deepcopy(value)
+    except Exception as error:
+        logger.debug("error=<%s> | request data could not be copied, passing it through", error)
+        return value
 
 
 def _candidate_label(candidate: RoutingCandidate) -> str:

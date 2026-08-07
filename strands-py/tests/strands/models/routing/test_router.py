@@ -10,7 +10,6 @@ from strands import Agent, Plugin
 from strands.event_loop._retry import ModelRetryStrategy
 from strands.models import BedrockModel
 from strands.models.routing import (
-    FallbackStrategy,
     ModelRouter,
     RoutingAttempt,
     RoutingCandidate,
@@ -123,29 +122,6 @@ def test_default_model_is_the_first_declared_candidate(build):
 
 
 # --- strategy selection ---
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("count", "history", "expected"),
-    [
-        (2, lambda c, e: (), 0),
-        (2, lambda c, e: (RoutingAttempt(c[0], e),), 1),
-        (2, lambda c, e: (RoutingAttempt(c[0], e), RoutingAttempt(c[1], e)), None),
-        # A success clears the failures before it, so the earlier candidate is eligible again.
-        (2, lambda c, e: (RoutingAttempt(c[0], e), RoutingAttempt(c[1]), RoutingAttempt(c[1], e)), 0),
-        # With an untouched candidate available, the one carrying a failure is demoted below it.
-        (3, lambda c, e: (RoutingAttempt(c[0], e), RoutingAttempt(c[1]), RoutingAttempt(c[1], e)), 2),
-    ],
-    ids=["opening-choice", "advances", "exhausted", "rearms-after-success", "prefers-least-failed"],
-)
-async def test_fallback_strategy_decides_from_the_attempt_log(count, history, expected):
-    router = ModelRouter(models=[_model() for _ in range(count)])
-    attempts = history(router.candidates, ValueError("down"))
-
-    chosen = await FallbackStrategy().select(_routing_context(router.candidates, attempts=attempts))
-
-    assert chosen is (None if expected is None else router.candidates[expected])
 
 
 @pytest.mark.asyncio
@@ -342,6 +318,21 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
 
     assert context.messages == [{"role": "user", "content": [{"text": "original"}]}]
     assert context.tool_specs == [{"name": "calculator", "inputSchema": {"json": {}}}]
+
+
+@pytest.mark.asyncio
+async def test_a_payload_that_cannot_be_copied_still_routes():
+    # Isolation is defensive, so it must not be what fails an otherwise servable request.
+    class _Uncopyable:
+        def __deepcopy__(self, memo):
+            raise TypeError("cannot deepcopy")
+
+    m = _model()
+    router = ModelRouter(models=[m])
+    context = _invoke_context({}, model=m)
+    context.messages = [{"role": "user", "content": [{"image": _Uncopyable()}]}]
+
+    assert (await router._selection_middleware()(context)).model is m
 
 
 # --- construction guards ---
