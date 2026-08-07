@@ -313,8 +313,11 @@ sidebar:
           - label: Projects
             items:
               - docs/labs/robots
-              - docs/labs/robots-sim
+              - docs/labs/strands-for-cosmos
+              - docs/labs/benchmark-harnesses
+              - docs/labs/harness-optimizer
               - docs/labs/ai-functions
+              - docs/labs/pywebrtc-audio
       - label: Integrations
         items:
           - docs/integrations/integrations/ag-ui

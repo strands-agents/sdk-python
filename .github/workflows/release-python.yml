@@ -214,7 +214,7 @@ jobs:
           name: pypi-build-output
           path: dist
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.10'
 
@@ -272,7 +272,7 @@ jobs:
           twine check dist/*
 
       - name: Upload verified bundle for publish
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: pypi-dist-bundle
           path: dist/*
@@ -350,7 +350,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload release notes artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: release-notes
           path: release-notes.md
