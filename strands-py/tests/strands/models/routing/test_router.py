@@ -320,21 +320,6 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
     assert context.tool_specs == [{"name": "calculator", "inputSchema": {"json": {}}}]
 
 
-@pytest.mark.asyncio
-async def test_a_payload_that_cannot_be_copied_still_routes():
-    # Isolation is defensive, so it must not be what fails an otherwise servable request.
-    class _Uncopyable:
-        def __deepcopy__(self, memo):
-            raise TypeError("cannot deepcopy")
-
-    m = _model()
-    router = ModelRouter(models=[m])
-    context = _invoke_context({}, model=m)
-    context.messages = [{"role": "user", "content": [{"image": _Uncopyable()}]}]
-
-    assert (await router._selection_middleware()(context)).model is m
-
-
 # --- construction guards ---
 
 

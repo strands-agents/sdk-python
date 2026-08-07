@@ -10,7 +10,8 @@ gives each new candidate a fresh retry budget, and holds per-invocation state. I
 policy, so a strategy can change routing behavior without changing the router.
 
 The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter(models=[a, b])`` ordered
-failover; see ``fallback_strategy`` for what it decides. A strategy that fails or declines the opening
+failover until a candidate starts failing repeatedly; see ``fallback_strategy`` for what it decides
+and when it departs from declaration order. A strategy that fails or declines the opening
 choice degrades to the first declared candidate; ``max_switches`` caps switches per invocation. A
 strategy that re-offers the candidate that just failed is taken to mean "stay here", so the model's
 error surfaces rather than the router resetting the retry budget again.
@@ -33,7 +34,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from ..._middleware.stages import InvokeModelStage
 from ...hooks.events import AfterInvocationEvent, AfterModelCallEvent, BeforeInvocationEvent
@@ -48,8 +49,6 @@ if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
-
-_T = TypeVar("_T")
 
 
 @dataclass(frozen=True)
@@ -101,12 +100,13 @@ class ModelRouter(Plugin):
                 ``RoutingCandidate`` carrying an optional name/description. The first candidate is
                 the router's concrete default, used when a strategy cannot produce a choice.
             strategy: Chooses the candidate for each model call, and is asked again after a failed
-                call. Defaults to ``FallbackStrategy``: declaration order, except that a successful
-                call clears the failures before it, so a candidate that already failed is eligible
-                again, and candidates that keep failing are tried after healthier ones.
+                call. Defaults to ``FallbackStrategy``, which prefers the candidate with the fewest
+                recorded failures and breaks ties by declaration order, so an invocation with no
+                failures behind it is ordered failover. A success re-arms the candidates before it.
             max_switches: Cap on model switches within one invocation, after which the router stops
-                asking and lets the error surface. Defaults to ``None`` (the strategy decides when to
-                stop) -- set it when a strategy could keep escalating across a long tool loop.
+                asking and lets the error surface. Selection is asked once per invocation, but every
+                failed model call can switch, so an invocation running a long tool loop has many
+                chances to switch. Defaults to ``None``, leaving the stop decision to the strategy.
 
         Raises:
             TypeError: If ``models`` is not a sequence, a candidate is not a ``Model`` or
@@ -115,8 +115,6 @@ class ModelRouter(Plugin):
                 model, or ``max_switches`` is negative.
         """
         super().__init__()
-        # Only the member the router calls, so optional protocol members stay optional. A sync
-        # select would otherwise construct fine and then be swallowed as a routing failure.
         if strategy is not None and not inspect.iscoroutinefunction(getattr(strategy, "select", None)):
             raise TypeError("strategy must implement RoutingStrategy: an async select(context) method")
         if max_switches is not None and max_switches < 0:
@@ -158,8 +156,10 @@ class ModelRouter(Plugin):
         agent._middleware_registry.add_middleware(InvokeModelStage.Input, self._selection_middleware())
         # Fallback must see whether ModelRetryStrategy (DEFAULT) already claimed the retry.
         agent.hooks.add_callback(AfterModelCallEvent, self._on_model_result, order=HookOrder.MODEL_ROUTING)
-        # Cleared at both ends: teardown last so other end-of-invocation callbacks still observe the
-        # selection, and again on entry so a skipped teardown cannot pin a reused invocation_state.
+        # One invocation_state dict can span several Before/After pairs, because Agent._run_loop
+        # re-enters them for continuations and because callers may supply their own dict. Teardown
+        # runs last so other end-of-invocation callbacks still observe the selection; entry clears
+        # again so a dict that outlived its teardown cannot pin the next invocation to a stale model.
         agent.hooks.add_callback(AfterInvocationEvent, self._clear_state, order=HookOrder.SDK_LAST)
         agent.hooks.add_callback(BeforeInvocationEvent, self._clear_state, order=HookOrder.SDK_FIRST)
 
@@ -214,21 +214,21 @@ class ModelRouter(Plugin):
     ) -> RoutingCandidate | None:
         """Choose the candidate to start with, degrading to a default if the strategy fails."""
         try:
-            answer = await self._strategy.select(context)
+            selection = await self._strategy.select(context)
         except Exception as error:
             logger.warning(
                 "strategy=<%s>, error=<%s> | routing failed, using the default candidate",
                 self._strategy_name,
                 error,
             )
-            return self._default_candidate(attempts)
+            return self._first_untried(attempts)
 
-        candidate = self._validated(answer, context)
+        candidate = self._validated(selection, context)
         if candidate is None:
             logger.warning(
                 "strategy=<%s> | strategy chose no candidate, using the default candidate", self._strategy_name
             )
-            return self._default_candidate(attempts)
+            return self._first_untried(attempts)
 
         logger.info(
             "strategy=<%s>, candidate=<%s> | candidate selected",
@@ -237,7 +237,7 @@ class ModelRouter(Plugin):
         )
         return candidate
 
-    def _default_candidate(self, attempts: Sequence[RoutingAttempt]) -> RoutingCandidate | None:
+    def _first_untried(self, attempts: Sequence[RoutingAttempt]) -> RoutingCandidate | None:
         """First declared candidate that has not already failed, or ``None`` when all have."""
         failed = {id(attempt.candidate) for attempt in attempts}
         return next((candidate for candidate in self._candidates if id(candidate) not in failed), None)
@@ -301,9 +301,9 @@ class ModelRouter(Plugin):
 
         # Bounded by the candidate count so a strategy repeating one unresolvable choice cannot spin.
         for _ in range(len(self._candidates)):
-            routing_context = self._agent_routing_context(event.agent, event.invocation_state, state.attempts)
+            routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
             try:
-                answer = await self._strategy.select(routing_context)
+                selection = await self._strategy.select(routing_context)
             except Exception as error:
                 logger.warning(
                     "strategy=<%s>, error=<%s> | routing failed, leaving the error to surface",
@@ -311,7 +311,7 @@ class ModelRouter(Plugin):
                     error,
                 )
                 return
-            candidate = self._validated(answer, routing_context)
+            candidate = self._validated(selection, routing_context)
             if candidate is None:
                 return
             try:
@@ -362,7 +362,7 @@ class ModelRouter(Plugin):
         """
         return f"{_ROUTING_KEY_PREFIX}:{id(agent):x}:{id(self):x}"
 
-    def _agent_routing_context(
+    def _routing_context_from_agent(
         self, agent: Any, invocation_state: Mapping[str, Any], attempts: Sequence[RoutingAttempt] = ()
     ) -> RoutingContext:
         """Build a ``RoutingContext`` from the agent, matching the shapes middleware passes."""
@@ -387,13 +387,14 @@ class ModelRouter(Plugin):
     ) -> RoutingContext:
         """Build a ``RoutingContext`` over this router's candidates.
 
-        Snapshotting happens here, the one place every ask goes through, so a strategy that ignores
-        the read-only contract cannot alter the request the model runs on.
+        Copied here, the one place every ask goes through, so a strategy that ignores the read-only
+        contract cannot reach state that outlives the ask: the fallback path reads ``agent.messages``
+        and the registry's own tool specs. Mirrors the copy ``event_loop`` makes for each model call.
         """
         return RoutingContext(
-            messages=_snapshot(messages),
-            system_prompt=_snapshot(system_prompt),
-            tool_specs=_snapshot(tool_specs),
+            messages=copy.deepcopy(messages),
+            system_prompt=copy.deepcopy(system_prompt),
+            tool_specs=copy.deepcopy(tool_specs),
             candidates=self._candidates,
             invocation_state=invocation_state,
             attempts=tuple(attempts),
@@ -402,18 +403,6 @@ class ModelRouter(Plugin):
 
 CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
 """What ``ModelRouter(models=...)`` accepts for each candidate."""
-
-
-def _snapshot(value: _T) -> _T:
-    """Isolate request data from the strategy, keeping the original if a payload cannot be copied.
-
-    Isolation is defensive, so it must never be what fails a servable request.
-    """
-    try:
-        return copy.deepcopy(value)
-    except Exception as error:
-        logger.debug("error=<%s> | request data could not be copied, passing it through", error)
-        return value
 
 
 def _candidate_label(candidate: RoutingCandidate) -> str:

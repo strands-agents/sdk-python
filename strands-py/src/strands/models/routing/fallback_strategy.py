@@ -12,10 +12,14 @@ if TYPE_CHECKING:
 
 
 class FallbackStrategy:
-    """Works down the candidates in declaration order, preferring the ones failing least.
+    """Picks the healthiest candidate not yet tried since the last success.
 
-    A success clears the failures before it, so a later failure may return to an earlier candidate.
-    Candidates that keep failing sink below healthy ones.
+    Candidates already tried since the last success are excluded, then the fewest recorded failures
+    wins, ties going to the earlier declaration. So an invocation with no failures behind it is plain
+    declaration order, and a model that keeps failing sinks below healthier ones rather than being
+    re-tried in its declared slot. A success clears the failures recorded before it, which both
+    re-arms an earlier candidate for a later round and stops that success from being demoted.
+    Returns ``None`` once every candidate has been tried since the last success.
     """
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
