@@ -338,9 +338,10 @@ describe('BedrockKnowledgeBaseStore', () => {
       ])
     })
 
-    // Bedrock returns a stored integer as `3.0`, which `@aws-sdk/core` preserves as a
-    // NumericValue `{ string, type: 'bigDecimal' }` in the untyped metadata document.
-    // Guards against #3692: the caller must read back the number they stored.
+    // Bedrock returns a stored integer as `3.0`, which `@aws-sdk/core` may preserve as a
+    // NumericValue `{ string, type: 'bigDecimal' }` in the untyped metadata document
+    // (aws/aws-sdk-js-v3#8246). Guards against #3692: the caller must read back the number
+    // they stored.
     it('unwraps NumericValue metadata back into the number that was stored', async () => {
       const { store, runtime } = makeStore()
       runtime.send.mockResolvedValue({

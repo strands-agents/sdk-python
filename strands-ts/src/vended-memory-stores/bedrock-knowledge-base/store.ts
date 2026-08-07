@@ -50,12 +50,12 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
 /**
  * Restores a retrieved numeric metadata attribute to the number the caller stored.
  *
- * Bedrock serializes a NUMBER attribute with a trailing fraction — a stored `3` arrives in the
- * `Retrieve` response as `3.0` — and `Retrieve` types `metadata` as an untyped document. Because
- * `'3.0'` does not round-trip through a JS number exactly, `@aws-sdk/core` (3.977+) preserves it
- * as a `NumericValue` — `{ string: '3.0', type: 'bigDecimal' }` — instead of parsing it, so
- * without this a caller who stored `{ version: 3 }` reads back an object. Strings, booleans, and
- * numbers whose text round-trips (e.g. `2.5`) arrive bare.
+ * `Retrieve` types `metadata` as an untyped document, and `@aws-sdk/core` represents a document
+ * number it cannot hold losslessly in a JS number as a `NumericValue`
+ * `{ string: '3.0', type: 'bigDecimal' }`. Bedrock serializes NUMBER attributes with a trailing
+ * fraction (a stored `3` arrives as `3.0`), which affected `@aws-sdk/core` versions wrap
+ * (aws/aws-sdk-js-v3#8246); everything else arrives bare. Unwrapping to a JS number is lossless
+ * because `toAttributeValue` only writes JS numbers.
  *
  * A value that is not a `NumericValue` or does not parse to a finite number is returned untouched.
  */
