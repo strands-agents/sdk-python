@@ -47,6 +47,8 @@ from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
 if TYPE_CHECKING:
     from ..._middleware.stages import InvokeModelContext
     from ...agent.agent import Agent
+    from ...types.content import Messages, SystemPrompt
+    from ...types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,8 @@ class ModelRouter(Plugin):
         self._strategy: RoutingStrategy = strategy or FallbackStrategy()
         self._max_switches = max_switches
 
+    # ---- Configuration ----
+
     @property
     def candidates(self) -> tuple[RoutingCandidate, ...]:
         """The normalized candidates, in declaration order."""
@@ -140,6 +144,8 @@ class ModelRouter(Plugin):
         if isinstance(model, ModelRouter):
             return model.default_model
         return model
+
+    # ---- Agent integration ----
 
     def init_agent(self, agent: Agent) -> None:
         """Register routing middleware and hooks; reject attachment through ``plugins=[...]``.
@@ -162,6 +168,8 @@ class ModelRouter(Plugin):
         # again so a dict that outlived its teardown cannot pin the next invocation to a stale model.
         agent.hooks.add_callback(AfterInvocationEvent, self._clear_state, order=HookOrder.SDK_LAST)
         agent.hooks.add_callback(BeforeInvocationEvent, self._clear_state, order=HookOrder.SDK_FIRST)
+
+    # ---- Asking the strategy ----
 
     @property
     def _strategy_name(self) -> str:
@@ -242,6 +250,8 @@ class ModelRouter(Plugin):
         failed = {id(attempt.candidate) for attempt in attempts}
         return next((candidate for candidate in self._candidates if id(candidate) not in failed), None)
 
+    # ---- Resolving a candidate to a model ----
+
     async def _resolve(self, candidate: RoutingCandidate, context: RoutingContext) -> Model:
         """Resolve a candidate to a concrete model, recursing into a nested router's selection.
 
@@ -261,12 +271,14 @@ class ModelRouter(Plugin):
             raise ValueError("nested strategy chose no candidate")
         return await self._resolve(candidate, context)
 
+    # ---- Applying the selection ----
+
     def _selection_middleware(self) -> Callable[[InvokeModelContext], Awaitable[InvokeModelContext]]:
         """Build an ``InvokeModelStage.Input`` handler that applies the per-invocation selection."""
 
         async def middleware(context: InvokeModelContext) -> InvokeModelContext:
             key = self._state_key(context.agent)
-            state = _routing_state(context.invocation_state, key)
+            state = _get_routing_state(context.invocation_state, key)
             if state is None:
                 routing_context = self._routing_context(
                     context.messages,
@@ -284,7 +296,7 @@ class ModelRouter(Plugin):
 
     async def _on_model_result(self, event: AfterModelCallEvent) -> None:
         """Record the outcome and, after an unclaimed failure, apply the strategy's next choice."""
-        state = _routing_state(event.invocation_state, self._state_key(event.agent))
+        state = _get_routing_state(event.invocation_state, self._state_key(event.agent))
         if state is None:
             return
         if event.stop_response is not None:
@@ -348,22 +360,27 @@ class ModelRouter(Plugin):
             event.retry = True
             return
 
+    # ---- Per-invocation state and context ----
+
     async def _clear_state(self, event: AfterInvocationEvent | BeforeInvocationEvent) -> None:
         """Drop this agent's routing state so it never spans invocations."""
         key = self._state_key(event.agent)
-        if _routing_state(event.invocation_state, key) is not None:
+        if _get_routing_state(event.invocation_state, key) is not None:
             del event.invocation_state[key]
 
-    def _state_key(self, agent: object) -> str:
+    def _state_key(self, agent: Agent) -> str:
         """Scope routing state to one agent/router pair.
 
         One ``invocation_state`` can serve several agents, and one router several agents, so neither
-        identity alone is a sufficient key.
+        identity alone is a sufficient key. ``agent_id`` cannot serve either: it is caller-supplied
+        and defaults to ``"default"`` for every agent, so two agents sharing a router would collide.
+        Object identity is unique among live agents, and the state is cleared at both ends of an
+        invocation, so an id recycled after collection cannot match a live entry.
         """
         return f"{_ROUTING_KEY_PREFIX}:{id(agent):x}:{id(self):x}"
 
     def _routing_context_from_agent(
-        self, agent: Any, invocation_state: Mapping[str, Any], attempts: Sequence[RoutingAttempt] = ()
+        self, agent: Agent, invocation_state: Mapping[str, Any], attempts: Sequence[RoutingAttempt] = ()
     ) -> RoutingContext:
         """Build a ``RoutingContext`` from the agent, matching the shapes middleware passes."""
         system_prompt = (
@@ -379,9 +396,9 @@ class ModelRouter(Plugin):
 
     def _routing_context(
         self,
-        messages: Any,
-        system_prompt: Any,
-        tool_specs: Any,
+        messages: Messages,
+        system_prompt: SystemPrompt | None,
+        tool_specs: Sequence[ToolSpec],
         invocation_state: Mapping[str, Any],
         attempts: Sequence[RoutingAttempt] = (),
     ) -> RoutingContext:
@@ -405,15 +422,21 @@ CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
 """What ``ModelRouter(models=...)`` accepts for each candidate."""
 
 
+# ---- Module helpers ----
+
+
 def _candidate_label(candidate: RoutingCandidate) -> str:
     """Return a stable human-readable label for logs."""
     return candidate.name or type(candidate.model).__name__
 
 
-def _routing_state(invocation_state: Mapping[str, Any], key: str) -> _RoutingState | None:
+def _get_routing_state(invocation_state: Mapping[str, Any], key: str) -> _RoutingState | None:
     """Return the routing state stored under ``key``, ignoring any foreign value."""
     value = invocation_state.get(key)
     return value if isinstance(value, _RoutingState) else None
+
+
+# ---- Construction guards ----
 
 
 def _normalize(models: object) -> tuple[RoutingCandidate, ...]:
