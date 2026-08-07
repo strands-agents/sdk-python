@@ -15,6 +15,7 @@ def gemini_client():
     with unittest.mock.patch.object(strands.models.gemini.genai, "Client") as mock_client_cls:
         mock_client = mock_client_cls.return_value
         mock_client.aio = unittest.mock.AsyncMock()
+        mock_client.vertexai = False
         yield mock_client
 
 
@@ -1071,7 +1072,7 @@ async def test_stream_request_with_gemini_tools_and_function_tools_for_vertex(
     await anext(model.stream(messages, tool_specs=[tool_spec]))
 
     request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
-    assert "include_server_side_tool_invocations" not in request["config"]
+    assert "include_server_side_tool_invocations" not in (request["config"].get("tool_config") or {})
 
 
 @pytest.mark.asyncio
@@ -1098,6 +1099,42 @@ async def test_stream_request_with_gemini_tools_merges_existing_tool_config(
         "function_calling_config": {"mode": "AUTO"},
         "include_server_side_tool_invocations": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_merges_camel_case_tool_config(
+    gemini_client, messages, tool_spec, model_id
+):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(
+        model_id=model_id,
+        client=gemini_client,
+        gemini_tools=[code_execution_tool],
+        params={"tool_config": {"includeServerSideToolInvocations": False}},
+    )
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert request["config"]["tool_config"] == {"include_server_side_tool_invocations": False}
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_explicit_none_preserves_opt_out(
+    gemini_client, messages, tool_spec, model_id
+):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(
+        model_id=model_id,
+        client=gemini_client,
+        gemini_tools=[code_execution_tool],
+        params={"tool_config": None},
+    )
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert "tool_config" not in request["config"]
 
 
 @pytest.mark.parametrize(

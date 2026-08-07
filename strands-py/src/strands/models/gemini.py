@@ -359,7 +359,7 @@ class GeminiModel(Model):
             # Gemini requires this flag when server-side built-in tools and function declarations are combined.
             # Preserve any caller-supplied function-calling or retrieval settings.
             existing_tool_config = config_params.get("tool_config")
-            if existing_tool_config is None:
+            if "tool_config" not in config_params:
                 config_params["tool_config"] = genai.types.ToolConfig(include_server_side_tool_invocations=True)
             elif isinstance(existing_tool_config, genai.types.ToolConfig):
                 if existing_tool_config.include_server_side_tool_invocations is None:
@@ -367,13 +367,11 @@ class GeminiModel(Model):
                         update={"include_server_side_tool_invocations": True},
                     )
             elif isinstance(existing_tool_config, dict):
-                config_params["tool_config"] = {
-                    **existing_tool_config,
-                    "include_server_side_tool_invocations": existing_tool_config.get(
-                        "include_server_side_tool_invocations",
-                        True,
-                    ),
-                }
+                merged_tool_config = genai.types.ToolConfig.model_validate(existing_tool_config)
+                if merged_tool_config.include_server_side_tool_invocations is None:
+                    config_params["tool_config"] = merged_tool_config.model_copy(
+                        update={"include_server_side_tool_invocations": True},
+                    )
 
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -627,7 +625,7 @@ class GeminiModel(Model):
             system_prompt,
             self.config.get("params"),
             tool_choice=tool_choice,
-            is_vertex=getattr(gemini_client, "vertexai", False) is True,
+            is_vertex=bool(getattr(gemini_client, "vertexai", False)),
         )
 
         client = gemini_client.aio
