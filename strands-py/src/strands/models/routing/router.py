@@ -9,8 +9,10 @@ The router orchestrates only. It resolves a candidate to a concrete model, appli
 gives each new candidate a fresh retry budget, and holds per-invocation state. It has no failover
 policy, so a strategy can change routing behavior without changing the router.
 
-The default ``FallbackStrategy`` works down the candidates in declaration order, making
-``ModelRouter(models=[a, b])`` ordered failover. A strategy that fails or declines the opening choice
+The default ``FallbackStrategy`` follows declaration order, making ``ModelRouter(models=[a, b])``
+ordered failover, with two refinements: a successful call clears the failures recorded before it, so
+a candidate that failed earlier becomes eligible again, and candidates with more recorded failures
+are tried after healthier ones. A strategy that fails or declines the opening choice
 degrades to the first declared candidate; ``max_switches`` caps switches per invocation. A strategy
 that re-offers the candidate that just failed is taken to mean "stay here", so the model's error
 surfaces rather than the router resetting the retry budget again.
@@ -122,8 +124,9 @@ class ModelRouter(Plugin):
                 ``RoutingCandidate`` carrying an optional name/description. The first candidate is
                 the router's concrete default, used when a strategy cannot produce a choice.
             strategy: Chooses the candidate for each model call, and is asked again after a failed
-                call. Defaults to ``FallbackStrategy``, which works down the candidates in
-                declaration order.
+                call. Defaults to ``FallbackStrategy``: declaration order, except that a successful
+                call clears the failures before it, so a candidate that already failed is eligible
+                again, and candidates that keep failing are tried after healthier ones.
             max_switches: Cap on model switches within one invocation, after which the router stops
                 asking and lets the error surface. Defaults to ``None`` (the strategy decides when to
                 stop) -- set it when a strategy could keep escalating across a long tool loop.
@@ -293,8 +296,12 @@ class ModelRouter(Plugin):
             key = self._state_key(context.agent)
             state = _routing_state(context.invocation_state, key)
             if state is None:
+                # Snapshot: a strategy must not be able to mutate the request this call runs on.
                 routing_context = self._routing_context(
-                    context.messages, context.system_prompt, context.tool_specs, context.invocation_state
+                    copy.deepcopy(context.messages),
+                    copy.deepcopy(context.system_prompt),
+                    context.tool_specs,
+                    context.invocation_state,
                 )
                 candidate, model = await self._open(routing_context)
                 state = _RoutingState(candidate=candidate, model=model)

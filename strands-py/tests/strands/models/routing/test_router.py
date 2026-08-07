@@ -315,6 +315,24 @@ async def test_selection_middleware_sets_model_and_caches_per_invocation_state()
     assert strategy.calls == 2
 
 
+@pytest.mark.asyncio
+async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
+    class _Mutating:
+        async def select(self, context, **kwargs):
+            context.messages.append({"role": "user", "content": [{"text": "injected"}]})
+            context.messages[0]["content"][0]["text"] = "rewritten"
+            return context.candidates[0]
+
+    m = _model()
+    router = ModelRouter(models=[m], strategy=_Mutating())
+    context = _invoke_context({}, model=m)
+    context.messages = [{"role": "user", "content": [{"text": "original"}]}]
+
+    await router._selection_middleware()(context)
+
+    assert context.messages == [{"role": "user", "content": [{"text": "original"}]}]
+
+
 # --- construction guards ---
 
 
