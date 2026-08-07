@@ -191,8 +191,13 @@ jobs:
           cat > "$RUNNER_TEMP/redact.py" <<'PY'
           import os, re, sys
 
-          # A line filter (stdin to stdout) so it works on a file and on a live
-          # stream alike: `cdk deploy` has to be piped through it as it runs.
+          # A line filter (stdin to stdout) so one copy serves a finished file and
+          # a live stream alike: `cdk deploy` has to be piped through it as it runs.
+          #
+          # Line-at-a-time is only safe because CDK's table renderer wraps to
+          # `stream.columns`, which is undefined when stdout is not a TTY — as it
+          # never is here — so a redactable name is never split over two lines.
+          # Recheck that on a CDK CLI bump.
           sys.stdout.reconfigure(line_buffering=True)
 
           values = []
@@ -480,6 +485,13 @@ jobs:
           cat > "$RUNNER_TEMP/redact.py" <<'PY'
           import os, re, sys
 
+          # A line filter (stdin to stdout) so one copy serves a finished file and
+          # a live stream alike: `cdk deploy` has to be piped through it as it runs.
+          #
+          # Line-at-a-time is only safe because CDK's table renderer wraps to
+          # `stream.columns`, which is undefined when stdout is not a TTY — as it
+          # never is here — so a redactable name is never split over two lines.
+          # Recheck that on a CDK CLI bump.
           sys.stdout.reconfigure(line_buffering=True)
 
           values = []
@@ -493,12 +505,18 @@ jobs:
           ):
               values += [entry.strip() for entry in (os.environ.get(name) or '').split(',')]
 
+          # Longest first, so a short entry cannot clobber a longer one that
+          # contains it before that one has been replaced.
           values = sorted({v for v in values if v}, key=len, reverse=True)
 
           for line in sys.stdin:
               for value in values:
                   line = line.replace(value, '***')
+              # Never let stack output open or close the Markdown fence it goes in.
               line = re.sub('`{3,}', "'''", line)
+              # Never let it be read as a workflow command. This text is a
+              # rendering of the pull request's own CDK code, so a resource named
+              # `::stop-commands::…` would otherwise be executed as one.
               line = re.sub('^([ \t]*)::', r'\1\\::', line)
               sys.stdout.write(line)
           PY
