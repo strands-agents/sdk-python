@@ -260,7 +260,7 @@ npm run build         # Compile TypeScript
 
 ### Code Comments
 
-Comments explain WHAT/WHY and stay evergreen — the full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
+Comments are to-the-point, state only what cannot be inferred from the code, and stay evergreen. The full rule (including how it applies to tests, and the deprecated/legacy nuance) is in the [root AGENTS.md](../AGENTS.md).
 
 ### Integration with Other Files
 
