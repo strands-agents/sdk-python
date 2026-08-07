@@ -25,6 +25,15 @@ This flag attaches a broad internal IAM policy and GitHub OIDC trust that only m
 
 See `README.md` in this directory for setup instructions. The default `npx cdk deploy` with your AWS credentials configured is all most cases need.
 
+## Changes to this directory deploy themselves
+
+Once a change under `test-infra/` merges to `main`, `.github/workflows/test-infra-deploy.yml` deploys the stack to the team's test account (internal mode). So a permission you add to `integ-test-role.ts` reaches the live role without anyone deploying by hand — and a mistake reaches it just as fast. Two constraints that workflow depends on:
+
+- The deploy role's trust is pinned to `repo:strands-agents/harness-sdk:ref:refs/heads/main`. Adding an `environment:` to the deploy job rewrites the OIDC subject and breaks the deploy.
+- `StrandsTestInfraDeployRole` is created by the stack it deploys, so never rename or narrow it without a plan for the manual deploy that repairs it.
+
+And the inverse of the rule above: never deploy to the team account **without** `STRANDS_TEST_INFRA_INTERNAL=true`. Community mode omits the deploy role and the integ role's OIDC trust from the template, so CloudFormation deletes both — taking CI's integration tests and its ability to deploy this stack with them.
+
 ## Convention: always set removal policy DESTROY
 
 All resources in this stack must specify `removalPolicy: cdk.RemovalPolicy.DESTROY` (or `applyRemovalPolicy(DESTROY)` for L1 constructs). This is test infrastructure — it must tear down cleanly on `cdk destroy` with no orphaned resources or naming collisions on redeploy. Never use RETAIN here.

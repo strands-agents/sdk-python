@@ -25,6 +25,14 @@ function synth(props?: Partial<ConstructorParameters<typeof StrandsTestInfraStac
   return Template.fromStack(stack);
 }
 
+/** Every `Principal.AWS` ARN across the template's role trust policies. */
+function assumeRolePrincipalArns(template: Template): string[] {
+  return Object.values(template.findResources('AWS::IAM::Role'))
+    .flatMap((role: any) => role.Properties?.AssumeRolePolicyDocument?.Statement ?? [])
+    .map((statement: any) => statement.Principal?.AWS)
+    .filter((arn: unknown): arn is string => typeof arn === 'string');
+}
+
 // --- Knowledge Base ---
 
 test('creates an S3 vectors index matching Titan v2 (1024 dims, cosine, float32)', () => {
@@ -200,6 +208,45 @@ test('internal mode with RUNNER_ROLES adds AssumeRole trust for those roles', ()
   }
 });
 
+test('internal mode refuses to synth when a required list is blank', () => {
+  // A whitespace-only secret must not deploy a role with that list emptied.
+  process.env.STRANDS_TEST_INFRA_SECRET_NAMES = '  ';
+  try {
+    expect(() => synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] })).toThrow(
+      /STRANDS_TEST_INFRA_SECRET_NAMES must be set/,
+    );
+  } finally {
+    process.env.STRANDS_TEST_INFRA_SECRET_NAMES = 'test-secret';
+  }
+});
+
+test('a blank RUNNER_ROLES value adds no trust principal', () => {
+  // GitHub Actions passes an unset secret to a step as an empty string, which
+  // must not become a principal with an empty role name.
+  process.env.STRANDS_TEST_INFRA_RUNNER_ROLES = '';
+  try {
+    const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+    expect(assumeRolePrincipalArns(template).filter((arn) => arn.endsWith(':role/'))).toEqual([]);
+  } finally {
+    delete process.env.STRANDS_TEST_INFRA_RUNNER_ROLES;
+  }
+});
+
+test('RUNNER_ROLES entries are trimmed and blanks between them ignored', () => {
+  process.env.STRANDS_TEST_INFRA_RUNNER_ROLES = ' RunnerOne , ,RunnerTwo';
+  try {
+    const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+    expect(assumeRolePrincipalArns(template).filter((arn) => arn.includes(':role/Runner'))).toEqual([
+      'arn:aws:iam::123456789012:role/RunnerOne',
+      'arn:aws:iam::123456789012:role/RunnerTwo',
+    ]);
+  } finally {
+    delete process.env.STRANDS_TEST_INFRA_RUNNER_ROLES;
+  }
+});
+
 test('internal mode grants the Mantle actions the base-path drift tests need', () => {
   const template = synth({ internal: true });
 
@@ -249,6 +296,65 @@ test('persistent bucket policy grants access without DeleteBucket', () => {
     expect.arrayContaining(['s3:PutObject', 's3:GetObject', 's3:CreateBucket', 's3:ListBucket', 's3:DeleteObject']),
   );
   expect(persistentStmt.Action).not.toContain('s3:DeleteBucket');
+});
+
+// --- Deploy Role ---
+
+test('internal mode creates a deploy role trusted only by main of this repo', () => {
+  const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+  template.hasResourceProperties('AWS::IAM::Role', {
+    RoleName: 'StrandsTestInfraDeployRole',
+    AssumeRolePolicyDocument: {
+      Statement: [
+        Match.objectLike({
+          Action: 'sts:AssumeRoleWithWebIdentity',
+          Principal: {
+            Federated: Match.stringLikeRegexp('oidc-provider/token.actions.githubusercontent.com$'),
+          },
+          Condition: {
+            StringEquals: {
+              'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+              'token.actions.githubusercontent.com:sub':
+                'repo:strands-agents/harness-sdk:ref:refs/heads/main',
+              'token.actions.githubusercontent.com:job_workflow_ref':
+                'strands-agents/harness-sdk/.github/workflows/test-infra-deploy.yml@refs/heads/main',
+            },
+          },
+        }),
+      ],
+    },
+  });
+});
+
+test('the deploy role can only assume the CDK bootstrap roles', () => {
+  const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+  const policies = Object.entries(template.findResources('AWS::IAM::Policy'))
+    .filter(([logicalId]) => logicalId.startsWith('StrandsTestInfraDeployRole'))
+    .map(([, policy]) => policy as any);
+  expect(policies).toHaveLength(1);
+
+  const statements = policies[0].Properties.PolicyDocument.Statement;
+  expect(statements).toHaveLength(1);
+  expect(statements[0].Action).toBe('sts:AssumeRole');
+  // Each ARN renders as an Fn::Join around the partition ref, so the trailing
+  // literal is what carries the bootstrap role name.
+  const roleArnTails = statements[0].Resource.map((arn: any) => arn['Fn::Join'][1].at(-1));
+  expect(roleArnTails).toEqual(
+    ['deploy', 'file-publishing', 'image-publishing', 'lookup'].map(
+      (name) => `:iam::123456789012:role/cdk-hnb659fds-${name}-role-123456789012-us-east-1`,
+    ),
+  );
+});
+
+test('community mode creates no deploy role', () => {
+  const template = synth({ internal: false });
+
+  const roleNames = Object.values(template.findResources('AWS::IAM::Role')).map(
+    (role: any) => role.Properties?.RoleName,
+  );
+  expect(roleNames).not.toContain('StrandsTestInfraDeployRole');
 });
 
 // --- Feature Toggling ---

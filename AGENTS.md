@@ -67,6 +67,7 @@ When writing tests, follow the sub-project's testing guidance — `strands-py/do
 - **Do not deploy this stack** unless you are explicitly working on the test infrastructure itself or iterating on tests that resolve SSM parameters from it.
 - **Never set `STRANDS_TEST_INFRA_INTERNAL=true`** unless deploying to the Strands team's own test account. This attaches a broad internal policy and GitHub OIDC trust that is meaningless (and wasteful) outside the internal account.
 - **To run infrastructure-dependent integ tests without deploying anything**, open a PR — CI runs them against pre-provisioned resources automatically.
+- **A merged change to `test-infra/` deploys itself**: `.github/workflows/test-infra-deploy.yml` deploys the stack to the team's test account on push to `main`, so the live IAM role can't drift from the code. Nothing deploys from a PR.
 
 ## Creating PRs
 
