@@ -890,6 +890,9 @@ async def _handle_tool_execution(
     # Reset interrupt state if tools ran so the next cycle starts clean.
     if not agent._cancel_signal.is_set():
         agent._interrupt_state.end_tool_cycle()
+    # Update stored results so replay filter skips already-executed tools on next resume.
+    elif cancel_message is None and agent._interrupt_state.has_pending_tool_execution:
+        agent._interrupt_state.context["tool_results"] = tool_results
 
     await agent._append_messages(tool_result_message)
 
