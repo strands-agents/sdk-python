@@ -13,6 +13,17 @@ const LANGUAGE_DIRS: Record<string, string> = {
   'strands-ts': 'typescript',
 }
 
+// Repo-root lockfiles, keyed to the SDK language whose published package the
+// ecosystem they resolve feeds. The root npm lockfile resolves the strands-ts
+// workspace, so a bump there can change what npm consumers install and can
+// never reach the PyPI distribution (and vice versa for a root Python lock).
+// Lockfiles only: the sibling manifests (package.json, pyproject.toml) also
+// carry repo-wide tooling, which belongs to neither SDK.
+const ROOT_LOCKFILES: Record<string, string> = {
+  'package-lock.json': 'typescript',
+  'uv.lock': 'python',
+}
+
 // Top-level dirs holding docs/blog/website content rather than SDK code.
 // `site/` is the monorepo home for all docs+blog+website; `docs/` is the
 // pre-monorepo / evals docs tree. A PR confined to these never lines up with
@@ -50,6 +61,9 @@ function isDocPath(f: string): boolean {
  * Derive SDK languages from changed-file paths. Returns:
  * - string[] of languages (possibly empty = site/ci/docs-only PR)
  * - null when file info is unavailable (unknown -- callers should not filter)
+ *
+ * A PR confined to repo-root lockfiles touches no SDK dir yet still changes one
+ * SDK's dependency tree, so it's attributed to that ecosystem's language.
  */
 function languagesFromFiles(files: unknown): string[] | null {
   if (!Array.isArray(files)) return null
@@ -58,7 +72,24 @@ function languagesFromFiles(files: unknown): string[] | null {
     const top = String(f).split('/')[0]
     if (LANGUAGE_DIRS[top]) langs.add(LANGUAGE_DIRS[top])
   }
-  return [...langs]
+  if (langs.size > 0) return [...langs]
+  return rootLockfileLanguages(files) || []
+}
+
+/**
+ * Languages implied by a PR that changes *nothing but* repo-root lockfiles, or
+ * null otherwise. Requiring every file to be a root lockfile keeps a PR that
+ * edits repo tooling alongside a lockfile language-neutral, and a nested
+ * lockfile (site/, .github/) is already covered by its dir.
+ */
+function rootLockfileLanguages(files: unknown[]): string[] | null {
+  const langs = new Set<string>()
+  for (const f of files) {
+    const lang = ROOT_LOCKFILES[String(f)]
+    if (!lang) return null
+    langs.add(lang)
+  }
+  return langs.size > 0 ? [...langs] : null
 }
 
 /**
