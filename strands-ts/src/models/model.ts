@@ -26,7 +26,8 @@ import {
 import { MaxTokensError, ModelError, normalizeError } from '../errors.js'
 import type { Redaction } from '../hooks/events.js'
 import { logger } from '../logging/logger.js'
-import { getContextWindowLimit } from './defaults.js'
+import { DEFAULT_CONTEXT_WINDOW_LIMIT, getContextWindowLimit } from './defaults.js'
+import { warnOnce } from '../logging/warn-once.js'
 
 /**
  * Resolves model metadata fields on a config object from built-in lookup tables
@@ -295,6 +296,28 @@ export abstract class Model<T extends BaseModelConfig = BaseModelConfig> {
    */
   async countTokens(messages: Message[], options?: CountTokensOptions): Promise<number> {
     return estimateTokensHeuristic(messages, options)
+  }
+
+  /**
+   * Estimate the fraction of the model's context window consumed by the given input token count.
+   *
+   * Resolves the model's context window limit (falling back to {@link DEFAULT_CONTEXT_WINDOW_LIMIT}
+   * with a warning when not configured) and returns `inputTokens / contextWindowLimit`.
+   *
+   * @param inputTokens - Total input token count (e.g. from a model event's projectedInputTokens)
+   * @returns Token usage ratio (0–1+; above 1.0 means overflow)
+   */
+  estimateUtilization(inputTokens: number): number {
+    let contextWindowLimit = this.getConfig().contextWindowLimit
+    if (!contextWindowLimit) {
+      contextWindowLimit = DEFAULT_CONTEXT_WINDOW_LIMIT
+      warnOnce(
+        logger,
+        `contextWindowLimit is not set on the model, using default of ${DEFAULT_CONTEXT_WINDOW_LIMIT} for utilization estimate | set contextWindowLimit in your model config for accurate results`
+      )
+    }
+
+    return inputTokens / contextWindowLimit
   }
 
   /**

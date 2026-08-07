@@ -10,11 +10,11 @@ import {
   ToolUseBlock,
   ToolResultBlock,
   VideoBlock,
-  type Model,
 } from '../../index.js'
 import { AfterInvocationEvent, AfterModelCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
 import type { Agent } from '../../agent/agent.js'
+import { Model } from '../../models/model.js'
 import type { BaseModelConfig } from '../../models/model.js'
 
 async function triggerSlidingWindow(manager: SlidingWindowConversationManager, agent: Agent): Promise<void> {
@@ -1192,7 +1192,10 @@ describe('SlidingWindowConversationManager', () => {
         new Message({ role: 'user', content: [new TextBlock('Message 3')] }),
         new Message({ role: 'assistant', content: [new TextBlock('Response 3')] }),
       ]
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: Model.prototype.estimateUtilization,
+      } as any
       const mockAgent = createMockAgent({ messages })
       manager.initAgent(mockAgent)
 
@@ -1216,7 +1219,10 @@ describe('SlidingWindowConversationManager', () => {
         new Message({ role: 'user', content: [new TextBlock('Message 1')] }),
         new Message({ role: 'assistant', content: [new TextBlock('Response 1')] }),
       ]
-      const mockModel = { getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig } as any
+      const mockModel = {
+        getConfig: () => ({ contextWindowLimit: 1000 }) as BaseModelConfig,
+        estimateUtilization: Model.prototype.estimateUtilization,
+      } as any
       const mockAgent = createMockAgent({ messages })
       manager.initAgent(mockAgent)
 

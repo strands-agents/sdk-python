@@ -187,6 +187,38 @@ npm run typecheck:snippets # type check code examples
 
 For docs contribution guidelines, see [site/CONTRIBUTING.md](./site/CONTRIBUTING.md).
 
+### PR Size and Complexity
+
+Every PR is labeled with a `size/*` and a `complexity/*` label. Both are
+informational — they help reviewers budget attention and neither blocks a merge.
+
+You can see the same numbers before you push. From the repository root:
+
+```bash
+npm run complexity:setup   # once, to install the analyzers
+npm run complexity         # report labels for your branch vs origin/main
+```
+
+Python contributors can use hatch instead, from `strands-py/`:
+
+```bash
+cd strands-py
+hatch run complexity
+```
+
+**`size/*`** counts changed lines in source and prose, and **excludes tests,
+lockfiles, and snapshots**. Thorough tests should never push a PR into a bigger
+bucket, so write as many as the change deserves.
+
+**`complexity/*`** reports the [cognitive complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)
+of the most complex function your diff touches — roughly, how hard the control
+flow is to hold in your head. It scores only the functions you actually changed,
+so an existing hotspot elsewhere in a file you edited will not count against
+you. `complexity/high` (above 25) is a hint that a function may be worth
+splitting, not a rule; sometimes a complex function is the honest solution.
+
+A docs-only or test-only PR touches no SDK source and gets no complexity label.
+
 ## Using AI Tools
 
 We love AI. We build with coding agents every day, and you're welcome to use them too — they're a great way to move fast and explore a codebase.
@@ -197,7 +229,7 @@ A few things that help us help you:
 
 - **Keep changes small and incremental.** A focused PR that does one thing is far easier for us to understand, guide, and merge than a large one that touches many areas. When in doubt, split it up.
 - **Open an issue first for anything significant**, so we can align on the approach before you (or your agent) invest the time.
-- **Review every line your agent generates.** Delete what you don't need, simplify what's over-engineered, and make sure tests actually exercise the behavior — not just pass.
+- **Review every line your agent generates.** Delete what you don't need, simplify what's over-engineered, and make sure tests actually exercise the behavior — not just pass. Trim comments that narrate the agent's reasoning: a comment should state only what a reader cannot infer from the code.
 
 High-quality PRs get reviewed faster and are far more likely to be accepted. Taking the time to understand and trim your changes is the single best thing you can do to get them merged.
 
