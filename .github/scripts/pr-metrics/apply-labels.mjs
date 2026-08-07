@@ -74,7 +74,29 @@ export async function resolvePrNumber({ github, context, core, claimed }) {
   }
 
   if (candidates.length === 0) {
-    core.info(`no pull request found for head sha ${run.head_sha}`)
+    if (claimed === null) {
+      core.info(`no pull request found for head sha ${run.head_sha}`)
+      return null
+    }
+    // Fork PRs reach here: they populate neither `workflow_run.pull_requests`
+    // nor the commit-association API, since the head commit exists only in the
+    // fork. Verify the claim directly instead — honoring it only when the
+    // claimed PR's actual head is the commit this run analyzed, which makes the
+    // metrics correct for that PR by definition.
+    let head
+    try {
+      const { data } = await github.rest.pulls.get({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        pull_number: claimed,
+      })
+      head = data.head.sha
+    } catch {
+      core.warning(`artifact claimed PR #${claimed}, which could not be looked up; not labeling`)
+      return null
+    }
+    if (head === run.head_sha) return claimed
+    core.warning(`artifact claimed PR #${claimed}, whose head ${head} is not ${run.head_sha}; not labeling`)
     return null
   }
   // The artifact's claim is only honored if the API independently agrees the PR

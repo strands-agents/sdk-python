@@ -344,10 +344,17 @@ const stubContext = (pullRequests, headSha = 'abc123') => ({
   payload: { workflow_run: { head_sha: headSha, pull_requests: pullRequests } },
 })
 // Only reached when the event carries no associated PRs, as on a fork.
-const stubGithub = (associated) => ({
+const stubGithub = (associated, prHeads = {}) => ({
   rest: {
     repos: {
       listPullRequestsAssociatedWithCommit: async () => ({ data: associated.map((number) => ({ number })) }),
+    },
+    pulls: {
+      get: async ({ pull_number: pullNumber }) => {
+        const sha = prHeads[pullNumber]
+        if (!sha) throw Object.assign(new Error('Not Found'), { status: 404 })
+        return { data: { head: { sha } } }
+      },
     },
   },
 })
@@ -386,6 +393,44 @@ test('resolvePrNumber falls back to the head sha for forks', async () => {
     claimed: 7,
   })
   assert.equal(number, 7)
+})
+
+// Fork PRs populate neither `workflow_run.pull_requests` nor the
+// commit-association API — the head commit exists only in the fork — so the
+// claim is verified directly against the claimed PR's actual head.
+test('resolvePrNumber verifies the claim via the PR head when no association exists', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], { 3704: 'abc123' }),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 3704,
+  })
+  assert.equal(number, 3704)
+  assert.deepEqual(core.warnings, [])
+})
+
+test('resolvePrNumber refuses a claim whose PR head does not match the run', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], { 3704: 'different-sha' }),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 3704,
+  })
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+test('resolvePrNumber refuses a claim naming a PR that does not exist', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], {}),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 99999,
+  })
+  assert.equal(number, null)
 })
 
 test('resolvePrNumber refuses when a commit maps to several PRs and nothing is claimed', async () => {
