@@ -136,6 +136,8 @@ describe('enrich', () => {
   })
 
   it('a root-npm-lockfile-only PR is attributed to typescript', async () => {
+    // Guards the leak in the python/v1.51.0 changelog sync (#3712): five npm bumps
+    // that touch only the root lockfile were listed on the python stream.
     const npmBump = async () => ({
       labels: [],
       merge_commit_sha: 'abc1234',

@@ -168,7 +168,7 @@ describe('build-release-file', () => {
 
   it('a root-lockfile-only dependency bump lands on one stream only', async () => {
     // Root lockfile bumps touch no SDK dir, but they do change one published
-    // package's dependency tree, so exactly one stream may carry them.
+    // package's dependency tree, so exactly one stream may carry them (#3712).
     const body =
       '* ci(typescript): bump hono from 4.12.32 to 4.13.0 by @dependabot in https://github.com/strands-agents/harness-sdk/pull/3643'
     const deps = {
