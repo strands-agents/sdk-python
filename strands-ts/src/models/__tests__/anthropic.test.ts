@@ -1177,7 +1177,7 @@ describe('AnthropicModel', () => {
       expect(messageBreakpoints).toEqual([['messages', messages.length - 1, { type: 'ephemeral' }]])
     })
 
-    it('replaces hand-placed message cache points', async () => {
+    it('strips a cache point in an earlier message', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
       const messages = [
@@ -1402,6 +1402,40 @@ describe('AnthropicModel', () => {
       warnSpy.mockRestore()
     })
 
+    it('counts a system prompt breakpoint against the ceiling', async () => {
+      // The budget of four is shared across tools, system and messages, so a cached system prompt has to
+      // count. Without this the system arm of the guard is unpinned: a caller with a cached system prompt,
+      // three hand-placed points and cacheTools ships five breakpoints and gets an opaque 400 instead of
+      // the named cause the guard exists to give them.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('a'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('b'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('c'),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      await collectIterator(
+        provider.stream(messages, {
+          toolSpecs,
+          systemPrompt: [new TextBlock('system'), new CachePointBlock({ cacheType: 'default' })],
+        })
+      )
+
+      expect(breakpoints(captured.request)).toHaveLength(MAX_BREAKPOINTS + 1)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too many cache breakpoints'))
+      warnSpy.mockRestore()
+    })
+
     it('does not warn at exactly the breakpoint ceiling', async () => {
       // The guard's boundary, and the direction it must not fire in. A request carrying exactly the
       // ceiling is legal, so the guard has to stay silent. Without this the suite stays green when `>`
@@ -1431,10 +1465,12 @@ describe('AnthropicModel', () => {
       warnSpy.mockRestore()
     })
 
-    it('warns when it strips hand-placed cache points, and relocates the boundary past the tail', async () => {
-      // Replacing a caller's cache point can cost them caching: a point placed ahead of per-call
-      // content protects a stable prefix, and moving the boundary past that content puts it inside the
-      // cached prefix, so every request writes and none reads. BedrockModel warns on the same strip.
+    it('honors a cache point in the last user message', async () => {
+      // A caller marks where their reusable prefix ends. Moving that boundary past the per-call block puts
+      // content that differs on every request inside the cached prefix, so every request writes a new
+      // entry and none ever reads one - worse than not caching, since a write costs more than an
+      // uncached token. The mirror of this test is test_honors_a_cache_point_in_the_last_user_message in
+      // strands-py/tests/strands/models/test_anthropic.py.
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
@@ -1451,11 +1487,67 @@ describe('AnthropicModel', () => {
 
       await collectIterator(provider.stream(messages))
 
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('stripped hand-placed cache points'))
       const content = captured.request.messages[0].content as Anthropic.ContentBlockParam[]
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
       expect(content).toHaveLength(2)
-      expect(content[0]).not.toHaveProperty('cache_control')
-      expect(content[1]).toHaveProperty('cache_control', { type: 'ephemeral' })
+      expect(content[0]).toHaveProperty('cache_control', { type: 'ephemeral' })
+      expect(content[1]).not.toHaveProperty('cache_control')
+      // Nothing was discarded, so the strip warning must stay silent.
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('stripped extra cache points'))
+      warnSpy.mockRestore()
+    })
+
+    it('strips extra cache points in the last user message', async () => {
+      // One boundary per message: the first marks the prefix, the rest spend the shared budget for nothing.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('a'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('b'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('c'),
+            new CachePointBlock({ cacheType: 'default' }),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      const content = captured.request.messages[0].content as Anthropic.ContentBlockParam[]
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(content[0]).toHaveProperty('cache_control', { type: 'ephemeral' })
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('count=<2>'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('stripped extra cache points'))
+      warnSpy.mockRestore()
+    })
+
+    it('warns when it strips cache points outside the honored one', async () => {
+      // Discarding a point the caller placed can cost them caching, so it must not be silent.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('stable'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+        new Message({ role: 'assistant', content: [new TextBlock('reply')] }),
+        new Message({
+          role: 'user',
+          content: [new TextBlock('newest'), new CachePointBlock({ cacheType: 'default' })],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 2, { type: 'ephemeral' }]])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('count=<1>'))
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('stripped extra cache points'))
       warnSpy.mockRestore()
     })
 
@@ -1466,8 +1558,176 @@ describe('AnthropicModel', () => {
 
       await collectIterator(provider.stream([userMessage('no hand-placed points here')]))
 
-      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('stripped hand-placed cache points'))
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('stripped extra cache points'))
       warnSpy.mockRestore()
+    })
+
+    it('gives an honored cache point the configured ttl', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('stable'), new CachePointBlock({ cacheType: 'default' }), new TextBlock('volatile')],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
+    })
+
+    it('lets a hand-placed ttl win over the configured one', async () => {
+      // The ttl written on the point is the more specific instruction.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('stable'),
+            new CachePointBlock({ cacheType: 'default', ttl: '5m' }),
+            new TextBlock('volatile'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '5m' }]])
+    })
+
+    it('honors a cache point on the nearest acceptable block ahead of it', async () => {
+      // Honoring scans back from the point, never forward: a boundary is where the prefix ends.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('stable'),
+            new ReasoningBlock({ text: 'r', signature: 's' }),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('volatile'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      const content = captured.request.messages[0].content as Anthropic.ContentBlockParam[]
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(content[0]).toHaveProperty('cache_control', { type: 'ephemeral' })
+      expect(content[1]).not.toHaveProperty('cache_control')
+      expect(content[2]).not.toHaveProperty('cache_control')
+    })
+
+    it('falls back to automatic placement for a leading cache point', async () => {
+      // With nothing ahead of it there is no prefix to cache, so the boundary cannot be honored and the
+      // request carries what it would have without the point. The mirror of this test is
+      // test_leading_cache_point_falls_back_to_automatic_placement in
+      // strands-py/tests/strands/models/test_anthropic.py.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new CachePointBlock({ cacheType: 'default' }), new TextBlock('one')],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('falling back to automatic placement'))
+      warnSpy.mockRestore()
+    })
+
+    it('falls back to automatic placement when everything ahead is dropped in translation', async () => {
+      // An image with a location source is an accepted carrier by block type but never reaches the API.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new ImageBlock({ format: 'png', source: { url: 'https://example.com/a.png' } as never }),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('volatile'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages[0].content).toEqual([
+        { type: 'text', text: 'volatile', cache_control: { type: 'ephemeral' } },
+      ])
+    })
+
+    it('falls back to automatic placement when only a reasoning block is ahead of the point', async () => {
+      // The API rejects cache_control on a thinking block, so it cannot carry an honored boundary.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new ReasoningBlock({ text: 'r', signature: 's' }),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('volatile'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      const content = captured.request.messages[0].content as Anthropic.ContentBlockParam[]
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(content[0]).not.toHaveProperty('cache_control')
+      expect(content[1]).toHaveProperty('cache_control', { type: 'ephemeral' })
+    })
+
+    it('does not treat a cache-point-only last user message as the target', async () => {
+      // A message of nothing but cache points carries no content to cache, so the newest turn that does
+      // owns the breakpoint. The mirror of this test is
+      // test_a_cache_point_only_last_user_message_is_not_the_target in
+      // strands-py/tests/strands/models/test_anthropic.py.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        userMessage('stable'),
+        new Message({ role: 'user', content: [new CachePointBlock({ cacheType: 'default' })] }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('count=<1>'))
+      warnSpy.mockRestore()
+    })
+
+    it('never emits more than one message breakpoint when it honors a point', async () => {
+      // An honored point replaces automatic placement, it does not add to it.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('a'),
+            new CachePointBlock({ cacheType: 'default' }),
+            new TextBlock('b'),
+            new TextBlock('c'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toHaveLength(1)
     })
 
     it('honors a hand-placed cache point when cacheConfig is unset', async () => {

@@ -16,7 +16,7 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
-from ..types.content import CachePoint, ContentBlock, Message, Messages, SystemContentBlock
+from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
@@ -37,15 +37,11 @@ _IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
-# Anthropic accepts ``cache_control`` on these block types only. A cache point placed after any
-# other block (for example a ``thinking`` block) is rejected by the API.
+# Anthropic accepts ``cache_control`` on these block types only, expressed in the API's own types, i.e.
+# after translation. A breakpoint on any other block (a ``thinking`` block, for example) is rejected.
+# Matching after translation is what makes the rule reliable: a block can be an accepted type before it
+# and still be dropped on the way out, such as an image with a location source.
 # https://docs.claude.com/en/docs/build-with-claude/prompt-caching
-_CACHEABLE_CONTENT_KEYS = frozenset({"document", "image", "text", "toolResult", "toolUse"})
-
-# The same rule expressed in Anthropic's own block types, i.e. after translation. Selecting a target
-# before formatting is not enough: a block can be an accepted type here and still be dropped in
-# translation (for example an image with a location source), so the breakpoint is placed on the last
-# block that survives formatting.
 _CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", "tool_use"})
 
 # Anthropic rejects a request carrying more than this many cache breakpoints. The budget is shared
@@ -81,7 +77,10 @@ class AnthropicModel(Model):
 
         Attributes:
             cache_config: Configuration for prompt caching. Use ``CacheConfig(strategy="auto")`` to add a
-                cache breakpoint to the last user message. Caching is off when unset.
+                cache breakpoint to the last user message. Caching is off when unset. A cache point placed
+                in the last user message is honored where it sits, so a boundary can be marked ahead of
+                content rebuilt on every call; extra points in that message, and points in earlier ones,
+                are removed.
             cache_tools: Caches the tool definitions. Any non-empty string (e.g. "default") switches it
                 on with the default TTL -- the value itself is not a TTL. Pass
                 ``CacheToolsConfig(ttl="1h")`` to set one. Independent of ``cache_config``.
@@ -215,23 +214,44 @@ class AnthropicModel(Model):
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
-    def _format_request_messages(self, messages: Messages) -> list[dict[str, Any]]:
+    def _format_request_messages(self, messages: Messages, cache_target_idx: int | None = None) -> list[dict[str, Any]]:
         """Format an Anthropic messages array.
 
         Args:
             messages: List of message objects to be processed by the model.
+            cache_target_idx: Index of the message that owns the managed cache breakpoint while
+                ``cache_config`` is set. Automatic placement applies to that message only when nothing in
+                it already carries the breakpoint.
 
         Returns:
             An Anthropic messages array.
         """
+        cache_config = self.config.get("cache_config")
+        configured_ttl = cache_config.ttl if cache_config else None
         formatted_messages = []
 
-        for message in messages:
+        for message_idx, message in enumerate(messages):
             formatted_contents: list[dict[str, Any]] = []
+            marked = False
 
             for content in message["content"]:
                 if "cachePoint" in content:
-                    self._attach_cache_control(formatted_contents, content["cachePoint"].get("ttl"))
+                    ttl = content["cachePoint"].get("ttl")
+                    if not ttl and message_idx == cache_target_idx:
+                        # A TTL the caller wrote on their own point is the more specific instruction, so
+                        # the configured one only fills in for a point that carries none.
+                        ttl = configured_ttl
+
+                    if self._attach_cache_control(formatted_contents, ttl):
+                        marked = True
+                    elif message_idx == cache_target_idx:
+                        logger.warning(
+                            "msg_idx=<%d> | nothing ahead of the placed cache point accepts a breakpoint, "
+                            "falling back to automatic placement",
+                            message_idx,
+                        )
+                    else:
+                        logger.warning("no preceding block accepts a cache breakpoint | skipped cache point")
                     continue
 
                 # Check for location sources in image, document, or video content
@@ -241,13 +261,21 @@ class AnthropicModel(Model):
 
                 formatted_contents.append(self._format_request_message_content(content))
 
+            # Automatic placement runs once the whole message is formatted, so the breakpoint lands on a
+            # block that survived translation. It is skipped when a caller-placed point already marked one.
+            if message_idx == cache_target_idx and not marked:
+                if self._attach_cache_control(formatted_contents, configured_ttl):
+                    logger.debug("msg_idx=<%d> | added cache point to last user message", message_idx)
+                else:
+                    logger.debug("msg_idx=<%d> | no cacheable content block, skipped cache point", message_idx)
+
             if formatted_contents:
                 formatted_messages.append({"content": formatted_contents, "role": message["role"]})
 
         return formatted_messages
 
     @classmethod
-    def _attach_cache_control(cls, formatted_contents: list[dict[str, Any]], ttl: str | None) -> None:
+    def _attach_cache_control(cls, formatted_contents: list[dict[str, Any]], ttl: str | None) -> bool:
         """Mark the most recent already-formatted block that the API accepts ``cache_control`` on.
 
         A cache point marks the preceding content as a cache breakpoint. The block immediately before it
@@ -258,13 +286,18 @@ class AnthropicModel(Model):
         Args:
             formatted_contents: Blocks formatted so far for the current message. Mutated in place.
             ttl: Optional TTL duration carried by the cache point.
+
+        Returns:
+            True when a block was marked, False when none of the blocks can carry a breakpoint. Callers
+            log the outcome, because a missed breakpoint is a warning on the caller's own placement and
+            only a fallback on the managed path.
         """
         for block in reversed(formatted_contents):
             if block.get("type") in _CACHEABLE_BLOCK_TYPES:
                 block["cache_control"] = cls._format_cache_control(ttl)
-                return
+                return True
 
-        logger.warning("no preceding block accepts a cache breakpoint | skipped cache point")
+        return False
 
     @classmethod
     def _warn_on_breakpoint_overflow(cls, request: dict[str, Any]) -> None:
@@ -278,6 +311,8 @@ class AnthropicModel(Model):
         """
         count = sum("cache_control" in tool for tool in request.get("tools") or [])
         system = request.get("system")
+        # This provider formats ``system`` as a plain string today; the list arm counts breakpoints on
+        # structured system content, which only becomes reachable when this provider accepts it.
         if isinstance(system, list):
             count += sum("cache_control" in block for block in system)
         for message in request.get("messages") or []:
@@ -326,66 +361,62 @@ class AnthropicModel(Model):
             cache_control["ttl"] = ttl
         return cache_control
 
-    def _inject_cache_point(self, messages: Messages) -> Messages:
-        """Return a copy of messages carrying exactly one cache point on the last user message.
+    def _manage_cache_points(self, messages: Messages) -> tuple[Messages, int | None]:
+        """Return a copy of messages carrying at most one message cache point, and the message that owns it.
 
-        Pre-existing cache points are stripped first, so the breakpoint count stays constant as a
-        conversation grows instead of accumulating one per turn. The cache point is placed after the last
-        block the Anthropic API accepts ``cache_control`` on.
+        A cache point the caller placed in the last user message is honored where it sits. Callers place one
+        to mark where their reusable prefix ends, ahead of content rebuilt on every call (retrieved context,
+        a timestamp); moving that boundary would put the per-call content inside the cached prefix, so every
+        request would write a new cache entry and none would ever read one.
+
+        Extra points in that message, and points in earlier messages, are stripped so they cannot accumulate
+        one per turn against the API's shared breakpoint budget.
 
         Args:
-            messages: List of message objects to inject a cache point into.
+            messages: List of message objects to manage cache points for.
 
         Returns:
-            A new list of messages. The input is never modified.
+            A new list of messages and the index of the message that owns the managed breakpoint, or None
+            when no user message can carry one. The input is never modified.
         """
-        cache_point: CachePoint = {"type": "default"}
-        cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.ttl:
-            cache_point["ttl"] = cache_config.ttl
+        target_idx = next(
+            (
+                idx
+                for idx in reversed(range(len(messages)))
+                if messages[idx]["role"] == "user"
+                and any("cachePoint" not in block for block in messages[idx]["content"])
+            ),
+            None,
+        )
+        if target_idx is None:
+            logger.debug("no user message with content | skipped cache point")
 
-        # Copy each message and drop pre-existing cache points; auto mode owns cache point placement.
         copied: list[Message] = []
         stripped = 0
-        for message in messages:
-            content = [block for block in message["content"] if "cachePoint" not in block]
-            stripped += len(message["content"]) - len(content)
+        for msg_idx, message in enumerate(messages):
+            content: list[ContentBlock] = []
+            honored = False
+            for block in message["content"]:
+                if "cachePoint" not in block:
+                    content.append(block)
+                elif msg_idx == target_idx and not honored:
+                    honored = True
+                    content.append(block)
+                else:
+                    stripped += 1
             copied.append({"role": message["role"], "content": content})
 
         if stripped:
-            # Warn rather than debug: discarding a hand-placed cache point can silently *cost* the caller
-            # caching. A point placed deliberately ahead of per-call content (retrieved context, a
-            # timestamp) protects a stable prefix; replacing it with one on the newest turn puts that
-            # volatile content inside the cached prefix, so every request writes a new entry and none
-            # ever reads one. BedrockModel warns on the same strip, so this also keeps the two providers
-            # equally loud about it.
+            # Warn rather than debug: discarding a cache point the caller placed can silently *cost* them
+            # caching, and a request carries one message breakpoint either way. BedrockModel warns on the
+            # same strip, so this keeps the two providers equally loud about it.
             logger.warning(
-                "count=<%d> | stripped hand-placed cache points, cache_config manages placement; "
-                "unset cache_config to keep your own cache points",
+                "count=<%d> | stripped extra cache points, cache_config keeps the first cache point in the "
+                "last user message; unset cache_config to keep every cache point",
                 stripped,
             )
 
-        last_user_idx = next(
-            (idx for idx in reversed(range(len(copied))) if copied[idx]["role"] == "user" and copied[idx]["content"]),
-            None,
-        )
-        if last_user_idx is None:
-            logger.debug("no user message with content | skipped cache point")
-            return copied
-
-        content = copied[last_user_idx]["content"]
-        last_cacheable_idx = next(
-            (idx for idx in reversed(range(len(content))) if _CACHEABLE_CONTENT_KEYS & content[idx].keys()),
-            None,
-        )
-        if last_cacheable_idx is None:
-            logger.debug("msg_idx=<%d> | no cacheable content block, skipped cache point", last_user_idx)
-            return copied
-
-        content.insert(last_cacheable_idx + 1, cast(ContentBlock, {"cachePoint": cache_point}))
-        logger.debug("msg_idx=<%d> | added cache point to last user message", last_user_idx)
-
-        return copied
+        return copied, target_idx
 
     def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[dict[str, Any]]:
         """Format tool definitions, caching them when ``cache_tools`` is configured.
@@ -436,12 +467,13 @@ class AnthropicModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
                 format.
         """
+        cache_target_idx: int | None = None
         if self._caching_enabled():
-            messages = self._inject_cache_point(messages)
+            messages, cache_target_idx = self._manage_cache_points(messages)
 
         request = {
             "max_tokens": self.config["max_tokens"],
-            "messages": self._format_request_messages(messages),
+            "messages": self._format_request_messages(messages, cache_target_idx),
             "model": self.config["model_id"],
             "tools": self._format_request_tools(tool_specs),
             **(self._format_tool_choice(tool_choice)),

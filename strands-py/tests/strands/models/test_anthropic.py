@@ -1495,8 +1495,8 @@ class TestPromptCaching:
         # The surviving breakpoint is on the final tool result, the last cacheable block of the last turn.
         assert message_breakpoints[0][1] == len(messages) - 1
 
-    def test_existing_cache_points_are_stripped(self, model, tool_specs):
-        """``cache_config`` owns placement, so hand-placed message cache points are replaced, not added to."""
+    def test_cache_points_in_earlier_messages_are_stripped(self, model, tool_specs):
+        """Only the newest turn keeps a cache point, so points cannot accumulate one per turn."""
         messages = [
             {"role": "user", "content": [{"text": "one"}, {"cachePoint": {"type": "default"}}]},
             {"role": "assistant", "content": [{"text": "two"}]},
@@ -1508,12 +1508,15 @@ class TestPromptCaching:
 
         assert self._breakpoints(request) == [("messages", 2, {"type": "ephemeral"})]
 
-    def test_stripping_hand_placed_cache_points_warns(self, model, caplog):
-        """Replacing a caller's cache point can cost them caching, so it must not be silent.
+    def test_honors_a_cache_point_in_the_last_user_message(self, model, caplog):
+        """A caller marks where their reusable prefix ends; moving that boundary is what breaks caching.
 
-        A point placed ahead of per-call content protects a stable prefix; moving the boundary past that
-        content puts it inside the cached prefix, so every request writes and none reads. BedrockModel
-        warns on the same strip.
+        With the boundary moved past the per-call block, the cached prefix contains content that differs
+        on every request, so every request writes a new entry and none ever reads one. Since a cache write
+        costs more than an uncached token, that is worse than not caching at all.
+
+        The mirror of this test is "honors a cache point in the last user message" in
+        strands-ts/src/models/__tests__/anthropic.test.ts.
         """
         caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
         messages = [
@@ -1530,12 +1533,54 @@ class TestPromptCaching:
 
         request = model.format_request(messages)
 
-        assert "stripped hand-placed cache points" in caplog.text
-        # And the relocation this warns about is pinned: the boundary ends up past the volatile block.
-        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
         content = request["messages"][0]["content"]
-        assert "cache_control" not in content[0]
-        assert content[1]["cache_control"] == {"type": "ephemeral"}
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert content[0]["cache_control"] == {"type": "ephemeral"}
+        assert "cache_control" not in content[1]
+        # Nothing was discarded, so the strip warning must stay silent.
+        assert "stripped extra cache points" not in caplog.text
+
+    def test_extra_cache_points_in_the_last_user_message_are_stripped(self, model, caplog):
+        """One boundary per message: the first marks the prefix, the rest would spend the shared budget."""
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "a"},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "b"},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "c"},
+                    {"cachePoint": {"type": "default"}},
+                ],
+            }
+        ]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages)
+
+        content = request["messages"][0]["content"]
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert content[0]["cache_control"] == {"type": "ephemeral"}
+        assert "count=<2>" in caplog.text
+        assert "stripped extra cache points" in caplog.text
+
+    def test_stripping_cache_points_outside_the_honored_one_warns(self, model, caplog):
+        """Discarding a point the caller placed can cost them caching, so it must not be silent."""
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        messages = [
+            {"role": "user", "content": [{"text": "stable"}, {"cachePoint": {"type": "default"}}]},
+            {"role": "assistant", "content": [{"text": "reply"}]},
+            {"role": "user", "content": [{"text": "newest"}, {"cachePoint": {"type": "default"}}]},
+        ]
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 2, {"type": "ephemeral"})]
+        assert "count=<1>" in caplog.text
+        assert "stripped extra cache points" in caplog.text
 
     def test_no_warning_when_the_caller_placed_no_cache_points(self, model, caplog):
         """The strip warning must not fire on the ordinary managed path, where nothing was discarded."""
@@ -1545,7 +1590,148 @@ class TestPromptCaching:
 
         model.format_request(messages)
 
-        assert "stripped hand-placed cache points" not in caplog.text
+        assert "stripped extra cache points" not in caplog.text
+
+    def test_honored_point_inherits_the_configured_ttl(self, model):
+        """A point carrying no TTL gets the configured one, so ``ttl`` is not lost by placing it yourself."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        messages = [
+            {"role": "user", "content": [{"text": "stable"}, {"cachePoint": {"type": "default"}}, {"text": "volatile"}]}
+        ]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral", "ttl": "1h"})]
+
+    def test_hand_placed_ttl_wins_over_the_configured_one(self, model):
+        """The TTL written on the point is the more specific instruction."""
+        model.update_config(cache_config=CacheConfig(strategy="auto", ttl="1h"))
+        messages = [
+            {
+                "role": "user",
+                "content": [{"text": "stable"}, {"cachePoint": {"type": "default", "ttl": "5m"}}, {"text": "volatile"}],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral", "ttl": "5m"})]
+
+    def test_honored_point_lands_on_the_nearest_acceptable_block_ahead_of_it(self, model):
+        """Honoring scans back from the point, never forward: a boundary is where the prefix *ends*."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "stable"},
+                    {"reasoningContent": {"reasoningText": {"text": "r", "signature": "s"}}},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "volatile"},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        content = request["messages"][0]["content"]
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert content[0]["cache_control"] == {"type": "ephemeral"}
+        assert content[1]["type"] == "thinking"
+        assert "cache_control" not in content[1]
+        assert "cache_control" not in content[2]
+
+    def test_leading_cache_point_falls_back_to_automatic_placement(self, model, caplog):
+        """With nothing ahead of it there is no prefix to cache, so the boundary cannot be honored.
+
+        Automatic placement then applies, which is what the request would have carried without the point.
+        The mirror of this test is "falls back to automatic placement for a leading cache point" in
+        strands-ts/src/models/__tests__/anthropic.test.ts.
+        """
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [{"role": "user", "content": [{"cachePoint": {"type": "default"}}, {"text": "one"}]}]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert "falling back to automatic placement" in caplog.text
+
+    def test_honored_point_falls_back_when_everything_ahead_is_dropped_in_translation(self, model):
+        """An image with a location source is an accepted carrier by block type but never reaches the API,
+        so a point behind one has nothing to mark and automatic placement applies instead."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"image": {"format": "png", "source": {"location": {"uri": "s3://b/k"}}}},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "volatile"},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        assert request["messages"][0]["content"] == [
+            {"type": "text", "text": "volatile", "cache_control": {"type": "ephemeral"}}
+        ]
+
+    def test_honored_point_falls_back_when_only_a_reasoning_block_is_ahead_of_it(self, model):
+        """The API rejects ``cache_control`` on a thinking block, so it cannot carry an honored boundary."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"reasoningContent": {"reasoningText": {"text": "r", "signature": "s"}}},
+                    {"cachePoint": {"type": "default"}},
+                    {"text": "volatile"},
+                ],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        content = request["messages"][0]["content"]
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert content[0]["type"] == "thinking"
+        assert "cache_control" not in content[0]
+        assert content[1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_a_cache_point_only_last_user_message_is_not_the_target(self, model, caplog):
+        """A message of nothing but cache points reaches the API as no message at all, so the newest turn
+        that does reach it owns the breakpoint. Its point is stripped like any other extra one.
+
+        The mirror of this test is "does not treat a cache-point-only last user message as the target" in
+        strands-ts/src/models/__tests__/anthropic.test.ts.
+        """
+        caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {"role": "user", "content": [{"text": "stable"}]},
+            {"role": "user", "content": [{"cachePoint": {"type": "default"}}]},
+        ]
+
+        request = model.format_request(messages)
+
+        assert self._breakpoints(request) == [("messages", 0, {"type": "ephemeral"})]
+        assert "count=<1>" in caplog.text
+
+    def test_honoring_never_exceeds_one_message_breakpoint(self, model):
+        """The whole point of the strip: an honored point replaces automatic placement, it does not add to it."""
+        model.update_config(cache_config=CacheConfig(strategy="auto"))
+        messages = [
+            {
+                "role": "user",
+                "content": [{"text": "a"}, {"cachePoint": {"type": "default"}}, {"text": "b"}, {"text": "c"}],
+            }
+        ]
+
+        request = model.format_request(messages)
+
+        assert len(self._breakpoints(request)) == 1
 
     def test_hand_placed_cache_points_are_honored_without_cache_config(self, model):
         """Leaving cache_config unset is the documented way to keep control of placement."""

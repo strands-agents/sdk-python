@@ -82,6 +82,10 @@ export interface AnthropicModelConfig extends BaseModelConfig {
    * Prompt caching configuration. When set, a cache breakpoint is added to the last user message so
    * the conversation prefix is read from cache instead of reprocessed. Caching is off when unset.
    *
+   * A cache point placed in the last user message is honored where it sits, so a boundary can be marked
+   * ahead of content rebuilt on every call. Extra points in that message, and points in earlier ones,
+   * are removed.
+   *
    * Both strategies behave the same on this provider. `'auto'` carries a model-support check on
    * Bedrock, but the Anthropic API caches on every active Claude model, so there is nothing for that
    * check to decide here; `'anthropic'` is accepted so a config can move between providers unchanged.
@@ -415,17 +419,20 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
    *
    * @param content - Blocks formatted so far for the current message. Mutated in place.
    * @param ttl - Optional TTL duration carried by the cache point.
+   * @returns True when a block was marked, false when none of the blocks can carry a breakpoint. Callers
+   * log the outcome, because a missed breakpoint is a warning on the caller's own placement and only a
+   * fallback on the managed path.
    */
-  private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string): void {
+  private _attachCacheControl(content: Anthropic.ContentBlockParam[], ttl?: string): boolean {
     for (let i = content.length - 1; i >= 0; i--) {
       const block = content[i]
       if (block && this._isCacheableBlock(block)) {
         block.cache_control = this._formatCacheControl(ttl)
-        return
+        return true
       }
     }
 
-    logger.warn('no preceding block accepts a cache breakpoint | skipped cache point')
+    return false
   }
 
   /**
@@ -560,17 +567,35 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
 
     const formatted = messages.map((msg, messageIndex) => {
       const role = (msg.role as string) === 'tool' ? 'user' : msg.role
+      const isCacheTarget = cacheManaged && messageIndex === cacheTargetMessage
 
       const content: Anthropic.ContentBlockParam[] = []
+      let marked = false
+      let honored = false
 
       for (const block of msg.content) {
         if (!block) continue
 
         if (block.type === 'cachePointBlock') {
-          // While cacheConfig manages placement it owns every message breakpoint, so hand-placed cache
-          // points are dropped instead of adding to the count.
-          if (cacheManaged) strippedCachePoints += 1
-          else this._attachCacheControl(content, block.ttl)
+          if (!cacheManaged) {
+            if (!this._attachCacheControl(content, block.ttl)) {
+              logger.warn('no preceding block accepts a cache breakpoint | skipped cache point')
+            }
+          } else if (isCacheTarget && !honored) {
+            // The first point in the newest turn is honored where the caller put it: it marks where their
+            // reusable prefix ends. A TTL they wrote on it is the more specific instruction, so the
+            // configured one only fills in for a point that carries none.
+            honored = true
+            marked = this._attachCacheControl(content, block.ttl ?? this._config.cacheConfig?.ttl)
+            if (!marked) {
+              logger.warn(
+                `msg_idx=<${messageIndex}> | nothing ahead of the placed cache point accepts a breakpoint, ` +
+                  `falling back to automatic placement`
+              )
+            }
+          } else {
+            strippedCachePoints += 1
+          }
           continue
         }
 
@@ -578,10 +603,14 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
         if (formattedBlock) content.push(formattedBlock)
       }
 
-      // Placement happens here rather than per block so the breakpoint lands on a block that actually
-      // survived formatting.
-      if (cacheManaged && messageIndex === cacheTargetMessage) {
-        this._attachCacheControl(content, this._config.cacheConfig?.ttl)
+      // Automatic placement happens here rather than per block so the breakpoint lands on a block that
+      // actually survived formatting. It is skipped when a caller-placed point already marked one.
+      if (isCacheTarget && !marked) {
+        if (this._attachCacheControl(content, this._config.cacheConfig?.ttl)) {
+          logger.debug(`msg_idx=<${messageIndex}> | added cache point to last user message`)
+        } else {
+          logger.debug(`msg_idx=<${messageIndex}> | no cacheable content block, skipped cache point`)
+        }
       }
 
       return {
@@ -591,14 +620,12 @@ export class AnthropicModel extends Model<AnthropicModelConfig> {
     })
 
     if (strippedCachePoints > 0) {
-      // Warn rather than stay silent: discarding a hand-placed cache point can silently *cost* the
-      // caller caching. A point placed deliberately ahead of per-call content (retrieved context, a
-      // timestamp) protects a stable prefix; replacing it with one on the newest turn puts that
-      // volatile content inside the cached prefix, so every request writes a new entry and none ever
-      // reads one. BedrockModel warns on the same strip, so this keeps the providers equally loud.
+      // Warn rather than stay silent: discarding a cache point the caller placed can silently *cost* them
+      // caching, and a request carries one message breakpoint either way. BedrockModel warns on the same
+      // strip, so this keeps the providers equally loud about it.
       logger.warn(
-        `count=<${strippedCachePoints}> | stripped hand-placed cache points, cacheConfig manages ` +
-          `placement; unset cacheConfig to keep your own cache points`
+        `count=<${strippedCachePoints}> | stripped extra cache points, cacheConfig keeps the first cache ` +
+          `point in the last user message; unset cacheConfig to keep every cache point`
       )
     }
 

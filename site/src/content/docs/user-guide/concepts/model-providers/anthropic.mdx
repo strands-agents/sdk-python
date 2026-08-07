@@ -274,22 +274,25 @@ active ones, so there is nothing to check and nothing to skip. Both values are a
   [cache limitations](https://docs.claude.com/en/docs/build-with-claude/prompt-caching#cache-limitations)).
   If both `cacheReadInputTokens` and `cacheWriteInputTokens` stay at zero, the prompt was too short.
 - **The breakpoint moves with the conversation instead of accumulating.** While `cache_config` is set
-  each request carries exactly one message breakpoint, on the newest turn, so a long session does not
-  accumulate one per turn. Cache points you place by hand in the messages are replaced, because
-  `cache_config` owns their placement.
-- **`cache_config` and hand-placed cache points do not combine — pick one.** Because `cache_config`
-  replaces your points with one on the newest turn, a point you placed deliberately *ahead* of content
-  that changes every call (retrieved context, a timestamp) does not survive: the boundary moves past
-  that content, so it lands inside the cached prefix and every request writes a new entry instead of
-  reading one. Since a cache write costs more than an uncached token, that is more expensive than not
-  caching at all. A warning is logged whenever your points are replaced. To keep control of placement,
-  leave `cache_config` unset and place cache points yourself — they are honored, including their `ttl`.
-  `BedrockModel` replaces hand-placed points the same way.
-- **The breakpoint is placed on the last block of the newest turn that can carry one.** Blocks the API
-  rejects a breakpoint on (a reasoning block, for example) and blocks that are dropped when the request
-  is built (media with a location source) are skipped, so the breakpoint lands on the nearest block
-  before them. If the newest turn has no such block, no message breakpoint is emitted — the request is
-  not cached against an older turn, because a prefix that has stopped growing would go stale.
+  each request carries exactly one message breakpoint, so a long session does not accumulate one per
+  turn. Cache points in earlier messages, and extra points in the newest turn, are removed, and a
+  warning names each removal.
+- **`cache_config` and a hand-placed cache point compose.** A cache point you place in the last user
+  message is kept where you put it, and automatic placement steps aside. That matters when the newest
+  turn ends with content rebuilt on every call — retrieved context, a timestamp, injected state —
+  because a boundary *after* that content puts it inside the cached prefix, so every request writes a
+  new entry and none ever reads one. Since a cache write costs more than an uncached token, that is more
+  expensive than not caching at all. Place the cache point ahead of the per-call content to keep the
+  durable prefix cacheable. Your point needs something ahead of it that can carry a breakpoint: if only
+  a reasoning block, a media block with a location source, or nothing at all precedes it, the point is
+  dropped and automatic placement applies instead. A `ttl` on your point is used as written; a point
+  without one inherits `cache_config`'s.
+- **Without a cache point of your own, the breakpoint goes on the last block of the newest turn that can
+  carry one.** Blocks the API rejects a breakpoint on (a reasoning block, for example) and blocks that
+  are dropped when the request is built (media with a location source) are skipped, so the breakpoint
+  lands on the nearest block before them. If the newest turn has no such block, no message breakpoint is
+  emitted — the request is not cached against an older turn, because a prefix that has stopped growing
+  would go stale.
 - **`cache_tools` on its own can exceed the API's four-breakpoint limit.** `cache_config` keeps the
   total at one message breakpoint, but `cache_tools` adds its own without accounting for cache points
   you placed by hand. Four hand-placed points plus `cache_tools` is five, which the API rejects; a
