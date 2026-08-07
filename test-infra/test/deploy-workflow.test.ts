@@ -157,18 +157,40 @@ test('the diff job never sees the deploy role', () => {
 // Anything printed by a job that holds these lists ends up in a world-readable
 // log, job summary or artifact. Masking covers the log; the redactor covers the
 // files, and it is inlined in the workflow rather than read from the (untrusted)
-// pull-request checkout.
-test('the diff job masks and redacts the secret-derived names', () => {
-  const block = jobBlock('diff');
+// pull-request checkout. Both jobs hold the lists, so both need both — the deploy
+// job especially, because its post-merge path publishes a summary with no human
+// in the loop at all.
+test.each(['diff', 'deploy'])('the %s job masks and redacts the secret-derived names', (job) => {
+  const block = jobBlock(job);
 
   expect(block).toContain('::add-mask::');
   expect(block).toContain('cat > "$RUNNER_TEMP/redact.py"');
   expect(block).toContain('python3 "$RUNNER_TEMP/redact.py"');
   for (const name of [...INTERNAL_ENV_LISTS, 'STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT']) {
     // Every list the job holds has to reach the redactor, or its entries survive
-    // into the published diff.
+    // into the published output.
     expect(block.slice(block.indexOf('redact.py'))).toContain(`'${name}'`);
   }
+  // Nothing may reach the log or the summary except through the redactor.
+  expect(block).not.toMatch(/cat "\$RUNNER_TEMP\/cdk-diff-raw\.txt"/);
+});
+
+// `cdk deploy` streams CloudFormation events for minutes, so the redactor has to
+// work as a filter, not only on a finished file. `2>&1` included: CDK writes
+// progress and errors to stderr, and an unredacted stderr is still a leak.
+test('the deploy job pipes cdk deploy, stderr included, through the redactor', () => {
+  const block = jobBlock('deploy');
+
+  expect(block).toMatch(/npx cdk deploy [^\n]*2>&1 \|\n\s*python3 "\$RUNNER_TEMP\/redact\.py"/);
+});
+
+// The diff text is a rendering of the pull request's own CDK code, so a resource
+// named `::stop-commands::…` would be executed as a workflow command when printed.
+test('the redactor neutralizes workflow commands and fences', () => {
+  const redactor = workflow.slice(workflow.indexOf('redact.py'));
+
+  expect(redactor).toContain("re.sub('`{3,}'");
+  expect(redactor).toContain("re.sub('^([ \\t]*)::'");
 });
 
 // A job that runs pull-request code must not also hold a token that can write to
