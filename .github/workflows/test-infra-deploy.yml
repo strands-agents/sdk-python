@@ -191,7 +191,9 @@ jobs:
           cat > "$RUNNER_TEMP/redact.py" <<'PY'
           import os, re, sys
 
-          text = open(sys.argv[1], encoding='utf-8', errors='replace').read()
+          # A line filter (stdin to stdout) so it works on a file and on a live
+          # stream alike: `cdk deploy` has to be piped through it as it runs.
+          sys.stdout.reconfigure(line_buffering=True)
 
           values = []
           for name in (
@@ -206,13 +208,18 @@ jobs:
 
           # Longest first, so a short entry cannot clobber a longer one that
           # contains it before that one has been replaced.
-          for value in sorted({v for v in values if v}, key=len, reverse=True):
-              text = text.replace(value, '***')
+          values = sorted({v for v in values if v}, key=len, reverse=True)
 
-          # Never let stack output open or close the Markdown fence it goes in.
-          text = re.sub('`{3,}', "'''", text)
-
-          open(sys.argv[2], 'w', encoding='utf-8').write(text)
+          for line in sys.stdin:
+              for value in values:
+                  line = line.replace(value, '***')
+              # Never let stack output open or close the Markdown fence it goes in.
+              line = re.sub('`{3,}', "'''", line)
+              # Never let it be read as a workflow command. This text is a
+              # rendering of the pull request's own CDK code, so a resource named
+              # `::stop-commands::…` would otherwise be executed as one.
+              line = re.sub('^([ \t]*)::', r'\1\\::', line)
+              sys.stdout.write(line)
           PY
 
       - uses: actions/checkout@v7
@@ -254,7 +261,7 @@ jobs:
           # Redact before anything prints it: masking covers the log, but the job
           # summary and the artifact are written as files and are not masked.
           python3 "$RUNNER_TEMP/redact.py" \
-            "$RUNNER_TEMP/cdk-diff-raw.txt" "$RUNNER_TEMP/cdk-diff.txt"
+            < "$RUNNER_TEMP/cdk-diff-raw.txt" > "$RUNNER_TEMP/cdk-diff.txt"
           cat "$RUNNER_TEMP/cdk-diff.txt"
           {
             echo '### `cdk diff` StrandsTestInfraStack'
@@ -446,6 +453,56 @@ jobs:
             exit 1
           fi
 
+      # Duplicated from the diff job rather than factored into a composite action:
+      # on pull_request_target the checkout is the pull request's, so an action
+      # read from the tree would be the pull request's action. Both copies have to
+      # live in this file, which is main's.
+      - name: Mask the individual list entries
+        run: |
+          set -euo pipefail
+          printf '%s\n' \
+            "$STRANDS_TEST_INFRA_PRIVATE_REPOS" \
+            "$STRANDS_TEST_INFRA_BUCKET_NAMES" \
+            "$STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES" \
+            "$STRANDS_TEST_INFRA_SECRET_NAMES" \
+            "$STRANDS_TEST_INFRA_RUNNER_ROLES" |
+            tr ',' '\n' |
+            while read -r entry; do
+              trimmed="$(printf '%s' "$entry" | tr -d '[:space:]')"
+              if [ -n "$trimmed" ]; then
+                echo "::add-mask::$trimmed"
+              fi
+            done
+
+      - name: Write the redactor
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/redact.py" <<'PY'
+          import os, re, sys
+
+          sys.stdout.reconfigure(line_buffering=True)
+
+          values = []
+          for name in (
+              'STRANDS_TEST_INFRA_PRIVATE_REPOS',
+              'STRANDS_TEST_INFRA_BUCKET_NAMES',
+              'STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES',
+              'STRANDS_TEST_INFRA_SECRET_NAMES',
+              'STRANDS_TEST_INFRA_RUNNER_ROLES',
+              'STRANDS_TEST_INFRA_DEPLOYMENT_ACCOUNT',
+          ):
+              values += [entry.strip() for entry in (os.environ.get(name) or '').split(',')]
+
+          values = sorted({v for v in values if v}, key=len, reverse=True)
+
+          for line in sys.stdin:
+              for value in values:
+                  line = line.replace(value, '***')
+              line = re.sub('`{3,}', "'''", line)
+              line = re.sub('^([ \t]*)::', r'\1\\::', line)
+              sys.stdout.write(line)
+          PY
+
       # A pull-request deploy leaves the account holding an unmerged stack, which
       # is invisible from main. Say so where the run is read.
       - name: Record what is being deployed
@@ -485,20 +542,33 @@ jobs:
 
       # The change-set diff, which is the accurate one, recorded in the job
       # summary so the account-side effect of this run is auditable after the
-      # fact rather than inferable from the code.
+      # fact rather than inferable from the code. Redacted like the pull-request
+      # diff: the post-merge path has no approval step, so this summary is
+      # published to a public repository with nobody looking at it first.
       - name: Diff against the deployed stack
         run: |
           set -uo pipefail
           status=0
-          npx cdk diff StrandsTestInfraStack --no-fail --no-color > "$RUNNER_TEMP/cdk-diff.txt" 2>&1 || status=$?
+          npx cdk diff StrandsTestInfraStack --no-fail --no-color \
+            > "$RUNNER_TEMP/cdk-diff-raw.txt" 2>&1 || status=$?
+          python3 "$RUNNER_TEMP/redact.py" \
+            < "$RUNNER_TEMP/cdk-diff-raw.txt" > "$RUNNER_TEMP/cdk-diff.txt"
           cat "$RUNNER_TEMP/cdk-diff.txt"
           {
             echo '### `cdk diff` StrandsTestInfraStack'
+            echo
+            echo 'Secret-derived names are redacted to `***` — this is a public repository.'
+            echo
             echo '```'
             cat "$RUNNER_TEMP/cdk-diff.txt"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
+      # Piped through the redactor as it streams: CloudFormation events name the
+      # resources they touch, and this log is world-readable too.
       - name: Deploy
-        run: npx cdk deploy StrandsTestInfraStack --require-approval never --no-color
+        run: |
+          set -uo pipefail
+          npx cdk deploy StrandsTestInfraStack --require-approval never --no-color 2>&1 |
+            python3 "$RUNNER_TEMP/redact.py"
