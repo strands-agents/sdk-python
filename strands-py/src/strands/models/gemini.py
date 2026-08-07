@@ -19,7 +19,7 @@ from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, Sy
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException, ProviderTokenCountError
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolChoice, ToolSpec
+from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
@@ -288,11 +288,46 @@ class GeminiModel(Model):
             tools.extend(self.config["gemini_tools"])
         return tools
 
+    @staticmethod
+    def _format_tool_choice(tool_choice: ToolChoice | None) -> genai.types.ToolConfig | None:
+        """Format a tool choice into a Gemini tool config.
+
+        - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.ToolConfig
+
+        Args:
+            tool_choice: Selection strategy for tool invocation.
+
+        Returns:
+            Gemini tool config, or None when no recognized strategy is requested.
+        """
+        if tool_choice is None:
+            return None
+
+        allowed_function_names: list[str] | None = None
+        if "auto" in tool_choice:
+            mode = genai.types.FunctionCallingConfigMode.AUTO
+        elif "any" in tool_choice:
+            mode = genai.types.FunctionCallingConfigMode.ANY
+        elif "tool" in tool_choice:
+            # Gemini has no single-tool mode, so a specific tool is ANY narrowed to that one function.
+            mode = genai.types.FunctionCallingConfigMode.ANY
+            allowed_function_names = [cast(ToolChoiceToolDict, tool_choice)["tool"]["name"]]
+        else:
+            return None
+
+        return genai.types.ToolConfig(
+            function_calling_config=genai.types.FunctionCallingConfig(
+                mode=mode,
+                allowed_function_names=allowed_function_names,
+            ),
+        )
+
     def _format_request_config(
         self,
         tool_specs: list[ToolSpec] | None,
         system_prompt: str | None,
         params: dict[str, Any] | None,
+        tool_choice: ToolChoice | None = None,
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -302,14 +337,24 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             Gemini request config.
         """
+        config_params = dict(params or {})
+
+        tool_config = self._format_tool_choice(tool_choice) if tool_specs else None
+        if tool_config is not None:
+            # A tool config set in params wins, matching the other providers and the TypeScript SDK. A tool
+            # config expresses more than a ToolChoice can, so the explicit one is left whole rather than
+            # merged with, or replaced by, the narrower per-request choice.
+            config_params.setdefault("tool_config", tool_config)
+
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=self._format_request_tools(tool_specs),
-            **(params or {}),
+            **config_params,
         )
 
     def _format_request(
@@ -318,6 +363,7 @@ class GeminiModel(Model):
         tool_specs: list[ToolSpec] | None,
         system_prompt: str | None,
         params: dict[str, Any] | None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -328,12 +374,13 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             A Gemini streaming request.
         """
         return {
-            "config": self._format_request_config(tool_specs, system_prompt, params).to_json_dict(),
+            "config": self._format_request_config(tool_specs, system_prompt, params, tool_choice).to_json_dict(),
             "contents": [content.to_json_dict() for content in self._format_request_content(messages)],
             "model": self.config["model_id"],
         }
@@ -518,6 +565,7 @@ class GeminiModel(Model):
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
+        *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -527,8 +575,9 @@ class GeminiModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-            tool_choice: Selection strategy for tool invocation.
-                Note: Currently unused.
+            tool_choice: Selection strategy for tool invocation. Applied only when tool specs are provided,
+                since there is nothing to choose from without them, and only when params sets no tool config of
+                its own - an explicit tool config takes precedence.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -537,7 +586,9 @@ class GeminiModel(Model):
         Raises:
             ModelThrottledException: If the request is throttled by Gemini.
         """
-        request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
+        request = self._format_request(
+            messages, tool_specs, system_prompt, self.config.get("params"), tool_choice=tool_choice
+        )
 
         client = self._get_client().aio
 

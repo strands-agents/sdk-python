@@ -66,6 +66,7 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │   └── ...
 │   ├── config/                   # Site configuration
 │   ├── content/                  # Content collections
+│   │   ├── catalog/              # Community catalog entries (one YAML per integration, zod-validated)
 │   │   └── docs/                 # Documentation content (Markdown/MDX)
 │   │       ├── api/
 │   │       │   ├── python/
@@ -73,13 +74,15 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 │   │       │   └── typescript/
 │   │       │       └── _generated/   # Symlink to .build/api-docs/typescript
 │   │       ├── assets/
-│   │       ├── community/
 │   │       ├── contribute/
 │   │       ├── examples/
+│   │       ├── integrations/
 │   │       ├── labs/
 │   │       └── user-guide/
+│   ├── data/                     # Bot-maintained data (catalog-stats.json — updated by the
+│   │                             #   catalog-stats workflow; do not hand-edit)
 │   ├── layouts/                  # Custom layouts
-│   ├── pages/                    # Astro pages
+│   ├── pages/                    # Astro pages (incl. integrations.astro — the /integrations page)
 │   ├── plugins/                  # Remark/Rehype plugins
 │   ├── styles/                   # Global styles
 │   └── util/                     # Utility functions
@@ -90,7 +93,8 @@ When authoring or reviewing documentation pages, follow the voice guide and the 
 ├── NOTICE
 ├── README.md
 ├── overrides/                    # Legacy MkDocs overrides (being migrated)
-├── scripts/                      # Build and utility scripts
+├── scripts/                      # Build and utility scripts (scripts/catalog/ — stats refresh
+│                                 #   run by the weekly catalog-stats workflow)
 ├── test/                         # Test files
 └── test-snippets/                # TypeScript snippet test files
 ```

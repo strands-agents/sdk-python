@@ -94,7 +94,9 @@ class Tracer:
     span events, for backends that cannot read span events. This applies to the aggregated content events
     (latest-convention "gen_ai.*" messages and the "memory.query"/"memory.content" events); the legacy
     per-message events are always emitted as events. The default (token absent, non-Langfuse) emits span
-    events for backward compatibility.
+    events for backward compatibility. Independent of this token, tool spans under the latest
+    conventions additionally record `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result` as
+    span attributes per the execute_tool span convention.
 
     Span attribute redaction is opt-in via the `gen_ai_unredacted_attributes=<list>` token in the same
     environment variable. The list uses `;` as a separator and supports trailing-`*` glob patterns.
@@ -105,7 +107,9 @@ class Tracer:
 
     Sensitive attributes subject to the redaction policy are: `gen_ai.input.messages` (user messages
     and tool inputs/results being fed into the model), `gen_ai.output.messages` (agent/model responses
-    and tool call responses), and `gen_ai.system_instructions` (system prompts).
+    and tool call responses), `gen_ai.system_instructions` (system prompts), and, on execute_tool
+    spans under the latest conventions, `gen_ai.tool.call.arguments` and `gen_ai.tool.call.result`
+    (tool inputs/outputs).
     """
 
     def __init__(self) -> None:
@@ -175,11 +179,11 @@ class Tracer:
 
         Args:
             attribute_name: The canonical semantic attribute name used for policy lookup
-                (one of `gen_ai.input.messages`, `gen_ai.output.messages`, or
-                `gen_ai.system_instructions`). This may differ from the physical event
-                field key emitted under legacy conventions (which uses `content`/`message`),
-                but the canonical name is always used so that allowlist entries are
-                independent of the convention in use.
+                (`gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.system_instructions`,
+                `gen_ai.tool.call.arguments`, or `gen_ai.tool.call.result`). This may differ
+                from the physical event field key emitted under legacy conventions (which uses
+                `content`/`message`), but the canonical name is always used so that allowlist
+                entries are independent of the convention in use.
             value: The serialized attribute value to potentially redact.
 
         Returns:
@@ -508,6 +512,13 @@ class Tracer:
         span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
         if self.use_latest_genai_conventions:
+            # The execute_tool span convention records tool inputs in the dedicated
+            # gen_ai.tool.call.arguments span attribute (Opt-In), which spec-compliant
+            # consumers read on tool spans.
+            span.set_attribute(
+                "gen_ai.tool.call.arguments",
+                self._redact("gen_ai.tool.call.arguments", serialize(tool["input"])),
+            )
             input_messages = serialize(
                 [
                     {
@@ -560,6 +571,12 @@ class Tracer:
             attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
+                # The execute_tool span convention records tool outputs in the dedicated
+                # gen_ai.tool.call.result span attribute (Opt-In), which spec-compliant
+                # consumers read on tool spans. The spec scopes the attribute to successful
+                # executions; failures are captured in the span status instead.
+                if status != "error":
+                    attributes["gen_ai.tool.call.result"] = self._redact("gen_ai.tool.call.result", serialize(content))
                 output_messages = serialize(
                     [
                         {
