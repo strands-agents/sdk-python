@@ -381,6 +381,13 @@ jobs:
        (github.event_name != 'pull_request_target' && needs.diff.result == 'skipped'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Workflow-level concurrency is per pull request, which keeps diffs parallel
+    # but would let a pull-request deploy and a main deploy run at once. Every
+    # deploy touches the one stack, so they serialize on a constant group of
+    # their own — see the note on the workflow-level group above.
+    concurrency:
+      group: test-infra-deploy-stack
+      cancel-in-progress: false
     permissions:
       id-token: write # request the OIDC token the deploy role is trusted for
       contents: read
