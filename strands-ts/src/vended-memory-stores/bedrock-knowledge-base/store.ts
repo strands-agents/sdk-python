@@ -63,6 +63,8 @@ function fromAttributeValue(value: JSONValue): JSONValue {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return value
   const { string: encoded, type } = value as { string?: JSONValue; type?: JSONValue }
   if (typeof encoded !== 'string' || type !== 'bigDecimal') return value
+  // Number('') and Number('  ') are 0, which would coerce a blank payload instead of preserving it.
+  if (encoded.trim() === '') return value
   const parsed = Number(encoded)
   return Number.isFinite(parsed) ? parsed : value
 }

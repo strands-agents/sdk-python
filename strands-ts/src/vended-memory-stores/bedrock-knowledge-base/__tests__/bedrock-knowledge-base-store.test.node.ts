@@ -351,6 +351,7 @@ describe('BedrockKnowledgeBaseStore', () => {
               priority: 'high',
               verified: true,
               ratio: 2.5,
+              tags: ['a', 'b'],
               version: { string: '3.0', type: 'bigDecimal' },
               delta: { string: '-12.0', type: 'bigDecimal' },
               zero: { string: '0.0', type: 'bigDecimal' },
@@ -364,6 +365,7 @@ describe('BedrockKnowledgeBaseStore', () => {
         priority: 'high',
         verified: true,
         ratio: 2.5,
+        tags: ['a', 'b'],
         version: 3,
         delta: -12,
         zero: 0,
@@ -376,6 +378,8 @@ describe('BedrockKnowledgeBaseStore', () => {
       // Number('Infinity') parses, so it needs an explicit guard: returning it
       // would put a non-JSON value into metadata.
       const infinite = { string: 'Infinity', type: 'bigDecimal' }
+      // Number('') and Number('  ') are 0, so a blank payload needs its own guard to stay untouched.
+      const blank = { string: '  ', type: 'bigDecimal' }
       const unknownTag = { string: 'x', type: 'someFutureType' }
       const notAWrapper = { string: 'no type field' }
       const wrapperOfWrongTypes = { string: 3, type: 7 }
@@ -383,7 +387,7 @@ describe('BedrockKnowledgeBaseStore', () => {
         retrievalResults: [
           {
             content: { text: 'fact' },
-            metadata: { unparseable, infinite, unknownTag, notAWrapper, wrapperOfWrongTypes },
+            metadata: { unparseable, infinite, blank, unknownTag, notAWrapper, wrapperOfWrongTypes },
           },
         ],
       })
@@ -392,6 +396,7 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(entry?.metadata).toStrictEqual({
         unparseable,
         infinite,
+        blank,
         unknownTag,
         notAWrapper,
         wrapperOfWrongTypes,
