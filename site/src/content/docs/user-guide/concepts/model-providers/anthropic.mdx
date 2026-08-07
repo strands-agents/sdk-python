@@ -276,7 +276,7 @@ active ones, so there is nothing to check and nothing to skip. Both values are a
 - **The breakpoint moves with the conversation instead of accumulating.** While `cache_config` is set
   each request carries exactly one message breakpoint, so a long session does not accumulate one per
   turn. Cache points in earlier messages, and extra points in the newest turn, are removed, and a
-  warning names each removal.
+  warning reports how many were removed.
 - **`cache_config` and a hand-placed cache point compose.** A cache point you place in the last user
   message is kept where you put it, and automatic placement steps aside. That matters when the newest
   turn ends with content rebuilt on every call — retrieved context, a timestamp, injected state —
