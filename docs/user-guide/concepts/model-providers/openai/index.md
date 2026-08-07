@@ -293,8 +293,24 @@ if __name__ == "__main__":
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-```ts
-// Custom client capability is not yet supported in the TypeScript SDK
+```typescript
+import OpenAI from 'openai'
+import { Agent } from '@strands-agents/sdk'
+import { OpenAIModel } from '@strands-agents/sdk/models/openai'
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || '<KEY>',
+})
+
+const model = new OpenAIModel({
+  api: 'chat',
+  client,
+  modelId: 'gpt-5.4',
+})
+
+const agent = new Agent({ model })
+const response = await agent.invoke('What is 2+2?')
+console.log(response)
 ```
 (( /tab "TypeScript" ))
 

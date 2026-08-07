@@ -93,7 +93,7 @@ Per-tool event order: `BeforeToolCallEvent` → `ToolStreamUpdateEvent*` → `Af
 Cancellation works identically in both modes. Call `agent.cancel()` to request cooperative cancellation. In TypeScript, this flips `agent.cancelSignal`.
 
 (( tab "Python" ))
--   **Pre-launch cancel**: set `BeforeToolCallEvent.cancel_tool` on a per-tool hook to produce an error result for that tool.
+-   **Pre-launch cancel**: set `BeforeToolCallEvent.cancel_tool` on a per-tool hook to produce an error result for that tool, set `BeforeToolsEvent.cancel` on the batch-level hook to produce error results for every tool in the batch before any execute, or call `agent.cancel()` before the batch starts to cancel all pending tools.
 -   **Mid-flight cancel** in sequential mode short-circuits not-yet-started tools. In concurrent mode, all tools have already launched, so each in-flight tool must cooperatively check for cancellation to stop early.
 (( /tab "Python" ))
 

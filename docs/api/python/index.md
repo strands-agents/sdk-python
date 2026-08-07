@@ -77,6 +77,7 @@
     -   [S3 Session Manager](/docs/api/python/strands.session.s3_session_manager)
     -   [Session Manager](/docs/api/python/strands.session.session_manager)
     -   [Session Repository](/docs/api/python/strands.session.session_repository)
+    -   [Snapshot Session Manager](/docs/api/python/strands.session.snapshot_session_manager)
 -   **Storage**
     -   [In Memory Storage](/docs/api/python/strands.storage.in_memory_storage)
     -   [Local File Storage](/docs/api/python/strands.storage.local_file_storage)
@@ -124,6 +125,7 @@
     -   **Cedar**
         -   [Cedar Authorization](/docs/api/python/strands.vended_interventions.cedar.cedar_authorization)
     -   **Hitl**
+        -   [Classifier](/docs/api/python/strands.vended_interventions.hitl.classifier)
         -   [Hitl](/docs/api/python/strands.vended_interventions.hitl.hitl)
 -   **Vended Memory Stores**
     -   [Overview](/docs/api/python/strands.vended_memory_stores)
@@ -157,14 +159,15 @@
                 -   [Llm Handler](/docs/api/python/strands.vended_plugins.steering.handlers.llm.llm_handler)
                 -   [Mappers](/docs/api/python/strands.vended_plugins.steering.handlers.llm.mappers)
 -   **Vended Tools**
-    -   **Bash**
-        -   [Bash](/docs/api/python/strands.vended_tools.bash.bash)
-        -   [Types](/docs/api/python/strands.vended_tools.bash.types)
+    -   [Overview](/docs/api/python/strands.vended_tools)
     -   **File Editor**
         -   [File Editor](/docs/api/python/strands.vended_tools.file_editor.file_editor)
     -   **Http Request**
         -   [Http Request](/docs/api/python/strands.vended_tools.http_request.http_request)
         -   [Types](/docs/api/python/strands.vended_tools.http_request.types)
+    -   **Shell**
+        -   [Shell](/docs/api/python/strands.vended_tools.shell.shell)
+        -   [Types](/docs/api/python/strands.vended_tools.shell.types)
     -   **Sleep**
         -   [Sleep](/docs/api/python/strands.vended_tools.sleep.sleep)
         -   [Types](/docs/api/python/strands.vended_tools.sleep.types)

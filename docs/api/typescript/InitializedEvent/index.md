@@ -1,4 +1,4 @@
-Defined in: [src/hooks/events.ts:117](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L117)
+Defined in: [src/hooks/events.ts:117](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/hooks/events.ts#L117)
 
 Event triggered when an agent has finished initialization. Fired after the agent has been fully constructed and all built-in components have been initialized.
 
@@ -14,7 +14,7 @@ Event triggered when an agent has finished initialization. Fired after the agent
 new InitializedEvent(data): InitializedEvent;
 ```
 
-Defined in: [src/hooks/events.ts:121](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L121)
+Defined in: [src/hooks/events.ts:121](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/hooks/events.ts#L121)
 
 #### Parameters
 
@@ -39,7 +39,7 @@ Defined in: [src/hooks/events.ts:121](https://github.com/strands-agents/harness-
 readonly type: "initializedEvent";
 ```
 
-Defined in: [src/hooks/events.ts:118](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L118)
+Defined in: [src/hooks/events.ts:118](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/hooks/events.ts#L118)
 
 ---
 
@@ -49,7 +49,7 @@ Defined in: [src/hooks/events.ts:118](https://github.com/strands-agents/harness-
 readonly agent: LocalAgent;
 ```
 
-Defined in: [src/hooks/events.ts:119](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L119)
+Defined in: [src/hooks/events.ts:119](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/hooks/events.ts#L119)
 
 ## Methods
 
@@ -59,7 +59,7 @@ Defined in: [src/hooks/events.ts:119](https://github.com/strands-agents/harness-
 toJSON(): Pick<InitializedEvent, "type">;
 ```
 
-Defined in: [src/hooks/events.ts:130](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/hooks/events.ts#L130)
+Defined in: [src/hooks/events.ts:130](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/hooks/events.ts#L130)
 
 Serializes for wire transport, excluding the agent reference. Called automatically by JSON.stringify().
 

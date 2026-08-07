@@ -92,18 +92,18 @@ class FirecrackerSandbox(PosixShellSandbox):
 
 ## Vending tools from a custom sandbox
 
-To give your sandbox the same `sandbox_bash` and `sandbox_file_editor` tools the built-in sandboxes provide, override `getTools()` / `get_tools()` and return tools bound to it:
+To give your sandbox the same `sandbox_shell` and `sandbox_file_editor` tools the built-in sandboxes provide, override `getTools()` / `get_tools()` and return tools bound to it:
 
 (( tab "TypeScript" ))
 ```typescript
 import type { Tool } from '@strands-agents/sdk'
-import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
 import { makeFileEditor } from '@strands-agents/sdk/vended-tools/file-editor'
 
 override getTools(): Tool[] {
   return [
     makeFileEditor(this, { name: 'sandbox_file_editor' }),
-    makeBash(this, { name: 'sandbox_bash' }),
+    makeShell(this, { name: 'sandbox_shell' }),
   ]
 }
 ```
@@ -112,14 +112,14 @@ override getTools(): Tool[] {
 (( tab "Python" ))
 ```python
 from strands.types.tools import AgentTool
-from strands.vended_tools import make_bash, make_file_editor
+from strands.vended_tools import make_file_editor, make_shell
 
 
 # Inside your custom sandbox class:
 def get_tools(self) -> list[AgentTool]:
     return [
         make_file_editor(sandbox=self, name="sandbox_file_editor"),
-        make_bash(sandbox=self, name="sandbox_bash"),
+        make_shell(sandbox=self, name="sandbox_shell"),
     ]
 ```
 (( /tab "Python" ))
@@ -140,7 +140,7 @@ A container running as root with the host filesystem mounted is not a boundary, 
 
 -   [Sandbox Overview](/docs/user-guide/concepts/sandbox/index.md) — what a sandbox is, the tools it vends, and plugin compatibility
 -   [Available Sandboxes](/docs/user-guide/concepts/sandbox/available-sandboxes/index.md) — the built-in Docker and SSH backends
--   [Vended Tools](/docs/user-guide/concepts/tools/vended-tools/index.md) — the `sandbox_bash` and `sandbox_file_editor` tool factories
+-   [Vended Tools](/docs/user-guide/concepts/tools/vended-tools/index.md) — the `sandbox_shell` and `sandbox_file_editor` tool factories
 
 ## Related pages
 

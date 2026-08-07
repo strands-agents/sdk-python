@@ -26,6 +26,16 @@ agent = Agent(plugins=[
         include_retrieval_tool=True,
     )
 ])
+
+# Selective offloading: only offload results from specific tools
+agent = Agent(plugins=[
+    ContextOffloader(
+        storage=InMemoryStorage(),
+        should_offload=lambda tool_name, token_count, **kwargs: (
+            tool_name == "get_document_text"
+        ),
+    )
+])
 ```
 
 ## LineRange
@@ -34,9 +44,36 @@ agent = Agent(plugins=[
 class LineRange(TypedDict)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:124](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L124)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:136](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L136)
 
 A span of lines to retrieve (1-indexed, inclusive).
+
+## ShouldOffload
+
+```python
+class ShouldOffload(Protocol)
+```
+
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:153](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L153)
+
+Callback protocol for deciding whether a tool result should be offloaded.
+
+#### \_\_call\_\_
+
+```python
+def __call__(tool_name: str, token_count: int,
+             **kwargs: Any) -> bool | Awaitable[bool]
+```
+
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:156](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L156)
+
+Return True to offload, False to keep the result in context. May be sync or async.
+
+**Arguments**:
+
+-   `tool_name` - Name of the tool that produced the result.
+-   `token_count` - Estimated token count of the result.
+-   `**kwargs` - Reserved for future parameters. Implementations should accept `**kwargs` for forward compatibility.
 
 ## ContextOffloader
 
@@ -44,7 +81,7 @@ A span of lines to retrieve (1-indexed, inclusive).
 class ContextOffloader(Plugin)
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:141](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L141)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:168](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L168)
 
 Plugin that offloads oversized tool results to reduce context consumption.
 
@@ -68,6 +105,7 @@ This operates proactively at tool execution time via `AfterToolCallEvent`, befor
 -   `max_result_tokens` - Offload results whose estimated token count exceeds this threshold.
 -   `preview_tokens` - Number of tokens to keep as a text preview in context.
 -   `include_retrieval_tool` - Whether to register the `retrieve_offloaded_content` tool. Defaults to True.
+-   `should_offload` - Callback to control which tool results are offloaded. Defaults to None (all oversized results offloaded).
 
 **Example**:
 
@@ -77,6 +115,16 @@ from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryS
 
 agent = Agent(plugins=[
     ContextOffloader(storage=InMemoryStorage())
+])
+
+# Only offload results from large-output tools
+agent = Agent(plugins=[
+    ContextOffloader(
+        storage=InMemoryStorage(),
+        should_offload=lambda tool_name, token_count, **kwargs: (
+            tool_name == "get_document_text"
+        ),
+    )
 ])
 ```
 
@@ -88,10 +136,11 @@ def __init__(storage: Storage | _LegacyStorage,
              preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
              *,
              include_retrieval_tool: bool = True,
+             should_offload: ShouldOffload | None = None,
              evict_after_cycles: int | None = 20) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:185](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L185)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:224](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L224)
 
 Initialize the ContextOffloader plugin.
 
@@ -101,6 +150,7 @@ Initialize the ContextOffloader plugin.
 -   `max_result_tokens` - Offload results whose estimated token count exceeds this threshold. Defaults to `_DEFAULT_MAX_RESULT_TOKENS` (2,500).
 -   `preview_tokens` - Number of tokens to keep as a text preview in context. Uses tiktoken for exact slicing when available, falls back to chars/4 heuristic. Defaults to `_DEFAULT_PREVIEW_TOKENS` (1,000).
 -   `include_retrieval_tool` - Whether to register the `retrieve_offloaded_content` tool so the agent can fetch offloaded content. Defaults to True.
+-   `should_offload` - Callback `(tool_name, token_count, **kwargs) -> bool` to decide whether a specific tool result should be offloaded. Called only when the result exceeds `max_result_tokens`. Return `True` to offload, `False` to keep in context. Defaults to None (all oversized results offloaded).
 -   `evict_after_cycles` - Number of agent loop cycles before an offloaded entry is evicted (unified Storage only). Entries stored more than this many cycles ago are deleted. Defaults to 20. Set to None to disable eviction.
 
 **Raises**:
@@ -113,7 +163,7 @@ Initialize the ContextOffloader plugin.
 def init_agent(agent: Agent) -> None
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:263](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L263)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:308](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L308)
 
 Conditionally register the retrieval tool and bind storage.
 
@@ -129,7 +179,7 @@ async def retrieve_offloaded_content(
         context_lines: int | None = None) -> dict | str
 ```
 
-Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:305](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L305)
+Defined in: [src/strands/vended\_plugins/context\_offloader/plugin.py:350](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_plugins/context_offloader/plugin.py#L350)
 
 Retrieve offloaded content by reference.
 

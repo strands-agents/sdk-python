@@ -26,20 +26,21 @@ The following table shows all model providers supported by Strands Agents SDK an
 
 ### Community providers
 
-The following providers are built and maintained by the Strands community. Browse the [Community Catalog](/docs/community/community-packages/index.md) to explore additional community packages.
+The following providers are built and maintained by the Strands community. Browse the [integrations page](/integrations/index.md) to explore additional community packages.
 
 | Provider | Python Supported | TypeScript Supported |
 | --- | --- | --- |
-| [CLOVA Studio](/docs/community/model-providers/clova-studio/index.md) | ✅ | ❌ |
-| [Cohere](/docs/community/model-providers/cohere/index.md) | ✅ | ❌ |
-| [Fireworks AI](/docs/community/model-providers/fireworksai/index.md) | ✅ | ❌ |
-| [MLX](/docs/community/model-providers/mlx/index.md) | ✅ | ❌ |
-| [Nebius Token Factory](/docs/community/model-providers/nebius-token-factory/index.md) | ✅ | ❌ |
-| [NVIDIA NIM](/docs/community/model-providers/nvidia-nim/index.md) | ✅ | ❌ |
-| [OVHcloud AI Endpoints](/docs/community/model-providers/ovhcloud-ai-endpoints/index.md) | ✅ | ❌ |
-| [SGLang](/docs/community/model-providers/sglang/index.md) | ✅ | ❌ |
-| [vLLM](/docs/community/model-providers/vllm/index.md) | ✅ | ❌ |
-| [xAI](/docs/community/model-providers/xai/index.md) | ✅ | ❌ |
+| [CLOVA Studio](/docs/integrations/model-providers/clova-studio/index.md) | ✅ | ❌ |
+| [Cohere](/docs/integrations/model-providers/cohere/index.md) | ✅ | ❌ |
+| [Crusoe](/docs/integrations/model-providers/crusoe/index.md) | ✅ | ❌ |
+| [Fireworks AI](/docs/integrations/model-providers/fireworksai/index.md) | ✅ | ❌ |
+| [MLX](/docs/integrations/model-providers/mlx/index.md) | ✅ | ❌ |
+| [Nebius Token Factory](/docs/integrations/model-providers/nebius-token-factory/index.md) | ✅ | ❌ |
+| [NVIDIA NIM](/docs/integrations/model-providers/nvidia-nim/index.md) | ✅ | ❌ |
+| [OVHcloud AI Endpoints](/docs/integrations/model-providers/ovhcloud-ai-endpoints/index.md) | ✅ | ❌ |
+| [SGLang](/docs/integrations/model-providers/sglang/index.md) | ✅ | ❌ |
+| [vLLM](/docs/integrations/model-providers/vllm/index.md) | ✅ | ❌ |
+| [xAI](/docs/integrations/model-providers/xai/index.md) | ✅ | ❌ |
 
 ## Getting Started
 

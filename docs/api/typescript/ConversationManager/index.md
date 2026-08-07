@@ -1,4 +1,4 @@
-Defined in: [src/conversation-manager/conversation-manager.ts:110](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L110)
+Defined in: [src/conversation-manager/conversation-manager.ts:106](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L106)
 
 Abstract base class for conversation history management strategies.
 
@@ -38,7 +38,7 @@ class Last10MessagesManager extends ConversationManager {
 new ConversationManager(options?): ConversationManager;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:121](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L121)
+Defined in: [src/conversation-manager/conversation-manager.ts:117](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L117)
 
 #### Parameters
 
@@ -58,7 +58,7 @@ Defined in: [src/conversation-manager/conversation-manager.ts:121](https://githu
 abstract readonly name: string;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:114](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L114)
+Defined in: [src/conversation-manager/conversation-manager.ts:110](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L110)
 
 A stable string identifier for this conversation manager.
 
@@ -74,7 +74,7 @@ A stable string identifier for this conversation manager.
 protected readonly _compressionThreshold: number;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:116](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L116)
+Defined in: [src/conversation-manager/conversation-manager.ts:112](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L112)
 
 ## Methods
 
@@ -84,7 +84,7 @@ Defined in: [src/conversation-manager/conversation-manager.ts:116](https://githu
 abstract reduce(options): boolean | Promise<boolean>;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:153](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L153)
+Defined in: [src/conversation-manager/conversation-manager.ts:149](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L149)
 
 Reduce the conversation history.
 
@@ -115,7 +115,7 @@ Implementations should mutate `agent.messages` in place and return `true` if any
 initAgent(agent): void;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:170](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L170)
+Defined in: [src/conversation-manager/conversation-manager.ts:166](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L166)
 
 Initialize the conversation manager with the agent instance.
 

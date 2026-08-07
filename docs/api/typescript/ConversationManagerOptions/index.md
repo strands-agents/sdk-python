@@ -4,7 +4,7 @@ type ConversationManagerOptions = {
 };
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:71](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L71)
+Defined in: [src/conversation-manager/conversation-manager.ts:67](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L67)
 
 Configuration options for the ConversationManager base class.
 
@@ -16,7 +16,7 @@ Configuration options for the ConversationManager base class.
 optional proactiveCompression?: boolean | ProactiveCompressionConfig;
 ```
 
-Defined in: [src/conversation-manager/conversation-manager.ts:79](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/conversation-manager/conversation-manager.ts#L79)
+Defined in: [src/conversation-manager/conversation-manager.ts:75](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/conversation-manager/conversation-manager.ts#L75)
 
 Enable proactive context compression before the model call.
 

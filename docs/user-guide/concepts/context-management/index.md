@@ -75,6 +75,10 @@ const agent = new Agent({
 
 ## Agentic context management
 
+Experimental
+
+Agentic context management is experimental and may change in future versions. Use with caution in production environments.
+
 Auto mode compresses on a fixed threshold the SDK controls. Agentic mode hands that control to the model. Pass `context_manager="agentic"``contextManager: "agentic"` and the model manages its own working memory: it sees how full the context window is and chooses when to compress, what to compress, and what to protect.
 
 (( tab "Python" ))

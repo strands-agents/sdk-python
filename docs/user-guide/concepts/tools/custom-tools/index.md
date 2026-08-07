@@ -485,6 +485,42 @@ Invocation state is useful for:
 -   **Agent State** (`context.agent.appState`): Durable key-value storage that persists across invocations. JSON-serializable and deep-copied on read/write. Use for configuration that doesn’t change between requests.
     
 -   **[Class-based tools](#class-based-tools)**: Instance-level configuration that requires initialization. Use for API keys, database connections, or shared resources.
+    
+
+For durable state, read it back inside a tool with the typed `appState.get<T>()` generic, which returns the typed value for the key instead of a bare `JSONValue`:
+
+```typescript
+interface AppState {
+  userId: string
+  workspaceId: string
+}
+
+const profileTool = tool({
+  name: 'get_profile',
+  description: 'Look up the caller from durable agent state',
+  inputSchema: z.object({}),
+  callback: async (input, context) => {
+    if (!context) {
+      throw new Error('Context is required')
+    }
+
+    // `appState` is durable across invocations. The generic returns the
+    // typed value for the key instead of a bare `JSONValue`.
+    const userId = context.agent.appState.get<AppState>('userId') // string | undefined
+    const workspaceId = context.agent.appState.get<AppState>('workspaceId')
+
+    return `user=${userId ?? 'unknown'} workspace=${workspaceId ?? 'none'}`
+  },
+})
+
+// Seed durable state once; every invocation's tools read it back typed.
+const agent = new Agent({
+  appState: { userId: 'user123', workspaceId: 'ws456' },
+  tools: [profileTool],
+})
+
+const result = await agent.invoke('Show my profile')
+```
 (( /tab "TypeScript" ))
 
 ### Tool Streaming

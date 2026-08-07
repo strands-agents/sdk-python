@@ -20,7 +20,7 @@ You can share your tools, model providers, hooks, and session managers with the 
 
 ## Community resources
 
--   [Community Catalog](/docs/community/community-packages/index.md) — Discover community-built extensions
+-   [Integrations](/integrations/index.md) — Discover community-built extensions
 -   [GitHub Discussions](https://github.com/strands-agents/harness-sdk/discussions) — Ask questions, share ideas
 -   [Roadmap](https://github.com/orgs/strands-agents/projects/8/views/1) — See what we’re working on
 -   [Development Tenets](https://github.com/strands-agents/harness-sdk/blob/main/team/TENETS.md) — Principles that guide SDK design

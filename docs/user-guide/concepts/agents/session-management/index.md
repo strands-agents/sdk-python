@@ -450,8 +450,8 @@ The following third-party session managers extend Strands with additional storag
 
 | Session Manager | Provider | Description | Documentation |
 | --- | --- | --- | --- |
-| AgentCoreMemorySessionManager | Amazon | Advanced memory with intelligent retrieval using Amazon Bedrock AgentCore Memory. Supports both short-term memory (STM) and long-term memory (LTM) with strategies for user preferences, facts, and session summaries. | [View Documentation](/docs/community/session-managers/agentcore-memory/index.md) |
-| **Contribute Your Own** | Community | Have you built a session manager? Share it with the community! | [Learn How](/docs/community/community-packages/index.md) |
+| AgentCoreMemorySessionManager | Amazon | Advanced memory with intelligent retrieval using Amazon Bedrock AgentCore Memory. Supports both short-term memory (STM) and long-term memory (LTM) with strategies for user preferences, facts, and session summaries. | [View Documentation](/docs/integrations/session-managers/agentcore-memory/index.md) |
+| **Contribute Your Own** | Community | Have you built a session manager? Share it with the community! | [Learn How](/integrations/index.md) |
 
 ## Custom Session Repositories
 

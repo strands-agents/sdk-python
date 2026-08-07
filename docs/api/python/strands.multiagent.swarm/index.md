@@ -188,7 +188,7 @@ Result from swarm execution - extends MultiAgentResult with swarm-specific detai
 class Swarm(MultiAgentBase)
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:237](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L237)
+Defined in: [src/strands/multiagent/swarm.py:258](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L258)
 
 Self-organizing collaborative agent teams with shared working memory.
 
@@ -211,7 +211,7 @@ def __init__(nodes: list[Agent],
              plugins: list[MultiAgentPlugin] | None = None) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:240](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L240)
+Defined in: [src/strands/multiagent/swarm.py:261](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L261)
 
 Initialize Swarm with agents and configuration.
 
@@ -240,7 +240,7 @@ def add_hook(callback: HookCallback,
              order: float = HookOrder.DEFAULT) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:318](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L318)
+Defined in: [src/strands/multiagent/swarm.py:341](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L341)
 
 Register a hook callback with the swarm.
 
@@ -258,7 +258,7 @@ def __call__(task: MultiAgentInput,
              **kwargs: Any) -> SwarmResult
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:332](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L332)
+Defined in: [src/strands/multiagent/swarm.py:355](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L355)
 
 Invoke the swarm synchronously.
 
@@ -276,7 +276,7 @@ async def invoke_async(task: MultiAgentInput,
                        **kwargs: Any) -> SwarmResult
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:347](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L347)
+Defined in: [src/strands/multiagent/swarm.py:370](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L370)
 
 Invoke the swarm asynchronously.
 
@@ -296,7 +296,7 @@ async def stream_async(task: MultiAgentInput,
                        **kwargs: Any) -> AsyncIterator[dict[str, Any]]
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:371](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L371)
+Defined in: [src/strands/multiagent/swarm.py:394](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L394)
 
 Stream events during swarm execution.
 
@@ -322,7 +322,7 @@ Dictionary events during swarm execution, such as:
 def serialize_state() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:978](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L978)
+Defined in: [src/strands/multiagent/swarm.py:1043](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1043)
 
 Serialize the current swarm state to a dictionary.
 
@@ -332,14 +332,18 @@ Serialize the current swarm state to a dictionary.
 def deserialize_state(payload: dict[str, Any]) -> None
 ```
 
-Defined in: [src/strands/multiagent/swarm.py:1011](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1011)
+Defined in: [src/strands/multiagent/swarm.py:1095](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/swarm.py#L1095)
 
 Restore swarm state from a session dict and prepare for execution.
 
 This method handles two scenarios:
 
-1.  If the payload omits next\_nodes\_to\_execute (a terminal or fresh state), resets all nodes and swarm state to allow re-execution from the beginning.
+1.  If the swarm has no resume frontier (next\_nodes\_to\_execute is empty — e.g. completed, or failed at a dead end), resets all nodes and swarm state to allow re-execution from the beginning.
 2.  Otherwise, restores the persisted state and prepares to resume execution from the next node.
+
+**Notes**:
+
+Resume is at-least-once: a crash between a node finishing and the next checkpoint replays that node on restore (e.g. a terminal node whose completion checkpoint never landed), and a resume frontier naming a node this swarm no longer defines re-runs the task from the beginning. Swarm nodes should therefore be idempotent.
 
 **Arguments**:
 

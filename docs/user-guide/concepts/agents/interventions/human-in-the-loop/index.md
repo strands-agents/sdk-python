@@ -10,7 +10,9 @@ flowchart LR
     B -->|Yes| C[Execute]
     B -->|No| D{Trusted?}
     D -->|Yes| C
-    D -->|No| E{Human approves?}
+    D -->|No| G{Classifier?}
+    G -->|Safe| C
+    G -->|Risky/None| E{Human approves?}
     E -->|Yes| C
     E -->|No| F[Cancel]
 ```
@@ -164,11 +166,127 @@ await agent.invoke('Delete the temp files')
 ```
 (( /tab "TypeScript" ))
 
+### Risk Classifier
+
+Use the `classifier` option to let an LLM decide per-call whether a tool needs approval. Tools in `allowed_tools` bypass the classifier entirely (fast path for known-safe tools).
+
+(( tab "Python" ))
+```python
+agent = Agent(
+    tools=[read_file, delete_files],
+    interventions=[
+        HumanInTheLoop(
+            allowed_tools=["read_file"],
+            classifier=True,
+        ),
+    ],
+)
+
+agent("Read config.json then delete /tmp/old-logs")
+# read_file: allowed (bypasses classifier)
+# delete_files: classifier evaluates -> risky -> prompts human
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent, tool } from '@strands-agents/sdk'
+import { HumanInTheLoop } from '@strands-agents/sdk/vended-interventions/hitl'
+import { z } from 'zod'
+
+// const readFile = tool({ ... })
+// const deleteFiles = tool({ ... })
+
+const agent = new Agent({
+  tools: [readFile, deleteFiles],
+  interventions: [
+    new HumanInTheLoop({
+      allowedTools: ['read_file'],
+      classifier: true,
+    }),
+  ],
+})
+
+await agent.invoke('Read config.json then delete /tmp/old-logs')
+// read_file: allowed (bypasses classifier)
+// delete_files: classifier evaluates -> risky -> prompts human
+```
+(( /tab "TypeScript" ))
+
+You can customize the classifier’s system prompt or model, or provide your own classification function:
+
+(( tab "Python" ))
+```python
+# Custom system prompt and model
+agent = Agent(
+    tools=[delete_files],
+    interventions=[
+        HumanInTheLoop(
+            classifier=LLMClassifierConfig(
+                system_prompt="Only flag destructive operations.",
+            ),
+        ),
+    ],
+)
+
+# Or provide your own classification function
+def my_classifier(event, **kwargs):
+    from strands.vended_interventions.hitl.classifier import (
+        ClassifierResult,
+    )
+
+    is_dangerous = event.tool_use["name"].startswith("delete")
+    return ClassifierResult(
+        requires_human_in_the_loop=is_dangerous,
+        reason="destructive tool" if is_dangerous else None,
+    )
+
+agent = Agent(
+    tools=[delete_files],
+    interventions=[HumanInTheLoop(classifier=my_classifier)],
+)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+import { Agent, tool } from '@strands-agents/sdk'
+import { HumanInTheLoop } from '@strands-agents/sdk/vended-interventions/hitl'
+import { z } from 'zod'
+
+// Custom system prompt and model
+const agent = new Agent({
+  tools: [deleteFiles],
+  interventions: [
+    new HumanInTheLoop({
+      classifier: {
+        systemPrompt: 'Only flag destructive operations.',
+      },
+    }),
+  ],
+})
+
+// Or provide your own classification function
+const agentCustom = new Agent({
+  tools: [deleteFiles],
+  interventions: [
+    new HumanInTheLoop({
+      classifier: (event) => ({
+        requiresHumanInTheLoop: event.toolUse.name.startsWith('delete'),
+        reason: 'destructive tool',
+      }),
+    }),
+  ],
+})
+```
+(( /tab "TypeScript" ))
+
 ## Configuration
 
 | Parameter | Type | Default | Description |
 | --- | --- | --- | --- |
 | `allowed_tools``allowedTools` | `list[str]``string[]` | `None``undefined` | Tools that bypass approval. Supports `"*"` (all) and `"!tool_name"` (negation). |
+| `classifier` | `bool, LLMClassifierConfig, or callable``boolean, LlmClassifierConfig, or function` | `None``undefined` | LLM risk classifier. `True` for built-in defaults, config object for custom prompt/model, or a custom function. |
 | `enable_trust``enableTrust` | `bool``boolean` | `False``false` | When enabled, trust responses are remembered for the session. |
 | `evaluate_trust``evaluateTrust` | Function | Accepts `"t"` or `"trust"` | Custom validator for trust responses. Only evaluated when trust is enabled. |
 | `evaluate` | Function | Accepts `True, "y", or "yes"``true, 'y', or 'yes'` | Custom validator for approval responses. |
@@ -354,7 +472,9 @@ Use `HumanInTheLoop` when you want tool-level approval gating with minimal code:
 ### Python
 
 - [harness-sdk/strands-py/src/strands/vended_interventions/hitl/hitl.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_interventions/hitl/hitl.py)
+- [harness-sdk/strands-py/src/strands/vended_interventions/hitl/classifier.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_interventions/hitl/classifier.py)
 
 ### TypeScript
 
 - [harness-sdk/strands-ts/src/vended-interventions/hitl/hitl.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-interventions/hitl/hitl.ts)
+- [harness-sdk/strands-ts/src/vended-interventions/hitl/classifier.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/vended-interventions/hitl/classifier.ts)

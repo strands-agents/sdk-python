@@ -1,4 +1,4 @@
-Defined in: [src/agent/agent.ts:397](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L397)
+Defined in: [src/agent/agent.ts:408](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L408)
 
 Orchestrates the interaction between a model, a set of tools, and MCP clients. The Agent is responsible for managing the lifecycle of tools and clients and invoking the core decision-making loop.
 
@@ -14,7 +14,7 @@ Orchestrates the interaction between a model, a set of tools, and MCP clients. T
 new Agent(config?): Agent;
 ```
 
-Defined in: [src/agent/agent.ts:493](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L493)
+Defined in: [src/agent/agent.ts:509](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L509)
 
 Creates an instance of the Agent.
 
@@ -36,7 +36,7 @@ Creates an instance of the Agent.
 messages: Message[];
 ```
 
-Defined in: [src/agent/agent.ts:404](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L404)
+Defined in: [src/agent/agent.ts:415](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L415)
 
 The conversation history of messages between user and assistant.
 
@@ -54,7 +54,7 @@ LocalAgent.messages
 readonly appState: StateStore;
 ```
 
-Defined in: [src/agent/agent.ts:409](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L409)
+Defined in: [src/agent/agent.ts:420](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L420)
 
 App state storage accessible to tools and application logic. State is not passed to the model during inference.
 
@@ -72,7 +72,7 @@ LocalAgent.appState
 readonly modelState: StateStore;
 ```
 
-Defined in: [src/agent/agent.ts:415](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L415)
+Defined in: [src/agent/agent.ts:426](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L426)
 
 Runtime state for the model provider. Used by stateful models to persist provider-specific data (e.g., response IDs for conversation chaining) across invocations.
 
@@ -90,7 +90,7 @@ LocalAgent.modelState
 model: Model;
 ```
 
-Defined in: [src/agent/agent.ts:421](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L421)
+Defined in: [src/agent/agent.ts:432](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L432)
 
 The model provider used by the agent for inference.
 
@@ -108,7 +108,7 @@ LocalAgent.model
 optional systemPrompt?: SystemPrompt;
 ```
 
-Defined in: [src/agent/agent.ts:426](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L426)
+Defined in: [src/agent/agent.ts:437](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L437)
 
 The system prompt to pass to the model provider.
 
@@ -126,7 +126,7 @@ LocalAgent.systemPrompt
 readonly name: string;
 ```
 
-Defined in: [src/agent/agent.ts:431](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L431)
+Defined in: [src/agent/agent.ts:442](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L442)
 
 The name of the agent.
 
@@ -144,7 +144,7 @@ InvokableAgent.name
 readonly id: string;
 ```
 
-Defined in: [src/agent/agent.ts:436](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L436)
+Defined in: [src/agent/agent.ts:447](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L447)
 
 The unique identifier of the agent instance.
 
@@ -162,7 +162,7 @@ LocalAgent.id
 readonly optional description?: string;
 ```
 
-Defined in: [src/agent/agent.ts:441](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L441)
+Defined in: [src/agent/agent.ts:452](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L452)
 
 Optional description of what the agent does.
 
@@ -180,7 +180,7 @@ InvokableAgent.description
 readonly optional sessionManager?: SessionManager;
 ```
 
-Defined in: [src/agent/agent.ts:446](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L446)
+Defined in: [src/agent/agent.ts:457](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L457)
 
 The session manager for saving and restoring agent sessions, if configured.
 
@@ -192,9 +192,27 @@ The session manager for saving and restoring agent sessions, if configured.
 readonly optional memoryManager?: MemoryManager;
 ```
 
-Defined in: [src/agent/agent.ts:450](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L450)
+Defined in: [src/agent/agent.ts:461](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L461)
 
 The memory manager for cross-session memory retrieval and storage, if configured.
+
+---
+
+### storage?
+
+```ts
+readonly optional storage?: Storage<string>;
+```
+
+Defined in: [src/agent/agent.ts:466](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L466)
+
+Default storage backend for agent subsystems.
+
+#### Implementation of
+
+```ts
+LocalAgent.storage
+```
 
 ---
 
@@ -204,7 +222,7 @@ The memory manager for cross-session memory retrieval and storage, if configured
 _interruptState: InterruptState;
 ```
 
-Defined in: [src/agent/agent.ts:481](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L481)
+Defined in: [src/agent/agent.ts:497](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L497)
 
 Interrupt state for human-in-the-loop workflows.
 
@@ -218,7 +236,7 @@ Interrupt state for human-in-the-loop workflows.
 get sandbox(): Sandbox;
 ```
 
-Defined in: [src/agent/agent.ts:460](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L460)
+Defined in: [src/agent/agent.ts:476](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L476)
 
 Execution environment for running commands, code, and file operations.
 
@@ -246,7 +264,7 @@ LocalAgent.sandbox
 get tools(): Tool[];
 ```
 
-Defined in: [src/agent/agent.ts:893](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L893)
+Defined in: [src/agent/agent.ts:909](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L909)
 
 The tools this agent can use.
 
@@ -264,7 +282,7 @@ The tools this agent can use.
 get toolRegistry(): ToolRegistry;
 ```
 
-Defined in: [src/agent/agent.ts:900](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L900)
+Defined in: [src/agent/agent.ts:916](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L916)
 
 The tool registry for managing the agent’s tools.
 
@@ -290,7 +308,7 @@ get toolExecutor():
   | SequentialToolExecutor;
 ```
 
-Defined in: [src/agent/agent.ts:913](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L913)
+Defined in: [src/agent/agent.ts:929](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L929)
 
 Executor for tool calls from a single assistant turn.
 
@@ -310,7 +328,7 @@ Error if assigned an unrecognized string shorthand.
 set toolExecutor(toolExecutor): void;
 ```
 
-Defined in: [src/agent/agent.ts:917](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L917)
+Defined in: [src/agent/agent.ts:933](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L933)
 
 ##### Parameters
 
@@ -332,7 +350,7 @@ Defined in: [src/agent/agent.ts:917](https://github.com/strands-agents/harness-s
 get metrics(): AgentMetrics;
 ```
 
-Defined in: [src/agent/agent.ts:924](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L924)
+Defined in: [src/agent/agent.ts:940](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L940)
 
 Read-only snapshot of accumulated agent metrics (cycles, token usage, tool stats).
 
@@ -356,7 +374,7 @@ LocalAgent.metrics
 get isInvoking(): boolean;
 ```
 
-Defined in: [src/agent/agent.ts:931](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L931)
+Defined in: [src/agent/agent.ts:947](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L947)
 
 Whether the agent is currently processing an invocation.
 
@@ -374,7 +392,7 @@ Whether the agent is currently processing an invocation.
 get tool(): ToolCallerProxy;
 ```
 
-Defined in: [src/agent/agent.ts:952](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L952)
+Defined in: [src/agent/agent.ts:968](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L968)
 
 Direct tool calling accessor.
 
@@ -404,7 +422,7 @@ Supports underscore-to-hyphen and case-insensitive name resolution. Results are 
 get cancelSignal(): AbortSignal;
 ```
 
-Defined in: [src/agent/agent.ts:962](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L962)
+Defined in: [src/agent/agent.ts:978](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L978)
 
 The cancellation signal for the current invocation.
 
@@ -431,7 +449,7 @@ addHook<T>(
    options?): HookCleanup;
 ```
 
-Defined in: [src/agent/agent.ts:648](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L648)
+Defined in: [src/agent/agent.ts:664](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L664)
 
 Register a hook callback for a specific event type.
 
@@ -484,7 +502,7 @@ LocalAgent.addHook
 addMiddleware<TContext, TResult, TEvent>(phase, handler): () => void;
 ```
 
-Defined in: [src/agent/agent.ts:668](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L668)
+Defined in: [src/agent/agent.ts:684](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L684)
 
 Register an Input phase handler that transforms context before execution. Input handlers run before Wrap and Output handlers.
 
@@ -528,7 +546,7 @@ LocalAgent.addMiddleware
 addMiddleware<TContext, TResult, TEvent>(phase, handler): () => void;
 ```
 
-Defined in: [src/agent/agent.ts:676](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L676)
+Defined in: [src/agent/agent.ts:692](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L692)
 
 Register a Wrap phase handler via the explicit `.Wrap` sub-token. Equivalent to passing the stage token directly.
 
@@ -563,7 +581,7 @@ LocalAgent.addMiddleware
 addMiddleware<TContext, TResult, TEvent>(phase, handler): () => void;
 ```
 
-Defined in: [src/agent/agent.ts:693](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L693)
+Defined in: [src/agent/agent.ts:709](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L709)
 
 Register an Output phase handler that transforms the result after execution. Output handlers see the result after Wrap handlers complete. Execution order: Input → Wrap → Output.
 
@@ -607,7 +625,7 @@ LocalAgent.addMiddleware
 addMiddleware<TContext, TResult, TEvent>(stage, handler): () => void;
 ```
 
-Defined in: [src/agent/agent.ts:718](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L718)
+Defined in: [src/agent/agent.ts:734](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L734)
 
 Register a middleware handler for a given stage (Wrap phase). Middleware wraps stage execution and can intercept, transform, or short-circuit operations.
 
@@ -660,7 +678,7 @@ LocalAgent.addMiddleware
 initialize(): Promise<void>;
 ```
 
-Defined in: [src/agent/agent.ts:764](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L764)
+Defined in: [src/agent/agent.ts:780](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L780)
 
 #### Returns
 
@@ -674,7 +692,7 @@ Defined in: [src/agent/agent.ts:764](https://github.com/strands-agents/harness-s
 cancel(): void;
 ```
 
-Defined in: [src/agent/agent.ts:994](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L994)
+Defined in: [src/agent/agent.ts:1010](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L1010)
 
 Cancels the current agent invocation cooperatively.
 
@@ -714,7 +732,7 @@ console.log(result.stopReason) // 'cancelled'
 invoke(args, options?): Promise<AgentResult>;
 ```
 
-Defined in: [src/agent/agent.ts:1026](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L1026)
+Defined in: [src/agent/agent.ts:1042](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L1042)
 
 Invokes the agent and returns the final result.
 
@@ -755,7 +773,7 @@ InvokableAgent.invoke
 stream(args, options?): AsyncGenerator<AgentStreamEvent, AgentResult, undefined>;
 ```
 
-Defined in: [src/agent/agent.ts:1065](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L1065)
+Defined in: [src/agent/agent.ts:1081](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L1081)
 
 Streams the agent execution, yielding events and returning the final result.
 
@@ -807,7 +825,7 @@ InvokableAgent.stream
 asTool(options?): Tool;
 ```
 
-Defined in: [src/agent/agent.ts:1300](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L1300)
+Defined in: [src/agent/agent.ts:1325](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L1325)
 
 Returns a [Tool](/docs/api/typescript/Tool/index.md) that wraps this agent, allowing it to be used as a tool by another agent.
 
@@ -847,7 +865,7 @@ const writer = new Agent({ tools: [researcher] })
 takeSnapshot(options): Snapshot;
 ```
 
-Defined in: [src/agent/agent.ts:1334](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L1334)
+Defined in: [src/agent/agent.ts:1359](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L1359)
 
 Captures a point-in-time snapshot of the agent’s current state.
 
@@ -905,7 +923,7 @@ LocalAgent.takeSnapshot
 loadSnapshot(snapshot): void;
 ```
 
-Defined in: [src/agent/agent.ts:1363](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/agent/agent.ts#L1363)
+Defined in: [src/agent/agent.ts:1388](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/agent/agent.ts#L1388)
 
 Restores agent state from a previously captured snapshot.
 

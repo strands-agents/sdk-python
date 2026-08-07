@@ -44,6 +44,7 @@ This is the reusable half of a store’s config: build one and pass it (as the `
 -   `scope_metadata_key` - Metadata attribute key used for scope-based filtering. Defaults to `'namespace'`.
 -   `runtime_client` - Pre-constructed runtime client for `Retrieve` calls. When omitted, a default boto3 client is constructed from the default credential chain.
 -   `agent_client` - Pre-constructed agent client for `IngestKnowledgeBaseDocuments` calls. When omitted, a default boto3 client is constructed lazily on first write. To target a specific region/credentials/endpoint, build the client yourself and inject it here.
+-   `region_name` - AWS region hint for the default `bedrock-agent-runtime` / `bedrock-agent` / `s3` clients constructed by the store. When omitted, `None` is passed and boto3 resolves the region itself. Ignored for any client the caller injects explicitly (`runtime_client` / `agent_client` / `s3.client`).
 
 ## BedrockKnowledgeBaseAccessControlEntry
 
@@ -51,7 +52,7 @@ This is the reusable half of a store’s config: build one and pass it (as the `
 class BedrockKnowledgeBaseAccessControlEntry(TypedDict)
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:94](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L94)
+Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:99](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L99)
 
 One document-level access control entry stamped on writes for ACL-aware data sources.
 
@@ -69,7 +70,7 @@ The fields mirror Bedrock’s `IngestKnowledgeBaseDocuments` access control entr
 class BedrockKnowledgeBaseStoreConfig(MemoryStoreConfig)
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:114](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L114)
+Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:119](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L119)
 
 Full configuration for a :class:`BedrockKnowledgeBaseStore`, passed as its constructor kwargs.
 
@@ -87,7 +88,7 @@ Full configuration for a :class:`BedrockKnowledgeBaseStore`, passed as its const
 class BedrockKnowledgeBaseAddResult()
 ```
 
-Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:137](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L137)
+Defined in: [src/strands/vended\_memory\_stores/bedrock\_knowledge\_base/types.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_memory_stores/bedrock_knowledge_base/types.py#L142)
 
 Result returned by :meth:`BedrockKnowledgeBaseStore.add`.
 

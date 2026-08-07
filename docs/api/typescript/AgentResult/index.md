@@ -1,4 +1,4 @@
-Defined in: [src/types/agent.ts:403](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L403)
+Defined in: [src/types/agent.ts:413](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L413)
 
 Result returned by the agent loop.
 
@@ -10,7 +10,7 @@ Result returned by the agent loop.
 new AgentResult(data): AgentResult;
 ```
 
-Defined in: [src/types/agent.ts:457](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L457)
+Defined in: [src/types/agent.ts:467](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L467)
 
 #### Parameters
 
@@ -38,7 +38,7 @@ Defined in: [src/types/agent.ts:457](https://github.com/strands-agents/harness-s
 readonly type: "agentResult";
 ```
 
-Defined in: [src/types/agent.ts:404](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L404)
+Defined in: [src/types/agent.ts:414](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L414)
 
 ---
 
@@ -48,7 +48,7 @@ Defined in: [src/types/agent.ts:404](https://github.com/strands-agents/harness-s
 readonly stopReason: StopReason;
 ```
 
-Defined in: [src/types/agent.ts:409](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L409)
+Defined in: [src/types/agent.ts:419](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L419)
 
 The stop reason from the final model response.
 
@@ -60,7 +60,7 @@ The stop reason from the final model response.
 readonly lastMessage: Message;
 ```
 
-Defined in: [src/types/agent.ts:414](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L414)
+Defined in: [src/types/agent.ts:424](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L424)
 
 The last message added to the messages array.
 
@@ -72,7 +72,7 @@ The last message added to the messages array.
 readonly optional traces?: AgentTrace[];
 ```
 
-Defined in: [src/types/agent.ts:420](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L420)
+Defined in: [src/types/agent.ts:430](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L430)
 
 Local execution traces collected during the agent invocation. Contains timing and hierarchy of operations within the agent loop.
 
@@ -84,7 +84,7 @@ Local execution traces collected during the agent invocation. Contains timing an
 readonly optional structuredOutput?: output<ZodType>;
 ```
 
-Defined in: [src/types/agent.ts:426](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L426)
+Defined in: [src/types/agent.ts:436](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L436)
 
 The validated structured output from the LLM, if a schema was provided. Type represents any validated Zod schema output.
 
@@ -96,7 +96,7 @@ The validated structured output from the LLM, if a schema was provided. Type rep
 readonly optional metrics?: AgentMetrics;
 ```
 
-Defined in: [src/types/agent.ts:432](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L432)
+Defined in: [src/types/agent.ts:442](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L442)
 
 Aggregated metrics for the agent’s loop execution. Tracks cycle counts, token usage, tool execution stats, and model latency.
 
@@ -108,7 +108,7 @@ Aggregated metrics for the agent’s loop execution. Tracks cycle counts, token 
 readonly invocationState: InvocationState;
 ```
 
-Defined in: [src/types/agent.ts:440](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L440)
+Defined in: [src/types/agent.ts:450](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L450)
 
 Per-invocation state passed into the agent, threaded through hooks and tools, and surfaced here at the end of the invocation. See [InvocationState](/docs/api/typescript/InvocationState/index.md) for details. Always defined — defaults to `{}` when no `invocationState` was provided in [InvokeOptions](/docs/api/typescript/InvokeOptions/index.md).
 
@@ -120,7 +120,7 @@ Per-invocation state passed into the agent, threaded through hooks and tools, an
 readonly optional interrupts?: Interrupt[];
 ```
 
-Defined in: [src/types/agent.ts:446](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L446)
+Defined in: [src/types/agent.ts:456](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L456)
 
 Interrupts that caused the agent to stop, when `stopReason` is `'interrupt'`. Contains the unanswered interrupts that require human input to resume.
 
@@ -132,7 +132,7 @@ Interrupts that caused the agent to stop, when `stopReason` is `'interrupt'`. Co
 readonly optional checkpoint?: Checkpoint;
 ```
 
-Defined in: [src/types/agent.ts:455](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L455)
+Defined in: [src/types/agent.ts:465](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L465)
 
 **`Experimental`**
 
@@ -148,7 +148,7 @@ Checkpoint captured when the agent paused for durable execution. Populated only 
 get contextSize(): number;
 ```
 
-Defined in: [src/types/agent.ts:492](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L492)
+Defined in: [src/types/agent.ts:502](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L502)
 
 The most recent input token count from the last model invocation. Convenience accessor that delegates to `metrics.latestContextSize`. Returns `undefined` when no metrics or invocations are available.
 
@@ -166,7 +166,7 @@ The most recent input token count from the last model invocation. Convenience ac
 get projectedContextSize(): number;
 ```
 
-Defined in: [src/types/agent.ts:501](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L501)
+Defined in: [src/types/agent.ts:511](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L511)
 
 Projected context size for the next model call (inputTokens + outputTokens from the last call). Convenience accessor that delegates to `metrics.projectedContextSize`. Returns `undefined` when no metrics or invocations are available.
 
@@ -182,7 +182,7 @@ Projected context size for the next model call (inputTokens + outputTokens from 
 toJSON(): object;
 ```
 
-Defined in: [src/types/agent.ts:515](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L515)
+Defined in: [src/types/agent.ts:525](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L525)
 
 Custom JSON serialization that excludes traces, metrics, and invocationState. Traces and metrics are excluded to avoid sending large payloads over the wire in API responses; `invocationState` is excluded because its values are caller-owned and may not be serializable (see [InvocationState](/docs/api/typescript/InvocationState/index.md)).
 
@@ -202,7 +202,7 @@ Object representation for safe serialization
 toString(): string;
 ```
 
-Defined in: [src/types/agent.ts:535](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/agent.ts#L535)
+Defined in: [src/types/agent.ts:545](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/agent.ts#L545)
 
 Extracts a string representation of the result.
 

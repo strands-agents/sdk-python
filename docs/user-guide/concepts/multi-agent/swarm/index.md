@@ -147,11 +147,19 @@ The following initialization parameters control swarm behavior and safety limits
 | `start` | Agent ID that receives the initial input | First agent in `nodes` |
 | `nodes` | Array of agents (or `AgentNodeOptions`) | (required) |
 | `maxSteps` | Maximum total agent executions (including start) | Infinity |
+| `repetitiveHandoffDetectionWindow` | Number of recent completed nodes to check for ping-pong behavior | 0 (disabled) |
+| `repetitiveHandoffMinUniqueAgents` | Minimum unique nodes required in that window | 0 (disabled) |
 | `timeout` | Wall-clock ceiling for the entire swarm invocation, in milliseconds | Infinity |
 | `nodeTimeout` | Fallback per-node wall-clock ceiling in milliseconds. Applied to any node without its own `timeout` | Infinity |
 | `plugins` | Plugins for event-driven extensibility | None |
 
 To bound an individual node, pass `timeout` on its `AgentNodeOptions` entry. Per-node `timeout` overrides the orchestrator’s `nodeTimeout` and must be at least 1 ms.
+
+Set both repetitive-handoff options to positive integers to enable detection. Leave both at `0` to disable it. The minimum cannot exceed the window or the number of nodes in the swarm.
+
+The window contains completed nodes from the current invocation. Restored results from an earlier invocation are not counted. When the trailing window contains fewer unique nodes than the configured minimum, the swarm stops before executing another node. It returns a `FAILED` result whose `error` describes the repetitive handoff.
+
+Detection only runs once the window is full, so `maxSteps` must be greater than `repetitiveHandoffDetectionWindow` for it to fire. When `maxSteps` is less than or equal to the window, the `maxSteps` limit is reached first and takes precedence.
 
 If neither `maxSteps` nor `timeout` is set, the SDK emits a one-time warning at construction since a swarm with no bound can run indefinitely.
 
@@ -462,7 +470,9 @@ The Swarm pattern is available in multiple SDKs. While the core concept is the s
 
 **Node input**: Python builds a rich context string for each receiving agent that includes the original task, full node history chain, accumulated shared context, and available agent descriptions. TypeScript passes only the handoff message and serialized context from the handing-off agent. Agent descriptions are already embedded in the structured output schema for routing decisions.
 
-**Error handling**: In both SDKs, node failures produce a FAILED result. Orchestrator-level limit violations (e.g., exceeding `maxSteps`) throw an exception in TypeScript to promote fail-fast behavior for global failures. Python returns a FAILED result instead.
+**Error handling**: In both SDKs, node failures produce a FAILED result. Exceeding `maxSteps` throws an exception in TypeScript to promote fail-fast behavior for that global limit, while Python returns a FAILED result. Repetitive handoff detection is a soft limit in both SDKs. TypeScript returns a FAILED result with the detection reason in `error`.
+
+**Repetitive handoff scope**: Python’s detection window is restored across an interrupt-and-resume of the same task, so a ping-pong that spans a resume is still caught. TypeScript’s window is scoped to the current invocation and resets on every resume, so a ping-pong that alternates with interrupts across several resumes is not detected — set `maxSteps` if your swarm can interrupt mid-task. This is the opposite of `maxSteps` itself, whose step count TypeScript does carry forward across resumes.
 
 **Node cancellation**: Both SDKs support cancelling a node before execution via hook callbacks. In TypeScript, a cancelled node produces a CANCELLED result status, allowing the orchestrator to distinguish cancellation from failure. In Python, a cancelled node results in a FAILED status.
 

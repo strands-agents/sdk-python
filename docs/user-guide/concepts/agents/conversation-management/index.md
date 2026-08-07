@@ -541,6 +541,26 @@ The `countTokens()` method uses a character-based heuristic to estimate token co
 -   [OpenAI Responses](/docs/user-guide/concepts/model-providers/openai-responses/index.md#token-counting)
 -   [llama.cpp](/docs/user-guide/concepts/model-providers/llamacpp/index.md#token-counting)
 
+### Utilization Estimation
+
+The Model base class provides an `estimate_utilization(input_tokens)``estimateUtilization(inputTokens)` method that computes the fraction of the context window consumed by a given input token count. It uses the model’s configured `context_window_limit``contextWindowLimit` as the denominator, falling back to a default of 200,000 tokens when not set:
+
+(( tab "Python" ))
+```python
+ratio = model.estimate_utilization(input_tokens=projected_tokens)
+# ratio is 0–1+ (above 1.0 means overflow)
+```
+(( /tab "Python" ))
+
+(( tab "TypeScript" ))
+```typescript
+const ratio = model.estimateUtilization(projectedTokens)
+// ratio is 0–1+ (above 1.0 means overflow)
+```
+(( /tab "TypeScript" ))
+
+This method resolves the model’s `context_window_limit``contextWindowLimit` (falling back to the 200,000 default with a warning when not configured) and returns `inputTokens / contextWindowLimit`. The SDK’s built-in conversation managers use this internally for proactive compression decisions, but you can also call it directly when building custom context management logic.
+
 ## Creating a ConversationManager
 
 (( tab "Python" ))
@@ -646,9 +666,11 @@ See the [SlidingWindowConversationManager](https://github.com/strands-agents/har
 - [harness-sdk/strands-py/src/strands/agent/conversation_manager/conversation_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/conversation_manager/conversation_manager.py)
 - [harness-sdk/strands-py/src/strands/agent/conversation_manager/sliding_window_conversation_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/conversation_manager/sliding_window_conversation_manager.py)
 - [harness-sdk/strands-py/src/strands/agent/conversation_manager/summarizing_conversation_manager.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/agent/conversation_manager/summarizing_conversation_manager.py)
+- [harness-sdk/strands-py/src/strands/models/model.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/model.py)
 
 ### TypeScript
 
 - [harness-sdk/strands-ts/src/conversation-manager/conversation-manager.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/conversation-manager/conversation-manager.ts)
 - [harness-sdk/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/conversation-manager/sliding-window-conversation-manager.ts)
 - [harness-sdk/strands-ts/src/conversation-manager/summarizing-conversation-manager.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/conversation-manager/summarizing-conversation-manager.ts)
+- [harness-sdk/strands-ts/src/models/model.ts](https://github.com/strands-agents/harness-sdk/blob/main/strands-ts/src/models/model.ts)

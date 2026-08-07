@@ -7,7 +7,7 @@ The Strands SDK provides built-in plugins that you can use out of the box:
 -   **[Context Offloader](/docs/user-guide/concepts/plugins/context-offloader/index.md)** - Proactively offloads oversized tool results to storage, replacing them with previews and providing a built-in retrieval tool
 -   **[Context Injector](/docs/user-guide/concepts/plugins/context-injector/index.md)** - Folds real-time text (a clock, environment facts, a lookup) into the model input before each call, without persisting it to history
 
-You can also build and distribute your own plugins to extend agent functionality. See [Get Featured](/docs/community/get-featured/index.md) to share your plugins with the community.
+You can also build and distribute your own plugins to extend agent functionality. See [Get Featured](/docs/integrations/get-featured/index.md) to share your plugins with the community.
 
 ## Using Plugins
 
@@ -401,7 +401,7 @@ class AsyncConfigPlugin implements Plugin {
 -   [Steering](/docs/user-guide/concepts/plugins/steering/index.md) - Explore the built-in steering plugin
 -   [Context Offloader](/docs/user-guide/concepts/plugins/context-offloader/index.md) - Manage large tool results proactively
 -   [Context Injector](/docs/user-guide/concepts/plugins/context-injector/index.md) - Inject real-time context into the model input
--   [Get Featured](/docs/community/get-featured/index.md) - Share your plugins with the community
+-   [Get Featured](/docs/integrations/get-featured/index.md) - Share your plugins with the community
 
 ## Related pages
 

@@ -99,7 +99,7 @@ async def count_tokens(
         system_prompt_content: list[SystemContentBlock] | None = None) -> int
 ```
 
-Defined in: [src/strands/models/gemini.py:455](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L455)
+Defined in: [src/strands/models/gemini.py:502](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L502)
 
 Count tokens using Gemini’s native count\_tokens API.
 
@@ -122,11 +122,12 @@ Total input token count.
 async def stream(messages: Messages,
                  tool_specs: list[ToolSpec] | None = None,
                  system_prompt: str | None = None,
+                 *,
                  tool_choice: ToolChoice | None = None,
                  **kwargs: Any) -> AsyncGenerator[StreamEvent, None]
 ```
 
-Defined in: [src/strands/models/gemini.py:516](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L516)
+Defined in: [src/strands/models/gemini.py:563](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L563)
 
 Stream conversation with the Gemini model.
 
@@ -135,8 +136,7 @@ Stream conversation with the Gemini model.
 -   `messages` - List of message objects to be processed by the model.
 -   `tool_specs` - List of tool specifications to make available to the model.
 -   `system_prompt` - System prompt to provide context to the model.
--   `tool_choice` - Selection strategy for tool invocation.
--   `Note` - Currently unused.
+-   `tool_choice` - Selection strategy for tool invocation. Applied only when tool specs are provided, since there is nothing to choose from without them, and only when params sets no tool config of its own - an explicit tool config takes precedence.
 -   `**kwargs` - Additional keyword arguments for future extensibility.
 
 **Yields**:
@@ -158,7 +158,7 @@ async def structured_output(
         **kwargs: Any) -> AsyncGenerator[dict[str, T | Any], None]
 ```
 
-Defined in: [src/strands/models/gemini.py:608](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L608)
+Defined in: [src/strands/models/gemini.py:659](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/models/gemini.py#L659)
 
 Get structured output from the model using Gemini’s native structured output.
 

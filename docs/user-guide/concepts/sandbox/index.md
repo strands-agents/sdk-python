@@ -13,7 +13,7 @@ flowchart LR
     subgraph runtime["Agent runtime (your infrastructure)"]
         L[Agent loop]
         M[Model]
-        T["sandbox_bash /<br/>sandbox_file_editor"]
+        T["sandbox_shell /<br/>sandbox_file_editor"]
         L --> M --> T
     end
     subgraph sb["Sandbox (execution environment you provision)"]
@@ -49,7 +49,7 @@ const agent = new Agent({
   sandbox: new DockerSandbox({ container: 'my-container-id' }),
 })
 
-// The agent's sandbox_bash and sandbox_file_editor tools execute inside the container
+// The agent's sandbox_shell and sandbox_file_editor tools execute inside the container
 await agent.invoke('List all files inside the current directory')
 ```
 (( /tab "TypeScript" ))
@@ -58,7 +58,7 @@ await agent.invoke('List all files inside the current directory')
 ```python
 agent = Agent(sandbox=DockerSandbox("my-container-id"))
 
-# The agent's sandbox_bash and sandbox_file_editor tools execute inside the container
+# The agent's sandbox_shell and sandbox_file_editor tools execute inside the container
 agent("List all files inside the current directory")
 ```
 (( /tab "Python" ))
@@ -82,7 +82,7 @@ See [Available Sandboxes](/docs/user-guide/concepts/sandbox/available-sandboxes/
 
 When a sandbox is configured, the agent automatically registers two tools so the model can operate in the sandboxed environment without additional setup:
 
--   **`sandbox_bash`** — Executes shell commands. Each call runs in a fresh shell; state such as variables and the working directory does not persist across calls.
+-   **`sandbox_shell`** — Executes shell commands. Each call runs in a fresh shell; state such as variables and the working directory does not persist across calls.
 -   **`sandbox_file_editor`** — Views, creates, and edits files using absolute paths. Supports view (with line ranges), create, string replace, and insert operations.
 
 If a tool with the same name is already registered on the agent, the sandbox-vended version is skipped. This lets you override a vended tool with a stricter variant:
@@ -91,34 +91,34 @@ If a tool with the same name is already registered on the agent, the sandbox-ven
 ```typescript
 import { Agent } from '@strands-agents/sdk'
 import { DockerSandbox } from '@strands-agents/sdk/sandbox/docker'
-import { makeBash } from '@strands-agents/sdk/vended-tools/bash'
+import { makeShell } from '@strands-agents/sdk/vended-tools/bash'
 
 const sandbox = new DockerSandbox({ container: 'agent-workspace' })
 
-const lockedBash = makeBash(sandbox, {
-  name: 'sandbox_bash',
+const lockedShell = makeShell(sandbox, {
+  name: 'sandbox_shell',
   description: 'Run read-only shell commands. Do not modify files.',
 })
 
-// The agent keeps lockedBash; the sandbox's own sandbox_bash is skipped
-const agent = new Agent({ sandbox, tools: [lockedBash] })
+// The agent keeps lockedShell; the sandbox's own sandbox_shell is skipped
+const agent = new Agent({ sandbox, tools: [lockedShell] })
 ```
 (( /tab "TypeScript" ))
 
 (( tab "Python" ))
 ```python
-from strands.vended_tools import make_bash
+from strands.vended_tools import make_shell
 
 sandbox = DockerSandbox("agent-workspace")
 
-locked_bash = make_bash(
+locked_shell = make_shell(
     sandbox=sandbox,
-    name="sandbox_bash",
+    name="sandbox_shell",
     description="Run read-only shell commands. Do not modify files.",
 )
 
-# The agent keeps locked_bash; the sandbox's own sandbox_bash is skipped
-agent = Agent(sandbox=sandbox, tools=[locked_bash])
+# The agent keeps locked_shell; the sandbox's own sandbox_shell is skipped
+agent = Agent(sandbox=sandbox, tools=[locked_shell])
 ```
 (( /tab "Python" ))
 
@@ -153,7 +153,7 @@ const agent = new Agent({
   sandbox: new DockerSandbox({ container: 'my-dev-env' }),
   tools: [lint],
 })
-// Agent now has: sandbox_bash, sandbox_file_editor (vended) + lint (yours)
+// Agent now has: sandbox_shell, sandbox_file_editor (vended) + lint (yours)
 ```
 (( /tab "TypeScript" ))
 
@@ -176,7 +176,7 @@ agent = Agent(
     sandbox=DockerSandbox("my-dev-env"),
     tools=[lint],
 )
-# Agent now has: sandbox_bash, sandbox_file_editor (vended) + lint (yours)
+# Agent now has: sandbox_shell, sandbox_file_editor (vended) + lint (yours)
 ```
 (( /tab "Python" ))
 
@@ -193,7 +193,7 @@ The following vended plugins route their file I/O through the agent’s sandbox 
 
 -   [Available Sandboxes](/docs/user-guide/concepts/sandbox/available-sandboxes/index.md) — the built-in Docker and SSH backends, programmatic access, and streaming
 -   [Building a Custom Sandbox](/docs/user-guide/concepts/sandbox/custom-sandbox/index.md) — target a backend the built-ins do not cover
--   [Vended Tools](/docs/user-guide/concepts/tools/vended-tools/index.md) — the `sandbox_bash` and `sandbox_file_editor` tools
+-   [Vended Tools](/docs/user-guide/concepts/tools/vended-tools/index.md) — the `sandbox_shell` and `sandbox_file_editor` tools
 
 ## Related pages
 

@@ -175,15 +175,18 @@ await restoredAgent.invoke('Read the ideas notebook')
 
 ---
 
-### Bash
+### Bash / Shell
 
-Lets your agent run shell commands and act on the output. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
+Lets your agent run shell commands and act on the output. The two SDKs expose different tools here:
+
+-   **TypeScript `bash`** spawns a persistent `bash` process on the host. Shell state — variables, working directory, exported functions — persists across invocations within the same session, so the agent can build up context incrementally. Sessions can be restarted to clear state.
+-   **Python `shell`** (and TypeScript’s `makeShell`) routes each command through the agent’s [Sandbox](/docs/user-guide/concepts/sandbox/index.md) and is stateless: every call runs in a fresh shell, so variables and the working directory do not carry over. The sandbox decides the interpreter — `sh` locally and in Docker, the remote login shell over SSH — so use portable POSIX syntax.
 
 *Supported in: Node.js on Unix/Linux/macOS (TypeScript), all platforms (Python).*
 
 Security Warning
 
-This tool executes arbitrary bash commands. Without a [Sandbox](/docs/user-guide/concepts/sandbox/index.md), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](/docs/user-guide/concepts/sandbox/index.md) for production.
+These tools execute arbitrary shell commands. Without a [Sandbox](/docs/user-guide/concepts/sandbox/index.md), commands run with the full permissions of the process. Only use with trusted input and consider running in a [sandboxed environment](/docs/user-guide/concepts/sandbox/index.md) for production.
 
 **Example - File Operations:**
 
@@ -205,9 +208,9 @@ await agent.invoke('Create a new file called notes.txt with "Hello World"')
 (( tab "Python" ))
 ```python
 from strands import Agent
-from strands.vended_tools import bash
+from strands.vended_tools import shell
 
-agent = Agent(tools=[bash])
+agent = Agent(tools=[shell])
 agent("List all Python files in the current directory and count them")
 ```
 (( /tab "Python" ))
@@ -404,5 +407,6 @@ Tool names are stable and will not change. In minor versions, a tool’s descrip
 ### Python
 
 - [harness-sdk/strands-py/src/strands/vended_tools/http_request/http_request.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/http_request/http_request.py)
+- [harness-sdk/strands-py/src/strands/vended_tools/shell/shell.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/shell/shell.py)
 - [harness-sdk/strands-py/src/strands/vended_tools/sleep/sleep.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/vended_tools/sleep/sleep.py)
 - [harness-sdk/strands-py/src/strands/experimental/tools/stop/stop.py](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/experimental/tools/stop/stop.py)

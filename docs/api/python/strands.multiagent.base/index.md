@@ -31,13 +31,33 @@ Defined in: [src/strands/multiagent/base.py:45](https://github.com/strands-agent
 
 Unified result from node execution - handles both Agent and nested MultiAgentBase results.
 
+#### \_\_str\_\_
+
+```python
+def __str__() -> str
+```
+
+Defined in: [src/strands/multiagent/base.py:61](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L61)
+
+Return a human-readable string representation of the node result.
+
+Delegates to the inner result’s string representation:
+
+-   AgentResult: Uses AgentResult.**str** (extracts text content)
+-   MultiAgentResult: Uses MultiAgentResult.**str** (recursive)
+-   Exception: Uses the exception’s string representation
+
+**Returns**:
+
+String representation of the node’s result.
+
 #### get\_agent\_results
 
 ```python
 def get_agent_results() -> list[AgentResult]
 ```
 
-Defined in: [src/strands/multiagent/base.py:61](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L61)
+Defined in: [src/strands/multiagent/base.py:74](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L74)
 
 Get all AgentResult objects from this node, flattened if nested.
 
@@ -47,7 +67,7 @@ Get all AgentResult objects from this node, flattened if nested.
 def to_dict() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/multiagent/base.py:74](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L74)
+Defined in: [src/strands/multiagent/base.py:87](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L87)
 
 Convert NodeResult to JSON-serializable dict, ignoring state field.
 
@@ -58,7 +78,7 @@ Convert NodeResult to JSON-serializable dict, ignoring state field.
 def from_dict(cls, data: dict[str, Any]) -> "NodeResult"
 ```
 
-Defined in: [src/strands/multiagent/base.py:95](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L95)
+Defined in: [src/strands/multiagent/base.py:108](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L108)
 
 Rehydrate a NodeResult from persisted JSON.
 
@@ -69,9 +89,28 @@ Rehydrate a NodeResult from persisted JSON.
 class MultiAgentResult()
 ```
 
-Defined in: [src/strands/multiagent/base.py:130](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L130)
+Defined in: [src/strands/multiagent/base.py:143](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L143)
 
 Result from multi-agent execution with accumulated metrics.
+
+#### \_\_str\_\_
+
+```python
+def __str__() -> str
+```
+
+Defined in: [src/strands/multiagent/base.py:154](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L154)
+
+Return a human-readable string representation of the multi-agent result.
+
+Priority order:
+
+1.  Interrupts (if present) → stringified list of interrupt dicts
+2.  Node results → each node’s string output, prefixed with node name
+
+**Returns**:
+
+String representation based on the priority order above.
 
 #### from\_dict
 
@@ -80,7 +119,7 @@ Result from multi-agent execution with accumulated metrics.
 def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult"
 ```
 
-Defined in: [src/strands/multiagent/base.py:142](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L142)
+Defined in: [src/strands/multiagent/base.py:179](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L179)
 
 Rehydrate a MultiAgentResult from persisted JSON.
 
@@ -90,7 +129,7 @@ Rehydrate a MultiAgentResult from persisted JSON.
 def to_dict() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/multiagent/base.py:166](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L166)
+Defined in: [src/strands/multiagent/base.py:203](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L203)
 
 Convert MultiAgentResult to JSON-serializable dict.
 
@@ -100,7 +139,7 @@ Convert MultiAgentResult to JSON-serializable dict.
 class MultiAgentBase(ABC)
 ```
 
-Defined in: [src/strands/multiagent/base.py:180](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L180)
+Defined in: [src/strands/multiagent/base.py:217](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L217)
 
 Base class for multi-agent helpers.
 
@@ -116,7 +155,7 @@ This class integrates with existing Strands Agent instances and provides multi-a
 def __init__() -> None
 ```
 
-Defined in: [src/strands/multiagent/base.py:196](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L196)
+Defined in: [src/strands/multiagent/base.py:233](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L233)
 
 Initialize base multi-agent state.
 
@@ -129,7 +168,7 @@ async def invoke_async(task: MultiAgentInput,
                        **kwargs: Any) -> MultiAgentResult
 ```
 
-Defined in: [src/strands/multiagent/base.py:234](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L234)
+Defined in: [src/strands/multiagent/base.py:271](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L271)
 
 Invoke asynchronously.
 
@@ -147,7 +186,7 @@ async def stream_async(task: MultiAgentInput,
                        **kwargs: Any) -> AsyncIterator[dict[str, Any]]
 ```
 
-Defined in: [src/strands/multiagent/base.py:247](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L247)
+Defined in: [src/strands/multiagent/base.py:284](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L284)
 
 Stream events during multi-agent execution.
 
@@ -175,7 +214,7 @@ def __call__(task: MultiAgentInput,
              **kwargs: Any) -> MultiAgentResult
 ```
 
-Defined in: [src/strands/multiagent/base.py:272](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L272)
+Defined in: [src/strands/multiagent/base.py:309](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L309)
 
 Invoke synchronously.
 
@@ -191,7 +230,7 @@ Invoke synchronously.
 def serialize_state() -> dict[str, Any]
 ```
 
-Defined in: [src/strands/multiagent/base.py:292](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L292)
+Defined in: [src/strands/multiagent/base.py:329](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L329)
 
 Return a JSON-serializable snapshot of the orchestrator state.
 
@@ -201,7 +240,7 @@ Return a JSON-serializable snapshot of the orchestrator state.
 def deserialize_state(payload: dict[str, Any]) -> None
 ```
 
-Defined in: [src/strands/multiagent/base.py:296](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L296)
+Defined in: [src/strands/multiagent/base.py:333](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L333)
 
 Restore orchestrator state from a session dict.
 
@@ -214,7 +253,7 @@ def add_hook(callback: HookCallback,
              order: float = HookOrder.DEFAULT) -> None
 ```
 
-Defined in: [src/strands/multiagent/base.py:300](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L300)
+Defined in: [src/strands/multiagent/base.py:337](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/multiagent/base.py#L337)
 
 Register a hook callback with the orchestrator.
 

@@ -16,6 +16,7 @@ All streaming methods yield the same set of events:
 (( tab "Python" ))
 -   **`init_event_loop`**: True at the start of agent invocation initializing
 -   **`start_event_loop`**: True when the event loop is starting
+-   **`event_loop_throttled_delay`**: Delay, in seconds, that the agent loop waited before retrying a model call after a retryable failure (by default only throttling, see [Retry Strategies](/docs/user-guide/concepts/agents/retry-strategies/index.md))
 -   **`message`**: Present when a new message is created
 -   **`event`**: Raw event from the model stream
 -   **`force_stop`**: True if the event loop was forced to stop

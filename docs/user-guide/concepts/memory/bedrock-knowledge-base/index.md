@@ -104,6 +104,7 @@ The inner `BedrockKnowledgeBaseConfig` is the reusable connection: which knowled
 | `s3` | S3 ingestion settings (`bucket`, `prefix`). Required when the data source type is `'S3'`. |
 | `scope_metadata_key``scopeMetadataKey` | Metadata attribute key used for scope filtering. Defaults to `'namespace'`. |
 | `runtime_client / agent_client``runtimeClient / agentClient` | Pre-constructed AWS clients. When omitted, default clients are constructed using the standard credential chain (the agent client lazily, on first write). |
+| `region_name``regionName` | AWS region hint for the default clients the store constructs. When omitted, boto3 resolves the region itself. Ignored for any client you inject explicitly (`runtime_client` / `agent_client` / `s3.client`). |
 
 Because the connection is a separate object, you build it once and vary only `name` and `scope` per store. This is the cheap way to give each tenant an isolated namespace over a single knowledge base:
 

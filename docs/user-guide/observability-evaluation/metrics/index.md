@@ -10,7 +10,7 @@ The Strands Agents SDK automatically tracks key metrics during agent execution:
 -   **Tool usage**: Call counts, success rates, and execution times for each tool
 -   **Event loop cycles**: Number of reasoning cycles and their durations
 
-All these metrics are accessible through the [`AgentResult`](/docs/api/python/strands.agent.agent_result#AgentResult) object that’s returned whenever you invoke an agent:
+All these metrics are accessible through the [`AgentResult`](/docs/api/python/strands.agent.agent_result#AgentResult) object that’s returned whenever you invoke an agent. They are available for local analysis. To export them to an observability backend, configure Strands telemetry as described in the [Traces](/docs/user-guide/observability-evaluation/traces/index.md) documentation:
 
 ```python
 from strands import Agent
@@ -401,7 +401,7 @@ Traces are separate from `AgentMetrics` and are accessed via `result.traces`. No
 
 1.  **Monitor Token Usage**: Keep track of token usage to ensure you stay within limits and optimize costs. Set up alerts for when token usage approaches predefined thresholds to avoid unexpected costs.
     
-2.  **Analyze Tool Performance**: Review tool metrics to identify tools with high error rates or long execution times. Consider refactoring tools with success rates below 95% or average execution times that exceed your latency requirements.
+2.  **Analyze Performance**: Review performance metrics across agents, tools, and execution stages to identify high error rates and latency bottlenecks. Calculate p50, p90, and p99 latency per stage and end-to-end over a rolling window aligned with your service level objectives (SLOs). Prioritize optimizing stages with both a significant contribution to end-to-end latency and meaningful optimization potential. For more information, see the [AWS Well-Architected Framework Agentic AI Lens AGENTPERF01-BP03](https://docs.aws.amazon.com/wellarchitected/latest/agentic-ai-lens/agentperf01-bp03.html).
     
 3.  **Track Cycle Efficiency**: Monitor how many iterations the agent needed and how long each took. Agents that require many cycles may benefit from improved prompting or tool design.
     

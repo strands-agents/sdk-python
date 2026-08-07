@@ -406,20 +406,83 @@ agent = Agent(tools=[aws_docs_client, other_client])
 (( /tab "Python" ))
 
 (( tab "TypeScript" ))
-TypeScript’s `McpClient` accepts optional application metadata:
+TypeScript’s `McpClient` supports tool filtering and name prefixing to manage tools from multiple servers.
+
+**Tool Filtering**
+
+Control which tools are loaded using the `toolFilters` option:
 
 ```typescript
-const mcpClient = new McpClient({
-  applicationName: 'My Agent App',
-  applicationVersion: '1.0.0',
+// String matching - loads only specified tools
+const filteredClient = new McpClient({
   transport: new StdioClientTransport({
-    command: 'npx',
-    args: ['-y', 'some-mcp-server'],
+    command: 'uvx',
+    args: ['awslabs.aws-documentation-mcp-server@latest'],
   }),
+  toolFilters: { allowed: ['search_documentation', 'read_documentation'] },
+})
+
+// Regex patterns
+const regexClient = new McpClient({
+  transport: new StdioClientTransport({
+    command: 'uvx',
+    args: ['awslabs.aws-documentation-mcp-server@latest'],
+  }),
+  toolFilters: { allowed: [/^search_.*/] },
+})
+
+// Callbacks receive the tool itself
+const callbackClient = new McpClient({
+  transport: new StdioClientTransport({
+    command: 'uvx',
+    args: ['awslabs.aws-documentation-mcp-server@latest'],
+  }),
+  toolFilters: { rejected: [(tool) => tool.name.endsWith('_internal')] },
+})
+
+// Combined filters - applies allowed first, then rejected
+const combinedClient = new McpClient({
+  transport: new StdioClientTransport({
+    command: 'uvx',
+    args: ['awslabs.aws-documentation-mcp-server@latest'],
+  }),
+  toolFilters: {
+    allowed: [/.*documentation$/],
+    rejected: ['read_documentation'],
+  },
 })
 ```
 
-Tool filtering and prefixing are not currently supported in TypeScript.
+String matchers match the server-side tool name exactly, and `RegExp` matchers match it from the start. Callback matchers receive the `McpTool` under its agent-facing name, so they see the prefix when one is set. An `allowed` list is applied first, then `rejected`, so rejection wins when both match.
+
+**Tool Name Prefixing**
+
+Prevent name conflicts when using multiple MCP servers:
+
+```typescript
+const awsDocsClient = new McpClient({
+  transport: new StdioClientTransport({
+    command: 'uvx',
+    args: ['awslabs.aws-documentation-mcp-server@latest'],
+  }),
+  prefix: 'aws_docs',
+})
+
+const otherClient = new McpClient({
+  transport: new StdioClientTransport({
+    command: 'uvx',
+    args: ['other-mcp-server@latest'],
+  }),
+  prefix: 'other',
+})
+
+// Tools will be named: aws_docs_search_documentation, other_search, etc.
+const agent = new Agent({ tools: [awsDocsClient, otherClient] })
+```
+
+A prefix only renames the tool for the agent: calls still send the original server tool name.
+
+Constructor defaults can be overridden per listing with `listTools({ prefix, toolFilters })`. Omitted fields inherit the constructor defaults; `prefix: ''` disables a default prefix and `toolFilters: {}` disables default filters. Declarative `McpClient.loadServers()` config accepts `prefix` and `toolFilters` too, where filter strings are regexes.
 (( /tab "TypeScript" ))
 
 ## Direct Tool Invocation

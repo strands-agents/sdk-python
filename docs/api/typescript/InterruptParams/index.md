@@ -1,4 +1,4 @@
-Defined in: [src/types/interrupt.ts:14](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/interrupt.ts#L14)
+Defined in: [src/types/interrupt.ts:14](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/interrupt.ts#L14)
 
 Parameters for raising an interrupt.
 
@@ -10,7 +10,7 @@ Parameters for raising an interrupt.
 name: string;
 ```
 
-Defined in: [src/types/interrupt.ts:19](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/interrupt.ts#L19)
+Defined in: [src/types/interrupt.ts:19](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/interrupt.ts#L19)
 
 User-defined name for the interrupt. Must be unique within a single hook callback or tool execution.
 
@@ -22,7 +22,7 @@ User-defined name for the interrupt. Must be unique within a single hook callbac
 optional reason?: JSONValue;
 ```
 
-Defined in: [src/types/interrupt.ts:24](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/interrupt.ts#L24)
+Defined in: [src/types/interrupt.ts:24](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/interrupt.ts#L24)
 
 User-provided reason for the interrupt.
 
@@ -34,7 +34,7 @@ User-provided reason for the interrupt.
 optional response?: JSONValue;
 ```
 
-Defined in: [src/types/interrupt.ts:42](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/types/interrupt.ts#L42)
+Defined in: [src/types/interrupt.ts:42](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/types/interrupt.ts#L42)
 
 Preemptive response to use if available. When provided, the interrupt returns this value immediately without halting agent execution. Useful for session-managed trust responses where a previous user response can be reused.
 

@@ -2,7 +2,7 @@
 type MemoryContentBlockType = DistributedKeyof<ContentBlockData>;
 ```
 
-Defined in: [src/memory/extraction/types.ts:19](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/memory/extraction/types.ts#L19)
+Defined in: [src/memory/extraction/types.ts:19](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/memory/extraction/types.ts#L19)
 
 Content block kinds that [MemoryMessageFilter](/docs/api/typescript/MemoryMessageFilter/index.md) can exclude before messages reach an [Extractor](/docs/api/typescript/Extractor/index.md) or the no-extractor passthrough.
 

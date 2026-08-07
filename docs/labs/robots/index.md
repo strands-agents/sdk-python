@@ -297,6 +297,6 @@ A recording’s ground truth is the parquet under `meta/episodes/`, not the coun
 -   [Documentation](https://strands-labs.github.io/robots/)
 -   [GitHub repository](https://github.com/strands-labs/robots)
 -   [PyPI package](https://pypi.org/project/strands-robots/)
--   [Robots Sim](/docs/labs/robots-sim/index.md) - simulation-only benchmarking and iterative control
+-   [Strands for Cosmos](/docs/labs/strands-for-cosmos/index.md) - world models: physics-aware video/action generation
 -   [NVIDIA Isaac GR00T](https://github.com/NVIDIA/Isaac-GR00T)
 -   [LeRobot](https://github.com/huggingface/lerobot)

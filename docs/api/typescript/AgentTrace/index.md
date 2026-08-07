@@ -1,4 +1,4 @@
-Defined in: [src/telemetry/tracer.ts:81](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L81)
+Defined in: [src/telemetry/tracer.ts:81](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L81)
 
 Execution trace for performance analysis. Tracks timing and hierarchy of operations within the agent loop. Fields default to null for JSON serialization compatibility.
 
@@ -14,7 +14,7 @@ Execution trace for performance analysis. Tracks timing and hierarchy of operati
 new AgentTrace(name, options?): AgentTrace;
 ```
 
-Defined in: [src/telemetry/tracer.ts:105](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L105)
+Defined in: [src/telemetry/tracer.ts:105](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L105)
 
 #### Parameters
 
@@ -37,7 +37,7 @@ Defined in: [src/telemetry/tracer.ts:105](https://github.com/strands-agents/harn
 readonly id: string;
 ```
 
-Defined in: [src/telemetry/tracer.ts:83](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L83)
+Defined in: [src/telemetry/tracer.ts:83](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L83)
 
 Unique identifier (UUID) for this trace.
 
@@ -49,7 +49,7 @@ Unique identifier (UUID) for this trace.
 readonly name: string;
 ```
 
-Defined in: [src/telemetry/tracer.ts:85](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L85)
+Defined in: [src/telemetry/tracer.ts:85](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L85)
 
 Human-readable display name (e.g., “Cycle 1”, “Tool: calc”, “stream\_messages”).
 
@@ -61,7 +61,7 @@ Human-readable display name (e.g., “Cycle 1”, “Tool: calc”, “stream\_m
 readonly parentId: string;
 ```
 
-Defined in: [src/telemetry/tracer.ts:87](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L87)
+Defined in: [src/telemetry/tracer.ts:87](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L87)
 
 ID of the parent trace, if this trace is nested. Null for root traces.
 
@@ -73,7 +73,7 @@ ID of the parent trace, if this trace is nested. Null for root traces.
 readonly startTime: number;
 ```
 
-Defined in: [src/telemetry/tracer.ts:89](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L89)
+Defined in: [src/telemetry/tracer.ts:89](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L89)
 
 Start time in milliseconds since epoch.
 
@@ -85,7 +85,7 @@ Start time in milliseconds since epoch.
 endTime: number = null;
 ```
 
-Defined in: [src/telemetry/tracer.ts:91](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L91)
+Defined in: [src/telemetry/tracer.ts:91](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L91)
 
 End time in milliseconds since epoch. Null until trace is ended.
 
@@ -97,7 +97,7 @@ End time in milliseconds since epoch. Null until trace is ended.
 duration: number = 0;
 ```
 
-Defined in: [src/telemetry/tracer.ts:93](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L93)
+Defined in: [src/telemetry/tracer.ts:93](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L93)
 
 Duration in milliseconds (endTime - startTime).
 
@@ -109,7 +109,7 @@ Duration in milliseconds (endTime - startTime).
 readonly children: AgentTrace[] = [];
 ```
 
-Defined in: [src/telemetry/tracer.ts:95](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L95)
+Defined in: [src/telemetry/tracer.ts:95](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L95)
 
 Child traces nested under this trace.
 
@@ -121,7 +121,7 @@ Child traces nested under this trace.
 readonly metadata: Record<string, string> = {};
 ```
 
-Defined in: [src/telemetry/tracer.ts:97](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L97)
+Defined in: [src/telemetry/tracer.ts:97](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L97)
 
 Additional metadata for this trace (e.g., cycleId, toolUseId, toolName).
 
@@ -133,7 +133,7 @@ Additional metadata for this trace (e.g., cycleId, toolUseId, toolName).
 message: Message = null;
 ```
 
-Defined in: [src/telemetry/tracer.ts:99](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L99)
+Defined in: [src/telemetry/tracer.ts:99](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L99)
 
 Message associated with this trace (e.g., model output). Null if not applicable.
 
@@ -145,7 +145,7 @@ Message associated with this trace (e.g., model output). Null if not applicable.
 end(endTime?): void;
 ```
 
-Defined in: [src/telemetry/tracer.ts:119](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L119)
+Defined in: [src/telemetry/tracer.ts:119](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L119)
 
 #### Parameters
 
@@ -165,7 +165,7 @@ Defined in: [src/telemetry/tracer.ts:119](https://github.com/strands-agents/harn
 toJSON(): AgentTraceData;
 ```
 
-Defined in: [src/telemetry/tracer.ts:124](https://github.com/strands-agents/harness-sdk/blob/f4a8f9f50803682e6078624153dcff14818bc120/strands-ts/src/telemetry/tracer.ts#L124)
+Defined in: [src/telemetry/tracer.ts:124](https://github.com/strands-agents/harness-sdk/blob/11ad6366a1578d432ea4cd2c3ed41b610953d297/strands-ts/src/telemetry/tracer.ts#L124)
 
 #### Returns
 

@@ -204,8 +204,7 @@
 
 ## Community
 
-- [community-packages](https://strandsagents.com/docs/community/community-packages/index.md): Browse community-built tools, model providers, plugins, and session managers that extend Strands agents in Python and TypeScript.
-- [get-featured](https://strandsagents.com/docs/community/get-featured/index.md): How to get your community package featured in the Strands Agents docs, from package requirements to submitting a catalog entry.
+- [get-featured](https://strandsagents.com/docs/integrations/get-featured/index.md): How to list your integration on the Strands Agents integrations page, from package requirements to submitting an entry.
 - Contribute
   - [contribute](https://strandsagents.com/docs/contribute/index.md): Ways to contribute to the Strands Agents ecosystem: fix bugs in the core SDK, improve the documentation, or build and publish extensions.
   - Contribution Types
@@ -214,55 +213,60 @@
     - [feature-proposals](https://strandsagents.com/docs/contribute/contributing/feature-proposals/index.md): Propose significant features for the Strands SDK: when to write a design document, what to include, and how the review process works.
     - [extensions](https://strandsagents.com/docs/contribute/contributing/extensions/index.md): Package and publish your own Strands components: share tools, model providers, and session managers so other developers can install them.
 - Labs
-  - [labs](https://strandsagents.com/docs/labs/index.md): Explore Strands Labs, the experimental arm of Strands Agents: open source projects covering robotics, simulation, and new programming abstractions.
+  - [labs](https://strandsagents.com/docs/labs/index.md): Explore Strands Labs, the experimental arm of Strands Agents: open source projects covering robotics, world models, agentic benchmarks, harness optimization, and audio processing.
   - Projects
     - [robots](https://strandsagents.com/docs/labs/robots/index.md): Control, simulate, and train physical robots with natural language through Strands Agents: one Robot() call returns a MuJoCo simulation or real hardware, with pluggable vision-language-action policies and a peer-to-peer mesh.
-    - [robots-sim](https://strandsagents.com/docs/labs/robots-sim/index.md): Control robots in simulated environments with natural language through Strands Agents: test vision-language-action policies without hardware.
+    - [strands-for-cosmos](https://strandsagents.com/docs/labs/strands-for-cosmos/index.md): NVIDIA Cosmos for Strands Agents: give your agent eyes that understand physics and hands that generate video, audio, and robot actions on local compute.
+    - [benchmark-harnesses](https://strandsagents.com/docs/labs/benchmark-harnesses/index.md): Strands-based agents and harnesses for agentic benchmarks, including Simple Strands Agent - a lean autonomous-coding agent with state-of-the-art results on SWE-Bench and Terminal Bench.
+    - [harness-optimizer](https://strandsagents.com/docs/labs/harness-optimizer/index.md): Optimize LLM agent harnesses through tunable Formulas that dynamically enhance the agent, improved by optimizers based on collected agent rollout trajectories.
     - [ai-functions](https://strandsagents.com/docs/labs/ai-functions/index.md): Build reliable AI-powered applications with Strands AI Functions: Python functions evaluated by reasoning agents, with post-condition checking.
+    - [pywebrtc-audio](https://strandsagents.com/docs/labs/pywebrtc-audio/index.md): Python bindings for WebRTC audio processing: echo cancellation, noise suppression, automatic gain control, and voice activity detection - the same algorithms that run in Chrome.
 - Integrations
-  - [ag-ui](https://strandsagents.com/docs/community/integrations/ag-ui/index.md): Build streaming chat interfaces for Strands agents with the AG-UI protocol and CopilotKit front-end components.
+  - [ag-ui](https://strandsagents.com/docs/integrations/integrations/ag-ui/index.md): Build streaming chat interfaces for Strands agents with the AG-UI protocol and CopilotKit front-end components.
+  - [welt](https://strandsagents.com/docs/integrations/integrations/welt/index.md): Slack front end for Strands agents on Amazon Bedrock AgentCore — streaming replies, file exchange, and human-in-the-loop approvals in Slack threads
 - Agent Extensions
-  - [strands-code-agent](https://strandsagents.com/docs/community/agent-extensions/strands-code-agent/index.md): A coding agent that replaces tool-calling with code generation in a persistent Python REPL
+  - [strands-code-agent](https://strandsagents.com/docs/integrations/agent-extensions/strands-code-agent/index.md): A coding agent that replaces tool-calling with code generation in a persistent Python REPL
 - Interventions
-  - [overview](https://strandsagents.com/docs/community/interventions/overview/index.md): Community-built intervention handlers for authorization, guardrails, and steering.
-  - [strands-agt](https://strandsagents.com/docs/community/interventions/strands-agt/index.md): Deterministic policy enforcement via Microsoft Agent Governance Toolkit
+  - [overview](https://strandsagents.com/docs/integrations/interventions/overview/index.md): Community-built intervention handlers for authorization, guardrails, and steering.
+  - [strands-agt](https://strandsagents.com/docs/integrations/interventions/strands-agt/index.md): Deterministic policy enforcement via Microsoft Agent Governance Toolkit
 - Plugins
-  - [agent-control](https://strandsagents.com/docs/community/plugins/agent-control/index.md): Enforce centrally managed runtime policies on Strands agents with Agent Control, blocking or steering violations at every step.
-  - [agentcore-payments](https://strandsagents.com/docs/community/plugins/agentcore-payments/index.md): Automated payment processing for agents using Amazon Bedrock AgentCore
-  - [agentcore-tool-search](https://strandsagents.com/docs/community/plugins/agentcore-tool-search/index.md): Semantic tool discovery for agents using Amazon Bedrock AgentCore Gateway
-  - [datadog-ai-guard](https://strandsagents.com/docs/community/plugins/datadog-ai-guard/index.md): Protect Strands agents in real time with Datadog AI Guard, blocking prompt injection, jailbreaks, and unsafe tool calls.
-  - [s3-vectors-memory](https://strandsagents.com/docs/community/plugins/s3-vectors-memory/index.md): Long-term semantic memory for Strands Agents backed by Amazon S3 Vectors
+  - [agent-control](https://strandsagents.com/docs/integrations/plugins/agent-control/index.md): Enforce centrally managed runtime policies on Strands agents with Agent Control, blocking or steering violations at every step.
+  - [agentcore-payments](https://strandsagents.com/docs/integrations/plugins/agentcore-payments/index.md): Automated payment processing for agents using Amazon Bedrock AgentCore
+  - [agentcore-tool-search](https://strandsagents.com/docs/integrations/plugins/agentcore-tool-search/index.md): Semantic tool discovery for agents using Amazon Bedrock AgentCore Gateway
+  - [datadog-ai-guard](https://strandsagents.com/docs/integrations/plugins/datadog-ai-guard/index.md): Protect Strands agents in real time with Datadog AI Guard, blocking prompt injection, jailbreaks, and unsafe tool calls.
+  - [s3-vectors-memory](https://strandsagents.com/docs/integrations/plugins/s3-vectors-memory/index.md): Long-term semantic memory for Strands Agents backed by Amazon S3 Vectors
 - Model Providers
-  - [cohere](https://strandsagents.com/docs/community/model-providers/cohere/index.md): Use Cohere language models with Strands agents through the OpenAI compatibility layer for chat, tool calling, and streaming.
-  - [clova-studio](https://strandsagents.com/docs/community/model-providers/clova-studio/index.md): Connect Strands agents to Naver CLOVA Studio, Korean-optimized language models on Naver Cloud Platform, via strands-clova.
-  - [fireworksai](https://strandsagents.com/docs/community/model-providers/fireworksai/index.md): Run Strands agents on Fireworks AI, fast hosted inference for open-source models, using the OpenAI-compatible API.
-  - [nebius-token-factory](https://strandsagents.com/docs/community/model-providers/nebius-token-factory/index.md): Use Nebius Token Factory with Strands agents for fast open-source model inference through the OpenAI-compatible API.
-  - [nvidia-nim](https://strandsagents.com/docs/community/model-providers/nvidia-nim/index.md): Connect Strands agents to NVIDIA NIM inference microservices with the strands-nvidia-nim community model provider.
-  - [sglang](https://strandsagents.com/docs/community/model-providers/sglang/index.md): Use SGLang servers as a Strands model provider with Token-In/Token-Out support for agentic reinforcement learning training.
-  - [vllm](https://strandsagents.com/docs/community/model-providers/vllm/index.md): Serve Strands agents from vLLM with Token-In/Token-Out support for agentic RL training via the OpenAI-compatible API.
-  - [mlx](https://strandsagents.com/docs/community/model-providers/mlx/index.md): Run Strands agents locally on Apple Silicon with the MLX model provider, supporting inference, LoRA fine-tuning, and vision.
-  - [ovhcloud-ai-endpoints](https://strandsagents.com/docs/community/model-providers/ovhcloud-ai-endpoints/index.md): Run Strands agents on OVHcloud AI Endpoints, a European, GDPR-compliant model service with an OpenAI-compatible API.
-  - [xai](https://strandsagents.com/docs/community/model-providers/xai/index.md): Use xAI Grok models with Strands agents, including server-side tools for web search, X platform access, and code execution.
+  - [cohere](https://strandsagents.com/docs/integrations/model-providers/cohere/index.md): Use Cohere language models with Strands agents through the OpenAI compatibility layer for chat, tool calling, and streaming.
+  - [clova-studio](https://strandsagents.com/docs/integrations/model-providers/clova-studio/index.md): Connect Strands agents to Naver CLOVA Studio, Korean-optimized language models on Naver Cloud Platform, via strands-clova.
+  - [crusoe](https://strandsagents.com/docs/integrations/model-providers/crusoe/index.md): Crusoe Managed Inference
+  - [fireworksai](https://strandsagents.com/docs/integrations/model-providers/fireworksai/index.md): Run Strands agents on Fireworks AI, fast hosted inference for open-source models, using the OpenAI-compatible API.
+  - [nebius-token-factory](https://strandsagents.com/docs/integrations/model-providers/nebius-token-factory/index.md): Use Nebius Token Factory with Strands agents for fast open-source model inference through the OpenAI-compatible API.
+  - [nvidia-nim](https://strandsagents.com/docs/integrations/model-providers/nvidia-nim/index.md): Connect Strands agents to NVIDIA NIM inference microservices with the strands-nvidia-nim community model provider.
+  - [sglang](https://strandsagents.com/docs/integrations/model-providers/sglang/index.md): Use SGLang servers as a Strands model provider with Token-In/Token-Out support for agentic reinforcement learning training.
+  - [vllm](https://strandsagents.com/docs/integrations/model-providers/vllm/index.md): Serve Strands agents from vLLM with Token-In/Token-Out support for agentic RL training via the OpenAI-compatible API.
+  - [mlx](https://strandsagents.com/docs/integrations/model-providers/mlx/index.md): Run Strands agents locally on Apple Silicon with the MLX model provider, supporting inference, LoRA fine-tuning, and vision.
+  - [ovhcloud-ai-endpoints](https://strandsagents.com/docs/integrations/model-providers/ovhcloud-ai-endpoints/index.md): Run Strands agents on OVHcloud AI Endpoints, a European, GDPR-compliant model service with an OpenAI-compatible API.
+  - [xai](https://strandsagents.com/docs/integrations/model-providers/xai/index.md): Use xAI Grok models with Strands agents, including server-side tools for web search, X platform access, and code execution.
 - Memory Stores
-  - [overview](https://strandsagents.com/docs/community/memory-stores/overview/index.md): Community-built memory stores that give agents long-term memory across sessions.
-  - [agentcore-memory-store](https://strandsagents.com/docs/community/memory-stores/agentcore-memory-store/index.md): Amazon Bedrock AgentCore Memory as a MemoryStore for long-term recall and server-side extraction
-  - [strands-dakera](https://strandsagents.com/docs/community/memory-stores/strands-dakera/index.md): Persistent, decay-weighted MemoryStore for agents — self-hosted, with a full-CRUD tool
+  - [overview](https://strandsagents.com/docs/integrations/memory-stores/overview/index.md): Community-built memory stores that give agents long-term memory across sessions.
+  - [agentcore-memory-store](https://strandsagents.com/docs/integrations/memory-stores/agentcore-memory-store/index.md): Amazon Bedrock AgentCore Memory as a MemoryStore for long-term recall and server-side extraction
+  - [strands-dakera](https://strandsagents.com/docs/integrations/memory-stores/strands-dakera/index.md): Persistent, decay-weighted MemoryStore for agents — self-hosted, with a full-CRUD tool
 - Storage
-  - [overview](https://strandsagents.com/docs/community/storage/overview/index.md): Community-built storage backends for persisting raw bytes under string keys.
+  - [overview](https://strandsagents.com/docs/integrations/storage/overview/index.md): Community-built storage backends for persisting raw bytes under string keys.
 - Session Managers
-  - [agentcore-memory](https://strandsagents.com/docs/community/session-managers/agentcore-memory/index.md): Persist Strands agent conversations with Amazon Bedrock AgentCore Memory, including short-term and long-term memory strategies.
-  - [strands-valkey-session-manager](https://strandsagents.com/docs/community/session-managers/strands-valkey-session-manager/index.md): Store Strands agent sessions in Valkey or Redis for low-latency, distributed conversation persistence across interactions.
+  - [agentcore-memory](https://strandsagents.com/docs/integrations/session-managers/agentcore-memory/index.md): Persist Strands agent conversations with Amazon Bedrock AgentCore Memory, including short-term and long-term memory strategies.
+  - [strands-valkey-session-manager](https://strandsagents.com/docs/integrations/session-managers/strands-valkey-session-manager/index.md): Store Strands agent sessions in Valkey or Redis for low-latency, distributed conversation persistence across interactions.
 - Tool Protocols
-  - [utcp](https://strandsagents.com/docs/community/tools/utcp/index.md): Let Strands agents discover and call tools directly over native protocols with the Universal Tool Calling Protocol (UTCP).
+  - [utcp](https://strandsagents.com/docs/integrations/tools/utcp/index.md): Let Strands agents discover and call tools directly over native protocols with the Universal Tool Calling Protocol (UTCP).
 - Tools
-  - [strands-apify](https://strandsagents.com/docs/community/tools/strands-apify/index.md): Web scraping for social media, search engines, e-commerce, and more via Apify Actors
-  - [strands-deepgram](https://strandsagents.com/docs/community/tools/strands-deepgram/index.md): Add speech-to-text, text-to-speech, and audio intelligence to Strands agents with the Deepgram voice AI platform.
-  - [strands-hubspot](https://strandsagents.com/docs/community/tools/strands-hubspot/index.md): Query HubSpot CRM data from Strands agents with read-only tools for sales intelligence, customer research, and analytics.
-  - [strands-spraay](https://strandsagents.com/docs/community/tools/strands-spraay/index.md): Send batch crypto payments from Strands agents with the Spraay Protocol: ETH or ERC-20 tokens to up to 200 recipients on Base.
-  - [strands-sql](https://strandsagents.com/docs/community/tools/strands-sql/index.md): General-purpose SQL tool for Strands Agents — PostgreSQL, MySQL, and SQLite via SQLAlchemy.
-  - [strands-teams](https://strandsagents.com/docs/community/tools/strands-teams/index.md): Send Microsoft Teams notifications from Strands agents with rich Adaptive Cards and custom messaging support.
-  - [strands-telegram](https://strandsagents.com/docs/community/tools/strands-telegram/index.md): Control Telegram bots from Strands agents with 60+ Bot API methods for messaging, media, and chat management.
-  - [strands-telegram-listener](https://strandsagents.com/docs/community/tools/strands-telegram-listener/index.md): Process incoming Telegram messages in real time with Strands agents, with AI-powered auto-replies and event handling.
+  - [strands-apify](https://strandsagents.com/docs/integrations/tools/strands-apify/index.md): Web scraping for social media, search engines, e-commerce, and more via Apify Actors
+  - [strands-deepgram](https://strandsagents.com/docs/integrations/tools/strands-deepgram/index.md): Add speech-to-text, text-to-speech, and audio intelligence to Strands agents with the Deepgram voice AI platform.
+  - [strands-hubspot](https://strandsagents.com/docs/integrations/tools/strands-hubspot/index.md): Query HubSpot CRM data from Strands agents with read-only tools for sales intelligence, customer research, and analytics.
+  - [strands-spraay](https://strandsagents.com/docs/integrations/tools/strands-spraay/index.md): Send batch crypto payments from Strands agents with the Spraay Protocol: ETH or ERC-20 tokens to up to 200 recipients on Base.
+  - [strands-sql](https://strandsagents.com/docs/integrations/tools/strands-sql/index.md): General-purpose SQL tool for Strands Agents — PostgreSQL, MySQL, and SQLite via SQLAlchemy.
+  - [strands-teams](https://strandsagents.com/docs/integrations/tools/strands-teams/index.md): Send Microsoft Teams notifications from Strands agents with rich Adaptive Cards and custom messaging support.
+  - [strands-telegram](https://strandsagents.com/docs/integrations/tools/strands-telegram/index.md): Control Telegram bots from Strands agents with 60+ Bot API methods for messaging, media, and chat management.
+  - [strands-telegram-listener](https://strandsagents.com/docs/integrations/tools/strands-telegram-listener/index.md): Process incoming Telegram messages in real time with Strands agents, with AI-powered auto-replies and event handling.
 
 ## Api Python
 
@@ -347,6 +351,7 @@
 - [strands.session.s3_session_manager](https://strandsagents.com/docs/api/python/strands.session.s3_session_manager/index.md)
 - [strands.session.session_manager](https://strandsagents.com/docs/api/python/strands.session.session_manager/index.md)
 - [strands.session.session_repository](https://strandsagents.com/docs/api/python/strands.session.session_repository/index.md)
+- [strands.session.snapshot_session_manager](https://strandsagents.com/docs/api/python/strands.session.snapshot_session_manager/index.md)
 - [strands.storage.in_memory_storage](https://strandsagents.com/docs/api/python/strands.storage.in_memory_storage/index.md)
 - [strands.storage.local_file_storage](https://strandsagents.com/docs/api/python/strands.storage.local_file_storage/index.md)
 - [strands.storage.s3_storage](https://strandsagents.com/docs/api/python/strands.storage.s3_storage/index.md)
@@ -384,6 +389,7 @@
 - [strands.types.streaming](https://strandsagents.com/docs/api/python/strands.types.streaming/index.md)
 - [strands.types.tools](https://strandsagents.com/docs/api/python/strands.types.tools/index.md)
 - [strands.vended_interventions.cedar.cedar_authorization](https://strandsagents.com/docs/api/python/strands.vended_interventions.cedar.cedar_authorization/index.md)
+- [strands.vended_interventions.hitl.classifier](https://strandsagents.com/docs/api/python/strands.vended_interventions.hitl.classifier/index.md)
 - [strands.vended_interventions.hitl.hitl](https://strandsagents.com/docs/api/python/strands.vended_interventions.hitl.hitl/index.md)
 - [strands.vended_memory_stores](https://strandsagents.com/docs/api/python/strands.vended_memory_stores/index.md)
 - [strands.vended_memory_stores.bedrock_knowledge_base.store](https://strandsagents.com/docs/api/python/strands.vended_memory_stores.bedrock_knowledge_base.store/index.md)
@@ -403,11 +409,12 @@
 - [strands.vended_plugins.steering.core.handler](https://strandsagents.com/docs/api/python/strands.vended_plugins.steering.core.handler/index.md)
 - [strands.vended_plugins.steering.handlers.llm.llm_handler](https://strandsagents.com/docs/api/python/strands.vended_plugins.steering.handlers.llm.llm_handler/index.md)
 - [strands.vended_plugins.steering.handlers.llm.mappers](https://strandsagents.com/docs/api/python/strands.vended_plugins.steering.handlers.llm.mappers/index.md)
-- [strands.vended_tools.bash.bash](https://strandsagents.com/docs/api/python/strands.vended_tools.bash.bash/index.md)
-- [strands.vended_tools.bash.types](https://strandsagents.com/docs/api/python/strands.vended_tools.bash.types/index.md)
+- [strands.vended_tools](https://strandsagents.com/docs/api/python/strands.vended_tools/index.md)
 - [strands.vended_tools.file_editor.file_editor](https://strandsagents.com/docs/api/python/strands.vended_tools.file_editor.file_editor/index.md)
 - [strands.vended_tools.http_request.http_request](https://strandsagents.com/docs/api/python/strands.vended_tools.http_request.http_request/index.md)
 - [strands.vended_tools.http_request.types](https://strandsagents.com/docs/api/python/strands.vended_tools.http_request.types/index.md)
+- [strands.vended_tools.shell.shell](https://strandsagents.com/docs/api/python/strands.vended_tools.shell.shell/index.md)
+- [strands.vended_tools.shell.types](https://strandsagents.com/docs/api/python/strands.vended_tools.shell.types/index.md)
 - [strands.vended_tools.sleep.sleep](https://strandsagents.com/docs/api/python/strands.vended_tools.sleep.sleep/index.md)
 - [strands.vended_tools.sleep.types](https://strandsagents.com/docs/api/python/strands.vended_tools.sleep.types/index.md)
 
@@ -557,7 +564,11 @@
 - [McpClientCredentials](https://strandsagents.com/docs/api/typescript/McpClientCredentials/index.md)
 - [McpClientOptions](https://strandsagents.com/docs/api/typescript/McpClientOptions/index.md)
 - [McpConnectionState](https://strandsagents.com/docs/api/typescript/McpConnectionState/index.md)
+- [McpListToolsOptions](https://strandsagents.com/docs/api/typescript/McpListToolsOptions/index.md)
 - [McpServerConfig](https://strandsagents.com/docs/api/typescript/McpServerConfig/index.md)
+- [McpToolFilterCallback](https://strandsagents.com/docs/api/typescript/McpToolFilterCallback/index.md)
+- [McpToolFilters](https://strandsagents.com/docs/api/typescript/McpToolFilters/index.md)
+- [McpToolMatcher](https://strandsagents.com/docs/api/typescript/McpToolMatcher/index.md)
 - [McpTransport](https://strandsagents.com/docs/api/typescript/McpTransport/index.md)
 - [MemoryAddOptions](https://strandsagents.com/docs/api/typescript/MemoryAddOptions/index.md)
 - [MemoryAddToolConfig](https://strandsagents.com/docs/api/typescript/MemoryAddToolConfig/index.md)
@@ -633,6 +644,7 @@
 - [Scope](https://strandsagents.com/docs/api/typescript/Scope/index.md)
 - [SearchOptions](https://strandsagents.com/docs/api/typescript/SearchOptions/index.md)
 - [SequentialToolExecutor](https://strandsagents.com/docs/api/typescript/SequentialToolExecutor/index.md)
+- [SerializableMcpToolFilters](https://strandsagents.com/docs/api/typescript/SerializableMcpToolFilters/index.md)
 - [SessionManager](https://strandsagents.com/docs/api/typescript/SessionManager/index.md)
 - [SessionManagerConfig](https://strandsagents.com/docs/api/typescript/SessionManagerConfig/index.md)
 - [SessionStorage](https://strandsagents.com/docs/api/typescript/SessionStorage/index.md)
@@ -730,6 +742,7 @@
 
 - [Changelog](https://strandsagents.com/changelog/index.md): All releases across the Harness and Evals SDKs
 - Harness Python
+  - [v1.51.0](https://strandsagents.com/changelog/harness/python-v1.51.0/index.md): Harness Python v1.51.0 (2026-08-07)
   - [v1.50.2](https://strandsagents.com/changelog/harness/python-v1.50.2/index.md): Harness Python v1.50.2 (2026-07-27)
   - [v1.50.1](https://strandsagents.com/changelog/harness/python-v1.50.1/index.md): Harness Python v1.50.1 (2026-07-24)
   - [v1.50.0](https://strandsagents.com/changelog/harness/python-v1.50.0/index.md): Harness Python v1.50.0 (2026-07-24)
@@ -800,6 +813,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/python-v0.1.1/index.md): Harness Python v0.1.1 (2025-05-17)
   - [v0.1.0](https://strandsagents.com/changelog/harness/python-v0.1.0/index.md): Harness Python v0.1.0 (2025-05-16)
 - Harness TypeScript
+  - [v1.12.0](https://strandsagents.com/changelog/harness/typescript-v1.12.0/index.md): Harness TypeScript v1.12.0 (2026-08-07)
   - [v1.11.2](https://strandsagents.com/changelog/harness/typescript-v1.11.2/index.md): Harness TypeScript v1.11.2 (2026-07-27)
   - [v1.11.1](https://strandsagents.com/changelog/harness/typescript-v1.11.1/index.md): Harness TypeScript v1.11.1 (2026-07-24)
   - [v1.11.0](https://strandsagents.com/changelog/harness/typescript-v1.11.0/index.md): Harness TypeScript v1.11.0 (2026-07-24)
@@ -836,6 +850,7 @@
   - [v0.1.1](https://strandsagents.com/changelog/harness/typescript-v0.1.1/index.md): Harness TypeScript v0.1.1 (2025-12-03)
   - [v0.1.0](https://strandsagents.com/changelog/harness/typescript-v0.1.0/index.md): Harness TypeScript v0.1.0 (2025-12-03)
 - Evals
+  - [v1.1.0](https://strandsagents.com/changelog/evals/v1.1.0/index.md): Evals v1.1.0 (2026-08-07)
   - [v1.0.3](https://strandsagents.com/changelog/evals/v1.0.3/index.md): Evals v1.0.3 (2026-07-23)
   - [v1.0.2](https://strandsagents.com/changelog/evals/v1.0.2/index.md): Evals v1.0.2 (2026-07-09)
   - [v1.0.1](https://strandsagents.com/changelog/evals/v1.0.1/index.md): Evals v1.0.1 (2026-06-25)
