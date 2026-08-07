@@ -724,7 +724,6 @@ async def _stop_for_interrupts(
     """
     # Session state stored on AfterInvocationEvent.
     agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
-    agent._interrupt_state.has_pending_tool_execution = True
     agent._interrupt_state.activate()
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
@@ -867,7 +866,6 @@ async def _handle_tool_execution(
             # Persist pending interrupts before re-raising so they aren't lost.
             if interrupts:
                 agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
-                agent._interrupt_state.has_pending_tool_execution = True
                 agent._interrupt_state.activate()
             raise
 
@@ -892,8 +890,6 @@ async def _handle_tool_execution(
     # Reset interrupt state if tools ran so the next cycle starts clean.
     if not agent._cancel_signal.is_set():
         agent._interrupt_state.end_tool_cycle()
-    else:
-        agent._interrupt_state.has_pending_tool_execution = False
 
     await agent._append_messages(tool_result_message)
 

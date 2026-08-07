@@ -330,45 +330,6 @@ async def test_cancel_during_tool_interrupt_resume_preserves_interrupt_state():
     assert "tool_use_message" in agent._interrupt_state.context
 
 
-@pytest.mark.asyncio
-async def test_cancel_after_tool_completion_clears_pending_execution():
-    """Cancelling after tools complete clears has_pending_tool_execution so the next invocation doesn't replay."""
-
-    call_count = []
-
-    @tool
-    def slow_tool() -> str:
-        """A tool that completes despite a cancel signal."""
-        call_count.append(1)
-        return "done"
-
-    tool_use_response = {
-        "role": "assistant",
-        "content": [{"toolUse": {"toolUseId": "tool_1", "name": "slow_tool", "input": {}}}],
-    }
-    agent = Agent(
-        model=MockedModelProvider([tool_use_response, DEFAULT_RESPONSE, DEFAULT_RESPONSE]),
-        tools=[slow_tool],
-        callback_handler=None,
-    )
-
-    agent.hooks.add_callback(BeforeToolCallEvent, lambda event: event.interrupt("gate", reason="approve?"))
-
-    first = await agent.invoke_async("go")
-    assert first.stop_reason == "interrupt"
-    assert agent._interrupt_state.has_pending_tool_execution
-
-    def cancel_after_model(event):
-        agent.cancel()
-
-    agent.hooks.add_callback(AfterModelCallEvent, cancel_after_model)
-
-    await agent.invoke_async([{"interruptResponse": {"interruptId": first.interrupts[0].id, "response": "yes"}}])
-
-    assert len(call_count) == 1
-    assert not agent._interrupt_state.has_pending_tool_execution
-
-
 _CHARGE_TOOL_USE = {
     "role": "assistant",
     "content": [{"toolUse": {"toolUseId": "t1", "name": "charge_card", "input": {"amount": "$100"}}}],
