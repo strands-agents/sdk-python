@@ -344,6 +344,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # discussions: write lets gh release create open the linked
+      # announcement discussion.
+      discussions: write
       # actions: write lets this job dispatch the changelog-sync workflow below.
       actions: write
     steps:
@@ -364,6 +367,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NEW_TAG: ${{ needs.scan-commits.outputs.new_tag }}
           RELEASE_SHA: ${{ needs.scan-commits.outputs.release_sha }}
+          # Empty on forks: a fork may not have Discussions or this category
+          # configured, and an unknown category fails release creation.
+          DISCUSSION_CATEGORY: ${{ github.event.repository.fork != true && 'Announcements' || '' }}
         run: |
           set -euo pipefail
           # Push the tag over git rather than letting `gh release create
@@ -382,10 +388,13 @@ jobs:
           fi
 
           # Tag now exists on the remote, so this only attaches notes to it.
+          # The discussion flag posts the notes to the Discussions board as
+          # the release announcement.
           if ! gh release view "$NEW_TAG" >/dev/null 2>&1; then
             gh release create "$NEW_TAG" \
               --title "$NEW_TAG" \
-              --notes-file release-notes.md
+              --notes-file release-notes.md \
+              ${DISCUSSION_CATEGORY:+--discussion-category "$DISCUSSION_CATEGORY"}
           fi
 
       # Trigger the changelog sync directly. A release created with the built-in
