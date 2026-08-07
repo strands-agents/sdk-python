@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 _C = TypeVar("_C", bound=Mapping[str, object])
 
+# Default context window limit (in tokens) when the model does not report one.
+DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
+
 # Context window limits (in tokens) for known model IDs.
 #
 # Best-effort lookup table — unknown models return None and callers
