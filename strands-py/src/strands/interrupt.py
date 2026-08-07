@@ -57,6 +57,7 @@ class _InterruptState:
     interrupts: dict[str, Interrupt] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
     activated: bool = False
+    has_pending_tool_execution: bool = False
     _version: int = field(default=0, compare=False, repr=False)
 
     def activate(self) -> None:
@@ -72,6 +73,7 @@ class _InterruptState:
         self.interrupts = {}
         self.context = {}
         self.activated = False
+        self.has_pending_tool_execution = False
         self._version += 1
 
     def end_tool_cycle(self) -> None:
@@ -83,6 +85,7 @@ class _InterruptState:
         }
         self.context = {}
         self.activated = False
+        self.has_pending_tool_execution = False
         self._version += 1
 
     def end_interrupt_cycle(self) -> None:

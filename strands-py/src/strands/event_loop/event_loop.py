@@ -318,8 +318,12 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
-                # Emit after_model checkpoint, unless we just resumed from one or an interrupt.
-                if agent._checkpointing and not agent._cancel_signal.is_set() and not agent._interrupt_state.activated:
+                # Emit after_model checkpoint, unless we just resumed from one or a tool interrupt.
+                if (
+                    agent._checkpointing
+                    and not agent._cancel_signal.is_set()
+                    and not agent._interrupt_state.has_pending_tool_execution
+                ):
                     resume_position = agent._checkpoint_resume_position
                     agent._checkpoint_resume_position = None
                     if resume_position != "after_model":
@@ -720,6 +724,7 @@ async def _stop_for_interrupts(
     """
     # Session state stored on AfterInvocationEvent.
     agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+    agent._interrupt_state.has_pending_tool_execution = True
     agent._interrupt_state.activate()
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
@@ -862,6 +867,7 @@ async def _handle_tool_execution(
             # Persist pending interrupts before re-raising so they aren't lost.
             if interrupts:
                 agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+                agent._interrupt_state.has_pending_tool_execution = True
                 agent._interrupt_state.activate()
             raise
 
@@ -886,6 +892,8 @@ async def _handle_tool_execution(
     # Reset interrupt state if tools ran so the next cycle starts clean.
     if not agent._cancel_signal.is_set():
         agent._interrupt_state.end_tool_cycle()
+    else:
+        agent._interrupt_state.has_pending_tool_execution = False
 
     await agent._append_messages(tool_result_message)
 
