@@ -352,6 +352,7 @@ const stubGithub = (associated, prHeads = {}) => ({
     pulls: {
       get: async ({ pull_number: pullNumber }) => {
         const sha = prHeads[pullNumber]
+        if (sha instanceof Error) throw sha
         if (!sha) throw Object.assign(new Error('Not Found'), { status: 404 })
         return { data: { head: { sha } } }
       },
@@ -431,6 +432,24 @@ test('resolvePrNumber refuses a claim naming a PR that does not exist', async ()
     claimed: 99999,
   })
   assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+// A transient lookup failure must fail the run visibly rather than silently
+// skipping the labels — silent skipping is the bug this path exists to fix.
+test('resolvePrNumber rethrows transient lookup failures instead of refusing', async () => {
+  const core = stubCore()
+  const transient = Object.assign(new Error('Service Unavailable'), { status: 503 })
+  await assert.rejects(
+    resolvePrNumber({
+      github: stubGithub([], { 3704: transient }),
+      context: stubContext([], 'abc123'),
+      core,
+      claimed: 3704,
+    }),
+    /Service Unavailable/
+  )
+  assert.deepEqual(core.warnings, [])
 })
 
 test('resolvePrNumber refuses when a commit maps to several PRs and nothing is claimed', async () => {

@@ -91,9 +91,15 @@ export async function resolvePrNumber({ github, context, core, claimed }) {
         pull_number: claimed,
       })
       head = data.head.sha
-    } catch {
-      core.warning(`artifact claimed PR #${claimed}, which could not be looked up; not labeling`)
-      return null
+    } catch (error) {
+      // Only a 404 refutes the claim. Anything else (5xx, rate limit, network)
+      // is a transient lookup failure — rethrow so the run fails visibly and
+      // can be re-run, instead of silently skipping the labels.
+      if (error.status === 404) {
+        core.warning(`artifact claimed PR #${claimed}, which does not exist; not labeling`)
+        return null
+      }
+      throw error
     }
     if (head === run.head_sha) return claimed
     core.warning(`artifact claimed PR #${claimed}, whose head ${head} is not ${run.head_sha}; not labeling`)
