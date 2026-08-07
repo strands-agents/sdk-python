@@ -77,6 +77,14 @@ def _invoke_context(invocation_state, model, agent=None):
 # --- plugin identity ---
 
 
+def test_routing_surface_is_re_exported_from_strands_models():
+    import strands.models as models
+
+    for symbol in ("ModelRouter", "RoutingCandidate", "RoutingContext", "RoutingStrategy"):
+        assert getattr(models, symbol) is getattr(models.routing, symbol)
+        assert symbol in models.__all__
+
+
 def test_router_is_a_plugin_with_stable_name():
     router = ModelRouter(models=[_model()])
 
@@ -699,7 +707,7 @@ async def test_router_records_each_outcome_for_the_strategy():
 
     assert failure.retry is True
     assert state.candidate is router.candidates[1]  # FallbackStrategy moved on
-    assert [(a.candidate, type(a.error)) for a in state.attempts] == [(router.candidates[0], ValueError)]
+    assert [(a.candidate, type(a.exception)) for a in state.attempts] == [(router.candidates[0], ValueError)]
 
     await router._on_model_result(_model_result(invocation_state, agent))
 

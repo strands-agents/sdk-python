@@ -23,12 +23,13 @@ if TYPE_CHECKING:
 class RoutingAttempt:
     """A candidate this invocation already used, and how the call ended.
 
-    ``error`` is ``None`` when the call succeeded. Attempts are in chronological order, so a strategy
-    can tell a first failure from a repeated one and treat a candidate that recovered as healthy.
+    ``exception`` is ``None`` when the call succeeded, and is otherwise the same object
+    ``AfterModelCallEvent`` reports. Attempts are in chronological order, so a strategy can tell a
+    first failure from a repeated one and treat a candidate that recovered as healthy.
     """
 
     candidate: RoutingCandidate
-    error: Exception | None = None
+    exception: Exception | None = None
 
 
 @dataclass(frozen=True)

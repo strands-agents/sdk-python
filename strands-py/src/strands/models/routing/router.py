@@ -12,10 +12,10 @@ policy, so a strategy can change routing behavior without changing the router.
 The default ``FallbackStrategy`` follows declaration order, making ``ModelRouter(models=[a, b])``
 ordered failover, with two refinements: a successful call clears the failures recorded before it, so
 a candidate that failed earlier becomes eligible again, and candidates with more recorded failures
-are tried after healthier ones. A strategy that fails or declines the opening choice
-degrades to the first declared candidate; ``max_switches`` caps switches per invocation. A strategy
-that re-offers the candidate that just failed is taken to mean "stay here", so the model's error
-surfaces rather than the router resetting the retry budget again.
+are tried after healthier ones. A strategy that fails or declines the opening choice degrades to the
+first declared candidate; ``max_switches`` caps switches per invocation. A strategy that re-offers the
+candidate that just failed is taken to mean "stay here", so the model's error surfaces rather than the
+router resetting the retry budget again.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, so its strategy picks from a clean slate every time and the group performs no internal
@@ -35,7 +35,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from ..._middleware.stages import InvokeModelStage
 from ...hooks.events import AfterInvocationEvent, AfterModelCallEvent, BeforeInvocationEvent
@@ -64,9 +64,6 @@ class RoutingCandidate:
     description: str | None = None
 
 
-CandidateInput = Union[Model, "ModelRouter", RoutingCandidate]
-
-_ROUTER_PLUGIN_NAME = "strands:model-router"
 _ROUTING_KEY_PREFIX = "strands:model_routing"
 
 
@@ -95,7 +92,7 @@ class FallbackStrategy:
         """Return the least-failed candidate not yet tried since the last success, else ``None``."""
         failures: dict[int, int] = {}
         for attempt in context.attempts:
-            if attempt.error is None:
+            if attempt.exception is None:
                 failures.pop(id(attempt.candidate), None)
             else:
                 failures[id(attempt.candidate)] = failures.get(id(attempt.candidate), 0) + 1
@@ -109,6 +106,8 @@ class FallbackStrategy:
 
 class ModelRouter(Plugin):
     """A reusable set of candidate models routed in strategy-defined preference order."""
+
+    name = "strands:model-router"
 
     def __init__(
         self,
@@ -152,11 +151,6 @@ class ModelRouter(Plugin):
         self._candidates = candidates
         self._strategy: RoutingStrategy = strategy or FallbackStrategy()
         self._max_switches = max_switches
-
-    @property
-    def name(self) -> str:
-        """Stable plugin identifier."""
-        return _ROUTER_PLUGIN_NAME
 
     @property
     def candidates(self) -> tuple[RoutingCandidate, ...]:
@@ -232,7 +226,7 @@ class ModelRouter(Plugin):
                     _candidate_label(candidate),
                     error,
                 )
-                attempts.append(RoutingAttempt(candidate=candidate, error=error))
+                attempts.append(RoutingAttempt(candidate=candidate, exception=error))
                 errors.append(error)
 
         raise errors[-1]
@@ -322,7 +316,7 @@ class ModelRouter(Plugin):
         if event.retry or event.exception is None:
             return
 
-        state.attempts.append(RoutingAttempt(candidate=state.candidate, error=event.exception))
+        state.attempts.append(RoutingAttempt(candidate=state.candidate, exception=event.exception))
         if self._max_switches is not None and state.switches >= self._max_switches:
             logger.warning("max_switches=<%d> | switch cap reached, leaving the error to surface", self._max_switches)
             return
@@ -351,7 +345,7 @@ class ModelRouter(Plugin):
                     _candidate_label(candidate),
                     error,
                 )
-                state.attempts.append(RoutingAttempt(candidate=candidate, error=error))
+                state.attempts.append(RoutingAttempt(candidate=candidate, exception=error))
                 continue
 
             # Re-offering the candidate that just failed means "stay here". Treating it as a switch
@@ -425,10 +419,14 @@ class ModelRouter(Plugin):
         )
 
 
+CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
+"""What ``ModelRouter(models=...)`` accepts for each candidate."""
+
+
 def _attempts_since_success(attempts: Sequence[RoutingAttempt]) -> Sequence[RoutingAttempt]:
     """Return the trailing attempts that all failed, dropping everything up to the last success."""
     for index in range(len(attempts) - 1, -1, -1):
-        if attempts[index].error is None:
+        if attempts[index].exception is None:
             return attempts[index + 1 :]
     return attempts
 
