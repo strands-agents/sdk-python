@@ -381,3 +381,62 @@ async def test_hook_cancelled_tool_batch_does_not_replay_the_stored_tool_use():
     assert not agent._interrupt_state.activated
     assert not agent._interrupt_state.context
     assert not agent._interrupt_state.interrupts
+
+
+def _approver_agent(ran, cancel_on_first_run=False):
+    @tool(context=True)
+    def approver(tool_context) -> str:
+        """Require approval before doing the work."""
+        tool_context.interrupt("approve", reason="proceed?")
+        ran.append("executed")
+        if cancel_on_first_run and len(ran) == 1:
+            tool_context.agent.cancel()
+        return "done"
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [{"toolUse": {"toolUseId": "tool_1", "name": "approver", "input": {}}}],
+    }
+
+    return Agent(
+        model=MockedModelProvider([tool_use_response, DEFAULT_RESPONSE] * 3),
+        tools=[approver],
+        callback_handler=None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_tool_runs_still_executes_the_approved_tool():
+    """A cancel that lands before the tool runs must not consume the approval."""
+    ran: list[str] = []
+    agent = _approver_agent(ran)
+
+    interrupted = await agent.invoke_async("go")
+    response = [{"interruptResponse": {"interruptId": interrupted.interrupts[0].id, "response": "go"}}]
+
+    agent.cancel()
+    cancelled = await agent.invoke_async(response)
+    assert cancelled.stop_reason == "cancelled"
+    assert ran == []
+
+    agent._cancel_signal.clear()
+    await agent.invoke_async(response)
+    assert ran == ["executed"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_while_tool_runs_does_not_re_execute_the_tool():
+    """A cancel that lands while the tool runs must not replay the completed tool."""
+    ran: list[str] = []
+    agent = _approver_agent(ran, cancel_on_first_run=True)
+
+    interrupted = await agent.invoke_async("go")
+    response = [{"interruptResponse": {"interruptId": interrupted.interrupts[0].id, "response": "go"}}]
+
+    cancelled = await agent.invoke_async(response)
+    assert cancelled.stop_reason == "cancelled"
+    assert ran == ["executed"]
+
+    agent._cancel_signal.clear()
+    await agent.invoke_async(response)
+    assert ran == ["executed"]
