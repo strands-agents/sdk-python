@@ -351,27 +351,24 @@ class GeminiModel(Model):
         tool_config = self._format_tool_choice(tool_choice) if tool_specs else None
         if tool_config is not None:
             # A tool config set in params wins, matching the other providers and the TypeScript SDK. A tool
-            # config expresses more than a ToolChoice, so the explicit one is left whole rather than
+            # config expresses more than a ToolChoice can, so the explicit one is left whole rather than
             # merged with, or replaced by, the narrower per-request choice.
             config_params.setdefault("tool_config", tool_config)
 
         if tool_specs and self.config.get("gemini_tools") and not is_vertex:
             # Gemini requires this flag when server-side built-in tools and function declarations are combined.
-            # Preserve any caller-supplied function-calling or retrieval settings.
+            # An explicit params key, including None, owns the request. Normalize a supplied dict through
+            # the SDK so both snake_case and the REST-facing camelCase aliases work.
             existing_tool_config = config_params.get("tool_config")
             if "tool_config" not in config_params:
                 config_params["tool_config"] = genai.types.ToolConfig(include_server_side_tool_invocations=True)
-            elif isinstance(existing_tool_config, genai.types.ToolConfig):
-                if existing_tool_config.include_server_side_tool_invocations is None:
-                    config_params["tool_config"] = existing_tool_config.model_copy(
-                        update={"include_server_side_tool_invocations": True},
-                    )
-            elif isinstance(existing_tool_config, dict):
+            elif existing_tool_config is not None:
                 merged_tool_config = genai.types.ToolConfig.model_validate(existing_tool_config)
                 if merged_tool_config.include_server_side_tool_invocations is None:
-                    config_params["tool_config"] = merged_tool_config.model_copy(
+                    merged_tool_config = merged_tool_config.model_copy(
                         update={"include_server_side_tool_invocations": True},
                     )
+                config_params["tool_config"] = merged_tool_config
 
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -625,7 +622,7 @@ class GeminiModel(Model):
             system_prompt,
             self.config.get("params"),
             tool_choice=tool_choice,
-            is_vertex=bool(getattr(gemini_client, "vertexai", False)),
+            is_vertex=getattr(gemini_client, "vertexai", False) is True,
         )
 
         client = gemini_client.aio
