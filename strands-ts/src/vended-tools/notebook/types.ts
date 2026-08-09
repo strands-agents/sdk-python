@@ -45,12 +45,15 @@ export interface ReadInput {
  * Input parameters for write operation (append to the end).
  * - mode: Operation mode, must be 'write'
  * - name: Name of the notebook to append to
- * - newStr: Text to append to the end of the notebook
+ * - newStr: Text to append. A newline separator is added only when the notebook is non-empty and
+ *   does not already end in one; an empty string is a no-op.
  */
 export interface WriteAppendInput {
   mode: 'write'
   name?: string
   newStr: string
+  oldStr?: never
+  insertLine?: never
 }
 
 /**

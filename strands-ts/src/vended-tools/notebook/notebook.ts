@@ -66,7 +66,7 @@ const notebookInputSchema = z
 export const notebook = tool({
   name: 'notebook',
   description:
-    'Manages text notebooks for note-taking and documentation. Supports create, list, read, write (append, replace, or insert), and clear operations. In write mode: newStr alone appends to the end; newStr with oldStr replaces matching text; newStr with insertLine inserts at a position. The notebook must already exist—use create first if you are not sure it does. Notebooks persist within the agent invocation.',
+    'Manages text notebooks for note-taking and documentation. Supports create, list, read, write (append, replace, or insert), and clear operations. In write mode: newStr alone appends to the end; newStr with oldStr replaces matching text; newStr with insertLine inserts at a position. A write only succeeds on a notebook that already exists: use list to check, or create to start a new one (create replaces any existing content). Notebooks persist within the agent invocation.',
   inputSchema: notebookInputSchema,
   callback: (input, context) => {
     if (!context) {

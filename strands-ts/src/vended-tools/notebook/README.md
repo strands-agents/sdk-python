@@ -79,7 +79,7 @@ The agent can perform these operations through natural language:
 - **Write**:
   - Append: "Append 'new line' to the notes notebook"
   - Replace: "Replace 'old text' with 'new text' in notes"
-  - Insert: "Add 'new line' to the notes notebook"
+  - Insert: "Insert 'new line' after 'old line' in notes"
 - **Clear**: "Clear the notes notebook"
 
 ## Example: Building a Task Manager
