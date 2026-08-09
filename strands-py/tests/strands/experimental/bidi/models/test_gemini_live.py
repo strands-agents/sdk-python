@@ -571,9 +571,7 @@ async def test_event_conversion(mock_genai_client, model, live_message, server_c
 
 
 @pytest.mark.asyncio
-async def test_usage_metadata_emitted_alongside_audio(
-    mock_genai_client, model, live_message, usage_metadata
-):
+async def test_usage_metadata_emitted_alongside_audio(mock_genai_client, model, live_message, usage_metadata):
     """Usage metadata accompanying content is emitted, not dropped.
 
     Guards https://github.com/strands-agents/harness-sdk/issues/3745 — usageMetadata sits outside the
@@ -587,10 +585,13 @@ async def test_usage_metadata_emitted_alongside_audio(
     events = model._convert_gemini_live_event(message)
 
     assert [type(event) for event in events] == [BidiAudioStreamEvent, BidiUsageEvent]
-    usage_event = events[1]
-    assert usage_event.input_tokens == 10
-    assert usage_event.output_tokens == 20
-    assert usage_event.total_tokens == 30
+    assert events[1] == BidiUsageEvent(
+        input_tokens=10,
+        output_tokens=20,
+        total_tokens=30,
+        modality_details=None,
+        cache_read_input_tokens=None,
+    )
 
     await model.stop()
 
@@ -615,7 +616,15 @@ async def test_usage_metadata_emitted_alongside_session_resumption(
     events = model._convert_gemini_live_event(message)
 
     assert model._live_session_handle == "handle-1"
-    assert [type(event) for event in events] == [BidiUsageEvent]
+    assert events == [
+        BidiUsageEvent(
+            input_tokens=10,
+            output_tokens=20,
+            total_tokens=30,
+            modality_details=None,
+            cache_read_input_tokens=None,
+        )
+    ]
 
     await model.stop()
 
@@ -644,10 +653,15 @@ async def test_usage_metadata_modality_details(mock_genai_client, model, live_me
 
     events = model._convert_gemini_live_event(message)
 
-    assert [type(event) for event in events] == [BidiUsageEvent]
-    usage_event = events[0]
-    assert usage_event.modality_details == [{"modality": "audio", "input_tokens": 7, "output_tokens": 9}]
-    assert usage_event.cache_read_input_tokens == 4
+    assert events == [
+        BidiUsageEvent(
+            input_tokens=10,
+            output_tokens=20,
+            total_tokens=30,
+            modality_details=[{"modality": "audio", "input_tokens": 7, "output_tokens": 9}],
+            cache_read_input_tokens=4,
+        )
+    ]
 
     await model.stop()
 
@@ -668,9 +682,7 @@ async def test_interruption_emitted_alongside_other_server_content(
     mock_output_transcript.text = "partial reply"
     mock_output_transcript.finished = False
 
-    message = live_message(
-        server_content=server_content(interrupted=True, output_transcription=mock_output_transcript)
-    )
+    message = live_message(server_content=server_content(interrupted=True, output_transcription=mock_output_transcript))
 
     events = model._convert_gemini_live_event(message)
 
