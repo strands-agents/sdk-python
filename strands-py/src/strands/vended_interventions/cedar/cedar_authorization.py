@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from datetime import datetime as dt
 from datetime import timezone
@@ -124,8 +125,11 @@ class CedarAuthorization(InterventionHandler):
         """
         if principal and principal_resolver:
             raise ValueError("Provide either `principal` or `principal_resolver`, not both")
-        if namespace and _has_quotes(namespace):
-            raise ValueError("Namespace must not contain double quotes")
+        if namespace and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", namespace):
+            raise ValueError(
+                f"Namespace must be a single Cedar identifier, got {namespace!r}. "
+                "Multi-segment namespaces (e.g. 'Org::App') are not supported."
+            )
 
         self._policy_source = policies
         self._entity_source = entities

@@ -150,6 +150,18 @@ When `namespace` is set:
 
 Schema generation also uses the configured namespace, so `tools` and `namespace` work together correctly.
 
+The namespace must be a single Cedar identifier such as `Agent`. Multi-segment
+namespaces such as `Org::App` are not supported.
+
+:::caution
+Setting `namespace` re-types the principal and resource. Migrate every unnamespaced
+entity reference, including references in `when` and `unless` conditions, entity
+identifiers, and any principal supplied through `principal` or
+<Syntax py="principal_resolver" ts="principalResolver" />. Supplied principals are not
+namespaced automatically, and the resource identifier changes from `agent` to `default`.
+A stale reference in a condition fails silently, which can turn a `forbid` into a no-op.
+:::
+
 ## Environment gating
 
 Block tools based on deployment context by forwarding environment metadata through <Syntax py="context_enricher" ts="contextEnricher" />:

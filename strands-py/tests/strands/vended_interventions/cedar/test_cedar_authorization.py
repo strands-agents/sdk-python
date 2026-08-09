@@ -155,11 +155,41 @@ class TestNamespace:
 
         assert result.type == "deny"
 
-    def test_namespace_with_quotes_is_rejected(self):
-        with pytest.raises(ValueError, match="Namespace must not contain double quotes"):
+    @pytest.mark.parametrize("namespace", ['Agent"Injected', "Org::App", " Agent ", "Agent\n"])
+    def test_invalid_namespace_is_rejected(self, namespace):
+        with pytest.raises(ValueError, match="Namespace must be a single Cedar identifier"):
             CedarAuthorization(
-                namespace='Agent"Injected',
+                namespace=namespace,
                 policies="permit(principal, action, resource);",
+            )
+
+    def test_namespace_with_tools_generates_and_validates_namespaced_schema(self):
+        pytest.importorskip("cedar_mcp_schema_generator")
+        cedar = CedarAuthorization(
+            namespace="MyApp",
+            policies='permit(principal, action == MyApp::Action::"search", resource);',
+            tools=[
+                {
+                    "name": "search",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"query": {"type": "string"}},
+                    },
+                }
+            ],
+        )
+
+        result = cedar.before_tool_call(_make_event("search", {"query": "x"}))
+
+        assert result.type == "proceed"
+
+    def test_namespace_with_tools_rejects_unknown_action(self):
+        pytest.importorskip("cedar_mcp_schema_generator")
+        with pytest.raises(ValueError, match="unrecognized action"):
+            CedarAuthorization(
+                namespace="MyApp",
+                policies='permit(principal, action == MyApp::Action::"serach", resource);',
+                tools=[{"name": "search", "inputSchema": {"type": "object"}}],
             )
 
 
