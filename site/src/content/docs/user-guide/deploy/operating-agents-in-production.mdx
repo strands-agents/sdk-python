@@ -71,8 +71,8 @@ that match the request's service-level objective and cost budget, then monitor
 how often each limit is reached. A useful baseline covers four independent
 dimensions:
 
-1. **Agent loop iterations**: Set per-invocation turn limits with the `limits`
-   argument in Python or the `limits` option in TypeScript. A turn limit bounds
+1. **Agent loop iterations**: Set per-invocation turn limits by passing
+   `limits`, which is named the same in both SDKs. A turn limit bounds
    repeated model and tool cycles and prevents an agent from running
    indefinitely.
 2. **Tool invocations**: Put quotas around tools that are costly, rate-limited,
@@ -81,12 +81,14 @@ dimensions:
    invocation.
 3. **Token consumption**: Use the invocation's total-token and output-token
    limits for an end-to-end budget. Also configure the model's
-   `max_tokens`/`maxTokens` setting to cap a single response. Invocation token
+   <Syntax py="max_tokens" ts="maxTokens" /> setting to cap a single response.
+   Invocation token
    limits are checked between turns, so one model call can exceed the configured
    total before the loop stops.
 4. **Wall-clock time**: Enforce a deadline outside the invocation and cancel the
    agent when it expires. Python can call `agent.cancel()` from a watchdog;
-   TypeScript can pass an `AbortSignal` or call `agent.cancel()`. Cancellation is
+   TypeScript can pass a `cancelSignal` to `invoke()`/`stream()` (for example,
+   `AbortSignal.timeout(30_000)`) or call `agent.cancel()`. Cancellation is
    cooperative for work already running inside a tool, so propagate the same
    deadline to downstream network calls and blocking operations.
 
