@@ -3,10 +3,11 @@
 Mantle serves each model from exactly one base path (``/v1`` or ``/openai/v1``), rejects
 the other with HTTP 400, and exposes no API that reports the routing, so
 :data:`strands.models._openai_bedrock._OPENAI_PATH_MODEL_PREFIXES` goes stale whenever Mantle
-onboards a model. For every model in the live catalog, this test probes the resolved path
-first and the alternate on failure. A 200 from the resolved path or a definitive rejection
-from the alternate confirms the mapping; other outcomes are retried and fail as
-undetermined when neither path supplies definitive routing evidence.
+onboards a model. For every model in the live catalog, this test asserts that the
+resolved path serves it, probing the other path only on failure to distinguish misrouted
+from unserved ids. Only HTTP 200 and 400 count as answers; any other status is retried
+and, if it persists, fails the test as undetermined. The integration-test retry policy
+gives transient external-service failures one more sweep before they hold the gate.
 
 Failure means the table needs updating, not that the SDK is broken for existing models.
 """
@@ -22,6 +23,7 @@ from typing import NoReturn
 import pytest
 
 from strands.models._openai_bedrock import _resolve_mantle_base_path, resolve_bedrock_client_args
+from tests_integ.conftest import retry_on_flaky
 
 _REGION = "us-east-1"
 _BASE = f"https://bedrock-mantle.{_REGION}.api.aws"
@@ -125,6 +127,11 @@ def _serves(base_path: str, model_id: str, token: str) -> bool | None:
     return False if determined else None
 
 
+@retry_on_flaky(
+    "Mantle models can be transiently unavailable during a catalog sweep",
+    max_attempts=2,
+    retry_on=["Mantle never returned a definitive 200/400"],
+)
 @pytest.mark.timeout(600)
 def test_mantle_base_path_table_matches_live_catalog():
     """Every live Mantle model is routed to the base path it is actually served from.
@@ -155,10 +162,6 @@ def test_mantle_base_path_table_matches_live_catalog():
         on_other = _serves(other, model_id, _mint_token())
         if on_other:
             return model_id, "misrouted", resolved
-        # A definitive rejection from the alternate path confirms the routing table even
-        # when model invocation on the resolved path is transiently unavailable.
-        if on_resolved is None and on_other is False:
-            return model_id, "ok", resolved
         if on_resolved is None or on_other is None:
             return model_id, "undetermined", resolved
         return model_id, "unserved", resolved
@@ -172,9 +175,9 @@ def test_mantle_base_path_table_matches_live_catalog():
     # Checked first so an inconclusive probe cannot read as a clean sweep.
     undetermined = ids("undetermined")
     assert not undetermined, (
-        "Mantle did not return enough definitive 200/400 responses to verify routing for "
-        "these models (transient 429/5xx/timeout, or permanent 401/403/404; check model "
-        f"entitlement): {undetermined}"
+        "Mantle never returned a definitive 200/400 for these models, so their routing "
+        "could not be verified (transient 429/5xx/timeout, or permanent 401/403/404; "
+        f"check model entitlement): {undetermined}"
     )
 
     misrouted = ids("misrouted")
@@ -190,27 +193,4 @@ def test_mantle_base_path_table_matches_live_catalog():
         "path, so OpenAIModel cannot reach them at all. They likely speak another "
         "protocol (as anthropic.* does via /anthropic/v1/messages) and need adding to "
         f"_NOT_OPENAI_COMPATIBLE_PREFIXES: {unserved}"
-    )
-
-
-@pytest.mark.timeout(240)
-@pytest.mark.parametrize(
-    "model_id",
-    ["xai.grok-4.3", "google.gemma-4-31b", "google.gemma-3-27b-it", "openai.gpt-oss-120b"],
-)
-def test_mantle_regression_model_uses_resolved_base_path(model_id):
-    """Each regression-case model confirms the resolved path or rejects the alternate."""
-    token = _token_or_skip()
-    if model_id not in _list_models(token):
-        pytest.skip(f"{model_id} is not in the {_REGION} catalog")
-
-    resolved = _resolve_mantle_base_path(model_id)
-    on_resolved = _serves(resolved, model_id, token)
-    if on_resolved is True:
-        return
-
-    other = "/openai/v1" if resolved == "/v1" else "/v1"
-    on_other = _serves(other, model_id, token)
-    assert on_resolved is None and on_other is False, (
-        f"{model_id} did not confirm routing to {resolved}: resolved={on_resolved}, alternate={on_other}"
     )
