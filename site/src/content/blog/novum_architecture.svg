@@ -1,0 +1,97 @@
+<svg viewBox="0 0 880 420" xmlns="http://www.w3.org/2000/svg" style="background:#0d1117; border-radius:8px; padding:20px;">
+  <!-- Defs -->
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
+    </marker>
+    <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#484f58"/>
+    </marker>
+  </defs>
+
+  <!-- Background regions -->
+  <!-- Agent Pool box -->
+  <rect x="280" y="60" width="380" height="240" rx="8" fill="none" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <text x="470" y="85" text-anchor="middle" font-size="11" fill="#8b949e" font-weight="500">STRANDS AGENT POOL</text>
+
+  <!-- User / UX -->
+  <rect x="20" y="145" width="90" height="50" rx="6" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
+  <text x="65" y="175" text-anchor="middle" font-size="12" fill="#e6edf3" font-weight="500">User / UX</text>
+
+  <!-- Figma -->
+  <rect x="20" y="280" width="90" height="50" rx="6" fill="#1c2128" stroke="#a371f7" stroke-width="1.5"/>
+  <text x="65" y="310" text-anchor="middle" font-size="12" fill="#a371f7" font-weight="500">Figma</text>
+
+  <!-- Figma MCP -->
+  <rect x="155" y="280" width="90" height="50" rx="6" fill="#1a1226" stroke="#a371f7" stroke-width="1"/>
+  <text x="200" y="302" text-anchor="middle" font-size="11" fill="#a371f7">Figma</text>
+  <text x="200" y="318" text-anchor="middle" font-size="11" fill="#a371f7">MCP</text>
+
+  <!-- Orchestrator -->
+  <rect x="155" y="145" width="100" height="50" rx="6" fill="#0d2136" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="205" y="167" text-anchor="middle" font-size="11" fill="#58a6ff" font-weight="500">Agent</text>
+  <text x="205" y="183" text-anchor="middle" font-size="11" fill="#58a6ff" font-weight="500">Orchestrator</text>
+
+  <!-- Code Generation Agent -->
+  <rect x="310" y="105" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
+  <text x="370" y="125" text-anchor="middle" font-size="11" fill="#58a6ff">Code</text>
+  <text x="370" y="140" text-anchor="middle" font-size="11" fill="#58a6ff">Generation</text>
+
+  <!-- Design Extractor Agent -->
+  <rect x="310" y="170" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
+  <text x="370" y="190" text-anchor="middle" font-size="11" fill="#58a6ff">Design</text>
+  <text x="370" y="205" text-anchor="middle" font-size="11" fill="#58a6ff">Extractor</text>
+
+  <!-- QA Testing Agent -->
+  <rect x="310" y="235" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
+  <text x="370" y="255" text-anchor="middle" font-size="11" fill="#58a6ff">QA</text>
+  <text x="370" y="270" text-anchor="middle" font-size="11" fill="#58a6ff">Testing</text>
+
+  <!-- Planning Agent -->
+  <rect x="460" y="105" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
+  <text x="520" y="125" text-anchor="middle" font-size="11" fill="#58a6ff">Planning</text>
+  <text x="520" y="140" text-anchor="middle" font-size="11" fill="#58a6ff">&amp; Research</text>
+
+  <!-- Measurement Agent -->
+  <rect x="460" y="170" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
+  <text x="520" y="190" text-anchor="middle" font-size="11" fill="#58a6ff">Measurement</text>
+  <text x="520" y="205" text-anchor="middle" font-size="11" fill="#58a6ff">&amp; Metrics</text>
+
+  <!-- Title Agent (small, off to side) -->
+  <rect x="460" y="235" width="120" height="45" rx="5" fill="#161b22" stroke="#484f58" stroke-width="1"/>
+  <text x="520" y="255" text-anchor="middle" font-size="10" fill="#8b949e">Title Agent</text>
+  <text x="520" y="269" text-anchor="middle" font-size="9" fill="#484f58">(Haiku — parallel)</text>
+
+  <!-- Output: REC Code -->
+  <rect x="700" y="120" width="100" height="50" rx="6" fill="#0b2e1a" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="750" y="142" text-anchor="middle" font-size="11" fill="#3fb950">Layout</text>
+  <text x="750" y="158" text-anchor="middle" font-size="11" fill="#3fb950">Code</text>
+
+  <!-- Output: Adaptive Renderer -->
+  <rect x="700" y="200" width="100" height="50" rx="6" fill="#0b2e1a" stroke="#3fb950" stroke-width="1"/>
+  <text x="750" y="222" text-anchor="middle" font-size="11" fill="#3fb950">Adaptive</text>
+  <text x="750" y="238" text-anchor="middle" font-size="11" fill="#3fb950">Renderer</text>
+
+  <!-- Data Store -->
+  <rect x="340" y="340" width="260" height="60" rx="6" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
+  <text x="470" y="365" text-anchor="middle" font-size="11" fill="#8b949e">Bedrock Knowledge Base  •  S3  •  DynamoDB</text>
+  <text x="470" y="383" text-anchor="middle" font-size="10" fill="#484f58">UX Guidelines • Component Rules • Layout Metadata</text>
+
+  <!-- Arrows -->
+  <!-- User -> Orchestrator -->
+  <line x1="110" y1="170" x2="152" y2="170" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Figma -> Figma MCP -->
+  <line x1="110" y1="305" x2="152" y2="305" stroke="#a371f7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Figma MCP -> Agent Pool -->
+  <line x1="245" y1="295" x2="307" y2="260" stroke="#a371f7" stroke-width="1" marker-end="url(#arrow)"/>
+  <!-- Orchestrator -> Agent Pool -->
+  <line x1="255" y1="170" x2="307" y2="145" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Agent Pool -> Output -->
+  <line x1="580" y1="140" x2="697" y2="140" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="580" y1="195" x2="697" y2="220" stroke="#3fb950" stroke-width="1" marker-end="url(#arrow)"/>
+  <!-- Agent Pool -> Data Store -->
+  <line x1="470" y1="300" x2="470" y2="337" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)" stroke-dasharray="3,2"/>
+
+  <!-- Model labels -->
+  <text x="370" y="310" text-anchor="middle" font-size="9" fill="#484f58">Opus 4 (code gen) • Sonnet 4 (orchestration) • Haiku 3 (title)</text>
+</svg>
