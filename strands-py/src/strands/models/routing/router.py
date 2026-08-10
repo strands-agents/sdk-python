@@ -14,10 +14,10 @@ The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter([a, b])
 failover until a candidate starts failing repeatedly; see ``fallback_strategy`` for what it decides
 and when it departs from declaration order. A strategy that fails or declines the opening
 choice degrades to the first declared candidate it has not already tried; ``max_switches`` caps
-switches per invocation. A strategy that re-offers a candidate already tried since the last success is
-taken to mean "stay here", so the model's error surfaces rather than the router resetting the retry
-budget again. That bound does not depend on the strategy: each candidate is switched to at most once
-per failure round, so a strategy that alternates candidates terminates rather than cycling forever.
+switches per invocation. Forward progress does not depend on the strategy: a failure round switches to
+each candidate at most once, so offering one the round already used costs an ask rather than the model
+call, and a strategy that cycles runs out instead of resetting the retry budget forever. A success
+clears the round. Once no candidate is left to switch to, the model's error surfaces.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, so its strategy picks from a clean slate every time and the group performs no internal
@@ -45,7 +45,7 @@ from ...hooks.registry import HookOrder
 from ...plugins.plugin import Plugin
 from ..model import Model
 from .fallback_strategy import FallbackStrategy
-from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy, _attempts_since_success
+from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
 
 if TYPE_CHECKING:
     from ..._middleware.stages import InvokeModelContext
@@ -76,14 +76,16 @@ _ROUTING_KEY_PREFIX = "strands:model_routing"
 class _RoutingState:
     """Per-invocation routing state for one agent/router pair.
 
-    ``attempts`` is the record the strategy reads to make its next decision. The router appends to it
-    and reads it only to bound the invocation -- it never uses it to choose. ``switches`` counts model
+    ``attempts`` is the record the strategy reads to make its next decision; the router appends to it
+    but never reads it. ``switched_to`` holds the ids of candidates this failure round has already
+    switched to, which is what bounds the round, and is cleared by a success. ``switches`` counts model
     changes so ``max_switches`` can cap them.
     """
 
     candidate: RoutingCandidate
     model: Model
     attempts: list[RoutingAttempt] = field(default_factory=list)
+    switched_to: set[int] = field(default_factory=set)
     switches: int = 0
 
 
@@ -293,7 +295,9 @@ class ModelRouter(Plugin):
                     context.invocation_state,
                 )
                 candidate, model, attempts = await self._open(routing_context)
-                state = _RoutingState(candidate=candidate, model=model, attempts=attempts)
+                # The opening candidate counts as used for this round, so a strategy cannot cycle
+                # back onto it and hand it a second retry budget.
+                state = _RoutingState(candidate=candidate, model=model, attempts=attempts, switched_to={id(candidate)})
                 context.invocation_state[key] = state
             context.model = state.model
             return context
@@ -307,6 +311,7 @@ class ModelRouter(Plugin):
             return
         if event.stop_response is not None:
             state.attempts.append(RoutingAttempt(candidate=state.candidate))
+            state.switched_to.clear()
             return
         if event.retry or event.exception is None:
             return
@@ -317,13 +322,9 @@ class ModelRouter(Plugin):
             return
         previous = state.candidate
 
-        # Copied once per failure: the request does not change while the loop skips candidates, only
-        # the attempt log does.
-        request = self._routing_context_from_agent(event.agent, event.invocation_state)
-
-        # Bounded by the candidate count so a strategy repeating one unresolvable choice cannot spin.
+        # Bounded by the candidate count: each pass either switches, stops, or burns one candidate.
         for _ in range(len(self._candidates)):
-            routing_context = replace(request, attempts=tuple(state.attempts))
+            routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
             try:
                 selection = await self._strategy.select(routing_context)
             except Exception as error:
@@ -336,6 +337,18 @@ class ModelRouter(Plugin):
             candidate = self._validated(selection, routing_context)
             if candidate is None:
                 return
+
+            # Forward progress cannot depend on the strategy: a round switches to each candidate at
+            # most once, so a strategy that keeps offering used candidates runs out instead of
+            # resetting the retry budget forever. A success clears the round. Checked before
+            # resolving, since resolving a nested candidate asks its strategy and can write state.
+            if id(candidate) in state.switched_to:
+                logger.debug(
+                    "candidate=<%s> | already switched to this round, asking again",
+                    _candidate_label(candidate),
+                )
+                continue
+
             try:
                 model = await self._resolve(candidate, routing_context)
             except Exception as error:
@@ -347,17 +360,6 @@ class ModelRouter(Plugin):
                 state.attempts.append(RoutingAttempt(candidate=candidate, exception=error))
                 continue
 
-            # Forward progress cannot depend on the strategy: each candidate is switched to at most
-            # once per failure round, so an alternating strategy terminates instead of resetting the
-            # retry budget forever. A success clears the round, which is what re-arms a candidate.
-            if id(candidate) in {id(attempt.candidate) for attempt in _attempts_since_success(state.attempts)}:
-                logger.info(
-                    "candidate=<%s> | strategy re-offered a candidate already tried this round, "
-                    "leaving the error to surface",
-                    _candidate_label(candidate),
-                )
-                return
-
             logger.info(
                 "from_candidate=<%s>, to_candidate=<%s>, error=<%s> | model call failed, switching candidate",
                 _candidate_label(previous),
@@ -366,12 +368,18 @@ class ModelRouter(Plugin):
             )
             state.candidate = candidate
             state.model = model
+            state.switched_to.add(id(candidate))
             state.switches += 1
             # Reaches into ModelRetryStrategy: no public seam for a budget reset exists yet, so this
             # breaks if _retry.py renames it. Tracked as a follow-up in team/designs/0016-model-routing.md.
             event.agent._retry_strategy._reset_retry_state()
             event.retry = True
             return
+
+        logger.warning(
+            "strategy=<%s> | no candidate left to switch to this round, leaving the error to surface",
+            self._strategy_name,
+        )
 
     # ---- Per-invocation state and context ----
 

@@ -85,9 +85,15 @@ class RoutingStrategy(Protocol):
         routing and lets the model's error surface.
 
         The return value must be one of the ``context.candidates`` instances -- the router matches by
-        identity, so an equal-looking ``RoutingCandidate`` built here is rejected. A candidate already
-        tried since the last success is read as declining to move, which is what bounds an invocation,
-        so failing over means offering a candidate this round has not used.
+        identity, so an equal-looking ``RoutingCandidate`` built here is rejected.
+
+        One router rule constrains the answer, and it is predictable from ``context.attempts``: a
+        failure round switches to each candidate at most once, where a round is the run of failures
+        since the last success. Naming a candidate the round already switched to is not an error and
+        costs no model call -- the router simply asks again -- but it cannot be used to re-run that
+        candidate, so a strategy that judges a failure transient should offer a different candidate and
+        wait for the success that clears the round. When nothing is left to switch to, the model's
+        error surfaces.
 
         Failover is this method's job: the router applies what is returned and never substitutes a
         candidate of its own, so a strategy that ignores ``context.attempts`` gets no failover. Wrap or

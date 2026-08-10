@@ -46,7 +46,7 @@ Routing decides among concrete **`Model` instances** in the SDK. Selection defau
 
 **The unit of routing is a `Model`.** A concrete `Model` is already the amalgamation of provider and model: it encapsulates the provider, its model id, region, and configuration, which is the typed-SDK equivalent of the `provider/model` string that LiteLLM and OpenRouter route over. Candidates can therefore represent models on one provider (`BedrockModel("haiku")`, `BedrockModel("sonnet")`), the same model through different providers (`BedrockModel("sonnet")`, `AnthropicModel("sonnet")`), regional copies, or configuration variants. A server-routed endpoint such as Bedrock intelligent prompt routing is likewise one candidate `Model`. The router does not parse `provider/model` strings itself; resolving such a string to a `Model` is a model-construction concern that the router consumes as a candidate. Traffic-aware load balancing across a deployment pool remains gateway territory because it needs a fleet-wide view.
 
-Three strategies ship in v1, chosen so each of the objectives the SDK can act on today has a working strategy:
+Three strategies are planned, chosen so each of the objectives the SDK can act on today has a working strategy. The router core and `FallbackStrategy` ship first; `ContextFitStrategy` and model-driven routing follow (see Work Plan):
 
 | Strategy | Objective | Trigger | Basis |
 |---|---|---|---|

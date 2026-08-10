@@ -519,10 +519,14 @@ def _agent_stub():
 
 
 def _hook_scaffold(router, *, candidate_index=0, model=None):
-    """An agent stub plus seeded routing state, as the fallback hook expects to find them."""
+    """An agent stub plus seeded routing state, matching what _selection_middleware builds."""
     agent = _agent_stub()
     candidate = router.candidates[candidate_index]
-    state = _RoutingState(candidate=candidate, model=model if model is not None else candidate.model)
+    state = _RoutingState(
+        candidate=candidate,
+        model=model if model is not None else candidate.model,
+        switched_to={id(candidate)},
+    )
     return agent, state, {router._state_key(agent): state}
 
 
@@ -825,9 +829,17 @@ def test_a_strategy_that_alternates_candidates_terminates():
             self.asks += 1
             return context.candidates[(self.asks - 1) % len(context.candidates)]
 
+    calls: dict[str, int] = {}
+
+    class _CountingFailure(_FailingModel):
+        async def stream(self, *args, **kwargs):
+            calls[str(self._exception)] = calls.get(str(self._exception), 0) + 1
+            raise self._exception
+            yield  # pragma: no cover - marks this an async generator
+
     strategy = _RoundRobin()
     router = ModelRouter(
-        models=[_FailingModel(ValueError("first down")), _FailingModel(ValueError("second down"))],
+        models=[_CountingFailure(ValueError("first down")), _CountingFailure(ValueError("second down"))],
         strategy=strategy,
     )
     agent = Agent(
@@ -839,8 +851,100 @@ def test_a_strategy_that_alternates_candidates_terminates():
     with pytest.raises(ValueError, match="down"):
         agent("hello")
 
-    # One ask per candidate plus the ask that gets refused; no default max_switches needed.
-    assert strategy.asks <= len(router.candidates) + 1
+    # The bound that matters is model calls, not asks: each candidate is used at most once per round,
+    # so no candidate gets a second retry budget and the backoff cannot compound.
+    assert calls == {"first down": 1, "second down": 1}
+
+
+class _TransientStrategy:
+    """Raises on its first N asks, then selects normally. The suite otherwise has no flaky fixture."""
+
+    def __init__(self, failures=1):
+        self._left = failures
+        self.asks = 0
+
+    async def select(self, context, **kwargs):
+        self.asks += 1
+        if self._left:
+            self._left -= 1
+            raise RuntimeError("judge timed out")
+        return context.candidates[0]
+
+
+def test_a_transient_resolve_failure_does_not_bar_the_candidate_for_the_round():
+    # A nested router whose strategy hiccups once must still be reachable later in the round; the
+    # round is bounded on candidates switched to, not on everything in the attempt log.
+    healthy = _model("nested-healthy")
+    nested = ModelRouter(models=[healthy], strategy=_TransientStrategy(failures=1))
+
+    class _PreferNested:
+        async def select(self, context, **kwargs):
+            return context.candidates[1]
+
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(_FailingModel(ValueError("primary down")), name="primary"),
+            RoutingCandidate(nested, name="nested"),
+        ],
+        strategy=_PreferNested(),
+    )
+    agent = Agent(
+        model=router,
+        retry_strategy=ModelRetryStrategy(max_attempts=1, initial_delay=0, max_delay=0),
+        callback_handler=None,
+    )
+
+    # The nested strategy raises on the first resolve, then succeeds on the retry within the round.
+    assert "nested-healthy" in str(agent("hello"))
+
+
+def test_a_strategy_offering_a_used_candidate_keeps_failing_over():
+    # A random or weighted strategy can name a used candidate by chance. That must cost an ask, not
+    # the whole failover: healthy untried candidates are still reachable.
+    healthy = _model("recovered")
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(_FailingModel(ValueError("down")), name="dead"),
+            RoutingCandidate(healthy, name="healthy"),
+        ],
+    )
+    agent, state, invocation_state = _hook_scaffold(router)
+
+    class _OffersUsedFirst:
+        def __init__(self):
+            self.asks = 0
+
+        async def select(self, context, **kwargs):
+            self.asks += 1
+            return context.candidates[0] if self.asks == 1 else context.candidates[1]
+
+    router._strategy = _OffersUsedFirst()
+    event = _model_result(invocation_state, agent, error=ValueError("down"))
+
+    asyncio.run(router._on_model_result(event))
+
+    assert event.retry is True
+    assert state.candidate is router.candidates[1]
+
+
+@pytest.mark.asyncio
+async def test_each_ask_in_a_round_gets_its_own_request_copy():
+    # RoutingContext promises fresh copies per ask, so a round with several asks must not hand the
+    # same objects twice.
+    seen = []
+
+    class _RecordsContexts:
+        async def select(self, context, **kwargs):
+            seen.append((id(context.messages), id(context.tool_specs)))
+            return context.candidates[len(seen) - 1] if len(seen) <= 2 else None
+
+    router = ModelRouter(models=[_model("a"), _model("b")], strategy=_RecordsContexts())
+    agent, state, invocation_state = _hook_scaffold(router)
+    await router._on_model_result(_model_result(invocation_state, agent, error=ValueError("down")))
+    await router._on_model_result(_model_result(invocation_state, agent, error=ValueError("down")))
+
+    assert len(seen) >= 2
+    assert len(set(seen)) == len(seen)  # no object reused across asks
 
 
 @pytest.mark.asyncio
