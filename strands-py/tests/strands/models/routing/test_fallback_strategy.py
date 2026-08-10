@@ -37,7 +37,7 @@ def _routing_context(candidates, attempts=()):
     ids=["opening-choice", "advances", "exhausted", "rearms-after-success", "prefers-least-failed"],
 )
 async def test_fallback_strategy_decides_from_the_attempt_log(count, history, expected):
-    router = ModelRouter(candidates=[_model() for _ in range(count)])
+    router = ModelRouter(models=[_model() for _ in range(count)])
     attempts = history(router.candidates, ValueError("down"))
 
     chosen = await FallbackStrategy().select(_routing_context(router.candidates, attempts=attempts))
