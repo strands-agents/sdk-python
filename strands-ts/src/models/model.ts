@@ -69,37 +69,72 @@ class CitationAccumulator {
  */
 export interface CacheConfig {
   /**
-   * Caching strategy to use.
-   * - "auto": Automatically inject cache points at optimal positions based on model ID detection
-   *   (after tools, after last user message)
-   * - "anthropic": Force enable Anthropic-style caching (useful for application inference profiles)
+   * Whether to skip caching for models that do not support it.
+   * - "auto": cache only when the model is known to support it
+   * - "anthropic": cache without that check, for model identifiers it cannot inspect
+   *   (an application inference profile, for example)
+   *
+   * @defaultValue 'auto'
    */
-  strategy: 'auto' | 'anthropic'
+  strategy?: 'auto' | 'anthropic'
+
+  /** TTL for every cache point, overridden by a per-section TTL. Provider default when omitted. */
+  ttl?: CacheTTL
 
   /**
-   * Optional TTL duration for cache entries. When omitted, the provider's default TTL applies.
+   * Cache the tool definitions. A TTL sets this section's duration; `false` disables it.
    *
-   * The accepted value space is provider-specific and validated server-side, so the literals are a
-   * convenience rather than a constraint. Providers may expose narrower per-section options that take
-   * precedence over this value.
+   * @defaultValue true
    */
-  ttl?: CacheTTL
+  toolsTTL?: boolean | CacheTTL
+
+  /**
+   * Cache the conversation prefix, on the last user message. A TTL sets this section's duration;
+   * `false` disables it.
+   *
+   * @defaultValue true
+   */
+  messagesTTL?: boolean | CacheTTL
 }
 
 /**
  * TTL duration for a cache entry.
  *
- * The literals are the values Anthropic documents. Providers validate TTLs server-side, so the
- * `string & {}` branch keeps arbitrary values representable while preserving autocomplete.
+ * The literals are the valid Anthropic options. Providers validate TTLs server-side.
  */
 export type CacheTTL = '5m' | '1h' | (string & {})
 
 /**
- * Configuration for the cache point applied to tool definitions.
+ * A cache section resolved to the values a provider emits.
+ *
+ * @internal
  */
-export interface CacheToolsConfig {
-  /** Optional TTL duration for the cache entry. */
+export interface ResolvedCacheSection {
+  /** Whether this section should carry a cache point. */
+  enabled: boolean
+
+  /** The TTL to emit, absent when no TTL applies. */
   ttl?: CacheTTL
+}
+
+/**
+ * Resolves whether a cache section is enabled and which TTL it carries.
+ *
+ * @param section - The section as configured.
+ * @param ttlFallbacks - TTLs to fall back to, most specific first.
+ * @returns The section's enabled state and resolved TTL.
+ *
+ * @internal
+ */
+export function resolveCacheSection(
+  section: boolean | CacheTTL | undefined,
+  ...ttlFallbacks: (CacheTTL | undefined)[]
+): ResolvedCacheSection {
+  const enabled = section !== false
+  const sectionTTL = typeof section === 'string' ? section : undefined
+  const ttl = [sectionTTL, ...ttlFallbacks].find(Boolean)
+
+  return ttl ? { enabled, ttl } : { enabled }
 }
 
 /**

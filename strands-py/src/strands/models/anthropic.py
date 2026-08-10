@@ -37,20 +37,11 @@ _IMAGE_MEDIA_TYPES = {
     "webp": "image/webp",
 }
 
-# Anthropic accepts ``cache_control`` on these block types only, expressed in the API's own types, i.e.
-# after translation. A breakpoint on any other block (a ``thinking`` block, for example) is rejected.
-# Matching after translation is what makes the rule reliable: a block can be an accepted type before it
-# and still be dropped on the way out, such as an image with a location source.
+# Anthropic accepts ``cache_control`` on these block types only. A breakpoint on any other block  is rejected.
 # https://docs.claude.com/en/docs/build-with-claude/prompt-caching
 _CACHEABLE_BLOCK_TYPES = frozenset({"document", "image", "text", "tool_result", "tool_use"})
 
-# Anthropic rejects a request carrying more than this many cache breakpoints. The budget is shared
-# across tools, system and messages rather than being per-section.
-# https://docs.claude.com/en/docs/build-with-claude/prompt-caching
-_MAX_CACHE_BREAKPOINTS = 4
-
-# ``ephemeral`` is the only cache type the Anthropic API supports. Bedrock's cache point ``type``
-# (e.g. "default") has no Anthropic equivalent and is normalized to it.
+# ``ephemeral`` is the only cache type the Anthropic API supports
 _ANTHROPIC_CACHE_TYPE = "ephemeral"
 
 
@@ -77,13 +68,8 @@ class AnthropicModel(Model):
 
         Attributes:
             cache_config: Configuration for prompt caching. Use ``CacheConfig(strategy="auto")`` to add a
-                cache breakpoint to the last user message. Caching is off when unset. A cache point placed
-                in the last user message is honored where it sits, so a boundary can be marked ahead of
-                content rebuilt on every call; extra points in that message, and points in earlier ones,
-                are removed.
-            cache_tools: Caches the tool definitions. Any non-empty string (e.g. "default") switches it
-                on with the default TTL -- the value itself is not a TTL. Pass
-                ``CacheToolsConfig(ttl="1h")`` to set one. Independent of ``cache_config``.
+                cache breakpoint to the last user message. Caching is off when unset.
+            cache_tools: Caches the tool definitions.
             max_tokens: Maximum number of tokens to generate.
             model_id: Calude model ID (e.g., "claude-3-7-sonnet-latest").
                 For a complete list of supported models, see
@@ -238,8 +224,6 @@ class AnthropicModel(Model):
                 if "cachePoint" in content:
                     ttl = content["cachePoint"].get("ttl")
                     if not ttl and message_idx == cache_target_idx:
-                        # A TTL the caller wrote on their own point is the more specific instruction, so
-                        # the configured one only fills in for a point that carries none.
                         ttl = configured_ttl
 
                     if self._attach_cache_control(formatted_contents, ttl):
@@ -298,33 +282,6 @@ class AnthropicModel(Model):
                 return True
 
         return False
-
-    @classmethod
-    def _warn_on_breakpoint_overflow(cls, request: dict[str, Any]) -> None:
-        """Warn when a request carries more cache breakpoints than the API accepts.
-
-        The caller keeps ownership of their own cache points, so this reports the problem rather than
-        silently dropping one: an opaque 400 from the API is harder to act on than a named cause.
-
-        Args:
-            request: The formatted Anthropic request.
-        """
-        count = sum("cache_control" in tool for tool in request.get("tools") or [])
-        system = request.get("system")
-        # This provider formats ``system`` as a plain string today; the list arm counts breakpoints on
-        # structured system content, which only becomes reachable when this provider accepts it.
-        if isinstance(system, list):
-            count += sum("cache_control" in block for block in system)
-        for message in request.get("messages") or []:
-            count += sum("cache_control" in block for block in message.get("content") or [])
-
-        if count > _MAX_CACHE_BREAKPOINTS:
-            logger.warning(
-                "count=<%d>, max=<%d> | too many cache breakpoints, the API will reject this request; "
-                "remove hand-placed cache points or disable cache_tools",
-                count,
-                _MAX_CACHE_BREAKPOINTS,
-            )
 
     def _caching_enabled(self) -> bool:
         """Whether ``cache_config`` asks for a cache breakpoint on the last user message.
@@ -480,7 +437,6 @@ class AnthropicModel(Model):
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
         }
-        self._warn_on_breakpoint_overflow(request)
 
         return request
 

@@ -48,9 +48,12 @@ import {
 import {
   type BaseModelConfig,
   type CacheConfig,
+  type CacheTTL,
   type CountTokensOptions,
   Model,
+  type ResolvedCacheSection,
   type StreamOptions,
+  resolveCacheSection,
   resolveConfigMetadata,
 } from '../models/model.js'
 import type { ContentBlock, Message, StopReason, ToolUseBlock } from '../types/messages.js'
@@ -130,10 +133,8 @@ const DEFAULT_REDACT_OUTPUT_MESSAGE = '[Assistant output redacted.]'
 /**
  * TTL durations accepted by Bedrock for prompt-cache checkpoints.
  *
- * Bedrock currently accepts `'5m'` (default) and `'1h'`. The `(string & {})` branch keeps
- * autocomplete on the known values while letting callers pass any string forward — Bedrock
- * validates the value server-side and rejects unsupported values with `ValidationException`,
- * so this stays correct as AWS adds new TTL values without an SDK update.
+ * Bedrock accepts `'5m'` (default) and `'1h'`, and validates the value server-side, rejecting
+ * unsupported values with `ValidationException`.
  *
  * Bedrock also requires checkpoint TTLs to be **non-increasing** across
  * `toolConfig` → system → messages — setting a longer TTL on a later checkpoint than an
@@ -141,19 +142,12 @@ const DEFAULT_REDACT_OUTPUT_MESSAGE = '[Assistant output redacted.]'
  *
  * @see https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
  */
-export type BedrockCacheTTL = '5m' | '1h' | (string & {})
+export type BedrockCacheTTL = CacheTTL
 
 /**
- * Bedrock-specific prompt-caching configuration. Narrows the TTL fields onto the common
- * {@link CacheConfig} for the Bedrock provider.
+ * Prompt-caching configuration for the Bedrock provider.
  */
-export interface BedrockCacheConfig extends CacheConfig {
-  /** TTL applied to the auto-injected cache point appended after `toolConfig.tools`. */
-  toolsTTL?: BedrockCacheTTL
-
-  /** TTL applied to the auto-injected cache point appended to the last user message. */
-  messagesTTL?: BedrockCacheTTL
-}
+export type BedrockCacheConfig = CacheConfig
 
 /**
  * Redaction configuration for Bedrock guardrails.
@@ -469,9 +463,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * Determines if caching should be enabled.
    * Returns true when:
    * - strategy is 'anthropic' (explicit enable)
-   * - strategy is 'auto' and model supports caching (auto-detect)
+   * - strategy is 'auto' (the default) and the model supports caching (auto-detect)
    *
-   * @returns True if caching should be enabled
+   * @returns True if caching should be enabled.
    */
   private _shouldEnableCaching(): boolean {
     const cacheConfig = this._config.cacheConfig
@@ -479,7 +473,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return false
     }
 
-    let strategy = cacheConfig.strategy
+    let strategy = cacheConfig.strategy ?? 'auto'
 
     if (strategy === 'auto') {
       const detectedStrategy = this._getCacheStrategy()
@@ -493,6 +487,21 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
 
     return strategy === 'anthropic'
+  }
+
+  /**
+   * Resolves a section of `cacheConfig` to whether it is enabled and which TTL it carries.
+   *
+   * @param section - The section to resolve.
+   * @returns The section's enabled state and TTL, disabled when caching is off.
+   */
+  private _cacheSection(section: 'toolsTTL' | 'messagesTTL'): ResolvedCacheSection {
+    if (!this._shouldEnableCaching()) {
+      return { enabled: false }
+    }
+
+    const cacheConfig = this._config.cacheConfig
+    return resolveCacheSection(cacheConfig?.[section], cacheConfig?.ttl)
   }
 
   /**
@@ -708,12 +717,12 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           }) as Tool
       )
 
-      if (this._shouldEnableCaching()) {
+      const toolsCache = this._cacheSection('toolsTTL')
+      if (toolsCache.enabled) {
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.toolsTTL
-        if (ttl !== undefined) {
+        if (toolsCache.ttl) {
           // Bedrock validates TTL values server-side, so accept any string here.
-          cachePoint.ttl = ttl as BedrockSdkCacheTTL
+          cachePoint.ttl = toolsCache.ttl as BedrockSdkCacheTTL
         }
         tools.push({ cachePoint })
       }
@@ -824,9 +833,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       return acc
     }, [])
 
-    // Inject cache point if caching is enabled
-    if (this._shouldEnableCaching()) {
-      this._injectCachePoint(formattedMessages)
+    const messagesCache = this._cacheSection('messagesTTL')
+    if (messagesCache.enabled) {
+      this._injectCachePoint(formattedMessages, messagesCache.ttl)
     }
 
     return formattedMessages
@@ -843,12 +852,18 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * @param content - Content blocks of the last user message (modified in place)
    * @param placedIdx - Index of the caller-placed cache point
    * @param msgIdx - Index of the message, for logging
+   * @param ttl - TTL for the honored cache point. Falsy leaves the Bedrock default.
    * @returns True when the point was kept, possibly relocated. False when nothing cacheable precedes
    *   it, so the point was removed: Bedrock rejects a cache point with no content ahead of it ("There
    *   is nothing available to cache"). The caller then retries automatic placement, which lands a point
    *   only if the remaining content allows one - for a leading document it declines too.
    */
-  private _honorPlacedCachePoint(content: BedrockContentBlock[], placedIdx: number, msgIdx: number): boolean {
+  private _honorPlacedCachePoint(
+    content: BedrockContentBlock[],
+    placedIdx: number,
+    msgIdx: number,
+    ttl?: CacheTTL
+  ): boolean {
     // Unreachable in practice - the caller scans for cache points to get this index - but the
     // compiler cannot know that under noUncheckedIndexedAccess.
     const placed = content[placedIdx]
@@ -869,7 +884,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     // written here can invalidate a request against one configured for tools or system. Deleting it
     // unconditionally also handles null and "", which are rejected before placement is even judged.
     delete placed.cachePoint.ttl
-    const ttl = this._config.cacheConfig?.messagesTTL
     if (ttl) {
       // Bedrock validates TTL values server-side, so accept any string here. An empty configured TTL
       // is not a TTL, matching the Python side rather than forwarding "" for the enum to reject.
@@ -916,8 +930,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * against the provider's cache-point budget.
    *
    * @param messages - List of messages to inject cache point into (modified in place)
+   * @param ttl - TTL for the injected cache point. Falsy leaves the Bedrock default.
    */
-  private _injectCachePoint(messages: BedrockMessage[]): void {
+  private _injectCachePoint(messages: BedrockMessage[], ttl?: CacheTTL): void {
     if (messages.length === 0) {
       return
     }
@@ -977,7 +992,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
               `msg_idx=<${lastUserIdx}>, block_idx=<${extraIdx}> | stripped existing cache point (auto mode manages cache points)`
             )
           }
-          if (this._honorPlacedCachePoint(content, placedIdxs[0] as number, lastUserIdx)) {
+          if (this._honorPlacedCachePoint(content, placedIdxs[0] as number, lastUserIdx, ttl)) {
             return
           }
           if (content.length === 0) {
@@ -990,8 +1005,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         }
 
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
-        const ttl = this._config.cacheConfig?.messagesTTL
-        if (ttl !== undefined) {
+        if (ttl) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }

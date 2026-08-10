@@ -2163,6 +2163,128 @@ describe('BedrockModel', () => {
       ])
     })
 
+    describe('cache sections', () => {
+      const toolSpecs = [{ name: 'calculator', description: 'Calculate', inputSchema: { type: 'object' as const } }]
+      const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
+
+      /** The auto-injected cache points, as [tools, lastUserMessage]. */
+      const cachePoints = (): [unknown, unknown] => {
+        const call = mockConverseStreamCommand.mock.lastCall?.[0]
+        const tools = call?.toolConfig?.tools ?? []
+        const userMsg = call?.messages?.[0]
+        const content = userMsg?.content ?? []
+        const toolsLast = tools[tools.length - 1]
+        const messagesLast = content[content.length - 1]
+        return [
+          toolsLast && 'cachePoint' in toolsLast ? toolsLast.cachePoint : undefined,
+          messagesLast && 'cachePoint' in messagesLast ? messagesLast.cachePoint : undefined,
+        ]
+      }
+
+      it('caches every section when no strategy is given', async () => {
+        // strategy defaults to 'auto', so a config that omits it still enables caching.
+        const provider = new BedrockModel({ cacheConfig: {} })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([{ type: 'default' }, { type: 'default' }])
+      })
+
+      it('caches only the tool definitions when messagesTTL is false', async () => {
+        const provider = new BedrockModel({ cacheConfig: { messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([{ type: 'default' }, undefined])
+      })
+
+      it('caches only the conversation when toolsTTL is false', async () => {
+        const provider = new BedrockModel({ cacheConfig: { toolsTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([undefined, { type: 'default' }])
+      })
+
+      it('emits nothing when every section is disabled', async () => {
+        const provider = new BedrockModel({ cacheConfig: { toolsTTL: false, messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([undefined, undefined])
+      })
+
+      it('applies the shared ttl to both sections', async () => {
+        // Bedrock requires checkpoint TTLs to be non-increasing across toolConfig then messages, which
+        // equal values satisfy.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('lets a per-section ttl override the shared ttl', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', messagesTTL: '5m' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '5m' },
+        ])
+      })
+
+      it('treats an empty ttl as unset rather than shipping it', async () => {
+        // Bedrock validates ttl against an enum and rejects ''.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '', messagesTTL: '' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([{ type: 'default' }, { type: 'default' }])
+      })
+
+      it('falls through an empty per-section ttl to the shared ttl', async () => {
+        // An empty section ttl is unconfigured rather than an override, so the shared one applies.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', messagesTTL: '' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs }))
+
+        expect(cachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('resolves the ttl for a caller-placed cache point too', async () => {
+        // The honored path takes its own route to the cache point, so it needs the same resolution:
+        // `true` enables the section without being a duration, and the shared ttl still applies.
+        const placed = [
+          new Message({
+            role: 'user',
+            content: [new TextBlock('durable prefix'), new CachePointBlock({ cacheType: 'default' })],
+          }),
+        ]
+
+        const enabledWithoutDuration = new BedrockModel({ cacheConfig: { messagesTTL: true } })
+        collectIterator(enabledWithoutDuration.stream(placed))
+        expect(mockConverseStreamCommand.mock.lastCall?.[0]?.messages?.[0]?.content).toStrictEqual([
+          { text: 'durable prefix' },
+          { cachePoint: { type: 'default' } },
+        ])
+
+        const sharedTTL = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+        collectIterator(sharedTTL.stream(placed))
+        expect(mockConverseStreamCommand.mock.lastCall?.[0]?.messages?.[0]?.content).toStrictEqual([
+          { text: 'durable prefix' },
+          { cachePoint: { type: 'default', ttl: '1h' } },
+        ])
+      })
+    })
+
     it('inserts cache point before a non-PDF document block', async () => {
       const provider = new BedrockModel({ cacheConfig: { strategy: 'auto' } })
       const messages = [

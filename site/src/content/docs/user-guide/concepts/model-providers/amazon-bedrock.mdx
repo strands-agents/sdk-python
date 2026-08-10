@@ -279,7 +279,7 @@ Common configuration parameters include:
 - `temperature` - Controls randomness (higher = more random)
 - `maxTokens` - Maximum number of tokens to generate
 - `stream` - Enable/disable streaming mode
-- `cacheConfig` - Enable prompt caching with `{ strategy: 'auto' }` or `{ strategy: 'anthropic' }`
+- `cacheConfig` - Enable prompt caching, e.g. `{ ttl: '1h' }` or `{ messagesTTL: false }` for tool definitions only
 - `region` - AWS region to use
 - `apiKey` - Bedrock API key for bearer token authentication (alternative to SigV4 signing)
 - `clientConfig` - AWS SDK client configuration
@@ -625,7 +625,9 @@ print(f"Cache read tokens: {response2.metrics.accumulated_usage.get('cacheReadIn
 </Tab>
 <Tab label="TypeScript">
 
-In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig` is set, the SDK automatically appends a cache point after the tool definitions in each request. There is no separate `cacheTools` option — `cacheConfig` handles both tool and message caching together.
+In TypeScript, tool caching is enabled through `cacheConfig`. When `cacheConfig` is set, the SDK automatically appends a cache point after the tool definitions in each request. There is no separate `cacheTools` option — one `cacheConfig` covers both the tool definitions and the conversation, and each section can be turned off on its own.
+
+Both sections are cached by default. `toolsTTL` and `messagesTTL` control them individually: pass a TTL to set that section's duration, or `false` to turn it off. So `cacheConfig: { messagesTTL: false }` caches the tool definitions only, and `cacheConfig: { toolsTTL: false }` caches the conversation only. A `ttl` on `cacheConfig` applies to both sections, and a per-section TTL overrides it.
 
 ```typescript
 --8<-- "user-guide/concepts/model-providers/amazon-bedrock.ts:tool_caching_full"

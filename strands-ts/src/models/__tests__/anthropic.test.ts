@@ -970,7 +970,7 @@ describe('AnthropicModel', () => {
   })
 
   /**
-   * Prompt caching via `cacheConfig` / `cacheTools`.
+   * Prompt caching via `cacheConfig`.
    *
    * Anthropic accepts at most 4 cache breakpoints per request and `ephemeral` is the only cache type.
    * @see https://docs.claude.com/en/docs/build-with-claude/prompt-caching
@@ -1035,6 +1035,19 @@ describe('AnthropicModel', () => {
       expect(breakpoints(captured.request)).toEqual([['messages', 1, { type: 'ephemeral' }]])
     })
 
+    it('caches every section when no strategy is given', async () => {
+      // strategy defaults to 'auto', so a config that omits it still enables caching.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: {} })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([
+        ['tools', 't2', { type: 'ephemeral' }],
+        ['messages', 0, { type: 'ephemeral' }],
+      ])
+    })
+
     it('treats auto and anthropic strategies the same', async () => {
       // The Anthropic API caches on every active Claude model, so auto has no model-support check to
       // apply and the two strategies produce the same request.
@@ -1067,7 +1080,7 @@ describe('AnthropicModel', () => {
 
     it('caches only the last tool definition', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { messagesTTL: false } })
 
       await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
 
@@ -1075,13 +1088,31 @@ describe('AnthropicModel', () => {
       expect(captured.request.tools[0].cache_control).toBeUndefined()
     })
 
-    it('carries cacheTools ttl onto cache_control', async () => {
+    it('carries a toolsTTL onto cache_control', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: { ttl: '1h' } })
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { toolsTTL: '1h', messagesTTL: false },
+      })
 
       await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
 
       expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral', ttl: '1h' }]])
+    })
+
+    it('lets a per-section ttl override the shared ttl', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { ttl: '5m', toolsTTL: '1h' },
+      })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([
+        ['tools', 't2', { type: 'ephemeral', ttl: '1h' }],
+        ['messages', 0, { type: 'ephemeral', ttl: '5m' }],
+      ])
     })
 
     it('normalizes a Bedrock cache point type to ephemeral', async () => {
@@ -1099,9 +1130,9 @@ describe('AnthropicModel', () => {
       expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
     })
 
-    it('is a no-op when cacheTools is set without tools', async () => {
+    it('is a no-op for the tools section when there are no tools', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { messagesTTL: false } })
 
       await collectIterator(provider.stream([userMessage('Hi')]))
 
@@ -1109,21 +1140,20 @@ describe('AnthropicModel', () => {
       expect(breakpoints(captured.request)).toEqual([])
     })
 
-    it('applies cacheTools independently of cacheConfig', async () => {
+    it('caches only the conversation when toolsTTL is false', async () => {
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { toolsTTL: false } })
 
       await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
 
-      expect(breakpoints(captured.request)).toEqual([['tools', 't2', { type: 'ephemeral' }]])
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral' }]])
     })
 
-    it('produces two breakpoints when both options are set', async () => {
+    it('produces two breakpoints when both sections are on', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({
         client: mockClient,
         cacheConfig: { strategy: 'auto' },
-        cacheTools: 'default',
       })
 
       await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
@@ -1134,6 +1164,18 @@ describe('AnthropicModel', () => {
         ['messages', 0, { type: 'ephemeral' }],
       ])
       expect(found.length).toBeLessThanOrEqual(MAX_BREAKPOINTS)
+    })
+
+    it('emits nothing when every section is disabled', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { toolsTTL: false, messagesTTL: false },
+      })
+
+      await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
+
+      expect(breakpoints(captured.request)).toEqual([])
     })
 
     it('does not accumulate breakpoints across turns', async () => {
@@ -1166,7 +1208,6 @@ describe('AnthropicModel', () => {
       const provider = new AnthropicModel({
         client: mockClient,
         cacheConfig: { strategy: 'auto' },
-        cacheTools: 'default',
       })
 
       await collectIterator(provider.stream(messages, { toolSpecs }))
@@ -1351,15 +1392,40 @@ describe('AnthropicModel', () => {
       expect(captured.request.messages[0].content[1].cache_control).toEqual({ type: 'ephemeral' })
     })
 
-    it('treats an empty cacheTools value as unset', async () => {
-      // cacheTools: '' is what an unset environment variable produces. A presence check enabled caching
-      // here while Python's truthiness check did not.
+    it('treats an empty ttl as unset rather than shipping it', async () => {
+      // The API validates TTLs against an enum and rejects ''.
       const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: '' })
+      const provider = new AnthropicModel({
+        client: mockClient,
+        cacheConfig: { ttl: '', toolsTTL: '' },
+      })
 
       await collectIterator(provider.stream([userMessage('Hi')], { toolSpecs }))
 
-      expect(breakpoints(captured.request)).toEqual([])
+      expect(breakpoints(captured.request)).toEqual([
+        ['tools', 't2', { type: 'ephemeral' }],
+        ['messages', 0, { type: 'ephemeral' }],
+      ])
+    })
+
+    it('treats an empty ttl on a hand-placed cache point as unset', async () => {
+      // A placed point's own ttl takes precedence, so an empty one must fall through to the config.
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient, cacheConfig: { strategy: 'auto', ttl: '1h' } })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [
+            new TextBlock('prefix'),
+            new CachePointBlock({ cacheType: 'default', ttl: '' }),
+            new TextBlock('volatile'),
+          ],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(breakpoints(captured.request)).toEqual([['messages', 0, { type: 'ephemeral', ttl: '1h' }]])
     })
 
     it('disables caching for an unknown strategy', async () => {
@@ -1372,97 +1438,6 @@ describe('AnthropicModel', () => {
       await collectIterator(provider.stream([userMessage('Hi')]))
 
       expect(breakpoints(captured.request)).toEqual([])
-    })
-
-    it('warns when hand-placed points and cacheTools exceed the breakpoint ceiling', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
-      const messages = [
-        new Message({
-          role: 'user',
-          content: [
-            new TextBlock('a'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('b'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('c'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('d'),
-            new CachePointBlock({ cacheType: 'default' }),
-          ],
-        }),
-      ]
-
-      await collectIterator(provider.stream(messages, { toolSpecs }))
-
-      // The caller's own points are left alone; an opaque 400 is harder to act on than a named cause.
-      expect(breakpoints(captured.request)).toHaveLength(MAX_BREAKPOINTS + 1)
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too many cache breakpoints'))
-      warnSpy.mockRestore()
-    })
-
-    it('counts a system prompt breakpoint against the ceiling', async () => {
-      // The budget of four is shared across tools, system and messages, so a cached system prompt has to
-      // count. Without this the system arm of the guard is unpinned: a caller with a cached system prompt,
-      // three hand-placed points and cacheTools ships five breakpoints and gets an opaque 400 instead of
-      // the named cause the guard exists to give them.
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
-      const messages = [
-        new Message({
-          role: 'user',
-          content: [
-            new TextBlock('a'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('b'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('c'),
-            new CachePointBlock({ cacheType: 'default' }),
-          ],
-        }),
-      ]
-
-      await collectIterator(
-        provider.stream(messages, {
-          toolSpecs,
-          systemPrompt: [new TextBlock('system'), new CachePointBlock({ cacheType: 'default' })],
-        })
-      )
-
-      expect(breakpoints(captured.request)).toHaveLength(MAX_BREAKPOINTS + 1)
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('too many cache breakpoints'))
-      warnSpy.mockRestore()
-    })
-
-    it('does not warn at exactly the breakpoint ceiling', async () => {
-      // The guard's boundary, and the direction it must not fire in. A request carrying exactly the
-      // ceiling is legal, so the guard has to stay silent. Without this the suite stays green when `>`
-      // becomes `>=`, and also when the warning fires unconditionally: every maxed-out request would
-      // then carry a warning telling the caller to remove points from a request the API accepts.
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const { captured, mockClient } = setupCapture()
-      const provider = new AnthropicModel({ client: mockClient, cacheTools: 'default' })
-      const messages = [
-        new Message({
-          role: 'user',
-          content: [
-            new TextBlock('a'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('b'),
-            new CachePointBlock({ cacheType: 'default' }),
-            new TextBlock('c'),
-            new CachePointBlock({ cacheType: 'default' }),
-          ],
-        }),
-      ]
-
-      await collectIterator(provider.stream(messages, { toolSpecs }))
-
-      expect(breakpoints(captured.request)).toHaveLength(MAX_BREAKPOINTS)
-      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('too many cache breakpoints'))
-      warnSpy.mockRestore()
     })
 
     it('honors a cache point in the last user message', async () => {
@@ -1756,7 +1731,6 @@ describe('AnthropicModel', () => {
       const provider = new AnthropicModel({
         client: mockClient,
         cacheConfig: { strategy: 'auto' },
-        cacheTools: 'default',
       })
       const messages = [
         new Message({
@@ -1834,7 +1808,6 @@ describe('AnthropicModel', () => {
       const provider = new AnthropicModel({
         client: mockClient,
         cacheConfig: { strategy: 'auto', ttl: '1h' },
-        cacheTools: { ttl: '1h' },
       })
       const messages = [
         userMessage('hello'),

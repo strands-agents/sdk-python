@@ -1920,56 +1920,6 @@ class TestPromptCaching:
 
         assert self._breakpoints(model.format_request(messages, tool_specs)) == []
 
-    def test_warns_when_breakpoints_exceed_the_ceiling(self, model, tool_specs, caplog):
-        """Four hand-placed points was legal before ``cache_tools`` existed, so enabling it can push a
-        working request over the API ceiling. The caller keeps their points and gets a named cause."""
-        caplog.set_level("WARNING")
-        model.update_config(cache_tools="default")
-        cache_point = {"cachePoint": {"type": "default"}}
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"text": "a"},
-                    cache_point,
-                    {"text": "b"},
-                    cache_point,
-                    {"text": "c"},
-                    cache_point,
-                    {"text": "d"},
-                    cache_point,
-                ],
-            }
-        ]
-
-        request = model.format_request(messages, tool_specs)
-
-        assert len(self._breakpoints(request)) == self.MAX_BREAKPOINTS + 1
-        assert "too many cache breakpoints" in caplog.text
-
-    def test_does_not_warn_at_exactly_the_breakpoint_ceiling(self, model, tool_specs, caplog):
-        """The guard's boundary, and the direction it must not fire in.
-
-        A request carrying exactly the ceiling is legal, so the guard has to stay silent. Without this
-        the suite stays green when ``>`` becomes ``>=``, and also when the warning fires
-        unconditionally: every maxed-out request would then carry a warning telling the caller to
-        remove points from a request the API accepts.
-        """
-        caplog.set_level("WARNING")
-        model.update_config(cache_tools="default")
-        cache_point = {"cachePoint": {"type": "default"}}
-        messages = [
-            {
-                "role": "user",
-                "content": [{"text": "a"}, cache_point, {"text": "b"}, cache_point, {"text": "c"}, cache_point],
-            }
-        ]
-
-        request = model.format_request(messages, tool_specs)
-
-        assert len(self._breakpoints(request)) == self.MAX_BREAKPOINTS
-        assert "too many cache breakpoints" not in caplog.text
-
     def test_manual_cache_point_attaches_to_nearest_acceptable_block(self, model):
         """A hand-placed cache point after a reasoning block skips back to the text block rather than
         producing a request the API rejects."""

@@ -83,8 +83,7 @@ async function promptCaching() {
   const model = new AnthropicModel({
     modelId: 'claude-sonnet-4-6',
     maxTokens: 1028,
-    cacheConfig: { strategy: 'auto' },
-    cacheTools: { ttl: '1h' },
+    cacheConfig: { ttl: '1h' },
   })
 
   const agent = new Agent({ model })
