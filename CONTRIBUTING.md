@@ -219,6 +219,44 @@ splitting, not a rule; sometimes a complex function is the honest solution.
 
 A docs-only or test-only PR touches no SDK source and gets no complexity label.
 
+#### Keeping complexity low
+
+Two things drive the score, and knowing them is most of the battle:
+
+1. Every break in linear flow costs one point: `if`, `else`, loops,
+   `catch`/`except`, ternaries, `switch`/`match`, recursion, and each run of
+   mixed boolean operators.
+2. **Nesting multiplies the cost.** Each structure also pays one point per
+   level of nesting it sits inside. An `if` at the top of a function costs 1;
+   the same `if` three levels deep costs 4.
+
+Because nesting is the multiplier, flattening is the highest-leverage move:
+
+- **Return early.** Guard clauses (`if not valid: return`) remove a nesting
+  level from everything that follows. Avoid `else` after a `return`.
+- **Extract nested logic into named helpers.** The nesting penalty resets to
+  zero inside the helper, the name documents intent, and the label keys on the
+  most complex single function you touched, so splitting one deep function into
+  three shallow ones directly lowers it.
+- **Prefer lookup tables over branch ladders.** A dict or `Map` from value to
+  handler replaces an `if`/`elif` or `switch` chain with zero branches.
+- **Keep boolean sequences uniform and name the pieces.** `a and b and c` costs
+  one point; mixing `and`/`or` costs more. `is_retryable = ...` beats a long
+  inline condition twice over: cheaper and self-describing.
+- **Handle errors at the edges.** One `try` around a coherent block costs less
+  than error handling threaded through nested branches.
+- **In async code, await sequentially** instead of nesting callbacks or `then`
+  chains.
+
+For calibration: the median function in both SDKs scores 1 to 2, and
+`complexity/low` (10 or less) covers roughly nine out of ten existing
+functions, so the thresholds leave generous room for ordinary logic. Some code
+is honestly complex, though. Protocol event converters and state machines often
+land at `high` because the domain has that many cases, and flattening them
+further would hurt readability. When that is your situation, keep the function
+and say so in the PR description rather than contorting the code to move a
+label.
+
 ## Using AI Tools
 
 We love AI. We build with coding agents every day, and you're welcome to use them too — they're a great way to move fast and explore a codebase.
