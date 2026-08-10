@@ -3097,6 +3097,365 @@ def test_cache_strategy_none_for_non_claude(bedrock_client):
     assert model._cache_strategy is None
 
 
+def test_inject_cache_point_keeps_only_the_first_of_several_placed_points(bedrock_client):
+    """One boundary per message: extras would spend the provider's cache-point budget for nothing."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "durable ask"},
+                {"cachePoint": {"type": "default"}},
+                {"text": "per-call"},
+                {"cachePoint": {"type": "default"}},
+                {"text": "more per-call"},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [
+        {"text": "durable ask"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "per-call"},
+        {"text": "more per-call"},
+    ]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_applies_ttl_to_the_first_of_several_placed_points(bedrock_client):
+    """The surviving point is the first one, so the configured TTL lands on that one."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "durable ask"},
+                {"cachePoint": {"type": "default"}},
+                {"text": "per-call"},
+                {"cachePoint": {"type": "default"}},
+                {"text": "more per-call"},
+                {"cachePoint": {"type": "default"}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [
+        {"text": "durable ask"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+        {"text": "per-call"},
+        {"text": "more per-call"},
+    ]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_leaves_an_honored_point_after_a_pdf_document(bedrock_client):
+    """Only non-PDF documents carry the adjacency restriction."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    pdf = {"document": {"format": "pdf", "name": "d", "source": {"bytes": b"x"}}}
+    cleaned_messages = [{"role": "user", "content": [{"text": "ask"}, pdf, {"cachePoint": {"type": "default"}}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, pdf, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_relocates_over_the_adjacent_document_run_only(bedrock_client):
+    """Only the run directly preceding the point blocks it; earlier documents stay in the prefix."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    earlier = {"document": {"format": "csv", "name": "earlier", "source": {"bytes": b"x"}}}
+    adjacent = {"document": {"format": "csv", "name": "adjacent", "source": {"bytes": b"y"}}}
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze these"},
+                earlier,
+                {"text": "notes"},
+                adjacent,
+                {"cachePoint": {"type": "default"}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [
+        {"text": "analyze these"},
+        earlier,
+        {"text": "notes"},
+        {"cachePoint": {"type": "default"}},
+        adjacent,
+    ]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_does_not_relocate_a_point_a_document_does_not_precede(bedrock_client):
+    """The restriction is adjacency: moving further would evict the document from the cached prefix."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    doc = {"document": {"format": "csv", "name": "d", "source": {"bytes": b"x"}}}
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "analyze this"}, doc, {"text": "notes"}, {"cachePoint": {"type": "default"}}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "analyze this"}, doc, {"text": "notes"}, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_replaces_a_leading_caller_point_with_automatic_placement(bedrock_client):
+    """Bedrock rejects a cache point with nothing ahead of it: "There is nothing available to cache"."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [{"role": "user", "content": [{"cachePoint": {"type": "default"}}, {"text": "durable ask"}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "durable ask"}, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_leaves_a_message_that_was_only_a_cache_point_empty(bedrock_client):
+    """Re-adding a point to an emptied message would rebuild the request Bedrock just refused."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [{"role": "user", "content": [{"cachePoint": {"type": "default"}}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = []
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_an_explicit_none_ttl_from_a_caller_point(bedrock_client):
+    """botocore refuses ``ttl: None`` outright, so it cannot survive to the request."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": None}}]}
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_an_empty_string_ttl_from_a_caller_point(bedrock_client):
+    """Bedrock rejects "" against its TTL enum, so it must not reach the request."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cleaned_messages = [{"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": ""}}]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_applies_the_configured_ttl_over_an_explicit_none(bedrock_client):
+    """An explicit None is not a caller TTL, so the configured one still applies."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": None}}]}
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_honors_a_point_in_the_last_user_message(bedrock_client):
+    """A caller marks where its reusable prefix ends; moving the point would cache per-call content."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "durable ask"},
+                {"cachePoint": {"type": "default"}},
+                {"text": "<context-status>rebuilt each call</context-status>"},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = [next(iter(block)) for block in cleaned_messages[0]["content"]]
+    exp_content = ["text", "cachePoint", "text"]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_still_strips_points_in_earlier_messages(bedrock_client):
+    """Points must not accumulate one per turn against the provider's cache-point budget."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "old ask"}, {"cachePoint": {"type": "default"}}]},
+        {"role": "assistant", "content": [{"text": "reply"}]},
+        {"role": "user", "content": [{"text": "new ask"}, {"cachePoint": {"type": "default"}}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_layout = [[next(iter(block)) for block in msg["content"]] for msg in cleaned_messages]
+    exp_layout = [["text"], ["text"], ["text", "cachePoint"]]
+    assert tru_layout == exp_layout
+
+
+def test_inject_cache_point_applies_configured_ttl_to_an_honored_point(bedrock_client):
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "per-call"}]}
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_point = cleaned_messages[0]["content"][1]
+    exp_point = {"cachePoint": {"type": "default", "ttl": "1h"}}
+    assert tru_point == exp_point
+
+
+def test_inject_cache_point_normalizes_the_ttl_of_a_relocated_point(bedrock_client):
+    """The relocation path must normalize too: a caller TTL there is just as capable of a rejection."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="5m"))
+    doc = {"document": {"format": "csv", "name": "d", "source": {"bytes": b"x"}}}
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze"},
+                doc,
+                {"cachePoint": {"type": "default", "ttl": "1h"}},
+                {"text": "per-call"},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "analyze"}, {"cachePoint": {"type": "default", "ttl": "5m"}}, doc, {"text": "per-call"}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_normalizes_a_hand_placed_ttl_to_the_configured_one(bedrock_client):
+    """A caller TTL can invalidate the request: Bedrock rejects a longer TTL after a shorter one."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    # A trailing block makes the honored POSITION observable: a strip-and-re-append would move the
+    # point to the end, so this also fails against the behaviour this PR replaces.
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "5m"}}, {"text": "per-call"}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}, {"text": "per-call"}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_a_hand_placed_ttl_when_none_is_configured(bedrock_client):
+    """With no configured TTL there is nothing to normalize to, so the caller's TTL still goes."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    # A trailing block makes the honored POSITION observable: a strip-and-re-append would move the
+    # point to the end, so this also fails against the behaviour this PR replaces.
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [{"text": "ask"}, {"cachePoint": {"type": "default", "ttl": "1h"}}, {"text": "per-call"}],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [{"text": "ask"}, {"cachePoint": {"type": "default"}}, {"text": "per-call"}]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_relocates_an_honored_point_ahead_of_a_non_pdf_document(bedrock_client):
+    """Bedrock rejects a cache point directly preceded by a non-PDF document."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this"},
+                {"document": {"format": "csv", "name": "d", "source": {"bytes": b"x"}}},
+                {"cachePoint": {"type": "default"}},
+                {"text": "per-call"},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = cleaned_messages[0]["content"]
+    exp_content = [
+        {"text": "analyze this"},
+        {"cachePoint": {"type": "default"}},
+        {"document": {"format": "csv", "name": "d", "source": {"bytes": b"x"}}},
+        {"text": "per-call"},
+    ]
+    assert tru_content == exp_content
+
+
+def test_inject_cache_point_drops_an_honored_point_when_a_document_leads_the_message(bedrock_client):
+    """Nothing precedes a leading document, so there is no prefix to cache."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic"))
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"document": {"format": "csv", "name": "d", "source": {"bytes": b"x"}}},
+                {"cachePoint": {"type": "default"}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    tru_content = [next(iter(block)) for block in cleaned_messages[0]["content"]]
+    exp_content = ["document"]
+    assert tru_content == exp_content
+
+
 def test_inject_cache_point_adds_to_last_user(bedrock_client):
     """Test that _inject_cache_point adds cache point to last user message."""
     model = BedrockModel(
@@ -3304,6 +3663,27 @@ def test_inject_cache_point_mixed_pdf_and_non_pdf_documents(bedrock_client):
         {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
         {"cachePoint": {"type": "default"}},
         {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+    ]
+
+
+def test_inject_cache_point_before_the_first_of_several_non_pdf_documents(bedrock_client):
+    """A cache point after any of them would be directly preceded by a document, which Bedrock rejects."""
+    _ = bedrock_client
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+    first = {"document": {"format": "csv", "name": "first", "source": {"bytes": b"a,b,c"}}}
+    second = {"document": {"format": "csv", "name": "second", "source": {"bytes": b"d,e,f"}}}
+
+    cleaned_messages = [{"role": "user", "content": [{"text": "Analyze these files"}, first, second]}]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages[0]["content"] == [
+        {"text": "Analyze these files"},
+        {"cachePoint": {"type": "default"}},
+        first,
+        second,
     ]
 
 
