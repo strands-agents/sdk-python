@@ -61,8 +61,6 @@ The remaining objectives are covered by candidate selection or deferred for a mi
 
 Proactive selection and fallback compose through the strategy, which owns both. `RoutingStrategy.select` is asked for the initial candidate and asked again after each failed call, so a strategy that reads `context.attempts` implements failover and one that ignores them gets none. `FallbackStrategy` is the default and the composable building block: it tries each candidate untried since the last success, preferring the fewest recorded failures. A proactive strategy adds failover by delegating to it once `context.attempts` is non-empty.
 
-> **Superseded.** An earlier revision placed reactive fallback on `ModelRouter` so every strategy inherited it. That was reversed: a judge or context-fit strategy silently inheriting ordered failover puts routing policy back in the router, and the router cannot know whether falling back is correct for a strategy's purpose. A defaulted `on_failure` protocol member was considered and rejected for the same reason. Google ADK's `RoutedLlm` independently places failover in the routing callable, re-invoked with error context.
-
 ## Proposal
 
 An `Agent` receives its model through `model=`, and every inference call currently reaches that model through `InvokeModelStage`. Routing belongs in this existing stage because it prepares and owns the model invocation. A separate routing stage would split one operation across two lifecycle boundaries without adding a useful interception point.
@@ -196,8 +194,8 @@ Agent(model: Model | str | ModelRouter | None = None)
 ```
 
 - `ModelRouter` normalizes each input into a `RoutingCandidate`. Bare models and nested routers need no public name because strategies return one of the candidate objects in `RoutingContext`, not a string identifier.
-- **Model-id strings are not candidates**, diverging from an earlier revision of this section. A router is multi-provider by construction, so `ModelRouter(models=["openai/gpt-4o"])` would silently build a `BedrockModel` with that as its Bedrock model id -- wrong provider, no error. `Agent(model=str)` keeps its shorthand because its default provider *is* Bedrock. The provider one-liner belongs at the model layer: `LiteLLMModel(model_id="openai/...")`.
-- `RoutingStrategy` carries **no `name` attribute**, diverging from an earlier revision. The protocol is `@runtime_checkable` and the router validates only `select`, so a `name` member can be added later without rejecting strategies written today.
+- **Model-id strings are not candidates.** A router is multi-provider by construction, so `ModelRouter(models=["openai/gpt-4o"])` would silently build a `BedrockModel` with that as its Bedrock model id -- wrong provider, no error. `Agent(model=str)` keeps its shorthand because its default provider *is* Bedrock. The provider one-liner belongs at the model layer: `LiteLLMModel(model_id="openai/...")`.
+- `RoutingStrategy` carries **no `name` attribute**. The protocol is `@runtime_checkable` and the router validates only `select`, so a `name` member can be added later without rejecting strategies written today.
 - `strategy` is optional and defaults to `FallbackStrategy`, so `ModelRouter(models=[a, b])` is ordered failover with no extra configuration. `max_switches` caps switches per invocation.
 - `RoutingCandidate` adds optional selection metadata, not another model configuration. `ModelDrivenStrategy` requires explicit unique names and descriptions so the judge has a classification contract; fallback and context-fit do not.
 - The first declared candidate is the concrete default. This removes string-based default resolution and makes fallback order visible in the constructor call.
@@ -216,10 +214,8 @@ Agent(model: Model | str | ModelRouter | None = None)
 - **P0, context-fit and model-driven strategies.** Add local context-window selection and decision-model selection over named candidate descriptions. Run the judge once per invocation, fall back to the first candidate when the judge fails or returns an invalid result, and record the outcome on the existing model-invoke span.
 - **P1, cost-aware routing.** Add a pricing source of truth, then rank context-fit survivors by price.
 - **P1, cache-affinity (sticky) routing.** When a request carries prompt-cache points, keep it on the model that wrote the cache so a cheaper route does not discard a cache hit. This is a session-scoped selection stored in agent state and matches LiteLLM's prompt-cache routing pre-call check.
-- **P0 follow-up, public retry-budget reset.** Advancing a candidate resets the retry budget through
-  `agent._retry_strategy._reset_retry_state()`, a private method on a private attribute in a private module. Expose a
-  supported seam on `ModelRetryStrategy` so the coupling is typed and test-covered rather than a reach into another
-  subsystem's state.
+- **P0 follow-up, public retry-budget reset.** Give a new candidate a fresh retry budget through a supported seam on
+  `ModelRetryStrategy`, so the router does not depend on that component's internal attempt bookkeeping.
 - **P0 follow-up, pre-output failure signal.** A model that fails after streaming part of a response emits that partial
   output before the router switches. Add a signal on `AfterModelCallEvent` so routing can decline to switch once output
   has started, matching ADK's `RoutedLlm`. Shared event-loop code, so it ships separately.
@@ -231,6 +227,7 @@ Agent(model: Model | str | ModelRouter | None = None)
 - **A dedicated `model_router=` argument.** This makes routing explicit at the call site and keeps the existing `model` type narrow. Rejected: two model-related arguments need precedence rules and expand the public surface. Accepting either value through `model=` is smaller.
 - **A before-call hook that swaps `agent.model`.** This needs no invoke-terminal change and is easy to prototype. Rejected: `agent.model` is shared, so concurrent invocations can race. A model field on the per-call context avoids shared mutation.
 - **A separate model-routing stage.** This gives routing its own explicit interception point. Rejected: selection exists only to prepare a model invocation. `InvokeModelStage` already provides middleware phases around that operation and keeps tracing and streaming in one terminal.
+- **Router-owned fallback, so every strategy inherits it.** This spares each strategy from implementing failure handling and makes ordered failover the floor for any router. Rejected: the router cannot know whether falling back is right for a strategy's purpose, so a judge or context-fit strategy would silently escalate to a model it did not choose, putting routing policy back in the router. A defaulted `on_failure` protocol member has the same effect. `FallbackStrategy` gives the common case the same ergonomics as a default, and a proactive strategy composes with it. Google ADK's `RoutedLlm` likewise places failover in the routing callable, re-invoked with error context.
 - **A provider-list `Model`, `Model(provider=[...])`.** This could centralize provider and model selection behind one model abstraction. Rejected for v1: concrete model instances already express provider and deployment differences. Adding provider selection to the model layer is a larger refactor that overlaps with gateway responsibilities.
 
 ## Consequences
