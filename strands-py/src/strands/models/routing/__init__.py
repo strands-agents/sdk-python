@@ -1,8 +1,9 @@
 """Model routing primitives.
 
 ``ModelRouter`` asks its ``RoutingStrategy`` which candidate to use, and asks again after a failed
-call, so the strategy owns every routing decision and the router only orchestrates. A strategy that
-returns ``None`` ends routing and lets the error surface. The default ``FallbackStrategy`` prefers the
+call, so the strategy owns every routing decision and the router only orchestrates. Declining with
+``None`` after a failure ends routing and lets the error surface; declining the opening choice still
+serves the request on the first declared candidate. The default ``FallbackStrategy`` prefers the
 candidate with the fewest recorded failures, breaking ties by declaration order, and re-arms a
 candidate once a later call succeeds. The API is provisional and may change before it is finalized.
 """

@@ -24,9 +24,12 @@ class RoutingAttempt:
     """A candidate this invocation already used, and how the call ended.
 
     ``candidate`` is the instance from ``RoutingContext.candidates``, not a copy. ``exception`` is
-    ``None`` when the call succeeded, and is otherwise the same object ``AfterModelCallEvent`` reports.
-    Attempts are in chronological order, so a strategy can tell a first failure from a repeated one
-    and treat a candidate that recovered as healthy.
+    ``None`` when the call succeeded. Otherwise it is either the model's error as
+    ``AfterModelCallEvent`` reports it, or -- when the candidate could not be resolved to a model at
+    all -- the error raised while resolving it, so a strategy that treats the two differently should
+    inspect the exception rather than assume a model was reached. Attempts are in chronological order,
+    so a strategy can tell a first failure from a repeated one and treat a candidate that recovered as
+    healthy.
     """
 
     candidate: RoutingCandidate
@@ -66,13 +69,32 @@ class RoutingStrategy(Protocol):
     """
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
-        """Return the candidate to use, from ``context.candidates``, or ``None`` to stop routing.
+        """Return the candidate to use, from ``context.candidates``, or ``None`` to decline.
 
-        Called with no attempts for the initial choice, then again after each failed call with that
-        failure appended. Returning ``None`` ends routing and lets the model's error surface, so a
-        strategy that declines to reconsider keeps the invocation on the model it first chose.
+        Asked before the first model call, and again after each failed call with that failure appended
+        to ``context.attempts``. ``attempts`` is usually empty on the opening ask but not always: a
+        candidate that cannot be resolved to a model is recorded and the opening ask repeats, so
+        ``attempts`` does not reliably distinguish the opening ask from a later one.
 
-        The return value must be one of the ``context.candidates`` instances; the router matches by
-        identity, so an equal-looking ``RoutingCandidate`` built by the strategy is rejected.
+        ``None`` declines. On the opening ask the router still serves the request on the first declared
+        candidate, so a servable request does not fail on a routing decision; on a later ask it ends
+        routing and lets the model's error surface.
+
+        The return value must be one of the ``context.candidates`` instances -- the router matches by
+        identity, so an equal-looking ``RoutingCandidate`` built here is rejected. A candidate already
+        tried since the last success is read as declining to move, which is what bounds an invocation,
+        so failing over means offering a candidate this round has not used.
+
+        Failover is this method's job: the router applies what is returned and never substitutes a
+        candidate of its own, so a strategy that ignores ``context.attempts`` gets no failover. Wrap or
+        delegate to ``FallbackStrategy`` to get it.
         """
         ...
+
+
+def _attempts_since_success(attempts: Sequence[RoutingAttempt]) -> Sequence[RoutingAttempt]:
+    """Return the trailing attempts that all failed, dropping everything up to the last success."""
+    for index in range(len(attempts) - 1, -1, -1):
+        if attempts[index].exception is None:
+            return attempts[index + 1 :]
+    return attempts

@@ -13,8 +13,10 @@ The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter(models=
 failover until a candidate starts failing repeatedly; see ``fallback_strategy`` for what it decides
 and when it departs from declaration order. A strategy that fails or declines the opening
 choice degrades to the first declared candidate; ``max_switches`` caps switches per invocation. A
-strategy that re-offers the candidate that just failed is taken to mean "stay here", so the model's
-error surfaces rather than the router resetting the retry budget again.
+strategy that re-offers a candidate already tried since the last success is taken to mean "stay here",
+so the model's error surfaces rather than the router resetting the retry budget again. That bound does
+not depend on the strategy: each candidate is switched to at most once per failure round, so a strategy
+that alternates candidates terminates rather than cycling forever.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, so its strategy picks from a clean slate every time and the group performs no internal
@@ -42,7 +44,7 @@ from ...hooks.registry import HookOrder
 from ...plugins.plugin import Plugin
 from ..model import Model
 from .fallback_strategy import FallbackStrategy
-from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
+from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy, _attempts_since_success
 
 if TYPE_CHECKING:
     from ..._middleware.stages import InvokeModelContext
@@ -190,7 +192,7 @@ class ModelRouter(Plugin):
             raise ValueError("strategy.select must return a candidate from context.candidates")
         return candidate
 
-    async def _open(self, context: RoutingContext) -> tuple[RoutingCandidate, Model]:
+    async def _open(self, context: RoutingContext) -> tuple[RoutingCandidate, Model, list[RoutingAttempt]]:
         """Choose and resolve the candidate to start on, skipping any that cannot be resolved.
 
         A candidate that fails to resolve is skipped wherever it sits in the list, so a nested router
@@ -205,7 +207,7 @@ class ModelRouter(Plugin):
             if candidate is None:
                 break
             try:
-                return candidate, await self._resolve(candidate, ask_context)
+                return candidate, await self._resolve(candidate, ask_context), attempts
             except Exception as error:
                 logger.warning(
                     "candidate=<%s>, error=<%s> | candidate could not be resolved",
@@ -286,8 +288,8 @@ class ModelRouter(Plugin):
                     context.tool_specs,
                     context.invocation_state,
                 )
-                candidate, model = await self._open(routing_context)
-                state = _RoutingState(candidate=candidate, model=model)
+                candidate, model, attempts = await self._open(routing_context)
+                state = _RoutingState(candidate=candidate, model=model, attempts=attempts)
                 context.invocation_state[key] = state
             context.model = state.model
             return context
@@ -337,11 +339,13 @@ class ModelRouter(Plugin):
                 state.attempts.append(RoutingAttempt(candidate=candidate, exception=error))
                 continue
 
-            # Re-offering the candidate that just failed means "stay here". Treating it as a switch
-            # would reset the retry budget every round and the invocation would never end.
-            if candidate is previous:
+            # Forward progress cannot depend on the strategy: each candidate is switched to at most
+            # once per failure round, so an alternating strategy terminates instead of resetting the
+            # retry budget forever. A success clears the round, which is what re-arms a candidate.
+            if id(candidate) in {id(attempt.candidate) for attempt in _attempts_since_success(state.attempts)}:
                 logger.info(
-                    "candidate=<%s> | strategy re-offered the failed candidate, leaving the error to surface",
+                    "candidate=<%s> | strategy re-offered a candidate already tried this round, "
+                    "leaving the error to surface",
                     _candidate_label(candidate),
                 )
                 return

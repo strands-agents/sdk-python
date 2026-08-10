@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from .strategy import RoutingAttempt, RoutingContext
+from .strategy import RoutingContext, _attempts_since_success
 
 if TYPE_CHECKING:
     from .router import RoutingCandidate
@@ -36,11 +35,3 @@ class FallbackStrategy:
         if not available:
             return None
         return min(available, key=lambda candidate: failures.get(id(candidate), 0))
-
-
-def _attempts_since_success(attempts: Sequence[RoutingAttempt]) -> Sequence[RoutingAttempt]:
-    """Return the trailing attempts that all failed, dropping everything up to the last success."""
-    for index in range(len(attempts) - 1, -1, -1):
-        if attempts[index].exception is None:
-            return attempts[index + 1 :]
-    return attempts

@@ -62,6 +62,14 @@ def _routing_context(candidates, invocation_state=None, attempts=()):
 _TEST_AGENT = object()
 
 
+def _label(candidate):
+    return candidate.name
+
+
+def _routing_state_of(invocation_state, router, agent=None):
+    return invocation_state[router._state_key(agent if agent is not None else _TEST_AGENT)]
+
+
 def _invoke_context(invocation_state, model, agent=None):
     return types.SimpleNamespace(
         agent=agent if agent is not None else _TEST_AGENT,
@@ -803,6 +811,58 @@ def test_a_strategy_re_offering_the_failed_candidate_terminates():
         agent("hello")
 
     assert strategy.asks < 10  # bounded, not spinning
+
+
+def test_a_strategy_that_alternates_candidates_terminates():
+    # Round-robin is the obvious hand-written strategy, and it never repeats back-to-back. Forward
+    # progress therefore cannot rest on comparing against the candidate that just failed: each
+    # candidate may be switched to at most once per failure round.
+    class _RoundRobin:
+        def __init__(self):
+            self.asks = 0
+
+        async def select(self, context):
+            self.asks += 1
+            return context.candidates[(self.asks - 1) % len(context.candidates)]
+
+    strategy = _RoundRobin()
+    router = ModelRouter(
+        models=[_FailingModel(ValueError("first down")), _FailingModel(ValueError("second down"))],
+        strategy=strategy,
+    )
+    agent = Agent(
+        model=router,
+        retry_strategy=ModelRetryStrategy(max_attempts=2, initial_delay=0, max_delay=0),
+        callback_handler=None,
+    )
+
+    with pytest.raises(ValueError, match="down"):
+        agent("hello")
+
+    # One ask per candidate plus the ask that gets refused; no default max_switches needed.
+    assert strategy.asks <= len(router.candidates) + 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_failures_from_the_opening_phase_reach_the_strategy():
+    # _open skips candidates it cannot resolve; the strategy must inherit that history rather than
+    # re-deriving it on its first post-failure ask.
+    unresolvable = ModelRouter(models=[_model("nested")], strategy=_RaisingStrategy())
+    flaky, healthy = _model("flaky"), _model("healthy")
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(unresolvable, name="broken"),
+            RoutingCandidate(flaky, name="flaky"),
+            RoutingCandidate(healthy, name="healthy"),
+        ]
+    )
+
+    context = _invoke_context({}, model=router.default_model)
+    await router._selection_middleware()(context)
+    state = _routing_state_of(context.invocation_state, router)
+
+    assert state.candidate is router.candidates[1]  # skipped the unresolvable first slot
+    assert [(_label(a.candidate), type(a.exception)) for a in state.attempts] == [("broken", RuntimeError)]
 
 
 @pytest.mark.parametrize(("cap", "expected"), [(0, "first down"), (1, "second down")], ids=["cap-0", "cap-1"])
