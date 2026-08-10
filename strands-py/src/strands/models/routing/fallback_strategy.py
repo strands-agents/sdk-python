@@ -16,9 +16,11 @@ class FallbackStrategy:
     Candidates already tried since the last success are excluded, then the fewest recorded failures
     wins, ties going to the earlier declaration. So an invocation with no failures behind it is plain
     declaration order, and a model that keeps failing sinks below healthier ones rather than being
-    re-tried in its declared slot. A success clears the failures recorded before it, which both
-    re-arms an earlier candidate for a later round and stops that success from being demoted.
-    Returns ``None`` once every candidate has been tried since the last success.
+    re-tried in its declared slot. A success re-arms every candidate, since exclusion looks only at
+    attempts since the last success, and clears the succeeding candidate's own failure count so that
+    success is not itself demoted. Every other candidate keeps its failure history, which is what keeps
+    a model that fails repeatedly below healthier ones across successes. Returns ``None`` once every
+    candidate has been tried since the last success.
     """
 
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:

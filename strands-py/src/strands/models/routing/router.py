@@ -28,7 +28,7 @@ advancing within it.
 Known limitation: a model that fails after streaming part of a response has already emitted those
 events, so a streaming consumer sees that partial output followed by the replacement's full response.
 ``AfterModelCallEvent`` documents this for any hook-requested retry; routing reaches it more often
-because it advances on any failure retry declines, not only throttling.
+because it advances on any failure the retry strategy declines, not only throttling.
 
 Known limitation: routing applies to ``InvokeModelStage``, so ``agent.model`` stays the first declared
 candidate and subsystems reading it reason about that model rather than the one running. Proactive
@@ -121,7 +121,7 @@ class ModelRouter(Plugin):
             strategy: Chooses the candidate for each model call, and is asked again after a failed
                 call. Defaults to ``FallbackStrategy``, which prefers the candidate with the fewest
                 recorded failures and breaks ties by declaration order, so an invocation with no
-                failures behind it is ordered failover. A success re-arms the candidates before it.
+                failures behind it is ordered failover. A success re-arms every candidate.
             max_switches: Cap on model switches within one invocation, after which the router stops
                 asking and lets the error surface. Selection is asked once per invocation, but every
                 failed model call can switch, so an invocation running a long tool loop has many
