@@ -241,8 +241,11 @@ class ModelRouter(Plugin):
 
         candidate = self._validated(selection, context)
         if candidate is None:
-            logger.warning(
-                "strategy=<%s> | strategy chose no candidate, using the default candidate", self._strategy_name
+            # Declining the opening choice is supported, so this is INFO alongside the selection it
+            # replaces. Only the strategy raising above is unexpected enough to warrant a warning.
+            logger.info(
+                "strategy=<%s> | strategy declined the opening choice, using the default candidate",
+                self._strategy_name,
             )
             return self._first_untried(attempts)
 

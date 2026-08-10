@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import logging
 import types
 
 import pytest
@@ -258,12 +259,16 @@ async def test_strategy_selection_rejects_unusable_results(returns, exc, match):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "strategy_body",
-    [lambda context: None, lambda context: (_ for _ in ()).throw(RuntimeError("judge timed out"))],
+    ("strategy_body", "warns"),
+    [
+        (lambda context: None, False),
+        (lambda context: (_ for _ in ()).throw(RuntimeError("judge timed out")), True),
+    ],
     ids=["declines", "raises"],
 )
-async def test_opening_choice_degrades_to_the_default_candidate(strategy_body):
-    # An expensive strategy can time out or answer unparseably; the request is still servable.
+async def test_opening_choice_degrades_to_the_default_candidate(strategy_body, warns, caplog):
+    # An expensive strategy can time out or answer unparseably; the request is still servable. Only
+    # the raise is unexpected: declining is supported, so it must not warn on every invocation.
     default, other = _model("default"), _model("other")
 
     class _Unhelpful:
@@ -273,7 +278,11 @@ async def test_opening_choice_degrades_to_the_default_candidate(strategy_body):
     router = ModelRouter(models=[default, other], strategy=_Unhelpful())
     agent = Agent(model=router, callback_handler=None)
 
-    assert agent("hello").message["content"][0]["text"] == "default"
+    with caplog.at_level(logging.DEBUG, logger="strands.models.routing.router"):
+        assert agent("hello").message["content"][0]["text"] == "default"
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert bool(warnings) is warns
 
 
 def test_strategy_that_declines_to_reconsider_gets_no_fallback():
