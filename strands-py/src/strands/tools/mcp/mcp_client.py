@@ -61,7 +61,7 @@ from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from ..tool_provider import ToolProvider
 from .mcp_agent_tool import MCPAgentTool
-from .mcp_instrumentation import mcp_instrumentation
+from .mcp_instrumentation import inject_trace_context, mcp_instrumentation
 from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
 from .mcp_types import MCPToolResult, MCPTransport
 
@@ -775,6 +775,19 @@ class MCPClient(ToolProvider):
         """
         use_task = self._should_use_task(name)
         effective_callback = progress_callback if progress_callback is not None else self._progress_callback
+
+        # Inject once, before branching, so both the task-augmented and direct
+        # call paths below carry the same enriched meta. This is safe on the
+        # caller's thread: asyncio.run_coroutine_threadsafe, used to hand the
+        # resulting coroutine to the background loop, copies the caller's
+        # contextvars, so the caller's active span is still current when the
+        # coroutine runs on the background thread.
+        #
+        # Under mcp 2.x this injection becomes redundant rather than wrong: the
+        # dispatcher injects its own traceparent, overwriting this one with its
+        # own CLIENT span. That span is parented to the caller's span, so the
+        # trace stays connected.
+        meta = inject_trace_context(meta)
 
         if use_task:
             self._log_debug_with_thread("tool=<%s> | using task-augmented execution", name)
