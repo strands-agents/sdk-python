@@ -17,7 +17,8 @@ choice degrades to the first declared candidate it has not already tried; ``max_
 switches per invocation. Forward progress does not depend on the strategy: a failure round switches to
 each candidate at most once, so offering one the round already used costs an ask rather than the model
 call, and a strategy that cycles runs out instead of resetting the retry budget forever. A success
-clears the round. Once no candidate is left to switch to, the model's error surfaces.
+starts a new round on the candidate that succeeded, which counts as that round's first use just as the
+opening choice does. Once no candidate is left to switch to, the model's error surfaces.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, so its strategy picks from a clean slate every time and the group performs no internal
@@ -43,7 +44,7 @@ from __future__ import annotations
 import copy
 import inspect
 import logging
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, TypeAlias
 
@@ -86,8 +87,9 @@ class _RoutingState:
 
     ``attempts`` is the record the strategy reads to make its next decision; the router appends to it
     but never reads it. ``switched_to`` holds the ids of candidates this failure round has already
-    switched to, which is what bounds the round, and is cleared by a success. ``switches`` counts model
-    changes so ``max_switches`` can cap them.
+    switched to, which is what bounds the round; a success resets it to the candidate that succeeded,
+    since that candidate opens the next round. ``switches`` counts model changes so ``max_switches``
+    can cap them.
     """
 
     candidate: RoutingCandidate
@@ -128,8 +130,9 @@ class ModelRouter(Plugin):
         Raises:
             TypeError: If ``models`` is not a sequence, a candidate is not a ``Model`` or
                 ``ModelRouter``, or ``strategy`` does not implement ``RoutingStrategy``.
-            ValueError: If ``models`` is empty, candidate names collide, any candidate is a stateful
-                model, or ``max_switches`` is negative.
+            ValueError: If ``models`` is empty, candidate names collide, a model is routed to more than
+                once -- including through a nested router -- any candidate is a stateful model, or
+                ``max_switches`` is negative.
         """
         super().__init__()
         if strategy is not None and not inspect.iscoroutinefunction(getattr(strategy, "select", None)):
@@ -322,7 +325,10 @@ class ModelRouter(Plugin):
             return
         if event.stop_response is not None:
             state.attempts.append(RoutingAttempt(candidate=state.candidate))
-            state.switched_to.clear()
+            # A success opens a new round on the candidate that succeeded, so that candidate counts as
+            # used exactly as the opening choice does. Clearing outright would let a strategy that
+            # re-offers it run it again on a second retry budget.
+            state.switched_to = {id(state.candidate)}
             return
         if event.retry or event.exception is None:
             return
@@ -338,9 +344,16 @@ class ModelRouter(Plugin):
     async def _advance(self, event: AfterModelCallEvent, state: _RoutingState) -> bool:
         """Switch to the strategy's next candidate, returning whether the call should be retried."""
         previous = state.candidate
-
-        # Bounded by the candidate count: each pass either switches, stops, or burns one candidate.
-        for _ in range(len(self._candidates)):
+        untried = len(self._candidates) - len(state.switched_to)
+        # A switch ends this call, so what needs bounding is asks that make no progress: naming a
+        # candidate the round already switched to, or one that cannot be resolved. Those get an
+        # allowance of their own -- one per candidate, on top of the untried ones -- so a wasted ask
+        # costs an ask rather than a switch, and a strategy that names a used candidate a few times in
+        # a row still reaches an untried one. The allowance stays finite so a strategy that only ever
+        # names used candidates runs out. With nothing untried left the round is over and the strategy
+        # is not asked at all.
+        asks = untried + len(self._candidates) if untried > 0 else 0
+        for _ in range(asks):
             routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
             try:
                 selection = await self._strategy.select(routing_context)
@@ -357,7 +370,7 @@ class ModelRouter(Plugin):
 
             # Forward progress cannot depend on the strategy: a round switches to each candidate at
             # most once, so a strategy that keeps offering used candidates runs out instead of
-            # resetting the retry budget forever. A success clears the round.
+            # resetting the retry budget forever.
             if id(candidate) in state.switched_to:
                 logger.debug(
                     "candidate=<%s> | already switched to this round, asking again",
@@ -502,6 +515,16 @@ def _as_candidate(item: CandidateInput) -> RoutingCandidate:
     return candidate
 
 
+def _reachable_models(candidate: RoutingCandidate) -> Iterator[Model]:
+    """Yield every concrete model this candidate can run, descending into a nested router."""
+    model = candidate.model
+    if isinstance(model, ModelRouter):
+        for nested in model.candidates:
+            yield from _reachable_models(nested)
+    else:
+        yield model
+
+
 def _reject_stateful(candidates: tuple[RoutingCandidate, ...]) -> None:
     """Reject any stateful candidate model."""
     for candidate in candidates:
@@ -515,7 +538,9 @@ def _reject_duplicates(candidates: tuple[RoutingCandidate, ...]) -> None:
     """Reject repeated candidates, repeated models, or colliding names.
 
     Strategies track health per candidate, so one model behind two candidates would get two failure
-    budgets and never be demoted. Requiring one candidate per model keeps that accounting sound.
+    budgets and never be demoted. Requiring one candidate per model keeps that accounting sound. The
+    model check reaches through a nested router, since a model it holds is one this router can run;
+    names stay per level, because a strategy only ever chooses among the candidates it is shown.
     """
     seen_candidates: set[int] = set()
     seen_models: set[int] = set()
@@ -526,13 +551,13 @@ def _reject_duplicates(candidates: tuple[RoutingCandidate, ...]) -> None:
             raise ValueError("duplicate RoutingCandidate instance")
         seen_candidates.add(identity)
 
-        model_identity = id(candidate.model)
-        if model_identity in seen_models:
-            raise ValueError(
-                f"candidate=<{_candidate_label(candidate)}> repeats a model already routed to; "
-                "construct a separate instance so each candidate has its own health"
-            )
-        seen_models.add(model_identity)
+        for model in _reachable_models(candidate):
+            if id(model) in seen_models:
+                raise ValueError(
+                    f"candidate=<{_candidate_label(candidate)}> repeats a model already routed to; "
+                    "construct a separate instance so each candidate has its own health"
+                )
+            seen_models.add(id(model))
 
         if candidate.name is None:
             continue

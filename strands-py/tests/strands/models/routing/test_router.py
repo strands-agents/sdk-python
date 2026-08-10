@@ -108,8 +108,9 @@ def test_log_labels_fall_back_to_provider_and_model_id():
     # tell you which candidate a log line is about.
     haiku = BedrockModel(model_id="anthropic.claude-3-haiku")
     opus = BedrockModel(model_id="anthropic.claude-3-opus")
+    nested = BedrockModel(model_id="anthropic.claude-3-nested")
     named = BedrockModel(model_id="anthropic.claude-3-sonnet")
-    router = ModelRouter(models=[haiku, opus, ModelRouter(models=[haiku]), RoutingCandidate(named, name="frontier")])
+    router = ModelRouter(models=[haiku, opus, ModelRouter(models=[nested]), RoutingCandidate(named, name="frontier")])
 
     tru_labels = [_candidate_label(candidate) for candidate in router.candidates]
     exp_labels = [
@@ -380,6 +381,12 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
         ),
         (lambda: [RoutingCandidate(_model())] * 2, ValueError, "duplicate RoutingCandidate instance"),
         (lambda: [(shared := _model()), shared], ValueError, "repeats a model already routed to"),
+        # Nesting must not smuggle a model past the guard: it would still get two failure budgets.
+        (
+            lambda: [(shared := _model()), ModelRouter(models=[shared])],
+            ValueError,
+            "repeats a model already routed to",
+        ),
     ],
     ids=[
         "empty",
@@ -392,6 +399,7 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
         "duplicate-name",
         "duplicate-instance",
         "duplicate-model",
+        "duplicate-model-through-nesting",
     ],
 )
 def test_construction_rejects_invalid_input(make_models, exc, match):
@@ -936,6 +944,18 @@ def test_a_transient_resolve_failure_does_not_bar_the_candidate_for_the_round():
     assert "nested-healthy" in str(agent("hello"))
 
 
+class _OffersUsedCandidate:
+    """Names the round's used candidate on its first N asks, then the untried one."""
+
+    def __init__(self, wasted_asks=1):
+        self._wasted_asks = wasted_asks
+        self.asks = 0
+
+    async def select(self, context, **kwargs):
+        self.asks += 1
+        return context.candidates[0] if self.asks <= self._wasted_asks else context.candidates[1]
+
+
 def test_a_strategy_offering_a_used_candidate_keeps_failing_over():
     # A random or weighted strategy can name a used candidate by chance. That must cost an ask, not
     # the whole failover: healthy untried candidates are still reachable.
@@ -948,21 +968,72 @@ def test_a_strategy_offering_a_used_candidate_keeps_failing_over():
     )
     agent, state, invocation_state = _hook_scaffold(router)
 
-    class _OffersUsedFirst:
-        def __init__(self):
-            self.asks = 0
-
-        async def select(self, context, **kwargs):
-            self.asks += 1
-            return context.candidates[0] if self.asks == 1 else context.candidates[1]
-
-    router._strategy = _OffersUsedFirst()
+    router._strategy = _OffersUsedCandidate()
     event = _model_result(invocation_state, agent, error=ValueError("down"))
 
     asyncio.run(router._on_model_result(event))
 
     assert event.retry is True
     assert state.candidate is router.candidates[1]
+
+
+@pytest.mark.asyncio
+async def test_wasted_asks_do_not_consume_the_failover_bound():
+    # Repeats of the used candidate cost an ask each, never switch capacity, so the untried candidate
+    # stays reachable however many times a strategy names a used one first.
+    router = ModelRouter(models=[_FailingModel(ValueError("down")), _model("recovered")])
+    agent, state, invocation_state = _hook_scaffold(router)
+    strategy = _OffersUsedCandidate(wasted_asks=len(router.candidates))
+    router._strategy = strategy
+    event = _model_result(invocation_state, agent, error=ValueError("down"))
+
+    await router._on_model_result(event)
+
+    assert event.retry is True
+    assert state.candidate is router.candidates[1]
+    assert strategy.asks == len(router.candidates) + 1
+
+
+@pytest.mark.asyncio
+async def test_a_success_does_not_re_arm_the_candidate_that_just_succeeded():
+    # The new round opens on the candidate that succeeded, so it is used just as the opening choice
+    # is. Otherwise a strategy that keeps naming it re-runs the model that just failed on a second
+    # retry budget instead of moving on.
+    class _AlwaysFirst:
+        def __init__(self):
+            self.asks = 0
+
+        async def select(self, context, **kwargs):
+            self.asks += 1
+            return context.candidates[0]
+
+    router = ModelRouter(models=[_model("first"), _model("second")], strategy=_AlwaysFirst())
+    agent, state, invocation_state = _hook_scaffold(router)
+
+    await router._on_model_result(_model_result(invocation_state, agent))
+    event = _model_result(invocation_state, agent, error=ValueError("down"))
+    await router._on_model_result(event)
+
+    tru_outcome = (event.retry, state.candidate, state.switches)
+    exp_outcome = (False, router.candidates[0], 0)
+    assert tru_outcome == exp_outcome
+
+
+@pytest.mark.asyncio
+async def test_a_wasted_ask_after_a_success_does_not_spend_the_switch_cap():
+    # max_switches counts model changes, and naming the round's used candidate changes nothing. If
+    # that ask spent the cap, a cap of one would strand the healthy backup after any earlier success.
+    router = ModelRouter(models=[_model("first"), _model("second")], max_switches=1)
+    agent, state, invocation_state = _hook_scaffold(router)
+    router._strategy = _OffersUsedCandidate()
+
+    await router._on_model_result(_model_result(invocation_state, agent))
+    event = _model_result(invocation_state, agent, error=ValueError("down"))
+    await router._on_model_result(event)
+
+    tru_outcome = (event.retry, state.candidate, state.switches)
+    exp_outcome = (True, router.candidates[1], 1)
+    assert tru_outcome == exp_outcome
 
 
 @pytest.mark.asyncio

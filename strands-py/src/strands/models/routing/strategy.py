@@ -89,11 +89,12 @@ class RoutingStrategy(Protocol):
 
         One router rule constrains the answer, and it is predictable from ``context.attempts``: a
         failure round switches to each candidate at most once, where a round is the run of failures
-        since the last success. Naming a candidate the round already switched to is not an error and
-        costs no model call -- the router simply asks again -- but it cannot be used to re-run that
-        candidate, so a strategy that judges a failure transient should offer a different candidate and
-        wait for the success that clears the round. When nothing is left to switch to, the model's
-        error surfaces.
+        since the last success, and the candidate the round opens on counts as already used -- the
+        opening choice, or the one that last succeeded. Naming a candidate the round already used is
+        not an error and costs no model call -- the router asks again, a bounded number of times --
+        but it cannot be used to re-run that candidate, so a strategy that judges a failure transient
+        should offer a different candidate and wait for the next success to re-arm this one. When
+        nothing is left to switch to, the model's error surfaces.
 
         Failover is this method's job: the router applies what is returned and never substitutes a
         candidate of its own, so a strategy that ignores ``context.attempts`` gets no failover. Wrap or
