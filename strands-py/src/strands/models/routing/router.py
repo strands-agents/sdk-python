@@ -499,14 +499,27 @@ def _reject_stateful(candidates: tuple[RoutingCandidate, ...]) -> None:
 
 
 def _reject_duplicates(candidates: tuple[RoutingCandidate, ...]) -> None:
-    """Reject repeated candidate instances or colliding names; repeated models are allowed."""
+    """Reject repeated candidates, repeated models, or colliding names.
+
+    Strategies track health per candidate, so one model behind two candidates would get two failure
+    budgets and never be demoted. Requiring one candidate per model keeps that accounting sound.
+    """
     seen_candidates: set[int] = set()
+    seen_models: set[int] = set()
     seen_names: set[str] = set()
     for candidate in candidates:
         identity = id(candidate)
         if identity in seen_candidates:
             raise ValueError("duplicate RoutingCandidate instance")
         seen_candidates.add(identity)
+
+        model_identity = id(candidate.model)
+        if model_identity in seen_models:
+            raise ValueError(
+                f"candidate=<{_candidate_label(candidate)}> repeats a model already routed to; "
+                "construct a separate instance so each candidate has its own health"
+            )
+        seen_models.add(model_identity)
 
         if candidate.name is None:
             continue

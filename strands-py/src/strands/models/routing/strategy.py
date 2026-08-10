@@ -81,8 +81,8 @@ class RoutingStrategy(Protocol):
         ``attempts`` does not reliably distinguish the opening ask from a later one.
 
         ``None`` declines. On the opening ask the router still serves the request on the first declared
-        candidate, so a servable request does not fail on a routing decision; on a later ask it ends
-        routing and lets the model's error surface.
+        candidate it has not already tried, so a servable request does not fail on a routing decision;
+        on a later ask it ends routing and lets the model's error surface.
 
         The return value must be one of the ``context.candidates`` instances -- the router matches by
         identity, so an equal-looking ``RoutingCandidate`` built here is rejected.

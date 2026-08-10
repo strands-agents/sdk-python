@@ -106,8 +106,10 @@ def test_router_is_a_plugin_with_stable_name():
 def test_log_labels_fall_back_to_provider_and_model_id():
     # Candidates are usually unnamed and often share a provider class, so the class name alone cannot
     # tell you which candidate a log line is about.
-    haiku, opus = BedrockModel(model_id="anthropic.claude-3-haiku"), BedrockModel(model_id="anthropic.claude-3-opus")
-    router = ModelRouter(models=[haiku, opus, ModelRouter(models=[haiku]), RoutingCandidate(opus, name="frontier")])
+    haiku = BedrockModel(model_id="anthropic.claude-3-haiku")
+    opus = BedrockModel(model_id="anthropic.claude-3-opus")
+    named = BedrockModel(model_id="anthropic.claude-3-sonnet")
+    router = ModelRouter(models=[haiku, opus, ModelRouter(models=[haiku]), RoutingCandidate(named, name="frontier")])
 
     tru_labels = [_candidate_label(candidate) for candidate in router.candidates]
     exp_labels = [
@@ -133,11 +135,10 @@ def test_routing_candidate_metadata_is_preserved():
     "build",
     [
         lambda m: ([m, _model("other")], m),
-        lambda m: ([m, m], m),  # the same model object twice is allowed
         lambda m: ([BedrockModel(model_id="haiku"), m], None),
         lambda m: ([ModelRouter(models=[m]), _model("other")], m),  # nested resolves recursively
     ],
-    ids=["first-candidate", "repeated-model", "bedrock-model", "nested-router"],
+    ids=["first-candidate", "bedrock-model", "nested-router"],
 )
 def test_default_model_is_the_first_declared_candidate(build):
     expected_first = _model("first")
@@ -378,6 +379,7 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
             "duplicate candidate name",
         ),
         (lambda: [RoutingCandidate(_model())] * 2, ValueError, "duplicate RoutingCandidate instance"),
+        (lambda: [(shared := _model()), shared], ValueError, "repeats a model already routed to"),
     ],
     ids=[
         "empty",
@@ -389,6 +391,7 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
         "stateful-uses-name-in-error",
         "duplicate-name",
         "duplicate-instance",
+        "duplicate-model",
     ],
 )
 def test_construction_rejects_invalid_input(make_models, exc, match):
