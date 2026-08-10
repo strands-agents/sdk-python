@@ -109,12 +109,14 @@ def test_log_labels_fall_back_to_provider_and_model_id():
     haiku, opus = BedrockModel(model_id="anthropic.claude-3-haiku"), BedrockModel(model_id="anthropic.claude-3-opus")
     router = ModelRouter(models=[haiku, opus, ModelRouter(models=[haiku]), RoutingCandidate(opus, name="frontier")])
 
-    assert [_candidate_label(c) for c in router.candidates] == [
+    tru_labels = [_candidate_label(candidate) for candidate in router.candidates]
+    exp_labels = [
         "BedrockModel/anthropic.claude-3-haiku",
         "BedrockModel/anthropic.claude-3-opus",
         "ModelRouter",
         "frontier",
     ]
+    assert tru_labels == exp_labels
 
 
 def test_routing_candidate_metadata_is_preserved():
@@ -122,7 +124,9 @@ def test_routing_candidate_metadata_is_preserved():
     router = ModelRouter(models=[RoutingCandidate(model=m, name="routine", description="simple tasks")])
 
     candidate = router.candidates[0]
-    assert (candidate.model, candidate.name, candidate.description) == (m, "routine", "simple tasks")
+    tru_metadata = (candidate.model, candidate.name, candidate.description)
+    exp_metadata = (m, "routine", "simple tasks")
+    assert tru_metadata == exp_metadata
 
 
 @pytest.mark.parametrize(
@@ -347,8 +351,12 @@ async def test_strategy_cannot_mutate_the_request_it_is_asked_about():
 
     await router._selection_middleware()(context)
 
-    assert context.messages == [{"role": "user", "content": [{"text": "original"}]}]
-    assert context.tool_specs == [{"name": "calculator", "inputSchema": {"json": {}}}]
+    tru_request = (context.messages, context.tool_specs)
+    exp_request = (
+        [{"role": "user", "content": [{"text": "original"}]}],
+        [{"name": "calculator", "inputSchema": {"json": {}}}],
+    )
+    assert tru_request == exp_request
 
 
 # --- construction guards ---
@@ -721,7 +729,9 @@ async def test_router_records_each_outcome_for_the_strategy():
 
     assert failure.retry is True
     assert state.candidate is router.candidates[1]  # FallbackStrategy moved on
-    assert [(a.candidate, type(a.exception)) for a in state.attempts] == [(router.candidates[0], ValueError)]
+    tru_attempts = [(attempt.candidate, type(attempt.exception)) for attempt in state.attempts]
+    exp_attempts = [(router.candidates[0], ValueError)]
+    assert tru_attempts == exp_attempts
 
     await router._on_model_result(_model_result(invocation_state, agent))
 
@@ -876,7 +886,9 @@ def test_a_strategy_that_alternates_candidates_terminates():
 
     # The bound that matters is model calls, not asks: each candidate is used at most once per round,
     # so no candidate gets a second retry budget and the backoff cannot compound.
-    assert calls == {"first down": 1, "second down": 1}
+    tru_calls = calls
+    exp_calls = {"first down": 1, "second down": 1}
+    assert tru_calls == exp_calls
 
 
 class _TransientStrategy:
@@ -989,7 +1001,9 @@ async def test_resolve_failures_from_the_opening_phase_reach_the_strategy():
     state = _routing_state_of(context.invocation_state, router)
 
     assert state.candidate is router.candidates[1]  # skipped the unresolvable first slot
-    assert [(_label(a.candidate), type(a.exception)) for a in state.attempts] == [("broken", RuntimeError)]
+    tru_attempts = [(_label(attempt.candidate), type(attempt.exception)) for attempt in state.attempts]
+    exp_attempts = [("broken", RuntimeError)]
+    assert tru_attempts == exp_attempts
 
 
 @pytest.mark.parametrize(("cap", "expected"), [(0, "first down"), (1, "second down")], ids=["cap-0", "cap-1"])
