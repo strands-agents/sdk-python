@@ -407,6 +407,43 @@ class TestStreamOrdering:
         assert len(events) == 1
         assert events[0] is original_stop
 
+    @pytest.mark.asyncio
+    async def test_absent_tool_result_skips_delegation(self):
+        """When the tool result for the delegation toolUseId is absent from history, delegation is skipped."""
+        from strands._middleware.stages import AgentStreamContext
+        from strands.types._events import EventLoopStopEvent
+
+        tool = _make_delegation_tool()
+        parent = Agent(name="p", tools=[tool], callback_handler=None)
+        plugin = _get_plugin(parent)
+
+        # History has no tool result at all for the delegation toolUseId
+        parent.messages.extend(
+            [
+                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "sub", "input": {}}}]},
+                {"role": "assistant", "content": [{"text": "placeholder"}]},
+            ]
+        )
+
+        ctx = AgentStreamContext(
+            agent=parent,
+            messages=[],
+            invocation_state={"request_state": {}},
+            _interrupts={},
+        )
+
+        original_stop = EventLoopStopEvent("end_turn", parent.messages[-1], parent.event_loop_metrics, {})
+
+        async def inner(c):
+            plugin._state[parent] = _DelegationState(tool_use_id="t1", end_turn_via_delegation=True, tool_use_count=1)
+            yield original_stop
+
+        events = [e async for e in plugin._handle_stream(ctx, inner)]
+
+        # Result absent → original stop replays unchanged
+        assert len(events) == 1
+        assert events[0] is original_stop
+
 
 class TestStatefulModel:
     """Delegation tools are rejected on stateful models at init and runtime."""
@@ -434,23 +471,24 @@ class TestStatefulModel:
         plugin = _get_plugin(parent)
         type(parent.model).stateful = PropertyMock(return_value=True)
 
-        ctx = ExecuteToolContext(
-            agent=parent,
-            tool=tool,
-            tool_use={"toolUseId": "t1", "name": "sub", "input": {"input": "hi"}},
-            invocation_state={"request_state": {}},
-            _interrupt_state=parent._interrupt_state,
-        )
+        try:
+            ctx = ExecuteToolContext(
+                agent=parent,
+                tool=tool,
+                tool_use={"toolUseId": "t1", "name": "sub", "input": {"input": "hi"}},
+                invocation_state={"request_state": {}},
+                _interrupt_state=parent._interrupt_state,
+            )
 
-        async def unreachable(c):
-            yield ToolResultEvent({"toolUseId": "t1", "status": "success", "content": [{"text": "nope"}]})
+            async def unreachable(c):
+                yield ToolResultEvent({"toolUseId": "t1", "status": "success", "content": [{"text": "nope"}]})
 
-        events = [e async for e in plugin._handle_tool_execution(ctx, unreachable)]
-        assert len(events) == 1
-        assert events[0].tool_result["status"] == "error"
-        assert "stateful" in events[0].tool_result["content"][0]["text"].lower()
-
-        del type(parent.model).stateful
+            events = [e async for e in plugin._handle_tool_execution(ctx, unreachable)]
+            assert len(events) == 1
+            assert events[0].tool_result["status"] == "error"
+            assert "stateful" in events[0].tool_result["content"][0]["text"].lower()
+        finally:
+            del type(parent.model).stateful
 
 
 class TestAutoRegistration:
@@ -542,6 +580,12 @@ class TestFullDelegationFlow:
         result = await orch.invoke_async("Check balance")
         assert result.stop_reason == "end_turn"
         assert any("$42" in str(b.get("text", "")) for b in result.message["content"])
+
+        # The placeholder must not remain stranded in history
+        for msg in orch.messages:
+            for block in msg.get("content", []):
+                if isinstance(block, dict) and "text" in block:
+                    assert "Turn ended early" not in block["text"]
 
     @pytest.mark.asyncio
     async def test_error_recovery(self):
@@ -671,17 +715,17 @@ class TestDelegationWithContextOffloader:
 
 
 class TestAfterToolsOrderingGuard:
-    """SDK_LAST on AfterToolsEvent ensures delegation sees the committed result before other hooks."""
+    """SDK_LAST on AfterToolsEvent makes delegation read the result after other hooks have mutated it."""
 
     @pytest.mark.asyncio
     async def test_late_hook_flipping_result_prevents_end_turn(self):
         """A default-order AfterToolsEvent hook that flips the result to error prevents delegation end_turn.
 
-        Because AfterToolsEvent uses reverse ordering, SDK_LAST (100) runs first, DEFAULT (0) runs after.
-        Delegation reads the result first. But _handle_stream re-verifies the result from committed history,
-        so a late-hook mutation (at DEFAULT) that changes the committed message is caught.
-        This test verifies that if the committed message is mutated to error between _on_after_tools and
-        _handle_stream, the agent loop continues rather than ending the turn.
+        Order priority always wins: DEFAULT (0) runs before SDK_LAST (100). Reverse ordering only flips
+        registration order *within* one order tier, so delegation's SDK_LAST hook runs last and reads the
+        already-mutated committed message. Its own check in _on_after_tools is what declines to set
+        end_turn here; _handle_stream's re-verification is a second line of defence that does not fire in
+        this scenario. This test verifies the agent loop continues rather than ending the turn.
         """
         from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -731,7 +775,7 @@ class TestMessageAddedEventDuringDelegation:
 
     @pytest.mark.asyncio
     async def test_message_added_event_fires_for_delegation_message(self):
-        """MessageAddedEvent must fire with the delegation content message during a successful delegation."""
+        """MessageAddedEvent fires for the placeholder and then the real delegation content."""
         from strands.hooks import MessageAddedEvent
         from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -764,16 +808,82 @@ class TestMessageAddedEventDuringDelegation:
 
         await orch.invoke_async("Check balance")
 
-        # At minimum: user prompt, assistant tool_use, tool_result, delegation final message
-        assert len(received_messages) >= 3
+        # Expected events: user prompt, assistant tool_use, tool_result, end_turn placeholder, delegation content
+        assert len(received_messages) == 5
 
-        # The delegation message (containing the sub-agent's answer) must be among them
-        delegation_messages = [
+        # The placeholder fires before the delegation content
+        placeholder_msgs = [
+            m
+            for m in received_messages
+            if m["role"] == "assistant"
+            and any("Turn ended early" in str(b.get("text", "")) for b in m.get("content", []))
+        ]
+        assert len(placeholder_msgs) == 1
+
+        # The delegation message (containing the sub-agent's answer) fires exactly once
+        delegation_msgs = [
             m
             for m in received_messages
             if m["role"] == "assistant" and any("$42" in str(b.get("text", "")) for b in m.get("content", []))
         ]
-        assert len(delegation_messages) == 1
+        assert len(delegation_msgs) == 1
+
+        # Placeholder comes before delegation content
+        placeholder_idx = received_messages.index(placeholder_msgs[0])
+        delegation_idx = received_messages.index(delegation_msgs[0])
+        assert placeholder_idx < delegation_idx
+
+    @pytest.mark.asyncio
+    async def test_session_manager_suppresses_delegation_event(self):
+        """With a session manager, subscribers see the placeholder but not the delegation content event."""
+        from strands.hooks import MessageAddedEvent
+        from strands.session.repository_session_manager import RepositorySessionManager
+        from tests.fixtures.mock_session_repository import MockedSessionRepository
+        from tests.fixtures.mocked_model_provider import MockedModelProvider
+
+        repo = MockedSessionRepository()
+        session_mgr = RepositorySessionManager(session_id="s1", session_repository=repo)
+
+        sub = Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": "Balance: $42"}]}]),
+            name="billing",
+            callback_handler=None,
+        )
+
+        orch = Agent(
+            model=MockedModelProvider(
+                [
+                    {
+                        "role": "assistant",
+                        "content": [{"toolUse": {"toolUseId": "c1", "name": "billing", "input": {"input": "check"}}}],
+                    }
+                ]
+            ),
+            name="orch",
+            tools=[sub.as_tool(delegate=True)],
+            session_manager=session_mgr,
+            callback_handler=None,
+        )
+
+        received_messages = []
+
+        def on_message_added(event: MessageAddedEvent):
+            received_messages.append(event.message)
+
+        orch.add_hook(on_message_added, MessageAddedEvent)
+
+        await orch.invoke_async("Check balance")
+
+        # With session manager: no MessageAddedEvent fires for the delegation content
+        delegation_msgs = [
+            m
+            for m in received_messages
+            if m["role"] == "assistant" and any("$42" in str(b.get("text", "")) for b in m.get("content", []))
+        ]
+        assert len(delegation_msgs) == 0
+
+        # But agent.messages still reflects the delegation content
+        assert any("$42" in str(b.get("text", "")) for b in orch.messages[-1].get("content", []))
 
 
 class TestMiddlewareSingleCallGuard:

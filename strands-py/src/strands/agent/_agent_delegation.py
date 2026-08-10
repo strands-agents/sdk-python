@@ -8,8 +8,9 @@ When a tool is configured with ``delegate=True``, this plugin ensures:
 4. Streaming events from the delegate agent are surfaced natively in the parent stream
 
 The final delegation message is produced in middleware after the core loop exits.
-``MessageAddedEvent`` subscribers may observe the end_turn placeholder before the
-middleware replaces it with the real delegation content.
+``MessageAddedEvent`` subscribers will see the end_turn placeholder followed by a second
+event with the real delegation content (no session manager), or no event for the real
+content at all (session manager attached).
 """
 
 from __future__ import annotations
@@ -226,6 +227,10 @@ class AgentDelegation(Plugin):
             for t in event.agent.tool_registry.dynamic_tools.values()
         )
         if has_structured_output:
+            logger.debug(
+                "tool_use_id=<%s> | parent requires structured output, skipping delegation",
+                state.tool_use_id,
+            )
             return
 
         event.end_turn = True
@@ -254,8 +259,8 @@ class AgentDelegation(Plugin):
                     "content": [
                         {
                             "text": (
-                                "Delegation failed: delegation tools (delegate=True) are not supported "
-                                "with stateful models."
+                                "Delegation failed: this tool is not supported with stateful models. "
+                                "Respond to the user directly instead of delegating."
                             )
                         }
                     ],
