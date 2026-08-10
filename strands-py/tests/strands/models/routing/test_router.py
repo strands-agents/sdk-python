@@ -16,7 +16,7 @@ from strands.models.routing import (
     RoutingContext,
     RoutingStrategy,
 )
-from strands.models.routing.router import _RoutingState
+from strands.models.routing.router import _candidate_label, _RoutingState
 from strands.multiagent import GraphBuilder
 from strands.types.exceptions import ModelThrottledException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -100,6 +100,20 @@ def test_router_is_a_plugin_with_stable_name():
 
 
 # --- candidates + metadata ---
+
+
+def test_log_labels_fall_back_to_provider_and_model_id():
+    # Candidates are usually unnamed and often share a provider class, so the class name alone cannot
+    # tell you which candidate a log line is about.
+    haiku, opus = BedrockModel(model_id="anthropic.claude-3-haiku"), BedrockModel(model_id="anthropic.claude-3-opus")
+    router = ModelRouter(models=[haiku, opus, ModelRouter(models=[haiku]), RoutingCandidate(opus, name="frontier")])
+
+    assert [_candidate_label(c) for c in router.candidates] == [
+        "BedrockModel/anthropic.claude-3-haiku",
+        "BedrockModel/anthropic.claude-3-opus",
+        "ModelRouter",
+        "frontier",
+    ]
 
 
 def test_routing_candidate_metadata_is_preserved():

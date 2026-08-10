@@ -447,8 +447,19 @@ CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
 
 
 def _candidate_label(candidate: RoutingCandidate) -> str:
-    """Return a stable human-readable label for logs."""
-    return candidate.name or type(candidate.model).__name__
+    """Return a stable human-readable label for logs.
+
+    Falls back to provider and model id, since candidates are often unnamed and several may share a
+    provider class -- ``BedrockModel`` alone does not say which model was chosen.
+    """
+    if candidate.name:
+        return candidate.name
+    provider = type(candidate.model).__name__
+    config = candidate.model.get_config() if isinstance(candidate.model, Model) else None
+    model_id = (
+        config.get("model_id") if isinstance(config, dict) else getattr(config, "model_id", None) if config else None
+    )
+    return f"{provider}/{model_id}" if model_id else provider
 
 
 def _get_routing_state(invocation_state: Mapping[str, Any], key: str) -> _RoutingState | None:
