@@ -308,7 +308,7 @@ class ContextOffloader(Plugin):
             return self._storage
         storage = self._storage_by_agent.get(agent)
         if storage is None:
-            storage = self._storage.for_sandbox(agent.sandbox)
+            storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
             self._storage_by_agent[agent] = storage
         return storage
 

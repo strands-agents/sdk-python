@@ -1,8 +1,12 @@
 """Tests for agent-level default storage."""
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from strands import Agent
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.session.snapshot_session_manager import SnapshotSessionManager
 from strands.storage.in_memory_storage import InMemoryStorage as UnifiedInMemoryStorage
 from strands.storage.storage import _NAMESPACED, _NamespacedStorage
@@ -154,3 +158,75 @@ class TestSnapshotSessionManagerResolvesAgentStorage:
         assert isinstance(session_mgr._storage, _NamespacedStorage)
         # Should be wrapping the explicit storage, not the agent storage
         assert session_mgr._storage._storage is explicit_storage
+
+
+class TestSnapshotSessionManagerResolvedStorageGuard:
+    def test_resolved_storage_raises_when_not_initialized(self):
+        session_mgr = SnapshotSessionManager("test-session")
+
+        with pytest.raises(RuntimeError, match="SnapshotSessionManager requires a storage backend"):
+            _ = session_mgr._resolved_storage
+
+
+class TestOffloaderStorageGuard:
+    def test_storage_for_agent_raises_when_not_initialized(self):
+        offloader = ContextOffloader(include_retrieval_tool=False)
+        agent = MagicMock()
+
+        with pytest.raises(RuntimeError, match="ContextOffloader storage not initialized"):
+            offloader._storage_for_agent(agent)
+
+    @pytest.mark.asyncio
+    async def test_on_before_model_call_returns_early_when_storage_is_none(self):
+        offloader = ContextOffloader(include_retrieval_tool=False)
+        event = MagicMock()
+
+        await offloader._on_before_model_call(event)
+
+
+class TestRepositorySessionManagerWarnOnce:
+    def setup_method(self):
+        RepositorySessionManager._warned_storage_ignored = False
+
+    def test_warns_when_agent_has_storage(self, caplog):
+        repository = MagicMock()
+        repository.read_session = MagicMock(return_value=None)
+        repository.create_session = MagicMock()
+        session_mgr = RepositorySessionManager("test-session", session_repository=repository)
+
+        agent = MagicMock()
+        agent.storage = UnifiedInMemoryStorage()
+        agent.agent_id = "agent-1"
+        agent.messages = []
+
+        with caplog.at_level(logging.WARNING):
+            session_mgr.initialize(agent)
+
+        assert "agent-level storage is set but RepositorySessionManager does not use it" in caplog.text
+
+    def test_warns_only_once(self, caplog):
+        repository = MagicMock()
+        repository.read_session = MagicMock(return_value=None)
+        repository.create_session = MagicMock()
+        session_mgr = RepositorySessionManager("test-session", session_repository=repository)
+
+        agent = MagicMock()
+        agent.storage = UnifiedInMemoryStorage()
+        agent.agent_id = "agent-1"
+        agent.messages = []
+
+        with caplog.at_level(logging.WARNING):
+            session_mgr.initialize(agent)
+
+        caplog.clear()
+
+        session_mgr2 = RepositorySessionManager("test-session-2", session_repository=repository)
+        agent2 = MagicMock()
+        agent2.storage = UnifiedInMemoryStorage()
+        agent2.agent_id = "agent-2"
+        agent2.messages = []
+
+        with caplog.at_level(logging.WARNING):
+            session_mgr2.initialize(agent2)
+
+        assert "agent-level storage is set but RepositorySessionManager does not use it" not in caplog.text
