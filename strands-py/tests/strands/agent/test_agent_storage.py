@@ -1,7 +1,7 @@
 """Tests for agent-level default storage."""
 
 import logging
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -17,99 +17,11 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 SIMPLE_RESPONSE = [{"role": "assistant", "content": [{"text": "ok"}]}]
 
 
-class TestAgentStorageProperty:
-    def test_storage_defaults_to_none(self):
-        agent = Agent(model=MockedModelProvider(SIMPLE_RESPONSE))
-        assert agent.storage is None
+@pytest.fixture
+def mock_agent_for_session():
+    """Return a mock agent suitable for SnapshotSessionManager.initialize."""
 
-    def test_storage_returns_configured_value(self):
-        storage = MagicMock()
-        storage.write = AsyncMock()
-        storage.read = AsyncMock(return_value=None)
-        storage.delete = AsyncMock()
-        storage.list = AsyncMock(return_value=[])
-        agent = Agent(model=MockedModelProvider(SIMPLE_RESPONSE), storage=storage)
-        assert agent.storage is storage
-
-
-class TestOffloaderResolvesAgentStorage:
-    def test_offloader_uses_agent_storage_when_no_explicit_storage(self):
-        storage = UnifiedInMemoryStorage()
-        offloader = ContextOffloader(include_retrieval_tool=False)
-        agent = MagicMock()
-        agent.storage = storage
-
-        offloader.init_agent(agent)
-
-        assert offloader._storage is not None
-        assert isinstance(offloader._storage, _NamespacedStorage)
-        assert offloader._storage._namespaced is _NAMESPACED
-
-    def test_offloader_falls_back_to_in_memory_when_no_agent_storage(self):
-        offloader = ContextOffloader(include_retrieval_tool=False)
-        agent = MagicMock()
-        agent.storage = None
-
-        offloader.init_agent(agent)
-
-        assert offloader._storage is not None
-        assert isinstance(offloader._storage, OffloaderInMemoryStorage)
-
-    def test_explicit_offloader_storage_overrides_agent_storage(self):
-        agent_storage = UnifiedInMemoryStorage()
-        explicit_storage = OffloaderInMemoryStorage()
-        offloader = ContextOffloader(storage=explicit_storage, include_retrieval_tool=False)
-        agent = MagicMock()
-        agent.storage = agent_storage
-
-        offloader.init_agent(agent)
-
-        assert offloader._storage is explicit_storage
-
-    def test_explicit_unified_storage_overrides_agent_storage(self):
-        agent_storage = UnifiedInMemoryStorage()
-        explicit_storage = UnifiedInMemoryStorage()
-        offloader = ContextOffloader(storage=explicit_storage, include_retrieval_tool=False)
-        agent = MagicMock()
-        agent.storage = agent_storage
-
-        offloader.init_agent(agent)
-
-        assert offloader._storage is not agent_storage
-        assert isinstance(offloader._storage, _NamespacedStorage)
-
-    def test_offloader_namespaces_agent_storage_under_offloader(self):
-        storage = UnifiedInMemoryStorage()
-        offloader = ContextOffloader(include_retrieval_tool=False)
-        agent = MagicMock()
-        agent.storage = storage
-
-        offloader.init_agent(agent)
-
-        assert isinstance(offloader._storage, _NamespacedStorage)
-        assert offloader._storage._prefix == "offloader/"
-
-
-class TestContextManagerUsesAgentStorage:
-    def test_auto_context_manager_offloader_resolves_agent_storage(self):
-        storage = UnifiedInMemoryStorage()
-        agent = Agent(model=MockedModelProvider(SIMPLE_RESPONSE), storage=storage, context_manager="auto")
-
-        offloader = None
-        for plugin in agent._plugin_registry._plugins.values():
-            if isinstance(plugin, ContextOffloader):
-                offloader = plugin
-                break
-
-        assert offloader is not None
-        assert isinstance(offloader._storage, _NamespacedStorage)
-        assert offloader._storage._prefix == "offloader/"
-
-
-class TestSnapshotSessionManagerResolvesAgentStorage:
-    def test_session_manager_uses_agent_storage_when_no_explicit_storage(self):
-        storage = UnifiedInMemoryStorage()
-        session_mgr = SnapshotSessionManager("test-session")
+    def _make(storage=None):
         agent = MagicMock()
         agent.storage = storage
         agent.agent_id = "agent-1"
@@ -118,73 +30,177 @@ class TestSnapshotSessionManagerResolvesAgentStorage:
         agent.model.stateful = False
         agent.take_snapshot = MagicMock(return_value=MagicMock())
         agent.load_snapshot = MagicMock()
+        return agent
 
-        session_mgr.initialize(agent)
-
-        assert session_mgr._storage is not None
-        assert isinstance(session_mgr._storage, _NamespacedStorage)
-
-    def test_session_manager_falls_back_to_local_file_when_no_agent_storage(self):
-        session_mgr = SnapshotSessionManager("test-session")
-        agent = MagicMock()
-        agent.storage = None
-        agent.agent_id = "agent-1"
-        agent.messages = []
-        agent.model = MagicMock()
-        agent.model.stateful = False
-        agent.take_snapshot = MagicMock(return_value=MagicMock())
-        agent.load_snapshot = MagicMock()
-
-        session_mgr.initialize(agent)
-
-        assert session_mgr._storage is not None
-        assert isinstance(session_mgr._storage, _NamespacedStorage)
-
-    def test_explicit_session_storage_overrides_agent_storage(self):
-        agent_storage = UnifiedInMemoryStorage()
-        explicit_storage = UnifiedInMemoryStorage()
-        session_mgr = SnapshotSessionManager("test-session", storage=explicit_storage)
-        agent = MagicMock()
-        agent.storage = agent_storage
-        agent.agent_id = "agent-1"
-        agent.messages = []
-        agent.model = MagicMock()
-        agent.model.stateful = False
-        agent.take_snapshot = MagicMock(return_value=MagicMock())
-        agent.load_snapshot = MagicMock()
-
-        session_mgr.initialize(agent)
-
-        assert isinstance(session_mgr._storage, _NamespacedStorage)
-        # Should be wrapping the explicit storage, not the agent storage
-        assert session_mgr._storage._storage is explicit_storage
+    return _make
 
 
-class TestSnapshotSessionManagerResolvedStorageGuard:
-    def test_resolved_storage_raises_when_not_initialized(self):
-        session_mgr = SnapshotSessionManager("test-session")
-
-        with pytest.raises(RuntimeError, match="SnapshotSessionManager requires a storage backend"):
-            _ = session_mgr._resolved_storage
+# --- Agent.storage property ---
 
 
-class TestOffloaderStorageGuard:
-    def test_storage_for_agent_raises_when_not_initialized(self):
-        offloader = ContextOffloader(include_retrieval_tool=False)
-        agent = MagicMock()
+def test_storage_defaults_to_none():
+    agent = Agent(model=MockedModelProvider(SIMPLE_RESPONSE))
+    assert agent.storage is None
 
-        with pytest.raises(RuntimeError, match="ContextOffloader storage not initialized"):
-            offloader._storage_for_agent(agent)
 
-    @pytest.mark.asyncio
-    async def test_on_before_model_call_returns_early_when_storage_is_none(self):
-        offloader = ContextOffloader(include_retrieval_tool=False)
-        event = MagicMock()
+def test_storage_returns_configured_value():
+    storage = MagicMock()
+    agent = Agent(model=MockedModelProvider(SIMPLE_RESPONSE), storage=storage)
+    assert agent.storage is storage
 
-        await offloader._on_before_model_call(event)
+
+# --- ContextOffloader resolves agent-level storage ---
+
+
+def test_offloader_uses_agent_storage_when_no_explicit_storage():
+    storage = UnifiedInMemoryStorage()
+    offloader = ContextOffloader(include_retrieval_tool=False)
+    agent = MagicMock()
+    agent.storage = storage
+
+    offloader.init_agent(agent)
+
+    assert offloader._storage is not None
+    assert isinstance(offloader._storage, _NamespacedStorage)
+    assert offloader._storage._namespaced is _NAMESPACED
+
+
+def test_offloader_falls_back_to_in_memory_when_no_agent_storage():
+    offloader = ContextOffloader(include_retrieval_tool=False)
+    agent = MagicMock()
+    agent.storage = None
+
+    offloader.init_agent(agent)
+
+    assert offloader._storage is not None
+    assert isinstance(offloader._storage, OffloaderInMemoryStorage)
+
+
+def test_explicit_offloader_storage_overrides_agent_storage():
+    agent_storage = UnifiedInMemoryStorage()
+    explicit_storage = OffloaderInMemoryStorage()
+    offloader = ContextOffloader(storage=explicit_storage, include_retrieval_tool=False)
+    agent = MagicMock()
+    agent.storage = agent_storage
+
+    offloader.init_agent(agent)
+
+    assert offloader._storage is explicit_storage
+
+
+def test_explicit_unified_storage_overrides_agent_storage():
+    agent_storage = UnifiedInMemoryStorage()
+    explicit_storage = UnifiedInMemoryStorage()
+    offloader = ContextOffloader(storage=explicit_storage, include_retrieval_tool=False)
+    agent = MagicMock()
+    agent.storage = agent_storage
+
+    offloader.init_agent(agent)
+
+    assert offloader._storage is not agent_storage
+    assert isinstance(offloader._storage, _NamespacedStorage)
+
+
+def test_offloader_namespaces_agent_storage_under_offloader():
+    storage = UnifiedInMemoryStorage()
+    offloader = ContextOffloader(include_retrieval_tool=False)
+    agent = MagicMock()
+    agent.storage = storage
+
+    offloader.init_agent(agent)
+
+    assert isinstance(offloader._storage, _NamespacedStorage)
+    assert offloader._storage._prefix == "offloader/"
+
+
+# --- context_manager="auto" integration ---
+
+
+def test_auto_context_manager_offloader_resolves_agent_storage():
+    storage = UnifiedInMemoryStorage()
+    agent = Agent(model=MockedModelProvider(SIMPLE_RESPONSE), storage=storage, context_manager="auto")
+
+    offloader = None
+    for plugin in agent._plugin_registry._plugins.values():
+        if isinstance(plugin, ContextOffloader):
+            offloader = plugin
+            break
+
+    assert offloader is not None
+    assert isinstance(offloader._storage, _NamespacedStorage)
+    assert offloader._storage._prefix == "offloader/"
+
+
+# --- SnapshotSessionManager resolves agent-level storage ---
+
+
+def test_session_manager_uses_agent_storage_when_no_explicit_storage(mock_agent_for_session):
+    storage = UnifiedInMemoryStorage()
+    session_mgr = SnapshotSessionManager("test-session")
+
+    session_mgr.initialize(mock_agent_for_session(storage=storage))
+
+    assert session_mgr._storage is not None
+    assert isinstance(session_mgr._storage, _NamespacedStorage)
+
+
+def test_session_manager_falls_back_to_local_file_when_no_agent_storage(mock_agent_for_session):
+    session_mgr = SnapshotSessionManager("test-session")
+
+    session_mgr.initialize(mock_agent_for_session(storage=None))
+
+    assert session_mgr._storage is not None
+    assert isinstance(session_mgr._storage, _NamespacedStorage)
+
+
+def test_explicit_session_storage_overrides_agent_storage(mock_agent_for_session):
+    agent_storage = UnifiedInMemoryStorage()
+    explicit_storage = UnifiedInMemoryStorage()
+    session_mgr = SnapshotSessionManager("test-session", storage=explicit_storage)
+
+    session_mgr.initialize(mock_agent_for_session(storage=agent_storage))
+
+    assert isinstance(session_mgr._storage, _NamespacedStorage)
+    assert session_mgr._storage._storage is explicit_storage
+
+
+# --- Guard path coverage ---
+
+
+def test_resolved_storage_raises_when_not_initialized():
+    session_mgr = SnapshotSessionManager("test-session")
+
+    with pytest.raises(RuntimeError, match="SnapshotSessionManager requires a storage backend"):
+        _ = session_mgr._resolved_storage
+
+
+def test_storage_for_agent_raises_when_not_initialized():
+    offloader = ContextOffloader(include_retrieval_tool=False)
+    agent = MagicMock()
+
+    with pytest.raises(RuntimeError, match="ContextOffloader storage not initialized"):
+        offloader._storage_for_agent(agent)
+
+
+@pytest.mark.asyncio
+async def test_on_before_model_call_returns_early_when_storage_is_none():
+    offloader = ContextOffloader(include_retrieval_tool=False)
+    event = MagicMock()
+    event.agent = MagicMock()
+    event.agent.event_loop_metrics = MagicMock()
+    event.agent.event_loop_metrics.cycle_count = 1
+
+    await offloader._on_before_model_call(event)
+
+    assert offloader._storage is None
+
+
+# --- RepositorySessionManager warn-once ---
 
 
 class TestRepositorySessionManagerWarnOnce:
+    """Uses setup_method to reset the process-global flag between tests."""
+
     def setup_method(self):
         RepositorySessionManager._warned_storage_ignored = False
 

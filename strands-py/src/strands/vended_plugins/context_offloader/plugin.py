@@ -313,7 +313,11 @@ class ContextOffloader(Plugin):
         return storage
 
     def init_agent(self, agent: Agent) -> None:
-        """Conditionally register the retrieval tool and bind storage."""
+        """Conditionally register the retrieval tool and bind storage.
+
+        Storage is resolved on the first call and cached for the instance lifetime; a single
+        ContextOffloader should not be shared across agents with differing storage backends.
+        """
         if self._storage is None:
             if agent.storage is not None:
                 self._storage = self._resolve_storage(agent.storage)

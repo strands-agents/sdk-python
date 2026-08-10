@@ -296,6 +296,9 @@ class SnapshotSessionManager(SessionManager):
     def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Restore the agent from its latest snapshot, if one exists.
 
+        Storage is resolved on the first call and cached; a single manager instance should not be
+        shared across agents with differing storage backends.
+
         Args:
             agent: Agent to restore.
             **kwargs: Additional keyword arguments for future extensibility.

@@ -34,6 +34,9 @@ class RepositorySessionManager(SessionManager):
     with agent-level storage, use :class:`~strands.session.snapshot_session_manager.SnapshotSessionManager`.
     """
 
+    # Process-global to avoid repeated log noise when multiple instances see agent-level storage.
+    _warned_storage_ignored: bool = False
+
     def __init__(
         self,
         session_id: str,
@@ -171,8 +174,6 @@ class RepositorySessionManager(SessionManager):
             "conversation_manager_state": copy.deepcopy(current_conversation_manager_state),
             "model_state": copy.deepcopy(current_model_state),
         }
-
-    _warned_storage_ignored: bool = False
 
     def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Initialize an agent with a session.
