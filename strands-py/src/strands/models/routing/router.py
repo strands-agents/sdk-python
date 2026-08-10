@@ -313,9 +313,13 @@ class ModelRouter(Plugin):
             return
         previous = state.candidate
 
+        # Copied once per failure: the request does not change while the loop skips candidates, only
+        # the attempt log does.
+        request = self._routing_context_from_agent(event.agent, event.invocation_state)
+
         # Bounded by the candidate count so a strategy repeating one unresolvable choice cannot spin.
         for _ in range(len(self._candidates)):
-            routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
+            routing_context = replace(request, attempts=tuple(state.attempts))
             try:
                 selection = await self._strategy.select(routing_context)
             except Exception as error:
