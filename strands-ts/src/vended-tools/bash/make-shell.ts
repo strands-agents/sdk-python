@@ -67,8 +67,20 @@ export function makeShell(
  * @deprecated makeBash is deprecated and will be removed in v2.0.0. Use makeShell instead. The tool
  * routes commands through the sandbox, which runs sh or the remote login shell rather than bash
  * specifically.
+ *
+ * Defaults the tool name to `'bash'` so callers keyed on the pre-rename name (hooks, prompts,
+ * tool lists) keep working until the alias is removed.
  */
-export const makeBash = makeShell
+export function makeBash(options?: MakeShellOptions): ReturnType<typeof tool>
+export function makeBash(sandbox: Sandbox | undefined, options?: MakeShellOptions): ReturnType<typeof tool>
+export function makeBash(
+  sandboxOrOptions?: Sandbox | MakeShellOptions,
+  maybeOptions?: MakeShellOptions
+): ReturnType<typeof tool> {
+  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
+  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+  return makeShell(boundSandbox, { name: 'bash', ...options })
+}
 
 /**
  * @deprecated MakeBashOptions is deprecated and will be removed in v2.0.0. Use MakeShellOptions instead.

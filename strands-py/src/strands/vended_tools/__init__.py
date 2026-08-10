@@ -41,8 +41,16 @@ _RENAME_RATIONALE = (
 
 @deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
 def make_bash(**kwargs: Any) -> "DecoratedFunctionTool":
-    """Deprecated alias for :func:`make_shell`."""
+    """Deprecated alias for :func:`make_shell`.
+
+    Defaults the tool name to ``"bash"`` so callers keyed on the pre-rename name
+    (hooks, prompts, tool lists) keep working until the alias is removed.
+    """
+    kwargs.setdefault("name", "bash")
     return make_shell(**kwargs)
+
+
+_bash: "DecoratedFunctionTool | None" = None
 
 
 def __getattr__(name: str) -> Any:
@@ -54,7 +62,12 @@ def __getattr__(name: str) -> Any:
             DeprecationWarning,
             stacklevel=2,
         )
-        return shell
+        # A shell tool that still registers under the pre-rename name, so string
+        # matches on "bash" (hooks, defaults lists, prompts) survive the upgrade.
+        global _bash
+        if _bash is None:
+            _bash = make_shell(name="bash")
+        return _bash
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

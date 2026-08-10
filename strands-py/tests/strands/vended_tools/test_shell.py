@@ -107,20 +107,44 @@ class TestToolMetadata:
 
 
 class TestDeprecatedBashAliases:
-    """The ``bash`` name is retained until v2.0.0 but warns and resolves to ``shell``."""
+    """The ``bash`` aliases are retained until v2.0.0, warn, and keep the pre-rename name.
 
-    def test_bash_alias_warns_and_returns_shell(self):
+    Keeping ``tool_name == "bash"`` is what makes the alias backwards compatible:
+    consumers key registries, hooks, and defaults lists on the runtime name, so an
+    alias that returned a tool named ``shell`` would still break them (see
+    awsarron/stan#6).
+    """
+
+    def test_bash_alias_warns_and_keeps_its_name(self):
         import strands.vended_tools as vended_tools
 
         with pytest.deprecated_call(match="bash is deprecated"):
-            assert vended_tools.bash is shell
+            tool = vended_tools.bash
+        assert tool.tool_name == "bash"
 
-    def test_make_bash_alias_warns_and_builds_a_shell_tool(self):
+    def test_bash_alias_returns_the_same_instance_each_time(self):
+        import strands.vended_tools as vended_tools
+
+        with pytest.deprecated_call(match="bash is deprecated"):
+            first = vended_tools.bash
+        with pytest.deprecated_call(match="bash is deprecated"):
+            second = vended_tools.bash
+        assert first is second
+
+    def test_bash_alias_matches_shell_apart_from_the_name(self):
+        import strands.vended_tools as vended_tools
+
+        with pytest.deprecated_call(match="bash is deprecated"):
+            tool = vended_tools.bash
+        assert tool.tool_spec["description"] == shell.tool_spec["description"]
+        assert tool.tool_spec["inputSchema"] == shell.tool_spec["inputSchema"]
+
+    def test_make_bash_alias_warns_and_builds_a_bash_named_tool(self):
         import strands.vended_tools as vended_tools
 
         with pytest.deprecated_call(match="make_bash is deprecated"):
             tool = vended_tools.make_bash()
-        assert tool.tool_name == "shell"
+        assert tool.tool_name == "bash"
 
     def test_make_bash_alias_forwards_arguments(self):
         import strands.vended_tools as vended_tools
