@@ -10,7 +10,7 @@ The router orchestrates only. It resolves a candidate to a concrete model, appli
 gives each new candidate a fresh retry budget, and holds per-invocation state. It has no failover
 policy, so a strategy can change routing behavior without changing the router.
 
-The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter(models=[a, b])`` ordered
+The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter([a, b])`` ordered
 failover until a candidate starts failing repeatedly; see ``fallback_strategy`` for what it decides
 and when it departs from declaration order. A strategy that fails or declines the opening
 choice degrades to the first declared candidate it has not already tried; ``max_switches`` caps
@@ -94,7 +94,7 @@ class ModelRouter(Plugin):
 
     def __init__(
         self,
-        models: Sequence[CandidateInput],
+        candidates: Sequence[CandidateInput],
         *,
         strategy: RoutingStrategy | None = None,
         max_switches: int | None = None,
@@ -102,8 +102,8 @@ class ModelRouter(Plugin):
         """Initialize the router.
 
         Args:
-            models: Candidates as a sequence. Each is a ``Model``, a nested ``ModelRouter``, or a
-                ``RoutingCandidate`` carrying an optional name/description. The first candidate is
+            candidates: The candidates as a sequence. Each is a ``Model``, a nested ``ModelRouter``,
+                or a ``RoutingCandidate`` carrying an optional name/description. The first candidate is
                 the router's concrete default, used when a strategy cannot produce a choice.
             strategy: Chooses the candidate for each model call, and is asked again after a failed
                 call. Defaults to ``FallbackStrategy``, which prefers the candidate with the fewest
@@ -115,9 +115,9 @@ class ModelRouter(Plugin):
                 chances to switch. Defaults to ``None``, leaving the stop decision to the strategy.
 
         Raises:
-            TypeError: If ``models`` is not a sequence, a candidate is not a ``Model`` or
+            TypeError: If ``candidates`` is not a sequence, a candidate is not a ``Model`` or
                 ``ModelRouter``, or ``strategy`` does not implement ``RoutingStrategy``.
-            ValueError: If ``models`` is empty, candidate names collide, any candidate is a stateful
+            ValueError: If ``candidates`` is empty, candidate names collide, any candidate is a stateful
                 model, or ``max_switches`` is negative.
         """
         super().__init__()
@@ -125,12 +125,12 @@ class ModelRouter(Plugin):
             raise TypeError("strategy must implement RoutingStrategy: an async select(context) method")
         if max_switches is not None and max_switches < 0:
             raise ValueError("max_switches must be zero or greater")
-        candidates = _normalize(models)
-        if not candidates:
+        normalized = _normalize(candidates)
+        if not normalized:
             raise ValueError("ModelRouter requires at least one candidate model")
-        _reject_stateful(candidates)
-        _reject_duplicates(candidates)
-        self._candidates = candidates
+        _reject_stateful(normalized)
+        _reject_duplicates(normalized)
+        self._candidates = normalized
         self._strategy: RoutingStrategy = strategy or FallbackStrategy()
         self._max_switches = max_switches
 
@@ -431,7 +431,7 @@ class ModelRouter(Plugin):
 
 
 CandidateInput: TypeAlias = Model | ModelRouter | RoutingCandidate
-"""What ``ModelRouter(models=...)`` accepts for each candidate."""
+"""What ``ModelRouter(candidates=...)`` accepts for each candidate."""
 
 
 # ---- Module helpers ----
@@ -451,11 +451,11 @@ def _get_routing_state(invocation_state: Mapping[str, Any], key: str) -> _Routin
 # ---- Construction guards ----
 
 
-def _normalize(models: object) -> tuple[RoutingCandidate, ...]:
+def _normalize(candidates: object) -> tuple[RoutingCandidate, ...]:
     """Coerce the input sequence into ``RoutingCandidate`` objects, validating candidate types."""
-    if isinstance(models, (str, bytes, Mapping)) or not isinstance(models, Sequence):
-        raise TypeError("models must be a sequence of candidates")
-    return tuple(_as_candidate(item) for item in models)
+    if isinstance(candidates, (str, bytes, Mapping)) or not isinstance(candidates, Sequence):
+        raise TypeError("candidates must be a sequence")
+    return tuple(_as_candidate(item) for item in candidates)
 
 
 def _as_candidate(item: CandidateInput) -> RoutingCandidate:

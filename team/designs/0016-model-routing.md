@@ -70,7 +70,7 @@ An `Agent` receives its model through `model=`, and every inference call current
 `Plugin` is the attachment lifecycle, not the routing mechanism. It does not auto-register middleware; the router registers its `InvokeModelStage.Input` handler from `init_agent()`, the same way the built-in `ContextInjector` and memory injection register their input middleware today. Selection is middleware, fallback is a hook, and both are installed by the one plugin.
 
 ```python
-agent = Agent(model=ModelRouter(models=[...], strategy=...))
+agent = Agent(model=ModelRouter(candidates=[...], strategy=...))
 ```
 
 `InvokeModelContext` gains a `model: Model` field initialized from `agent.model`. The router's input middleware selects a candidate on the first call, stores the selected candidate in `invocation_state`, and replaces `context.model`. Later calls in the same invocation reuse that selection. If a candidate is another router, resolution continues until the context contains a concrete `Model`.
@@ -113,16 +113,16 @@ opus   = AnthropicModel(model_id="claude-opus-4-1")
 judge  = BedrockModel(model_id="amazon.nova-micro-v1:0")
 
 # Fallback: configure once, then reuse for every invocation.
-fallback = ModelRouter(models=[sonnet, opus], strategy=FallbackStrategy())
+fallback = ModelRouter(candidates=[sonnet, opus], strategy=FallbackStrategy())
 agent = Agent(model=fallback)
 
 # Context-fit: local selection with no additional model call.
-context_fit = ModelRouter(models=[haiku, sonnet, opus], strategy=ContextFitStrategy())
+context_fit = ModelRouter(candidates=[haiku, sonnet, opus], strategy=ContextFitStrategy())
 agent = Agent(model=context_fit)
 
 # Model-driven: the judge picks a named candidate from reusable descriptions.
 model_driven = ModelRouter(
-    models=[
+    candidates=[
         RoutingCandidate(
             name="routine",
             model=haiku,
@@ -148,8 +148,8 @@ The judge runs only for initial selection and the result is cached for the invoc
 Routers can nest when each level has a different responsibility. Resolution is recursive and always produces a concrete model before the terminal runs:
 
 ```python
-adaptive = ModelRouter(models=[haiku, sonnet], strategy=ContextFitStrategy())
-agent = Agent(model=ModelRouter(models=[adaptive, opus], strategy=FallbackStrategy()))
+adaptive = ModelRouter(candidates=[haiku, sonnet], strategy=ContextFitStrategy())
+agent = Agent(model=ModelRouter(candidates=[adaptive, opus], strategy=FallbackStrategy()))
 ```
 
 In v1, a strategy that depends on model metadata ranks concrete models only. An order-based parent such as `FallbackStrategy` may contain nested routers; metric-based ranking of nested groups needs aggregate metadata and is deferred.
@@ -186,7 +186,7 @@ class RoutingStrategy(Protocol):
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None: ...
 
 class ModelRouter(Plugin):
-    def __init__(self, models: Sequence[CandidateInput], *,
+    def __init__(self, candidates: Sequence[CandidateInput], *,
                  strategy: RoutingStrategy | None = None,
                  max_switches: int | None = None): ...
 
@@ -194,9 +194,10 @@ Agent(model: Model | str | ModelRouter | None = None)
 ```
 
 - `ModelRouter` normalizes each input into a `RoutingCandidate`. Bare models and nested routers need no public name because strategies return one of the candidate objects in `RoutingContext`, not a string identifier.
-- **Model-id strings are not candidates.** A router is multi-provider by construction, so `ModelRouter(models=["openai/gpt-4o"])` would silently build a `BedrockModel` with that as its Bedrock model id -- wrong provider, no error. `Agent(model=str)` keeps its shorthand because its default provider *is* Bedrock. The provider one-liner belongs at the model layer: `LiteLLMModel(model_id="openai/...")`.
+- The parameter is `candidates=`, not `models=`, because it accepts `Model | ModelRouter | RoutingCandidate` and the rest of the surface (`RoutingCandidate`, `router.candidates`, `RoutingContext.candidates`) says candidate. `model` is also the SDK's most overloaded term, which `DECISIONS.md` "Avoid Overloading Domain Terms in API Naming" warns against. It is positional, so `ModelRouter([sonnet, opus])` reads the same either way.
+- **Model-id strings are not candidates.** A router is multi-provider by construction, so `ModelRouter(["openai/gpt-4o"])` would silently build a `BedrockModel` with that as its Bedrock model id -- wrong provider, no error. `Agent(model=str)` keeps its shorthand because its default provider *is* Bedrock. The provider one-liner belongs at the model layer: `LiteLLMModel(model_id="openai/...")`.
 - `RoutingStrategy` carries **no `name` attribute**. The protocol is `@runtime_checkable` and the router validates only `select`, so a `name` member can be added later without rejecting strategies written today.
-- `strategy` is optional and defaults to `FallbackStrategy`, so `ModelRouter(models=[a, b])` is ordered failover with no extra configuration. `max_switches` caps switches per invocation.
+- `strategy` is optional and defaults to `FallbackStrategy`, so `ModelRouter([a, b])` is ordered failover with no extra configuration. `max_switches` caps switches per invocation.
 - `RoutingCandidate` adds optional selection metadata, not another model configuration. `ModelDrivenStrategy` requires explicit unique names and descriptions so the judge has a classification contract; fallback and context-fit do not.
 - The first declared candidate is the concrete default. This removes string-based default resolution and makes fallback order visible in the constructor call.
 - A strategy must return one of the `context.candidates` **instances**; the router matches by identity and raises a clear `ValueError` for any other result. Returning `None` declines: after a failure that ends routing, while declining the opening choice still serves the request on the first candidate not already tried. The strategy remains a domain `Protocol` rather than a `HookProvider` because `ModelRouter` owns lifecycle registration and the strategy has one decision point.

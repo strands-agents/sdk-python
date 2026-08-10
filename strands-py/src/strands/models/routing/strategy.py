@@ -43,8 +43,12 @@ class RoutingContext:
     ``messages``, ``system_prompt``, and ``tool_specs`` are fresh copies per ask, so do not mutate
     them and do not rely on their object identity across asks. ``candidates`` and the ``candidate`` on
     each ``RoutingAttempt`` are the router's own instances and are stable for the router's lifetime,
-    so a strategy may correlate attempts with candidates by identity. In a multi-agent run, one
-    ``invocation_state`` may be shared across nodes, so its ``"agent"`` value may identify a sibling.
+    so a strategy may correlate attempts with candidates by identity.
+
+    ``invocation_state`` is the live dict, not a copy: reading it is the point, but writing to it
+    reaches the agent's own state and the router's, which keeps its per-invocation state there under a
+    ``strands:model_routing`` key. In a multi-agent run it may be shared across nodes, so its
+    ``"agent"`` value may identify a sibling.
 
     A strategy is asked on every invocation because the right model usually depends on the request:
     reusing an earlier decision would answer a hard request with a model chosen for an easy one. A
