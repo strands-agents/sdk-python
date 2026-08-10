@@ -28,6 +28,14 @@ Known limitation: a model that fails after streaming part of a response has alre
 events, so a streaming consumer sees that partial output followed by the replacement's full response.
 ``AfterModelCallEvent`` documents this for any hook-requested retry; routing reaches it more often
 because it advances on any failure retry declines, not only throttling.
+
+Known limitation: routing applies to ``InvokeModelStage``, so ``agent.model`` stays the first declared
+candidate and subsystems reading it reason about that model rather than the one running. Proactive
+compression sizes against ``agent.model``'s context window, so routing among candidates with
+materially different windows can under-compress and overflow the routed model; the agent span reports
+the first candidate's model id; and ``Agent.structured_output()`` calls the model directly, bypassing
+routing entirely. Prefer candidates with comparable context windows and tokenizers until the selected
+model is threaded to those consumers.
 """
 
 from __future__ import annotations
@@ -323,6 +331,12 @@ class ModelRouter(Plugin):
         if self._max_switches is not None and state.switches >= self._max_switches:
             logger.warning("max_switches=<%d> | switch cap reached, leaving the error to surface", self._max_switches)
             return
+
+        if await self._advance(event, state):
+            event.retry = True
+
+    async def _advance(self, event: AfterModelCallEvent, state: _RoutingState) -> bool:
+        """Switch to the strategy's next candidate, returning whether the call should be retried."""
         previous = state.candidate
 
         # Bounded by the candidate count: each pass either switches, stops, or burns one candidate.
@@ -336,15 +350,14 @@ class ModelRouter(Plugin):
                     self._strategy_name,
                     error,
                 )
-                return
+                return False
             candidate = self._validated(selection, routing_context)
             if candidate is None:
-                return
+                return False
 
             # Forward progress cannot depend on the strategy: a round switches to each candidate at
             # most once, so a strategy that keeps offering used candidates runs out instead of
-            # resetting the retry budget forever. A success clears the round. Checked before
-            # resolving, since resolving a nested candidate asks its strategy and can write state.
+            # resetting the retry budget forever. A success clears the round.
             if id(candidate) in state.switched_to:
                 logger.debug(
                     "candidate=<%s> | already switched to this round, asking again",
@@ -376,13 +389,13 @@ class ModelRouter(Plugin):
             # Reaches into ModelRetryStrategy: no public seam for a budget reset exists yet, so this
             # breaks if _retry.py renames it. Tracked as a follow-up in team/designs/0016-model-routing.md.
             event.agent._retry_strategy._reset_retry_state()
-            event.retry = True
-            return
+            return True
 
         logger.warning(
             "strategy=<%s> | no candidate left to switch to this round, leaving the error to surface",
             self._strategy_name,
         )
+        return False
 
     # ---- Per-invocation state and context ----
 
