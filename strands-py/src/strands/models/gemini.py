@@ -622,7 +622,7 @@ class GeminiModel(Model):
             system_prompt,
             self.config.get("params"),
             tool_choice=tool_choice,
-            is_vertex=getattr(gemini_client, "vertexai", False) is True,
+            is_vertex=bool(getattr(gemini_client, "vertexai", False)),
         )
 
         client = gemini_client.aio
