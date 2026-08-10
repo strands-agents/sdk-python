@@ -49,46 +49,35 @@ For calibration: the median function in both SDKs scores 1 to 2, and
 `complexity/low` covers roughly nine out of ten existing functions. The
 thresholds leave generous room for ordinary logic.
 
-## Design it simple
+## Working with the score
 
-The cheapest complexity to remove is the kind never written. Before the first
-line:
+This is not a rewrite of general code etiquette; each point here is listed
+because of how the scoring model prices it.
 
-- **One function, one job.** If an accurate name for the function needs the
-  word "and", it is two functions.
-- **Separate deciding from doing.** Compute what should happen with pure
-  logic that returns a value or a plan, then act on it in a thin outer layer.
-  Pure decision functions score flat and test without mocks.
-- **Keep I/O at the edges.** Network, disk, and model calls belong in the
-  outer shell; the core transforms data. Interleaving them forces error
-  handling into every branch, and every branch pays nesting.
-- **Represent variants as data, not conditionals.** If several call sites
-  branch on the same kind, encode the variants once in a table, a dataclass,
-  or a discriminated union, and let each site look up instead of re-deriving.
-- **Let the tests push back.** A unit that needs heavy mocking or long setup
-  to test is telling you it does too much. Splitting it usually lowers the
-  score as a side effect.
+Two design choices pay off before any code exists. Pure decision logic
+separated from I/O scores flat, because interleaving them forces error
+handling into every branch and every branch pays nesting. And variants encoded
+once as data (a table, a dataclass, a discriminated union) let every call site
+look up instead of re-deriving the branch ladder, which the model charges for
+at each site.
 
-## Write it flat
-
-Because nesting is the multiplier, flattening is the highest-leverage
-technique while writing:
+While writing, nesting is the multiplier, so flattening is the
+highest-leverage technique:
 
 - **Return early.** Guard clauses (`if not valid: return`) remove a nesting
   level from everything that follows. Avoid `else` after a `return`.
 - **Extract nested logic into named helpers.** The nesting penalty resets to
-  zero inside the helper, the name documents intent, and the label keys on the
-  most complex single function you touched, so splitting one deep function
-  into three shallow ones directly lowers it.
+  zero inside the helper, and the label keys on the most complex single
+  function you touched, so splitting one deep function into three shallow
+  ones directly lowers it.
 - **Prefer lookup tables over branch ladders.** A dict or `Map` from value to
   handler replaces an `if`/`elif` or `switch` chain with zero branches.
 - **Keep boolean sequences uniform and name the pieces.** `a and b and c`
-  costs one point; mixing `and`/`or` costs more. `is_retryable = ...` beats a
-  long inline condition twice over: cheaper and self-describing.
+  costs one point; mixing `and`/`or` costs more.
 - **Handle errors at the edges.** One `try` around a coherent block costs
   less than error handling threaded through nested branches.
 - **In async code, await sequentially** instead of nesting callbacks or
-  `then` chains.
+  `then` chains, which each pay the nesting increment.
 
 These are not hypothetical. A deliberately nested dispatch function scoring 23
 drops to a maximum of 4 across three functions when rewritten with exactly
