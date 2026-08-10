@@ -5,9 +5,16 @@ Import any version-dependent name from this module instead of from `mcp`
 directly so the rest of the codebase stays version-agnostic. Branch on
 `MCP_V2` only where behavior differs between the two lines; pure renames are
 resolved here once.
+
+mypy note: only one `mcp` line is installed at a time, so each try/except
+branch below is an `attr-defined` error when checked against the other line.
+The branch-level ignores cover whichever line mypy runs under, and the
+per-module `warn_unused_ignores` override in pyproject.toml silences the
+ignores the installed line doesn't need.
 """
 
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import Any
 
 import httpx
@@ -21,13 +28,13 @@ __all__ = ["MCP_V2", "GetSessionIdCallback", "MCPError", "streamable_http_transp
 MCP_V2: bool = hasattr(ClientSession, "discover")
 
 try:
-    from mcp.shared.exceptions import MCPError
+    from mcp.shared.exceptions import MCPError  # type: ignore[attr-defined]
 except ImportError:
     # mcp 1.x spells the class McpError
     from mcp.shared.exceptions import McpError as MCPError  # type: ignore[attr-defined, no-redef]
 
 try:
-    from mcp.client.streamable_http import GetSessionIdCallback
+    from mcp.client.streamable_http import GetSessionIdCallback  # type: ignore[attr-defined]
 except ImportError:
     # mcp 2.x removed protocol sessions, so its transports never yield a
     # session-id callback; the alias survives only to type 1.x transports.
@@ -58,10 +65,25 @@ def streamable_http_transport(
         An async context manager yielding the transport's read/write streams.
     """
     if MCP_V2:
-        from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+        from mcp.client.streamable_http import (  # type: ignore[attr-defined]
+            create_mcp_http_client,
+            streamable_http_client,
+        )
 
-        return streamable_http_client(url=url, http_client=create_mcp_http_client(headers=headers, auth=auth))
+        # `streamable_http_client` closes an HTTPX client only when it created
+        # it (`client_provided` check in mcp 2.x), so a caller-provided client
+        # must be closed by the caller: enter both context managers together
+        # so the client's lifetime is bound to the transport's.
+        @asynccontextmanager
+        async def _owned_client_transport() -> AsyncIterator[Any]:
+            async with (
+                create_mcp_http_client(headers=headers, auth=auth) as http_client,
+                streamable_http_client(url=url, http_client=http_client) as transport_streams,
+            ):
+                yield transport_streams
 
-    from mcp.client.streamable_http import streamablehttp_client
+        return _owned_client_transport()
 
-    return streamablehttp_client(url=url, headers=headers, auth=auth)
+    from mcp.client.streamable_http import streamablehttp_client  # type: ignore[attr-defined]
+
+    return streamablehttp_client(url=url, headers=headers, auth=auth)  # type: ignore[no-any-return]
