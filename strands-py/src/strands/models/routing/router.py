@@ -3,7 +3,8 @@
 A router is a ``Plugin``, so an agent accepts it through ``model=``. Its ``RoutingStrategy`` makes
 every routing decision: the router asks for a candidate before the first model call, and again after
 a call fails without a hook claiming the retry, passing the attempts so far. The strategy answers
-with a candidate, or ``None`` to stop and let the error surface.
+with a candidate, or ``None`` to decline: after a failure that stops routing and lets the error
+surface, while declining the opening choice still serves the request on a default candidate.
 
 The router orchestrates only. It resolves a candidate to a concrete model, applies it to the call,
 gives each new candidate a fresh retry budget, and holds per-invocation state. It has no failover
@@ -12,11 +13,11 @@ policy, so a strategy can change routing behavior without changing the router.
 The strategy defaults to ``FallbackStrategy``, which makes ``ModelRouter(models=[a, b])`` ordered
 failover until a candidate starts failing repeatedly; see ``fallback_strategy`` for what it decides
 and when it departs from declaration order. A strategy that fails or declines the opening
-choice degrades to the first declared candidate; ``max_switches`` caps switches per invocation. A
-strategy that re-offers a candidate already tried since the last success is taken to mean "stay here",
-so the model's error surfaces rather than the router resetting the retry budget again. That bound does
-not depend on the strategy: each candidate is switched to at most once per failure round, so a strategy
-that alternates candidates terminates rather than cycling forever.
+choice degrades to the first declared candidate it has not already tried; ``max_switches`` caps
+switches per invocation. A strategy that re-offers a candidate already tried since the last success is
+taken to mean "stay here", so the model's error surfaces rather than the router resetting the retry
+budget again. That bound does not depend on the strategy: each candidate is switched to at most once
+per failure round, so a strategy that alternates candidates terminates rather than cycling forever.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, so its strategy picks from a clean slate every time and the group performs no internal
@@ -26,7 +27,7 @@ advancing within it.
 Known limitation: a model that fails after streaming part of a response has already emitted those
 events, so a streaming consumer sees that partial output followed by the replacement's full response.
 ``AfterModelCallEvent`` documents this for any hook-requested retry; routing reaches it more often
-because it advances on failures retry declines, not only throttling.
+because it advances on any failure retry declines, not only throttling.
 """
 
 from __future__ import annotations
@@ -75,8 +76,9 @@ _ROUTING_KEY_PREFIX = "strands:model_routing"
 class _RoutingState:
     """Per-invocation routing state for one agent/router pair.
 
-    ``attempts`` is the record the strategy reads to make its next decision; the router appends to it
-    but never interprets it. ``switches`` counts model changes so ``max_switches`` can cap them.
+    ``attempts`` is the record the strategy reads to make its next decision. The router appends to it
+    and reads it only to bound the invocation -- it never uses it to choose. ``switches`` counts model
+    changes so ``max_switches`` can cap them.
     """
 
     candidate: RoutingCandidate
@@ -196,7 +198,8 @@ class ModelRouter(Plugin):
         """Choose and resolve the candidate to start on, skipping any that cannot be resolved.
 
         A candidate that fails to resolve is skipped wherever it sits in the list, so a nested router
-        that declines does not fail the invocation just because it was declared first.
+        that declines does not fail the invocation just because it was declared first. Returns the
+        resolve failures alongside the choice so the strategy inherits them on its next ask.
         """
         attempts: list[RoutingAttempt] = []
         errors: list[Exception] = []
@@ -222,7 +225,7 @@ class ModelRouter(Plugin):
     async def _select_initial(
         self, context: RoutingContext, attempts: Sequence[RoutingAttempt]
     ) -> RoutingCandidate | None:
-        """Choose the candidate to start with, degrading to a default if the strategy fails."""
+        """Choose the candidate to start with, degrading to a default if the strategy fails or declines."""
         try:
             selection = await self._strategy.select(context)
         except Exception as error:
@@ -363,7 +366,8 @@ class ModelRouter(Plugin):
             state.candidate = candidate
             state.model = model
             state.switches += 1
-            # Reaches into ModelRetryStrategy; no public seam for a budget reset exists yet.
+            # Reaches into ModelRetryStrategy: no public seam for a budget reset exists yet, so this
+            # breaks if _retry.py renames it. Tracked as a follow-up in team/designs/0016-model-routing.md.
             event.agent._retry_strategy._reset_retry_state()
             event.retry = True
             return
