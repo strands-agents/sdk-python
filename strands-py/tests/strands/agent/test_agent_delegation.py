@@ -278,6 +278,29 @@ def test_on_after_tools_suppressed_with_structured_output():
     assert not tru_event.end_turn
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        [{"toolResult": {"toolUseId": "t_other", "status": "success", "content": [{"text": "x"}]}}],
+        [],
+    ],
+    ids=["mismatched-id", "empty-content"],
+)
+def test_on_after_tools_skips_when_result_absent(content):
+    """When the message has no toolResult matching state.tool_use_id, end_turn is not set."""
+    tool = _make_delegation_tool()
+    parent = Agent(name="p", tools=[tool], callback_handler=None)
+    plugin = _get_plugin(parent)
+    plugin._state[parent] = _DelegationState(tool_use_id="t1", tool_use_count=1)
+
+    message = {"role": "user", "content": content}
+    event = AfterToolsEvent(agent=parent, message=message, invocation_state={"request_state": {}})
+    plugin._on_after_tools(event)
+
+    assert not event.end_turn
+    assert plugin._state[parent].tool_use_id is None
+
+
 # --- _handle_stream ordering ---
 
 

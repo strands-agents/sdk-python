@@ -197,7 +197,14 @@ class AgentDelegation(Plugin):
         state.tool_use_id = event.tool_use.get("toolUseId")
 
     def _on_after_tools(self, event: AfterToolsEvent) -> None:
-        """Set end_turn when delegation succeeded and the result is still valid."""
+        """Set end_turn when delegation succeeded and the result is still valid.
+
+        This hook runs at ``HookOrder.SDK_LAST`` (100). If a hook with a higher numeric order
+        mutates a tool result's status from success to error, the end_turn signal has already
+        been committed and the loop will still exit; ``_handle_stream`` re-verifies the result
+        as defence in depth. No SDK or vended plugin registers AfterToolsEvent hooks above
+        SDK_LAST, and mutating a committed tool result's status there is not a supported pattern.
+        """
         if event.agent.model.stateful:
             return
 
