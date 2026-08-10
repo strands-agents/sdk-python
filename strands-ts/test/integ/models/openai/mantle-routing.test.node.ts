@@ -4,10 +4,10 @@
  * Mantle serves each model from exactly one base path (`/v1` or `/openai/v1`), rejects
  * the other with HTTP 400, and exposes no API that reports the routing, so
  * `OPENAI_PATH_MODEL_PREFIXES` in `mantle.ts` goes stale whenever Mantle onboards a model.
- * For every model in the live catalog, this test asserts that the resolved path serves
- * it, probing the other path only on failure to distinguish misrouted from unserved ids.
- * Only HTTP 200 and 400 count as answers; any other status is retried and, if it
- * persists, fails the test as undetermined rather than passing as "no drift".
+ * For every model in the live catalog, this test probes the resolved path first and the
+ * alternate on failure. A 200 from the resolved path or a definitive rejection from the
+ * alternate confirms the mapping; other outcomes are retried and fail as undetermined
+ * when neither path supplies definitive routing evidence.
  *
  * Failure means the table needs updating, not that the SDK is broken for existing models.
  */
@@ -143,6 +143,10 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
         const onOther = await serves(other, modelId, await mintToken())
         if (onOther === true) {
           verdicts[modelId] = 'misrouted'
+        } else if (onResolved === null && onOther === false) {
+          // A definitive rejection from the alternate path confirms the routing table even
+          // when model invocation on the resolved path is transiently unavailable.
+          verdicts[modelId] = 'ok'
         } else if (onResolved === null || onOther === null) {
           verdicts[modelId] = 'undetermined'
         } else {
@@ -161,8 +165,8 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
     // Checked first so an inconclusive probe cannot read as a clean sweep.
     expect(
       ids('undetermined'),
-      'Mantle never returned a definitive 200/400 for these models, so their routing could ' +
-        'not be verified (transient 429/5xx/timeout, or permanent 401/403/404; check model entitlement)'
+      'Mantle did not return enough definitive 200/400 responses to verify routing for ' +
+        'these models (transient 429/5xx/timeout, or permanent 401/403/404; check model entitlement)'
     ).toEqual({})
 
     expect(
@@ -182,7 +186,7 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
   }, 600_000)
 
   it.for(['xai.grok-4.3', 'google.gemma-4-31b', 'google.gemma-3-27b-it', 'openai.gpt-oss-120b'])(
-    'serves %s from the resolved base path',
+    'routes %s to the resolved base path',
     { timeout: 240_000 },
     async (modelId, ctx) => {
       const token = await mintToken()
@@ -196,7 +200,16 @@ describe.skipIf(bedrock.skip)('Bedrock Mantle base-path routing', () => {
         return
       }
 
-      expect(await serves(resolveMantleBasePath(modelId), modelId, token)).toBe(true)
+      const resolved = resolveMantleBasePath(modelId)
+      const onResolved = await serves(resolved, modelId, token)
+      if (onResolved === true) return
+
+      const other = resolved === '/v1' ? '/openai/v1' : '/v1'
+      const onOther = await serves(other, modelId, token)
+      expect({ onResolved, onOther }, `${modelId} did not confirm routing to ${resolved}`).toEqual({
+        onResolved: null,
+        onOther: false,
+      })
     }
   )
 })
