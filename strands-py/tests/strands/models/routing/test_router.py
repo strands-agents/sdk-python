@@ -15,6 +15,7 @@ from strands.models.routing import (
     RoutingAttempt,
     RoutingCandidate,
     RoutingContext,
+    RoutingStage,
     RoutingStrategy,
 )
 from strands.models.routing.router import _candidate_label, _RoutingState
@@ -120,6 +121,21 @@ def test_log_labels_fall_back_to_provider_and_model_id():
         "frontier",
     ]
     assert tru_labels == exp_labels
+
+
+def test_a_provider_whose_config_raises_neither_masks_a_guard_nor_breaks_routing():
+    # Labels are built eagerly, as log arguments and by the construction guards, so a raising
+    # get_config would otherwise replace the guard's own error and, worse, replace a model's error
+    # mid-failover and strand the healthy backup.
+    with pytest.raises(ValueError, match="stateful"):
+        ModelRouter(models=[_ThrowingConfigModel(stateful=True)])
+
+    backup = _ThrowingConfigModel("backup-answered")
+    router = ModelRouter(models=[_FailingModel(ValueError("primary down")), backup])
+    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
+
+    assert agent("hello").message["content"][0]["text"] == "backup-answered"
+    assert _candidate_label(router.candidates[1]) == "_ThrowingConfigModel"
 
 
 def test_routing_candidate_metadata_is_preserved():
@@ -542,6 +558,34 @@ class _FlakyModel(MockedModelProvider):
             yield event
 
 
+class _CountingModel(MockedModelProvider):
+    """A model that records how many times it was streamed."""
+
+    def __init__(self, text):
+        super().__init__([{"role": "assistant", "content": [{"text": text}]} for _ in range(4)])
+        self.calls = 0
+
+    async def stream(self, *args, **kwargs):
+        self.calls += 1
+        async for event in super().stream(*args, **kwargs):
+            yield event
+
+
+class _ThrowingConfigModel(_CountingModel):
+    """A provider whose get_config raises, as one building its config lazily could."""
+
+    def __init__(self, text="ok", stateful=False):
+        super().__init__(text)
+        self._stateful = stateful
+
+    @property
+    def stateful(self):
+        return self._stateful
+
+    def get_config(self):
+        raise RuntimeError("config unavailable")
+
+
 class _RaisingStrategy:
     """A strategy whose select always raises, to exercise resolution error containment."""
 
@@ -915,6 +959,53 @@ class _TransientStrategy:
             self._left -= 1
             raise RuntimeError("judge timed out")
         return context.candidates[0]
+
+
+def test_a_transient_resolve_failure_does_not_bar_the_candidate_during_failover():
+    # The failover path, not the opening one: the first candidate's model must actually be called, so
+    # the nested candidate is reached through _advance rather than through _open's own retry loop.
+    healthy = _CountingModel("nested-healthy")
+    nested = ModelRouter(models=[healthy], strategy=_TransientStrategy(failures=1))
+    dead = _FailingModel(ValueError("primary down"))
+    router = ModelRouter(
+        models=[RoutingCandidate(dead, name="primary"), RoutingCandidate(nested, name="nested")],
+    )
+    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
+
+    result = agent("hello")
+
+    assert result.message["content"][0]["text"] == "nested-healthy"
+    assert healthy.calls == 1
+
+
+def test_a_resolve_failure_is_recorded_as_such_so_a_strategy_can_tell_it_apart():
+    # A model failure and a resolve failure both arrive as an exception, so the stage is the only
+    # thing that says whether a model was reached at all.
+    seen = []
+
+    class _RecordsStages:
+        """Opens on the model that fails, then names the candidate that cannot resolve."""
+
+        async def select(self, context, **kwargs):
+            seen.append([(attempt.candidate.name, attempt.stage) for attempt in context.attempts])
+            return context.candidates[len(seen) - 1] if len(seen) <= 2 else None
+
+    unresolvable = ModelRouter(models=[_model("nested")], strategy=_RaisingStrategy())
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(_FailingModel(ValueError("primary down")), name="primary"),
+            RoutingCandidate(unresolvable, name="broken"),
+        ],
+        strategy=_RecordsStages(),
+    )
+    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
+
+    with pytest.raises(ValueError, match="primary down"):
+        agent("hello")
+
+    tru_stages = seen[-1]
+    exp_stages = [("primary", RoutingStage.MODEL_CALL), ("broken", RoutingStage.RESOLVE)]
+    assert tru_stages == exp_stages
 
 
 def test_a_transient_resolve_failure_does_not_bar_the_candidate_for_the_round():

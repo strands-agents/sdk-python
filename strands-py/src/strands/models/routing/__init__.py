@@ -11,7 +11,7 @@ change before it is finalized.
 
 from .fallback_strategy import FallbackStrategy
 from .router import CandidateInput, ModelRouter, RoutingCandidate
-from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
+from .strategy import RoutingAttempt, RoutingContext, RoutingStage, RoutingStrategy
 
 __all__ = [
     "CandidateInput",
@@ -20,5 +20,6 @@ __all__ = [
     "RoutingAttempt",
     "RoutingCandidate",
     "RoutingContext",
+    "RoutingStage",
     "RoutingStrategy",
 ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .strategy import RoutingContext, _attempts_since_success
+from .strategy import RoutingContext, RoutingStage, _attempts_since_success
 
 if TYPE_CHECKING:
     from .router import RoutingCandidate
@@ -13,7 +13,8 @@ if TYPE_CHECKING:
 class FallbackStrategy:
     """Picks the healthiest candidate not yet tried since the last success.
 
-    Candidates already tried since the last success are excluded, then the fewest recorded failures
+    Candidates whose model was already called since the last success are excluded -- a candidate that
+    never resolved to a model is not one of them -- then the fewest recorded failures
     wins, ties going to the earlier declaration. So an invocation with no failures behind it is plain
     declaration order, and a model that keeps failing sinks below healthier ones rather than being
     re-tried in its declared slot. A success re-arms every candidate, since exclusion looks only at
@@ -32,7 +33,15 @@ class FallbackStrategy:
             else:
                 failures[id(attempt.candidate)] = failures.get(id(attempt.candidate), 0) + 1
 
-        tried_now = {id(attempt.candidate) for attempt in _attempts_since_success(context.attempts)}
+        # A candidate that never reached a model is not tried: a nested router whose strategy hiccups
+        # can resolve on a later ask, and the router does not bar it either. Only a model call keeps a
+        # candidate out until the next success. Its failure still counts above, so a candidate that
+        # cannot resolve at all sinks below healthier ones instead of being retried first.
+        tried_now = {
+            id(attempt.candidate)
+            for attempt in _attempts_since_success(context.attempts)
+            if attempt.stage is not RoutingStage.RESOLVE
+        }
         available = [candidate for candidate in context.candidates if id(candidate) not in tried_now]
         if not available:
             return None

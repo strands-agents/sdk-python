@@ -54,7 +54,7 @@ from ...hooks.registry import HookOrder
 from ...plugins.plugin import Plugin
 from ..model import Model
 from .fallback_strategy import FallbackStrategy
-from .strategy import RoutingAttempt, RoutingContext, RoutingStrategy
+from .strategy import RoutingAttempt, RoutingContext, RoutingStage, RoutingStrategy
 
 if TYPE_CHECKING:
     from ..._middleware.stages import InvokeModelContext
@@ -231,7 +231,7 @@ class ModelRouter(Plugin):
                     _candidate_label(candidate),
                     error,
                 )
-                attempts.append(RoutingAttempt(candidate=candidate, exception=error))
+                attempts.append(RoutingAttempt(candidate=candidate, exception=error, stage=RoutingStage.RESOLVE))
                 errors.append(error)
 
         raise errors[-1]
@@ -386,7 +386,7 @@ class ModelRouter(Plugin):
                     _candidate_label(candidate),
                     error,
                 )
-                state.attempts.append(RoutingAttempt(candidate=candidate, exception=error))
+                state.attempts.append(RoutingAttempt(candidate=candidate, exception=error, stage=RoutingStage.RESOLVE))
                 continue
 
             logger.info(
@@ -484,7 +484,13 @@ def _candidate_label(candidate: RoutingCandidate) -> str:
     if candidate.name:
         return candidate.name
     provider = type(candidate.model).__name__
-    config = candidate.model.get_config() if isinstance(candidate.model, Model) else None
+    try:
+        config = candidate.model.get_config() if isinstance(candidate.model, Model) else None
+    except Exception:
+        # Labels are built eagerly as log arguments and by the construction guards, so a provider
+        # whose get_config raises would otherwise replace a model's error mid-failover or mask the
+        # guard's own ValueError.
+        return provider
     model_id = (
         config.get("model_id") if isinstance(config, dict) else getattr(config, "model_id", None) if config else None
     )

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -19,21 +20,30 @@ if TYPE_CHECKING:
     from .router import RoutingCandidate
 
 
+class RoutingStage(Enum):
+    """How far an attempt got: to the model call, or not even to a model."""
+
+    MODEL_CALL = "model_call"
+    RESOLVE = "resolve"
+
+
 @dataclass(frozen=True)
 class RoutingAttempt:
-    """A candidate this invocation already used, and how the call ended.
+    """A candidate this invocation already used, and how the attempt ended.
 
     ``candidate`` is the instance from ``RoutingContext.candidates``, not a copy. ``exception`` is
-    ``None`` when the call succeeded. Otherwise it is either the model's error as
-    ``AfterModelCallEvent`` reports it, or -- when the candidate could not be resolved to a model at
-    all -- the error raised while resolving it, so a strategy that treats the two differently should
-    inspect the exception rather than assume a model was reached. Attempts are in chronological order,
-    so a strategy can tell a first failure from a repeated one and treat a candidate that recovered as
-    healthy.
+    ``None`` when the call succeeded, and ``stage`` says what failed: ``MODEL_CALL`` is the model's
+    error as ``AfterModelCallEvent`` reports it, while ``RESOLVE`` means the candidate never produced
+    a model -- a nested router whose strategy declined or raised -- so no model was reached and the
+    exception is whatever resolving raised. The two are worth separating, because a candidate that
+    failed to resolve may resolve on a later ask while a model that failed has actually been tried.
+    Attempts are in chronological order, so a strategy can tell a first failure from a repeated one
+    and treat a candidate that recovered as healthy.
     """
 
     candidate: RoutingCandidate
     exception: Exception | None = None
+    stage: RoutingStage = RoutingStage.MODEL_CALL
 
 
 @dataclass(frozen=True)
@@ -77,8 +87,9 @@ class RoutingStrategy(Protocol):
 
         Asked before the first model call, and again after each failed call with that failure appended
         to ``context.attempts``. ``attempts`` is usually empty on the opening ask but not always: a
-        candidate that cannot be resolved to a model is recorded and the opening ask repeats, so
-        ``attempts`` does not reliably distinguish the opening ask from a later one.
+        candidate that cannot be resolved to a model is recorded, with ``stage=RoutingStage.RESOLVE``,
+        and the opening ask repeats, so ``attempts`` does not reliably distinguish the opening ask from
+        a later one.
 
         ``None`` declines. On the opening ask the router still serves the request on the first declared
         candidate it has not already tried, so a servable request does not fail on a routing decision;
