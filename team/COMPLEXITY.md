@@ -119,19 +119,8 @@ the label against the code; a sentence of context settles it.
 
 ## Check before you push
 
-From the repository root:
-
-```bash
-npm run complexity:setup   # once, to install the analyzers
-npm run complexity         # the labels your branch will receive
-```
-
-Python contributors can use hatch instead, from `strands-py/`:
-
-```bash
-cd strands-py
-hatch run complexity
-```
-
-The output lists the most complex functions your diff touches, so you know
-exactly which one drives the label.
+The commands live in
+[CONTRIBUTING.md](../CONTRIBUTING.md#pr-size-and-complexity): `npm run
+complexity` from the repository root, or `hatch run complexity` from
+`strands-py/`. The output lists the most complex functions your diff touches,
+so you know exactly which one drives the label.
