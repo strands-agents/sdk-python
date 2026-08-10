@@ -215,9 +215,10 @@ class SnapshotSessionManager(SessionManager):
 
         Args:
             session_id: Unique session identifier. Must not contain path separators.
-            storage: Unified storage backend that persists snapshot blobs. Defaults to
-                :class:`~strands.storage.local_file_storage.LocalFileStorage`, which writes
-                under the local filesystem.
+            storage: Unified storage backend that persists snapshot blobs. When None,
+                resolves from the agent-level ``storage`` during initialization; if no
+                agent-level storage is available, falls back to
+                :class:`~strands.storage.local_file_storage.LocalFileStorage`.
             save_latest_on: When to overwrite ``snapshot_latest``. See :data:`SaveLatestStrategy`.
             snapshot_trigger: Optional callback invoked after each invocation; when it
                 returns True an immutable snapshot is appended for checkpointing. An immutable
@@ -239,9 +240,19 @@ class SnapshotSessionManager(SessionManager):
             # Silently accepting an unknown value would register no save hooks — the session
             # would persist nothing with no error.
             raise ValueError(f"save_latest_on must be one of {_SAVE_LATEST_STRATEGIES}, got {save_latest_on!r}")
-        self._storage = _resolve_storage(storage if storage is not None else LocalFileStorage())
+        self._storage: Storage | None = _resolve_storage(storage) if storage is not None else None
         self._save_latest_on: SaveLatestStrategy = save_latest_on
         self._snapshot_trigger = snapshot_trigger
+
+    @property
+    def _resolved_storage(self) -> Storage:
+        """Return the resolved storage, raising if not yet initialized."""
+        if self._storage is None:
+            raise RuntimeError(
+                "SnapshotSessionManager requires a storage backend. "
+                "Provide storage in the constructor or set storage on the Agent."
+            )
+        return self._storage
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register lifecycle callbacks for snapshot persistence.
@@ -289,6 +300,8 @@ class SnapshotSessionManager(SessionManager):
             agent: Agent to restore.
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        if self._storage is None:
+            self._storage = _resolve_storage(agent.storage if agent.storage is not None else LocalFileStorage())
         run_async(lambda: self._initialize_async(agent))
 
     def sync_agent(self, agent: "Agent", **kwargs: Any) -> None:
@@ -354,7 +367,7 @@ class SnapshotSessionManager(SessionManager):
             _validate_snapshot_id(start_after)
 
         history_prefix = f"{_snapshots_prefix(self.session_id, agent.agent_id)}{_IMMUTABLE_HISTORY}/"
-        keys = await self._storage.list(history_prefix)
+        keys = await self._resolved_storage.list(history_prefix)
         ids = sorted(match.group(1) for key in keys if (match := _SNAPSHOT_REGEX.search(key)))
         if start_after is not None:
             ids = [snapshot_id for snapshot_id in ids if snapshot_id > start_after]
@@ -396,17 +409,19 @@ class SnapshotSessionManager(SessionManager):
         """
         data = _serialize_snapshot(self._capture(agent))
         snapshot_id = None if is_latest else _new_snapshot_id()
-        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=snapshot_id), data)
+        key = _snapshot_key(self.session_id, agent.agent_id, snapshot_id=snapshot_id)
+        await self._resolved_storage.write(key, data)
         return snapshot_id
 
     async def delete_session(self) -> None:
         """Delete all snapshots for this session."""
-        keys = await self._storage.list(_session_prefix(self.session_id))
+        storage = self._resolved_storage
+        keys = await storage.list(_session_prefix(self.session_id))
         semaphore = asyncio.Semaphore(_DELETE_CONCURRENCY)
 
         async def _delete(key: str) -> None:
             async with semaphore:
-                await self._storage.delete(key)
+                await storage.delete(key)
 
         await asyncio.gather(*(_delete(key) for key in keys))
 
@@ -436,7 +451,8 @@ class SnapshotSessionManager(SessionManager):
 
     async def _restore(self, agent: "Agent", *, snapshot_id: str | None = None) -> bool:
         """Load a snapshot into the agent. Returns False if none exists."""
-        data = await self._storage.read(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=snapshot_id))
+        key = _snapshot_key(self.session_id, agent.agent_id, snapshot_id=snapshot_id)
+        data = await self._resolved_storage.read(key)
         if data is None:
             return False
         agent.load_snapshot(_deserialize_snapshot(data))
@@ -454,8 +470,10 @@ class SnapshotSessionManager(SessionManager):
         but never a ``snapshot_latest`` pointing at history that was never written.
         """
         data = _serialize_snapshot(self._capture(agent))
-        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=_new_snapshot_id()), data)
-        await self._storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
+        await self._resolved_storage.write(
+            _snapshot_key(self.session_id, agent.agent_id, snapshot_id=_new_snapshot_id()), data
+        )
+        await self._resolved_storage.write(_snapshot_key(self.session_id, agent.agent_id, snapshot_id=None), data)
 
     async def _on_message_added(self, event: MessageAddedEvent) -> None:
         """Save latest after each message under the ``"message"`` strategy."""
