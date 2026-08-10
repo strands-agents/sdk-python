@@ -526,9 +526,6 @@ class Agent(AgentBase):
             for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
-        # Always register AgentDelegation so delegation semantics work regardless of
-        # when a delegate tool is added (construction, plugin getTools, MCP, runtime).
-        # The plugin is a no-op when no delegation tools fire.
         has_agent_delegation = any(plugin.name == "strands:agent-delegation" for plugin in (plugins_to_register or []))
         if not has_agent_delegation:
             from ._agent_delegation import AgentDelegation

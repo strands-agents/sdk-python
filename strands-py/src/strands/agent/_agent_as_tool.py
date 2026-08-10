@@ -119,11 +119,7 @@ class _AgentAsTool(AgentTool):
 
     @property
     def delegate(self) -> bool:
-        """Whether this tool uses delegation semantics.
-
-        When True, the orchestrator treats this tool's result as the final
-        response and exits without an additional model call.
-        """
+        """Get whether this tool uses delegation semantics."""
         return self._delegate
 
     @property

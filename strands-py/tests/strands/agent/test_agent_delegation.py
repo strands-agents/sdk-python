@@ -272,7 +272,7 @@ class TestStreamOrdering:
             agent=parent,
             messages=[],
             invocation_state={"request_state": {}},
-            _interrupt_state=parent._interrupt_state,
+            _interrupts={},
         )
 
         a = TypedEvent({"a": 1})
@@ -298,7 +298,7 @@ class TestStreamOrdering:
             agent=parent,
             messages=[],
             invocation_state={"request_state": {}},
-            _interrupt_state=parent._interrupt_state,
+            _interrupts={},
         )
 
         s1 = EventLoopStopEvent("end_turn", {"role": "assistant", "content": []}, parent.event_loop_metrics, {})
@@ -340,7 +340,7 @@ class TestStreamOrdering:
             agent=parent,
             messages=[],
             invocation_state={"request_state": {}},
-            _interrupt_state=parent._interrupt_state,
+            _interrupts={},
         )
 
         pre = TypedEvent({"pre": 1})
@@ -390,7 +390,7 @@ class TestStreamOrdering:
             agent=parent,
             messages=[],
             invocation_state={"request_state": {}},
-            _interrupt_state=parent._interrupt_state,
+            _interrupts={},
         )
 
         original_stop = EventLoopStopEvent("end_turn", parent.messages[-1], parent.event_loop_metrics, {})
@@ -623,6 +623,157 @@ class TestSessionPersistence:
         # The final message is the delegation content, not the placeholder
         assert orch_2.messages[-1]["role"] == "assistant"
         assert any("$42" in str(b.get("text", "")) for b in orch_2.messages[-1]["content"])
+
+
+class TestDelegationWithContextOffloader:
+    """ContextOffloader must not offload delegation tool results."""
+
+    @pytest.mark.asyncio
+    async def test_large_delegation_result_not_offloaded(self):
+        """A delegation result exceeding the offloader threshold stays in context."""
+        from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+        from tests.fixtures.mocked_model_provider import MockedModelProvider
+
+        storage = InMemoryStorage()
+        offloader = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+
+        large_answer = "x" * 500  # well above 25-token threshold
+        sub = Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": large_answer}]}]),
+            name="billing",
+            callback_handler=None,
+        )
+
+        orch = Agent(
+            model=MockedModelProvider(
+                [
+                    {
+                        "role": "assistant",
+                        "content": [{"toolUse": {"toolUseId": "c1", "name": "billing", "input": {"input": "check"}}}],
+                    }
+                ]
+            ),
+            name="orch",
+            tools=[sub.as_tool(delegate=True)],
+            plugins=[offloader],
+            callback_handler=None,
+        )
+
+        result = await orch.invoke_async("Check balance")
+
+        # The delegation result must appear in the final message unmodified
+        assert result.stop_reason == "end_turn"
+        final_text = "".join(block.get("text", "") for block in result.message["content"] if isinstance(block, dict))
+        assert large_answer in final_text
+
+        # Nothing was stored in the offloader
+        assert len(storage._store) == 0
+
+
+class TestAfterToolsOrderingGuard:
+    """SDK_LAST on AfterToolsEvent ensures delegation sees the committed result before other hooks."""
+
+    @pytest.mark.asyncio
+    async def test_late_hook_flipping_result_prevents_end_turn(self):
+        """A default-order AfterToolsEvent hook that flips the result to error prevents delegation end_turn.
+
+        Because AfterToolsEvent uses reverse ordering, SDK_LAST (100) runs first, DEFAULT (0) runs after.
+        Delegation reads the result first. But _handle_stream re-verifies the result from committed history,
+        so a late-hook mutation (at DEFAULT) that changes the committed message is caught.
+        This test verifies that if the committed message is mutated to error between _on_after_tools and
+        _handle_stream, the agent loop continues rather than ending the turn.
+        """
+        from tests.fixtures.mocked_model_provider import MockedModelProvider
+
+        sub = Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": "answer"}]}]),
+            name="specialist",
+            callback_handler=None,
+        )
+
+        orch = Agent(
+            model=MockedModelProvider(
+                [
+                    {
+                        "role": "assistant",
+                        "content": [{"toolUse": {"toolUseId": "c1", "name": "specialist", "input": {"input": "go"}}}],
+                    },
+                    # After recovery from the flipped result, the model responds with text
+                    {"role": "assistant", "content": [{"text": "I continued after flip."}]},
+                ]
+            ),
+            name="orch",
+            tools=[sub.as_tool(delegate=True)],
+            callback_handler=None,
+        )
+
+        from strands.hooks import AfterToolsEvent
+
+        def flip_result_to_error(event: AfterToolsEvent):
+            """Simulate a hook that mutates the tool result to error after delegation saw it."""
+            content = event.message.get("content", [])
+            for block in content:
+                if isinstance(block, dict) and "toolResult" in block:
+                    block["toolResult"]["status"] = "error"
+
+        # Register at DEFAULT order — in reverse ordering this runs AFTER SDK_LAST (delegation)
+        orch.add_hook(flip_result_to_error, AfterToolsEvent)
+
+        result = await orch.invoke_async("Do it")
+
+        # The agent must have continued (not stopped at the flipped delegation) and produced a second reply
+        assert result.stop_reason == "end_turn"
+        assert "continued" in str(result.message["content"]).lower()
+
+
+class TestMessageAddedEventDuringDelegation:
+    """Delegation fires MessageAddedEvent for the delegation message."""
+
+    @pytest.mark.asyncio
+    async def test_message_added_event_fires_for_delegation_message(self):
+        """MessageAddedEvent must fire with the delegation content message during a successful delegation."""
+        from strands.hooks import MessageAddedEvent
+        from tests.fixtures.mocked_model_provider import MockedModelProvider
+
+        sub = Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": "Balance: $42"}]}]),
+            name="billing",
+            callback_handler=None,
+        )
+
+        orch = Agent(
+            model=MockedModelProvider(
+                [
+                    {
+                        "role": "assistant",
+                        "content": [{"toolUse": {"toolUseId": "c1", "name": "billing", "input": {"input": "check"}}}],
+                    }
+                ]
+            ),
+            name="orch",
+            tools=[sub.as_tool(delegate=True)],
+            callback_handler=None,
+        )
+
+        received_messages = []
+
+        def on_message_added(event: MessageAddedEvent):
+            received_messages.append(event.message)
+
+        orch.add_hook(on_message_added, MessageAddedEvent)
+
+        await orch.invoke_async("Check balance")
+
+        # At minimum: user prompt, assistant tool_use, tool_result, delegation final message
+        assert len(received_messages) >= 3
+
+        # The delegation message (containing the sub-agent's answer) must be among them
+        delegation_messages = [
+            m
+            for m in received_messages
+            if m["role"] == "assistant" and any("$42" in str(b.get("text", "")) for b in m.get("content", []))
+        ]
+        assert len(delegation_messages) == 1
 
 
 class TestMiddlewareSingleCallGuard:

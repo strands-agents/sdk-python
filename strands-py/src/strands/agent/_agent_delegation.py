@@ -6,6 +6,10 @@ When a tool is configured with ``delegate=True``, this plugin ensures:
 2. The agent loop exits immediately after a successful delegation (via end_turn)
 3. The AgentResult is transformed with the delegation tool's content as the last message
 4. Streaming events from the delegate agent are surfaced natively in the parent stream
+
+The final delegation message is produced in middleware after the core loop exits.
+``MessageAddedEvent`` subscribers may observe the end_turn placeholder before the
+middleware replaces it with the real delegation content.
 """
 
 from __future__ import annotations
@@ -95,13 +99,6 @@ def _find_delegation_result(messages: list, tool_use_id: str) -> dict | None:
                     return None
                 return dict(tool_result)
     return None
-
-
-class _NativeStreamEvent(TypedEvent):
-    """Promotes a sub-agent's raw event dict to a TypedEvent for native streaming."""
-
-    def __init__(self, data: dict) -> None:
-        super().__init__(data)
 
 
 class AgentDelegation(Plugin):
@@ -293,7 +290,7 @@ class AgentDelegation(Plugin):
             elif isinstance(event, AgentAsToolStreamEvent):
                 inner_data = event.get("tool_stream_event", {}).get("data")
                 if inner_data is not None:
-                    yield _NativeStreamEvent(inner_data)
+                    yield TypedEvent(inner_data)
                 else:
                     yield event
             else:
@@ -353,8 +350,7 @@ class AgentDelegation(Plugin):
         delegation_message: MessageType = {"role": "assistant", "content": delegation_content}
         _ensure_tracking_id(delegation_message)
 
-        # Replace the placeholder message the event loop persisted. Use redact_latest_message
-        # (same pattern as guardrail redaction) to avoid a duplicate append in session managers.
+        # Replace the placeholder message the event loop persisted.
         session_manager = getattr(context.agent, "_session_manager", None)
         if messages and messages[-1].get("role") == "assistant":
             messages[-1] = delegation_message
