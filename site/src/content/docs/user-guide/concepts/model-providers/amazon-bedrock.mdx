@@ -608,7 +608,9 @@ bedrock_model = BedrockModel(
 )
 
 # Tool definitions must exceed the model's minimum cacheable token count
-# (1,024 tokens for Claude Sonnet), so cache a few tools rather than one
+# (1,024 tokens for Claude Sonnet), so cache a few tools rather than one.
+# The extra tools are here only to clear that minimum; the prompt below
+# exercises only sleep.
 agent = Agent(
     model=bedrock_model,
     tools=[file_editor, http_request, shell, sleep]

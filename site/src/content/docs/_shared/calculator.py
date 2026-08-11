@@ -12,6 +12,7 @@ no parser and no path that evaluates model-supplied input as code.
 
 # --8<-- [start:calculator]
 import operator
+from typing import Literal
 
 from strands import tool
 
@@ -25,7 +26,7 @@ _OPS = {
 
 
 @tool
-def calculator(a: float, b: float, op: str) -> float:
+def calculator(a: float, b: float, op: Literal["+", "-", "*", "/", "**"]) -> float:
     """Apply an arithmetic operator to two numbers.
 
     Args:
