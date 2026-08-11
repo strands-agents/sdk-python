@@ -30,7 +30,13 @@ _RENAME_RATIONALE = (
 )
 
 
-@deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
+# The message is a string literal rather than an f-string over _RENAME_RATIONALE
+# because PEP 702 checkers only honor @deprecated when the argument is a literal.
+@deprecated(
+    "make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. "
+    "The tool routes commands through the sandbox, which runs sh or the remote login shell "
+    "rather than bash specifically."
+)
 def make_bash(*, name: str = "bash", **kwargs: Any) -> DecoratedFunctionTool:
     """Deprecated alias for :func:`~strands.vended_tools.shell.make_shell` keeping the pre-rename default name."""
     return make_shell(name=name, **kwargs)
