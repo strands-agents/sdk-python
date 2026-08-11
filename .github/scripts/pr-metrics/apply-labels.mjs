@@ -234,8 +234,10 @@ async function summarize({ core, metrics, desired }) {
       'Complexity',
       desired.find((l) => l.startsWith('complexity/')) ?? 'n/a',
       maxComplexity === null
-        ? 'no touched SDK function adds complexity'
-        : `max cognitive complexity ${maxComplexity} among functions this PR touches`,
+        ? 'no SDK source functions touched'
+        : maxComplexity === 0
+          ? 'touched functions, none increased in complexity'
+          : `max cognitive complexity ${maxComplexity} among functions this PR touches`,
     ]),
   ])
 

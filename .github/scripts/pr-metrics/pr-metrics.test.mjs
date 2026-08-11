@@ -143,8 +143,10 @@ test('complexity ignores touched functions whose score did not increase', () => 
       },
     ],
   })
-  assert.equal(report.complexity.maxComplexity, null)
-  assert.equal(report.complexity.label, null)
+  // Measured but nothing increased is a verdict of zero added complexity,
+  // which buckets as low; only "nothing measurable" yields no label.
+  assert.equal(report.complexity.maxComplexity, 0)
+  assert.equal(report.complexity.label, 'complexity/low')
   assert.deepEqual(report.complexity.offenders, [])
 })
 
@@ -184,6 +186,11 @@ test('complexity counts touched functions that increased, at their head score', 
   })
   assert.equal(report.complexity.maxComplexity, 30)
   assert.equal(report.complexity.label, 'complexity/high')
+  // The offenders list proves the exclusion: `shrank` must be absent, and
+  // `grew` reports its head score, not its base.
+  assert.deepEqual(report.complexity.offenders, [
+    { file: 'strands-py/src/strands/m.py', name: 'grew', complexity: 30, startLine: 110 },
+  ])
 })
 
 test('complexity counts functions without a baseline in full', () => {

@@ -30,7 +30,8 @@ command CI uses runs on your machine and produces the same result
 scoped to functions you actually touched. A pre-existing hotspot elsewhere in
 a file you edited does not count against you, and in Python a touched function
 counts only if your change *increased* its score over the merge base, so
-threading a small edit through an already complex function adds nothing.
+threading a small edit through an already complex function adds nothing and
+such a PR lands at `complexity/low`.
 Deepening that function does count, at its full score, which is one more
 reason to extract rather than deepen. TypeScript's analyzer has no baseline
 support yet, so a touched TypeScript function counts at its absolute score.

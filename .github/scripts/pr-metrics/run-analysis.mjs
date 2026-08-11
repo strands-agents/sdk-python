@@ -264,8 +264,11 @@ function baselinePython(root, tmp, from, pythonFiles) {
   }
   for (const fn of parseSarif(JSON.parse(fs.readFileSync(sarif, 'utf8')), baseDir)) {
     const key = `${fn.file}::${fn.name}`
-    // Duplicate names in a file keep the highest base score, the conservative
-    // direction: a function is only counted when it clearly increased.
+    // Names are already qualified (`Class::method`) and nested functions fold
+    // into their parent's score, so within one file a key collision requires a
+    // module-level redefinition. If one occurs, keeping the highest base score
+    // can mask a real increase in the lower-scored twin; that under-counts,
+    // which is the safe direction for an advisory label.
     baseline.set(key, Math.max(baseline.get(key) ?? 0, fn.complexity))
   }
   return baseline

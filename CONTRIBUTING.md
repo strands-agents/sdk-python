@@ -214,7 +214,8 @@ bucket, so write as many as the change deserves.
 of the most complex function your diff touches — roughly, how hard the control
 flow is to hold in your head. It scores only the functions you actually
 changed, and in Python a touched function counts only if your change
-*increased* its score, so pre-existing complexity is never billed to you.
+*increased* its score, so pre-existing complexity is never billed to you; a PR
+that touches functions without increasing any lands at `complexity/low`.
 (TypeScript's analyzer has no baseline support yet, so a touched TypeScript
 function counts at its absolute score.) `complexity/high` (above 25) is a hint
 that a function may be worth splitting, not a rule; sometimes a complex
