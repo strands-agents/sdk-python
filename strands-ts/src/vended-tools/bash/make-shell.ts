@@ -77,9 +77,10 @@ export function makeBash(
   sandboxOrOptions?: Sandbox | MakeShellOptions,
   maybeOptions?: MakeShellOptions
 ): ReturnType<typeof tool> {
-  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
-  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
-  return makeShell(boundSandbox, { name: 'bash', ...options })
+  if (sandboxOrOptions instanceof Sandbox) {
+    return makeShell(sandboxOrOptions, { name: 'bash', ...maybeOptions })
+  }
+  return makeShell({ name: 'bash', ...(maybeOptions ?? sandboxOrOptions) })
 }
 
 /**

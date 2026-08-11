@@ -8,8 +8,7 @@ A robust tool for executing bash shell commands in Node.js environments with per
 > builds a stateless tool that routes commands through a
 > [Sandbox](../../sandbox/base.ts), which runs `sh` locally and in Docker or the
 > remote login shell over SSH; commands passed to it must not rely on
-> bash-specific syntax. `makeBash` is a deprecated alias of `makeShell` that keeps
-> the pre-rename tool name `bash`; it will be removed in v2.0.0.
+> bash-specific syntax.
 
 ## ⚠️ Security Warning
 
