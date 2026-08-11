@@ -755,23 +755,32 @@ async def test_diamond_graph_conditional_convergence():
         history. Replaying the same terse prompt on a reused agent lets the model read
         its own prior reply as a topic to expand on, which can run until max_tokens.
         """
-        agents = {
-            node_id: Agent(
-                name=node_id,
-                model="us.amazon.nova-lite-v1:0",
-                system_prompt=f"Reply with exactly one word: {word}. Do not explain or add anything else.",
-            )
-            for node_id, word in (
-                ("entry", "routed"),
-                ("fast", "fast"),
-                ("slow", "slow"),
-                ("merger", "merged"),
-            )
-        }
+        entry_agent = Agent(
+            name="entry",
+            model="us.amazon.nova-lite-v1:0",
+            system_prompt="Say 'routed'.",
+        )
+        fast_agent = Agent(
+            name="fast",
+            model="us.amazon.nova-lite-v1:0",
+            system_prompt="Say 'fast result'.",
+        )
+        slow_agent = Agent(
+            name="slow",
+            model="us.amazon.nova-lite-v1:0",
+            system_prompt="Say 'slow result'.",
+        )
+        merger_agent = Agent(
+            name="merger",
+            model="us.amazon.nova-lite-v1:0",
+            system_prompt="Merge results. Say 'merged'.",
+        )
 
         builder = GraphBuilder()
-        for node_id, agent in agents.items():
-            builder.add_node(agent, node_id)
+        builder.add_node(entry_agent, "entry")
+        builder.add_node(fast_agent, "fast")
+        builder.add_node(slow_agent, "slow")
+        builder.add_node(merger_agent, "merger")
         builder.add_edge("entry", "fast", condition=is_fast_mode)
         builder.add_edge("entry", "slow", condition=is_slow_mode)
         builder.add_edge("fast", "merger")
