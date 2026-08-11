@@ -15,6 +15,7 @@ def gemini_client():
     with unittest.mock.patch.object(strands.models.gemini.genai, "Client") as mock_client_cls:
         mock_client = mock_client_cls.return_value
         mock_client.aio = unittest.mock.AsyncMock()
+        mock_client.vertexai = False
         yield mock_client
 
 
@@ -1033,6 +1034,7 @@ async def test_stream_request_with_gemini_tools(gemini_client, messages, model_i
 
 @pytest.mark.asyncio
 async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client, messages, tool_spec, model_id):
+    """Regression coverage for #3639: built-in and function tools coexist."""
     code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
     model = GeminiModel(model_id=model_id, gemini_tools=[code_execution_tool])
 
@@ -1051,12 +1053,84 @@ async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client
                     ]
                 },
                 {"code_execution": {}},
-            ]
+            ],
+            "tool_config": {"include_server_side_tool_invocations": True},
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_and_function_tools_for_vertex(
+    gemini_client, messages, tool_spec, model_id
+):
+    gemini_client.vertexai = True
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(model_id=model_id, client=gemini_client, gemini_tools=[code_execution_tool])
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert "include_server_side_tool_invocations" not in (request["config"].get("tool_config") or {})
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_empty_function_tools_does_not_enable_server_side_invocations(
+    gemini_client, messages, model_id
+):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(model_id=model_id, client=gemini_client, gemini_tools=[code_execution_tool])
+
+    await anext(model.stream(messages, tool_specs=[]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert "tool_config" not in request["config"]
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_merges_camel_case_tool_config(
+    gemini_client, messages, tool_spec, model_id
+):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(
+        model_id=model_id,
+        client=gemini_client,
+        gemini_tools=[code_execution_tool],
+        params={"tool_config": {"includeServerSideToolInvocations": False}},
+    )
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert request["config"]["tool_config"] == {"include_server_side_tool_invocations": False}
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_merges_existing_tool_config(
+    gemini_client, messages, tool_spec, model_id
+):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    tool_config = genai.types.ToolConfig(
+        function_calling_config=genai.types.FunctionCallingConfig(
+            mode=genai.types.FunctionCallingConfigMode.AUTO,
+        ),
+    )
+    model = GeminiModel(
+        model_id=model_id,
+        client=gemini_client,
+        gemini_tools=[code_execution_tool],
+        params={"tool_config": tool_config},
+    )
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    request = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert request["config"]["tool_config"] == {
+        "function_calling_config": {"mode": "AUTO"},
+        "include_server_side_tool_invocations": True,
+    }
 
 
 @pytest.mark.parametrize(
@@ -1165,7 +1239,11 @@ async def test_stream_tool_config_param_set_to_none_still_takes_precedence(
 
     Matches the sibling providers, which spread params last and therefore let an explicit None win.
     """
-    model = GeminiModel(model_id=model_id, params={"tool_config": None})
+    model = GeminiModel(
+        model_id=model_id,
+        gemini_tools=[genai.types.Tool(code_execution=genai.types.ToolCodeExecution())],
+        params={"tool_config": None},
+    )
 
     await anext(model.stream(messages, tool_specs=[tool_spec], tool_choice={"any": {}}))
 
@@ -1180,7 +1258,8 @@ async def test_stream_tool_config_param_set_to_none_still_takes_precedence(
                             "parameters_json_schema": tool_spec["inputSchema"]["json"],
                         }
                     ]
-                }
+                },
+                {"code_execution": {}},
             ],
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
