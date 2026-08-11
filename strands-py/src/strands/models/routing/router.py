@@ -377,6 +377,11 @@ class ModelRouter(Plugin):
         defaults to ``"default"``, so two agents sharing a router would collide. Object identity is
         unique among live agents, and the state is cleared at both ends of an invocation, so a recycled
         id cannot match a live entry.
+
+        The key carries no per-invocation component, so isolation between concurrent invocations relies
+        on the agent allowing only one at a time, which is its default. Under
+        ``ConcurrentInvocationMode.UNSAFE_REENTRANT`` overlapping invocations of one agent that share an
+        ``invocation_state`` dict share this state too, as they already share ``agent.messages``.
         """
         return f"{_ROUTING_KEY_PREFIX}:{id(agent):x}:{id(self):x}"
 

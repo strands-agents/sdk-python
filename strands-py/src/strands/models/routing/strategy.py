@@ -38,15 +38,15 @@ class RoutingAttempt:
 class RoutingContext:
     """Read-only inputs a strategy sees when choosing a candidate.
 
-    ``messages``, ``system_prompt``, and ``tool_specs`` are fresh deep copies per ask, so do not mutate
-    them and do not rely on their object identity across asks. ``candidates`` and the ``candidate`` on
-    each ``RoutingAttempt`` are the router's own instances and are stable for the router's lifetime,
-    so a strategy may correlate attempts with candidates by identity.
+    ``messages``, ``system_prompt``, and ``tool_specs`` are fresh deep copies per ask, so mutating them
+    changes nothing outside the ask and their object identity is not stable across asks. ``candidates``
+    and the ``candidate`` on each ``RoutingAttempt`` are the router's own instances and are stable for the
+    router's lifetime, so a strategy may correlate attempts with candidates by identity.
 
-    ``invocation_state`` is the live dict, not a copy: reading it is the point, but writing to it
-    reaches the agent's own state and the router's, which keeps its per-invocation state there under a
-    ``strands:model_routing`` key. In a multi-agent run it may be shared across nodes, so its
-    ``"agent"`` value may identify a sibling.
+    ``invocation_state`` is the live dict rather than a copy, and is read-only to a strategy: it is typed
+    ``Mapping`` because writes would reach the agent's own state and the router's, which keeps its
+    per-invocation state there under a ``strands:model_routing`` key. In a multi-agent run it may be
+    shared across nodes, so its ``"agent"`` value may identify a sibling.
 
     A strategy is asked on every invocation, since the right model usually depends on the request. One
     that is expensive to evaluate should narrow what it looks at -- typically the latest turn rather
