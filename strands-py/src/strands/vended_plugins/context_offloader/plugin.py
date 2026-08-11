@@ -223,7 +223,7 @@ class ContextOffloader(Plugin):
 
     def __init__(
         self,
-        storage: Storage | _LegacyStorage,
+        storage: Storage | _LegacyStorage | None = None,
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
@@ -235,8 +235,10 @@ class ContextOffloader(Plugin):
 
         Args:
             storage: Backend for storing offloaded content. Accepts either a unified
-                ``Storage`` (from ``strands.storage``) or a legacy offloader ``Storage``
-                (from this module).
+                ``Storage`` (from ``strands.storage``), a legacy offloader ``Storage``
+                (from this module), or None. When None, resolves from the agent-level
+                storage during initialization; if no agent-level storage is available,
+                falls back to in-memory storage.
             max_result_tokens: Offload results whose estimated token count exceeds this
                 threshold. Defaults to ``_DEFAULT_MAX_RESULT_TOKENS`` (2,500).
             preview_tokens: Number of tokens to keep as a text preview in context.
@@ -265,8 +267,8 @@ class ContextOffloader(Plugin):
         if evict_after_cycles is not None and (not isinstance(evict_after_cycles, int) or evict_after_cycles < 1):
             raise ValueError("evict_after_cycles must be a positive integer or None")
 
-        self._raw_storage: Storage | _LegacyStorage = storage
-        self._storage: Storage | _LegacyStorage = self._resolve_storage(storage)
+        self._raw_storage: Storage | _LegacyStorage | None = storage
+        self._storage: Storage | _LegacyStorage | None = self._resolve_storage(storage) if storage is not None else None
         self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage | _LegacyStorage] = weakref.WeakKeyDictionary()
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
@@ -296,17 +298,31 @@ class ContextOffloader(Plugin):
 
         Returns:
             The storage instance for this agent.
+
+        Raises:
+            RuntimeError: If called before init_agent has resolved storage.
         """
+        if self._storage is None:
+            raise RuntimeError("ContextOffloader storage not initialized; call init_agent first")
         if not hasattr(self._storage, "for_sandbox"):
             return self._storage
         storage = self._storage_by_agent.get(agent)
         if storage is None:
-            storage = self._storage.for_sandbox(agent.sandbox)
+            storage = self._storage.for_sandbox(agent.sandbox)  # type: ignore[union-attr]
             self._storage_by_agent[agent] = storage
         return storage
 
     def init_agent(self, agent: Agent) -> None:
-        """Conditionally register the retrieval tool and bind storage."""
+        """Conditionally register the retrieval tool and bind storage.
+
+        Storage is resolved on the first call and cached for the instance lifetime; a single
+        ContextOffloader should not be shared across agents with differing storage backends.
+        """
+        if self._storage is None:
+            if agent.storage is not None:
+                self._storage = self._resolve_storage(agent.storage)
+            else:
+                self._storage = InMemoryStorage()
         if isinstance(self._storage, InMemoryStorage):
             self._storage._bind(id(agent))
         # Bind file-based storage to this agent's sandbox up front (no-op for other backends).
@@ -318,6 +334,8 @@ class ContextOffloader(Plugin):
     @hook
     async def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
         """Trigger eviction of stale entries based on the agent's cycle count."""
+        if self._storage is None:
+            return
         cycle = event.agent.event_loop_metrics.cycle_count
         if isinstance(self._storage, InMemoryStorage):
             self._storage._evict(cycle)
@@ -387,12 +405,16 @@ class ContextOffloader(Plugin):
             context_lines: Lines before AND after each match (like grep -C). Default: 5.
                 Without pattern/line_range, returns first N lines.
             tool_context: Injected by the framework. Not user-facing.
+
+        Raises:
+            ValueError: If the reference is unknown, the content is binary and pattern/line_range/context_lines
+                were supplied, or line_range falls outside the content.
         """
         storage = self._storage_for_agent(tool_context.agent)
         try:
             content_bytes, content_type = await _retrieve_content(storage, reference)
-        except KeyError:
-            return f"Error: reference not found: {reference}"
+        except KeyError as error:
+            raise ValueError(f"reference not found: {reference}") from error
 
         # Refresh the eviction cycle so actively-retrieved content survives
         # eviction for unified Storage backends, matching InMemoryStorage.retrieve.
@@ -402,8 +424,8 @@ class ContextOffloader(Plugin):
             return self._decode_full_content(content_bytes, content_type, reference)
 
         if not _is_searchable_content(content_type):
-            return (
-                f"Error: cannot search binary content ({content_type}). "
+            raise ValueError(
+                f"cannot search binary content ({content_type}). "
                 "Omit pattern/line_range/context_lines to retrieve the full content."
             )
 
@@ -600,7 +622,7 @@ class ContextOffloader(Plugin):
 
     def _track_stored_cycle(self, agent: Agent, ref: str, cycle: int) -> None:
         """Record the cycle at which a key was stored (unified Storage eviction)."""
-        if not _is_offloader_storage(self._storage):
+        if self._storage is not None and not _is_offloader_storage(self._storage):
             agent_cycles = self._stored_cycles.get(agent)
             if agent_cycles is None:
                 agent_cycles = {}
@@ -623,9 +645,7 @@ class ContextOffloader(Plugin):
         """
         cycle = agent.event_loop_metrics.cycle_count
         self._track_stored_cycle(agent, reference, cycle)
-        logger.debug(
-            "reference=<%s>, cycle=<%d> | retrieve refreshed eviction cycle", reference, cycle
-        )
+        logger.debug("reference=<%s>, cycle=<%d> | retrieve refreshed eviction cycle", reference, cycle)
 
     def _slice_preview(self, text: str) -> str:
         """Slice text to approximately preview_tokens using character-based estimation.

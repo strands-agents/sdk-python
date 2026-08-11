@@ -779,7 +779,9 @@ class OpenAIResponsesModel(Model):
                 has_media = True
                 doc = content["document"]
                 data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
-                filename = doc.get("name", "document")
+                name = doc.get("name", "document")
+                suffix = f".{doc['format']}"
+                filename = name if name.endswith(suffix) else f"{name}{suffix}"
                 output_parts.append({"type": "input_file", "filename": filename, "file_data": data_url})
 
         # Return array if has media content, otherwise join as string for simpler text-only cases

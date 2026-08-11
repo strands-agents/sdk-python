@@ -73,3 +73,9 @@ def make_shell(
 
 shell = make_shell()
 """Default shell tool. Reads the sandbox from the agent's context at call time."""
+
+bash = make_shell(name="bash")
+"""Deprecated pre-rename instance of :data:`shell`, kept so callers matching on the
+tool name ``"bash"`` keep working until removal in v2.0.0. Reach it through
+``strands.vended_tools.bash``, which emits the ``DeprecationWarning``; it is
+deliberately absent from ``__all__`` and the docs."""
