@@ -17,6 +17,14 @@ export function baseSchemas(siteUrl: string) {
         "url": "https://aws.amazon.com"
       }
     },
+    // No potentialAction/SearchAction: site search is Pagefind, a client-side
+    // modal with no query-parameter URL — a SearchAction target would be fake.
+    {
+      "@type": "WebSite",
+      "name": "Strands Agents SDK",
+      "url": siteUrl,
+      "publisher": { "@type": "Organization", "name": "Strands Agents", "url": siteUrl }
+    },
     {
       "@type": "SoftwareApplication",
       "name": "Strands Agents SDK",

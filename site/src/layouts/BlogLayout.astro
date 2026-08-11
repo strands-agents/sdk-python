@@ -8,20 +8,35 @@
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import { pathWithBase } from '../util/links'
 
+type HeadTag = 'link' | 'meta' | 'script' | 'style' | 'title' | 'base' | 'noscript' | 'template'
+export type HeadEntry = { tag: HeadTag; attrs?: Record<string, string | boolean | undefined>; content?: string }
+
 interface Props {
   title: string
   description?: string
   ogImage?: string
   canonicalUrl?: string
+  /** Thin archive pages (tag/author) set this to keep near-duplicate content out of the index */
+  noindex?: boolean
+  /**
+   * Additional head tags (e.g. per-post JSON-LD, article OG metas). These must
+   * flow through StarlightPage's `head` frontmatter — StarlightPage renders no
+   * named head slot, so slotted tags would be silently dropped.
+   */
+  extraHead?: HeadEntry[]
 }
 
-const { title, description, ogImage, canonicalUrl: canonicalOverride } = Astro.props
+const {
+  title,
+  description,
+  ogImage,
+  canonicalUrl: canonicalOverride,
+  noindex = false,
+  extraHead = [],
+} = Astro.props
 
 const pageUrl = new URL(Astro.url.pathname, Astro.site).href
 const canonicalUrl = canonicalOverride || pageUrl
-
-type HeadTag = 'link' | 'meta' | 'script' | 'style' | 'title' | 'base' | 'noscript' | 'template'
-type HeadEntry = { tag: HeadTag; attrs?: Record<string, string | boolean | undefined>; content?: string }
 
 const head: HeadEntry[] = [
   { tag: 'link', attrs: { rel: 'canonical', href: canonicalUrl } },
@@ -32,6 +47,9 @@ const head: HeadEntry[] = [
   { tag: 'meta', attrs: { name: 'twitter:title', content: title } },
   { tag: 'link', attrs: { rel: 'alternate', type: 'application/rss+xml', title: 'Strands Agents Blog', href: pathWithBase('/blog/feed.xml') } },
 ]
+if (noindex) {
+  head.push({ tag: 'meta' as const, attrs: { name: 'robots', content: 'noindex, follow' } })
+}
 if (description) {
   head.push({ tag: 'meta' as const, attrs: { property: 'og:description', content: description } })
   head.push({ tag: 'meta' as const, attrs: { name: 'twitter:description', content: description } })
@@ -40,12 +58,12 @@ if (ogImage) {
   head.push({ tag: 'meta' as const, attrs: { property: 'og:image', content: ogImage } })
   head.push({ tag: 'meta' as const, attrs: { name: 'twitter:image', content: ogImage } })
 }
+head.push(...extraHead)
 ---
 
 <StarlightPage
   frontmatter={{ title, description, template: 'splash', pagefind: false, head, hero: { actions: [] } }}
   hasSidebar={false}
 >
-  <slot name="head" slot="head" />
   <slot />
 </StarlightPage>

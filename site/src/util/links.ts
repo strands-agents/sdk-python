@@ -3,6 +3,10 @@
  * using slugs everywhere, though that's always an option.
  */
 
+// github-slugger is what Astro uses internally for default slug generation;
+// pathToDocsSlug relies on it to stay byte-compatible with Astro's ids.
+import { slug as githubSlug } from 'github-slugger'
+
 /**
  * Check if a link uses the @api shorthand format.
  * Supported formats:
@@ -105,6 +109,35 @@ export function normalizePathToSlug(path: string): string {
   }
 
   return result
+}
+
+/**
+ * Derive the docs content-collection ID (slug) for a content file path:
+ * an explicit frontmatter `slug` wins, otherwise the path is normalized and
+ * each segment slugified the same way Astro's default loader does.
+ *
+ * Single source of truth shared by content.config.ts (generateDocsId) and
+ * redirect.static.ts, which must agree on ids or redirect stubs point at 404s.
+ *
+ * @param entryPath - Content-collection-relative file path (e.g. `docs/user-guide/state.mdx`)
+ * @param slugOverride - The frontmatter `slug` value, if any
+ */
+export function pathToDocsSlug(entryPath: string, slugOverride?: unknown): string {
+  if (slugOverride) {
+    return `${slugOverride}`
+  }
+
+  const normalized = normalizePathToSlug(entryPath)
+
+  // Root README/index -> 'index' (Starlight convention for the homepage)
+  if (!normalized) {
+    return 'index'
+  }
+
+  return normalized
+    .split('/')
+    .map((segment) => githubSlug(segment))
+    .join('/')
 }
 
 /**

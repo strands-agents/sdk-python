@@ -24,7 +24,7 @@ flowchart LR
     subgraph runtime["Agent runtime (your infrastructure)"]
         L[Agent loop]
         M[Model]
-        T["sandbox_bash /<br/>sandbox_file_editor"]
+        T["sandbox_shell /<br/>sandbox_file_editor"]
         L --> M --> T
     end
     subgraph sb["Sandbox (execution environment you provision)"]
@@ -89,7 +89,7 @@ See [Available Sandboxes](./available-sandboxes.mdx) for Docker and SSH configur
 
 When a sandbox is configured, the agent automatically registers two tools so the model can operate in the sandboxed environment without additional setup:
 
-- **`sandbox_bash`** — Executes shell commands. Each call runs in a fresh shell; state such as variables and the working directory does not persist across calls.
+- **`sandbox_shell`** — Executes shell commands. Each call runs in a fresh shell; state such as variables and the working directory does not persist across calls.
 - **`sandbox_file_editor`** — Views, creates, and edits files using absolute paths. Supports view (with line ranges), create, string replace, and insert operations.
 
 If a tool with the same name is already registered on the agent, the sandbox-vended version is skipped. This lets you override a vended tool with a stricter variant:
@@ -151,4 +151,4 @@ The following vended plugins route their file I/O through the agent's sandbox wh
 
 - [Available Sandboxes](./available-sandboxes.mdx) — the built-in Docker and SSH backends, programmatic access, and streaming
 - [Building a Custom Sandbox](./custom-sandbox.mdx) — target a backend the built-ins do not cover
-- [Vended Tools](../tools/vended-tools.mdx) — the `sandbox_bash` and `sandbox_file_editor` tools
+- [Vended Tools](../tools/vended-tools.mdx) — the `sandbox_shell` and `sandbox_file_editor` tools

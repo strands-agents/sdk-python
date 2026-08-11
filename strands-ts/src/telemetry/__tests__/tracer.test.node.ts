@@ -497,6 +497,17 @@ describe('Tracer', () => {
         },
       ])
     })
+
+    it('sets latest convention tool call arguments attribute', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+
+      tracer.startToolCallSpan({
+        tool: { name: 'search', toolUseId: 'call-2', input: { query: 'test' } },
+      })
+
+      expect(mockSpan.getAttributeValue('gen_ai.tool.call.arguments')).toBe('{"query":"test"}')
+    })
   })
 
   describe('endToolCallSpan', () => {
@@ -543,6 +554,47 @@ describe('Tracer', () => {
       expect(parsed[0].role).toBe('tool')
       expect(parsed[0].parts[0].type).toBe('tool_call_response')
       expect(parsed[0].parts[0].id).toBe('call-1')
+    })
+
+    it('sets latest convention tool call result attribute on success', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startToolCallSpan({
+        tool: { name: 'calc', toolUseId: 'call-1', input: {} },
+      })
+
+      const toolResult = new ToolResultBlock({
+        toolUseId: 'call-1',
+        status: 'success',
+        content: [new TextBlock('42')],
+      })
+
+      tracer.endToolCallSpan(span, { toolResult })
+
+      const resultAttr = mockSpan.getAttributeValue('gen_ai.tool.call.result')
+      expect(resultAttr).toBeDefined()
+      const parsed = JSON.parse(resultAttr as string)
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0]).toMatchObject({ text: '42' })
+    })
+
+    it('omits latest convention tool call result attribute on error status', () => {
+      vi.stubEnv('OTEL_SEMCONV_STABILITY_OPT_IN', 'gen_ai_latest_experimental')
+      const tracer = new Tracer()
+      const span = tracer.startToolCallSpan({
+        tool: { name: 'calc', toolUseId: 'call-1', input: {} },
+      })
+
+      const toolResult = new ToolResultBlock({
+        toolUseId: 'call-1',
+        status: 'error',
+        content: [new TextBlock('tool exploded')],
+      })
+
+      tracer.endToolCallSpan(span, { toolResult })
+
+      expect(mockSpan.getAttributeValue('gen_ai.tool.call.result')).toBeUndefined()
+      expect(mockSpan.getAttributeValue('gen_ai.tool.status')).toBe('error')
     })
 
     it('records error on tool failure', () => {

@@ -4,6 +4,7 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
 import logging
+import time
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Mapping
@@ -56,6 +57,19 @@ class NodeResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
     interrupts: list[Interrupt] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the node result.
+
+        Delegates to the inner result's string representation:
+        - AgentResult: Uses AgentResult.__str__ (extracts text content)
+        - MultiAgentResult: Uses MultiAgentResult.__str__ (recursive)
+        - Exception: Uses the exception's string representation
+
+        Returns:
+            String representation of the node's result.
+        """
+        return str(self.result)
 
     def get_agent_results(self) -> list[AgentResult]:
         """Get all AgentResult objects from this node, flattened if nested."""
@@ -137,6 +151,30 @@ class MultiAgentResult:
     execution_time: int = 0
     interrupts: list[Interrupt] = field(default_factory=list)
 
+    def __str__(self) -> str:
+        """Return a human-readable string representation of the multi-agent result.
+
+        Priority order:
+        1. Interrupts (if present) → stringified list of interrupt dicts
+        2. Node results → each node's string output, prefixed with node name
+
+        Returns:
+            String representation based on the priority order above.
+        """
+        if self.interrupts:
+            return str([interrupt.to_dict() for interrupt in self.interrupts])
+
+        parts = []
+        for node_name, node_result in self.results.items():
+            # Remove only the single trailing newline that AgentResult.__str__ appends
+            # as a framework separator, preserving all user-owned whitespace (leading
+            # indentation, internal markdown hard-break spaces, payload trailing newlines).
+            node_str = str(node_result).removesuffix("\n")
+            if node_str:
+                parts.append(f"{node_name}: {node_str}")
+
+        return "\n".join(parts)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
         """Rehydrate a MultiAgentResult from persisted JSON."""
@@ -187,6 +225,47 @@ class MultiAgentBase(ABC):
     """
 
     id: str
+    # Wall-clock start of the active invocation, or None when no invocation is running. Set at
+    # invocation start; folded into the orchestrator's committed execution-time total exactly once
+    # at finalization.
+    _invocation_start_time: float | None
+
+    def __init__(self) -> None:
+        """Initialize base multi-agent state."""
+        self._invocation_start_time = None
+
+    def _execution_time_with_active_interval(self, committed_time: int) -> int:
+        """Committed execution time (ms) plus the active invocation's in-flight interval.
+
+        The active interval is folded into the committed total only once, at finalization, so any
+        read that must reflect elapsed time — checkpoints, result building — adds it on here.
+
+        Args:
+            committed_time: Execution time in milliseconds already committed by prior invocations.
+
+        Returns:
+            committed_time plus the current invocation's elapsed milliseconds, or committed_time
+            unchanged when no invocation is running.
+        """
+        if self._invocation_start_time is None:
+            return committed_time
+        return committed_time + round((time.time() - self._invocation_start_time) * 1000)
+
+    def _commit_active_interval(self, committed_time: int) -> int:
+        """Fold the active invocation's interval into committed_time and end the interval.
+
+        Idempotent: with no active interval this returns committed_time unchanged, so calling it at
+        finalization never double-counts.
+
+        Args:
+            committed_time: Execution time in milliseconds already committed by prior invocations.
+
+        Returns:
+            The new committed total including the interval that just ended.
+        """
+        total = self._execution_time_with_active_interval(committed_time)
+        self._invocation_start_time = None
+        return total
 
     @abstractmethod
     async def invoke_async(

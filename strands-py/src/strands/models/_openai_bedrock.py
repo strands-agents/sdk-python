@@ -4,12 +4,6 @@ Converts a ``bedrock_mantle_config`` dict into the ``base_url`` and ``api_key`` 
 OpenAI Python SDK consumes. Tokens are minted on demand via
 ``aws_bedrock_token_generator.provide_token`` so long-running agents survive the
 bearer token's maximum lifetime.
-
-``aws_bedrock_token_generator`` is part of the ``openai`` extras group
-(``pip install strands-agents[openai]``) but is *not* included in the ``litellm``
-or ``sagemaker`` extras, which also pull in the ``openai`` package. The import is
-therefore lazy — it happens inside :func:`resolve_bedrock_client_args` so that
-those other extras never trigger an ``ImportError`` at module load.
 """
 
 from __future__ import annotations
@@ -20,19 +14,27 @@ from typing import Any, TypedDict
 import boto3
 from botocore.credentials import CredentialProvider
 
+from ._validation import validate_region
+
 _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws{path}"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
 
-# Mantle-routed model id prefixes served from /openai/v1 instead of /v1.
-_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.",)
+# Mantle model lines served from /openai/v1; every other Mantle model uses /v1, and the
+# wrong base path fails with HTTP 400. The base path is a per-model property that no
+# Mantle API reports, so these prefixes were verified against the ``us-east-1`` catalog on
+# 2026-08-05. Scope each prefix to a single model line, never a vendor: one vendor's lines
+# can split across base paths (``google.gemma-4-*`` is on /openai/v1, ``google.gemma-3-*``
+# is on /v1). An unmatched new line falls through to /v1; the ``test_mantle_routing``
+# integ test fails naming any id that routes wrong.
+_OPENAI_PATH_MODEL_PREFIXES: tuple[str, ...] = ("openai.gpt-5.", "xai.grok-4.", "google.gemma-4-")
 
 
 def _resolve_mantle_base_path(model_id: str) -> str:
     """Resolve the Mantle base path for ``model_id``.
 
-    Model ids matching :data:`_OPENAI_PATH_MODEL_PREFIXES` are served from
-    ``/openai/v1``; other Mantle-routed models (e.g. ``openai.gpt-oss-*``) use ``/v1``.
+    Models matching :data:`_OPENAI_PATH_MODEL_PREFIXES` are served from ``/openai/v1``;
+    other Mantle-routed models (e.g. ``openai.gpt-oss-*``, ``google.gemma-3-*``) use ``/v1``.
     """
     if model_id.startswith(_OPENAI_PATH_MODEL_PREFIXES):
         return "/openai/v1"
@@ -67,24 +69,28 @@ class BedrockMantleConfig(TypedDict, total=False):
 def _resolve_region(config: BedrockMantleConfig) -> str:
     """Resolve the AWS region, preferring explicit config then falling back to boto3.
 
+    The resolved region is validated before it is returned, since it is interpolated
+    into the Mantle endpoint URL by the caller.
+
     Raises:
         ValueError: If no region can be resolved from the config, an attached session,
-            or the standard boto3 credential chain.
+            or the standard boto3 credential chain, or if the resolved region is not a
+            well-formed AWS region identifier.
     """
     region = config.get("region")
     if region:
-        return region
+        return validate_region(region)
 
     session = config.get("boto_session")
     if session is not None and session.region_name:
-        return str(session.region_name)
+        return validate_region(str(session.region_name))
 
     # ``boto3.Session()`` with no args reads ``AWS_REGION`` / ``AWS_DEFAULT_REGION``,
     # the active profile, and falls back to EC2 instance metadata — the same chain
     # :class:`BedrockModel` uses.
     default_region = boto3.Session().region_name
     if default_region:
-        return str(default_region)
+        return validate_region(str(default_region))
 
     raise ValueError(
         "Could not resolve an AWS region for Bedrock Mantle. Pass 'region' in "
@@ -102,8 +108,7 @@ def resolve_bedrock_client_args(
     ``client_args`` does not contain ``base_url`` or ``api_key`` before calling this
     function (typically at ``__init__`` time for fail-fast behavior).
 
-    The ``model_id`` selects the Mantle base path: ``openai.gpt-5.*`` is served from
-    ``/openai/v1`` while other models use ``/v1``.
+    The ``model_id`` selects the Mantle base path via :func:`_resolve_mantle_base_path`.
 
     Raises:
         ValueError: If no region can be resolved.

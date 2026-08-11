@@ -613,3 +613,62 @@ class TestHeuristicEstimation:
         """Model.count_tokens uses heuristic estimation."""
         result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
         assert result == 3  # ceil(12 / 4)
+
+
+class TestEstimateUtilization:
+    """Tests for Model.estimate_utilization."""
+
+    class ConfigurableModel(SAModel):
+        def __init__(self, context_window_limit=None):
+            self._config = {"context_window_limit": context_window_limit}
+
+        def update_config(self, **model_config):
+            self._config.update(model_config)
+
+        def get_config(self):
+            return self._config
+
+        async def structured_output(self, output_model, prompt=None, system_prompt=None, **kwargs):
+            yield {}
+
+        async def stream(self, messages, tool_specs=None, system_prompt=None):
+            yield {}
+
+    def test_returns_ratio_of_tokens_to_limit(self):
+        """Returns input_tokens / context_window_limit when limit is configured."""
+        model = self.ConfigurableModel(context_window_limit=100_000)
+
+        assert model.estimate_utilization(50_000) == 0.5
+
+    def test_uses_default_when_limit_not_set(self):
+        """Falls back to DEFAULT_CONTEXT_WINDOW_LIMIT (200_000) when not configured."""
+        model = self.ConfigurableModel(context_window_limit=None)
+
+        assert model.estimate_utilization(100_000) == 100_000 / 200_000
+
+    def test_returns_above_one_on_overflow(self):
+        """Returns > 1.0 when tokens exceed the limit."""
+        model = self.ConfigurableModel(context_window_limit=1000)
+
+        assert model.estimate_utilization(1500) > 1.0
+
+    def test_returns_zero_for_zero_tokens(self):
+        """Returns 0 for zero input tokens."""
+        model = self.ConfigurableModel(context_window_limit=100_000)
+
+        assert model.estimate_utilization(0) == 0
+
+    def test_handles_zero_context_window_limit(self):
+        """Falls back to default when context_window_limit is 0."""
+        model = self.ConfigurableModel(context_window_limit=0)
+
+        assert model.estimate_utilization(100_000) == 100_000 / 200_000
+
+    def test_warns_only_once(self):
+        """Logs the fallback warning only on the first call."""
+        model = self.ConfigurableModel(context_window_limit=None)
+
+        model.estimate_utilization(1000)
+        model.estimate_utilization(2000)
+
+        assert model._utilization_limit_warned is True

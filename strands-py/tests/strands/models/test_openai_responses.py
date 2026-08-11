@@ -1,9 +1,13 @@
+import logging
 import os
 import unittest.mock
 
+import httpx
 import openai
 import pydantic
 import pytest
+from openai.types.responses import Response, ResponseErrorEvent, ResponseFailedEvent
+from openai.types.responses.response_error import ResponseError
 
 import strands
 from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
@@ -106,7 +110,7 @@ def test_update_config(model, model_id):
 @pytest.mark.parametrize(
     "content, exp_result",
     [
-        # Document
+        # Document content goes in file_data with a filename, never file_url (#3572)
         (
             {
                 "document": {
@@ -117,7 +121,22 @@ def test_update_config(model, model_id):
             },
             {
                 "type": "input_file",
-                "file_url": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+                "filename": "test doc",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+            },
+        ),
+        # Document without the optional name falls back to a default filename
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "type": "input_file",
+                "filename": "document",
+                "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
             },
         ),
         # Image
@@ -243,10 +262,17 @@ def test_format_request_tool_message_with_image():
 
 
 def test_format_request_tool_message_with_document():
-    """Test that tool results with documents return an array output."""
+    """Test that tool results with documents return an array output.
+
+    Document content must be sent as ``file_data`` + ``filename``, not ``file_url`` —
+    Azure OpenAI treats ``file_url`` as a URL to download and rejects a data URI.
+    A document without the optional ``name`` falls back to a default filename.
+    See: https://github.com/strands-agents/harness-sdk/issues/3572
+    """
     tool_result = {
         "content": [
             {"document": {"format": "pdf", "name": "test.pdf", "source": {"bytes": b"fake_pdf_data"}}},
+            {"document": {"format": "pdf", "source": {"bytes": b"fake_pdf_data"}}},
         ],
         "status": "success",
         "toolUseId": "c3",
@@ -258,9 +284,12 @@ def test_format_request_tool_message_with_document():
     assert tru_result["call_id"] == "c3"
     # When documents are present, output should be an array
     assert isinstance(tru_result["output"], list)
-    assert len(tru_result["output"]) == 1
+    assert len(tru_result["output"]) == 2
     assert tru_result["output"][0]["type"] == "input_file"
-    assert "file_url" in tru_result["output"][0]
+    assert tru_result["output"][0]["filename"] == "test.pdf"
+    assert "file_data" in tru_result["output"][0]
+    assert "file_url" not in tru_result["output"][0]
+    assert tru_result["output"][1]["filename"] == "document"
 
 
 def test_format_request_messages(system_prompt):
@@ -300,7 +329,7 @@ def test_format_request_messages(system_prompt):
         },
         {
             "role": "assistant",
-            "content": [{"type": "output_text", "text": "call tool"}],
+            "content": "call tool",
         },
         {
             "type": "function_call",
@@ -317,12 +346,14 @@ def test_format_request_messages(system_prompt):
     assert tru_result == exp_result
 
 
-def test_format_request_messages_assistant_text_uses_output_text():
-    """Assistant text content must use output_text, not input_text.
+def test_format_request_messages_assistant_text_uses_string_content():
+    """Assistant history must use the string EasyInputMessage form.
 
-    Regression test for multi-turn conversations failing because the OpenAI
-    Responses API rejects input_text in assistant messages.
-    See: https://github.com/strands-agents/harness-sdk/issues/1850
+    A bare ``{"role": "assistant", "content": [{"type": "output_text", ...}]}``
+    is not a valid Responses API input item (it is neither a string-content
+    EasyInputMessage nor a complete ResponseOutputMessage) and is rejected by
+    strict backends such as Bedrock Mantle.
+    See: https://github.com/strands-agents/harness-sdk/issues/3388
     """
     messages = [
         {
@@ -347,12 +378,79 @@ def test_format_request_messages_assistant_text_uses_output_text():
     }
     assert result[1] == {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "Hello!"}],
+        "content": "Hello!",
     }
     assert result[2] == {
         "role": "user",
         "content": [{"type": "input_text", "text": "Say goodbye"}],
     }
+
+
+def test_format_request_messages_assistant_multiple_text_blocks_join_with_newline():
+    """Multiple assistant text blocks collapse into one newline-joined string."""
+    messages = [
+        {
+            "content": [{"text": "First."}, {"text": "Second."}],
+            "role": "assistant",
+        },
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "assistant", "content": "First.\nSecond."}]
+
+
+def test_format_request_messages_assistant_non_text_content_dropped(caplog):
+    """Assistant media has no valid Responses input shape and is dropped with a warning."""
+    messages = [
+        {
+            "content": [
+                {"text": "Here is the image."},
+                {"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}},
+            ],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [{"role": "assistant", "content": "Here is the image."}]
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_only_non_text_content_dropped_entirely(caplog):
+    """An assistant turn with only non-text content collapses to nothing and is omitted."""
+    messages = [
+        {
+            "content": [{"image": {"format": "png", "source": {"bytes": b"fake-image-data"}}}],
+            "role": "assistant",
+        },
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="strands.models.openai_responses"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == []
+    assert "content_type=<input_image>" in caplog.text
+
+
+def test_format_request_messages_assistant_history_items_are_valid_input_items():
+    """Formatted assistant history validates against the OpenAI input item schema."""
+    import openai
+
+    messages = [
+        {"content": [{"text": "What is 2+2?"}], "role": "user"},
+        {"content": [{"text": "4"}], "role": "assistant"},
+        {"content": [{"text": "What about 3+3?"}], "role": "user"},
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assistant_item = result[1]
+    easy_message_fields = set(openai.types.responses.EasyInputMessageParam.__annotations__)
+    assert set(assistant_item) <= easy_message_fields
+    assert isinstance(assistant_item["content"], str)
 
 
 def test_format_request_message_content_role_assistant():
@@ -624,9 +722,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -737,9 +833,7 @@ async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -774,9 +868,7 @@ async def test_stream_with_tool_calls_done_event(openai_client, model, agenerato
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -835,9 +927,7 @@ async def test_stream_reasoning_content(openai_client, model, agenerator, alist,
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None)
         ),
     )
 
@@ -883,9 +973,7 @@ async def test_stream_citation_annotations(openai_client, model, agenerator, ali
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -923,9 +1011,7 @@ async def test_stream_unsupported_annotation_type(openai_client, model, agenerat
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None
-            )
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)
         ),
     )
 
@@ -986,6 +1072,92 @@ async def test_structured_output_forwards_request_params(openai_client, model_id
 
 
 @pytest.mark.asyncio
+async def test_stream_response_failed_raises_provider_error(openai_client, model, messages, agenerator):
+    error = ResponseError(message="The model failed while processing the request.", code="server_error")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(RuntimeError, match="The model failed while processing the request") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.code == "server_error"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_context_overflow(openai_client, model, messages, agenerator):
+    message = "prompt tokens (320666) exceed customer model maximum (278528) for model-id"
+    error = ResponseError(message=message, code="invalid_prompt")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__.code == "invalid_prompt"
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_existing_context_pattern(openai_client, model, messages, agenerator):
+    error = ResponseError(message="This model's maximum context length is 4096 tokens.", code="invalid_prompt")
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=error)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(ContextWindowOverflowException, match="maximum context length"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_stream_response_failed_without_error_details(openai_client, model, messages, agenerator):
+    failed_event = ResponseFailedEvent.model_construct(
+        type="response.failed", sequence_number=1, response=Response.model_construct(error=None)
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([failed_event]))
+
+    with pytest.raises(RuntimeError, match="OpenAI Responses API response failed"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["rate_limit_exceeded", None])
+async def test_stream_error_event_as_throttle(openai_client, model, messages, agenerator, code):
+    error_event = ResponseErrorEvent(
+        type="error", sequence_number=1, code=code, message="Rate limit exceeded while streaming."
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([error_event]))
+
+    with pytest.raises(ModelThrottledException, match="Rate limit exceeded while streaming") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__.code == code
+
+
+@pytest.mark.asyncio
+async def test_stream_throttle_precedes_context_overflow(openai_client, model, messages, agenerator):
+    error_event = ResponseErrorEvent(
+        type="error",
+        sequence_number=1,
+        code="rate_limit_exceeded",
+        message="prompt tokens exceed customer model maximum",
+    )
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator([error_event]))
+
+    with pytest.raises(ModelThrottledException, match="exceed customer model maximum"):
+        async for _ in model.stream(messages):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     mock_error = openai.BadRequestError(
@@ -1023,6 +1195,20 @@ async def test_stream_context_overflow_exception_api_error_type(openai_client, m
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_http_429_as_throttle(openai_client, model, messages):
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(429, request=request)
+    error = openai.APIStatusError("opaque provider failure", response=response, body=None)
+    openai_client.responses.create.side_effect = error
+
+    with pytest.raises(ModelThrottledException, match="opaque provider failure") as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value.__cause__ is error
 
 
 @pytest.mark.asyncio
@@ -1127,6 +1313,39 @@ async def test_structured_output_context_overflow_exception(openai_client, model
 
     assert "maximum context length" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_message(openai_client, model, messages, test_output_model_cls):
+    message = "prompt tokens exceed customer model maximum"
+    mock_error = openai.APIError(
+        message=message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": message}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ContextWindowOverflowException, match="exceed customer model maximum") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_message(openai_client, model, messages, test_output_model_cls):
+    mock_error = openai.APIError(
+        message="Too many requests from provider",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Too many requests from provider"}},
+    )
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(ModelThrottledException, match="Too many requests") as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value.__cause__ is mock_error
 
 
 @pytest.mark.asyncio
@@ -1311,7 +1530,7 @@ def test_format_request_messages_with_citations_content():
     assistant_msg = [m for m in formatted if m.get("role") == "assistant"][0]
     assert assistant_msg == {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": "The answer with citations."}],
+        "content": "The answer with citations.",
     }
 
 
@@ -1462,7 +1681,7 @@ def test_format_request_messages_excludes_reasoning_content(caplog):
 
     assert result == [
         {"role": "user", "content": [{"type": "input_text", "text": "Hello"}]},
-        {"role": "assistant", "content": [{"type": "output_text", "text": "The answer is 42"}]},
+        {"role": "assistant", "content": "The answer is 42"},
         {"role": "user", "content": [{"type": "input_text", "text": "Thanks"}]},
     ]
     assert "reasoningContent is not yet supported" in caplog.text
@@ -1626,6 +1845,50 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
 
+    @pytest.mark.parametrize(
+        ("model_id", "expected_path"),
+        [
+            # Regression for #3654: Mantle rejects the wrong base path with HTTP 400
+            # validation_error. The affected ids use /openai/v1; controls below pin /v1.
+            ("xai.grok-4.3", "/openai/v1"),
+            ("google.gemma-4-31b", "/openai/v1"),
+            ("openai.gpt-5.6-terra", "/openai/v1"),
+            # Gemma 3 is served from /v1 while Gemma 4 is not, so `google.` cannot be a prefix.
+            ("google.gemma-3-27b-it", "/v1"),
+            ("openai.gpt-oss-120b", "/v1"),
+        ],
+    )
+    def test_bedrock_mantle_config_base_path_per_model(
+        self, model_id, expected_path, openai_client, mock_provide_token
+    ):
+        """Each Mantle model resolves to the base path it is actually served from."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
+
+    @pytest.mark.parametrize(
+        ("model_id", "expected_path"),
+        [
+            # Point releases within a verified line, beyond the verified catalog.
+            ("xai.grok-4.9", "/openai/v1"),
+            ("openai.gpt-5.9-unreleased", "/openai/v1"),
+            # New lines the prefixes deliberately do not cover.
+            ("xai.grok-5", "/v1"),
+            ("xai.grok-5-preview", "/v1"),
+        ],
+    )
+    def test_bedrock_mantle_config_unverified_ids(self, model_id, expected_path, openai_client, mock_provide_token):
+        """Ids beyond the verified catalog, through the Responses model (shares _resolve_mantle_base_path)."""
+        _ = openai_client
+        _ = mock_provide_token
+        model = OpenAIResponsesModel(model_id=model_id, bedrock_mantle_config={"region": "us-east-1"})
+
+        resolved = model._resolve_client_args()
+        assert resolved["base_url"] == f"https://bedrock-mantle.us-east-1.api.aws{expected_path}"
+
     def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         _ = openai_client
         from datetime import timedelta
@@ -1718,6 +1981,16 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
 
         assert resolved["base_url"] == "https://bedrock-mantle.ap-southeast-2.api.aws/v1"
         mock_provide_token.assert_called_once_with(region="ap-southeast-2")
+
+    @pytest.mark.parametrize("region", ["x@attacker.com:443/#", "us-east-1\n", "us-east-1/"])
+    def test_bedrock_mantle_config_rejects_malformed_region(self, openai_client, mock_provide_token, region):
+        """A malformed region is rejected before a token is minted or a URL is built."""
+        _ = openai_client
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": region})
+        with pytest.raises(ValueError, match="invalid AWS region"):
+            model._resolve_client_args()
+        # Validation must precede token minting so no bearer token is ever sent toward the host.
+        mock_provide_token.assert_not_called()
 
     def test_bedrock_mantle_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):
         """provide_token failures are wrapped in a RuntimeError with actionable context."""

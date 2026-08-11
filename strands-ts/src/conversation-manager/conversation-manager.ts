@@ -11,13 +11,9 @@ import { AfterModelCallEvent, BeforeModelCallEvent } from '../hooks/events.js'
 import { ContextWindowOverflowError } from '../errors.js'
 import type { Model } from '../models/model.js'
 import { logger } from '../logging/logger.js'
-import { warnOnce } from '../logging/warn-once.js'
 
 /** Default compression threshold ratio. */
 const DEFAULT_COMPRESSION_THRESHOLD = 0.7
-
-/** @internal Default context window limit fallback when the model doesn't report one. */
-export const DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
 
 /**
  * Options passed to {@link ConversationManager.reduce}.
@@ -183,23 +179,14 @@ export abstract class ConversationManager implements Plugin {
         return
       }
 
-      let contextWindowLimit = event.model.getConfig().contextWindowLimit
-      if (contextWindowLimit === undefined) {
-        contextWindowLimit = DEFAULT_CONTEXT_WINDOW_LIMIT
-        warnOnce(
-          logger,
-          `conversation_manager=<${this.name}> | contextWindowLimit is not set on the model, using default of ${DEFAULT_CONTEXT_WINDOW_LIMIT} | set contextWindowLimit in your model config for accurate proactive compression`
-        )
-      }
-
       if (event.projectedInputTokens === undefined) {
         return
       }
 
-      const ratio = event.projectedInputTokens / contextWindowLimit
+      const ratio = event.model.estimateUtilization(event.projectedInputTokens)
       if (ratio >= this._compressionThreshold) {
         logger.debug(
-          `projected_tokens=<${event.projectedInputTokens}>, limit=<${contextWindowLimit}>, ratio=<${ratio.toFixed(2)}>, compression_threshold=<${this._compressionThreshold}> | compression threshold exceeded, reducing context`
+          `projected_tokens=<${event.projectedInputTokens}>, ratio=<${ratio.toFixed(2)}>, compression_threshold=<${this._compressionThreshold}> | compression threshold exceeded, reducing context`
         )
         // Proactive compression is best-effort: swallow errors so the model call can still proceed.
         try {

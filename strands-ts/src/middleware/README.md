@@ -265,3 +265,6 @@ Each requirement below is verified by tests and should hold across language impl
 - Interrupt ID uses the `agentStream` namespace
 - The interrupt source is `'middleware'`
 - InterruptEvent is yielded on the stream
+- After resuming to a non-tool completion, the interrupt state is cleared so the next fresh invocation is accepted
+- Resuming does not clobber a pending tool interrupt: if a tool interrupt is outstanding and its resume is cancelled before the tool runs, that interrupt survives and stays resumable
+- The stop reports every still-unanswered interrupt, not only the one just raised (so a partially-answered set is fully visible to the caller)

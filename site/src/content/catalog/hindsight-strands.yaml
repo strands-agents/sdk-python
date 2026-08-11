@@ -1,0 +1,9 @@
+name: hindsight-strands
+description: Persistent long-term memory and semantic search tools for Strands agents, powered by Vectorize's Hindsight memory service.
+integrationType: memory-store
+languages:
+  python:
+    package: hindsight-strands
+github: https://github.com/vectorize-io/hindsight
+docsUrl: https://github.com/vectorize-io/hindsight/tree/main/hindsight-integrations/strands
+addedDate: 2026-07-19

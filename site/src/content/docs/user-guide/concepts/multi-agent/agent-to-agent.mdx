@@ -1,5 +1,6 @@
 ---
 title: Agent-to-Agent (A2A) Protocol
+description: 'Connect Strands agents across platforms with the Agent-to-Agent (A2A) protocol. Serve agents over A2A and call remote agents from your own.'
 sidebar:
   label: "Agent2Agent (A2A)"
 tags: [multi-agent]
@@ -377,6 +378,82 @@ Contexts are keyed on the client supplied `context_id`. A caller who knows anoth
 :::caution[Passing a single `agent` is deprecated]
 In single-agent mode the server reuses one agent across every context, swapping each context's saved state on and off the shared instance under a lock, which serializes all requests. A single `agent` with a configured `session_manager` is rejected, because the session manager would persist every context into one interleaved session. Prefer `agent_factory` for any deployment that serves more than one conversation.
 :::
+
+### Answering Interrupts
+
+:::note[Python only]
+This feature is currently available in the Python SDK only.
+:::
+
+When a tool or hook on the served agent raises an [interrupt](../interrupts.md), the task moves to the A2A `input_required` state and waits. The client answers it, and the task resumes the paused tool exactly where it stopped.
+
+Answering an interrupt is the one flow on this page that needs the raw [`a2a-sdk`](https://github.com/a2aproject/a2a-python) client rather than `A2AAgent`. `A2AAgent` speaks in text, so it raises `ValueError` if you pass it interrupt responses, and it drops the `DataPart` carrying the interrupt ids when it reads the reply. The examples below build A2A messages directly.
+
+Each interrupt has a server-generated id, and an answer is bound to the id of the interrupt that raised it. The server advertises the pending interrupts on the `input_required` status message as a `DataPart`, alongside the human-readable `TextPart`:
+
+```json
+{
+  "kind": "data",
+  "data": {
+    "interrupts": [
+      {
+        "interruptId": "v1:tool_call:tu-1:a71adb48-e65d-55fa-b155-0359c9cd3b66",
+        "name": "approve_campaign",
+        "reason": {"name": "spring-launch"}
+      }
+    ]
+  }
+}
+```
+
+To answer, send a new message on the same `taskId` containing a `DataPart` that echoes the `interruptId` back with the response:
+
+```json
+{
+  "kind": "data",
+  "data": {
+    "interruptResponse": {
+      "interruptId": "v1:tool_call:tu-1:a71adb48-e65d-55fa-b155-0359c9cd3b66",
+      "response": {"approved": true}
+    }
+  }
+}
+```
+
+The `response` becomes the return value of the `interrupt()` call that paused the tool. It is any JSON value except `null`, which the server refuses — a null answer would leave the interrupt unsatisfied and re-raise it. `false` and `0` are fine. Answer several interrupts in one message by sending one `DataPart` for each.
+
+Reading the ids off the status message and answering them:
+
+```python
+from a2a.types import DataPart, Part
+
+# The task parked in input_required; read the interrupts it is waiting on.
+pending = next(
+    part.root.data["interrupts"]
+    for part in task.status.message.parts
+    if isinstance(part.root, DataPart) and "interrupts" in part.root.data
+)
+
+# Answer each one on the same taskId.
+answers = [
+    Part(root=DataPart(data={
+        "interruptResponse": {"interruptId": item["interruptId"], "response": {"approved": True}}
+    }))
+    for item in pending
+]
+```
+
+The server rejects an answer it cannot bind, before the agent runs, so a refused answer leaves the interrupt pending and the task still answerable. An answer is rejected when:
+
+- its `interruptId` does not match an interrupt the task is waiting on
+- no interrupt is pending
+- the same `interruptId` is answered twice in one message
+- the payload is missing `interruptId`, or its `response` is missing or `null`
+- it is sent alongside other content parts
+
+A task with a pending interrupt also rejects an ordinary conversational message — answer the interrupt, or cancel the task.
+
+A `DataPart` without an `interruptResponse` key is unaffected and continues to reach the agent as structured data.
 
 ### Server Configuration Options
 
