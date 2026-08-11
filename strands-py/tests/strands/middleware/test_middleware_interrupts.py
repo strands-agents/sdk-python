@@ -6,7 +6,12 @@ import pytest
 
 import strands
 from strands import Agent
-from strands._middleware.stages import ExecuteToolStage, MiddlewareInterruptResult
+from strands._middleware.stages import (
+    AgentStreamContext,
+    ExecuteToolStage,
+    MiddlewareInterruptResult,
+    _resolve_middleware_interrupt,
+)
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
@@ -425,3 +430,45 @@ def test_before_hook_fires_but_after_hook_skipped_on_interrupt(calculator_tool):
     event_types = [type(event) for event in events]
     assert BeforeToolCallEvent in event_types
     assert AfterToolCallEvent not in event_types
+
+
+# --- interrupt resolution precedence ---
+
+
+def test_stored_human_response_takes_precedence_over_preemptive(calculator_tool):
+    """A stored human response must win over a middleware's preemptive response=.
+
+    Guards against accidentally swapping the two checks in _resolve_middleware_interrupt,
+    which would let a middleware default silently override a human decision.
+    """
+    interrupt_id = "v1:middleware_execute_tool:tool_1:test-gate"
+    interrupts = {interrupt_id: Interrupt(id=interrupt_id, name="gate", response="DENIED")}
+
+    result = _resolve_middleware_interrupt(interrupts, interrupt_id, "gate", None, "auto-approve")
+
+    assert result == MiddlewareInterruptResult(response="DENIED")
+
+
+# --- AgentStreamContext interrupt coverage ---
+
+
+def test_agent_stream_context_interrupt_id_and_resolution():
+    """AgentStreamContext.interrupt raises, resolves, and produces a stable namespaced id."""
+    from strands.interrupt import InterruptException
+
+    ctx = AgentStreamContext(agent=None, messages=[], invocation_state={}, _interrupts={})
+
+    interrupt_id = ctx._interrupt_id("gate")
+    assert interrupt_id.startswith("v1:middleware_agent_stream:")
+    assert interrupt_id == ctx._interrupt_id("gate")
+
+    with pytest.raises(InterruptException):
+        ctx.interrupt("gate")
+
+    resumed = AgentStreamContext(
+        agent=None,
+        messages=[],
+        invocation_state={},
+        _interrupts={interrupt_id: Interrupt(id=interrupt_id, name="gate", response="ok")},
+    )
+    assert resumed.interrupt("gate") == MiddlewareInterruptResult(response="ok")

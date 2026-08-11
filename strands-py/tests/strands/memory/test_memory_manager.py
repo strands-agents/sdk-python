@@ -1192,6 +1192,7 @@ def _invoke_ctx(messages: list[dict], agent: Any) -> Any:
         tool_specs=[],
         tool_choice=None,
         invocation_state={},
+        model=getattr(agent, "model", None),
     )
 
 

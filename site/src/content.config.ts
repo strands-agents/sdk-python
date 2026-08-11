@@ -1,12 +1,27 @@
 import { defineCollection, type SchemaContext } from 'astro:content'
 import { z } from 'astro/zod'
 import { docsSchema } from '@astrojs/starlight/schema'
-// github-slugger is used by Astro internally for default slug generation.
-// We use it here to maintain parity with Astro's default behavior while adding a docs/ prefix.
-import { slug as githubSlug } from 'github-slugger'
 import { glob, file } from 'astro/loaders'
-import { normalizePathToSlug } from './util/links'
+import { pathToDocsSlug } from './util/links'
 import { TagSchema } from './config/tags'
+
+export const ALL_SDK_LANGUAGES = ['python', 'typescript'] as const
+
+export const docsLanguagesSchema = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .superRefine((val, ctx) => {
+    if (!val) return
+    const langs = Array.isArray(val) ? val.map((l) => l.toLowerCase()) : [val.toLowerCase()]
+    if (ALL_SDK_LANGUAGES.every((l) => langs.includes(l))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'languages must not list all supported SDKs (python and typescript) — ' +
+          'omit the field entirely when a feature is available in all languages',
+      })
+    }
+  })
 
 const authorSchema = z.object({
   name: z.string(),
@@ -71,6 +86,82 @@ export const changelogFrontmatterSchema = z
   })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 
+// `package` is optional: an empty block (`python: {}`) marks a guide-only
+// integration (documented by a vendor dev-guide, no Strands-specific
+// installable package) as covering that language, so it still participates
+// in the language facet. The registry link derives from the package name at
+// build time (see toCardModel in util/catalog.ts), so entries never declare
+// registry URLs. `.strict()` makes a submitted `registry:` (or any other
+// stray key) fail the build with a clear error instead of being silently
+// ignored.
+const catalogLanguageSchema = z
+  .object({
+    // Package name as published on the registry (PyPI or npm)
+    package: z.string().optional(),
+  })
+  .strict()
+
+export const catalogEntrySchema = z
+  .object({
+    name: z.string(),
+    description: z.string(),
+    // Keep in sync with the docs frontmatter integrationType below and the
+    // display registry in src/components/catalog/types.ts (this schema can't
+    // import from components without tangling content config into the UI).
+    integrationType: z.enum([
+      'model-provider',
+      'tool',
+      'session-manager',
+      'memory-store',
+      'storage',
+      'integration',
+      'plugin',
+      'agent-extension',
+      'intervention',
+    ]),
+    // Which SDK's ecosystem this belongs to. The catalog's SDK facet stays
+    // hidden until at least one evals entry exists.
+    sdk: z.enum(['agents', 'evals']).default('agents'),
+    // Strict so a misspelled language key (`typeScript:`) fails the build
+    // instead of silently dropping the language from the entry's facets.
+    languages: z
+      .object({
+        python: catalogLanguageSchema.optional(),
+        typescript: catalogLanguageSchema.optional(),
+      })
+      .strict(),
+    // The single self-declared link: the maintainer shown on the card derives
+    // from this URL's owner segment, and registry links derive from the
+    // package names — submitters can't point them somewhere else.
+    github: z.string().url().startsWith('https://github.com/', 'github must start with https://github.com/'),
+    // Docs collection id of the detail page (e.g. 'docs/integrations/tools/strands-deepgram').
+    // Optional: entries without one link out to their GitHub repo instead.
+    docsPage: z.string().optional(),
+    // External URL of the integration's own Strands setup/instructions page
+    // (e.g. Temporal's docs for its Strands integration). When there is no
+    // on-site docsPage, the card's primary link prefers this over the bare
+    // GitHub repo so users land on usage instructions.
+    docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
+    // Editorial fields — maintainer-granted only; submitters leave them unset.
+    featured: z.boolean().default(false),
+    badges: z.array(z.enum(['verified'])).default([]),
+    // Drives the "New" badge on the catalog card.
+    addedDate: z.coerce.date(),
+  })
+  // A stray key (e.g. a self-declared `maintainer:`) fails the build with a
+  // clear error instead of being silently dropped.
+  .strict()
+  .superRefine((d, ctx) => {
+    if (!d.languages.python && !d.languages.typescript) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['languages'],
+        message: 'at least one language block (python or typescript) is required',
+      })
+    }
+  })
+export type CatalogEntryData = z.infer<typeof catalogEntrySchema>
+
 const blogSchema = z.object({
   title: z.string(),
   date: z.coerce.date(),
@@ -96,6 +187,13 @@ export const collections = {
       pattern: '**/*.{md,mdx}',
     }),
     schema: blogSchema,
+  }),
+  catalog: defineCollection({
+    loader: glob({
+      base: 'src/content/catalog',
+      pattern: '**/*.yaml',
+    }),
+    schema: catalogEntrySchema,
   }),
   changelog: defineCollection({
     loader: glob({
@@ -128,7 +226,7 @@ export const collections = {
         "404.mdx",
 
         "docs/user-guide/**/*.mdx",
-        "docs/community/**/*.mdx",
+        "docs/integrations/**/*.mdx",
         "docs/contribute/**/*.mdx",
         "docs/examples/**/[!index]*.mdx",
         "docs/labs/**/*.mdx",
@@ -140,14 +238,13 @@ export const collections = {
     schema: docsSchema({
       // We have certain flags/behavior based on the following properties; see CMS-README.md for more info
       extend: z.object({
-        // Can be a single value or an array of supported values
-        languages: z.union([z.string(), z.array(z.string())]).optional(),
+        languages: docsLanguagesSchema,
         community: z.boolean().default(false),
         experimental: z.boolean().default(false),
         // Category for TypeScript API docs (classes, interfaces, type-aliases, functions)
         category: z.string().optional(),
         // Integration type for filtering (e.g., 'model-provider' for model providers)
-        integrationType: z.enum(['model-provider', 'tool', 'session-manager', 'memory-store', 'integration', 'plugin', 'agent-extension', 'intervention']).optional(),
+        integrationType: z.enum(['model-provider', 'tool', 'session-manager', 'memory-store', 'storage', 'integration', 'plugin', 'agent-extension', 'intervention']).optional(),
         // Short description for catalog listings
         description: z.string().optional(),
         // Array of slugs that should redirect to this page (e.g., old URLs)
@@ -165,26 +262,9 @@ export const collections = {
 /**
  * Custom generateId function for docs content collection.
  * This mimics Astro's default slug generation (see node_modules/astro/dist/content/loaders/glob.js)
- * but uses our shared normalizePathToSlug utility for consistency with link resolution.
+ * via the shared pathToDocsSlug utility, which redirect.static.ts also uses —
+ * both must agree on ids or redirect stubs point at 404s.
  */
 function generateDocsId({ entry, data }: { entry: string; data: Record<string, unknown> }): string {
-  // If frontmatter has a slug, use it directly
-  if (data.slug) {
-    return `${data.slug}`
-  }
-
-  // Normalize the entry path and slugify each segment using github-slugger (same as Astro default)
-  const normalized = normalizePathToSlug(entry)
-  
-  // Handle root README/index -> use 'index' as the slug (Starlight convention for homepage)
-  if (!normalized) {
-    return 'index'
-  }
-  
-  const slug = normalized
-    .split('/')
-    .map((segment) => githubSlug(segment))
-    .join('/')
-
-  return slug
+  return pathToDocsSlug(entry, data.slug)
 }
