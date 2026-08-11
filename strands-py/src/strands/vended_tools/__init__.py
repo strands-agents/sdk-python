@@ -40,9 +40,9 @@ _RENAME_RATIONALE = (
 
 
 @deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
-def make_bash(**kwargs: Any) -> "DecoratedFunctionTool":
-    """Deprecated alias for :func:`make_shell`."""
-    return make_shell(**kwargs)
+def make_bash(*, name: str = "bash", **kwargs: Any) -> "DecoratedFunctionTool":
+    """Deprecated alias for :func:`make_shell` that keeps the pre-rename default name."""
+    return make_shell(name=name, **kwargs)
 
 
 def __getattr__(name: str) -> Any:
@@ -54,7 +54,9 @@ def __getattr__(name: str) -> Any:
             DeprecationWarning,
             stacklevel=2,
         )
-        return shell
+        from .shell.shell import bash
+
+        return bash
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

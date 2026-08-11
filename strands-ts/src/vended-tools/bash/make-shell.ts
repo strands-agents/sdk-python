@@ -32,14 +32,22 @@ export interface MakeShellOptions {
  * Otherwise, the tool reads from `context.agent.sandbox` at call time.
  * Used by sandbox implementations in `getTools()` and by users who want a customized shell tool.
  */
+function resolveShellArgs(
+  sandboxOrOptions?: Sandbox | MakeShellOptions,
+  maybeOptions?: MakeShellOptions
+): { boundSandbox: Sandbox | undefined; options: MakeShellOptions } {
+  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
+  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+  return { boundSandbox, options }
+}
+
 export function makeShell(options?: MakeShellOptions): ReturnType<typeof tool>
 export function makeShell(sandbox: Sandbox | undefined, options?: MakeShellOptions): ReturnType<typeof tool>
 export function makeShell(
   sandboxOrOptions?: Sandbox | MakeShellOptions,
   maybeOptions?: MakeShellOptions
 ): ReturnType<typeof tool> {
-  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
-  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+  const { boundSandbox, options } = resolveShellArgs(sandboxOrOptions, maybeOptions)
 
   return tool({
     name: options.name ?? 'shell',
@@ -67,8 +75,19 @@ export function makeShell(
  * @deprecated makeBash is deprecated and will be removed in v2.0.0. Use makeShell instead. The tool
  * routes commands through the sandbox, which runs sh or the remote login shell rather than bash
  * specifically.
+ *
+ * Defaults the tool name to `'bash'` so callers keyed on the pre-rename name (hooks, prompts,
+ * tool lists) keep working until the alias is removed.
  */
-export const makeBash = makeShell
+export function makeBash(options?: MakeShellOptions): ReturnType<typeof tool>
+export function makeBash(sandbox: Sandbox | undefined, options?: MakeShellOptions): ReturnType<typeof tool>
+export function makeBash(
+  sandboxOrOptions?: Sandbox | MakeShellOptions,
+  maybeOptions?: MakeShellOptions
+): ReturnType<typeof tool> {
+  const { boundSandbox, options } = resolveShellArgs(sandboxOrOptions, maybeOptions)
+  return makeShell(boundSandbox, { name: 'bash', ...options })
+}
 
 /**
  * @deprecated MakeBashOptions is deprecated and will be removed in v2.0.0. Use MakeShellOptions instead.

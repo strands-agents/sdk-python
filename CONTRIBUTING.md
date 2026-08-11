@@ -219,6 +219,12 @@ splitting, not a rule; sometimes a complex function is the honest solution.
 
 A docs-only or test-only PR touches no SDK source and gets no complexity label.
 
+The labels exist because review attention is the scarcest resource this
+project has: they let maintainers triage which PRs need an unhurried senior
+read, and they give you the same signal locally before a reviewer sees it. The
+reasoning, the scoring model, and the practices that keep code under the
+thresholds live in [team/COMPLEXITY.md](./team/COMPLEXITY.md).
+
 ## Using AI Tools
 
 We love AI. We build with coding agents every day, and you're welcome to use them too — they're a great way to move fast and explore a codebase.
