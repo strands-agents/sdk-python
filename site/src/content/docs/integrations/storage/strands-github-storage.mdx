@@ -1,0 +1,89 @@
+---
+project:
+  npm: https://www.npmjs.com/package/strands-github-storage
+  github: https://github.com/maisieyanz/strands-github-storage
+  maintainer: maisieyanz
+service:
+  name: GitHub
+  link: https://github.com
+title: strands-github-storage
+community: true
+description: GitHub-repository Storage backend for Strands — persists each entry as a versioned, diffable file in a repo you can browse on GitHub.
+integrationType: storage
+languages: TypeScript
+sidebar:
+  label: "GitHub"
+---
+
+[strands-github-storage](https://github.com/maisieyanz/strands-github-storage) is a `Storage` backend that persists each entry as a file in a GitHub repository, at the entry's key path on a branch. Because the store *is* a git repository, its contents are browsable in the GitHub UI, diffable per change, and versioned in history.
+
+It implements the SDK's four-method `Storage` interface (`write`, `read`, `delete`, `list`), so it plugs in anywhere a `Storage` is accepted — session snapshots, context offloading, and file-backed memory stores such as `FileMemoryStore`.
+
+## Installation
+
+```bash
+npm install strands-github-storage
+```
+
+`@strands-agents/sdk` is a peer dependency; `@octokit/rest` is bundled.
+
+## Usage
+
+### Basic setup
+
+```typescript
+import { GithubStorage } from 'strands-github-storage'
+
+const storage = new GithubStorage({
+  owner: 'myorg',
+  repo: 'agent-memory',
+  branch: 'main', // optional, defaults to 'main'
+  token: process.env.GITHUB_TOKEN, // required for writes and private repos
+})
+
+await storage.write('facts/note.md', new TextEncoder().encode('remember this'))
+const bytes = await storage.read('facts/note.md') // Uint8Array | null
+const keys = await storage.list('facts/') // ['facts/note.md']
+await storage.delete('facts/note.md')
+```
+
+### Backing a memory store
+
+Pass it as the `storage` for a `FileMemoryStore` so an agent's knowledge lives in a browsable, versioned repo:
+
+```typescript
+import { Agent, MemoryManager } from '@strands-agents/sdk'
+import { FileMemoryStore } from '@strands-agents/sdk/vended-memory-stores/file-memory-store'
+import { GithubStorage } from 'strands-github-storage'
+
+const memoryStore = new FileMemoryStore({
+  name: 'agent-memory',
+  storage: new GithubStorage({ owner: 'myorg', repo: 'agent-memory', token }),
+})
+
+const agent = new Agent({ model, memoryManager: new MemoryManager({ stores: [memoryStore] }) })
+```
+
+## Configuration
+
+| Parameter | Required | Description |
+|---|---|---|
+| `owner` | Yes | Repository owner (user or organization login). |
+| `repo` | Yes | Repository name. |
+| `branch` | No | Branch to read from and commit to. Defaults to `main`. |
+| `token` | For writes | GitHub token. Needed for any write and for reading private repos. |
+| `octokit` | No | A pre-configured `Octokit` client, as an alternative to `token` (e.g. to add retry/throttling plugins). |
+
+## Behavior and limits
+
+- **One commit per operation.** Each `write` and `delete` is its own commit (`update <key>` / `delete <key>`). A burst of writes produces a burst of commits.
+- **Single writer per branch.** Commits advance the branch ref without a compare-and-swap retry, so a concurrent writer that moves the branch head surfaces GitHub's non-fast-forward rejection as a `StorageError` rather than being retried.
+- **`read` is limited to files under 1 MB** — the ceiling of the GitHub contents API's inline response. Markdown memory is far below this.
+- **`list` fails loud on truncation.** GitHub's git-tree API caps very large trees and does not paginate; rather than return a silent partial listing, `list` throws a `StorageError`.
+- **No built-in rate-limit handling.** To add exponential backoff on `429`/`5xx`, pass an `octokit` client configured with `@octokit/plugin-throttling` / `@octokit/plugin-retry`.
+
+## References
+
+- [GitHub](https://github.com/maisieyanz/strands-github-storage)
+- [npm](https://www.npmjs.com/package/strands-github-storage)
+- [Strands Storage docs](../../user-guide/concepts/storage.mdx)

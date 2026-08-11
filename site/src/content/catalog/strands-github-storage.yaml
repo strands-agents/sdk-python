@@ -5,4 +5,5 @@ languages:
   typescript:
     package: strands-github-storage
 github: https://github.com/maisieyanz/strands-github-storage
+docsPage: docs/integrations/storage/strands-github-storage
 addedDate: 2026-08-10
