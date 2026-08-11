@@ -357,7 +357,7 @@ sidebar:
       - label: Storage
         items:
           - docs/integrations/storage/overview
-          - docs/integrations/storage/strands-github-storage
+          - docs/integrations/storage/github
       - label: Session Managers
         items:
           - docs/integrations/session-managers/agentcore-memory
