@@ -1688,22 +1688,22 @@ async def test_graph_max_concurrency_releases_slot_after_cancellation(mock_stran
 @pytest.mark.asyncio
 async def test_graph_node_timeout_excludes_concurrency_queue_time(mock_strands_tracer, mock_use_span):
     """Test that queued nodes receive their full node timeout after acquiring a slot."""
-
-    async def delayed_stream(*args, **kwargs):
-        await asyncio.sleep(0.02)
-        yield {"result": create_mock_agent("result").return_value}
-
     builder = GraphBuilder()
-    for node_id in ("a", "b"):
-        agent = create_mock_agent(node_id)
-        agent.stream_async = Mock(side_effect=delayed_stream)
-        builder.add_node(agent, node_id)
-        builder.set_entry_point(node_id)
+    builder.add_node(create_mock_agent("queued"), "queued")
+    graph = builder.set_node_timeout(0.05).build()
+    semaphore = asyncio.Semaphore(0)
+    event_queue = asyncio.Queue()
 
-    graph = builder.set_max_concurrency(1).set_node_timeout(0.03).build()
-    tru_result = await graph.invoke_async("Test timeout queue semantics")
+    task = asyncio.create_task(graph._stream_node_to_queue(graph.nodes["queued"], event_queue, {}, semaphore))
+    await asyncio.sleep(0.1)
 
-    assert tru_result.status == Status.COMPLETED
+    # Waiting for a concurrency slot must not start the per-node timeout.
+    assert not task.done()
+
+    semaphore.release()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert graph.nodes["queued"].execution_status == Status.COMPLETED
 
 
 @pytest.mark.parametrize(
