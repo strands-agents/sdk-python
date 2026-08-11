@@ -339,15 +339,29 @@ const stubCore = () => {
   const warnings = []
   return { warnings, info: () => {}, warning: (m) => warnings.push(m) }
 }
-const stubContext = (pullRequests, headSha = 'abc123') => ({
+const FORK_REPO_ID = 42
+const stubContext = (pullRequests, headSha = 'abc123', headRepoId = FORK_REPO_ID) => ({
   repo: { owner: 'o', repo: 'r' },
-  payload: { workflow_run: { head_sha: headSha, pull_requests: pullRequests } },
+  payload: {
+    workflow_run: { head_sha: headSha, head_repository: { id: headRepoId }, pull_requests: pullRequests },
+  },
 })
 // Only reached when the event carries no associated PRs, as on a fork.
-const stubGithub = (associated) => ({
+// prHeads values are 'sha' strings (head repo defaults to the fork's), an
+// Error to throw, or `{ sha, repoId }` to control the head repository.
+const stubGithub = (associated, prHeads = {}) => ({
   rest: {
     repos: {
       listPullRequestsAssociatedWithCommit: async () => ({ data: associated.map((number) => ({ number })) }),
+    },
+    pulls: {
+      get: async ({ pull_number: pullNumber }) => {
+        const entry = prHeads[pullNumber]
+        if (entry instanceof Error) throw entry
+        if (!entry) throw Object.assign(new Error('Not Found'), { status: 404 })
+        const { sha, repoId = FORK_REPO_ID } = typeof entry === 'string' ? { sha: entry } : entry
+        return { data: { head: { sha, repo: { id: repoId } } } }
+      },
     },
   },
 })
@@ -386,6 +400,76 @@ test('resolvePrNumber falls back to the head sha for forks', async () => {
     claimed: 7,
   })
   assert.equal(number, 7)
+})
+
+// Fork PRs populate neither `workflow_run.pull_requests` nor the
+// commit-association API — the head commit exists only in the fork — so the
+// claim is verified directly against the claimed PR's actual head.
+test('resolvePrNumber verifies the claim via the PR head when no association exists', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], { 3704: 'abc123' }),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 3704,
+  })
+  assert.equal(number, 3704)
+  assert.deepEqual(core.warnings, [])
+})
+
+test('resolvePrNumber refuses a claim whose PR head does not match the run', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], { 3704: 'different-sha' }),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 3704,
+  })
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+// A commit object can be pushed into any repository, so a matching SHA alone
+// does not tie the claim to this PR — the head repository must match too.
+test('resolvePrNumber refuses a claim whose head repository differs despite a matching sha', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], { 3704: { sha: 'abc123', repoId: 999 } }),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 3704,
+  })
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+test('resolvePrNumber refuses a claim naming a PR that does not exist', async () => {
+  const core = stubCore()
+  const number = await resolvePrNumber({
+    github: stubGithub([], {}),
+    context: stubContext([], 'abc123'),
+    core,
+    claimed: 99999,
+  })
+  assert.equal(number, null)
+  assert.match(core.warnings[0], /not labeling/)
+})
+
+// A transient lookup failure must fail the run visibly rather than silently
+// skipping the labels — silent skipping is the bug this path exists to fix.
+test('resolvePrNumber rethrows transient lookup failures instead of refusing', async () => {
+  const core = stubCore()
+  const transient = Object.assign(new Error('Service Unavailable'), { status: 503 })
+  await assert.rejects(
+    resolvePrNumber({
+      github: stubGithub([], { 3704: transient }),
+      context: stubContext([], 'abc123'),
+      core,
+      claimed: 3704,
+    }),
+    /Service Unavailable/
+  )
+  assert.deepEqual(core.warnings, [])
 })
 
 test('resolvePrNumber refuses when a commit maps to several PRs and nothing is claimed', async () => {

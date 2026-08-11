@@ -84,7 +84,7 @@ bidi-io = [
     "prompt_toolkit>=3.0.0,<4.0.0",
     "pyaudio>=0.2.13,<1.0.0",
 ]
-bidi-gemini = ["google-genai>=1.32.0,<3.0.0"]
+bidi-gemini = ["google-genai>=1.67.0,<3.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]

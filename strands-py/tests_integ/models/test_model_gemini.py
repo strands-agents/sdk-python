@@ -270,7 +270,7 @@ class TestCountTokens:
     @pytest.fixture
     def model(self):
         return GeminiModel(
-            model_id="gemini-2.0-flash",
+            model_id="gemini-3.1-flash-lite",
             client_args={"api_key": os.environ["GOOGLE_API_KEY"]},
             use_native_token_count=True,
         )
