@@ -1485,6 +1485,10 @@ class Agent(AgentBase):
         retry logic for handling context window overflow exceptions by reducing the
         conversation context and retrying.
 
+        Recovery is iterative (not recursive) and hard-bounded so a conversation
+        manager that cannot actually shrink the prompt cannot spin forever and
+        eventually surface a RecursionError from deepcopy (see #3338).
+
         Args:
             invocation_state: Additional parameters to pass to the event loop.
             structured_output_context: Optional structured output context for this invocation.
@@ -1499,27 +1503,40 @@ class Agent(AgentBase):
         if structured_output_context:
             structured_output_context.register_tool(self.tool_registry)
 
+        # Bound consecutive ContextWindowOverflow recoveries per invocation.
+        # SummarizingConversationManager can "succeed" without reducing tokens
+        # when the mass sits inside preserve_recent_messages; without a cap the
+        # previous recursive retry loop ran until Python's recursion limit.
+        max_overflow_recoveries = 10
+        overflow_recoveries = 0
+
         try:
-            events = event_loop_cycle(
-                agent=self,
-                invocation_state=invocation_state,
-                structured_output_context=structured_output_context,
-                limits=limits,
-            )
-            async for event in events:
-                yield event
+            while True:
+                try:
+                    events = event_loop_cycle(
+                        agent=self,
+                        invocation_state=invocation_state,
+                        structured_output_context=structured_output_context,
+                        limits=limits,
+                    )
+                    async for event in events:
+                        yield event
+                    break
 
-        except ContextWindowOverflowException as e:
-            # Try reducing the context size and retrying
-            self.conversation_manager.reduce_context(self, e=e)
+                except ContextWindowOverflowException as e:
+                    overflow_recoveries += 1
+                    if overflow_recoveries > max_overflow_recoveries:
+                        raise ContextWindowOverflowException(
+                            f"Context window recovery failed after "
+                            f"{max_overflow_recoveries} attempts without making enough room"
+                        ) from e
 
-            # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
-            if self._session_manager:
-                self._session_manager.sync_agent(self)
+                    # Try reducing the context size and retrying
+                    self.conversation_manager.reduce_context(self, e=e)
 
-            events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
-            async for event in events:
-                yield event
+                    # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
+                    if self._session_manager:
+                        self._session_manager.sync_agent(self)
 
         finally:
             if structured_output_context:
