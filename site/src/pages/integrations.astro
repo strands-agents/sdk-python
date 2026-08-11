@@ -1,9 +1,10 @@
 ---
 /**
- * Community integration catalog: searchable, filterable grid of community
- * packages. Entries come from the `catalog` content collection; popularity
- * stats from the bot-maintained src/data/catalog-stats.json. Everything is
- * rendered statically; the inline script only toggles card visibility.
+ * Integration catalog: searchable, filterable grid of SDK built-ins and
+ * community packages. Entries come from the `catalog` content collection;
+ * popularity stats from the bot-maintained src/data/catalog-stats.json.
+ * Everything is rendered statically; the inline script only toggles card
+ * visibility.
  */
 import { getCollection } from 'astro:content'
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
@@ -27,6 +28,7 @@ const showSdkFacet = cards.some((c) => c.sdk === 'evals')
 const hasVerified = cards.some((c) => c.badges.includes('verified'))
 const hasFeatured = cards.some((c) => c.featured)
 const hasNew = cards.some((c) => c.badges.includes('new'))
+const hasNative = cards.some((c) => c.badges.includes('native'))
 
 // Counts span both SDKs while filtering is per-SDK; with no evals entries the
 // two coincide, so if/when evals entries land these need client-side recompute.
@@ -37,7 +39,7 @@ const typeFacets = CATALOG_TYPES.map(({ value, labelPlural }) => ({
 })).filter((t) => t.count > 0)
 
 const title = 'Integrations'
-const description = 'Community-built tools, model providers, plugins, and integrations for Strands Agents.'
+const description = 'Built-in and community tools, model providers, plugins, and integrations for Strands Agents.'
 ---
 
 <StarlightPage frontmatter={{ title, description, template: 'splash', pagefind: false, hero: { actions: [] } }} hasSidebar={false}>
@@ -45,7 +47,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
     <div class="cat-head">
       <div>
         <h1 class="cat-title">Integrations</h1>
-        <p class="cat-subtitle">Tools, model providers, and integrations built by the Strands community</p>
+        <p class="cat-subtitle">Tools, model providers, and integrations, built into the SDK and by the Strands community</p>
       </div>
       <div class="cat-head-actions">
         <a class="cat-cta-btn" href={pathWithBase('/docs/integrations/get-featured/')}>Add your integration</a>
@@ -73,7 +75,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
           }
         </ul>
         {
-          (hasFeatured || hasNew || hasVerified) && (
+          (hasFeatured || hasNew || hasNative || hasVerified) && (
             <>
               <p class="cat-rail-label" id="cat-highlight-label">Highlights</p>
               <ul class="cat-rail-list" aria-labelledby="cat-highlight-label">
@@ -90,6 +92,14 @@ const description = 'Community-built tools, model providers, plugins, and integr
                     <button class="cat-chip" type="button" data-cat-badge="new" aria-pressed="false">
                       New
                       <span class="cat-count">{cards.filter((c) => c.badges.includes('new')).length}</span>
+                    </button>
+                  </li>
+                )}
+                {hasNative && (
+                  <li class="cat-rail-item">
+                    <button class="cat-chip" type="button" data-cat-badge="native" aria-pressed="false">
+                      Native
+                      <span class="cat-count">{cards.filter((c) => c.badges.includes('native')).length}</span>
                     </button>
                   </li>
                 )}
@@ -141,6 +151,7 @@ const description = 'Community-built tools, model providers, plugins, and integr
           hasVerified={hasVerified}
           hasFeatured={hasFeatured}
           hasNew={hasNew}
+          hasNative={hasNative}
         />
       </div>
       <ul class="cat-dialog-list" data-cat-dialog-list>

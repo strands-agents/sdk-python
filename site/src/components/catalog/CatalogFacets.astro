@@ -14,9 +14,10 @@ interface Props {
   hasVerified: boolean
   hasFeatured: boolean
   hasNew: boolean
+  hasNative: boolean
 }
 
-const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
+const { types, showSdkFacet, hasVerified, hasFeatured, hasNew, hasNative } = Astro.props
 ---
 
 <div class="cat-facet-row">
@@ -32,6 +33,13 @@ const { types, showSdkFacet, hasVerified, hasFeatured, hasNew } = Astro.props
     hasNew && (
       <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="new" aria-pressed="false">
         New
+      </button>
+    )
+  }
+  {
+    hasNative && (
+      <button class="cat-seg-btn cat-seg-btn--solo" type="button" data-cat-badge="native" aria-pressed="false">
+        Native
       </button>
     )
   }

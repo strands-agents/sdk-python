@@ -71,6 +71,13 @@ const href = card.external ? card.href : pathWithBase(card.href)
           </span>
         )
       }
+      {
+        card.badges.includes('native') && (
+          <span class="cat-flag cat-flag--native" title="Built into the Strands SDK">
+            Native
+          </span>
+        )
+      }
       {card.badges.includes('new') && <span class="cat-flag cat-flag--new">New</span>}
       <span class="cat-card-stats">
         {

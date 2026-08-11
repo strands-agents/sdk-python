@@ -279,6 +279,13 @@
   background: color-mix(in srgb, var(--sl-color-accent) 7%, transparent);
   border-color: color-mix(in srgb, var(--sl-color-accent) 40%, transparent);
 }
+/* Native marks SDK built-ins: note-blue outline so it reads apart from the
+   maintainer-granted green (Verified/Featured) and the informational New. */
+.cat-flag--native {
+  color: var(--sl-badge-note-text);
+  background: color-mix(in srgb, var(--sl-badge-note-bg) 35%, transparent);
+  border-color: color-mix(in srgb, var(--sl-badge-note-border) 55%, transparent);
+}
 
 .cat-card-desc {
   color: var(--sl-color-gray-2);
