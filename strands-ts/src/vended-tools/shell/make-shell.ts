@@ -85,7 +85,7 @@ export function makeBash(
   maybeOptions?: MakeShellOptions
 ): ReturnType<typeof tool> {
   const { boundSandbox, options } = resolveShellArgs(sandboxOrOptions, maybeOptions)
-  return makeShell(boundSandbox, { name: 'bash', ...options })
+  return makeShell(boundSandbox, { ...options, name: options.name ?? 'bash' })
 }
 
 /**

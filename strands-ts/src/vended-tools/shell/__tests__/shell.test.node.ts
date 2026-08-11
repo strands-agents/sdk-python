@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { makeBash, makeShell, ShellTimeoutError, ShellExecutionError } from '../index.js'
-import { BashTimeoutError, BashSessionError, type BashOutput } from '../../bash/types.js'
+import { makeBash, makeShell, ShellTimeoutError, ShellExecutionError, type ShellOutput } from '../index.js'
+import { BashTimeoutError, BashSessionError } from '../../bash/types.js'
 import type { ToolContext } from '../../../index.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
@@ -29,15 +29,15 @@ describe.skipIf(process.platform === 'win32')('makeShell', () => {
     const { sandboxShell, context } = createSandboxShell()
     const result = await sandboxShell.invoke({ command: 'echo "hello sandbox"' }, context)
 
-    expect((result as BashOutput).output).toContain('hello sandbox')
-    expect((result as BashOutput).error).toBe('')
+    expect((result as ShellOutput).output).toContain('hello sandbox')
+    expect((result as ShellOutput).error).toBe('')
   })
 
   it('captures stderr via sandbox', async () => {
     const { sandboxShell, context } = createSandboxShell()
     const result = await sandboxShell.invoke({ command: 'echo "oops" >&2' }, context)
 
-    expect((result as BashOutput).error).toContain('oops')
+    expect((result as ShellOutput).error).toContain('oops')
   })
 
   it('does not persist state between calls (stateless)', async () => {
@@ -45,7 +45,7 @@ describe.skipIf(process.platform === 'win32')('makeShell', () => {
     await sandboxShell.invoke({ command: 'export MY_VAR=hello' }, context)
     const result = await sandboxShell.invoke({ command: 'echo "${MY_VAR:-empty}"' }, context)
 
-    expect((result as BashOutput).output.trim()).toBe('empty')
+    expect((result as ShellOutput).output.trim()).toBe('empty')
   })
 
   it('respects timeout', async () => {
@@ -81,5 +81,19 @@ describe('deprecated makeBash alias', () => {
 
   it('an explicit name still wins', () => {
     expect(makeBash({ name: 'sandbox_bash' }).name).toBe('sandbox_bash')
+  })
+})
+
+describe('pre-rename bash import path (kept until v2.0.0)', () => {
+  // The bash barrel re-exports the shell names so imports written before the
+  // rename keep working. Nothing else exercises that path, so assert it here.
+  it('still exposes every shell name', async () => {
+    const barrel = await import('../../bash/index.js')
+    expect(barrel.makeShell).toBe(makeShell)
+    expect(barrel.makeBash).toBe(makeBash)
+    expect(barrel.ShellTimeoutError).toBe(ShellTimeoutError)
+    expect(barrel.ShellExecutionError).toBe(ShellExecutionError)
+    expect(barrel.SANDBOX_SHELL_DESCRIPTION).toBeDefined()
+    expect(barrel.SANDBOX_BASH_DESCRIPTION).toBe(barrel.SANDBOX_SHELL_DESCRIPTION)
   })
 })

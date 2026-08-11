@@ -5,7 +5,7 @@
  * callers who caught the pre-rename error types keep working.
  */
 
-import { BashTimeoutError, BashSessionError, type BashOutput } from '../bash/types.js'
+import { BashTimeoutError, BashSessionError } from '../bash/types.js'
 
 export const SANDBOX_SHELL_DESCRIPTION =
   'Executes shell commands. Each call runs in a fresh shell; ' +
@@ -38,8 +38,24 @@ export class ShellExecutionError extends BashSessionError {
 }
 
 /**
- * Output format for shell command execution. The same shape as the bash tool's
- * output, so pre-rename consumers keep working; mirrors the Python SDK's
- * `ShellOutput`.
+ * Output format for shell command execution. Structurally identical to the bash
+ * tool's output, so pre-rename consumers keep working, but declared standalone;
+ * mirrors the Python SDK's `ShellOutput`.
  */
-export type ShellOutput = BashOutput
+export interface ShellOutput {
+  /**
+   * Standard output from the command.
+   */
+  output: string
+
+  /**
+   * Standard error from the command.
+   * Empty string if no errors occurred.
+   */
+  error: string
+
+  /**
+   * Allow indexing with string keys for JSONValue compatibility.
+   */
+  [key: string]: string
+}
