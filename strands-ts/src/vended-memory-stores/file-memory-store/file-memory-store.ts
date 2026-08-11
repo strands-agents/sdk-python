@@ -338,7 +338,7 @@ export class FileMemoryStore implements MemoryStore {
    * ```typescript
    * await memoryStore.consolidate({
    *   model,
-   *   operations: ['deduplicate', 'prune'],
+   *   operations: ['deduplicate', 'prune'], // omit to run all operations
    * })
    * ```
    */
@@ -374,6 +374,12 @@ export class FileMemoryStore implements MemoryStore {
     }
   }
 
+  /**
+   * Execute a single consolidation run. The guard in {@link consolidate} keeps this from overlapping
+   * another run on the same instance; it says nothing about runs on other instances or processes.
+   *
+   * @param config - Model and operation configuration
+   */
   private async _consolidate(
     config: ConsolidateConfig,
     maxFiles: number,
@@ -388,6 +394,8 @@ export class FileMemoryStore implements MemoryStore {
     const plan = await generatePlan(config, operations, files, maxDirectories, maxActionsPerPlan)
 
     const deleteErrors = await executePlan(this._storage, plan, files)
+    // Record the changelog even on partial failure — writes and some deletes already hit disk,
+    // so an accurate audit trail must capture the run before surfacing the error
     await recordChangelog(this._storage, operations, plan, deleteErrors)
 
     if (deleteErrors.length > 0) {
