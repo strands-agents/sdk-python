@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import {
-  bash,
-  BashTimeoutError,
-  BashSessionError,
-  type BashOutput,
-} from '../index.js'
+import { bash, BashTimeoutError, BashSessionError, type BashOutput } from '../index.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
@@ -475,4 +470,3 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
     })
   })
 })
-
