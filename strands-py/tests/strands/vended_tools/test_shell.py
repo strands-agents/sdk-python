@@ -136,8 +136,7 @@ class TestDeprecatedBashAliases:
 
         with pytest.deprecated_call(match="bash is deprecated"):
             tool = vended_tools.bash
-        assert tool.tool_spec["description"] == shell.tool_spec["description"]
-        assert tool.tool_spec["inputSchema"] == shell.tool_spec["inputSchema"]
+        assert tool.tool_spec == {**shell.tool_spec, "name": "bash"}
 
     def test_make_bash_alias_warns_and_builds_a_bash_named_tool(self):
         import strands.vended_tools as vended_tools

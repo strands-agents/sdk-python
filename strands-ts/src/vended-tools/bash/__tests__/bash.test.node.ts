@@ -551,9 +551,7 @@ describe('deprecated makeBash alias', () => {
   })
 
   it('matches makeShell apart from the name', () => {
-    const bashTool = makeBash()
-    const shellTool = makeShell()
-    expect(bashTool.description).toBe(shellTool.description)
+    expect(makeBash().toolSpec).toEqual({ ...makeShell().toolSpec, name: 'bash' })
   })
 
   it('an explicit name still wins', () => {

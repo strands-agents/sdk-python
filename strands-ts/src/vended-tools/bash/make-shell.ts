@@ -32,14 +32,22 @@ export interface MakeShellOptions {
  * Otherwise, the tool reads from `context.agent.sandbox` at call time.
  * Used by sandbox implementations in `getTools()` and by users who want a customized shell tool.
  */
+function resolveShellArgs(
+  sandboxOrOptions?: Sandbox | MakeShellOptions,
+  maybeOptions?: MakeShellOptions
+): { boundSandbox: Sandbox | undefined; options: MakeShellOptions } {
+  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
+  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+  return { boundSandbox, options }
+}
+
 export function makeShell(options?: MakeShellOptions): ReturnType<typeof tool>
 export function makeShell(sandbox: Sandbox | undefined, options?: MakeShellOptions): ReturnType<typeof tool>
 export function makeShell(
   sandboxOrOptions?: Sandbox | MakeShellOptions,
   maybeOptions?: MakeShellOptions
 ): ReturnType<typeof tool> {
-  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
-  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+  const { boundSandbox, options } = resolveShellArgs(sandboxOrOptions, maybeOptions)
 
   return tool({
     name: options.name ?? 'shell',
@@ -77,10 +85,8 @@ export function makeBash(
   sandboxOrOptions?: Sandbox | MakeShellOptions,
   maybeOptions?: MakeShellOptions
 ): ReturnType<typeof tool> {
-  if (sandboxOrOptions instanceof Sandbox) {
-    return makeShell(sandboxOrOptions, { name: 'bash', ...maybeOptions })
-  }
-  return makeShell({ name: 'bash', ...(maybeOptions ?? sandboxOrOptions) })
+  const { boundSandbox, options } = resolveShellArgs(sandboxOrOptions, maybeOptions)
+  return makeShell(boundSandbox, { name: 'bash', ...options })
 }
 
 /**
