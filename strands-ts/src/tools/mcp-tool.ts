@@ -51,7 +51,7 @@ export class McpTool extends Tool {
 
     try {
       const rawResult: unknown = await this.mcpClient.callTool(this, input as JSONValue, {
-        signal: toolContext.agent.cancelSignal,
+        signal: toolContext.cancelSignal,
       })
 
       if (!this._isMcpToolResult(rawResult)) {

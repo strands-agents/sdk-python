@@ -1,8 +1,8 @@
 /**
  * Sleep tool factory: pauses execution for a bounded, cooperative duration.
  *
- * The returned tool honors the invocation's `AbortSignal` (from
- * `context.agent.cancelSignal`), so cancelling the agent aborts the sleep
+ * The returned tool honors the execution's `AbortSignal` (from
+ * `context.cancelSignal`), so cancelling the execution aborts the sleep
  * immediately rather than waiting for the full duration.
  */
 
@@ -36,8 +36,8 @@ export interface MakeSleepOptions {
  * Creates a sleep tool with a configurable maximum duration.
  *
  * The returned tool pauses for the requested number of seconds. It attaches a
- * one-shot listener to `context.agent.cancelSignal` so that cancellation of
- * the enclosing agent invocation immediately aborts the sleep with an
+ * one-shot listener to `context.cancelSignal` so that cancellation of the
+ * enclosing execution immediately aborts the sleep with an
  * `AbortError`.
  *
  * @param options - Configuration options.
@@ -72,7 +72,7 @@ export function makeSleep(options: MakeSleepOptions = {}): InvokableTool<SleepIn
     callback: async (input, context) => {
       const { duration } = input
 
-      const cancelSignal = context?.agent.cancelSignal
+      const cancelSignal = context?.cancelSignal
       if (cancelSignal?.aborted) {
         throw cancelSignal.reason ?? new DOMException('Sleep cancelled before it started', 'AbortError')
       }

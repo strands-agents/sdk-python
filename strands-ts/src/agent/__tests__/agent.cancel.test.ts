@@ -284,6 +284,7 @@ describe('Agent Cancellation', () => {
       // First invocation: cancelled
       const result1 = await agent.invoke('Hello')
       expect(result1.stopReason).toBe('cancelled')
+      expect(agent.cancelSignal.aborted).toBe(false)
 
       // Second invocation: succeeds normally
       const result2 = await agent.invoke('Hello again')

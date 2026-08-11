@@ -110,6 +110,8 @@ export interface ExecuteToolContext extends MiddlewareInterruptible {
   readonly toolUse: ToolUseData
   /** Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult. */
   readonly invocationState: InvocationState
+  /** Cancellation signal scoped to this tool execution. */
+  readonly cancelSignal: AbortSignal
 }
 
 /**

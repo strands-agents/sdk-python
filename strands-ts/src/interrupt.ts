@@ -406,6 +406,16 @@ export function interruptFromAgent<T>(
     throw new Error('Interrupt state not available')
   }
 
+  return interruptFromState(interruptState, interruptId, params, source)
+}
+
+/** @internal */
+export function interruptFromState<T>(
+  interruptState: InterruptState,
+  interruptId: string,
+  params: InterruptParams,
+  source: InterruptSource
+): T {
   const interrupt = interruptState.getOrCreateInterrupt(
     interruptId,
     params.name,

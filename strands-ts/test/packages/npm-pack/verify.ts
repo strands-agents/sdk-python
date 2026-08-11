@@ -13,12 +13,16 @@ import {
   Agent,
   AgentResult,
   BedrockModel,
+  BackgroundTaskNotFoundError,
+  BackgroundTasksTimeoutError,
   ContextWindowOverflowError,
   FunctionTool,
   Model,
   StateStore,
   Tool,
   ZodTool,
+  type BackgroundTask,
+  type BackgroundTasksConfig,
   tool,
 } from '@strands-agents/sdk'
 
@@ -72,10 +76,26 @@ if (response !== 'The weather in New York is 72F and sunny.') {
 }
 console.log('[pack-test] Tool invocation produced expected output')
 
-const agent = new Agent({ model, tools: [weatherTool] })
+const backgroundTasksConfig: BackgroundTasksConfig = {
+  always: [weatherTool],
+}
+const backgroundTasksEnabled = Boolean(0)
+const disabledBackgroundTasksAgent = new Agent({ model, backgroundTasks: backgroundTasksEnabled })
+if (disabledBackgroundTasksAgent.backgroundTasks !== undefined) {
+  throw new Error('A false Background Tasks feature flag unexpectedly enabled the capability')
+}
+const agent = new Agent({ model, tools: [weatherTool], backgroundTasks: backgroundTasksConfig })
 if (agent.tools.length === 0) {
   throw new Error('Tool was not correctly added to the agent')
 }
+if (!agent.backgroundTasks) {
+  throw new Error('Background Tasks controls were not exposed')
+}
+const backgroundTaskSnapshots: readonly BackgroundTask[] = await agent.backgroundTasks.list()
+if (backgroundTaskSnapshots.length !== 0) {
+  throw new Error('A new Agent unexpectedly contained background tasks')
+}
+await agent.backgroundTasks.wait({ timeout: 1_000 })
 console.log('[pack-test] Agent constructed with tool')
 
 const vendedTools: Record<string, Tool> = { notebook, fileEditor, httpRequest, bash }
@@ -131,11 +151,21 @@ const ctxErr = new ContextWindowOverflowError('test')
 if (!(ctxErr instanceof Error)) {
   throw new Error('ContextWindowOverflowError is not an Error subclass')
 }
+const backgroundTaskNotFoundError = new BackgroundTaskNotFoundError('missing')
+const backgroundTasksTimeoutError = new BackgroundTasksTimeoutError(1_000)
+if (!(backgroundTaskNotFoundError instanceof Error) || !(backgroundTasksTimeoutError instanceof Error)) {
+  throw new Error('Background Tasks errors are not Error subclasses')
+}
 
 void AgentResult
 console.log('[pack-test] Error + result types importable')
 
-if (barrelBash !== bash || barrelFileEditor !== fileEditor || barrelHttpRequest !== httpRequest || barrelNotebook !== notebook) {
+if (
+  barrelBash !== bash ||
+  barrelFileEditor !== fileEditor ||
+  barrelHttpRequest !== httpRequest ||
+  barrelNotebook !== notebook
+) {
   throw new Error('Barrel vended-tools exports do not match individual subpath exports')
 }
 if (

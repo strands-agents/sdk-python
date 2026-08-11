@@ -862,6 +862,63 @@ export class Tracer {
     }
   }
 
+  /** Starts a span for one physical background task execution. @internal */
+  startBackgroundTaskSpan(options: {
+    taskId: string
+    attempt: number
+    attemptId: string
+    executionId: string
+    toolName: string
+    agentId: string
+    originSpanContext?: SpanContext
+  }): Span | null {
+    try {
+      const attributes = this._getCommonAttributes('background_task.execute')
+      attributes['background_task.task.id'] = options.taskId
+      attributes['background_task.attempt'] = options.attempt
+      attributes['background_task.attempt.id'] = options.attemptId
+      attributes['background_task.execution.id'] = options.executionId
+      attributes['background_task.tool.name'] = options.toolName
+      attributes['background_task.agent.id'] = options.agentId
+
+      const originSpanContext =
+        options.originSpanContext && isSpanContextValid(options.originSpanContext)
+          ? options.originSpanContext
+          : undefined
+      if (originSpanContext) {
+        attributes['background_task.origin.trace_id'] = originSpanContext.traceId
+        attributes['background_task.origin.span_id'] = originSpanContext.spanId
+      }
+
+      return this._startSpan({
+        name: 'background_task.execute',
+        attributes,
+        spanKind: SpanKind.INTERNAL,
+        forceRoot: true,
+        ...(originSpanContext && { links: [{ context: originSpanContext }] }),
+      })
+    } catch (error) {
+      logger.warn(`error=<${error}> | failed to start background task span`)
+      return null
+    }
+  }
+
+  /** Ends one physical background task execution span. @internal */
+  endBackgroundTaskSpan(
+    span: Span | null,
+    options: {
+      outcome: 'completed' | 'suspended' | 'failed'
+      error?: Error
+    }
+  ): void {
+    if (!span) return
+    try {
+      this._endSpan(span, { 'background_task.outcome': options.outcome }, options.error)
+    } catch (error) {
+      logger.warn(`error=<${error}> | failed to end background task span`)
+    }
+  }
+
   /**
    * Capture the current active span's context for linking, if one is recording.
    *
