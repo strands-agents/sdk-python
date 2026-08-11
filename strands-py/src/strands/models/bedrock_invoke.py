@@ -10,7 +10,8 @@ import asyncio
 import base64
 import json
 import logging
-from collections.abc import AsyncGenerator, Callable
+import time
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
 from typing import Any, Literal, TypeVar, cast
 
 import boto3
@@ -51,11 +52,20 @@ def _tool_use_delta(partial_json: str) -> StreamEvent:
     return {"contentBlockDelta": {"delta": {"toolUse": {"input": partial_json}}}}
 
 
-def _metadata(in_tok: int, out_tok: int, total: int | None = None) -> StreamEvent:
+def _unsupported_block(block: Mapping[str, Any]) -> TypeError:
+    """Build the error for a content block this provider cannot put on the wire."""
+    return TypeError(f"content_type=<{next(iter(block), None)}> | unsupported type")
+
+
+def _latency_ms(start_time: float) -> int:
+    return int((time.perf_counter() - start_time) * 1000)
+
+
+def _metadata(in_tok: int, out_tok: int, latency_ms: int, total: int | None = None) -> StreamEvent:
     return {
         "metadata": {
             "usage": {"inputTokens": in_tok, "outputTokens": out_tok, "totalTokens": total or in_tok + out_tok},
-            "metrics": {"latencyMs": 0},
+            "metrics": {"latencyMs": latency_ms},
         }
     }
 
@@ -69,7 +79,11 @@ class BedrockInvokeModel(BedrockModel):
     """
 
     class BedrockInvokeConfig(BaseModelConfig, total=False):
-        """Configuration options for ``BedrockInvokeModel``. ``model_family`` overrides id-based detection."""
+        """Configuration options for ``BedrockInvokeModel``. ``model_family`` overrides id-based detection.
+
+        ``params`` is splatted onto the formatted request last, so it both reaches wire fields this config
+        does not model (``thinking``, ``anthropic_beta``, ...) and overrides any field computed above it.
+        """
 
         model_id: str
         model_family: ModelFamily | None
@@ -79,6 +93,7 @@ class BedrockInvokeModel(BedrockModel):
         top_p: float | None
         top_k: int | None
         stop_sequences: list[str] | None
+        params: dict[str, Any] | None
 
     def __init__(
         self,
@@ -168,6 +183,11 @@ class BedrockInvokeModel(BedrockModel):
         system_prompt_content: list[SystemContentBlock] | None,
         tool_choice: ToolChoice | None,
     ) -> dict[str, Any]:
+        """Build an Anthropic Messages request body.
+
+        Raises:
+            TypeError: If a message contains a content block type this provider cannot format.
+        """
         request: dict[str, Any] = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": self.config.get("max_tokens", 4096),
@@ -205,6 +225,8 @@ class BedrockInvokeModel(BedrockModel):
                     if tr.get("status") == "error":
                         entry["is_error"] = True
                     content.append(entry)
+                else:
+                    raise _unsupported_block(block)
             if content:
                 request["messages"].append({"role": msg["role"], "content": content})
 
@@ -217,6 +239,7 @@ class BedrockInvokeModel(BedrockModel):
             request["tool_choice"] = tc
 
         self._apply_sampling_params(request, "stop_sequences", include_top_k=True)
+        request.update(self.config.get("params") or {})
         return request
 
     def _format_openai_request(
@@ -226,6 +249,12 @@ class BedrockInvokeModel(BedrockModel):
         system_prompt_content: list[SystemContentBlock] | None,
         tool_choice: ToolChoice | None,
     ) -> dict[str, Any]:
+        """Build an OpenAI Chat Completions request body.
+
+        Raises:
+            TypeError: If a message contains a content block type this provider cannot format. Images are
+                only formattable on the Anthropic path; use ``model_family="anthropic"`` for multimodal input.
+        """
         request: dict[str, Any] = {
             "model": self.config["model_id"],
             "messages": [],
@@ -250,7 +279,8 @@ class BedrockInvokeModel(BedrockModel):
                     tr = block["toolResult"]
                     chunks = [c["text"] if "text" in c else json.dumps(c.get("json", "")) for c in tr["content"]]
                     tool_results.append({"role": "tool", "tool_call_id": tr["toolUseId"], "content": "".join(chunks)})
-                # Images are dropped on the OpenAI path; use model_family="anthropic" for multimodal input.
+                else:
+                    raise _unsupported_block(block)
             if tool_calls or text_parts:
                 entry: dict[str, Any] = {"role": msg["role"]}
                 if text_parts:
@@ -273,6 +303,7 @@ class BedrockInvokeModel(BedrockModel):
                 request["tool_choice"] = tc
 
         self._apply_sampling_params(request, "stop")
+        request.update(self.config.get("params") or {})
         return request
 
     def _format_invoke_request(
@@ -299,7 +330,7 @@ class BedrockInvokeModel(BedrockModel):
     def _map_openai_stop(cls, reason: str | None) -> str:
         return cls._OPENAI_STOP.get(reason or "", "end_turn")
 
-    def _emit_anthropic_chunks(self, body: Any, callback: Callable[..., None]) -> None:
+    def _emit_anthropic_chunks(self, body: Any, callback: Callable[..., None], start_time: float) -> None:
         """Translate an Anthropic Messages stream into Strands ``StreamEvent``s."""
         callback({"messageStart": {"role": "assistant"}})
         stop_reason: str | None = None
@@ -344,15 +375,18 @@ class BedrockInvokeModel(BedrockModel):
         if active is not None:
             callback(_BLOCK_STOP)
         callback({"messageStop": {"stopReason": self._map_anthropic_stop(stop_reason)}})
-        callback(_metadata(in_toks, out_toks))
+        callback(_metadata(in_toks, out_toks, _latency_ms(start_time)))
 
-    def _emit_openai_chunks(self, body: Any, callback: Callable[..., None]) -> None:
+    def _emit_openai_chunks(self, body: Any, callback: Callable[..., None], start_time: float) -> None:
         """Translate an OpenAI Chat Completions stream into Strands ``StreamEvent``s.
 
-        Tool calls are keyed by ``index`` and emitted lazily once an id or function name appears.
+        Tool calls are keyed by ``index`` and emitted lazily once an id or function name appears. At most
+        one content block is open at a time, since the consumer keys its in-progress tool use off the most
+        recent ``contentBlockStart``; a block must therefore be closed before the next one opens.
         """
         callback({"messageStart": {"role": "assistant"}})
-        text_open = False
+        active: str | None = None
+        active_index: int | None = None
         started: set[int] = set()
         stop_reason: str | None = None
         usage: dict[str, Any] | None = None
@@ -362,37 +396,42 @@ class BedrockInvokeModel(BedrockModel):
             if choices := chunk.get("choices"):
                 delta = choices[0].get("delta") or {}
                 if delta.get("content"):
-                    if not text_open:
-                        callback(_TEXT_START)
-                        text_open = True
-                    callback(_text_delta(delta["content"]))
-                for tc in delta.get("tool_calls") or []:
-                    idx = tc.get("index", 0)
-                    fn = tc.get("function") or {}
-                    if idx not in started and (tc.get("id") or fn.get("name")):
-                        if text_open:
+                    if active != "text":
+                        if active is not None:
                             callback(_BLOCK_STOP)
-                            text_open = False
-                        callback(_tool_use_start(tc.get("id") or f"call_{idx}", fn.get("name", "")))
-                        started.add(idx)
-                    if (args := fn.get("arguments")) and idx in started:
-                        callback(_tool_use_delta(args))
+                        callback(_TEXT_START)
+                        active, active_index = "text", None
+                    callback(_text_delta(delta["content"]))
+                for tool_call in delta.get("tool_calls") or []:
+                    index = tool_call.get("index", 0)
+                    fn = tool_call.get("function") or {}
+                    if index not in started and (tool_call.get("id") or fn.get("name")):
+                        if active is not None:
+                            callback(_BLOCK_STOP)
+                        callback(_tool_use_start(tool_call.get("id") or f"call_{index}", fn.get("name", "")))
+                        started.add(index)
+                        active, active_index = "tool_use", index
+                    if args := fn.get("arguments"):
+                        if active == "tool_use" and index == active_index:
+                            callback(_tool_use_delta(args))
+                        else:
+                            logger.warning("tool_call_index=<%s> | dropping arguments for a closed tool call", index)
                 if finish := choices[0].get("finish_reason"):
                     stop_reason = finish
             if chunk.get("usage"):
                 usage = chunk["usage"]
 
-        if text_open:
-            callback(_BLOCK_STOP)
-        for _ in started:
+        if active is not None:
             callback(_BLOCK_STOP)
         callback({"messageStop": {"stopReason": self._map_openai_stop(stop_reason)}})
         if usage:
             inp = usage.get("prompt_tokens", 0)
             out = usage.get("completion_tokens", 0)
-            callback(_metadata(inp, out, usage.get("total_tokens", inp + out)))
+            callback(_metadata(inp, out, _latency_ms(start_time), usage.get("total_tokens", inp + out)))
 
-    def _emit_anthropic_non_streaming(self, body: dict[str, Any], callback: Callable[..., None]) -> None:
+    def _emit_anthropic_non_streaming(
+        self, body: dict[str, Any], callback: Callable[..., None], start_time: float
+    ) -> None:
         """Translate a non-streaming Anthropic Messages response into events."""
         callback({"messageStart": {"role": "assistant"}})
         for block in body.get("content") or []:
@@ -407,9 +446,11 @@ class BedrockInvokeModel(BedrockModel):
                 callback(_BLOCK_STOP)
         callback({"messageStop": {"stopReason": self._map_anthropic_stop(body.get("stop_reason"))}})
         if u := body.get("usage"):
-            callback(_metadata(u.get("input_tokens", 0), u.get("output_tokens", 0)))
+            callback(_metadata(u.get("input_tokens", 0), u.get("output_tokens", 0), _latency_ms(start_time)))
 
-    def _emit_openai_non_streaming(self, body: dict[str, Any], callback: Callable[..., None]) -> None:
+    def _emit_openai_non_streaming(
+        self, body: dict[str, Any], callback: Callable[..., None], start_time: float
+    ) -> None:
         """Translate a non-streaming OpenAI Chat Completions response into events."""
         callback({"messageStart": {"role": "assistant"}})
         choices = body.get("choices") or []
@@ -431,9 +472,52 @@ class BedrockInvokeModel(BedrockModel):
         if u := body.get("usage"):
             inp = u.get("prompt_tokens", 0)
             out = u.get("completion_tokens", 0)
-            callback(_metadata(inp, out, u.get("total_tokens", inp + out)))
+            callback(_metadata(inp, out, _latency_ms(start_time), u.get("total_tokens", inp + out)))
 
     # ----- public API
+
+    @override
+    def format_request(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Reject Converse-shaped request formatting, which this provider never sends.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt_content: Structured system prompt content blocks.
+            tool_choice: Selection strategy for tool invocation.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError(
+            "BedrockInvokeModel sends Anthropic Messages / OpenAI Chat Completions requests, not Bedrock Converse "
+            "requests; format_request() is not supported — use BedrockModel for Converse-shaped access."
+        )
+
+    @override
+    def convert_non_streaming_to_streaming(self, response: dict[str, Any], **kwargs: Any) -> Iterable[StreamEvent]:
+        """Reject Converse-shaped response translation, which this provider never receives.
+
+        Args:
+            response: The non-streaming response from the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Raises:
+            NotImplementedError: Always.
+        """
+        raise NotImplementedError(
+            "BedrockInvokeModel receives Anthropic Messages / OpenAI Chat Completions responses, not Bedrock Converse "
+            "responses; convert_non_streaming_to_streaming() is not supported — use BedrockModel for Converse-shaped "
+            "access."
+        )
 
     @override
     async def count_tokens(
@@ -518,16 +602,17 @@ class BedrockInvokeModel(BedrockModel):
                 "accept": "application/json",
             }
 
+            start_time = time.perf_counter()
             if self.config.get("streaming", True):
                 response = self.client.invoke_model_with_response_stream(**common_kwargs)
                 emit = self._emit_anthropic_chunks if family == "anthropic" else self._emit_openai_chunks
-                emit(response["body"], callback)
+                emit(response["body"], callback, start_time)
             else:
                 response = self.client.invoke_model(**common_kwargs)
                 body = json.loads(response["body"].read())
                 logger.debug("response_body=<%s>", body)
                 emit = self._emit_anthropic_non_streaming if family == "anthropic" else self._emit_openai_non_streaming
-                emit(body, callback)
+                emit(body, callback, start_time)
 
         except ClientError as error:
             self._raise_translated_client_error(error)
