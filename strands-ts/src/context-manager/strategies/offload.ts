@@ -190,9 +190,26 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     const targetRemoval = Math.max(1, Math.floor(eligible.length * 0.3))
     const toRemove = eligible.slice(0, targetRemoval)
 
+    const insertIndex = Math.max(1, messages.indexOf(toRemove[0]!))
     const removed = spliceWithPairs(messages, toRemove)
-    if (removed > 0) repairAlternation(messages)
-    return removed > 0
+    if (removed === 0) return false
+
+    const marker = this._makeRemovalMarker(removed)
+    if (marker) {
+      messages.splice(
+        Math.min(insertIndex, messages.length),
+        0,
+        new Message({ role: 'user', content: [new TextBlock(marker)] })
+      )
+    }
+
+    repairAlternation(messages)
+    return true
+  }
+
+  /** Override to insert a marker when messages are removed. Return null for no marker. */
+  protected _makeRemovalMarker(_count: number): string | null {
+    return null
   }
 
   /** Process eligible blocks in a message. */
@@ -300,6 +317,10 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 class DropStrategy extends BaseOffloadStrategy {
   readonly name = 'offload:drop'
 
+  protected override _makeRemovalMarker(count: number): string {
+    return `[Dropped: ${count} ${count === 1 ? 'message' : 'messages'}]`
+  }
+
   protected async _replaceBlock(
     block: TextBlock | ToolResultBlock,
     _tokens: number,
@@ -342,6 +363,47 @@ class TruncateStrategy extends BaseOffloadStrategy {
         `threshold (${conditions.threshold}) must be greater than previewTokens (${previewTokens}) to ensure truncation converges`
       )
     }
+  }
+
+  protected override _makeRemovalMarker(count: number): string {
+    return `[... ${count} ${count === 1 ? 'message' : 'messages'} elided ...]`
+  }
+
+  protected override async _applyPerMessage(context: ContextState): Promise<boolean> {
+    const { messages } = context
+    if (messages.length <= 1) return false
+
+    const eligible = await this._getEligibleMessages(context)
+    if (eligible.length === 0) return false
+
+    // Determine head/tail split based on config (default: favor tail — 30% head, 70% tail)
+    const previewMode = this._truncateConfig.preview ?? 'headTail'
+    const headShare = { head: 1, tail: 0, headTail: 0.3 }[previewMode]
+    const targetRemoval = Math.max(1, Math.floor(eligible.length * 0.3))
+    const keepCount = eligible.length - targetRemoval
+
+    const headKeep = Math.floor(keepCount * headShare)
+    const tailKeep = keepCount - headKeep
+
+    // Split into head (keep), middle (remove), tail (keep)
+    const headMessages = eligible.slice(0, headKeep)
+    const middleMessages = eligible.slice(headKeep, eligible.length - (tailKeep || 0))
+
+    if (middleMessages.length === 0) return false
+
+    const insertIndex = headKeep > 0 ? messages.indexOf(headMessages[headKeep - 1]!) + 1 : 1
+    const removed = spliceWithPairs(messages, middleMessages)
+    if (removed === 0) return false
+
+    const marker = this._makeRemovalMarker(removed)
+    messages.splice(
+      Math.min(insertIndex, messages.length),
+      0,
+      new Message({ role: 'user', content: [new TextBlock(marker)] })
+    )
+
+    repairAlternation(messages)
+    return true
   }
 
   protected async _replaceBlock(

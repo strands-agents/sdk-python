@@ -457,7 +457,8 @@ describe('Offload message-level with role alternation', () => {
     const result = await strategy.apply(context)
 
     expect(result).toBe(true)
-    expect(messages.length).toBeLessThan(4)
+    // Marker message replaces removed content, so length stays same or +1 (marker - removed + marker)
+    expect(messages.length).toBeLessThanOrEqual(4)
   })
 
   it('message-level starts with user message after operation', async () => {
@@ -548,5 +549,53 @@ describe('Offload with * target (fires on everything)', () => {
     const result = await strategy.apply(context)
 
     expect(result).toBe(false)
+  })
+})
+
+describe('Message-level drop vs truncate markers', () => {
+  it('drop leaves [Dropped: N messages] marker', async () => {
+    const messages = [
+      new Message({ role: 'user', content: [new TextBlock('q1')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a1')] }),
+      new Message({ role: 'user', content: [new TextBlock('q2')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a2')] }),
+      new Message({ role: 'user', content: [new TextBlock('q3')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a3')] }),
+      new Message({ role: 'user', content: [new TextBlock('q4')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a4')] }),
+    ]
+    const strategy = Offload.drop('*').when({ utilization: 0.5 })
+    const context = makeContext(messages, 0.9)
+
+    await strategy.apply(context)
+
+    const allText = messages.flatMap((m) =>
+      m.content.filter((b) => b instanceof TextBlock).map((b) => (b as TextBlock).text)
+    )
+    const markerText = allText.find((t) => t.includes('[Dropped:'))
+    expect(markerText).toBeDefined()
+    expect(markerText).toMatch(/\[Dropped: \d+ messages?\]/)
+  })
+
+  it('truncate leaves [... N messages elided ...] marker', async () => {
+    const messages = [
+      new Message({ role: 'user', content: [new TextBlock('q1')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a1')] }),
+      new Message({ role: 'user', content: [new TextBlock('q2')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a2')] }),
+      new Message({ role: 'user', content: [new TextBlock('q3')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a3')] }),
+      new Message({ role: 'user', content: [new TextBlock('q4')] }),
+      new Message({ role: 'assistant', content: [new TextBlock('a4')] }),
+    ]
+    const strategy = Offload.truncate('*').when({ utilization: 0.5 })
+    const context = makeContext(messages, 0.9)
+
+    await strategy.apply(context)
+
+    const markerMsg = messages.find((m) => m.content.some((b) => b instanceof TextBlock && b.text.includes('elided')))
+    expect(markerMsg).toBeDefined()
+    const markerText = (markerMsg!.content[0] as TextBlock).text
+    expect(markerText).toMatch(/\[\.\.\. \d+ messages? elided \.\.\.\]/)
   })
 })
