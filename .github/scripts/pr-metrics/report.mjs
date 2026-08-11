@@ -12,7 +12,7 @@ import { parseChangedLines, rangeTouched } from './diff.mjs'
  * @param {object} input
  * @param {string} input.diff - `git diff -U0` between merge base and head
  * @param {Array<{path: string, additions: number, deletions: number}>} input.files
- * @param {Array<{file, name, complexity, startLine, endLine}>} input.functions
+ * @param {Array<{file, name, complexity, startLine, endLine, baseComplexity?}>} input.functions
  */
 export function buildReport({ diff, files, functions }) {
   const countedLines = files
@@ -24,6 +24,12 @@ export function buildReport({ diff, files, functions }) {
   const touched = functions
     .filter((fn) => isAnalyzable(fn.file))
     .filter((fn) => rangeTouched(changedLines.get(fn.file), fn.startLine, fn.endLine))
+    // A function with a known base score counts only if the PR increased it:
+    // editing inside an already complex function without making it worse must
+    // not inherit the function's whole score. A function without a base score
+    // (new file, renamed file, or an analyzer without baseline support) counts
+    // in full as new code.
+    .filter((fn) => fn.baseComplexity == null || fn.complexity > fn.baseComplexity)
     .sort((a, b) => b.complexity - a.complexity)
 
   // No analyzable source touched (docs-only, tests-only) means no complexity
@@ -56,7 +62,7 @@ export function formatReport(report) {
   const { size, complexity } = report
   lines.push(`size:       ${size.label}  (${size.countedLines} lines counted, ${size.excludedLines} excluded)`)
   if (complexity.label === null) {
-    lines.push('complexity: n/a  (no SDK source functions touched)')
+    lines.push('complexity: n/a  (no touched SDK function adds complexity)')
   } else {
     lines.push(`complexity: ${complexity.label}  (max ${complexity.maxComplexity})`)
     for (const fn of complexity.offenders) {

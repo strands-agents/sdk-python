@@ -208,6 +208,69 @@ function analyzePython(root, tmp, pythonFiles) {
   return parseSarif(JSON.parse(fs.readFileSync(sarif, 'utf8')), root)
 }
 
+/**
+ * Score the merge-base versions of the changed Python files.
+ *
+ * Python complexity counts only functions whose score increased over the base
+ * (complexipy's snapshot-watermark semantics): editing inside an already
+ * complex function without making it worse should not inherit the function's
+ * whole score. Returns a map of `file::name` to base complexity. A file with
+ * no base version (new or renamed) yields no entries, so its functions count
+ * in full as new code. TypeScript has no analyzer support for this and keeps
+ * absolute scoring.
+ */
+function baselinePython(root, tmp, from, pythonFiles) {
+  const baseline = new Map()
+  if (pythonFiles.length === 0) return baseline
+
+  const baseDir = path.join(tmp, 'base')
+  const extracted = []
+  for (const file of pythonFiles) {
+    let content
+    try {
+      content = git(root, 'show', `${from}:${file}`)
+    } catch {
+      continue
+    }
+    const dest = path.join(baseDir, file)
+    fs.mkdirSync(path.dirname(dest), { recursive: true })
+    fs.writeFileSync(dest, content)
+    extracted.push(dest)
+  }
+  if (extracted.length === 0) return baseline
+
+  const sarif = path.join(tmp, 'python-base.sarif')
+  const ok = run(
+    'complexipy',
+    [
+      '--quiet',
+      '--ignore-complexity',
+      '--max-complexity-allowed',
+      '0',
+      '--output-format',
+      'sarif',
+      '--output',
+      sarif,
+      ...extracted,
+    ],
+    [1],
+    { cwd: baseDir }
+  )
+  if (!ok || !fs.existsSync(sarif)) {
+    // Without a baseline every touched function counts in full, which is the
+    // pre-existing behavior rather than a wrong label; warn and continue.
+    console.error('warning: complexipy failed on the base revision; python complexity falls back to absolute scoring')
+    return baseline
+  }
+  for (const fn of parseSarif(JSON.parse(fs.readFileSync(sarif, 'utf8')), baseDir)) {
+    const key = `${fn.file}::${fn.name}`
+    // Duplicate names in a file keep the highest base score, the conservative
+    // direction: a function is only counted when it clearly increased.
+    baseline.set(key, Math.max(baseline.get(key) ?? 0, fn.complexity))
+  }
+  return baseline
+}
+
 async function analyzeTypescript(root, tmp, tsFiles) {
   if (tsFiles.length === 0) return []
   const report = path.join(tmp, 'typescript.json')
@@ -262,10 +325,12 @@ async function main() {
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-complexity-'))
   try {
-    const functions = [
-      ...analyzePython(args.root, tmp, pythonFiles),
-      ...(await analyzeTypescript(args.root, tmp, tsFiles)),
-    ]
+    const baseline = baselinePython(args.root, tmp, from, pythonFiles)
+    const pythonFunctions = analyzePython(args.root, tmp, pythonFiles).map((fn) => ({
+      ...fn,
+      baseComplexity: baseline.get(`${fn.file}::${fn.name}`) ?? null,
+    }))
+    const functions = [...pythonFunctions, ...(await analyzeTypescript(args.root, tmp, tsFiles))]
     const report = buildReport({ diff, files, functions })
     if (args.json) fs.writeFileSync(args.json, JSON.stringify(report))
     console.log(formatReport(report))

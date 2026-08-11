@@ -116,6 +116,96 @@ test('complexity ignores untouched functions in a touched file', () => {
   assert.equal(report.complexity.label, 'complexity/low')
 })
 
+// Editing inside an already complex function without increasing its score must
+// not inherit the function's whole score: a 47-score function touched by two
+// trivial lines is the function's complexity, not the PR's.
+test('complexity ignores touched functions whose score did not increase', () => {
+  const diff = [
+    'diff --git a/strands-py/src/strands/m.py b/strands-py/src/strands/m.py',
+    '--- a/strands-py/src/strands/m.py',
+    '+++ b/strands-py/src/strands/m.py',
+    '@@ -200,0 +201,2 @@',
+    '+    duration = timer()',
+    '+    result.duration = duration',
+  ].join('\n')
+  const report = buildReport({
+    diff,
+    files: [{ path: 'strands-py/src/strands/m.py', additions: 2, deletions: 0 }],
+    functions: [
+      // touched, but at its watermark: excluded
+      {
+        file: 'strands-py/src/strands/m.py',
+        name: 'hotspot',
+        complexity: 47,
+        startLine: 110,
+        endLine: 327,
+        baseComplexity: 47,
+      },
+    ],
+  })
+  assert.equal(report.complexity.maxComplexity, null)
+  assert.equal(report.complexity.label, null)
+  assert.deepEqual(report.complexity.offenders, [])
+})
+
+test('complexity counts touched functions that increased, at their head score', () => {
+  const diff = [
+    'diff --git a/strands-py/src/strands/m.py b/strands-py/src/strands/m.py',
+    '--- a/strands-py/src/strands/m.py',
+    '+++ b/strands-py/src/strands/m.py',
+    '@@ -120,0 +121,3 @@',
+    '+    if extra:',
+    '+        if deeper:',
+    '+            pass',
+  ].join('\n')
+  const report = buildReport({
+    diff,
+    files: [{ path: 'strands-py/src/strands/m.py', additions: 3, deletions: 0 }],
+    functions: [
+      // grew from 27 to 30: counts, and at the absolute head score
+      {
+        file: 'strands-py/src/strands/m.py',
+        name: 'grew',
+        complexity: 30,
+        startLine: 110,
+        endLine: 327,
+        baseComplexity: 27,
+      },
+      // shrank from 12 to 9: excluded
+      {
+        file: 'strands-py/src/strands/m.py',
+        name: 'shrank',
+        complexity: 9,
+        startLine: 1,
+        endLine: 100,
+        baseComplexity: 12,
+      },
+    ],
+  })
+  assert.equal(report.complexity.maxComplexity, 30)
+  assert.equal(report.complexity.label, 'complexity/high')
+})
+
+test('complexity counts functions without a baseline in full', () => {
+  const diff = [
+    'diff --git a/strands-ts/src/agent/n.ts b/strands-ts/src/agent/n.ts',
+    '--- a/strands-ts/src/agent/n.ts',
+    '+++ b/strands-ts/src/agent/n.ts',
+    '@@ -5,0 +6,1 @@',
+    '+  const x = 1',
+  ].join('\n')
+  const report = buildReport({
+    diff,
+    files: [{ path: 'strands-ts/src/agent/n.ts', additions: 1, deletions: 0 }],
+    functions: [
+      // TypeScript carries no baseline (analyzer has no support); absolute score applies
+      { file: 'strands-ts/src/agent/n.ts', name: 'handler', complexity: 14, startLine: 1, endLine: 40 },
+    ],
+  })
+  assert.equal(report.complexity.maxComplexity, 14)
+  assert.equal(report.complexity.label, 'complexity/medium')
+})
+
 test('size excludes test churn from the bucket', () => {
   const report = buildReport({
     diff: '',

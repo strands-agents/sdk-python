@@ -212,10 +212,13 @@ bucket, so write as many as the change deserves.
 
 **`complexity/*`** reports the [cognitive complexity](https://www.sonarsource.com/docs/CognitiveComplexity.pdf)
 of the most complex function your diff touches — roughly, how hard the control
-flow is to hold in your head. It scores only the functions you actually changed,
-so an existing hotspot elsewhere in a file you edited will not count against
-you. `complexity/high` (above 25) is a hint that a function may be worth
-splitting, not a rule; sometimes a complex function is the honest solution.
+flow is to hold in your head. It scores only the functions you actually
+changed, and in Python a touched function counts only if your change
+*increased* its score, so pre-existing complexity is never billed to you.
+(TypeScript's analyzer has no baseline support yet, so a touched TypeScript
+function counts at its absolute score.) `complexity/high` (above 25) is a hint
+that a function may be worth splitting, not a rule; sometimes a complex
+function is the honest solution.
 
 A docs-only or test-only PR touches no SDK source and gets no complexity label.
 
