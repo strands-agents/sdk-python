@@ -6,7 +6,8 @@ the other with HTTP 400, and exposes no API that reports the routing, so
 onboards a model. For every model in the live catalog, this test asserts that the
 resolved path serves it, probing the other path only on failure to distinguish misrouted
 from unserved ids. Only HTTP 200 and 400 count as answers; any other status is retried
-and, if it persists, fails the test as undetermined rather than passing as "no drift".
+and, if it persists, fails the test as undetermined. The integration-test retry policy
+gives transient external-service failures one more sweep before they hold the gate.
 
 Failure means the table needs updating, not that the SDK is broken for existing models.
 """
@@ -22,6 +23,7 @@ from typing import NoReturn
 import pytest
 
 from strands.models._openai_bedrock import _resolve_mantle_base_path, resolve_bedrock_client_args
+from tests_integ.conftest import retry_on_flaky
 
 _REGION = "us-east-1"
 _BASE = f"https://bedrock-mantle.{_REGION}.api.aws"
@@ -125,6 +127,11 @@ def _serves(base_path: str, model_id: str, token: str) -> bool | None:
     return False if determined else None
 
 
+@retry_on_flaky(
+    "Mantle models can be transiently unavailable during a catalog sweep",
+    max_attempts=2,
+    retry_on=["Mantle never returned a definitive 200/400"],
+)
 @pytest.mark.timeout(600)
 def test_mantle_base_path_table_matches_live_catalog():
     """Every live Mantle model is routed to the base path it is actually served from.
@@ -187,17 +194,3 @@ def test_mantle_base_path_table_matches_live_catalog():
         "protocol (as anthropic.* does via /anthropic/v1/messages) and need adding to "
         f"_NOT_OPENAI_COMPATIBLE_PREFIXES: {unserved}"
     )
-
-
-@pytest.mark.timeout(240)
-@pytest.mark.parametrize(
-    "model_id",
-    ["xai.grok-4.3", "google.gemma-4-31b", "google.gemma-3-27b-it", "openai.gpt-oss-120b"],
-)
-def test_mantle_resolved_base_path_is_served(model_id):
-    """The resolved base path actually serves each regression-case model."""
-    token = _token_or_skip()
-    if model_id not in _list_models(token):
-        pytest.skip(f"{model_id} is not in the {_REGION} catalog")
-
-    assert _serves(_resolve_mantle_base_path(model_id), model_id, token) is True

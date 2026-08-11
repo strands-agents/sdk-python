@@ -11,7 +11,10 @@ const notebookInputSchema = z
       .enum(['create', 'list', 'read', 'write', 'clear'])
       .describe('The operation to perform: `create`, `list`, `read`, `write`, `clear`.'),
     name: z.string().optional().describe('Name of the notebook to operate on. Defaults to "default".'),
-    newStr: z.string().optional().describe('New string for replacement or insertion operations.'),
+    newStr: z
+      .string()
+      .optional()
+      .describe('Text to append, or the new string for replacement and insertion operations.'),
     readRange: z
       .array(z.number())
       .optional()
@@ -30,13 +33,13 @@ const notebookInputSchema = z
       if (data.mode === 'write') {
         const hasReplacement = data.oldStr !== undefined && data.newStr !== undefined
         const hasInsertion = data.insertLine !== undefined && data.newStr !== undefined
-        return hasReplacement || hasInsertion
+        const hasAppend = data.oldStr === undefined && data.insertLine === undefined && data.newStr !== undefined
+        return hasReplacement || hasInsertion || hasAppend
       }
       return true
     },
     {
-      message:
-        'Write operation requires either (oldStr + newStr) for replacement or (insertLine + newStr) for insertion',
+      message: 'Write operation requires newStr, optionally with oldStr for replacement or insertLine for insertion',
     }
   )
 
@@ -44,7 +47,7 @@ const notebookInputSchema = z
  * Notebook tool for managing persistent text notebooks.
  *
  * Notebooks are stored in agent state under the 'notebooks' key and persist within an agent session.
- * Supports create, list, read, write (replace/insert), and clear operations.
+ * Supports create, list, read, write (append/replace/insert), and clear operations.
  *
  * @example
  * ```typescript
@@ -63,7 +66,7 @@ const notebookInputSchema = z
 export const notebook = tool({
   name: 'notebook',
   description:
-    'Manages text notebooks for note-taking and documentation. Supports create, list, read, write (replace or insert), and clear operations. Notebooks persist within the agent invocation.',
+    'Manages text notebooks for note-taking and documentation. Supports create, list, read, write (append, replace, or insert), and clear operations. In write mode: newStr alone appends to the end; newStr with oldStr replaces matching text; newStr with insertLine inserts at a position. A write only succeeds on a notebook that already exists: use list to check, or create to start a new one (create replaces any existing content). Notebooks persist within the agent invocation.',
   inputSchema: notebookInputSchema,
   callback: (input, context) => {
     if (!context) {
@@ -183,7 +186,7 @@ function handleRead(notebooks: Record<string, string>, name: string, readRange?:
 }
 
 /**
- * Handles write operation (both string replacement and line insertion).
+ * Handles write operation (append, string replacement, or line insertion).
  */
 function handleWrite(
   notebooks: Record<string, string>,
@@ -194,6 +197,17 @@ function handleWrite(
 ): string {
   if (!(name in notebooks)) {
     throw new Error(`Notebook '${name}' not found`)
+  }
+
+  // Append mode
+  if (oldStr === undefined && insertLine === undefined && newStr !== undefined) {
+    if (newStr.length === 0) {
+      return `No changes made to notebook '${name}'`
+    }
+    const content = notebooks[name]!
+    const separator = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
+    notebooks[name] = `${content}${separator}${newStr}`
+    return `Appended text to notebook '${name}'`
   }
 
   // String replacement mode
