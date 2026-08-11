@@ -302,10 +302,11 @@ class ModelRouter(Plugin):
     async def _advance(self, event: AfterModelCallEvent, state: _RoutingState) -> bool:
         """Switch to the strategy's next candidate, returning whether the call should be retried.
 
-        Every answer other than a usable new candidate leaves the model's error to surface. A candidate
-        that will not resolve is unusable rather than unlucky, so it takes its slot in the round and the
-        strategy is asked once more. Each pass either switches or consumes a slot, so the round stays
-        bounded by the candidate count.
+        A usable new candidate is switched to. A strategy that raises, declines, or names a candidate the
+        round already used leaves the model's error to surface. A candidate that will not resolve is
+        unusable rather than unlucky, so it takes its slot in the round and the strategy is asked once
+        more. Each pass either switches or consumes a slot, so the round stays bounded by the candidate
+        count.
         """
         while True:
             routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)

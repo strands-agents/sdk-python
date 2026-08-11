@@ -258,16 +258,20 @@ def test_an_unusable_candidate_does_not_strand_healthy_ones_declared_after_it():
 
 
 @pytest.mark.asyncio
-async def test_an_unusable_candidate_ends_the_round_when_nothing_else_is_left():
-    router = ModelRouter(
-        models=[_model("first"), RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()))]
-    )
+async def test_an_unusable_candidate_burns_its_slot_so_the_round_stays_bounded():
+    # Two unusable candidates after the opening one. Each takes a slot and is recorded, so the round
+    # ends on the router's own accounting rather than on the strategy choosing to stop.
+    broken_first = RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()), name="broken-first")
+    broken_second = RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()), name="broken-second")
+    router = ModelRouter(models=[_model("first"), broken_first, broken_second])
     agent, state, _ = _hook_scaffold(router, model=router.default_model)
     event = _model_result({router._state_key(agent): state}, agent, error=ValueError("original model error"))
 
     await router._on_model_result(event)
 
-    assert event.retry is False
+    tru_outcome = (event.retry, len(state.switched_to), state.switches, len(state.attempts))
+    exp_outcome = (False, 3, 0, 3)
+    assert tru_outcome == exp_outcome
 
 
 @pytest.mark.parametrize(

@@ -91,6 +91,10 @@ class RoutingStrategy(Protocol):
         and wait for the next success to re-arm this one. All of this is predictable from
         ``context.attempts``.
 
+        One failure can bring more than one ask: naming a candidate the router cannot resolve to a model
+        records that attempt, uses up the candidate, and asks again, so a round ends once every candidate
+        is used rather than on the first answer it cannot apply.
+
         Failover is this method's job: the router applies what is returned and never substitutes a
         candidate of its own, so a strategy that ignores ``context.attempts`` gets no failover. Wrap or
         delegate to ``FallbackStrategy`` to get it.
