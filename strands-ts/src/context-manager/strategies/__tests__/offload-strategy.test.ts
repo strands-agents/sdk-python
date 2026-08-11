@@ -332,6 +332,12 @@ describe('Offload builder', () => {
     const strategy = Offload.truncate('*', { previewTokens: 200 }).when({ threshold: 1000 })
     expect(strategy.name).toBe('offload:truncate')
   })
+
+  it('throws on empty array target', () => {
+    expect(() => Offload.truncate([])).toThrow('Empty array target')
+    expect(() => Offload.drop([])).toThrow('Empty array target')
+    expect(() => Offload.summarize([])).toThrow('Empty array target')
+  })
 })
 
 describe('Offload message-level with role alternation', () => {

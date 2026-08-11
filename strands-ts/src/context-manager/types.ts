@@ -2,6 +2,9 @@
  * Configuration types for the ContextManager.
  */
 
+import type { LocalAgent } from '../types/agent.js'
+import type { Message } from '../types/messages.js'
+
 /**
  * A context reduction strategy that can offload, summarize, or otherwise
  * transform the message array to reduce token usage.
@@ -17,7 +20,7 @@ export interface ContextStrategy {
    * Called once when the ContextManager is attached to an agent.
    * Strategies can use this to register hooks (e.g., eager offloading on message arrival).
    */
-  init?(agent: import('../types/agent.js').LocalAgent): void
+  init?(agent: LocalAgent): void
 
   /**
    * Attempt to reduce context. Returns true if it made changes, false if it
@@ -31,10 +34,10 @@ export interface ContextStrategy {
  */
 export interface ContextState {
   /** The agent's current message array (the context window). Strategies mutate this in place. */
-  messages: import('../types/messages.js').Message[]
+  messages: Message[]
 
   /** The agent instance. */
-  agent: import('../types/agent.js').LocalAgent
+  agent: LocalAgent
 
   /** Current context utilization ratio (0-1+). Above 1.0 means overflow. */
   utilization: number

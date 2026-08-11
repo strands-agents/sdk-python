@@ -23,16 +23,7 @@ import { Offload } from './strategies/offload.js'
  * `contextManager` parameter on the Agent constructor. When present, it owns
  * overflow recovery — no separate ConversationManager is needed.
  *
- * @example
- * ```typescript
- * import { Agent } from '@strands-agents/sdk'
- * import { ContextManager } from '@strands-agents/sdk/context-manager'
- *
- * const agent = new Agent({
- *   model,
- *   contextManager: new ContextManager(),
- * })
- * ```
+ * @internal
  */
 export class ContextManager implements Plugin {
   readonly name = 'strands:context-manager'

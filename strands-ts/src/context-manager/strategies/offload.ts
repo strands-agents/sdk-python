@@ -6,31 +6,11 @@
  * and optional conditions into a strategy that implements `ContextStrategy`.
  *
  * Conditions determine granularity:
- * - `threshold` → per-block (act on individual blocks above this size)
- * - `utilization` without `threshold` → message-level batch (sliding window or batched summary)
- * - Both → per-block, gated by utilization
+ * - `threshold` only → per-block, eager (act on individual blocks above this size on message arrival)
+ * - `utilization` only → message-level batch (remove/summarize oldest messages when utilization exceeded)
+ * - Both → message-level, but only targets messages containing blocks over the threshold
  *
- * @example
- * ```typescript
- * import { ContextManager, Offload } from '@strands-agents/sdk/context-manager'
- *
- * const cm = new ContextManager({
- *   strategies: [
- *     // Per-block: truncate individual tool results over 2500 tokens, eagerly on arrival
- *     Offload.truncate("toolResults", { previewTokens: 750 })
- *       .when({ threshold: 1500 }),
- *
- *     // Per-block: truncate specific tools
- *     Offload.truncate(["tool::bash", "tool::read_file"]).when({ threshold: 2000 }),
- *
- *     // Message-level: one LLM call summarizing oldest messages on overflow
- *     Offload.summarize("*").when({ utilization: 1, preserveRecent: 4 }),
- *
- *     // Per-block: drop error tool results over 500 tokens
- *     Offload.drop("toolResultErrors").when({ threshold: 500 }),
- *   ],
- * })
- * ```
+ * @internal
  */
 
 import { logger } from '../../logging/logger.js'
@@ -68,9 +48,9 @@ export type OffloadTarget = '*' | 'toolResults' | 'toolResultErrors' | 'assistan
  * Conditions that determine when an offload strategy fires.
  *
  * Granularity is determined by which conditions are set:
- * - `threshold` only → per-block (act on each block above this size, eagerly)
- * - `utilization` without `threshold` → message-level (act on matched set as a whole)
- * - Both → per-block, gated by utilization
+ * - `threshold` only → per-block, eager (act on each block above this size on message arrival)
+ * - `utilization` only → message-level (remove/summarize oldest messages when utilization exceeded)
+ * - Both → message-level, targeting only messages with blocks over the threshold
  *
  * When multiple strategies target the same content, they don't conflict — strategies
  * run as an ordered pipeline, and once an earlier strategy shrinks a block, it falls
@@ -140,6 +120,10 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
   protected _baseAgent: LocalAgent | undefined
 
   constructor(target?: OffloadTarget, conditions?: OffloadConditions) {
+    if (Array.isArray(target) && target.length === 0) {
+      throw new Error('Empty array target matches nothing — use "*" to target all content, or specify tool names')
+    }
+
     this._target = target
     this._threshold = finiteOrUndefined(conditions?.threshold)
     this._utilization = finiteOrUndefined(conditions?.utilization)
@@ -152,7 +136,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
 
   /** Whether this strategy operates at message-level (batch) vs per-block. */
   protected get _isMessageLevel(): boolean {
-    return this._threshold === undefined && this._utilization !== undefined
+    return this._utilization !== undefined
   }
 
   init(agent: LocalAgent): void {
@@ -200,7 +184,7 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     const { messages } = context
     if (messages.length <= 1) return false
 
-    const eligible = this._getEligibleMessages(context)
+    const eligible = await this._getEligibleMessages(context)
     if (eligible.length === 0) return false
 
     const targetRemoval = Math.max(1, Math.floor(eligible.length * 0.3))
@@ -250,22 +234,57 @@ abstract class BaseOffloadStrategy implements ContextStrategy {
     return false
   }
 
-  /** Collect eligible messages for message-level operations, respecting preserveRecent and head-pin. */
-  protected _getEligibleMessages(context: ContextState): Message[] {
+  /** Collect eligible messages for message-level operations, respecting preserveRecent, head-pin, and threshold. */
+  protected async _getEligibleMessages(context: ContextState): Promise<Message[]> {
     const { messages } = context
+
+    let candidates: Message[]
     if (this._preserveRecent > 0) {
-      return getOldestMatches(
+      candidates = getOldestMatches(
         messages,
         this._target,
         this._preserveRecent,
         this._toolFilter,
         this._excludeFilter
       ).filter((message) => messages.indexOf(message) > 0)
+    } else {
+      candidates = messages.filter(
+        (message, index) =>
+          index > 0 && messageMatchesTarget(message, this._target, messages, this._toolFilter, this._excludeFilter)
+      )
     }
-    return messages.filter(
-      (message, index) =>
-        index > 0 && messageMatchesTarget(message, this._target, messages, this._toolFilter, this._excludeFilter)
-    )
+
+    if (this._threshold === undefined) return candidates
+
+    const eligible: Message[] = []
+    for (const message of candidates) {
+      if (await this._messageHasBlockOverThreshold(message, messages)) {
+        eligible.push(message)
+      }
+    }
+    return eligible
+  }
+
+  /** Check if a message contains any target-matching block over the threshold. */
+  private async _messageHasBlockOverThreshold(message: Message, messages: Message[]): Promise<boolean> {
+    for (const block of message.content) {
+      if (block instanceof TextBlock) {
+        if (!this._targetIncludesText(message)) continue
+      } else if (block instanceof ToolResultBlock) {
+        if (
+          this._target !== undefined &&
+          !matchesToolTarget(block, this._target, messages, this._toolFilter, this._excludeFilter)
+        )
+          continue
+      } else {
+        continue
+      }
+
+      const role = block instanceof ToolResultBlock ? 'user' : message.role
+      const tokens = await this._baseAgent!.model.countTokens([new Message({ role, content: [block] })])
+      if (tokens > this._threshold!) return true
+    }
+    return false
   }
 
   /** Transform a block. Return the replacement, or null to skip. */
@@ -380,13 +399,13 @@ class SummarizeStrategy extends BaseOffloadStrategy {
     return super.apply(context)
   }
 
-  protected async _applyPerMessage(context: ContextState): Promise<boolean> {
+  protected override async _applyPerMessage(context: ContextState): Promise<boolean> {
     if (!this._model) return false
 
     const { messages } = context
     if (messages.length <= 1) return false
 
-    const eligible = this._getEligibleMessages(context)
+    const eligible = await this._getEligibleMessages(context)
     if (eligible.length === 0) return false
 
     const summarizeCount = Math.max(1, Math.floor(eligible.length * 0.3))
