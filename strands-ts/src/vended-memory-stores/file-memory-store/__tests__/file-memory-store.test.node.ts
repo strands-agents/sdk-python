@@ -181,6 +181,13 @@ describe('FileMemoryStore', () => {
       expect(decoder.decode(bytes!)).toContain('Check CloudWatch logs first')
     })
 
+    it('lowercases a custom path so keys hold at most one spelling per case-fold', async () => {
+      const key = await store.add('Roadmap notes', { path: 'Projects/Roadmap.md', description: 'Roadmap' })
+      expect(key).toBe('projects/roadmap.md')
+      expect(await scoped.read('projects/roadmap.md')).not.toBeNull()
+      expect(await scoped.read('Projects/Roadmap.md')).toBeNull()
+    })
+
     it('appends .md extension to custom path if missing', async () => {
       await store.add('Deploy steps', { path: 'operations/deploy', description: 'Deploy process' })
       const bytes = await scoped.read('operations/deploy.md')
@@ -273,6 +280,38 @@ describe('FileMemoryStore', () => {
       const keys = await scoped.list('')
       expect(keys).toContain(key)
       expect(await scoped.read(key)).not.toBeNull()
+    })
+
+    // The consolidation changelog is a reserved audit key that add() must not clobber — the
+    // next consolidation run would append its audit entry onto the user's content.
+    it('rejects writing to the reserved consolidation-changelog.md path', async () => {
+      await expect(store.add('user content', { path: 'consolidation-changelog.md' })).rejects.toThrow(
+        /reserved.*consolidation-changelog\.md/i
+      )
+      // Verify nothing was written
+      expect(await scoped.read('consolidation-changelog.md')).toBeNull()
+    })
+
+    // Case-insensitive variant must also be rejected
+    it('rejects writing to a case-variant of the reserved changelog key', async () => {
+      await expect(store.add('user content', { path: 'Consolidation-Changelog.md' })).rejects.toThrow(
+        /reserved.*consolidation-changelog\.md/i
+      )
+    })
+
+    // PR #3429: dot-path segments bypass the changelog guard because normalizeKey keeps '.' but
+    // the OS collapses './' — the resolved key aliases the reserved changelog on disk.
+    // Guarantees: add() rejects any path containing single-dot segments before the changelog check.
+    it('rejects dot-segment paths that would alias the changelog via OS collapse', async () => {
+      await expect(store.add('forged', { path: './consolidation-changelog.md' })).rejects.toThrow(
+        /must not contain '\.' segments/
+      )
+      await expect(store.add('forged', { path: './/consolidation-changelog.md' })).rejects.toThrow(
+        /must not contain '\.' segments/
+      )
+      await expect(store.add('forged', { path: 'facts/./sneaky.md' })).rejects.toThrow(/must not contain '\.' segments/)
+      // Verify nothing was written
+      expect(await scoped.read('consolidation-changelog.md')).toBeNull()
     })
   })
 
@@ -374,6 +413,21 @@ describe('FileMemoryStore', () => {
           _relevanceScore: expect.any(Number),
         },
       })
+    })
+
+    // The consolidation changelog records the paths and reasons of merged content, so it scores on
+    // the same queries that match the knowledge it describes. It is an audit artifact, not knowledge.
+    it('excludes the consolidation changelog from results', async () => {
+      await scoped.write(
+        'consolidation-changelog.md',
+        encoder.encode(
+          '# Consolidation Changelog\n\n## 2026-01-01\n\nActions (1):\n  - update: dark mode theme prefs\n'
+        )
+      )
+      const results = await store.search('dark mode')
+      const paths = results.map((result) => result.metadata?.['path'] as string)
+      expect(paths).not.toContain('consolidation-changelog.md')
+      expect(paths).toContain('facts/dark-mode.md')
     })
 
     it('includes system/ files in results', async () => {

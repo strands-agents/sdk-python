@@ -284,3 +284,23 @@ export class CheckpointError extends Error {
     this.name = 'CheckpointError'
   }
 }
+
+/**
+ * Error thrown when a memory-store consolidation run fails.
+ *
+ * Covers the domain failures of the consolidation pipeline: an oversized store, a plan that
+ * exceeds its action limit or fails the guardrails, and partial execution where some deletes did
+ * not land. Consumers can catch this to distinguish a consolidation failure from other errors.
+ */
+export class ConsolidationError extends Error {
+  /**
+   * Creates a new ConsolidationError.
+   *
+   * @param message - Error message describing the consolidation failure
+   * @param options - Optional error options including cause for error chaining
+   */
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'ConsolidationError'
+  }
+}

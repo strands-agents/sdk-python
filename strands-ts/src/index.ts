@@ -39,6 +39,7 @@ export {
   ToolNotFoundError,
   DefaultNotConfiguredError,
   StorageError,
+  ConsolidationError,
 } from './errors.js'
 
 // Interrupt system
