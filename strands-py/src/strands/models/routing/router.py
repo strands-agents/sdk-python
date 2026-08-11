@@ -15,16 +15,20 @@ from declaration order. ``max_switches`` caps switches per invocation.
 What an answer does depends on whether a failed model call is pending. A candidate is resolved and
 applied. ``None`` declines: the opening choice then runs the router's default model, the first declared
 candidate resolved without consulting any strategy, and a later decline ends routing so the model's error
-surfaces. A strategy that raises, or a candidate that will not resolve to a model, propagates on the
-opening choice and ends routing after a failure, where the pending model error stays the one that surfaces. A
-failure round uses each candidate at most once, so naming one the round already used also ends routing; a
-success starts a new round on the candidate that succeeded, which counts as that round's first use just as
-the opening choice does.
+surfaces. A strategy that raises propagates on the opening choice and ends routing after a failure, where
+the pending model error stays the one that surfaces. A candidate that will not resolve to a model
+propagates on the opening choice; after a failure it takes its slot in the round and the strategy is asked
+again, so one unusable candidate does not strand the healthy ones declared after it.
+
+A failure round uses each candidate at most once, whether it was switched to or found unusable, so naming
+one the round already used ends routing; a success starts a new round on the candidate that succeeded,
+which counts as that round's first use just as the opening choice does.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, and performs no internal failover, so when a nested pick fails the outer router moves off the
 whole nested candidate rather than advancing within it. A nested strategy that declines serves that
-router's default model; one that raises propagates.
+router's default model; one that raises makes that candidate unusable, which propagates on the opening
+choice and costs it its slot in the round after a failure.
 
 Known limitation: a model that fails after streaming part of a response has already emitted those
 events, so a streaming consumer sees that partial output followed by the replacement's full response.
@@ -298,56 +302,64 @@ class ModelRouter(Plugin):
     async def _advance(self, event: AfterModelCallEvent, state: _RoutingState) -> bool:
         """Switch to the strategy's next candidate, returning whether the call should be retried.
 
-        One ask. Every answer other than a usable new candidate leaves the model's error to surface.
+        Every answer other than a usable new candidate leaves the model's error to surface. A candidate
+        that will not resolve is unusable rather than unlucky, so it takes its slot in the round and the
+        strategy is asked once more. Each pass either switches or consumes a slot, so the round stays
+        bounded by the candidate count.
         """
-        routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
-        try:
-            # Validated inside the try: a model error is already pending, so a broken answer must not
-            # replace it. The opening choice has nothing pending and lets the contract error surface.
-            candidate = self._validated(await self._strategy.select(routing_context), routing_context)
-        except Exception as error:
-            logger.warning(
-                "strategy=<%s>, error=<%s> | routing failed, leaving the error to surface",
-                self._strategy_name,
-                error,
-            )
-            return False
-        if candidate is None:
-            return False
+        while True:
+            routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
+            try:
+                # Validated inside the try: a model error is already pending, so a broken answer must
+                # not replace it. The opening choice has nothing pending and lets the error surface.
+                candidate = self._validated(await self._strategy.select(routing_context), routing_context)
+            except Exception as error:
+                logger.warning(
+                    "strategy=<%s>, error=<%s> | routing failed, leaving the error to surface",
+                    self._strategy_name,
+                    error,
+                )
+                return False
+            if candidate is None:
+                return False
 
-        # A round uses each candidate at most once, so a strategy that cycles cannot keep resetting
-        # the retry budget.
-        if id(candidate) in state.switched_to:
+            # A round uses each candidate at most once, so a strategy that cycles cannot keep resetting
+            # the retry budget.
+            if id(candidate) in state.switched_to:
+                logger.info(
+                    "candidate=<%s> | already used this round, leaving the error to surface",
+                    _candidate_label(candidate),
+                )
+                return False
+
+            try:
+                model = await self._resolve(candidate, routing_context)
+            except Exception as error:
+                logger.warning(
+                    "candidate=<%s>, error=<%s> | candidate could not be resolved, asking again",
+                    _candidate_label(candidate),
+                    error,
+                )
+                # Recorded so a strategy reading attempts stops offering it, and slot-burned so
+                # termination does not depend on the strategy doing that.
+                state.attempts.append(RoutingAttempt(candidate=candidate, exception=error))
+                state.switched_to.add(id(candidate))
+                continue
+
             logger.info(
-                "candidate=<%s> | already used this round, leaving the error to surface",
+                "from_candidate=<%s>, to_candidate=<%s>, error=<%s> | model call failed, switching candidate",
+                _candidate_label(state.candidate),
                 _candidate_label(candidate),
+                type(event.exception).__name__,
             )
-            return False
-
-        try:
-            model = await self._resolve(candidate, routing_context)
-        except Exception as error:
-            logger.warning(
-                "candidate=<%s>, error=<%s> | candidate could not be resolved, leaving the error to surface",
-                _candidate_label(candidate),
-                error,
-            )
-            return False
-
-        logger.info(
-            "from_candidate=<%s>, to_candidate=<%s>, error=<%s> | model call failed, switching candidate",
-            _candidate_label(state.candidate),
-            _candidate_label(candidate),
-            type(event.exception).__name__,
-        )
-        state.candidate = candidate
-        state.model = model
-        state.switched_to.add(id(candidate))
-        state.switches += 1
-        # ModelRetryStrategy exposes no public seam for a budget reset yet, so a rename in _retry.py
-        # breaks this.
-        event.agent._retry_strategy._reset_retry_state()
-        return True
+            state.candidate = candidate
+            state.model = model
+            state.switched_to.add(id(candidate))
+            state.switches += 1
+            # ModelRetryStrategy exposes no public seam for a budget reset yet, so a rename in
+            # _retry.py breaks this.
+            event.agent._retry_strategy._reset_retry_state()
+            return True
 
     # ---- Per-invocation state and context ----
 

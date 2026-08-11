@@ -21,13 +21,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class RoutingAttempt:
-    """A model call this invocation already made, and how it ended.
+    """A candidate this invocation already used, and how the attempt ended.
 
     ``candidate`` is the instance from ``RoutingContext.candidates``, not a copy. ``exception`` is
     ``None`` when the call succeeded, and otherwise is the model's error as ``AfterModelCallEvent``
-    reports it. Every attempt reached a model, so a candidate the router could not resolve to a model
-    is absent rather than recorded as a failure. Attempts are in chronological order, so a strategy can
-    tell a first failure from a repeated one and treat a candidate that recovered as healthy.
+    reports it, or the error raised while resolving a candidate that never produced a model. Attempts
+    are in chronological order, so a strategy can tell a first failure from a repeated one and treat a
+    candidate that recovered as healthy.
     """
 
     candidate: RoutingCandidate

@@ -223,6 +223,53 @@ def test_construction_requires_only_select_so_extra_members_are_allowed():
     assert isinstance(_ExtraMembers(), RoutingStrategy)
 
 
+def test_an_unusable_candidate_does_not_strand_healthy_ones_declared_after_it():
+    # Default strategy, three candidates, resolve failure on the middle one. The broken candidate has no
+    # recorded model failure, so nothing else would stop the strategy naming it first on every round.
+    class _Buggy:
+        """An ordinary bug in a nested strategy: it raises rather than declining."""
+
+        def __init__(self):
+            self.asks = 0
+
+        async def select(self, context, **kwargs):
+            self.asks += 1
+            raise KeyError("some_key")
+
+    primary = _FailingModel(ValueError("primary down"))
+    backup = _CountingModel("backup")
+    nested_strategy = _Buggy()
+    nested = ModelRouter(models=[_model("nested-inner")], strategy=nested_strategy)
+    router = ModelRouter(
+        models=[
+            RoutingCandidate(primary, name="primary"),
+            RoutingCandidate(nested, name="broken"),
+            RoutingCandidate(backup, name="backup"),
+        ]
+    )
+    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
+
+    results = [agent("hello").message["content"][0]["text"] for _ in range(2)]
+
+    assert results == ["backup", "backup"]
+    # One resolve attempt per invocation: the round burns the broken candidate's slot rather than
+    # offering it again.
+    assert (backup.calls, nested_strategy.asks) == (2, 2)
+
+
+@pytest.mark.asyncio
+async def test_an_unusable_candidate_ends_the_round_when_nothing_else_is_left():
+    router = ModelRouter(
+        models=[_model("first"), RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()))]
+    )
+    agent, state, _ = _hook_scaffold(router, model=router.default_model)
+    event = _model_result({router._state_key(agent): state}, agent, error=ValueError("original model error"))
+
+    await router._on_model_result(event)
+
+    assert event.retry is False
+
+
 @pytest.mark.parametrize(
     "answer",
     [lambda context: "not-a-candidate", lambda context: RoutingCandidate(_model())],
