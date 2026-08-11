@@ -505,6 +505,36 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
+   * Applies `cacheConfig.ttl` to a caller-placed system cache point that carries no TTL of its own.
+   *
+   * Bedrock processes cache points in the order toolConfig, system, messages and rejects a TTL that
+   * exceeds an earlier checkpoint's. A shared `ttl` reaches tools and messages, so a system point left
+   * at the Bedrock default in between makes the whole request invalid. A TTL the caller wrote is left
+   * as written - two conflicting TTLs are theirs to reconcile.
+   *
+   * @param system - Formatted system content blocks, modified in place.
+   */
+  private _applySystemCacheTTL(system: SystemContentBlock[]): void {
+    if (!this._shouldEnableCaching()) {
+      return
+    }
+
+    const ttl = this._config.cacheConfig?.ttl
+    if (!ttl) {
+      return
+    }
+
+    for (const block of system) {
+      // An empty TTL is not a TTL, so it falls through to the configured one rather than reaching the
+      // wire for the enum to reject.
+      if ('cachePoint' in block && block.cachePoint && !block.cachePoint.ttl) {
+        // Bedrock validates TTL values server-side, so accept any string here.
+        block.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+      }
+    }
+  }
+
+  /**
    * Updates the model configuration.
    * Merges the provided configuration with existing settings.
    *
@@ -688,6 +718,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         request.system = [{ text: options.systemPrompt }]
       } else if (options.systemPrompt.length > 0) {
         request.system = options.systemPrompt.map((block) => this._formatContentBlock(block) as SystemContentBlock)
+        this._applySystemCacheTTL(request.system)
       }
     }
 

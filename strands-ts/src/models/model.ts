@@ -78,7 +78,14 @@ export interface CacheConfig {
    */
   strategy?: 'auto' | 'anthropic'
 
-  /** TTL for every cache point, overridden by a per-section TTL. Provider default when omitted. */
+  /**
+   * TTL for every cache point, overridden by a per-section TTL. Provider default when omitted.
+   *
+   * Bedrock requires checkpoint TTLs to be non-increasing across `toolConfig`, system and messages, and
+   * rejects a longer TTL that follows a shorter one. This TTL therefore also fills in for a cache point
+   * placed by hand in the system prompt that carries none of its own, so one value keeps every
+   * checkpoint in step. A TTL written on such a point is left as written.
+   */
   ttl?: CacheTTL
 
   /**

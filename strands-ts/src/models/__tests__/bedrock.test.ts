@@ -2181,6 +2181,17 @@ describe('BedrockModel', () => {
         ]
       }
 
+      /** The cache points in `system`, in order. */
+      const systemCachePoints = (): unknown[] =>
+        (mockConverseStreamCommand.mock.lastCall?.[0]?.system ?? [])
+          .filter((block) => 'cachePoint' in block)
+          .map((block) => ('cachePoint' in block ? block.cachePoint : undefined))
+
+      const systemPromptWith = (ttl?: string): SystemContentBlock[] => [
+        new TextBlock('durable system prompt'),
+        new CachePointBlock({ cacheType: 'default', ...(ttl === undefined ? {} : { ttl }) }),
+      ]
+
       it('caches every section when no strategy is given', async () => {
         // strategy defaults to 'auto', so a config that omits it still enables caching.
         const provider = new BedrockModel({ cacheConfig: {} })
@@ -2257,6 +2268,65 @@ describe('BedrockModel', () => {
           { type: 'default', ttl: '1h' },
           { type: 'default', ttl: '1h' },
         ])
+      })
+
+      it('applies the shared ttl to a caller-placed system cache point', async () => {
+        // Bedrock rejects a TTL that exceeds an earlier checkpoint's, so a shared ttl that reached tools
+        // and messages but not the system point between them would emit an invalid request.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        const [tools, messagePoint] = cachePoints()
+        expect([tools, systemCachePoints(), messagePoint]).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          [{ type: 'default', ttl: '1h' }],
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('falls through an empty system cache point ttl to the shared ttl', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('') }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('leaves a system cache point ttl the caller wrote as written', async () => {
+        // Two conflicting TTLs are the caller's to reconcile; only an absent one is filled in.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith('5m') }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '5m' }])
+      })
+
+      it('leaves a system cache point alone when no ttl is configured', async () => {
+        const provider = new BedrockModel({ cacheConfig: {} })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('leaves a system cache point alone when the model does not support caching', async () => {
+        // A config that never reaches the wire must not reach the system point either.
+        const provider = new BedrockModel({ modelId: 'meta.llama3-70b-instruct-v1:0', cacheConfig: { ttl: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('does not mutate the system prompt blocks the caller owns', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+        const systemPrompt = systemPromptWith()
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+        expect((systemPrompt[1] as CachePointBlock).ttl).toBeUndefined()
       })
 
       it('resolves the ttl for a caller-placed cache point too', async () => {

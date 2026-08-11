@@ -291,7 +291,7 @@ class BedrockModel(Model):
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
-            "system": system_blocks,
+            "system": self._apply_system_cache_ttl(system_blocks),
             **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
             **(
                 {
@@ -386,6 +386,39 @@ class BedrockModel(Model):
             return {}
 
         return {"additionalModelRequestFields": additional_fields}
+
+    def _apply_system_cache_ttl(self, system_blocks: list[SystemContentBlock]) -> list[SystemContentBlock]:
+        """Apply ``cache_config.ttl`` to a caller-placed system cache point that carries no TTL of its own.
+
+        Bedrock processes cache points in the order toolConfig, system, messages and rejects a TTL that
+        exceeds an earlier checkpoint's. A configured ``ttl`` reaches the message cache point, so a system
+        point left at the Bedrock default in between makes the whole request invalid. A TTL the caller
+        wrote is left as written - two conflicting TTLs are theirs to reconcile.
+
+        Args:
+            system_blocks: System content blocks for the request.
+
+        Returns:
+            The blocks, carrying the configured TTL where a cache point had none. A cache point is
+            replaced rather than mutated, since the caller owns the block.
+        """
+        cache_config = self.config.get("cache_config")
+        if not cache_config or not cache_config.ttl:
+            return system_blocks
+
+        strategy: str | None = cache_config.strategy
+        if strategy == "auto":
+            strategy = self._cache_strategy
+        if strategy != "anthropic":
+            return system_blocks
+
+        return [
+            # An empty TTL is not a TTL, so it falls through to the configured one.
+            SystemContentBlock(**{**block, "cachePoint": {**block["cachePoint"], "ttl": cache_config.ttl}})
+            if "cachePoint" in block and not block["cachePoint"].get("ttl")
+            else block
+            for block in system_blocks
+        ]
 
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
