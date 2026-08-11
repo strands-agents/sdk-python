@@ -165,7 +165,7 @@ describe('catalog content collection', () => {
     expect(anthropic!.data.badges).toEqual(['native'])
     expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
     const native = entries.filter((e) => e.data.badges.includes('native'))
-    expect(native.length).toBe(24)
+    expect(native.length).toBe(28)
     // Native entries point at the SDK monorepo and always have on-site docs;
     // verified is a community-vetting signal, so the two never stack.
     for (const e of native) {

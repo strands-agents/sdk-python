@@ -1,5 +1,5 @@
-name: Vended Tools
-description: 'Pre-built tools for common agent tasks: file operations, shell commands, HTTP requests, and persistent notes.'
+name: Sleep
+description: Pause agent execution for a bounded, cancellable duration.
 integrationType: tool
 languages:
   python: {}
