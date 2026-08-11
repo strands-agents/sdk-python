@@ -69,6 +69,7 @@ from ..plugins.registry import _PluginRegistry
 from ..sandbox import Sandbox
 from ..sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from ..session.session_manager import SessionManager
+from ..storage import Storage
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
 from ..tools._caller import _ToolCaller
@@ -206,6 +207,7 @@ class Agent(AgentBase):
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
         checkpointing: bool = False,
         sandbox: Sandbox | None = None,
+        storage: Storage | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -257,9 +259,10 @@ class Agent(AgentBase):
                 using benchmark-validated defaults. If ``conversation_manager`` is also provided,
                 the user's conversation manager is used instead. Defaults to None (no context management).
 
-                Note: The offloader uses in-memory storage that does not persist across process
-                restarts. For agents using ``session_manager``, provide an explicit
-                ``ContextOffloader`` with durable storage via the ``plugins`` parameter.
+                Note: The offloader uses in-memory storage by default. When an agent-level
+                ``storage`` is provided, the offloader uses that instead. Alternatively,
+                provide an explicit ``ContextOffloader`` with its own storage via the
+                ``plugins`` parameter.
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
@@ -306,6 +309,12 @@ class Agent(AgentBase):
                 ``context.agent.sandbox``. Defaults to ``None``, which falls back to a
                 :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host
                 with no isolation.
+            storage: Default storage backend for agent subsystems.
+                When provided, subsystems that do not have their own explicit storage
+                (e.g., ContextOffloader) resolve from this value. Each subsystem
+                auto-namespaces under its own prefix (e.g., ``offloader/``) to avoid key
+                collisions. Storage specified directly on a subsystem always takes
+                precedence over this agent-level default. Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -316,6 +325,7 @@ class Agent(AgentBase):
             raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
         # Resolve once: configured sandbox, or this agent's own host default (not shared across agents).
         self._sandbox: Sandbox = sandbox or NotASandboxLocalEnvironment()
+        self._storage: Storage | None = storage
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
@@ -546,7 +556,7 @@ class Agent(AgentBase):
         if context_manager is None:
             return None, None
 
-        from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+        from ..vended_plugins.context_offloader import ContextOffloader
         from .conversation_manager import SummarizingConversationManager
 
         if context_manager == "auto":
@@ -573,7 +583,6 @@ class Agent(AgentBase):
         if not has_offloader:
             resolved_plugins.append(
                 ContextOffloader(
-                    storage=InMemoryStorage(),
                     max_result_tokens=offloader_max_result_tokens,
                     preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
                 )
@@ -645,6 +654,11 @@ class Agent(AgentBase):
         configured.
         """
         return self._sandbox
+
+    @property
+    def storage(self) -> Storage | None:
+        """Default storage backend for agent subsystems."""
+        return self._storage
 
     @property
     def system_prompt(self) -> str | None:
