@@ -245,6 +245,11 @@ export class SlidingWindowConversationManager extends ConversationManager {
             `window_size=<${this._windowSize}>, trim_index=<${toolPairTrimIndex}>, user_anchor_index=<${fallbackUserIndex}> | no plain user trim point, falling back to complete tool pair`
           )
           trimIndex = toolPairTrimIndex
+        } else {
+          logger.debug(
+            `window_size=<${this._windowSize}>, trim_index=<${toolPairTrimIndex}> | complete tool pair found but no valid user anchor, declining fallback`
+          )
+          return false
         }
       }
     }
@@ -480,6 +485,11 @@ export class SlidingWindowConversationManager extends ConversationManager {
    * Pinned messages must already form a user-first alternating prefix that ends
    * with a user message. Without a pinned prefix, the most recent plain user
    * message before the tool pair is retained as the conversation anchor.
+   *
+   * This deliberately differs from Python's `_find_tool_pair_trim_point`, which
+   * trims directly to the assistant tool-use boundary. TypeScript retains a
+   * validated user anchor to preserve a user-first, legally alternating history
+   * for providers that require it (see #2085 and #2087).
    *
    * @param messages - The conversation message history.
    * @param toolPairIndex - The assistant message index that starts the fallback pair.

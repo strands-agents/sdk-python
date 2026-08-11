@@ -14,6 +14,7 @@ import {
 } from '../../index.js'
 import { AfterInvocationEvent, AfterModelCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { createMockAgent, invokeTrackedHook } from '../../__fixtures__/agent-helpers.js'
+import { logger } from '../../logging/logger.js'
 import type { Agent } from '../../agent/agent.js'
 import type { BaseModelConfig } from '../../models/model.js'
 
@@ -1157,6 +1158,8 @@ describe('SlidingWindowConversationManager', () => {
         createToolResultMessage('id-2', 'Recent result'),
       ]
       const before = [...messages]
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
 
       const result = manager.reduce({
         agent: createMockAgent({ messages }),
@@ -1176,6 +1179,120 @@ describe('SlidingWindowConversationManager', () => {
         'assistant',
         'user',
       ])
+      expect(debugSpy).toHaveBeenCalledWith(
+        'window_size=<2>, trim_index=<5> | complete tool pair found but no valid user anchor, declining fallback'
+      )
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('no valid trim point found'))
+      debugSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    it('declines fallback when non-contiguous pinned messages do not alternate', async () => {
+      const { pinMessage } = await import('../compression/pin-message.js')
+      const manager = new SlidingWindowConversationManager({ windowSize: 2, shouldTruncateResults: false })
+      const messages = [
+        new Message({ role: 'user', content: [new TextBlock('Pinned user one')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('Unpinned response')] }),
+        new Message({ role: 'user', content: [new TextBlock('Pinned user two')] }),
+        new Message({ role: 'assistant', content: [new TextBlock('Old response')] }),
+        new Message({ role: 'user', content: [new TextBlock('Old request')] }),
+        createToolUseMessage('lookup', 'id-1'),
+        createToolResultMessage('id-1', 'Old result'),
+        createToolUseMessage('lookup', 'id-2'),
+        createToolResultMessage('id-2', 'Recent result'),
+      ]
+      pinMessage(messages, 0)
+      pinMessage(messages, 2)
+      const before = [...messages]
+
+      const result = manager.reduce({
+        agent: createMockAgent({ messages }),
+        model: {} as Model,
+        error: new ContextWindowOverflowError('Context overflow'),
+      })
+
+      // Removing the unpinned assistant at index 1 would make the pinned users adjacent.
+      expect(result).toBe(false)
+      expect(messages).toEqual(before)
+    })
+
+    it('declines fallback when the first pinned message is an orphaned tool result', async () => {
+      const { pinMessage } = await import('../compression/pin-message.js')
+      const manager = new SlidingWindowConversationManager({ windowSize: 2, shouldTruncateResults: false })
+      const messages = [
+        createToolResultMessage('orphan', 'Orphan result'),
+        new Message({ role: 'assistant', content: [new TextBlock('Old response')] }),
+        new Message({ role: 'user', content: [new TextBlock('Old request')] }),
+        createToolUseMessage('lookup', 'id-1'),
+        createToolResultMessage('id-1', 'Old result'),
+        createToolUseMessage('lookup', 'id-2'),
+        createToolResultMessage('id-2', 'Recent result'),
+      ]
+      pinMessage(messages, 0)
+      const before = [...messages]
+
+      const result = manager.reduce({
+        agent: createMockAgent({ messages }),
+        model: {} as Model,
+        error: new ContextWindowOverflowError('Context overflow'),
+      })
+
+      // An orphaned tool result cannot be the retained user-first anchor.
+      expect(result).toBe(false)
+      expect(messages).toEqual(before)
+    })
+
+    it('declines fallback when the last pinned message carries a bare tool use block', () => {
+      const manager = new SlidingWindowConversationManager({
+        windowSize: 2,
+        shouldTruncateResults: false,
+        pinFirst: 1,
+      })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new ToolUseBlock({ name: 'weird', toolUseId: 'weird-1', input: {} })],
+        }),
+        new Message({ role: 'assistant', content: [new TextBlock('Old response')] }),
+        new Message({ role: 'user', content: [new TextBlock('Old request')] }),
+        createToolUseMessage('lookup', 'id-1'),
+        createToolResultMessage('id-1', 'Old result'),
+        createToolUseMessage('lookup', 'id-2'),
+        createToolResultMessage('id-2', 'Recent result'),
+      ]
+      const before = [...messages]
+
+      const result = manager.reduce({
+        agent: createMockAgent({ messages }),
+        model: {} as Model,
+        error: new ContextWindowOverflowError('Context overflow'),
+      })
+
+      // Role alone is insufficient: the pinned user contains an unpaired tool use.
+      expect(result).toBe(false)
+      expect(messages).toEqual(before)
+    })
+
+    it('declines fallback when no plain user message exists before the tool pair', () => {
+      const manager = new SlidingWindowConversationManager({ windowSize: 2, shouldTruncateResults: false })
+      const messages = [
+        createToolResultMessage('orphan-0', 'Orphan result'),
+        createToolUseMessage('lookup', 'id-1'),
+        createToolResultMessage('id-1', 'Result 1'),
+        createToolUseMessage('lookup', 'id-2'),
+        createToolResultMessage('id-2', 'Result 2'),
+      ]
+      const before = [...messages]
+
+      const result = manager.reduce({
+        agent: createMockAgent({ messages }),
+        model: {} as Model,
+        error: new ContextWindowOverflowError('Context overflow'),
+      })
+
+      // startIndex=3 selects id-2, but all earlier user messages carry tool content.
+      expect(result).toBe(false)
+      expect(messages).toEqual(before)
     })
 
     it('allows trim when oldest message is text or other non-tool content', async () => {
