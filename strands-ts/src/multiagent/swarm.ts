@@ -45,6 +45,10 @@ import { normalizeError } from '../errors.js'
 export interface SwarmConfig {
   /** Max total agent executions (including start). Defaults to `Infinity` (no limit). */
   maxSteps?: number
+  /** Detection window over completed nodes. Defaults to 0; enable with `repetitiveHandoffMinUniqueAgents`. */
+  repetitiveHandoffDetectionWindow?: number
+  /** Required unique nodes in the detection window. Defaults to 0; enable with `repetitiveHandoffDetectionWindow`. */
+  repetitiveHandoffMinUniqueAgents?: number
   /**
    * Wall-clock ceiling for the entire swarm invocation, in milliseconds. Defaults to `Infinity`
    * (no limit). Composed with each node's cancel signal, so a node that exceeds this bound
@@ -113,6 +117,7 @@ export interface SwarmOptions extends SwarmConfig {
  * - A single `maxSteps` limit replaces Python's separate `max_handoffs`/`max_iterations`.
  * - Agent descriptions are embedded in the structured output schema for routing decisions.
  * - Exceeding `maxSteps` throws an exception. Python returns a FAILED result.
+ * - Repetitive handoff detection follows Python's soft-stop behavior and returns a FAILED result with an error.
  *
  * @example
  * ```typescript
@@ -150,16 +155,19 @@ export class Swarm implements MultiAgent {
 
     this.config = {
       maxSteps: config.maxSteps ?? Infinity,
+      repetitiveHandoffDetectionWindow: config.repetitiveHandoffDetectionWindow ?? 0,
+      repetitiveHandoffMinUniqueAgents: config.repetitiveHandoffMinUniqueAgents ?? 0,
       timeout: config.timeout ?? Infinity,
       nodeTimeout: config.nodeTimeout ?? Infinity,
     }
+
+    this.nodes = this._resolveNodes(nodes)
     this._validateConfig()
 
     if (this.config.maxSteps === Infinity && this.config.timeout === Infinity) {
       warnOnce(logger, 'swarm has no maxSteps or timeout set; execution is unbounded')
     }
 
-    this.nodes = this._resolveNodes(nodes)
     this.start = this._resolveStart(start)
 
     this.sessionManager = sessionManager
@@ -317,6 +325,8 @@ export class Swarm implements MultiAgent {
 
     let caughtError: Error | undefined
     let result: MultiAgentResult | undefined
+    let repetitiveHandoffReason: string | undefined
+    const invocationNodeHistory: string[] = []
 
     // Swarm-level timeout composes with each node's signal so a hung node still gets
     // aborted. Timer starts fresh per invocation; human response time between resumes
@@ -331,6 +341,12 @@ export class Swarm implements MultiAgent {
 
     try {
       while (state.steps < this.config.maxSteps) {
+        repetitiveHandoffReason = this._checkRepetitiveHandoff(invocationNodeHistory)
+        if (repetitiveHandoffReason) {
+          logger.debug(`reason=<${repetitiveHandoffReason}> | stopping swarm execution`)
+          break
+        }
+
         if (execController?.signal.aborted) {
           throw new Error(`timeout=<${this.config.timeout}>, swarm_id=<${this.id}> | swarm exceeded wall-clock budget`)
         }
@@ -352,6 +368,9 @@ export class Swarm implements MultiAgent {
         )
         nextInput = input
         handoff = nodeResult.structuredOutput as HandoffResult | undefined
+        if (nodeResult.status === Status.COMPLETED) {
+          invocationNodeHistory.push(nodeResult.nodeId)
+        }
 
         if (execController?.signal.aborted) {
           throw new Error(
@@ -374,6 +393,7 @@ export class Swarm implements MultiAgent {
       this._checkSteps(state, handoff)
 
       result = new MultiAgentResult({
+        ...(repetitiveHandoffReason && { status: Status.FAILED, error: new Error(repetitiveHandoffReason) }),
         results: state.results,
         content: this._resolveContent(state),
         duration: Date.now() - state.startTime,
@@ -516,6 +536,39 @@ export class Swarm implements MultiAgent {
     if (this.config.nodeTimeout < 1) {
       throw new Error(`node_timeout=<${this.config.nodeTimeout}> | must be at least 1`)
     }
+
+    this._validateRepetitiveHandoffConfig()
+  }
+
+  /**
+   * Validates the repetitive-handoff detection pair. Both settings must be 0
+   * (disabled) or both positive, and the uniqueness threshold must fit within
+   * both the detection window and the number of nodes in the swarm.
+   */
+  private _validateRepetitiveHandoffConfig(): void {
+    const window = this.config.repetitiveHandoffDetectionWindow
+    const minimumUniqueAgents = this.config.repetitiveHandoffMinUniqueAgents
+    if (!Number.isInteger(window) || window < 0) {
+      throw new Error(`repetitive_handoff_detection_window=<${window}> | must be a non-negative integer`)
+    }
+    if (!Number.isInteger(minimumUniqueAgents) || minimumUniqueAgents < 0) {
+      throw new Error(`repetitive_handoff_min_unique_agents=<${minimumUniqueAgents}> | must be a non-negative integer`)
+    }
+    if ((window === 0) !== (minimumUniqueAgents === 0)) {
+      throw new Error(
+        `repetitive_handoff_detection_window=<${window}>, repetitive_handoff_min_unique_agents=<${minimumUniqueAgents}> | must both be 0 or both be positive`
+      )
+    }
+    if (minimumUniqueAgents > window) {
+      throw new Error(
+        `repetitive_handoff_min_unique_agents=<${minimumUniqueAgents}>, repetitive_handoff_detection_window=<${window}> | minimum unique agents cannot exceed detection window`
+      )
+    }
+    if (minimumUniqueAgents > this.nodes.size) {
+      throw new Error(
+        `repetitive_handoff_min_unique_agents=<${minimumUniqueAgents}>, nodes=<${this.nodes.size}> | minimum unique agents cannot exceed node count`
+      )
+    }
   }
 
   private _resolveNodes(definitions: SwarmNodeDefinition[]): Map<string, AgentNode> {
@@ -589,6 +642,25 @@ export class Swarm implements MultiAgent {
     if (handoff?.agentId && state.steps >= this.config.maxSteps) {
       throw new Error(`max_steps=<${this.config.maxSteps}> | swarm reached step limit`)
     }
+  }
+
+  /**
+   * Checks node executions from the current invocation for a handoff loop.
+   *
+   * @param nodeHistory - Completed node ids from the current invocation
+   * @returns A diagnostic reason when the configured uniqueness threshold is not met.
+   */
+  private _checkRepetitiveHandoff(nodeHistory: string[]): string | undefined {
+    const window = this.config.repetitiveHandoffDetectionWindow
+    if (window <= 0 || nodeHistory.length < window) return undefined
+
+    const recentNodeIds = nodeHistory.slice(-window)
+    const uniqueNodes = new Set(recentNodeIds).size
+    if (uniqueNodes < this.config.repetitiveHandoffMinUniqueAgents) {
+      return `Repetitive handoff: ${uniqueNodes} unique nodes out of ${window} recent iterations`
+    }
+
+    return undefined
   }
 
   /**

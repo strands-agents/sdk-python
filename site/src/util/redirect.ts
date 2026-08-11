@@ -40,6 +40,11 @@ export const STATIC_SLUG_REDIRECTS: Record<string, string> = {
   // cli-reference-agent was archived (strands-agents/agent-builder)
   'docs/examples/python/cli-reference-agent': 'docs/examples',
 
+  // robots-sim was archived (strands-labs/robots-sim); its capabilities are
+  // now covered by Strands Robots' built-in simulation. Point the old page
+  // straight at Strands Robots so backlinks land on the successor project.
+  'docs/labs/robots-sim': 'docs/labs/robots',
+
   // community-packages content lives on the interactive integrations page
   // (an Astro page — buildStaticRedirects validates those targets against
   // src/pages as well as docs content).

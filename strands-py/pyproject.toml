@@ -50,7 +50,7 @@ anthropic = ["anthropic>=0.21.0,<1.0.0"]
 gemini = ["google-genai>=1.67.0,<3.0.0"]
 # The latest litellm v1.92.0 do not support python 3.14, for the short term we will keep 
 # the version lower than 1.92.0 until litellm has the python 3.14 supported version.
-litellm = ["litellm>=1.75.9,<=1.93.0", "openai>=1.68.0,<3.0.0"]
+litellm = ["litellm>=1.75.9,<=1.95.0", "openai>=1.68.0,<3.0.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
 mistral = ["mistralai>=2.0.0,<3.0.0"]
 ollama = ["ollama>=0.4.8,<1.0.0"]
@@ -84,7 +84,7 @@ bidi-io = [
     "prompt_toolkit>=3.0.0,<4.0.0",
     "pyaudio>=0.2.13,<1.0.0",
 ]
-bidi-gemini = ["google-genai>=1.32.0,<3.0.0"]
+bidi-gemini = ["google-genai>=1.67.0,<3.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 cedar = ["cedarpy==4.8.7", "cedar-policy-mcp-schema-generator==0.6.0"]
@@ -183,6 +183,7 @@ dev-mode = true
 features = ["all"]
 dependencies = [
     "commitizen>=4.4.0,<5.0.0",
+    "complexipy>=6.2.0,<7.0.0",
     "hatch>=1.0.0,<2.0.0",
     "pre-commit>=3.2.0,<4.7.0",
 ]
@@ -199,6 +200,10 @@ test-lint = "hatch fmt --linter --check"
 
 test = "hatch test {args}"
 test-integ = "hatch test tests_integ {args}"
+
+# Report the cognitive complexity of functions this branch changes, matching
+# what the PR labeler will apply. Run from the repo root so both SDKs are seen.
+complexity = "cd .. && node .github/scripts/pr-metrics/run-analysis.mjs {args}"
 
 prepare = [
     "hatch run format",

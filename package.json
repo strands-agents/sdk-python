@@ -28,6 +28,9 @@
     "format:check": "npm run format:check -w strands-ts",
     "type-check": "npm run type-check -w strands-ts",
     "check": "npm run check -w strands-ts",
-    "check:browser-bundle": "npm run check:browser-bundle -w strands-ts"
+    "check:browser-bundle": "npm run check:browser-bundle -w strands-ts",
+    "complexity": "node .github/scripts/pr-metrics/run-analysis.mjs",
+    "complexity:setup": "npm ci --ignore-scripts --prefix .github/scripts/pr-metrics/tools && pip install -r .github/scripts/pr-metrics/tools/requirements.txt",
+    "test:pr-metrics": "node --test .github/scripts/pr-metrics/pr-metrics.test.mjs"
   }
 }

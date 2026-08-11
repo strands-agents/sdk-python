@@ -12,6 +12,12 @@ const { languages, community, experimental } = starlightRoute.entry.data;
 // the back strip is their route to the /integrations catalog.
 const isIntegrationsPage =
   starlightRoute.id === 'docs/integrations' || starlightRoute.id.startsWith('docs/integrations/');
+
+const ALL_SDK_LANGUAGES = ['python', 'typescript']
+const langArray = languages
+  ? (Array.isArray(languages) ? languages : [languages]).map((l: string) => l.toLowerCase())
+  : []
+const coversAllLanguages = ALL_SDK_LANGUAGES.every((l) => langArray.includes(l))
 ---
 
 <div class="sl-markdown-content">
@@ -20,7 +26,7 @@ const isIntegrationsPage =
   {community && <CommunityContributionAside />}
   {/* Language support aside is omitted for community pages — the CommunityContributionAside already
       contextualizes the page, and language support is listed in the community catalog table instead. */}
-  {languages && !community && <LanguageSupportAside languages={languages} />}
+  {languages && !community && !coversAllLanguages && <LanguageSupportAside languages={languages} />}
   <slot />
   <PageTags />
 </div>
