@@ -153,6 +153,8 @@ Optional fields (validated by Zod in `site/src/content.config.ts`):
 
 These render contextual banners automatically (experimental → community → languages). Anything not in this table is silently stripped by Zod at build time, so don't invent fields like `contentType` or `lastReviewed` — add them to the schema first if they'd be useful.
 
+Do not set `languages: [python, typescript]` — listing all supported languages is redundant. Omit the field when a feature is available in all languages.
+
 ## TypeScript Snippet Scoping
 
 When a `.ts` file has multiple snippets using the same variable names, wrap each snippet body in a function. Place markers **inside** the function so only the snippet body — not the function declaration — appears in docs:

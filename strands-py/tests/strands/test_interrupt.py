@@ -1,6 +1,6 @@
 import pytest
 
-from strands.interrupt import Interrupt, _InterruptState
+from strands.interrupt import _AGENT_STREAM_INTERRUPT_ID_PREFIX, Interrupt, _InterruptState
 
 
 @pytest.fixture
@@ -191,3 +191,87 @@ def test_interrupt_state_version_not_in_to_dict():
     data = interrupt_state.to_dict()
     assert "_version" not in data
     assert "version" not in data
+
+
+def test_interrupt_state_end_tool_cycle():
+    """Answered agent-stream interrupts outlive a tool cycle; everything else is cleared."""
+    answered_gate = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}answered", name="gate", response="approved")
+    unanswered_gate = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}unanswered", name="gate2")
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate", response="approved")
+    interrupt_state = _InterruptState(
+        interrupts={
+            answered_gate.id: answered_gate,
+            unanswered_gate.id: unanswered_gate,
+            tool_interrupt.id: tool_interrupt,
+        },
+        context={"tool_use_message": {"role": "assistant"}, "tool_results": []},
+        activated=True,
+    )
+
+    interrupt_state.end_tool_cycle()
+
+    tru_interrupts = interrupt_state.interrupts
+    exp_interrupts = {answered_gate.id: answered_gate}
+    assert tru_interrupts == exp_interrupts
+    assert interrupt_state.context == {}
+    assert not interrupt_state.activated
+
+
+def test_interrupt_state_end_interrupt_cycle():
+    """Agent-stream interrupts are dropped; tool interrupts and context are untouched."""
+    answered_gate = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}answered", name="gate", response="approved")
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate")
+    interrupt_state = _InterruptState(
+        interrupts={answered_gate.id: answered_gate, tool_interrupt.id: tool_interrupt},
+        context={"tool_use_message": {"role": "assistant"}},
+        activated=True,
+    )
+
+    interrupt_state.end_interrupt_cycle()
+
+    tru_interrupts = interrupt_state.interrupts
+    exp_interrupts = {tool_interrupt.id: tool_interrupt}
+    assert tru_interrupts == exp_interrupts
+    assert interrupt_state.context == {"tool_use_message": {"role": "assistant"}}
+    assert interrupt_state.activated
+
+
+def test_interrupt_state_end_interrupt_cycle_nothing_to_release():
+    """With nothing to drop the state is left alone, version included."""
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate")
+    interrupt_state = _InterruptState(interrupts={tool_interrupt.id: tool_interrupt})
+    version = interrupt_state._get_version()
+
+    interrupt_state.end_interrupt_cycle()
+
+    assert interrupt_state.interrupts == {tool_interrupt.id: tool_interrupt}
+    assert interrupt_state._get_version() == version
+
+
+def test_interrupt_state_to_dict_omits_retained_invocation_scoped_responses():
+    """A response retained while deactivated is readable only in-pass, so it is never serialized."""
+    retained = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}retained", name="gate", response="approved")
+    tool_interrupt = Interrupt(id="v1:tool_call:t1:abc", name="tool_gate", response="approved")
+    interrupt_state = _InterruptState(
+        interrupts={retained.id: retained, tool_interrupt.id: tool_interrupt},
+        activated=False,
+    )
+
+    tru_interrupts = interrupt_state.to_dict()["interrupts"]
+    exp_interrupts = {tool_interrupt.id: tool_interrupt.to_dict()}
+    assert tru_interrupts == exp_interrupts
+
+    # While activated the caller is owed a resume, so everything is serialized.
+    interrupt_state.activate()
+    assert set(interrupt_state.to_dict()["interrupts"]) == {retained.id, tool_interrupt.id}
+
+
+def test_interrupt_state_from_dict_drops_retained_invocation_scoped_responses():
+    """A session written before responses stopped being serialized does not revive an approval."""
+    retained = Interrupt(id=f"{_AGENT_STREAM_INTERRUPT_ID_PREFIX}retained", name="gate", response="approved")
+    data = {"interrupts": {retained.id: retained.to_dict()}, "context": {}, "activated": False}
+
+    assert _InterruptState.from_dict(data).interrupts == {}
+
+    data["activated"] = True
+    assert set(_InterruptState.from_dict(data).interrupts) == {retained.id}

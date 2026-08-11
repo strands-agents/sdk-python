@@ -42,6 +42,9 @@ export function defaultMaxTokensWarningMessage(defaultMaxTokens: number): string
   return `max_tokens=<${defaultMaxTokens}> | using default maxTokens, which is subject to change | set maxTokens explicitly to pin the value`
 }
 
+/** Default context window limit (in tokens) when the model does not report one. */
+export const DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
+
 /**
  * Context window limits (in tokens) for known model IDs.
  *
@@ -67,6 +70,9 @@ const CONTEXT_WINDOW_LIMITS: Record<string, number> = {
   'claude-opus-4-7': 1_000_000,
   'claude-opus-4-7-20260416': 1_000_000,
   'claude-opus-4-8': 1_000_000,
+  'claude-opus-5': 1_000_000,
+  'claude-fable-5': 1_000_000,
+  'claude-sonnet-5': 1_000_000,
   'claude-opus-4-5': 200_000,
   'claude-opus-4-5-20251101': 200_000,
   'claude-opus-4-20250514': 200_000,
@@ -88,6 +94,9 @@ const CONTEXT_WINDOW_LIMITS: Record<string, number> = {
   'anthropic.claude-opus-4-6-v1': 1_000_000,
   'anthropic.claude-opus-4-7': 1_000_000,
   'anthropic.claude-opus-4-8': 1_000_000,
+  'anthropic.claude-opus-5': 1_000_000,
+  'anthropic.claude-fable-5': 1_000_000,
+  'anthropic.claude-sonnet-5': 1_000_000,
   'anthropic.claude-opus-4-5-20251101-v1:0': 200_000,
   'anthropic.claude-opus-4-20250514-v1:0': 200_000,
   'anthropic.claude-opus-4-1-20250805-v1:0': 200_000,
@@ -112,6 +121,10 @@ const CONTEXT_WINDOW_LIMITS: Record<string, number> = {
   'amazon.nova-2-pro-preview-20251202-v1:0': 1_000_000,
 
   // OpenAI
+  'gpt-5.6': 1_050_000,
+  'gpt-5.6-sol': 1_050_000,
+  'gpt-5.6-terra': 1_050_000,
+  'gpt-5.6-luna': 1_050_000,
   'gpt-5.5': 1_050_000,
   'gpt-5.5-pro': 1_050_000,
   'gpt-5.4': 1_050_000,
@@ -145,6 +158,10 @@ const CONTEXT_WINDOW_LIMITS: Record<string, number> = {
   'gemini-2.0-flash-lite': 1_048_576,
   'gemini-3-pro-preview': 1_048_576,
   'gemini-3-flash-preview': 1_048_576,
+  'gemini-3.6-flash': 1_048_576,
+  'gemini-3.5-flash': 1_048_576,
+  'gemini-3.5-flash-lite': 1_048_576,
+  'gemini-3.1-flash-lite': 1_048_576,
   'gemini-3.1-pro-preview': 1_048_576,
   'gemini-3.1-flash-lite-preview': 1_048_576,
 }

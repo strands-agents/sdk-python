@@ -27,15 +27,27 @@ Example:
             include_retrieval_tool=True,
         )
     ])
+
+    # Selective offloading: only offload results from specific tools
+    agent = Agent(plugins=[
+        ContextOffloader(
+            storage=InMemoryStorage(),
+            should_offload=lambda tool_name, token_count, **kwargs: (
+                tool_name == "get_document_text"
+            ),
+        )
+    ])
     ```
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import weakref
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable
+from typing import TYPE_CHECKING, Any, Protocol
 
 from typing_extensions import TypedDict
 
@@ -138,6 +150,21 @@ _CHARS_PER_TOKEN = 4
 """Approximate characters per token, fallback for preview slicing without tiktoken."""
 
 
+class ShouldOffload(Protocol):
+    """Callback protocol for deciding whether a tool result should be offloaded."""
+
+    def __call__(self, tool_name: str, token_count: int, **kwargs: Any) -> bool | Awaitable[bool]:
+        """Return True to offload, False to keep the result in context. May be sync or async.
+
+        Args:
+            tool_name: Name of the tool that produced the result.
+            token_count: Estimated token count of the result.
+            **kwargs: Reserved for future parameters. Implementations should accept
+                ``**kwargs`` for forward compatibility.
+        """
+        ...
+
+
 class ContextOffloader(Plugin):
     """Plugin that offloads oversized tool results to reduce context consumption.
 
@@ -168,6 +195,8 @@ class ContextOffloader(Plugin):
         preview_tokens: Number of tokens to keep as a text preview in context.
         include_retrieval_tool: Whether to register the ``retrieve_offloaded_content`` tool.
             Defaults to True.
+        should_offload: Callback to control which tool results are offloaded.
+            Defaults to None (all oversized results offloaded).
 
     Example:
         ```python
@@ -176,6 +205,16 @@ class ContextOffloader(Plugin):
 
         agent = Agent(plugins=[
             ContextOffloader(storage=InMemoryStorage())
+        ])
+
+        # Only offload results from large-output tools
+        agent = Agent(plugins=[
+            ContextOffloader(
+                storage=InMemoryStorage(),
+                should_offload=lambda tool_name, token_count, **kwargs: (
+                    tool_name == "get_document_text"
+                ),
+            )
         ])
         ```
     """
@@ -189,6 +228,7 @@ class ContextOffloader(Plugin):
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
         include_retrieval_tool: bool = True,
+        should_offload: ShouldOffload | None = None,
         evict_after_cycles: int | None = 20,
     ) -> None:
         """Initialize the ContextOffloader plugin.
@@ -204,6 +244,10 @@ class ContextOffloader(Plugin):
                 chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
             include_retrieval_tool: Whether to register the ``retrieve_offloaded_content``
                 tool so the agent can fetch offloaded content. Defaults to True.
+            should_offload: Callback ``(tool_name, token_count, **kwargs) -> bool`` to decide
+                whether a specific tool result should be offloaded. Called only when the result
+                exceeds ``max_result_tokens``. Return ``True`` to offload, ``False`` to keep
+                in context. Defaults to None (all oversized results offloaded).
             evict_after_cycles: Number of agent loop cycles before an offloaded entry is
                 evicted (unified Storage only). Entries stored more than this many cycles
                 ago are deleted. Defaults to 20. Set to None to disable eviction.
@@ -227,6 +271,7 @@ class ContextOffloader(Plugin):
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
+        self._should_offload = should_offload
         self._evict_after_cycles = evict_after_cycles
         self._stored_cycles: weakref.WeakKeyDictionary[Agent, dict[str, int]] = weakref.WeakKeyDictionary()
         super().__init__()
@@ -323,6 +368,10 @@ class ContextOffloader(Plugin):
         Constraints:
           - pattern/line_range/context_lines only work on text content. For binary content, omit them.
           - Line numbers in results are 1-indexed and can be used in follow-up line_range calls.
+          - Retrieving a reference refreshes its eviction timer for unified Storage
+            backends, so actively-retrieved content survives ``evict_after_cycles``
+            beyond its store time — matching ``InMemoryStorage.retrieve``'s
+            last-access refresh behavior.
 
         Examples:
           {"reference": "ref_1", "pattern": "error"} -> lines containing "error" with 5 lines context
@@ -344,6 +393,10 @@ class ContextOffloader(Plugin):
             content_bytes, content_type = await _retrieve_content(storage, reference)
         except KeyError:
             return f"Error: reference not found: {reference}"
+
+        # Refresh the eviction cycle so actively-retrieved content survives
+        # eviction for unified Storage backends, matching InMemoryStorage.retrieve.
+        self._refresh_eviction_cycle(tool_context.agent, reference)
 
         if pattern is None and line_range is None and context_lines is None:
             return self._decode_full_content(content_bytes, content_type, reference)
@@ -408,6 +461,20 @@ class ContextOffloader(Plugin):
 
         if token_count <= self._max_result_tokens:
             return
+
+        if self._should_offload is not None:
+            try:
+                verdict = self._should_offload(event.tool_use.get("name", ""), token_count)
+                if inspect.isawaitable(verdict):
+                    verdict = await verdict
+                if not verdict:
+                    return
+            except Exception:
+                logger.warning(
+                    "tool_use_id=<%s> | should_offload callback failed, falling back to default offload",
+                    tool_use_id,
+                    exc_info=True,
+                )
 
         # Build text preview from text+JSON blocks.
         # Empty text blocks are intentionally excluded — they add no content value.
@@ -539,6 +606,26 @@ class ContextOffloader(Plugin):
                 agent_cycles = {}
                 self._stored_cycles[agent] = agent_cycles
             agent_cycles[ref] = cycle
+
+    def _refresh_eviction_cycle(self, agent: Agent, reference: str) -> None:
+        """Refresh the eviction cycle for a retrieved reference.
+
+        Unified ``Storage`` backends are evicted by the plugin based on the cycle
+        recorded at *store* time (see ``_on_before_model_call``). Without a refresh
+        on retrieve, an entry is evicted ``evict_after_cycles`` after it was stored
+        regardless of active retrieval — so an agent that retrieves a reference at
+        cycle 15 can still hit "reference not found" at cycle 21 because the store
+        happened at cycle 0. ``InMemoryStorage.retrieve`` already refreshes its own
+        last-accessed cycle (storage.py:372); this mirrors that behavior for the
+        unified-Storage path so cross-backend behavior matches the documented
+        contract. A no-op for ``InMemoryStorage`` (``_track_stored_cycle`` is guarded
+        by ``not _is_offloader_storage``), which self-refreshes on retrieve.
+        """
+        cycle = agent.event_loop_metrics.cycle_count
+        self._track_stored_cycle(agent, reference, cycle)
+        logger.debug(
+            "reference=<%s>, cycle=<%d> | retrieve refreshed eviction cycle", reference, cycle
+        )
 
     def _slice_preview(self, text: str) -> str:
         """Slice text to approximately preview_tokens using character-based estimation.

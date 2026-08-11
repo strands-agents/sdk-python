@@ -63,7 +63,7 @@ class S3Storage:
         """Store data as an S3 object.
 
         Args:
-            key: Opaque, '/'-separated key identifying the value.
+            key: Opaque string key identifying the value.
             data: Raw bytes to persist.
 
         Raises:

@@ -36,7 +36,8 @@ import type { Swarm } from '../multiagent/swarm.js'
  *
  * `SaveLatestStrategy` controls how frequently `snapshot_latest` is updated:
  * - `'invocation'`: after every agent invocation completes (default; balances durability and I/O)
- * - `'message'`: after every message added (most durable, highest I/O)
+ * - `'message'`: after every message added and when an invocation completes
+ *   (most durable, highest I/O)
  * - `'trigger'`: only when a `snapshotTrigger` fires (or manually via `saveSnapshot`)
  *
  * Under `'invocation'` and `'message'`, guardrail redactions are persisted immediately so
@@ -62,8 +63,11 @@ export interface SessionManagerConfig {
    * Accepts either:
    * - A unified {@link Storage} instance (recommended) — wrapped internally with {@link SnapshotStorageAdapter}
    * - A legacy `{ snapshot: SnapshotStorage }` object
+   *
+   * When omitted, resolves from the agent-level `storage` during initialization.
+   * If no agent-level storage is available either, an error is thrown.
    */
-  storage: Storage | { snapshot: SnapshotStorage }
+  storage?: Storage | { snapshot: SnapshotStorage }
   /** Unique session identifier. Defaults to `'default-session'`. */
   sessionId?: string
   /** When to save snapshot_latest. Default: `'invocation'` (after each agent invocation completes). See {@link SaveLatestStrategy} for details. */
@@ -98,7 +102,8 @@ export interface SessionManagerConfig {
  */
 export class SessionManager implements Plugin, MultiAgentPlugin {
   private readonly _sessionId: string
-  private readonly _storage: { snapshot: SnapshotStorage }
+  private _storage!: { snapshot: SnapshotStorage }
+  private readonly _configStorage?: Storage | { snapshot: SnapshotStorage } | undefined
   private readonly _saveLatestOn: SaveLatestStrategy
   private readonly _snapshotTrigger?: SnapshotTriggerCallback | undefined
   private readonly _multiAgentSaveLatestOn: MultiAgentSaveLatestStrategy
@@ -113,13 +118,21 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
   constructor(config: SessionManagerConfig) {
     this._sessionId = validateIdentifier(config.sessionId ?? 'default-session')
-    this._storage = { snapshot: this._resolveSnapshotStorage(config.storage) }
+    this._configStorage = config.storage
+    if (config.storage) {
+      this._storage = { snapshot: this._resolveSnapshotStorage(config.storage) }
+    }
     this._saveLatestOn = config.saveLatestOn ?? 'invocation'
     this._multiAgentSaveLatestOn = config.multiAgentSaveLatestOn ?? 'node'
     this._snapshotTrigger = config.snapshotTrigger
   }
 
   private get _snapshotStorage(): SnapshotStorage {
+    if (!this._storage) {
+      throw new Error(
+        'SessionManager requires a storage backend. Provide storage in SessionManagerConfig or set storage on the Agent.'
+      )
+    }
     return this._storage.snapshot
   }
 
@@ -131,6 +144,14 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
   /** Initializes the plugin by registering lifecycle hook callbacks. */
   public initAgent(agent: LocalAgent): void {
+    if (!this._configStorage) {
+      if (!agent.storage) {
+        throw new Error(
+          'SessionManager requires a storage backend. Provide storage in SessionManagerConfig or set storage on the Agent.'
+        )
+      }
+      this._storage = { snapshot: this._resolveSnapshotStorage(agent.storage) }
+    }
     agent.addHook(InitializedEvent, async (event) => {
       await this._onAgentInitialized(event)
     })
@@ -245,9 +266,9 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
     }
   }
 
-  /** Saves latest on invocation and fires the snapshot trigger if configured. */
+  /** Saves latest for auto-save strategies and fires the snapshot trigger if configured. */
   private async _onAfterAgentInvocation(event: AfterInvocationEvent): Promise<void> {
-    if (this._saveLatestOn === 'invocation') {
+    if (this._saveLatestOn !== 'trigger') {
       await this.saveSnapshot({ target: event.agent, isLatest: true })
     }
 
@@ -292,6 +313,11 @@ export class SessionManager implements Plugin, MultiAgentPlugin {
 
   /** Initializes the multi-agent plugin by registering orchestrator lifecycle hooks. */
   public initMultiAgent(orchestrator: MultiAgent): void {
+    if (!this._storage) {
+      throw new Error(
+        'SessionManager requires a storage backend. Provide storage in SessionManagerConfig when using with multi-agent orchestrators.'
+      )
+    }
     orchestrator.addHook(BeforeMultiAgentInvocationEvent, async (event) => {
       await this._onBeforeMultiAgentInvocation(event)
     })

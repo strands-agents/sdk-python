@@ -14,6 +14,7 @@ import logging
 import threading
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -44,6 +45,7 @@ from ..types._snapshot import (
 if TYPE_CHECKING:
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
+from .._middleware.stages import AgentStreamContext, AgentStreamStage
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -56,7 +58,7 @@ from ..hooks import (
     MessageAddedEvent,
 )
 from ..hooks.registry import TEvent
-from ..interrupt import _InterruptState
+from ..interrupt import InterruptException, _InterruptState
 from ..interventions.handler import InterventionHandler
 from ..interventions.registry import InterventionRegistry
 from ..memory import MemoryManager, MemoryManagerConfig
@@ -124,7 +126,12 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 ContextManagerStrategy = Literal["auto", "agentic"]
-"""Supported values for the ``context_manager`` parameter."""
+"""Supported values for the ``context_manager`` parameter.
+
+- ``"auto"``: SummarizingConversationManager with proactive compression + ContextOffloader.
+- ``"agentic"``: (Experimental) Lets the model drive context management via injected tools.
+  This mode may change in future versions.
+"""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
@@ -140,6 +147,18 @@ _CONTEXT_MANAGER_SUMMARY_RATIO = 0.3
 
 _CONTEXT_MANAGER_COMPRESSION_THRESHOLD = 0.85
 """Benchmark-validated context window ratio that triggers proactive compression."""
+
+
+@dataclass
+class _PassProgress:
+    """What the event loop itself did during one ``AgentStreamStage`` pass.
+
+    Middleware can produce a pass's result without the event loop running at all (a short-circuit),
+    which resuming replays harmlessly. Only a result the event loop produced means a resume would
+    call the model again.
+    """
+
+    event_loop_produced_result: bool = False
 
 
 class Agent(AgentBase):
@@ -411,7 +430,7 @@ class Agent(AgentBase):
             from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
 
-            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware())
 
         self._plugin_registry = _PluginRegistry(self)
 
@@ -593,6 +612,8 @@ class Agent(AgentBase):
         The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
+        - During MCP tool execution
+        - After tool execution, before the next model call
 
         The agent will return a result with stop_reason="cancelled".
 
@@ -1195,15 +1216,27 @@ class Agent(AgentBase):
                         messages, merged_state, structured_output_model, structured_output_prompt, limits
                     )
 
+                    # The result is the last EventLoopStopEvent, not the last event overall:
+                    # AgentStreamStage middleware may yield trailing events after the stop event.
+                    stop_event: EventLoopStopEvent | None = None
                     async for event in events:
                         event.prepare(invocation_state=merged_state)
+
+                        if isinstance(event, EventLoopStopEvent):
+                            stop_event = event
 
                         if event.is_callback_event:
                             as_dict = event.as_dict()
                             callback_handler(**as_dict)
                             yield as_dict
 
-                    result = AgentResult(*event["stop"])
+                    if stop_event is None:
+                        raise RuntimeError(
+                            "Agent stream produced no result event. AgentStreamStage middleware must "
+                            "forward events from next() and must not drop the terminal stop event."
+                        )
+
+                    result = AgentResult(*stop_event["stop"])
                     callback_handler(result=result)
                     yield AgentResultEvent(result=result).as_dict()
 
@@ -1286,30 +1319,79 @@ class Agent(AgentBase):
                     structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
                 )
 
-                # Execute the event loop cycle with retry logic for context limits
-                events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
-                async for event in events:
-                    # Signal from the model provider that the message sent by the user should be redacted,
-                    # likely due to a guardrail.
-                    if (
-                        isinstance(event, ModelStreamChunkEvent)
-                        and event.chunk
-                        and event.chunk.get("redactContent")
-                        and event.chunk["redactContent"].get("redactUserContentMessage")
+                pass_progress = _PassProgress()
+                middleware_context = AgentStreamContext(
+                    agent=self,
+                    messages=current_messages,
+                    invocation_state=invocation_state,
+                    # Snapshot interrupts before the pass so a gate's re-read after next_fn
+                    # survives the tool cycle clearing the live dict. Empty when not activated,
+                    # so a dead cycle's retained response cannot resolve a fresh gate.
+                    _interrupts=dict(self._interrupt_state.interrupts) if self._interrupt_state.activated else {},
+                )
+                try:
+                    async for event in self._middleware_registry.invoke(
+                        AgentStreamStage,
+                        middleware_context,
+                        self._make_agent_stream_terminal(structured_output_context, limits, pass_progress),
                     ):
-                        self.messages[-1]["content"] = self._redact_user_content(
-                            self.messages[-1]["content"],
-                            str(event.chunk["redactContent"]["redactUserContentMessage"]),
-                        )
-                        if self._session_manager:
-                            self._session_manager.redact_latest_message(self.messages[-1], self)
-                    yield event
+                        if isinstance(event, EventLoopStopEvent):
+                            agent_result = AgentResult(*event["stop"])
+                        yield event
 
-                # Capture the result from the final event if available
-                if isinstance(event, EventLoopStopEvent):
-                    agent_result = AgentResult(*event["stop"])
+                    # A resumed AgentStreamStage interrupt that finished without tool execution
+                    # never hits the tool path's deactivate(), so clear the interrupt state here.
+                    if (
+                        self._interrupt_state.activated
+                        and (agent_result is None or agent_result.stop_reason != "interrupt")
+                        and not self._interrupt_state.has_pending_tool_execution
+                    ):
+                        self._interrupt_state.deactivate()
+                except InterruptException as interrupt_exception:
+                    # Refuse a late interrupt — resuming would re-call the model
+                    # and corrupt history.
+                    if (
+                        pass_progress.event_loop_produced_result
+                        and not self._interrupt_state.has_pending_tool_execution
+                    ):
+                        self._interrupt_state.deactivate()
+                        raise RuntimeError(
+                            f"interrupt_name=<{interrupt_exception.interrupt.name}> | agent-stream middleware "
+                            "interrupted after the pass produced its result | interrupt before the pass "
+                            "produces its assistant turn"
+                        ) from interrupt_exception
+
+                    registered = self._interrupt_state.interrupts.get(interrupt_exception.interrupt.id)
+                    if registered is None or registered.response is not None:
+                        self._interrupt_state.interrupts[interrupt_exception.interrupt.id] = (
+                            interrupt_exception.interrupt
+                        )
+                    self._interrupt_state.activate()
+                    interrupt_message: Message = (
+                        self.messages[-1]
+                        if self.messages
+                        else {"role": "assistant", "content": [{"text": "Interrupted"}]}
+                    )
+                    # Surface all unanswered interrupts so the caller can build a complete resume payload.
+                    unanswered = [
+                        interrupt
+                        for interrupt in self._interrupt_state.interrupts.values()
+                        if interrupt.response is None
+                    ]
+                    stop_event = EventLoopStopEvent(
+                        "interrupt",
+                        interrupt_message,
+                        self.event_loop_metrics,
+                        invocation_state.get("request_state", {}),
+                        unanswered,
+                    )
+                    agent_result = AgentResult(*stop_event["stop"])
+                    yield stop_event
 
             finally:
+                if not self._interrupt_state.activated:
+                    self._interrupt_state.end_interrupt_cycle()
+
                 self.conversation_manager.apply_management(self)
                 after_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                     AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
@@ -1325,6 +1407,57 @@ class Agent(AgentBase):
                 current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
             else:
                 current_messages = None
+
+    def _make_agent_stream_terminal(
+        self,
+        structured_output_context: StructuredOutputContext,
+        limits: Limits | None,
+        pass_progress: _PassProgress,
+    ) -> Callable[["AgentStreamContext"], AsyncGenerator[TypedEvent, None]]:
+        """Build the terminal for the AgentStreamStage middleware chain.
+
+        The terminal drives the event loop cycle for one invocation pass — the core work the
+        AgentStreamStage middleware wraps. It reads ``invocation_state`` from the context it
+        receives (not a captured value), so an Input/wrap handler that transforms the context
+        via ``dataclasses.replace()`` actually reaches the event loop. It also handles
+        guardrail-driven user-content redaction inline so that behavior runs whether or not
+        middleware is registered.
+
+        Args:
+            structured_output_context: Structured output context for this pass.
+            limits: Optional per-invocation budget caps.
+            pass_progress: Records whether the event loop produced this pass's result, which
+                determines whether resuming the pass would call the model again.
+
+        Returns:
+            An async generator function yielding the pass's events, ending with an
+            ``EventLoopStopEvent``.
+        """
+
+        async def terminal(ctx: "AgentStreamContext") -> AsyncGenerator[TypedEvent, None]:
+            # Execute the event loop cycle with retry logic for context limits
+            events = self._execute_event_loop_cycle(ctx.invocation_state, structured_output_context, limits)
+            async for event in events:
+                if isinstance(event, EventLoopStopEvent):
+                    pass_progress.event_loop_produced_result = True
+
+                # Signal from the model provider that the message sent by the user should be redacted,
+                # likely due to a guardrail.
+                if (
+                    isinstance(event, ModelStreamChunkEvent)
+                    and event.chunk
+                    and event.chunk.get("redactContent")
+                    and event.chunk["redactContent"].get("redactUserContentMessage")
+                ):
+                    self.messages[-1]["content"] = self._redact_user_content(
+                        self.messages[-1]["content"],
+                        str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                    )
+                    if self._session_manager:
+                        self._session_manager.redact_latest_message(self.messages[-1], self)
+                yield event
+
+        return terminal
 
     async def _execute_event_loop_cycle(
         self,

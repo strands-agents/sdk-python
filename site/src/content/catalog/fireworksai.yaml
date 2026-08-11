@@ -1,0 +1,8 @@
+name: fireworksai
+description: Fireworks AI open-source model inference accessed through the Strands Agents OpenAI-compatibility layer, requiring only the strands-agents[openai] extra.
+integrationType: model-provider
+languages:
+  python: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/integrations/model-providers/fireworksai
+addedDate: 2026-01-01
