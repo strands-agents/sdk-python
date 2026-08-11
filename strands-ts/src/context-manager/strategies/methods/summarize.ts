@@ -101,7 +101,7 @@ async function callSummarizer(
   const messages = [
     new Message({
       role: 'user',
-      content: [new TextBlock('Please summarize the following content:'), ...content] as ContentBlock[],
+      content: [new TextBlock('<content>'), ...content, new TextBlock('</content>')] as ContentBlock[],
     }),
   ]
 

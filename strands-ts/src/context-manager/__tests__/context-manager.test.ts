@@ -50,36 +50,4 @@ describe('ContextManager', () => {
       expect(initCalled).toBe(true)
     })
   })
-
-  describe('apply', () => {
-    it('throws if called before initAgent', async () => {
-      const cm = new ContextManager()
-      await expect(cm.apply()).rejects.toThrow('called before initAgent')
-    })
-
-    it('runs strategies in order', async () => {
-      const order: string[] = []
-      const strategy1 = {
-        name: 'first',
-        apply: async () => {
-          order.push('first')
-          return false
-        },
-      }
-      const strategy2 = {
-        name: 'second',
-        apply: async () => {
-          order.push('second')
-          return false
-        },
-      }
-      const cm = new ContextManager({ strategies: [strategy1, strategy2] })
-      const agent = makeMockAgent()
-      cm.initAgent(agent)
-
-      await cm.apply()
-
-      expect(order).toEqual(['first', 'second'])
-    })
-  })
 })

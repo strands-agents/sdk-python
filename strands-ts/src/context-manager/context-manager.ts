@@ -45,7 +45,7 @@ export class ContextManager implements Plugin {
   constructor(config?: ContextManagerConfig) {
     this._strategies = config?.strategies ?? [
       Offload.truncate('toolResults').when({ threshold: 2500 }),
-      Offload.summarize('toolResults').when({ threshold: 1000, utilization: 0.85 }),
+      Offload.summarize('*').when({ threshold: 1000, utilization: 0.85 }),
     ]
   }
 
@@ -102,19 +102,6 @@ export class ContextManager implements Plugin {
       overflowRetries++
       event.retry = true
     })
-  }
-
-  /**
-   * Run the strategy pipeline to reduce context.
-   *
-   * Strategies are applied in order; each decides whether to act.
-   */
-  async apply(): Promise<void> {
-    if (!this._agent) {
-      throw new Error('ContextManager.apply() called before initAgent()')
-    }
-
-    await this._runStrategies()
   }
 
   private async _runStrategies(precomputedInputTokens?: number): Promise<void> {
