@@ -21,28 +21,13 @@ Example Usage:
 """
 
 import warnings
-from typing import TYPE_CHECKING, Any
-
-from typing_extensions import deprecated
+from typing import Any
 
 from .file_editor import file_editor, make_file_editor
 from .http_request import http_request, make_http_request
 from .shell import make_shell, shell
+from .shell.shell import _RENAME_RATIONALE, make_bash  # noqa: F401  deprecated alias, kept importable until v2.0.0
 from .sleep import make_sleep, sleep
-
-if TYPE_CHECKING:
-    from ..tools.decorator import DecoratedFunctionTool
-
-_RENAME_RATIONALE = (
-    "The tool routes commands through the sandbox, which runs sh or the remote login shell "
-    "rather than bash specifically."
-)
-
-
-@deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
-def make_bash(*, name: str = "bash", **kwargs: Any) -> "DecoratedFunctionTool":
-    """Deprecated alias for :func:`make_shell` that keeps the pre-rename default name."""
-    return make_shell(name=name, **kwargs)
 
 
 def __getattr__(name: str) -> Any:

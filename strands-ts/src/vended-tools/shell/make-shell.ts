@@ -1,8 +1,8 @@
 /**
  * Sandbox-bound shell tool factory.
  *
- * Separated from bash.ts to avoid pulling Node dependencies (child_process, Buffer)
- * into sandbox implementations that import this.
+ * Lives apart from the bash tool so sandbox implementations can import it
+ * without pulling in Node dependencies (child_process, Buffer).
  *
  * The command runs in whichever shell the sandbox provides -- `sh` for the Docker
  * and local environments, the remote login shell over SSH -- so it must not rely
@@ -13,7 +13,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { SandboxTimeoutError } from '../../sandbox/errors.js'
 import { Sandbox } from '../../sandbox/base.js'
-import type { BashOutput } from './types.js'
+import type { BashOutput } from '../bash/types.js'
 import { ShellTimeoutError, ShellExecutionError, SANDBOX_SHELL_DESCRIPTION } from './types.js'
 
 const sandboxShellInputSchema = z.object({

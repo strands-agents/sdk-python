@@ -64,6 +64,10 @@
       "types": "./dist/src/vended-tools/http-request/index.d.ts",
       "default": "./dist/src/vended-tools/http-request/index.js"
     },
+    "./vended-tools/shell": {
+      "types": "./dist/src/vended-tools/shell/index.d.ts",
+      "default": "./dist/src/vended-tools/shell/index.js"
+    },
     "./vended-tools/bash": {
       "types": "./dist/src/vended-tools/bash/index.d.ts",
       "default": "./dist/src/vended-tools/bash/index.js"
