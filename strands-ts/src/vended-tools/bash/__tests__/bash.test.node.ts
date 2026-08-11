@@ -8,10 +8,7 @@ import {
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
-import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
-import { realpathSync, mkdtempSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
+import { realpathSync } from 'fs'
 
 // Skip tests on Windows (bash not available)
 describe.skipIf(process.platform === 'win32')('bash tool', () => {
