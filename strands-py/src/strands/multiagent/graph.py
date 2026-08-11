@@ -301,7 +301,7 @@ def _validate_node_executor(
 def _validate_positive_int(value: int, name: str) -> None:
     """Validate a configuration value that must be a positive integer."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise ValueError(f"{name}={value!r} | must be a positive integer")
+        raise ValueError(f"{name}=<{value!r}> | must be a positive integer")
 
 
 class GraphBuilder:
@@ -400,11 +400,11 @@ class GraphBuilder:
         self._max_node_executions = max_executions
         return self
 
-    def set_max_concurrency(self, max_concurrency: int) -> "GraphBuilder":
+    def set_max_concurrency(self, max_concurrency: int | None) -> "GraphBuilder":
         """Set the maximum number of graph nodes that can execute concurrently.
 
         Args:
-            max_concurrency: Maximum concurrent node executions.
+            max_concurrency: Maximum concurrent node executions (None for no limit).
 
         Returns:
             This builder for method chaining.
@@ -412,7 +412,8 @@ class GraphBuilder:
         Raises:
             ValueError: If max_concurrency is not a positive integer.
         """
-        _validate_positive_int(max_concurrency, "max_concurrency")
+        if max_concurrency is not None:
+            _validate_positive_int(max_concurrency, "max_concurrency")
         self._max_concurrency = max_concurrency
         return self
 
@@ -532,6 +533,7 @@ class Graph(MultiAgentBase):
         id: str = _DEFAULT_GRAPH_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
         plugins: list[MultiAgentPlugin] | None = None,
+        *,
         max_concurrency: int | None = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
@@ -550,6 +552,9 @@ class Graph(MultiAgentBase):
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
             plugins: List of multi-agent plugins for extending graph behavior (default: None)
             max_concurrency: Maximum concurrent node executions (default: None - no limit)
+
+        Raises:
+            ValueError: If max_concurrency is not a positive integer or None.
         """
         super().__init__()
 
@@ -859,6 +864,8 @@ class Graph(MultiAgentBase):
             nodes = [node for node in nodes if node.execution_status == Status.INTERRUPTED]
 
         event_queue: asyncio.Queue[Any | None | Exception] = asyncio.Queue()
+        if self.max_concurrency is not None:
+            _validate_positive_int(self.max_concurrency, "max_concurrency")
         semaphore = asyncio.Semaphore(self.max_concurrency) if self.max_concurrency is not None else None
 
         # Start all node streams as independent tasks
