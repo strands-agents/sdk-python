@@ -13,8 +13,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { SandboxTimeoutError } from '../../sandbox/errors.js'
 import { Sandbox } from '../../sandbox/base.js'
-import type { BashOutput } from '../bash/types.js'
-import { ShellTimeoutError, ShellExecutionError, SANDBOX_SHELL_DESCRIPTION } from './types.js'
+import { ShellTimeoutError, ShellExecutionError, SANDBOX_SHELL_DESCRIPTION, type ShellOutput } from './types.js'
 
 const sandboxShellInputSchema = z.object({
   command: z.string().describe('The shell command to execute.'),
@@ -61,7 +60,7 @@ export function makeShell(
       const sandbox = boundSandbox ?? context.agent.sandbox
       try {
         const result = await sandbox.execute(input.command, { timeout: input.timeout ?? 120 })
-        return { output: result.stdout, error: result.stderr } as BashOutput
+        return { output: result.stdout, error: result.stderr } as ShellOutput
       } catch (err) {
         // Shell* extends Bash* so pre-rename catch clauses keep matching.
         if (err instanceof SandboxTimeoutError) throw new ShellTimeoutError(err.message)

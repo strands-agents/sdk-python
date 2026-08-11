@@ -12,9 +12,7 @@ shell-specific syntax.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-from typing_extensions import deprecated
+from typing import TYPE_CHECKING
 
 from ...sandbox.errors import SandboxTimeoutError
 from ...tools.decorator import tool
@@ -75,22 +73,3 @@ def make_shell(
 
 shell = make_shell()
 """Default shell tool. Reads the sandbox from the agent's context at call time."""
-
-
-_RENAME_RATIONALE = (
-    "The tool routes commands through the sandbox, which runs sh or the remote login shell "
-    "rather than bash specifically."
-)
-
-
-@deprecated(f"make_bash is deprecated and will be removed in v2.0.0. Use make_shell instead. {_RENAME_RATIONALE}")
-def make_bash(*, name: str = "bash", **kwargs: Any) -> DecoratedFunctionTool:
-    """Deprecated alias for :func:`make_shell` that keeps the pre-rename default name."""
-    return make_shell(name=name, **kwargs)
-
-
-bash = make_shell(name="bash")
-"""Deprecated pre-rename instance of :data:`shell`, kept so callers matching on the
-tool name ``"bash"`` keep working until removal in v2.0.0. Reach it through
-``strands.vended_tools.bash``, which emits the ``DeprecationWarning``; it is
-deliberately absent from ``__all__`` and the docs."""
