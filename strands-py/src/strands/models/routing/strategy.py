@@ -79,8 +79,10 @@ class RoutingStrategy(Protocol):
         identity, so an equal-looking ``RoutingCandidate`` built here is rejected.
 
         ``None`` declines: the opening ask then serves the request on the router's default model, and a
-        later ask ends routing so the model's error surfaces. Raising propagates on the opening ask and
-        ends routing after a failure, so a strategy that prefers a default to an error should return one.
+        later ask ends routing so the model's error surfaces. Raising, or returning anything that is not
+        one of ``context.candidates``, propagates on the opening ask and ends routing after a failure,
+        where the pending model error stays the one that surfaces. A strategy that prefers a default to
+        an error should return one.
 
         A failure round uses each candidate at most once, where a round is the run of failures since the
         last success, and the candidate the round opens on already counts as used -- the opening choice,

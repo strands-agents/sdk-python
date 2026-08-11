@@ -16,9 +16,10 @@ What an answer does depends on whether a failed model call is pending. A candida
 applied. ``None`` declines: the opening choice then runs the router's default model, the first declared
 candidate resolved without consulting any strategy, and a later decline ends routing so the model's error
 surfaces. A strategy that raises, or a candidate that will not resolve to a model, propagates on the
-opening choice and ends routing after a failure. A failure round uses each candidate at most once, so
-naming one the round already used also ends routing; a success starts a new round on the candidate that
-succeeded, which counts as that round's first use just as the opening choice does.
+opening choice and ends routing after a failure, where the pending model error stays the one that surfaces. A
+failure round uses each candidate at most once, so naming one the round already used also ends routing; a
+success starts a new round on the candidate that succeeded, which counts as that round's first use just as
+the opening choice does.
 
 A nested ``ModelRouter`` contributes **one** candidate: it is asked with its own candidates and no
 attempts, and performs no internal failover, so when a nested pick fails the outer router moves off the
@@ -301,7 +302,9 @@ class ModelRouter(Plugin):
         """
         routing_context = self._routing_context_from_agent(event.agent, event.invocation_state, state.attempts)
         try:
-            selection = await self._strategy.select(routing_context)
+            # Validated inside the try: a model error is already pending, so a broken answer must not
+            # replace it. The opening choice has nothing pending and lets the contract error surface.
+            candidate = self._validated(await self._strategy.select(routing_context), routing_context)
         except Exception as error:
             logger.warning(
                 "strategy=<%s>, error=<%s> | routing failed, leaving the error to surface",
@@ -309,7 +312,6 @@ class ModelRouter(Plugin):
                 error,
             )
             return False
-        candidate = self._validated(selection, routing_context)
         if candidate is None:
             return False
 

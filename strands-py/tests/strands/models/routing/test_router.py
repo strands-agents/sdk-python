@@ -223,6 +223,32 @@ def test_construction_requires_only_select_so_extra_members_are_allowed():
     assert isinstance(_ExtraMembers(), RoutingStrategy)
 
 
+@pytest.mark.parametrize(
+    "answer",
+    [lambda context: "not-a-candidate", lambda context: RoutingCandidate(_model())],
+    ids=["wrong-type", "foreign-candidate"],
+)
+def test_a_contract_violation_after_a_failure_does_not_replace_the_model_error(answer):
+    # A pending model error is the one the caller needs. After a failure a broken answer ends routing,
+    # exactly as a strategy that raises does; only the opening choice, with nothing pending, surfaces it.
+    class _GarbageAfterFailure:
+        def __init__(self):
+            self.asks = 0
+
+        async def select(self, context, **kwargs):
+            self.asks += 1
+            return context.candidates[0] if self.asks == 1 else answer(context)
+
+    router = ModelRouter(
+        models=[_FailingModel(ValueError("model real error")), _model("healthy")],
+        strategy=_GarbageAfterFailure(),
+    )
+    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
+
+    with pytest.raises(ValueError, match="model real error"):
+        agent("hello")
+
+
 @pytest.mark.asyncio
 async def test_contract_violation_surfaces_instead_of_degrading():
     # A wrong return type is a bug in the strategy, not an outage to route around.
