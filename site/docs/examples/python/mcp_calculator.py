@@ -10,7 +10,7 @@ This example demonstrates how to:
 import threading
 import time
 
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.server import FastMCP
 from strands import Agent
 from strands.tools.mcp.mcp_client import MCPClient
@@ -110,7 +110,7 @@ def main():
     print("Connecting to MCP server...")
 
     def create_streamable_http_transport():
-        return streamablehttp_client("http://localhost:8000/mcp/")
+        return streamable_http_client("http://localhost:8000/mcp/")
 
     streamable_http_mcp_client = MCPClient(create_streamable_http_transport)
 
