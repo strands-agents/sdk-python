@@ -52,7 +52,7 @@ The system uses an orchestrator that delegates to a pool of six specialized agen
 
 A lightweight **Title Agent** also runs in parallel on the cheapest model, purely for generating conversation titles without blocking the main pipeline.
 
-The system connects to external services through MCPs: a Figma MCP for design data, a REC MCP for the ad layout system, and a Weblab MCP for experimentation. All agents share access to a data store layer (Amazon Bedrock Knowledge Base for UX guidelines and component rules, S3 for generated variations, and DynamoDB for layout metadata).
+The system connects to external services through MCPs: a Figma MCP for design data and a REC MCP for the ad layout system. The team uses the REC MCP to understand ad layout systems and write code directly to the production REC code base. All agents share access to a data store layer (Amazon Bedrock Knowledge Base for UX guidelines and component rules, S3 for generated variations, and DynamoDB for layout metadata).
 
 Each agent is defined with a system prompt, instruction files, available tools, and MCP servers. The actual workflow logic lives in the system prompt and instructions, not in code-level orchestration. The LLM decides how to sequence its tool calls based on the task, rather than following a hardcoded graph. This gives the agent flexibility to adapt its approach based on what it finds during execution, without requiring the team to anticipate every possible path in advance.
 

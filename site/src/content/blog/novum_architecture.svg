@@ -4,6 +4,12 @@
     <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" fill="#58a6ff"/>
     </marker>
+    <marker id="arrow-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#3fb950"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#a371f7"/>
+    </marker>
     <marker id="arrow-gray" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
       <polygon points="0 0, 8 3, 0 6" fill="#484f58"/>
     </marker>
@@ -12,7 +18,7 @@
   <!-- Background regions -->
   <!-- Agent Pool box -->
   <rect x="280" y="60" width="380" height="240" rx="8" fill="none" stroke="#30363d" stroke-width="1.5" stroke-dasharray="4,3"/>
-  <text x="470" y="85" text-anchor="middle" font-size="11" fill="#8b949e" font-weight="500">STRANDS AGENT POOL</text>
+  <text x="360" y="85" text-anchor="middle" font-size="11" fill="#8b949e" font-weight="500">STRANDS AGENT POOL</text>
 
   <!-- User / UX -->
   <rect x="20" y="145" width="90" height="50" rx="6" fill="#1c2128" stroke="#30363d" stroke-width="1"/>
@@ -37,15 +43,15 @@
   <text x="370" y="125" text-anchor="middle" font-size="11" fill="#58a6ff">Code</text>
   <text x="370" y="140" text-anchor="middle" font-size="11" fill="#58a6ff">Generation</text>
 
-  <!-- Design Extractor Agent -->
-  <rect x="310" y="170" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
-  <text x="370" y="190" text-anchor="middle" font-size="11" fill="#58a6ff">Design</text>
-  <text x="370" y="205" text-anchor="middle" font-size="11" fill="#58a6ff">Extractor</text>
-
   <!-- QA Testing Agent -->
+  <rect x="310" y="170" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
+  <text x="370" y="190" text-anchor="middle" font-size="11" fill="#58a6ff">QA</text>
+  <text x="370" y="205" text-anchor="middle" font-size="11" fill="#58a6ff">Testing</text>
+
+  <!-- Design Extractor Agent -->
   <rect x="310" y="235" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
-  <text x="370" y="255" text-anchor="middle" font-size="11" fill="#58a6ff">QA</text>
-  <text x="370" y="270" text-anchor="middle" font-size="11" fill="#58a6ff">Testing</text>
+  <text x="370" y="255" text-anchor="middle" font-size="11" fill="#58a6ff">Design</text>
+  <text x="370" y="270" text-anchor="middle" font-size="11" fill="#58a6ff">Extractor</text>
 
   <!-- Planning Agent -->
   <rect x="460" y="105" width="120" height="45" rx="5" fill="#0d2136" stroke="#58a6ff" stroke-width="1"/>
@@ -62,7 +68,7 @@
   <text x="520" y="255" text-anchor="middle" font-size="10" fill="#8b949e">Title Agent</text>
   <text x="520" y="269" text-anchor="middle" font-size="9" fill="#484f58">(Haiku — parallel)</text>
 
-  <!-- Output: REC Code -->
+  <!-- Output: Layout Code -->
   <rect x="700" y="120" width="100" height="50" rx="6" fill="#0b2e1a" stroke="#3fb950" stroke-width="1.5"/>
   <text x="750" y="142" text-anchor="middle" font-size="11" fill="#3fb950">Layout</text>
   <text x="750" y="158" text-anchor="middle" font-size="11" fill="#3fb950">Code</text>
@@ -81,17 +87,18 @@
   <!-- User -> Orchestrator -->
   <line x1="110" y1="170" x2="152" y2="170" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow)"/>
   <!-- Figma -> Figma MCP -->
-  <line x1="110" y1="305" x2="152" y2="305" stroke="#a371f7" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <!-- Figma MCP -> Agent Pool -->
-  <line x1="245" y1="295" x2="307" y2="260" stroke="#a371f7" stroke-width="1" marker-end="url(#arrow)"/>
-  <!-- Orchestrator -> Agent Pool -->
-  <line x1="255" y1="170" x2="307" y2="145" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <!-- Agent Pool -> Output -->
-  <line x1="580" y1="140" x2="697" y2="140" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow)"/>
-  <line x1="580" y1="195" x2="697" y2="220" stroke="#3fb950" stroke-width="1" marker-end="url(#arrow)"/>
+  <line x1="110" y1="305" x2="152" y2="305" stroke="#a371f7" stroke-width="1.5" marker-end="url(#arrow-purple)"/>
+  <!-- Figma MCP -> Design Extractor -->
+  <line x1="245" y1="290" x2="307" y2="262" stroke="#a371f7" stroke-width="1" marker-end="url(#arrow-purple)"/>
+  <!-- Orchestrator -> Agent Pool box -->
+  <line x1="255" y1="172" x2="277" y2="176" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <!-- Code Generation -> Layout Code (arcs above the agent boxes) -->
+  <path d="M 430 120 Q 565 25 697 140" fill="none" stroke="#3fb950" stroke-width="1.5" marker-end="url(#arrow-green)"/>
+  <!-- Agent Pool -> Adaptive Renderer -->
+  <line x1="580" y1="192" x2="697" y2="222" stroke="#3fb950" stroke-width="1" marker-end="url(#arrow-green)"/>
   <!-- Agent Pool -> Data Store -->
   <line x1="470" y1="300" x2="470" y2="337" stroke="#484f58" stroke-width="1" marker-end="url(#arrow-gray)" stroke-dasharray="3,2"/>
 
   <!-- Model labels -->
-  <text x="370" y="310" text-anchor="middle" font-size="9" fill="#484f58">Opus 4 (code gen) • Sonnet 4 (orchestration) • Haiku 3 (title)</text>
+  <text x="370" y="315" text-anchor="middle" font-size="9" fill="#484f58">Opus 4 (code gen) • Sonnet 4 (orchestration) • Haiku 3 (title)</text>
 </svg>
