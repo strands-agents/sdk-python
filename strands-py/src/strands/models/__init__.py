@@ -15,7 +15,6 @@ from .routing import (
     RoutingAttempt,
     RoutingCandidate,
     RoutingContext,
-    RoutingStage,
     RoutingStrategy,
 )
 
@@ -34,7 +33,6 @@ __all__ = [
     "RoutingAttempt",
     "RoutingCandidate",
     "RoutingContext",
-    "RoutingStage",
     "RoutingStrategy",
 ]
 

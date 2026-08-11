@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -20,30 +19,19 @@ if TYPE_CHECKING:
     from .router import RoutingCandidate
 
 
-class RoutingStage(Enum):
-    """How far an attempt got: to the model call, or not even to a model."""
-
-    MODEL_CALL = "model_call"
-    RESOLVE = "resolve"
-
-
 @dataclass(frozen=True)
 class RoutingAttempt:
-    """A candidate this invocation already used, and how the attempt ended.
+    """A model call this invocation already made, and how it ended.
 
     ``candidate`` is the instance from ``RoutingContext.candidates``, not a copy. ``exception`` is
-    ``None`` when the call succeeded, and ``stage`` says what failed: ``MODEL_CALL`` is the model's
-    error as ``AfterModelCallEvent`` reports it, while ``RESOLVE`` means the candidate never produced
-    a model -- a nested router whose strategy declined or raised -- so no model was reached and the
-    exception is whatever resolving raised. The two are worth separating, because a candidate that
-    failed to resolve may resolve on a later ask while a model that failed has actually been tried.
-    Attempts are in chronological order, so a strategy can tell a first failure from a repeated one
-    and treat a candidate that recovered as healthy.
+    ``None`` when the call succeeded, and otherwise is the model's error as ``AfterModelCallEvent``
+    reports it. Every attempt reached a model, so a candidate the router could not resolve to a model
+    is absent rather than recorded as a failure. Attempts are in chronological order, so a strategy can
+    tell a first failure from a repeated one and treat a candidate that recovered as healthy.
     """
 
     candidate: RoutingCandidate
     exception: Exception | None = None
-    stage: RoutingStage = RoutingStage.MODEL_CALL
 
 
 @dataclass(frozen=True)
@@ -60,10 +48,9 @@ class RoutingContext:
     ``strands:model_routing`` key. In a multi-agent run it may be shared across nodes, so its
     ``"agent"`` value may identify a sibling.
 
-    A strategy is asked on every invocation because the right model usually depends on the request:
-    reusing an earlier decision would answer a hard request with a model chosen for an easy one. A
-    strategy that is expensive to evaluate should narrow what it looks at -- typically the latest
-    turn rather than the whole transcript -- instead of caching a verdict across invocations.
+    A strategy is asked on every invocation, since the right model usually depends on the request. One
+    that is expensive to evaluate should narrow what it looks at -- typically the latest turn rather
+    than the whole transcript -- instead of caching a verdict across invocations.
     """
 
     messages: Messages
@@ -85,27 +72,22 @@ class RoutingStrategy(Protocol):
     async def select(self, context: RoutingContext, **kwargs: Any) -> RoutingCandidate | None:
         """Return the candidate to use, from ``context.candidates``, or ``None`` to decline.
 
-        Asked before the first model call, and again after each failed call with that failure appended
-        to ``context.attempts``. ``attempts`` is usually empty on the opening ask but not always: a
-        candidate that cannot be resolved to a model is recorded, with ``stage=RoutingStage.RESOLVE``,
-        and the opening ask repeats, so ``attempts`` does not reliably distinguish the opening ask from
-        a later one.
-
-        ``None`` declines. On the opening ask the router still serves the request on the first declared
-        candidate it has not already tried, so a servable request does not fail on a routing decision;
-        on a later ask it ends routing and lets the model's error surface.
+        Asked once before the first model call, when ``context.attempts`` is empty, and again after each
+        failed call with that failure appended to ``attempts``.
 
         The return value must be one of the ``context.candidates`` instances -- the router matches by
         identity, so an equal-looking ``RoutingCandidate`` built here is rejected.
 
-        One router rule constrains the answer, and it is predictable from ``context.attempts``: a
-        failure round switches to each candidate at most once, where a round is the run of failures
-        since the last success, and the candidate the round opens on counts as already used -- the
-        opening choice, or the one that last succeeded. Naming a candidate the round already used is
-        not an error and costs no model call -- the router asks again, a bounded number of times --
-        but it cannot be used to re-run that candidate, so a strategy that judges a failure transient
-        should offer a different candidate and wait for the next success to re-arm this one. When
-        nothing is left to switch to, the model's error surfaces.
+        ``None`` declines: the opening ask then serves the request on the router's default model, and a
+        later ask ends routing so the model's error surfaces. Raising propagates on the opening ask and
+        ends routing after a failure, so a strategy that prefers a default to an error should return one.
+
+        A failure round uses each candidate at most once, where a round is the run of failures since the
+        last success, and the candidate the round opens on already counts as used -- the opening choice,
+        or the one that last succeeded. Naming a candidate the round already used ends routing exactly as
+        ``None`` would, so a strategy that judges a failure transient should offer a different candidate
+        and wait for the next success to re-arm this one. All of this is predictable from
+        ``context.attempts``.
 
         Failover is this method's job: the router applies what is returned and never substitutes a
         candidate of its own, so a strategy that ignores ``context.attempts`` gets no failover. Wrap or

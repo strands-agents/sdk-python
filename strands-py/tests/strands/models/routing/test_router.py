@@ -15,7 +15,6 @@ from strands.models.routing import (
     RoutingAttempt,
     RoutingCandidate,
     RoutingContext,
-    RoutingStage,
     RoutingStrategy,
 )
 from strands.models.routing.router import _candidate_label, _RoutingState
@@ -279,32 +278,54 @@ async def test_strategy_selection_rejects_unusable_results(returns, exc, match):
         await router._select_model(_routing_context(router.candidates))
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("strategy_body", "warns"),
-    [
-        (lambda context: None, False),
-        (lambda context: (_ for _ in ()).throw(RuntimeError("judge timed out")), True),
-    ],
-    ids=["declines", "raises"],
-)
-async def test_opening_choice_degrades_to_the_default_candidate(strategy_body, warns, caplog):
-    # An expensive strategy can time out or answer unparseably; the request is still servable. Only
-    # the raise is unexpected: declining is supported, so it must not warn on every invocation.
+def test_a_nested_strategy_that_declines_serves_its_own_default_model():
+    # Nesting follows the same rule as the top level, so it adds no failure mode: the nested router
+    # answers with its own default rather than making the whole candidate unusable.
+    class _Declines:
+        async def select(self, context):
+            return None
+
+    inner = ModelRouter(models=[_model("inner-default"), _model("inner-other")], strategy=_Declines())
+    agent = Agent(model=ModelRouter(models=[inner, _model("outer")]), callback_handler=None)
+
+    assert agent("hello").message["content"][0]["text"] == "inner-default"
+
+
+def test_declining_the_opening_choice_serves_the_request_on_the_default_model(caplog):
+    # Declining is an answer, not a failure: the strategy has no preference and the first declared
+    # candidate is the router's default. Supported behavior must not warn on every invocation.
     default, other = _model("default"), _model("other")
 
-    class _Unhelpful:
+    class _NoPreference:
         async def select(self, context):
-            return strategy_body(context)
+            return None
 
-    router = ModelRouter(models=[default, other], strategy=_Unhelpful())
+    router = ModelRouter(models=[default, other], strategy=_NoPreference())
     agent = Agent(model=router, callback_handler=None)
 
     with caplog.at_level(logging.DEBUG, logger="strands.models.routing.router"):
         assert agent("hello").message["content"][0]["text"] == "default"
 
-    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
-    assert bool(warnings) is warns
+    assert [record for record in caplog.records if record.levelno >= logging.WARNING] == []
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: ModelRouter(models=[_model("default"), _model("other")], strategy=_RaisingStrategy()),
+        # A chosen nested router that cannot produce a model fails the same way.
+        lambda: ModelRouter(models=[ModelRouter(models=[_model()], strategy=_RaisingStrategy()), _model("other")]),
+    ],
+    ids=["strategy-raises", "chosen-nested-router-raises"],
+)
+def test_a_failed_opening_choice_propagates_rather_than_picking_a_model(build):
+    # The router never substitutes a model of its own: silently running an unintended model hides a
+    # broken strategy and bills the caller for a model they did not choose. A strategy that wants a
+    # default on failure can return one itself.
+    agent = Agent(model=build(), callback_handler=None)
+
+    with pytest.raises(RuntimeError, match="strategy boom"):
+        agent("hello")
 
 
 def test_strategy_that_declines_to_reconsider_gets_no_fallback():
@@ -946,95 +967,6 @@ def test_a_strategy_that_alternates_candidates_terminates():
     assert tru_calls == exp_calls
 
 
-class _TransientStrategy:
-    """Raises on its first N asks, then selects normally. The suite otherwise has no flaky fixture."""
-
-    def __init__(self, failures=1):
-        self._left = failures
-        self.asks = 0
-
-    async def select(self, context, **kwargs):
-        self.asks += 1
-        if self._left:
-            self._left -= 1
-            raise RuntimeError("judge timed out")
-        return context.candidates[0]
-
-
-def test_a_transient_resolve_failure_does_not_bar_the_candidate_during_failover():
-    # The failover path, not the opening one: the first candidate's model must actually be called, so
-    # the nested candidate is reached through _advance rather than through _open's own retry loop.
-    healthy = _CountingModel("nested-healthy")
-    nested = ModelRouter(models=[healthy], strategy=_TransientStrategy(failures=1))
-    dead = _FailingModel(ValueError("primary down"))
-    router = ModelRouter(
-        models=[RoutingCandidate(dead, name="primary"), RoutingCandidate(nested, name="nested")],
-    )
-    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
-
-    result = agent("hello")
-
-    assert result.message["content"][0]["text"] == "nested-healthy"
-    assert healthy.calls == 1
-
-
-def test_a_resolve_failure_is_recorded_as_such_so_a_strategy_can_tell_it_apart():
-    # A model failure and a resolve failure both arrive as an exception, so the stage is the only
-    # thing that says whether a model was reached at all.
-    seen = []
-
-    class _RecordsStages:
-        """Opens on the model that fails, then names the candidate that cannot resolve."""
-
-        async def select(self, context, **kwargs):
-            seen.append([(attempt.candidate.name, attempt.stage) for attempt in context.attempts])
-            return context.candidates[len(seen) - 1] if len(seen) <= 2 else None
-
-    unresolvable = ModelRouter(models=[_model("nested")], strategy=_RaisingStrategy())
-    router = ModelRouter(
-        models=[
-            RoutingCandidate(_FailingModel(ValueError("primary down")), name="primary"),
-            RoutingCandidate(unresolvable, name="broken"),
-        ],
-        strategy=_RecordsStages(),
-    )
-    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
-
-    with pytest.raises(ValueError, match="primary down"):
-        agent("hello")
-
-    tru_stages = seen[-1]
-    exp_stages = [("primary", RoutingStage.MODEL_CALL), ("broken", RoutingStage.RESOLVE)]
-    assert tru_stages == exp_stages
-
-
-def test_a_transient_resolve_failure_does_not_bar_the_candidate_for_the_round():
-    # A nested router whose strategy hiccups once must still be reachable later in the round; the
-    # round is bounded on candidates switched to, not on everything in the attempt log.
-    healthy = _model("nested-healthy")
-    nested = ModelRouter(models=[healthy], strategy=_TransientStrategy(failures=1))
-
-    class _PreferNested:
-        async def select(self, context, **kwargs):
-            return context.candidates[1]
-
-    router = ModelRouter(
-        models=[
-            RoutingCandidate(_FailingModel(ValueError("primary down")), name="primary"),
-            RoutingCandidate(nested, name="nested"),
-        ],
-        strategy=_PreferNested(),
-    )
-    agent = Agent(
-        model=router,
-        retry_strategy=ModelRetryStrategy(max_attempts=1, initial_delay=0, max_delay=0),
-        callback_handler=None,
-    )
-
-    # The nested strategy raises on the first resolve, then succeeds on the retry within the round.
-    assert "nested-healthy" in str(agent("hello"))
-
-
 class _OffersUsedCandidate:
     """Names the round's used candidate on its first N asks, then the untried one."""
 
@@ -1045,44 +977,6 @@ class _OffersUsedCandidate:
     async def select(self, context, **kwargs):
         self.asks += 1
         return context.candidates[0] if self.asks <= self._wasted_asks else context.candidates[1]
-
-
-def test_a_strategy_offering_a_used_candidate_keeps_failing_over():
-    # A random or weighted strategy can name a used candidate by chance. That must cost an ask, not
-    # the whole failover: healthy untried candidates are still reachable.
-    healthy = _model("recovered")
-    router = ModelRouter(
-        models=[
-            RoutingCandidate(_FailingModel(ValueError("down")), name="dead"),
-            RoutingCandidate(healthy, name="healthy"),
-        ],
-    )
-    agent, state, invocation_state = _hook_scaffold(router)
-
-    router._strategy = _OffersUsedCandidate()
-    event = _model_result(invocation_state, agent, error=ValueError("down"))
-
-    asyncio.run(router._on_model_result(event))
-
-    assert event.retry is True
-    assert state.candidate is router.candidates[1]
-
-
-@pytest.mark.asyncio
-async def test_wasted_asks_do_not_consume_the_failover_bound():
-    # Repeats of the used candidate cost an ask each, never switch capacity, so the untried candidate
-    # stays reachable however many times a strategy names a used one first.
-    router = ModelRouter(models=[_FailingModel(ValueError("down")), _model("recovered")])
-    agent, state, invocation_state = _hook_scaffold(router)
-    strategy = _OffersUsedCandidate(wasted_asks=len(router.candidates))
-    router._strategy = strategy
-    event = _model_result(invocation_state, agent, error=ValueError("down"))
-
-    await router._on_model_result(event)
-
-    assert event.retry is True
-    assert state.candidate is router.candidates[1]
-    assert strategy.asks == len(router.candidates) + 1
 
 
 @pytest.mark.asyncio
@@ -1111,23 +1005,6 @@ async def test_a_success_does_not_re_arm_the_candidate_that_just_succeeded():
 
 
 @pytest.mark.asyncio
-async def test_a_wasted_ask_after_a_success_does_not_spend_the_switch_cap():
-    # max_switches counts model changes, and naming the round's used candidate changes nothing. If
-    # that ask spent the cap, a cap of one would strand the healthy backup after any earlier success.
-    router = ModelRouter(models=[_model("first"), _model("second")], max_switches=1)
-    agent, state, invocation_state = _hook_scaffold(router)
-    router._strategy = _OffersUsedCandidate()
-
-    await router._on_model_result(_model_result(invocation_state, agent))
-    event = _model_result(invocation_state, agent, error=ValueError("down"))
-    await router._on_model_result(event)
-
-    tru_outcome = (event.retry, state.candidate, state.switches)
-    exp_outcome = (True, router.candidates[1], 1)
-    assert tru_outcome == exp_outcome
-
-
-@pytest.mark.asyncio
 async def test_each_ask_in_a_round_gets_its_own_request_copy():
     # RoutingContext promises fresh copies per ask, so a round with several asks must not hand the
     # same objects twice.
@@ -1145,30 +1022,6 @@ async def test_each_ask_in_a_round_gets_its_own_request_copy():
 
     assert len(seen) >= 2
     assert len(set(seen)) == len(seen)  # no object reused across asks
-
-
-@pytest.mark.asyncio
-async def test_resolve_failures_from_the_opening_phase_reach_the_strategy():
-    # _open skips candidates it cannot resolve; the strategy must inherit that history rather than
-    # re-deriving it on its first post-failure ask.
-    unresolvable = ModelRouter(models=[_model("nested")], strategy=_RaisingStrategy())
-    flaky, healthy = _model("flaky"), _model("healthy")
-    router = ModelRouter(
-        models=[
-            RoutingCandidate(unresolvable, name="broken"),
-            RoutingCandidate(flaky, name="flaky"),
-            RoutingCandidate(healthy, name="healthy"),
-        ]
-    )
-
-    context = _invoke_context({}, model=router.default_model)
-    await router._selection_middleware()(context)
-    state = _routing_state_of(context.invocation_state, router)
-
-    assert state.candidate is router.candidates[1]  # skipped the unresolvable first slot
-    tru_attempts = [(_label(attempt.candidate), type(attempt.exception)) for attempt in state.attempts]
-    exp_attempts = [("broken", RuntimeError)]
-    assert tru_attempts == exp_attempts
 
 
 @pytest.mark.parametrize(("cap", "expected"), [(0, "first down"), (1, "second down")], ids=["cap-0", "cap-1"])
@@ -1269,60 +1122,6 @@ async def test_fallback_resolution_error_is_contained():
     await router._on_model_result(event)
 
     assert event.retry is False  # an unresolvable candidate degrades to "no fallback", not a crash
-
-
-def test_fallback_skips_an_unresolvable_candidate_and_reaches_a_healthy_one():
-    # [0] fails on call, [1] is a nested router whose strategy raises during resolution, [2] is
-    # healthy. A resolution failure on [1] must skip to [2], not abandon the chain.
-    unresolvable = RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()))
-    router = ModelRouter(models=[_FailingModel(ValueError("primary down")), unresolvable, _model("healthy")])
-    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
-
-    result = agent("hello")
-
-    assert result.message["content"][0]["text"] == "healthy"
-
-
-@pytest.mark.parametrize("declining_first", [True, False], ids=["first-slot", "second-slot"])
-def test_an_unresolvable_nested_router_is_skipped_wherever_it_is_declared(declining_first):
-    class _Declines:
-        async def select(self, context):
-            return None
-
-    inner = ModelRouter(models=[_model("inner")], strategy=_Declines())
-    slots = [RoutingCandidate(inner, name="inner"), RoutingCandidate(_model("healthy"), name="healthy")]
-    if not declining_first:
-        slots.reverse()
-    agent = Agent(model=ModelRouter(models=slots), retry_strategy=None, callback_handler=None)
-
-    assert agent("hello").message["content"][0]["text"] == "healthy"
-
-
-def test_opening_choice_stops_when_a_strategy_insists_on_an_unresolvable_candidate():
-    broken = RoutingCandidate(ModelRouter([_model()], strategy=_RaisingStrategy()), name="broken")
-
-    class _Insists:
-        async def select(self, context):
-            return next(c for c in context.candidates if c.name == "broken")
-
-    router = ModelRouter(models=[broken, RoutingCandidate(_model("healthy"), name="healthy")], strategy=_Insists())
-    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
-
-    with pytest.raises(RuntimeError, match="strategy boom"):
-        agent("hello")
-
-
-def test_opening_choice_raises_when_no_candidate_can_be_resolved():
-    class _Declines:
-        async def select(self, context):
-            return None
-
-    inner = ModelRouter(models=[_model("inner")], strategy=_Declines())
-    router = ModelRouter(models=[RoutingCandidate(inner, name="inner")], strategy=_Declines())
-    agent = Agent(model=router, retry_strategy=None, callback_handler=None)
-
-    with pytest.raises(ValueError, match="nested strategy chose no candidate"):
-        agent("hello")
 
 
 class _RendezvousModel(MockedModelProvider):
