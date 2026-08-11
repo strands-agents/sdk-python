@@ -269,8 +269,9 @@ def test_agent_with_reasoning_content(model, assistant_agent):
 class TestCountTokens:
     @pytest.fixture
     def model(self):
+        # Flash-Lite is the cheapest GA model and countTokens is model-agnostic here.
         return GeminiModel(
-            model_id="gemini-2.0-flash",
+            model_id="gemini-2.5-flash-lite",
             client_args={"api_key": os.environ["GOOGLE_API_KEY"]},
             use_native_token_count=True,
         )
