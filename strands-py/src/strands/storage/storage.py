@@ -21,10 +21,13 @@ so the default auto-prefix can be skipped.
 
 
 def _normalize_key(key: str) -> str:
-    """Validate and normalize a storage key.
+    """Validate and normalize a storage key for path-based backends.
 
     Collapses runs of '/', strips leading and trailing '/', rejects empty
     keys, and rejects any '..' segment.
+
+    Used by the shipped path-based backends (InMemoryStorage, LocalFileStorage,
+    S3Storage), not required by the Storage protocol itself.
 
     Args:
         key: The raw key to normalize.
@@ -44,11 +47,13 @@ def _normalize_key(key: str) -> str:
 
 
 def _normalize_prefix(prefix: str) -> str:
-    """Normalize a list prefix.
+    """Normalize a list prefix for path-based backends.
 
     Collapses slash runs, strips leading slashes. Unlike a key, an empty
     prefix is valid and matches everything. A trailing slash is preserved
     because it is semantically significant for prefix matching.
+
+    Used by the shipped path-based backends alongside :func:`_normalize_key`.
 
     Args:
         prefix: The raw prefix to normalize.
@@ -70,8 +75,10 @@ class Storage(Protocol[ListQuery]):
     """A backend for storing and retrieving raw bytes under string keys.
 
     The interface is deliberately minimal — four operations over opaque bytes
-    values. Implementations must treat keys as opaque path-like strings (segments
-    separated by '/') and must round-trip the bytes they are given unchanged.
+    values. Keys are opaque strings — implementations must round-trip the bytes
+    they are given unchanged. The shipped backends interpret '/' as a logical
+    separator (collapsing runs, rejecting '..'), but custom backends may apply
+    their own key scheme.
 
     The ``ListQuery`` type parameter controls what ``list`` accepts. It defaults to
     ``str`` (a key prefix), which every backend supports. Implementations may
@@ -86,7 +93,7 @@ class Storage(Protocol[ListQuery]):
         """Store data under key, overwriting any existing value.
 
         Args:
-            key: Opaque, '/'-separated key identifying the value.
+            key: Opaque string key identifying the value.
             data: Raw bytes to persist.
 
         Raises:
@@ -141,6 +148,9 @@ class _NamespacedStorage:
     """A storage view that prepends a prefix to all keys.
 
     Composable — calling ``.namespace()`` on the result nests prefixes.
+    Uses :func:`_normalize_prefix` to sanitize the prefix, so it assumes a
+    '/'-separated key scheme. Backends with a different key scheme should
+    implement their own namespacing.
     """
 
     _namespaced = _NAMESPACED

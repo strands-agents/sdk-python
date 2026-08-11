@@ -113,6 +113,19 @@ export const onRequest = defineRouteMiddleware(async (context) => {
   const currentPath = context.url.pathname
   const currentSlug = starlightRoute.id
 
+  // Integration doc pages are reached from the /integrations catalog (drawer,
+  // "Open full page", search engines, direct links) rather than the docs tree.
+  // Hide the docs sidebar so a full-page view doesn't read as product docs
+  // (content then centers at Starlight's sidebar-less width), and drop the
+  // prev/next pagination derived from the hidden tree. The way back to the
+  // catalog is the back strip rendered by the MarkdownContent override.
+  if (currentSlug === 'docs/integrations' || currentSlug.startsWith('docs/integrations/')) {
+    starlightRoute.hasSidebar = false
+    starlightRoute.sidebar = []
+    starlightRoute.pagination = { prev: undefined, next: undefined }
+    return
+  }
+
   // Check if we're on an API page (Python or TypeScript)
   if (currentSlug.startsWith('docs/api/python') || currentSlug.startsWith('docs/api/typescript')) {
     const docs = await getCollection('docs')

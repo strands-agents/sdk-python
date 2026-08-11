@@ -204,6 +204,51 @@ def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
     assert "5117" in str(result_turn2)
 
 
+@pytest.fixture
+def tool_specs():
+    return [
+        {
+            "name": "tool_time",
+            "description": "Get the current time for a city",
+            "inputSchema": {"json": {"type": "object", "properties": {"city": {"type": "string"}}}},
+        },
+        {
+            "name": "tool_weather",
+            "description": "Get the current weather for a city",
+            "inputSchema": {"json": {"type": "object", "properties": {"city": {"type": "string"}}}},
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_model_stream_tool_choice_any_forces_a_tool_use(model, tool_specs, alist):
+    messages = [{"role": "user", "content": [{"text": "Hello there!"}]}]
+
+    events = await alist(model.stream(messages, tool_specs=tool_specs, tool_choice={"any": {}}))
+
+    tru_stop_reason = next(event["messageStop"]["stopReason"] for event in events if "messageStop" in event)
+    exp_stop_reason = "tool_use"
+    assert tru_stop_reason == exp_stop_reason
+
+
+@pytest.mark.asyncio
+async def test_model_stream_tool_choice_tool_forces_the_named_tool(model, tool_specs, alist):
+    messages = [{"role": "user", "content": [{"text": "What is the weather in New York?"}]}]
+
+    events = await alist(
+        model.stream(messages, tool_specs=tool_specs, tool_choice={"tool": {"name": "tool_time"}}),
+    )
+
+    # ANY mode may emit more than one call, so only the narrowing to tool_time is guaranteed.
+    tru_tool_names = {
+        event["contentBlockStart"]["start"]["toolUse"]["name"]
+        for event in events
+        if "contentBlockStart" in event and "toolUse" in event["contentBlockStart"]["start"]
+    }
+    exp_tool_names = {"tool_time"}
+    assert tru_tool_names == exp_tool_names
+
+
 def test_agent_with_reasoning_content(model, assistant_agent):
     """Test that reasoning content is captured in message history."""
 

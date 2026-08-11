@@ -833,8 +833,87 @@ export class BedrockModel extends Model<BedrockModelConfig> {
   }
 
   /**
-   * Inject a cache point at the end of the last user message.
-   * Strips any existing cache points from all messages first.
+   * Keep a caller-placed cache point, applying the configured TTL and the document rule.
+   *
+   * The caller's position is honored; their TTL is not. Bedrock processes cache points in the order
+   * toolConfig, system, messages and rejects a longer TTL that follows a shorter one (see CacheConfig),
+   * so a TTL written here can turn a working configuration into a rejected request. Normalizing to
+   * `cacheConfig.messagesTTL` is what makes the honored path TTL-identical to the automatic one.
+   *
+   * @param content - Content blocks of the last user message (modified in place)
+   * @param placedIdx - Index of the caller-placed cache point
+   * @param msgIdx - Index of the message, for logging
+   * @returns True when the point was kept, possibly relocated. False when nothing cacheable precedes
+   *   it, so the point was removed: Bedrock rejects a cache point with no content ahead of it ("There
+   *   is nothing available to cache"). The caller then retries automatic placement, which lands a point
+   *   only if the remaining content allows one - for a leading document it declines too.
+   */
+  private _honorPlacedCachePoint(content: BedrockContentBlock[], placedIdx: number, msgIdx: number): boolean {
+    // Unreachable in practice - the caller scans for cache points to get this index - but the
+    // compiler cannot know that under noUncheckedIndexedAccess.
+    const placed = content[placedIdx]
+    if (!placed || !('cachePoint' in placed)) {
+      return false
+    }
+
+    if (placedIdx === 0) {
+      content.splice(placedIdx, 1)
+      logger.warn(
+        `msg_idx=<${msgIdx}> | removed cache point with no content ahead of it, falling back to automatic placement`
+      )
+      return false
+    }
+
+    // Honor the caller's position, not their TTL: Bedrock processes cache points in the order
+    // toolConfig, system, messages and rejects a longer TTL that follows a shorter one, so a TTL
+    // written here can invalidate a request against one configured for tools or system. Deleting it
+    // unconditionally also handles null and "", which are rejected before placement is even judged.
+    delete placed.cachePoint.ttl
+    const ttl = this._config.cacheConfig?.messagesTTL
+    if (ttl) {
+      // Bedrock validates TTL values server-side, so accept any string here. An empty configured TTL
+      // is not a TTL, matching the Python side rather than forwarding "" for the enum to reject.
+      placed.cachePoint.ttl = ttl as BedrockSdkCacheTTL
+    }
+
+    // Bedrock only rejects a cache point *directly* preceded by a non-PDF document, so step back over
+    // the adjacent run of them. Moving further would evict durable content - usually the document
+    // itself, the expensive part - from the cached prefix for no reason.
+    let targetIdx = placedIdx
+    while (targetIdx > 0) {
+      const previous = content[targetIdx - 1]
+      if (!previous || !('document' in previous) || previous.document?.format === 'pdf') {
+        break
+      }
+      targetIdx--
+    }
+
+    if (targetIdx !== placedIdx) {
+      content.splice(placedIdx, 1)
+      if (targetIdx === 0) {
+        // Nothing precedes the documents, so there is no prefix to cache.
+        logger.warn(`msg_idx=<${msgIdx}> | dropped cache point ahead of a leading document`)
+        return false
+      }
+      content.splice(targetIdx, 0, placed)
+      logger.debug(`msg_idx=<${msgIdx}>, block_idx=<${targetIdx}> | relocated caller-placed cache point`)
+      return true
+    }
+
+    logger.debug(`msg_idx=<${msgIdx}>, block_idx=<${placedIdx}> | honored caller-placed cache point`)
+    return true
+  }
+
+  /**
+   * Ensure the last user message carries exactly one cache point.
+   *
+   * A cache point already present in the last user message is honored where it sits rather than
+   * replaced: a caller places one to mark where its reusable prefix ends, ahead of content that is
+   * rebuilt every call. Moving it to the end of the message would put that per-call content inside
+   * the cached prefix, so every request would write a new entry and none would ever read one.
+   *
+   * Cache points in earlier messages are still removed, so they cannot accumulate one per turn
+   * against the provider's cache-point budget.
    *
    * @param messages - List of messages to inject cache point into (modified in place)
    */
@@ -844,9 +923,16 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     }
 
     let lastUserIdx: number | null = null
-
-    // Strip existing cache points and find last user message
     for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+      if (messages[msgIdx]?.role === 'user') {
+        lastUserIdx = msgIdx
+      }
+    }
+
+    // Strip cache points everywhere except the last user message, whose own point is the caller's
+    // boundary and is handled below.
+    for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+      if (msgIdx === lastUserIdx) continue
       const msg = messages[msgIdx]
       if (!msg) continue
 
@@ -861,24 +947,54 @@ export class BedrockModel extends Model<BedrockModelConfig> {
           )
         }
       }
-
-      if (msg.role === 'user') {
-        lastUserIdx = msgIdx
-      }
     }
 
     // Add cache point to last user message
     if (lastUserIdx !== null) {
       const lastMsg = messages[lastUserIdx]
       if (lastMsg && lastMsg.content) {
+        const content = lastMsg.content
+
+        const placedIdxs: number[] = []
+        for (let blockIdx = 0; blockIdx < content.length; blockIdx++) {
+          const block = content[blockIdx]
+          if (block && 'cachePoint' in block) {
+            placedIdxs.push(blockIdx)
+          }
+        }
+
+        if (placedIdxs.length > 0) {
+          // One boundary per message, so this change's budget footprint matches the strip it replaces.
+          // Extras are not worthless - a second point ahead of the per-call tail doubles the cached
+          // prefix - but Bedrock allows only four cache points per request and the budget is shared
+          // across toolConfig, system and messages. The SDK already spends up to two of them via
+          // cacheTools and cachePrompt, so honoring a caller's extras needs that arithmetic first, or
+          // three caller points become a hard rejection rather than weaker caching. Descending, so
+          // each removal is above every index still to be used.
+          for (const extraIdx of placedIdxs.slice(1).reverse()) {
+            content.splice(extraIdx, 1)
+            logger.warn(
+              `msg_idx=<${lastUserIdx}>, block_idx=<${extraIdx}> | stripped existing cache point (auto mode manages cache points)`
+            )
+          }
+          if (this._honorPlacedCachePoint(content, placedIdxs[0] as number, lastUserIdx)) {
+            return
+          }
+          if (content.length === 0) {
+            // Removing the point emptied the message, so there is nothing left to cache and
+            // re-adding one would rebuild the request Bedrock just refused.
+            logger.debug(`msg_idx=<${lastUserIdx}> | no content left to cache`)
+            return
+          }
+          // The point could not legally stay, so fall through to automatic placement below.
+        }
+
         const cachePoint: BedrockCachePointBlock = { type: 'default' }
         const ttl = this._config.cacheConfig?.messagesTTL
         if (ttl !== undefined) {
           // Bedrock validates TTL values server-side, so accept any string here.
           cachePoint.ttl = ttl as BedrockSdkCacheTTL
         }
-
-        const content = lastMsg.content
 
         // Locate the first non-PDF document block
         let firstNonPdfDocIdx: number | null = null

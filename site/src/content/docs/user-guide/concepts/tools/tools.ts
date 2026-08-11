@@ -257,6 +257,42 @@ async function toolContextInvocationStateExample() {
   // --8<-- [end:tool_context_invocation_state]
 }
 
+async function toolContextAppStateExample() {
+  // --8<-- [start:tool_context_app_state]
+  interface AppState {
+    userId: string
+    workspaceId: string
+  }
+
+  const profileTool = tool({
+    name: 'get_profile',
+    description: 'Look up the caller from durable agent state',
+    inputSchema: z.object({}),
+    callback: async (input, context) => {
+      if (!context) {
+        throw new Error('Context is required')
+      }
+
+      // `appState` is durable across invocations. The generic returns the
+      // typed value for the key instead of a bare `JSONValue`.
+      const userId = context.agent.appState.get<AppState>('userId') // string | undefined
+      const workspaceId = context.agent.appState.get<AppState>('workspaceId')
+
+      return `user=${userId ?? 'unknown'} workspace=${workspaceId ?? 'none'}`
+    },
+  })
+
+  // Seed durable state once; every invocation's tools read it back typed.
+  const agent = new Agent({
+    appState: { userId: 'user123', workspaceId: 'ws456' },
+    tools: [profileTool],
+  })
+
+  const result = await agent.invoke('Show my profile')
+  // --8<-- [end:tool_context_app_state]
+  return result
+}
+
 // Vended tools example
 async function vendedToolsExample() {
   // --8<-- [start:vended-tools]
