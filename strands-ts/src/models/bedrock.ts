@@ -512,15 +512,27 @@ export class BedrockModel extends Model<BedrockModelConfig> {
    * at the Bedrock default in between makes the whole request invalid. A TTL the caller wrote is left
    * as written - two conflicting TTLs are theirs to reconcile.
    *
-   * @param system - Formatted system content blocks, modified in place.
+   * The tools checkpoint runs ahead of the system one, so the fill-in only happens when it cannot land
+   * a longer TTL behind a shorter one: either no tools checkpoint is emitted, or it already carries the
+   * very TTL being filled in. A `toolsTTL` that differs leaves the system point at the provider default,
+   * exactly as it was before a `ttl` was configured, rather than trading one rejected request for
+   * another. A differing `toolsTTL` is the caller's to reconcile, the same as a TTL they wrote by hand.
+   *
+   * @param request - The formatted request, with `system` and `toolConfig` already populated.
    */
-  private _applySystemCacheTTL(system: SystemContentBlock[]): void {
-    if (!this._shouldEnableCaching()) {
+  private _applySystemCacheTTL(request: ConverseStreamCommandInput): void {
+    const system = request.system
+    if (!system || !this._shouldEnableCaching()) {
       return
     }
 
     const ttl = this._config.cacheConfig?.ttl
     if (!ttl) {
+      return
+    }
+
+    const toolsPoint = request.toolConfig?.tools?.find((tool) => 'cachePoint' in tool)
+    if (toolsPoint && 'cachePoint' in toolsPoint && toolsPoint.cachePoint?.ttl !== ttl) {
       return
     }
 
@@ -718,7 +730,6 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         request.system = [{ text: options.systemPrompt }]
       } else if (options.systemPrompt.length > 0) {
         request.system = options.systemPrompt.map((block) => this._formatContentBlock(block) as SystemContentBlock)
-        this._applySystemCacheTTL(request.system)
       }
     }
 
@@ -768,6 +779,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
 
       request.toolConfig = toolConfig
     }
+
+    // Runs after toolConfig so the tools checkpoint ahead of the system one is known.
+    this._applySystemCacheTTL(request)
 
     // Add inference configuration
     const inferenceConfig: InferenceConfiguration = {}

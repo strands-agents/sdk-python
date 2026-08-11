@@ -4344,3 +4344,104 @@ def test_format_request_does_not_mutate_the_system_blocks_the_caller_owns(bedroc
 
     assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
     assert cache_point == {"type": "default"}
+
+
+def test_format_request_leaves_a_system_cache_point_alone_behind_a_shorter_tools_ttl(
+    bedrock_client, messages, tool_spec
+):
+    """Bedrock rejects a TTL longer than an earlier checkpoint's, so filling the configured ttl in behind a
+    shorter tools TTL would trade one rejected request for another.
+    """
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["toolConfig"]["tools"][-1] == {"cachePoint": {"type": "default", "ttl": "5m"}}
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_leaves_a_system_cache_point_alone_behind_an_untimed_tools_cache_point(
+    bedrock_client, messages, tool_spec
+):
+    """A tools cache point with no TTL takes the provider default, which the configured ttl may exceed."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools="default")
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default"}}
+
+
+def test_format_request_applies_the_configured_ttl_behind_a_matching_tools_ttl(bedrock_client, messages, tool_spec):
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="1h")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model.format_request(messages, tool_specs=[tool_spec], system_prompt_content=system_blocks)
+
+    assert tru_request["system"][1] == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_applies_the_configured_ttl_when_the_request_carries_no_tools(bedrock_client, messages):
+    """No tool specs means no tools checkpoint ahead of the system one, so nothing constrains the fill-in."""
+    _ = bedrock_client
+    model = BedrockModel(
+        cache_config=CacheConfig(strategy="anthropic", ttl="1h"), cache_tools=CacheToolsConfig(ttl="5m")
+    )
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    assert tru_point == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_request_passes_an_empty_system_cache_point_through(bedrock_client, messages):
+    """An off-type cache point is the provider's to reject, not something to raise on while formatting."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [{"text": "s"}, {"cachePoint": None}]
+
+    tru_system = model.format_request(messages, system_prompt_content=system_blocks)["system"]
+
+    assert tru_system == [{"text": "s"}, {"cachePoint": None}]
+
+
+def test_format_request_applies_the_configured_ttl_to_every_system_cache_point(bedrock_client, messages):
+    """Every checkpoint has to move together; a TTL on only the first would leave the rest behind it."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl="1h"))
+    system_blocks = [
+        {"text": "a"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "b"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+    tru_system = model.format_request(messages, system_prompt_content=system_blocks)["system"]
+
+    exp_system = [
+        {"text": "a"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+        {"text": "b"},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+    ]
+    assert tru_system == exp_system
+
+
+def test_format_request_treats_an_empty_configured_ttl_as_unconfigured(bedrock_client, messages):
+    """An empty TTL is not a TTL, so it must not reach the wire for the Bedrock enum to reject."""
+    _ = bedrock_client
+    model = BedrockModel(cache_config=CacheConfig(strategy="anthropic", ttl=""))
+    system_blocks = [{"text": "s"}, {"cachePoint": {"type": "default"}}]
+
+    tru_point = model.format_request(messages, system_prompt_content=system_blocks)["system"][1]
+
+    exp_point = {"cachePoint": {"type": "default"}}
+    assert tru_point == exp_point

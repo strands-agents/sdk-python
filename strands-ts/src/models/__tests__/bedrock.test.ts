@@ -2329,6 +2329,81 @@ describe('BedrockModel', () => {
         expect((systemPrompt[1] as CachePointBlock).ttl).toBeUndefined()
       })
 
+      it('applies the shared ttl to every system cache point', async () => {
+        // Every checkpoint has to move together; a TTL on only the first would leave the rest behind it.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h' } })
+        const systemPrompt: SystemContentBlock[] = [
+          new TextBlock('a'),
+          new CachePointBlock({ cacheType: 'default' }),
+          new TextBlock('b'),
+          new CachePointBlock({ cacheType: 'default' }),
+        ]
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt }))
+
+        expect(systemCachePoints()).toStrictEqual([
+          { type: 'default', ttl: '1h' },
+          { type: 'default', ttl: '1h' },
+        ])
+      })
+
+      it('treats an empty shared ttl as unconfigured', async () => {
+        // An empty TTL is not a TTL, so it must not reach the wire for the Bedrock enum to reject. Asserted
+        // without tools so the tools checkpoint cannot be what holds the fill-in back.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '' } })
+
+        collectIterator(provider.stream(messages, { systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default' }])
+      })
+
+      it('leaves a system cache point alone when the tools checkpoint ahead of it is shorter', async () => {
+        // Bedrock rejects a TTL longer than an earlier checkpoint's, so filling in the shared ttl over a
+        // shorter toolsTTL would trade one invalid request for another.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '5m', messagesTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        const [tools] = cachePoints()
+        expect([tools, systemCachePoints()]).toStrictEqual([{ type: 'default', ttl: '5m' }, [{ type: 'default' }]])
+      })
+
+      it('leaves a system cache point alone when the tools checkpoint ahead of it is longer', async () => {
+        // The shared ttl is the caller's ceiling for a point they did not stamp; lengthening it to the
+        // tools TTL would buy a longer cache entry than they asked to pay for.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '5m', toolsTTL: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        const [tools] = cachePoints()
+        expect([tools, systemCachePoints()]).toStrictEqual([{ type: 'default', ttl: '1h' }, [{ type: 'default' }]])
+      })
+
+      it('applies the shared ttl when the tools section carries it too', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '1h' } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('applies the shared ttl when the tools section is disabled', async () => {
+        // No tools checkpoint means nothing precedes the system point, so the shared ttl is safe.
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: false } })
+
+        collectIterator(provider.stream(messages, { toolSpecs, systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
+      it('applies the shared ttl when the request carries no tools at all', async () => {
+        const provider = new BedrockModel({ cacheConfig: { ttl: '1h', toolsTTL: '5m' } })
+
+        collectIterator(provider.stream(messages, { systemPrompt: systemPromptWith() }))
+
+        expect(systemCachePoints()).toStrictEqual([{ type: 'default', ttl: '1h' }])
+      })
+
       it('resolves the ttl for a caller-placed cache point too', async () => {
         // The honored path takes its own route to the cache point, so it needs the same resolution:
         // `true` enables the section without being a duration, and the shared ttl still applies.

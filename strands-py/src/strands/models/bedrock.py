@@ -288,10 +288,13 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        # Built ahead of the request so the tools checkpoint is known to the system cache point behind it.
+        tools_cache_point = self._build_tools_cache_point() if tool_specs else []
+
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
-            "system": self._apply_system_cache_ttl(system_blocks),
+            "system": self._apply_system_cache_ttl(system_blocks, tools_cache_point),
             **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
             **(
                 {
@@ -312,7 +315,7 @@ class BedrockModel(Model):
                                 }
                                 for tool_spec in tool_specs
                             ],
-                            *self._build_tools_cache_point(),
+                            *tools_cache_point,
                         ],
                         **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
@@ -387,7 +390,9 @@ class BedrockModel(Model):
 
         return {"additionalModelRequestFields": additional_fields}
 
-    def _apply_system_cache_ttl(self, system_blocks: list[SystemContentBlock]) -> list[SystemContentBlock]:
+    def _apply_system_cache_ttl(
+        self, system_blocks: list[SystemContentBlock], tools_cache_point: list[dict[str, Any]]
+    ) -> list[SystemContentBlock]:
         """Apply ``cache_config.ttl`` to a caller-placed system cache point that carries no TTL of its own.
 
         Bedrock processes cache points in the order toolConfig, system, messages and rejects a TTL that
@@ -395,8 +400,15 @@ class BedrockModel(Model):
         point left at the Bedrock default in between makes the whole request invalid. A TTL the caller
         wrote is left as written - two conflicting TTLs are theirs to reconcile.
 
+        The tools checkpoint runs ahead of the system one, so the fill-in only happens when it cannot land
+        a longer TTL behind a shorter one: either no tools checkpoint is emitted, or it already carries the
+        very TTL being filled in. A ``cache_tools`` TTL that differs leaves the system point at the Bedrock
+        default, exactly as it was before a ``ttl`` was configured, rather than trading one rejected
+        request for another. That mismatch is the caller's to reconcile, the same as a TTL they wrote.
+
         Args:
             system_blocks: System content blocks for the request.
+            tools_cache_point: The toolConfig cache point emitted for this request, if any.
 
         Returns:
             The blocks, carrying the configured TTL where a cache point had none. A cache point is
@@ -412,10 +424,14 @@ class BedrockModel(Model):
         if strategy != "anthropic":
             return system_blocks
 
+        if tools_cache_point and tools_cache_point[0]["cachePoint"].get("ttl") != cache_config.ttl:
+            return system_blocks
+
         return [
             # An empty TTL is not a TTL, so it falls through to the configured one.
             SystemContentBlock(**{**block, "cachePoint": {**block["cachePoint"], "ttl": cache_config.ttl}})
-            if "cachePoint" in block and not block["cachePoint"].get("ttl")
+            # An off-type cache point is Bedrock's to reject, not something to raise on while formatting.
+            if block.get("cachePoint") is not None and not block["cachePoint"].get("ttl")
             else block
             for block in system_blocks
         ]
