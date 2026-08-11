@@ -44,6 +44,24 @@ async function customServer() {
   // --8<-- [end:custom_server]
 }
 
+// OpenRouter
+async function openRouter() {
+  // --8<-- [start:openrouter]
+  const model = new OpenAIModel({
+    api: 'chat',
+    apiKey: process.env.OPENROUTER_API_KEY || '<OPENROUTER_API_KEY>',
+    clientConfig: {
+      baseURL: 'https://openrouter.ai/api/v1',
+    },
+    modelId: 'openai/gpt-5.4',
+  })
+
+  const agent = new Agent({ model })
+  const response = await agent.invoke('Explain tool calling in one sentence.')
+  console.log(response)
+  // --8<-- [end:openrouter]
+}
+
 // Custom client
 async function customClient() {
   // --8<-- [start:custom_client]
