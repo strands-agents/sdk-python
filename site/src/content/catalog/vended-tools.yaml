@@ -1,0 +1,10 @@
+name: Vended Tools
+description: 'Pre-built tools for common agent tasks: file operations, shell commands, HTTP requests, and persistent notes.'
+integrationType: tool
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/tools/vended-tools
+badges: [native]
+addedDate: 2025-12-01

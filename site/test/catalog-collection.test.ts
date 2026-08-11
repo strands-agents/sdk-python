@@ -158,6 +158,23 @@ describe('catalog content collection', () => {
     }
   })
 
+  it('loads native SDK entries', async () => {
+    const entries = await getCollection('catalog')
+    const anthropic = entries.find((e) => e.id === 'anthropic')
+    expect(anthropic).toBeDefined()
+    expect(anthropic!.data.badges).toEqual(['native'])
+    expect(anthropic!.data.docsPage).toBe('docs/user-guide/concepts/model-providers/anthropic')
+    const native = entries.filter((e) => e.data.badges.includes('native'))
+    expect(native.length).toBe(24)
+    // Native entries point at the SDK monorepo and always have on-site docs;
+    // verified is a community-vetting signal, so the two never stack.
+    for (const e of native) {
+      expect(e.data.github, e.id).toBe('https://github.com/strands-agents/harness-sdk')
+      expect(e.data.docsPage, e.id).toBeDefined()
+      expect(e.data.badges, e.id).toEqual(['native'])
+    }
+  })
+
   it('every docsPage points at a real docs collection entry', async () => {
     const [entries, docs] = await Promise.all([getCollection('catalog'), getCollection('docs')])
     const docIds = new Set(docs.map((d) => d.id))

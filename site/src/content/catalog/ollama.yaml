@@ -1,0 +1,9 @@
+name: Ollama
+description: 'Run Strands agents on local models with Ollama: text generation, image understanding, tool calling, and streaming.'
+integrationType: model-provider
+languages:
+  python: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/model-providers/ollama
+badges: [native]
+addedDate: 2025-12-01

@@ -1,0 +1,10 @@
+name: Human in the Loop
+description: Gate agent tool execution behind human approval, with modes for CLI, web, and custom UIs.
+integrationType: intervention
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/agents/interventions/human-in-the-loop
+badges: [native]
+addedDate: 2025-12-01

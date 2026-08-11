@@ -1,0 +1,9 @@
+name: Llama API
+description: Run Strands agents on Meta-hosted Llama models without managing your own inference infrastructure.
+integrationType: model-provider
+languages:
+  python: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/model-providers/llamaapi
+badges: [native]
+addedDate: 2025-12-01

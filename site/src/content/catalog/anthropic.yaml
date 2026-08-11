@@ -1,0 +1,10 @@
+name: Anthropic
+description: Run Strands agents on Claude models through the Anthropic API, with structured output and prompt caching.
+integrationType: model-provider
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/model-providers/anthropic
+badges: [native]
+addedDate: 2025-12-01

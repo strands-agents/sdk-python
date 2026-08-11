@@ -1,0 +1,9 @@
+name: Amazon SageMaker
+description: Run Strands agents on models deployed to Amazon SageMaker inference endpoints, including JumpStart and fine-tuned models.
+integrationType: model-provider
+languages:
+  python: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/model-providers/sagemaker
+badges: [native]
+addedDate: 2025-12-01

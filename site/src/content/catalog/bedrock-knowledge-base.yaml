@@ -1,0 +1,10 @@
+name: Bedrock Knowledge Base
+description: 'Back agent memory with Amazon Bedrock Knowledge Bases: semantic search over a managed vector store with document ingestion.'
+integrationType: memory-store
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/memory/bedrock-knowledge-base
+badges: [native]
+addedDate: 2025-12-01

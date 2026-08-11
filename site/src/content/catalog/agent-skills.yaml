@@ -1,0 +1,10 @@
+name: Agent Skills
+description: Give agents on-demand access to specialized instructions with progressive disclosure that keeps the system prompt lean.
+integrationType: plugin
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/plugins/skills
+badges: [native]
+addedDate: 2025-12-01

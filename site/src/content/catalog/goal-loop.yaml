@@ -1,0 +1,10 @@
+name: GoalLoop
+description: Validate agent responses against a goal and loop with feedback until it is satisfied.
+integrationType: plugin
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/plugins/goal-loop
+badges: [native]
+addedDate: 2025-12-01

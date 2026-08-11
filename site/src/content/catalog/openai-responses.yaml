@@ -1,0 +1,10 @@
+name: OpenAI Responses
+description: Run Strands agents on the OpenAI Responses API, with built-in tools like web search and server-side conversation state.
+integrationType: model-provider
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/model-providers/openai-responses
+badges: [native]
+addedDate: 2025-12-01

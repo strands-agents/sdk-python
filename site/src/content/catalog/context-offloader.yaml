@@ -1,0 +1,10 @@
+name: Context Offloader
+description: Keep large tool results from consuming the context window by storing them externally and leaving retrievable references.
+integrationType: plugin
+languages:
+  python: {}
+  typescript: {}
+github: https://github.com/strands-agents/harness-sdk
+docsPage: docs/user-guide/concepts/plugins/context-offloader
+badges: [native]
+addedDate: 2025-12-01
