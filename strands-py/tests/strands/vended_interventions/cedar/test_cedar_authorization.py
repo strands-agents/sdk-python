@@ -155,7 +155,10 @@ class TestNamespace:
 
         assert result.type == "deny"
 
-    @pytest.mark.parametrize("namespace", ['Agent"Injected', "Org::App", " Agent ", "Agent\n"])
+    @pytest.mark.parametrize(
+        "namespace",
+        ['Agent"Injected', "Agent'Injected", "Org::App", " Agent ", "Agent\n", "Agent\t", "Agent-App", "1Agent"],
+    )
     def test_invalid_namespace_is_rejected(self, namespace):
         with pytest.raises(ValueError, match="Namespace must be a single Cedar identifier"):
             CedarAuthorization(
