@@ -44,7 +44,7 @@ except ImportError:
 
 
 def streamable_http_transport(
-    url: str, headers: dict[str, Any] | None = None, auth: httpx.Auth | None = None
+    url: str, headers: dict[str, str] | None = None, auth: httpx.Auth | None = None
 ) -> AbstractAsyncContextManager[Any]:
     """Open a streamable HTTP client transport on either `mcp` major line.
 
