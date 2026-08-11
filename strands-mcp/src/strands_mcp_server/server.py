@@ -96,6 +96,11 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
     For small documents (under ~8KB), the full content is returned directly
     regardless of mode, since sectioning would add overhead without benefit.
 
+    For documents with no parseable sections (no ## headings), content is
+    truncated to ~8KB and the response carries ``truncated: True``. The
+    ``document_small`` field indicates the content was returned as a single blob
+    rather than sectioned; it does not guarantee the content is complete.
+
     Recommended workflow:
     1. search_docs("your query") - find relevant URLs
     2. fetch_doc(uri="...") - see structure, preamble, and section summaries
@@ -123,6 +128,12 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
         - url, title: Document metadata
         - document_small: true
         - content: Full document content (returned automatically)
+
+        For documents with no parseable sections:
+        - url, title: Document metadata
+        - document_small: true
+        - truncated: true (content was truncated to ~8KB)
+        - content: Truncated content with notice appended
 
         On error:
         - error: Error description
@@ -158,20 +169,20 @@ def fetch_doc(uri: str = "", section: str = "") -> Dict[str, Any]:
 
     sections = text_processor.parse_sections(page.content)
 
-    # No parseable sections: return bounded content to protect token budget
+    # No parseable sections: return bounded content to protect token budget.
+    # The early return above already handled docs <= threshold, so here content
+    # is always over the threshold and always truncated.
     if not sections:
-        content = page.content
         threshold = text_processor.SMALL_DOC_THRESHOLD
-        encoded = content.encode("utf-8")
-        if len(encoded) > threshold:
-            trunc_msg = "\n\n… (truncated, no parseable sections)"
-            trunc_len = len(trunc_msg.encode("utf-8"))
-            # Re-encode from decoded string to avoid surrogates
-            content = encoded[: threshold - trunc_len].decode("utf-8", errors="ignore") + trunc_msg
+        encoded = page.content.encode("utf-8")
+        trunc_msg = "\n\n… (truncated, no parseable sections)"
+        trunc_len = len(trunc_msg.encode("utf-8"))
+        content = encoded[: threshold - trunc_len].decode("utf-8", errors="ignore") + trunc_msg
         return {
             "url": uri,
             "title": page.title,
             "document_small": True,
+            "truncated": True,
             "reason": "no_sections",
             "content": content,
         }

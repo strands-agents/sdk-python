@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 # after this duration
 _FAILED_TTL_SECONDS = 300  # 5 minutes
 
+# Maximum entries in _URL_CACHE before eviction; prevents unbounded growth from
+# distinct URLs (including guessed URLs that 404)
+_MAX_CACHE_ENTRIES = 4096
+
 
 class _FailedEntry:
     """Sentinel for a negatively cached fetch failure with TTL expiry.
@@ -61,6 +65,28 @@ def _is_prefetch_enabled() -> bool:
     return val in ("1", "true", "yes")
 
 
+def _evict_if_needed() -> None:
+    """Evict cache entries if over _MAX_CACHE_ENTRIES. Caller must hold _CACHE_LOCK.
+
+    Policy:
+    1. First drop all entries whose value is an expired _FailedEntry.
+    2. If still over the cap, evict oldest entries by insertion order (dicts
+       preserve insertion order in Python 3.7+).
+    """
+    if len(_URL_CACHE) <= _MAX_CACHE_ENTRIES:
+        return
+
+    # Pass 1: drop expired _FailedEntry sentinels
+    expired_keys = [k for k, v in _URL_CACHE.items() if isinstance(v, _FailedEntry) and v.expired]
+    for k in expired_keys:
+        del _URL_CACHE[k]
+
+    # Pass 2: evict oldest (first-inserted) entries until under the cap
+    while len(_URL_CACHE) > _MAX_CACHE_ENTRIES:
+        oldest_key = next(iter(_URL_CACHE))
+        del _URL_CACHE[oldest_key]
+
+
 def _background_prefetch() -> None:
     """Background thread function to prefetch all pages.
 
@@ -76,7 +102,7 @@ def _background_prefetch() -> None:
     attempted = 0
     succeeded = 0
     for url in list(_URL_CACHE.keys()):
-        if _URL_CACHE.get(url) is None:
+        if needs_hydration(url):
             attempted += 1
             # ensure_page catches its own fetch/index errors and returns None on
             # failure, so a None result is how a failed prefetch surfaces here.
@@ -196,8 +222,15 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
         # a transient outage and short-circuited for the TTL. Indexing failures
         # below must NOT be cached here — they are left un-cached so the next call
         # re-fetches and retries indexing (see the failure handling note above).
+        #
+        # A concurrent thread may have successfully fetched and cached a Page while
+        # this thread was failing. Only write the sentinel if the cache still holds
+        # nothing (None); a real Page must not be clobbered.
         logger.exception("Failed to fetch page: %s", url)
-        _URL_CACHE[url] = _FailedEntry()  # negatively cache the failure
+        with _CACHE_LOCK:
+            if _URL_CACHE.get(url) is None:
+                _URL_CACHE[url] = _FailedEntry()
+                _evict_if_needed()
         return None
 
     display_title = text_processor.format_display_title(url, raw.title, _URL_TITLES)
@@ -209,10 +242,14 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
     # its result and skip the redundant reindex. The fetch itself is not
     # serialized, so a rare concurrent double-fetch is possible - that is
     # duplicated network work, not index corruption.
+    #
+    # A _FailedEntry in the cache is a stale sentinel from a prior failure; a
+    # fresh successful fetch must overwrite it. Only skip the re-index when a
+    # real Page is already cached.
     try:
         with _CACHE_LOCK:
             existing = _URL_CACHE.get(url)
-            if existing is not None:
+            if existing is not None and not isinstance(existing, _FailedEntry):
                 return existing
 
             # Update the search index with the hydrated content BEFORE caching.
@@ -222,6 +259,7 @@ def ensure_page(url: str) -> doc_fetcher.Page | None:
 
             # Only cache after indexing succeeds
             _URL_CACHE[url] = page
+            _evict_if_needed()
     except Exception:
         # Indexing/caching failure: leave the page un-cached (no _FailedEntry) so
         # the next call re-fetches and retries indexing.
@@ -263,7 +301,8 @@ def get_url_cache() -> Dict[str, Any]:
     """Get the URL cache dictionary.
 
     Returns:
-        Dictionary mapping URLs to cached Page objects (or None if not fetched)
+        Dictionary mapping URLs to: cached Page objects, None (not yet fetched),
+        or _FailedEntry (fetch failed, short-circuited until TTL expiry).
     """
     return _URL_CACHE
 

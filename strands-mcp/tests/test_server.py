@@ -128,6 +128,23 @@ class TestFetchDocTocMode:
         assert len(tru_result["content"].encode("utf-8")) <= 8192, "no_sections content must be bounded"
         assert "sections" not in tru_result
 
+    def test_no_sections_truncation_has_machine_readable_flag_and_notice(self, mock_cache, no_h2_doc):
+        """Regression: no_sections path must set truncated: True and include notice."""
+        mock_cache.ensure_page.return_value = Page(
+            url="https://strandsagents.com/no-h2.md",
+            title="No H2 Doc",
+            content=no_h2_doc,
+        )
+
+        tru_result = fetch_doc(uri="https://strandsagents.com/no-h2.md")
+
+        # Machine-readable truncation signal
+        assert tru_result.get("truncated") is True, "Response must include 'truncated: True' for the no_sections case"
+        # Human-readable notice in content
+        assert "… (truncated, no parseable sections)" in tru_result["content"], (
+            "Content must include the truncation notice string"
+        )
+
     @pytest.mark.parametrize("kwargs", [{}, {"uri": ""}], ids=["no-args", "empty-uri"])
     def test_omitted_uri_returns_url_catalog(self, mock_cache, kwargs):
         mock_cache.get_url_titles.return_value = {"https://strandsagents.com/a.md": "Doc A"}
