@@ -741,6 +741,26 @@ async def test_diamond_graph_conditional_convergence():
     This tests the deadlock fix: merger should still execute even though slow_path's
     incoming edge evaluates to False.
     """
+    entry_agent = Agent(
+        name="entry",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="Say 'routed'.",
+    )
+    fast_agent = Agent(
+        name="fast",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="Say 'fast result'.",
+    )
+    slow_agent = Agent(
+        name="slow",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="Say 'slow result'.",
+    )
+    merger_agent = Agent(
+        name="merger",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="Merge results. Say 'merged'.",
+    )
 
     def is_fast_mode(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
         return invocation_state.get("mode") == "fast"
@@ -748,54 +768,26 @@ async def test_diamond_graph_conditional_convergence():
     def is_slow_mode(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
         return invocation_state.get("mode") == "slow"
 
-    def build_graph():
-        """Build the diamond graph with fresh agents.
-
-        Each mode gets its own agents so the run starts from an empty conversation
-        history. Replaying the same terse prompt on a reused agent lets the model read
-        its own prior reply as a topic to expand on, which can run until max_tokens.
-        """
-        entry_agent = Agent(
-            name="entry",
-            model="us.amazon.nova-lite-v1:0",
-            system_prompt="Say 'routed'.",
-        )
-        fast_agent = Agent(
-            name="fast",
-            model="us.amazon.nova-lite-v1:0",
-            system_prompt="Say 'fast result'.",
-        )
-        slow_agent = Agent(
-            name="slow",
-            model="us.amazon.nova-lite-v1:0",
-            system_prompt="Say 'slow result'.",
-        )
-        merger_agent = Agent(
-            name="merger",
-            model="us.amazon.nova-lite-v1:0",
-            system_prompt="Merge results. Say 'merged'.",
-        )
-
-        builder = GraphBuilder()
-        builder.add_node(entry_agent, "entry")
-        builder.add_node(fast_agent, "fast")
-        builder.add_node(slow_agent, "slow")
-        builder.add_node(merger_agent, "merger")
-        builder.add_edge("entry", "fast", condition=is_fast_mode)
-        builder.add_edge("entry", "slow", condition=is_slow_mode)
-        builder.add_edge("fast", "merger")
-        builder.add_edge("slow", "merger")
-        builder.set_entry_point("entry")
-        return builder.build()
+    builder = GraphBuilder()
+    builder.add_node(entry_agent, "entry")
+    builder.add_node(fast_agent, "fast")
+    builder.add_node(slow_agent, "slow")
+    builder.add_node(merger_agent, "merger")
+    builder.add_edge("entry", "fast", condition=is_fast_mode)
+    builder.add_edge("entry", "slow", condition=is_slow_mode)
+    builder.add_edge("fast", "merger")
+    builder.add_edge("slow", "merger")
+    builder.set_entry_point("entry")
+    graph = builder.build()
 
     # Fast mode: entry -> fast -> merger (slow skipped, merger not deadlocked)
-    result = await build_graph().invoke_async("Process", invocation_state={"mode": "fast"})
+    result = await graph.invoke_async("Process", invocation_state={"mode": "fast"})
     assert result.status == Status.COMPLETED
     executed_nodes = {n.node_id for n in result.execution_order}
     assert executed_nodes == {"entry", "fast", "merger"}
 
     # Slow mode: entry -> slow -> merger (fast skipped)
-    result = await build_graph().invoke_async("Process", invocation_state={"mode": "slow"})
+    result = await graph.invoke_async("Process", invocation_state={"mode": "slow"})
     assert result.status == Status.COMPLETED
     executed_nodes = {n.node_id for n in result.execution_order}
     assert executed_nodes == {"entry", "slow", "merger"}
