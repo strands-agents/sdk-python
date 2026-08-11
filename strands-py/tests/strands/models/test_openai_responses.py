@@ -289,7 +289,7 @@ def test_format_request_tool_message_with_document():
     assert tru_result["output"][0]["filename"] == "test.pdf"
     assert "file_data" in tru_result["output"][0]
     assert "file_url" not in tru_result["output"][0]
-    assert tru_result["output"][1]["filename"] == "document"
+    assert tru_result["output"][1]["filename"] == "document.pdf"
 
 
 def test_format_request_messages(system_prompt):
