@@ -69,6 +69,20 @@ describe('catalog content collection', () => {
     ).toBe(false)
   })
 
+  it('accepts the native badge for SDK built-ins', () => {
+    const result = catalogEntrySchema.safeParse({
+      name: 'Anthropic',
+      description: 'Run Strands agents on Claude models through the Anthropic API.',
+      integrationType: 'model-provider',
+      languages: { python: {}, typescript: {} },
+      github: 'https://github.com/strands-agents/harness-sdk',
+      docsPage: 'docs/user-guide/concepts/model-providers/anthropic',
+      badges: ['native'],
+      addedDate: '2025-12-01',
+    })
+    expect(result.success).toBe(true)
+  })
+
   it('rejects an unknown language key', () => {
     // The languages container is .strict() so a misspelled key
     // (`typeScript:`) fails the build instead of silently dropping the

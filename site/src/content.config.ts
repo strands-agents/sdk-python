@@ -143,8 +143,10 @@ export const catalogEntrySchema = z
     // GitHub repo so users land on usage instructions.
     docsUrl: z.string().url().startsWith('https://', 'docsUrl must be https').optional(),
     // Editorial fields — maintainer-granted only; submitters leave them unset.
+    // `native` marks integrations built into the SDK itself; `verified` marks
+    // community packages vetted by the Strands team. A card never carries both.
     featured: z.boolean().default(false),
-    badges: z.array(z.enum(['verified'])).default([]),
+    badges: z.array(z.enum(['verified', 'native'])).default([]),
     // Drives the "New" badge on the catalog card.
     addedDate: z.coerce.date(),
   })
